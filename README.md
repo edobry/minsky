@@ -100,6 +100,40 @@ npm link
 minsky init
 ```
 
+### Configure the database
+
+Minsky requires a PostgreSQL database. `minsky setup db` is an interactive wizard
+that captures a connection string, writes it to your config, runs the schema
+migrations, and verifies connectivity:
+
+```bash
+minsky setup db
+```
+
+It offers three ways to get a connection string:
+
+- **Docker** (detected automatically) — prints a copy-paste one-liner to start a
+  local Postgres, then captures the resulting connection string. Minsky does not
+  manage the container; you run and stop it with your own Docker.
+- **Supabase free tier** — points you at the no-credit-card signup and prompts
+  for the connection string.
+- **Bring your own** — paste any existing Postgres connection string.
+
+Before writing anything it shows a plan and asks to confirm (the config write is
+the only mutating step). It is re-runnable — running it again updates the
+connection string and re-verifies.
+
+Non-interactive / scripted use:
+
+```bash
+# Supply the connection string directly; --yes skips the confirmation prompt.
+minsky setup db --connection-string "postgresql://user:password@host:5432/dbname" --yes
+```
+
+On failure it reports which step failed (`validate` / `connectivity` /
+`config-write` / `migrate` / `verify`) with an actionable message; connection
+strings are masked in all output.
+
 ### Create and work on tasks
 
 ```bash

@@ -91,8 +91,11 @@ export function resolveReviewerEndpoint(
 ): {
   url: string;
   authToken: string;
+  /** True when `reviewer.url` was unset and the Minsky-hosted default applied. */
+  usedDefaultUrl: boolean;
 } {
   const url = reviewer?.url ?? DEFAULT_REVIEWER_URL;
+  const usedDefaultUrl = !reviewer?.url;
 
   if (!mcpAuthToken) {
     throw new Error(
@@ -103,7 +106,7 @@ export function resolveReviewerEndpoint(
     );
   }
 
-  return { url, authToken: mcpAuthToken };
+  return { url, authToken: mcpAuthToken, usedDefaultUrl };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,12 +135,25 @@ export function registerReviewerRetriggerCommands(): void {
         // config-file values AND env overrides.
         const { getConfiguration } = await import("@minsky/domain/configuration/index");
         const cfg = getConfiguration();
-        const { url: reviewerUrl, authToken } = resolveReviewerEndpoint(
-          cfg.reviewer,
-          cfg.mcp?.auth?.token
-        );
+        const {
+          url: reviewerUrl,
+          authToken,
+          usedDefaultUrl,
+        } = resolveReviewerEndpoint(cfg.reviewer, cfg.mcp?.auth?.token);
 
         const url = `${reviewerUrl.replace(/\/$/, "")}/retrigger`;
+
+        // Defined absent behavior (mt#2392): when `reviewer.url` is unset, the
+        // Minsky-hosted default applies — surface which URL was targeted and
+        // how to point at a different deployment, so an external project
+        // hitting the wrong reviewer learns the config key instead of
+        // debugging an opaque 401/404.
+        if (usedDefaultUrl) {
+          log.cli(
+            `Using the default Minsky-hosted reviewer URL (${DEFAULT_REVIEWER_URL}). ` +
+              `Set reviewer.url (or MINSKY_REVIEWER_URL) to target your own reviewer deployment.`
+          );
+        }
 
         log.info("reviewer.retrigger", {
           event: "reviewer.retrigger",
@@ -145,6 +161,7 @@ export function registerReviewerRetriggerCommands(): void {
           owner,
           repo,
           url,
+          usedDefaultUrl,
         });
 
         const response = await fetch(url, {

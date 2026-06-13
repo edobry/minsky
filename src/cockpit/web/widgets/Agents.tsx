@@ -8,12 +8,12 @@
  * persistence. Controls use prefix "ag" to namespace params.
  */
 import { useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
-import { Link } from "react-router-dom";
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
 // (no imports of server code). Keep in sync with src/cockpit/widgets/agents.ts.
@@ -314,8 +314,8 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
   const label = livenessLabel(agent.liveness);
   return (
     <Link
-      to={`/session/${encodeURIComponent(agent.sessionId)}`}
-      className="flex items-center gap-3 py-1.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      to={`/agents/${encodeURIComponent(agent.sessionId)}`}
+      className="flex items-center gap-3 py-1.5 border-b border-border last:border-0 hover:bg-accent/50 transition-colors rounded-sm"
       aria-label={`Open session ${agent.sessionId}`}
     >
       {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
@@ -504,7 +504,9 @@ interface AgentsBodyProps {
 function AgentsBody({ query }: AgentsBodyProps) {
   // Error state (network failure, non-200, JSON parse error)
   if (query.isError) {
-    return <p className="text-muted-foreground text-sm">Failed to load agents: {query.error.message}</p>;
+    return (
+      <p className="text-muted-foreground text-sm">Failed to load agents: {query.error.message}</p>
+    );
   }
   // Loading state (no data yet, not an error)
   if (query.isLoading || !query.data) {

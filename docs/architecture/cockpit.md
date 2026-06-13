@@ -21,25 +21,34 @@ Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any fil
 The app shell (mt#2397/mt#2398) is a persistent left **rail** (attention digest pinned at
 top → workstream spine → browse entity entry points; replaces the former hamburger/NavSheet
 overlay) beside a **tabbed workspace**: list pages navigate the main pane, while entity
-details (a task at `/tasks/:id`, a session at `/session/:id`) open as URL-driven tabs in a
+details (a task at `/tasks/:id`, a transcript session at `/session/:id`, a workspace
+session at `/agents/:id`) open as URL-driven tabs in a
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
+Two session id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate): `/agents` and
+`/agents/:id` are keyed by the **Minsky workspace sessionId** (`SessionRecord`);
+`/sessions` and `/session/:id` are keyed by the **harness agentSessionId** (ingested
+transcript). The workspace-session detail page bridges the two — when the workspace
+directory resolves to an ingested transcript's cwd, it links to the conversation at
+`/session/:agentSessionId` (served by `GET /api/agents/:id`).
+
 ## Routes
 
-| Path           | Page        | Purpose                                                                                                                    |
-| -------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`            | Home        | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398) |
-| `/agents`      | Agents      | Sessions in flight — rows open the session at `/session/:id`                                                               |
-| `/session/:id` | Session     | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)   |
-| `/context`     | Context     | Agent context inspector                                                                                                    |
-| `/workstreams` | Workstreams | Active work streams                                                                                                        |
-| `/tasks`       | Tasks       | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                       |
-| `/asks`        | Asks        | Interactive ask management                                                                                                 |
-| `/activity`    | Activity    | Event stream                                                                                                               |
-| `/embeddings`  | Embeddings  | Provider health + index coverage                                                                                           |
-| `/memories`    | Memories    | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                         |
-| `/settings`    | Settings    | Cockpit configuration + credentials                                                                                        |
+| Path           | Page           | Purpose                                                                                                                    |
+| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/`            | Home           | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398) |
+| `/agents`      | Agents         | Workspace sessions in flight — rows open the workspace-session detail at `/agents/:id`                                     |
+| `/agents/:id`  | Session detail | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                |
+| `/session/:id` | Session        | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)   |
+| `/context`     | Context        | Agent context inspector                                                                                                    |
+| `/workstreams` | Workstreams    | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                          |
+| `/tasks`       | Tasks          | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                       |
+| `/asks`        | Asks           | Interactive ask management                                                                                                 |
+| `/activity`    | Activity       | Event stream                                                                                                               |
+| `/embeddings`  | Embeddings     | Provider health + index coverage                                                                                           |
+| `/memories`    | Memories       | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                         |
+| `/settings`    | Settings       | Cockpit configuration + credentials                                                                                        |
 
 ## Widgets
 
@@ -62,17 +71,66 @@ The model separates two concerns the old `enabled` flag conflated:
 Any future cockpit configuration (e.g. polling intervals) lives under a `cockpit` tree in
 the main Minsky config (`~/.config/minsky/config.yaml`), not a separate file.
 
+### Widget parameterization (slice/altitude)
+
+Widgets are slice-parameterizable (mt#2385, Constraint-2 of the mt#2373 widget-contract
+refactor): the data endpoint forwards URL query params into the widget's
+`fetch({ id, query })` call (`WidgetContext.query`), so the SAME widget can return
+different subsets/aggregations of its state space per request. On the frontend, params are
+passed via `fetchWidgetData(id, params)` and carried in the TanStack Query key, so two
+instances at different params cache independently — an instance is `(widgetId, params)`
+materialized at the render site. A registry-level `WidgetInstance` abstraction is
+deliberately deferred until the lens engine (mt#2372) needs declarative instance lists.
+
+**Workstreams is the reference case.** `GET /api/widget/workstreams/data?altitude=<slice>`
+selects one of three semantic slices (unknown/absent values fall back to `full`; the
+applied slice is echoed in the payload as `altitude`):
+
+| Altitude     | Slice                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `full`       | Default — the complete card view (parents + all children)                                                           |
+| `rollup`     | Outcome rollup: card headers + counts only, no child rows                                                           |
+| `actionable` | Actionable-now: children narrowed to IN-PROGRESS / IN-REVIEW / READY / BLOCKED; workstreams without one are dropped |
+
+The `/workstreams` page reads `?altitude=` from the URL and renders a
+Full / Rollup / Actionable toggle. Slice names are **semantic, not persona-named** —
+lenses (user-definable modes that compose and parameterize widgets) are owned by mt#2372
+and must not be hardcoded into widget vocabularies.
+
 ### Widget catalog by route
 
-| Widget ID                                                                                      | Page                              | Surface                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                               | Home System-Status card grid                                                                                                                          |
-| `task-graph`, `task-list`, `workstreams`                                                       | `/` (promoted to dedicated pages) | Card on home + page route                                                                                                                             |
-| `memories-health`                                                                              | `/memories`                       | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card) |
-| `memories-stats`                                                                               | `/memories`                       | Stats panel: totals by type, recent count, top accessed, superseded count                                                                             |
-| `memories-list`                                                                                | `/memories`                       | Browseable record table with type + scope filters                                                                                                     |
-| `memories-search`                                                                              | `/memories`                       | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
-| `memories-detail`                                                                              | `/memories` (modal)               | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
+| Widget ID                                                                                      | Page                | Surface                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                 | Home System-Status card grid                                                                                                                          |
+| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages     | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                          |
+| `memories-health`                                                                              | `/memories`         | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card) |
+| `memories-stats`                                                                               | `/memories`         | Stats panel: totals by type, recent count, top accessed, superseded count                                                                             |
+| `memories-list`                                                                                | `/memories`         | Browseable record table with type + scope filters                                                                                                     |
+| `memories-search`                                                                              | `/memories`         | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
+| `memories-detail`                                                                              | `/memories` (modal) | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
+
+## Ask advancement sweep (mt#2265)
+
+The cockpit daemon runs the **ask advancement sweep**: one pass at boot, then
+every 60s (`startAskAdvancementSweeper` in `src/cockpit/server.ts`, domain
+logic in `packages/domain/src/ask/advancement.ts`). The sweep advances
+`detected` asks that nothing else routed — emission-callsite rows, rows from
+crashed processes — and expires stale ones (`detected` older than 7 days;
+ephemeral authorization/review requests whose moment has passed).
+**`direction.decide` asks are exempt from staleness expiry everywhere** —
+they are durable principal decisions, so a stale one is routed to the
+operator surface (where it can be declined) rather than silently expired;
+the triage script likewise never bulk-expires them. Per-kind
+coverage: operator-bound asks (inbox / elicitation-fallback) land `suspended`
+and appear on `/asks`; policy-covered asks close with the citation;
+subagent/mesh/retriever asks persist as `routed` awaiting a delivery loop
+(mt#1570 family). `createAsk` itself persists its route outcome at create
+(the sweep is the recovery backstop, not the primary path). Observability:
+asks count-by-state on `debug_systemInfo` (`asks` field) — a growing
+`detected` count means the advancement path is not running. One-time backlog
+triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
+`--execute` to expire the stale set; `direction.decide` asks are never
+bulk-expired).
 
 ## Operator dev loop
 

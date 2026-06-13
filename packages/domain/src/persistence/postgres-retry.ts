@@ -10,7 +10,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { safeTruncate } from "../../../../src/utils/safe-truncate.ts";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export interface PgPoolRetryOptions {
   maxAttempts?: number;

@@ -34,6 +34,9 @@ import { defineDeployment } from "@minsky/shared/deployment-config";
 
 export default defineDeployment({
   platform: "railway",
+  // No health URL yet — service is not provisioned. Set this when the Railway
+  // service is provisioned and a public URL is available (mt#1302).
+  healthUrl: null,
   railway: {
     // Placeholder IDs — replace with real values from Railway when provisioned.
     projectId: "0e054318-7e19-4489-8e1e-de787965161d", // same project as minsky-mcp

@@ -5,6 +5,11 @@
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
+import { log } from "@minsky/shared/logger";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -20,6 +25,9 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
     category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
+    // Served entirely from the central session DB — works from any directory,
+    // no project init required (mt#1428).
+    requiresSetup: false,
     parameters: sessionListCommandParams,
     execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
       const { SessionService } = await import("@minsky/domain/session/session-service");
@@ -101,7 +109,42 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
   };
 }
 
-export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefinition {
+/**
+ * Emit a `session.started` system event (best-effort, informational — mt#2487).
+ *
+ * Mirrors `emitTaskStatusChangedEvent` (mt#2340): resolves the DB from the
+ * SQL-capable persistence provider and skips silently when none is available
+ * (e.g., CLI without a DB) — never fabricating a provider (no DI fallback).
+ * Never throws — event emission must not affect the session-start outcome.
+ */
+async function emitSessionStartedEvent(
+  provider: PersistenceProvider | undefined,
+  payload: { sessionId: string; taskId?: string }
+): Promise<void> {
+  try {
+    const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+    if (!sqlProvider?.getDatabaseConnection) return;
+    const db = await sqlProvider.getDatabaseConnection();
+    if (!db) return;
+    const { DrizzleEventEmitter } = await import("@minsky/domain/events/emitter");
+    await new DrizzleEventEmitter(db).emit({
+      eventType: "session.started",
+      payload,
+      relatedTaskId: payload.taskId,
+      relatedSessionId: payload.sessionId,
+    });
+  } catch (err: unknown) {
+    log.warn("session.started: event emission failed (best-effort, swallowed)", {
+      sessionId: payload.sessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+export function createSessionStartCommand(
+  getDeps: LazySessionDeps,
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.start",
     category: CommandCategory.SESSION,
@@ -130,6 +173,12 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
         skipInstall: (params.skipInstall as boolean | undefined) ?? false,
         packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+      });
+
+      // Best-effort informational event (mt#2487). Never blocks session start.
+      await emitSessionStartedEvent(getPersistenceProvider?.(), {
+        sessionId: session.sessionId,
+        taskId: session.taskId,
       });
 
       return {

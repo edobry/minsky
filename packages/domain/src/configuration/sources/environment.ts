@@ -87,6 +87,14 @@ export const environmentMappings = {
   MINSKY_REVIEWER_WEBHOOK_SECRET: "reviewer.webhookSecret",
   MINSKY_REVIEWER_URL: "reviewer.url",
 
+  // Bot-identity de-hardcoding (mt#2392). The merge-gate waiver logic, the
+  // reviewer-watch detector, and the check-run submitter resolve bot identities
+  // from these config paths (falling back to Minsky's own App logins when
+  // unset) so external projects can run Minsky against their own bots.
+  MINSKY_REVIEWER_BOT_LOGIN: "reviewer.botLogin",
+  MINSKY_REVIEWER_CHECK_RUN_NAME: "reviewer.checkRunName",
+  MINSKY_GITHUB_BOT_IDENTITY_LOGIN: "github.botIdentityLogin",
+
   // MCP operator->service auth token (mt#2346). Promoted from HOOK_ONLY_ENV_VARS
   // to a real config path (its standing TODO). Consumed by `reviewer.retrigger`
   // to authenticate against the reviewer service's /retrigger endpoint without
@@ -138,6 +146,7 @@ export const environmentMappings = {
 
 export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
+  "MINSKY_FORCE_DUPLICATE_OK", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
   "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
   "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
@@ -231,6 +240,32 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
   "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
+  "MINSKY_ACK_CODE_MECHANISM_ASSERTION", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
+  // mt#2414 — project identity resolver override. Read by
+  // packages/domain/src/project/identity.ts at identity-resolution time (not
+  // via the config-schema path). Placing it here so the env-var-to-config
+  // dot-path parser skips it at boot — the auto-conversion would produce
+  // "minsky.project" which is rejected as an unrecognised key.
+  "MINSKY_PROJECT", // packages/domain/src/project/identity.ts (project identity override)
+  // mt#2452 — reviewer-service env vars consumed by services/reviewer/src/config.ts
+  // via direct process.env reads (NOT via the domain config loader). Without
+  // registration here, the auto-mapping fallback maps them to reviewer.* paths
+  // (e.g. MINSKY_REVIEWER_APP_ID → reviewer.app.id) that the strict
+  // reviewerConfigSchema (z.strictObject — only webhookSecret and url) rejects,
+  // crashing the domain container boot with "Unrecognized keys: app, tier2,
+  // private, installation" when services/reviewer runs bootDomainContainer().
+  //
+  // NOTE: MINSKY_REVIEWER_WEBHOOK_SECRET and MINSKY_REVIEWER_URL are NOT here —
+  // they have explicit entries in environmentMappings (reviewer.webhookSecret and
+  // reviewer.url respectively) so the auto-mapping skip fires on the
+  // `envVar in environmentMappings` check before reaching this set.
+  //
+  // Enumeration of all MINSKY_REVIEWER_* vars set on the Railway reviewer service
+  // (per infra/index.ts defineVariables("reviewer", ...)):
+  "MINSKY_REVIEWER_APP_ID", // services/reviewer/src/config.ts (GitHub App ID for reviewer identity)
+  "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
+  "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
+  "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
 ]);
 
 /**
@@ -435,7 +470,21 @@ export function getEnvironmentConfiguration(): {
       // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
       // Stays in sync with loadEnvironmentConfiguration so metadata reporting
       // does not diverge from actual load behavior.
-      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+      //
+      // Exception (mt#2414): MINSKY_PROJECT is hook-only (no dot-path mapping)
+      // but IS surfaced in loadedVariables for observability — operators need an
+      // audit trail for why a project resolved as it did. It deliberately has NO
+      // entry in `mappings` (it is not a config dot-path value).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) {
+        if (
+          envVar === "MINSKY_PROJECT" &&
+          process.env[envVar] !== undefined &&
+          process.env[envVar] !== ""
+        ) {
+          loadedVariables.push(envVar);
+        }
+        continue;
+      }
 
       const configPath = envVarToConfigPath(envVar);
       if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {

@@ -165,10 +165,15 @@ export const ShowHiddenFilesSchema = z.object({
  * Used in search_replace operations
  */
 export const SearchReplaceSchema = z.object({
-  search: z.string().optional().describe("Text to search for (must be unique in the file)"),
+  search: z
+    .string()
+    .min(1, "search text must be non-empty")
+    .optional()
+    .describe("Text to search for (must be unique in the file)"),
   replace: z.string().optional().describe("Text to replace with"),
   old_string: z
     .string()
+    .min(1, "search text (old_string) must be non-empty")
     .optional()
     .describe("Alias for 'search' — text to search for (Claude Code Edit tool convention)"),
   new_string: z

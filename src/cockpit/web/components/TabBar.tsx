@@ -13,14 +13,33 @@
  * Links and the close buttons are natively focusable and keyboard-operable.
  */
 import { Link } from "react-router-dom";
-import { X, Network, Bot } from "lucide-react";
+import { X, Network, Bot, GitBranch, CircleHelp, Brain } from "lucide-react";
 import { useTabs, type EntityTabKind } from "../lib/tabs";
 import { cn } from "../lib/utils";
 
 const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string }>> = {
   task: Network,
   session: Bot,
+  agent: GitBranch,
+  ask: CircleHelp,
+  memory: Brain,
 };
+
+const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
+
+/**
+ * Resolve a tab kind to its icon, degrading to a generic icon for any kind
+ * missing from KIND_ICONS. `loadTabs()` filters kinds it doesn't recognize,
+ * so the realistic gap this guards is a kind ACCEPTED by the loader but
+ * missing from this map — exactly how mt#2440 happened: mt#1919 added
+ * "agent" to the loader's accept-list without a map entry, the undefined
+ * component threw React #130, and (TabBar rendering outside the page
+ * ErrorBoundaries) the whole shell blanked on every load while the tab was
+ * persisted in localStorage.
+ */
+export function resolveKindIcon(kind: EntityTabKind): React.ComponentType<{ className?: string }> {
+  return KIND_ICONS[kind] ?? FALLBACK_ICON;
+}
 
 export function TabBar() {
   const { tabs, activePath, closeTab } = useTabs();
@@ -34,7 +53,7 @@ export function TabBar() {
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
-        const Icon = KIND_ICONS[tab.kind];
+        const Icon = resolveKindIcon(tab.kind);
         return (
           <div
             key={tab.path}
@@ -48,7 +67,7 @@ export function TabBar() {
             <Link
               to={tab.path}
               className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-              aria-current={active ? "page" : undefined}
+              aria-current={active ? "location" : undefined}
               title={tab.entityId}
             >
               <Icon aria-hidden className="h-3.5 w-3.5 flex-shrink-0" />

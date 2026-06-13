@@ -41,14 +41,19 @@ export async function executeCommand(
   command: string,
   options: Record<string, unknown> = {}
 ): Promise<{ stdout: string; stderr: string }> {
-  // Add explicit cleanup options to prevent hanging
+  // Add explicit cleanup options to prevent hanging.
+  // Defaults come BEFORE the options spread so callers can override them
+  // (PR #1694 R1: maxBuffer was previously set after the spread, silently
+  // clamping every caller-provided value to 10MB). killSignal stays after the
+  // spread — process-cleanup behavior is this helper's invariant, not a knob.
   const execOptions = {
     encoding: "utf8" as const,
+    // Default maximum buffer size to prevent memory issues; callers with
+    // known-large outputs (e.g. full-repo eslint --format json) may override.
+    maxBuffer: 1024 * 1024 * 10, // 10MB
     ...(options as ExecOptions),
     // Kill child process if parent exits
     killSignal: "SIGTERM" as const,
-    // Set maximum buffer sizes to prevent memory issues
-    maxBuffer: 1024 * 1024 * 10, // 10MB
   };
 
   try {

@@ -7,6 +7,8 @@
  *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
  *                               404 only for ids absent from WIDGET_REGISTRY)
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
+ *   GET /api/agents/:id       — workspace-session detail: meta, commits, PR
+ *                               state, transcript bridge (mt#1919)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
@@ -29,17 +31,27 @@ import {
   createNoopChannelListener,
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { log } from "@minsky/shared/logger";
+import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import { execSync } from "child_process";
 
+// Lazy + memoized: this module loads during CLI command registration (e.g. on
+// `--help`), so a module-level spawn would run `git rev-parse` — and leak
+// `fatal: not a git repository` from non-repo cwds — on commands that never
+// touch the cockpit (mt#1428). `stdio: "pipe"` keeps the child's stderr out of
+// the parent's output either way.
+let gitCommit: string | undefined;
 function getGitCommit(): string {
-  try {
-    return String(execSync("git rev-parse --short HEAD", { encoding: "utf-8" })).trim();
-  } catch {
-    return "unknown";
+  if (gitCommit === undefined) {
+    try {
+      gitCommit = String(
+        execSync("git rev-parse --short HEAD", { encoding: "utf-8", stdio: "pipe" })
+      ).trim();
+    } catch {
+      gitCommit = "unknown";
+    }
   }
+  return gitCommit;
 }
-
-const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -178,6 +190,50 @@ async function getServerAskRepository(): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Ask advancement sweeper (mt#2265)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the periodic ask-advancement sweep in this cockpit process.
+ *
+ * Advances `detected` asks the create path missed (emission-callsite rows,
+ * rows from crashed processes) and expires stale ones, so the operator
+ * surface reflects reality without a manual probe. Runs one pass at boot,
+ * then every `intervalMs` (sweeper-not-queue per decision-defaults
+ * §Reliability; the asks table is the single source of truth).
+ *
+ * Fail-open: a failed pass logs and waits for the next tick — the sweep
+ * must never crash the cockpit. Overlapping ticks are skipped.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startAskAdvancementSweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const repo = await getServerAskRepository();
+      if (!repo) return;
+      const { runAskAdvancementSweep } = await import("@minsky/domain/ask/advancement");
+      await runAskAdvancementSweep(repo);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: ask advancement sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  // Never hold the process open on account of the sweeper.
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
 // Task service lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 
@@ -240,6 +296,40 @@ async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
 
     _cachedTaskDetailDeps = { taskService, taskGraphService };
     return _cachedTaskDetailDeps;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session provider lazy init — uses cockpit-wide PersistenceService singleton
+// (mt#1919). Mirrors the agents-widget defaultProviderFactory; kept separate
+// so the endpoint and the widget caches stay independently invalidatable
+// (mt#2362 touches the widget's cache).
+// ---------------------------------------------------------------------------
+
+let _cachedServerSessionProvider:
+  | import("@minsky/domain/session/types").SessionProviderInterface
+  | null = null;
+
+async function getServerSessionProvider(): Promise<
+  import("@minsky/domain/session/types").SessionProviderInterface | null
+> {
+  if (_cachedServerSessionProvider) return _cachedServerSessionProvider;
+  try {
+    const { getSharedPersistenceService } = await import("./shared-persistence");
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
+    const svc = await getSharedPersistenceService();
+    const provider = await createSessionProvider(undefined, {
+      persistenceService: {
+        isInitialized: () => true,
+        getProvider: () => svc.getProvider(),
+      },
+    });
+    _cachedServerSessionProvider = provider;
+    return provider;
   } catch {
     return null;
   }
@@ -468,7 +558,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch {
       // fallback: unknown
     }
-    res.json({ status: "ok", version, commit: GIT_COMMIT, uptimeSec });
+    res.json({ status: "ok", version, commit: getGitCommit(), uptimeSec });
   });
 
   /** GET /api/widgets — metadata for every registered widget */
@@ -638,11 +728,158 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   });
 
   /**
+   * GET /api/agents/:id — workspace-session detail for the drill-down page
+   * (mt#1919). Keyed by the MINSKY workspace sessionId (not the harness
+   * agentSessionId — see src/cockpit/session-detail.ts header).
+   *
+   * Returns: SessionDetailPayload { session, commits, pr, conversation }
+   * Every enrichment (git log, task title, transcript resolution) degrades
+   * independently — only a missing session record is a 404.
+   */
+  app.get("/api/agents/:id", async (req, res) => {
+    const rawId = req.params.id;
+    if (!rawId) {
+      res.status(400).json({ error: "Session ID required" });
+      return;
+    }
+    const sessionId = decodeURIComponent(rawId);
+
+    try {
+      const provider = await getServerSessionProvider();
+      if (!provider) {
+        res.status(503).json({
+          error: "Session service unavailable — persistence provider not ready",
+        });
+        return;
+      }
+
+      const record = await provider.getSession(sessionId);
+      if (!record) {
+        res.status(404).json({ error: `Session ${sessionId} not found` });
+        return;
+      }
+
+      const { buildSessionMeta, buildPrRef, githubRepoWebBase, parseGitLog, GIT_LOG_FORMAT } =
+        await import("./session-detail");
+
+      // Workspace dir: record fields first, provider lookup as fallback.
+      let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
+      if (!workdir) {
+        try {
+          workdir = await provider.getSessionWorkdir(sessionId);
+        } catch {
+          workdir = null;
+        }
+      }
+
+      // Enrichments run in parallel; each degrades to a safe default.
+      const repoWebBase = githubRepoWebBase(record.repoUrl);
+
+      const commitsPromise: Promise<ReturnType<typeof parseGitLog>> = (async () => {
+        if (!workdir) return [];
+        const { existsSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        // .git may be a directory (normal checkout) or a file (worktree
+        // indirection) — existsSync covers both. A workspace without it is
+        // not a git checkout; skip rather than let git walk up to a parent repo.
+        if (!existsSync(workdir) || !existsSync(join(workdir, ".git"))) {
+          log.debug(`[agents] commits enrichment skipped — no git workspace at ${workdir}`);
+          return [];
+        }
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execFileAsync = promisify(execFile);
+        try {
+          const { stdout } = await execFileAsync(
+            "git",
+            ["-C", workdir, "log", `--format=${GIT_LOG_FORMAT}`, "-n", "10"],
+            { timeout: 5_000, maxBuffer: 256 * 1024 }
+          );
+          return parseGitLog(stdout, repoWebBase);
+        } catch (gitErr) {
+          const msg = gitErr instanceof Error ? gitErr.message : String(gitErr);
+          log.debug(`[agents] commits enrichment degraded — git log failed: ${msg}`);
+          return [];
+        }
+      })();
+
+      const taskTitlePromise: Promise<string | null> = (async () => {
+        if (!record.taskId) return null;
+        try {
+          const taskService = await getServerTaskService();
+          if (!taskService) return null;
+          const task = await taskService.getTask(record.taskId);
+          return task?.title ?? null;
+        } catch (titleErr) {
+          const msg = titleErr instanceof Error ? titleErr.message : String(titleErr);
+          log.debug(`[agents] task-title enrichment degraded: ${msg}`);
+          return null;
+        }
+      })();
+
+      // Workspace → transcript resolution (mt#2420 deferral): newest
+      // agent_transcripts row whose cwd is the session workspace (or below).
+      const conversationPromise: Promise<{ agentSessionId: string } | null> = (async () => {
+        if (!workdir) return null;
+        try {
+          const db = await getContextInspectorDb();
+          if (!db) return null;
+          const { agentTranscriptsTable } = await import(
+            "@minsky/domain/storage/schemas/agent-transcripts-schema"
+          );
+          const { eq, like, or, desc, sql } = await import("drizzle-orm");
+          // Escape LIKE wildcards in the literal path (Postgres default escape
+          // char is backslash), then match descendants under either separator —
+          // POSIX "/" and Windows "\" (stored as an escaped "\\" in the pattern).
+          const escaped = workdir.replace(/([\\%_])/g, "\\$1");
+          const rows = await db
+            .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
+            .from(agentTranscriptsTable)
+            .where(
+              or(
+                eq(agentTranscriptsTable.cwd, workdir),
+                like(agentTranscriptsTable.cwd, `${escaped}/%`),
+                like(agentTranscriptsTable.cwd, `${escaped}\\\\%`)
+              )
+            )
+            .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
+            .limit(1);
+          const first = rows[0];
+          return first ? { agentSessionId: first.agentSessionId } : null;
+        } catch (convErr) {
+          const msg = convErr instanceof Error ? convErr.message : String(convErr);
+          log.debug(`[agents] conversation enrichment degraded: ${msg}`);
+          return null;
+        }
+      })();
+
+      const [commits, taskTitle, conversation] = await Promise.all([
+        commitsPromise,
+        taskTitlePromise,
+        conversationPromise,
+      ]);
+
+      res.json({
+        session: buildSessionMeta(record, taskTitle),
+        commits,
+        pr: buildPrRef(record),
+        conversation,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[agents] GET /api/agents/:id — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while fetching the session." });
+    }
+  });
+
+  /**
    * GET /api/tasks — lightweight task list for the command palette (mt#1917).
    *
    * Returns: { tasks: { id, title, status }[] }
    * Uses the shared task service singleton (same bootstrap pattern as
    * workstreams.ts). Returns 503 when the task service is unavailable.
+   * Most-recently-updated first before the 500-cap (mt#2444): an unordered
+   * slice over a >500 backlog hid every recent task from the palette.
    */
   app.get("/api/tasks", async (_req, res) => {
     try {
@@ -654,12 +891,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+      const { sortTasksByRecency } = await import("./palette-tasks");
       const tasks = await taskService.listTasks({});
-      const taskList = tasks.slice(0, 500).map((t) => ({
-        id: formatTaskIdForDisplay(t.id),
-        title: t.title ?? "",
-        status: (t.status ?? "TODO").toUpperCase(),
-      }));
+      const taskList = sortTasksByRecency(tasks)
+        .slice(0, 500)
+        .map((t) => ({
+          id: formatTaskIdForDisplay(t.id),
+          title: t.title ?? "",
+          status: (t.status ?? "TODO").toUpperCase(),
+        }));
       res.json({ tasks: taskList });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

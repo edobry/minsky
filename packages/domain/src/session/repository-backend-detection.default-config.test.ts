@@ -18,11 +18,21 @@ describe("resolveRepositoryAndBackend with repository.default_repo_backend=githu
     getConfiguration: () => ({
       repository: { default_repo_backend: "github" },
     }),
+    isInsideGitWorkTree: () => true,
   };
 
   it("uses GitHub remote and sets backendType=GITHUB when --repo is not provided", async () => {
     const { repoUrl, backendType } = await resolveRepositoryAndBackend({ cwd: "/tmp" }, deps);
     expect(repoUrl).toContain("github.com/");
     expect(backendType).toBe(RepositoryBackendType.GITHUB);
+  });
+
+  it("throws the actionable not-a-git-repository error outside a git work tree", async () => {
+    // The no-spawn short-circuit (mt#1428) must fail with the clear error
+    // before consulting execSync at all.
+    const noWorkTreeDeps = { ...deps, isInsideGitWorkTree: () => false };
+    await expect(resolveRepositoryAndBackend({ cwd: "/tmp" }, noWorkTreeDeps)).rejects.toThrow(
+      /not inside a git repository/
+    );
   });
 });

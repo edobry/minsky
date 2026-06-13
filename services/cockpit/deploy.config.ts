@@ -14,6 +14,10 @@ import { defineDeployment } from "@minsky/shared/deployment-config";
 
 export default defineDeployment({
   platform: "railway",
+  // Health URL for post-deploy health monitor (mt#1302). Cockpit exposes /api/health
+  // (not /health) — verified via cockpit-preview.yml.
+  // Source of truth — do not hardcode this URL in monitor scripts.
+  healthUrl: "https://cockpit-preview-production.up.railway.app/api/health",
   railway: {
     projectId: "62db6727-ed10-415e-afc5-7188c9983c81",
     environmentId: "cc3d2bc3-13cc-4061-9633-cd58f48dc3fe",
@@ -21,7 +25,8 @@ export default defineDeployment({
     source: {
       repo: "edobry/minsky",
       branch: "main",
-      rootDirectory: "",
+      // rootDirectory omitted (repo-root build) — Railway rejects an empty
+      // root_directory; see infra/index.ts cockpitService (mt#2474).
     },
     build: {
       builder: "RAILPACK",

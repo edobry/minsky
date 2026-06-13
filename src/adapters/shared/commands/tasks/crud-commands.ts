@@ -87,6 +87,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly id = "tasks.list";
   readonly name = "list";
   readonly description = "List tasks with optional filtering";
+  // Served from the central task DB (minsky backend) — works from any
+  // directory, no project init required (mt#1428). The github backend's
+  // repo detection degrades gracefully outside a git checkout.
+  readonly requiresSetup = false;
   readonly parameters = tasksListParams;
 
   constructor(

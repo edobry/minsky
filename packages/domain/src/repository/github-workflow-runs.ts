@@ -17,6 +17,7 @@ import { MinskyError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { handleOctokitError } from "./github-error-handler";
 import { type GitHubContext, createOctokit } from "./github-pr-operations";
+import { inflateRawSync } from "node:zlib";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -303,18 +304,40 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 }
 
 /**
+ * Maximum decompressed size per ZIP entry (zip-bomb / DoS guard, mt#2343 R1).
+ *
+ * `inflateRawSync` with no bound lets a tiny crafted DEFLATE stream expand to
+ * arbitrarily large output (memory blowup + event-loop stall). GitHub Actions
+ * per-step logs are typically KB–low-MB; even a very verbose step is tens of MB,
+ * so 64 MB per entry keeps real logs readable while bounding a bomb (which targets
+ * GB+ expansion). On exceed, zlib throws `ERR_BUFFER_TOO_LARGE` and we fall back to
+ * the base64 placeholder rather than dropping content.
+ */
+const MAX_DECOMPRESSED_ENTRY_BYTES = 64 * 1024 * 1024;
+
+/**
  * Extract text content from a ZIP Uint8Array.
  *
- * Parses ZIP local file headers (signature 0x04034b50) and extracts stored
- * (method 0) entries as UTF-8 text. DEFLATE-compressed entries (method 8)
- * are noted but returned as a placeholder since synchronous inflation
- * requires a native module not available in the current type environment.
+ * Parses ZIP local file headers (signature 0x04034b50) and extracts entries as
+ * UTF-8 text: STORED (method 0) directly, and DEFLATE (method 8) via
+ * `node:zlib` `inflateRawSync` (ZIP method 8 is raw DEFLATE; Bun implements
+ * Node's zlib, so no extra dependency is needed). GitHub Actions log ZIPs use
+ * DEFLATE, so that is the common path.
  *
- * GitHub Actions log ZIPs that use DEFLATE: the caller receives a
- * base64 fallback (see viewWorkflowRunLogs) and the consumer can decode
- * the ZIP with a full ZIP library if needed.
+ * Inflation is bounded by `MAX_DECOMPRESSED_ENTRY_BYTES` (zip-bomb guard). It is
+ * synchronous deliberately: this function and its caller (`viewWorkflowRunLogs`)
+ * are already sync, the per-entry output is capped, and inflating a capped buffer
+ * is fast (tens of ms); an async/worker refactor would ripple through the call
+ * chain for no real-world latency win here.
  *
- * NOTE: For full DEFLATE support, add the `fflate` or `unzipper` npm package.
+ * If a DEFLATE entry fails to inflate (corrupt stream OR over the cap), its raw
+ * bytes are returned as a base64 placeholder so content is never silently lost.
+ * Other compression methods keep a placeholder. (mt#2343)
+ *
+ * Known limitation (pre-existing): the parser reads sizes from the local header
+ * and does not handle data descriptors (general-purpose bit 3) — archives that
+ * write sizes after the data are treated as truncated. GitHub's log ZIPs put
+ * sizes in the local header, so this does not bite today.
  */
 function extractZipText(bytes: Uint8Array): string {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -353,13 +376,21 @@ function extractZipText(bytes: Uint8Array): string {
       // STORED — no compression
       entryText = decoder.decode(compressedData);
     } else if (compressionMethod === 8) {
-      // DEFLATE — native decompression not available without a ZIP library.
-      // Return raw bytes as base64 for this entry so the content isn't lost.
-      // Use uint8ArrayToBase64 (Buffer-based) rather than btoa(String.fromCharCode(...))
-      // — the spread-based form throws RangeError for buffers > ~65k bytes, and
-      // GitHub Actions log entries routinely exceed that.
-      const base64 = uint8ArrayToBase64(compressedData);
-      entryText = `[DEFLATE-compressed — decode: base64 then inflate-raw]\n${base64}`;
+      // DEFLATE — ZIP method 8 is raw DEFLATE; decompress synchronously via
+      // node:zlib (implemented by Bun, no extra dependency), bounded by
+      // MAX_DECOMPRESSED_ENTRY_BYTES (zip-bomb guard). Fall back to the base64
+      // placeholder if inflation throws (corrupt stream or over the cap) so a
+      // malformed/hostile entry never silently loses content (mt#2343).
+      try {
+        entryText = decoder.decode(
+          inflateRawSync(compressedData, { maxOutputLength: MAX_DECOMPRESSED_ENTRY_BYTES })
+        );
+      } catch (err) {
+        const base64 = uint8ArrayToBase64(compressedData);
+        entryText = `[DEFLATE entry could not be inflated (${
+          err instanceof Error ? err.message : String(err)
+        }) — decode: base64 then inflate-raw]\n${base64}`;
+      }
     } else {
       entryText = `[unsupported compression method ${compressionMethod}]`;
     }

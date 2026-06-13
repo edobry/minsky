@@ -260,10 +260,30 @@ Run all three:
      recently-merged commits.
 
 3. **Parent/sibling enumeration** — if the task has a parent:
+
    - Walk `mcp__minsky__tasks_parent` then `mcp__minsky__tasks_children` to enumerate the
-     full sibling/descendant set.
+     full sibling/descendant set. **Fail closed (do not pass):** if `tasks_children` errors or
+     returns a result you cannot trust (transient MCP failure), do NOT pass this criterion —
+     retry, or record a blocking gap. A silent "no children" read is exactly how the
+     duplicate-decomposition recurrences slipped through (mt#1423/1424/1425 duplicated DONE
+     mt#1188/1189; mt#2403-2406 duplicated mt#2397/2398/2399).
+   - For **each** child surface its `(taskId, status, title)` — **including children in a
+     terminal status** (DONE / CLOSED / COMPLETED are all valid Minsky task statuses; see
+     CLAUDE.md §Task Lifecycle), not just active/in-flight ones. A sibling that already SHIPPED
+     or was closed-as-redundant is just as much a duplicate as one in flight; the time-windowed
+     open-PR/recent-merge checks above do not catch a terminal-status sibling outside the
+     window. Flag any child whose title shares **≥2 substantive tokens** (4+ char, non-stopword)
+     with the task being planned.
    - For each related task ID, call `mcp__minsky__session_pr_list` with `status: "open"`
      and `task: "mt#X"`; surface any open PR.
+   - **Hard reconciliation requirement:** any flagged title-overlap or already-shipped sibling
+     MUST be reconciled before READY — subsume (close one, absorb its constraints), supersede,
+     or confirm-orthogonal (state explicitly why the scopes don't actually overlap). Do NOT
+     promote to READY with an unreconciled overlap.
+
+   NOTE: this planning-time enumeration is the Tier-2 floor. It reads children at planning
+   START; concurrent children filed in the gap before `tasks_create` are caught at the
+   mutating action by the Tier-3 `parallel-work-guard.ts` `tasks_create` matcher (mt#1435).
 
 If any check hits, surface findings as a blocking gap with task/PR IDs and the specific
 overlap (file, phrase, or sibling). Do NOT promote to READY until the user resolves the

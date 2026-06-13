@@ -177,6 +177,37 @@ describe("redactString", () => {
     expect(placeholderCount).toBe(2);
   });
 
+  test("masks URL userinfo credentials, keeping scheme and host (mt#2463)", () => {
+    const result = redactString(
+      'connect ECONNREFUSED for "postgresql://minsky:s3cretPW@db.example.supabase.com:6543/postgres"' // gitleaks:allow
+    );
+    expect(result).toContain("postgresql://***:***@db.example.supabase.com:6543/postgres");
+    expect(result).not.toContain("s3cretPW");
+    expect(result).not.toContain("minsky:s3cretPW");
+  });
+
+  test("masks credentials in any URL scheme (redis, https)", () => {
+    expect(redactString("redis://default:hunter2@cache:6379")).toBe("redis://***:***@cache:6379"); // gitleaks:allow
+    // gitleaks:allow
+    expect(redactString("https://user:tok3n@api.example.com/path")).toBe(
+      "https://***:***@api.example.com/path"
+    );
+  });
+
+  test("leaves credential-free URLs unchanged", () => {
+    const url = "postgresql://db.example.supabase.com:6543/postgres?sslmode=require";
+    expect(redactString(url)).toBe(url);
+  });
+
+  test("masks password=... fragments in libpq-style conninfo strings (mt#2463)", () => {
+    const result = redactString(
+      "connection failed: host=db port=5432 user=minsky password=pw123 dbname=minsky"
+    );
+    expect(result).toContain("password=***");
+    expect(result).not.toContain("pw123");
+    expect(result).toContain("host=db");
+  });
+
   test("leaves non-sensitive strings unchanged", () => {
     const msg = "MCP lookup failed for PR 42: connection refused";
     expect(redactString(msg)).toBe(msg);

@@ -9,6 +9,18 @@ name: Deploy MCP
 # but not the Docker build, missing a Bun-version-specific bundler
 # regression that only surfaced in the Docker/Railway environment.
 #
+# mt#2461 — paths filter scopes the trigger to minsky-mcp's actual build
+# closure (the root Dockerfile's COPY set + Dockerfile itself). Commits
+# that only touch services/cockpit/web/**, docs/**, or other unrelated
+# paths no longer trigger a Docker build or Railway redeploy, eliminating
+# the ~10-20 unnecessary redeploys/day that were rotating Railway logs and
+# dropping in-flight requests. This `paths:` filter is the SINGLE SOURCE of
+# minsky-mcp's build closure: minsky-mcp is a GHCR image-based (sourceImage)
+# Railway service, which cannot use Railway config-as-code (config_path), so
+# there is no railway.json for it (mt#2472 removed the one mt#2461 added —
+# Railway rejects config_path on a source_image service). Keep this list in
+# sync with the root Dockerfile's COPY set.
+#
 # Prerequisites (one-time setup):
 # 1. RAILWAY_TOKEN secret in GitHub Actions (Railway dashboard > Account >
 #    Tokens > create; add as repo secret).
@@ -21,8 +33,44 @@ name: Deploy MCP
 on:
   push:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/shared/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "packages/domain/src/**"
+      - "services/reviewer/package.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - ".minsky/config.yaml"
+      - "src/**"
+      - ".github/workflows/deploy-minsky-mcp.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/shared/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "packages/domain/src/**"
+      - "services/reviewer/package.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - ".minsky/config.yaml"
+      - "src/**"
+      - ".github/workflows/deploy-minsky-mcp.yml"
   workflow_dispatch:
 
 permissions:

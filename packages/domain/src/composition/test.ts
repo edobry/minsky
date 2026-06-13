@@ -79,11 +79,6 @@ export function createTestContainer(overrides: Partial<AppServices> = {}): AppCo
       getSessionFromWorkspace: async () => null,
     } as unknown as AppServices["workspaceUtils"],
 
-    repositoryBackend: {
-      repoUrl: "https://github.com/test/repo.git",
-      backendType: "github" as any,
-    },
-
     sessionDeps: {} as any, // Tests that need sessionDeps should override this
 
     taskGraphService: {

@@ -8,7 +8,7 @@ import { SimilaritySearchService } from "../similarity/similarity-search-service
 import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "@minsky/shared/array-safety";
-import { safeTruncate } from "../../../../src/utils/safe-truncate.ts";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;

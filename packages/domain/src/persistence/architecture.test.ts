@@ -9,10 +9,12 @@
  */
 import { describe, test, expect, beforeAll } from "bun:test";
 
-// Source file paths — single source of truth for all test references
+// Source file paths — single source of truth for all test references.
+// Repo-root-relative: persistence sources moved to packages/domain/ in the
+// monorepo split; the session command adapters remain under root src/.
 const PATHS = {
-  persistenceService: "src/domain/persistence/service.ts",
-  postgresProvider: "src/domain/persistence/providers/postgres-provider.ts",
+  persistenceService: "packages/domain/src/persistence/service.ts",
+  postgresProvider: "packages/domain/src/persistence/providers/postgres-provider.ts",
   basicCommands: "src/adapters/shared/commands/session/basic-commands.ts",
   managementCommands: "src/adapters/shared/commands/session/management-commands.ts",
   workflowCommands: "src/adapters/shared/commands/session/workflow-commands.ts",
@@ -24,7 +26,8 @@ const sourceCache: Record<string, string> = {};
 const SOURCE_FILES = Object.values(PATHS);
 
 beforeAll(async () => {
-  const root = [import.meta.dir, "..", "..", ".."].join("/");
+  // import.meta.dir = <repo>/packages/domain/src/persistence → repo root is 4 up.
+  const root = [import.meta.dir, "..", "..", "..", ".."].join("/");
   for (const f of SOURCE_FILES) {
     sourceCache[f] = await Bun.file([root, f].join("/")).text();
   }

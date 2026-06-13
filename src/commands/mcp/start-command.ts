@@ -1234,6 +1234,28 @@ export function createStartCommand(
             });
         }
 
+        // mt#2265: wire the ask state-counts provider so debug.systemInfo
+        // surfaces asks count-by-state (the stuck-pipeline detector). Same
+        // fire-and-forget pattern as SubagentDispatchTracker above.
+        if (container) {
+          import("../../adapters/shared/commands/asks")
+            .then(async ({ buildAskRepository }) => {
+              const repo = await buildAskRepository(container);
+              if (repo) {
+                const { setAskStateCountsRepository } = await import(
+                  "@minsky/domain/ask/state-counts-provider"
+                );
+                setAskStateCountsRepository(repo);
+                log.debug("[mt#2265] Ask state-counts provider wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#2265] Ask state-counts provider unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
         // mt#2147: wire the EmbeddingsHealthTracker singleton so it can emit
         // embeddings.provider_degraded events to system_events. Same fire-and-
         // forget pattern as SubagentDispatchTracker above.

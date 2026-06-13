@@ -32,7 +32,10 @@ const TYPE_BADGE: Record<MemoryType, string> = {
 function TypeBadge({ type }: { type: MemoryType }) {
   return (
     <span
-      className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-xs capitalize", TYPE_BADGE[type])}
+      className={cn(
+        "inline-flex items-center px-1.5 py-0.5 rounded text-xs capitalize",
+        TYPE_BADGE[type]
+      )}
     >
       {type}
     </span>
@@ -194,9 +197,7 @@ function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesList
                 <th className="px-3 py-2 font-medium text-muted-foreground text-right hidden md:table-cell">
                   Accesses
                 </th>
-                <th className="px-3 py-2 font-medium text-muted-foreground text-right">
-                  Created
-                </th>
+                <th className="px-3 py-2 font-medium text-muted-foreground text-right">Created</th>
               </tr>
             </thead>
             <tbody>
@@ -272,7 +273,11 @@ function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesList
 // Main widget export (mt#2373)
 // ---------------------------------------------------------------------------
 
-export function MemoriesList({ onRowClick, variant = "card", title = "Memories" }: MemoriesListProps) {
+export function MemoriesList({
+  onRowClick,
+  variant = "card",
+  title = "Memories",
+}: MemoriesListProps) {
   const [filter, setFilter] = useState<FilterState>({
     type: "",
     scope: "",
@@ -280,24 +285,29 @@ export function MemoriesList({ onRowClick, variant = "card", title = "Memories" 
     excludeSuperseded: true,
   });
 
-  const queryParams = new URLSearchParams();
-  if (filter.type) queryParams.set("type", filter.type);
-  if (filter.scope) queryParams.set("scope", filter.scope);
-  if (filter.excludeSuperseded) queryParams.set("excludeSuperseded", "true");
+  const queryParams: Record<string, string> = {};
+  if (filter.type) queryParams.type = filter.type;
+  if (filter.scope) queryParams.scope = filter.scope;
+  if (filter.excludeSuperseded) queryParams.excludeSuperseded = "true";
 
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "memories-list", filter.type, filter.scope, filter.excludeSuperseded],
-    queryFn: () =>
-      fetchWidgetData(
-        `memories-list${queryParams.toString() ? `?${queryParams.toString()}` : ""}`
-      ),
+    // Params go through fetchWidgetData's params argument — embedding them in
+    // the id segment puts the "?" before "/data" and the request falls through
+    // to the SPA fallback (mt#2443).
+    queryFn: () => fetchWidgetData("memories-list", queryParams),
     staleTime: 25_000,
     refetchInterval: 30_000,
   });
 
   return (
     <WidgetShell variant={variant} title={title}>
-      <MemoriesListBody onRowClick={onRowClick} filter={filter} setFilter={setFilter} query={query} />
+      <MemoriesListBody
+        onRowClick={onRowClick}
+        filter={filter}
+        setFilter={setFilter}
+        query={query}
+      />
     </WidgetShell>
   );
 }

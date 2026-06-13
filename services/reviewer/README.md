@@ -279,7 +279,46 @@ When the submission-failure circuit breaker (mt#2350) trips — a PR's review su
 
 The external sink is **disabled by default**. It fails open — a sink error never crashes the sweep, and never affects the circuit-breaker dedup (which is gated on the cockpit-Ask outcome).
 
-### Telegram (recommended)
+### Telegram (recommended) — Pulumi-native setup (mt#2419)
+
+The reviewer's env vars are owned by Pulumi (`infra/index.ts`); do NOT hand-edit them in the
+Railway dashboard (drift). The setup flow keeps the token out of chat, shell history, and the
+repo (it lives passphrase-encrypted in the gitignored `infra/Pulumi.prod.yaml`):
+
+1. **Create the bot:** message [@BotFather](https://t.me/BotFather), send `/newbot`, follow the
+   prompts, copy the token. Then **send your new bot any message** (required: Telegram only
+   exposes a chat id after the user has messaged the bot — there is no lookup API).
+2. **Store the token (masked prompt — value omitted on purpose):**
+
+   ```bash
+   pulumi -C infra config set --secret secrets:minsky-reviewer-telegram-bot-token
+   ```
+
+3. **Discover your chat id** (reads the token internally; prints only the id):
+
+   ```bash
+   bun scripts/reviewer-alerts/discover-chat-id.ts
+   ```
+
+4. **Enable on the stack** (per-stack opt-in — the chat id and enablement live in the
+   gitignored `Pulumi.<stack>.yaml`, never in the shared IaC):
+
+   ```bash
+   pulumi -C infra config set reviewer-telegram-chat-id <discovered id>
+   ```
+
+   `infra/index.ts` declares `ALERT_SINK_TYPE` / `TELEGRAM_CHAT_ID` /
+   `TELEGRAM_BOT_TOKEN` only when that config value is present. Then `pulumi up` from `infra/`.
+
+5. **Verify** (sends one real message; PASS only on a 2xx from Telegram):
+
+   ```bash
+   bun scripts/reviewer-alerts/verify-send.ts <chat-id>
+   ```
+
+The Telegram sink posts via the Bot API `sendMessage` endpoint with a raw `fetch` — no SDK dependency. A future `MatrixAlertSink` (mt#1454) will drop in behind the same `AlertSink` interface.
+
+#### Fallback: manual env vars (non-Pulumi deployments only)
 
 ```bash
 ALERT_SINK_TYPE=telegram
@@ -287,13 +326,8 @@ TELEGRAM_BOT_TOKEN=<bot token from @BotFather>
 TELEGRAM_CHAT_ID=<your chat id>
 ```
 
-To set it up:
-
-1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the bot token it gives you.
-2. Send any message to your new bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `result[].message.chat.id` — that's your `TELEGRAM_CHAT_ID`.
-3. Set the three env vars above on the reviewer's Railway service.
-
-The Telegram sink posts via the Bot API `sendMessage` endpoint with a raw `fetch` — no SDK dependency. A future `MatrixAlertSink` (mt#1454) will drop in behind the same `AlertSink` interface.
+Only for deployments whose env is not IaC-managed — on the Minsky production reviewer these
+would be clobbered by the next `pulumi up`.
 
 ### Generic webhook
 
@@ -313,6 +347,29 @@ ALERT_SINK_TYPE=telegram TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
 ```
 
 Sends one test message through the configured sink (SKIPs gracefully when no sink is configured).
+
+### Verify the DEPLOYED path (`POST /alert-test`, mt#2451)
+
+`smoke-alert-sink.ts` above proves the sink works from **your laptop's** env. To prove the
+**deployed** path — the service's own env config → its sink instance → Telegram → your phone —
+without waiting for a real circuit-breaker trip, hit the authenticated `/alert-test` endpoint.
+It calls the SAME sink instance the sweeper uses:
+
+```bash
+curl -X POST https://<service>/alert-test \
+  -H "authorization: Bearer $MINSKY_MCP_AUTH_TOKEN"
+```
+
+Auth is the MCP auth token (`MINSKY_MCP_AUTH_TOKEN`), same as `/retrigger`. Responses:
+
+- **200** `{ ok: true, sinkType, deliveryAttempted: true }` — the send path was invoked and
+  accepted. Sinks are fail-open (`notify` never throws), so a 200 means "accepted by the sink
+  path"; **confirm actual receipt on your phone**.
+- **401** — missing or wrong bearer token.
+- **503** `{ error: "alert-test auth not configured" }` — `MINSKY_MCP_AUTH_TOKEN` is unset on
+  the service.
+- **503** `{ error: "no alert sink configured", hint }` — `ALERT_SINK_TYPE` is unset/off (the
+  hint names the env vars to set).
 
 ## Self-hosting
 

@@ -59,4 +59,50 @@ export interface CredentialProvider {
    * token has been invalidated.
    */
   test(token: string): Promise<CredentialCheckResult>;
+
+  /**
+   * Optional provider-owned persistence (mt#2419). When present,
+   * `addCredential` calls this INSTEAD of the default ConfigWriter path —
+   * for credentials whose source of truth is not `~/.config/minsky/config.yaml`
+   * (e.g. the Telegram reviewer-alert bot token, which lives in the Pulumi
+   * stack config because the DEPLOYED reviewer consumes it via IaC-managed
+   * env vars). Returns a display-only location descriptor — never the secret.
+   * Throws on persistence failure.
+   */
+  store?(token: string): Promise<{ location: string }>;
+
+  /**
+   * Optional companion to `store` for `listCredentials`: reports whether a
+   * value is present in the provider-owned store. When absent, the listing
+   * falls back to checking `configPath` in the user config file.
+   */
+  isConfigured?(): Promise<boolean>;
+
+  /**
+   * Optional provider-owned retrieval (mt#2419, PR #1672 R1): returns the
+   * stored secret from the provider-owned store (or null when absent) so the
+   * recheck flow works for credentials that don't live in config.yaml.
+   * Required in practice when `store` is implemented — without it the
+   * credential can never be rechecked or 401-invalidated.
+   */
+  read?(): Promise<string | null>;
+
+  /**
+   * Optional provider-owned removal (mt#2419, PR #1672 R1): deletes the
+   * secret from the provider-owned store. Counterpart of `store` for the
+   * removeCredential flow. Returns whether a value was removed.
+   */
+  remove?(): Promise<{ removed: boolean }>;
+
+  /**
+   * Optional environment gate (mt#2419). Providers whose storage target only
+   * exists in specific environments (e.g. the Telegram reviewer-alert
+   * provider, which persists into THIS deployment's Pulumi stack) return
+   * false when that environment is absent — and are omitted from provider
+   * listings (cockpit widget + CLI). Prevents deployment-specific providers
+   * from surfacing as broken UI for users without that environment. When
+   * absent, the provider is always available. See mt#2442 for the long-term
+   * product-grade secrets layer that retires this class of gating.
+   */
+  isAvailable?(): boolean;
 }

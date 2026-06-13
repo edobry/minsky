@@ -53,8 +53,13 @@ interface WorkstreamCard {
   blockedChildCount: number;
 }
 
+/** Semantic slice names (mt#2385) — keep in sync with workstreams.ts */
+type WorkstreamAltitude = "full" | "rollup" | "actionable";
+
 interface WorkstreamsPayload {
   workstreams: WorkstreamCard[];
+  /** Slice that produced this payload; optional for back-compat with pre-mt#2385 payloads */
+  altitude?: WorkstreamAltitude;
 }
 
 type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"; reason: string };
@@ -347,6 +352,9 @@ interface WorkstreamCardProps {
 
 function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Rollup altitude returns cards without child rows — header-only card,
+  // no expand affordance (mt#2385).
+  const hasChildren = card.children.length > 0;
 
   return (
     <Card className="mb-3 last:mb-0">
@@ -372,18 +380,20 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
               {card.blockedChildCount > 0 && ` · ${card.blockedChildCount} blocked`}
             </span>
             {/* Expand/collapse button */}
-            <button
-              onClick={() => setIsOpen((prev) => !prev)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded"
-              aria-label={isOpen ? "Collapse workstream" : "Expand workstream"}
-            >
-              <Chevron open={isOpen} />
-            </button>
+            {hasChildren && (
+              <button
+                onClick={() => setIsOpen((prev) => !prev)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded"
+                aria-label={isOpen ? "Collapse workstream" : "Expand workstream"}
+              >
+                <Chevron open={isOpen} />
+              </button>
+            )}
           </div>
         </div>
       </CardHeader>
 
-      {isOpen && (
+      {isOpen && hasChildren && (
         <CardContent className="pt-0">
           {card.children.map((child) => (
             <Link

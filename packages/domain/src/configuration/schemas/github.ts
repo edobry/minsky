@@ -96,6 +96,14 @@ export const githubConfigSchema = z
     // GitHub App service account configuration (implementer identity: minsky-ai App)
     serviceAccount: githubServiceAccountSchema,
 
+    // GitHub login of the implementer bot identity (mt#2392). Used by the
+    // merge-gate waiver logic to recognize self-authored bot PRs. Override via
+    // MINSKY_GITHUB_BOT_IDENTITY_LOGIN. When unset, falls back to Minsky's own
+    // implementer identity (BOT_IDENTITY_LOGIN constant, "minsky-ai[bot]").
+    // External projects running their own implementer App set this to their
+    // bot's login.
+    botIdentityLogin: baseSchemas.optionalNonEmptyString,
+
     // Reviewer role configuration (minsky-reviewer App).
     // When present, getToken("reviewer") uses this App's credentials.
     // When absent, both roles fall back to the single implementer App.
