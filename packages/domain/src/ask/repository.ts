@@ -20,13 +20,13 @@
  */
 
 import { injectable } from "tsyringe";
-import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId } from "./types";
-import { guardTransition, isTerminal, TERMINAL_ASK_STATES } from "./state-machine";
+import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -303,6 +303,92 @@ export interface AskRepository {
    * @returns      The updated Ask.
    */
   updateRoutingTarget(id: string, target: string): Promise<Ask>;
+
+  /**
+   * Atomically persist a router outcome on a pre-routing Ask (mt#2265).
+   *
+   * The router (`policyFirstRoute`) computes its result in memory; this
+   * method is the single write that lands that result on the row. Follows
+   * the `respondAndClose` precedent: the LOGICAL state-machine walk from
+   * `detected` to `outcome.state` is validated hop-by-hop via
+   * `guardTransition`, then ONE atomic UPDATE writes the terminal shape.
+   *
+   * Atomicity guarantee (Drizzle): optimistic-concurrency
+   * `WHERE id = ? AND state = 'detected'`. If a concurrent actor advanced
+   * the row first (a second sweeper pass, an operator cancel), the update
+   * matches zero rows and `ConcurrentTransitionError` is thrown — no
+   * double-advancement is possible.
+   *
+   * @param id      Primary key of the Ask to advance.
+   * @param outcome Terminal shape to persist (state + routing fields).
+   * @returns       The updated Ask (persisted truth, not the in-memory route).
+   * @throws        `InvalidAskTransitionError` — `outcome.state` unreachable from `detected`.
+   * @throws        `ConcurrentTransitionError` — row was no longer in `detected`.
+   * @throws        `Error` — Ask not found.
+   */
+  persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask>;
+
+  /**
+   * Count Asks grouped by lifecycle state (mt#2265 observability).
+   *
+   * Returns a complete record — every `AskState` key is present, zero-filled
+   * when no rows are in that state — so consumers (debug.systemInfo, cockpit
+   * metrics) never need existence checks.
+   */
+  countByState(): Promise<Record<AskState, number>>;
+}
+
+// ---------------------------------------------------------------------------
+// Route-outcome persistence (mt#2265)
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal shape a router outcome persists onto a `detected` Ask row.
+ *
+ * - `"suspended"` — async operator-bound transports (inbox; elicitation
+ *   fallback): the Ask is waiting for a response on the operator surface.
+ * - `"routed"`    — async non-operator transports with no dispatcher yet
+ *   (subagent / mesh / retriever): target persisted, awaiting a transport.
+ * - `"closed"`    — policy-covered: the router resolved the Ask itself.
+ * - `"expired"`   — staleness expiry (advancement sweep age guard).
+ */
+export interface RouteOutcomeWrite {
+  state: "routed" | "suspended" | "closed" | "expired";
+  routingTarget?: string;
+  /** Response payload — required when `state` is `"closed"` (policy close). */
+  response?: Ask["response"];
+}
+
+/**
+ * Validate the logical `detected → outcome.state` walk against the state
+ * machine, hop by hop. Shared by both repository implementations so the
+ * transition table stays the single source of truth (same pattern as
+ * `respondAndClose`'s two-guard preamble).
+ */
+export function guardRouteOutcomeWalk(outcomeState: RouteOutcomeWrite["state"]): void {
+  switch (outcomeState) {
+    case "routed":
+      guardTransition("detected", "classified");
+      guardTransition("classified", "routed");
+      break;
+    case "suspended":
+      guardTransition("detected", "classified");
+      guardTransition("classified", "suspended");
+      break;
+    case "closed":
+      // Policy close: the router resolved the Ask without operator
+      // involvement. Logical walk per the state machine:
+      // detected → classified → routed → suspended → responded → closed.
+      guardTransition("detected", "classified");
+      guardTransition("classified", "routed");
+      guardTransition("routed", "suspended");
+      guardTransition("suspended", "responded");
+      guardTransition("responded", "closed");
+      break;
+    case "expired":
+      guardTransition("detected", "expired");
+      break;
+  }
 }
 
 /**
@@ -318,9 +404,9 @@ export class ConcurrentTransitionError extends Error {
   readonly id: string;
   readonly observedState: AskState;
 
-  constructor(id: string, observedState: AskState) {
+  constructor(id: string, observedState: AskState, expectedState: AskState = "suspended") {
     super(
-      `Concurrent transition on Ask ${id}: expected state="suspended" at atomic respondAndClose, found state="${observedState}". Another actor (cancel / expire / close) transitioned the Ask between read and write.`
+      `Concurrent transition on Ask ${id}: expected state="${expectedState}" at atomic update, found state="${observedState}". Another actor transitioned the Ask between read and write.`
     );
     this.name = "ConcurrentTransitionError";
     this.id = id;
@@ -588,6 +674,68 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return toAsk(row);
   }
+
+  async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
+    // Validate the logical walk against the state-machine table first.
+    guardRouteOutcomeWalk(outcome.state);
+
+    const now = new Date();
+    const updates: Partial<AskInsert> = { state: outcome.state };
+    if (outcome.routingTarget !== undefined) {
+      updates.routingTarget = outcome.routingTarget;
+    }
+    if (outcome.state === "routed") {
+      updates.routedAt = now;
+    } else if (outcome.state === "suspended") {
+      updates.routedAt = now;
+      updates.suspendedAt = now;
+    } else if (outcome.state === "closed") {
+      updates.routedAt = now;
+      updates.respondedAt = now;
+      updates.closedAt = now;
+      updates.response = outcome.response as AskInsert["response"];
+    } else if (outcome.state === "expired") {
+      updates.closedAt = now;
+    }
+
+    // Optimistic concurrency: only advance a row still in "detected".
+    const rows = await this.db
+      .update(asksTable)
+      .set(updates)
+      .where(and(eq(asksTable.id, id), eq(asksTable.state, "detected")))
+      .returning();
+
+    if (rows.length === 0) {
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new ConcurrentTransitionError(id, existing.state, "detected");
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask persistRouteOutcome returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
+  async countByState(): Promise<Record<AskState, number>> {
+    const rows = await this.db
+      .select({ state: asksTable.state, count: sql<number>`count(*)::int` })
+      .from(asksTable)
+      .groupBy(asksTable.state);
+
+    const counts = Object.fromEntries(ALL_ASK_STATES.map((s) => [s, 0])) as Record<
+      AskState,
+      number
+    >;
+    for (const row of rows) {
+      if ((ALL_ASK_STATES as readonly string[]).includes(row.state)) {
+        counts[row.state as AskState] = Number(row.count);
+      }
+    }
+    return counts;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -815,6 +963,53 @@ export class FakeAskRepository implements AskRepository {
     const updated: Ask = { ...existing, routingTarget: target };
     this.store.set(id, updated);
     return { ...updated };
+  }
+
+  async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
+    // Same guard chain as production.
+    guardRouteOutcomeWalk(outcome.state);
+
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    // Same optimistic-concurrency semantics as the Drizzle WHERE clause.
+    if (existing.state !== "detected") {
+      throw new ConcurrentTransitionError(id, existing.state, "detected");
+    }
+
+    const now = new Date().toISOString();
+    const updated: Ask = { ...existing, state: outcome.state };
+    if (outcome.routingTarget !== undefined) {
+      updated.routingTarget = outcome.routingTarget;
+    }
+    if (outcome.state === "routed") {
+      updated.routedAt = now;
+    } else if (outcome.state === "suspended") {
+      updated.routedAt = now;
+      updated.suspendedAt = now;
+    } else if (outcome.state === "closed") {
+      updated.routedAt = now;
+      updated.respondedAt = now;
+      updated.closedAt = now;
+      updated.response = outcome.response;
+    } else if (outcome.state === "expired") {
+      updated.closedAt = now;
+    }
+
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async countByState(): Promise<Record<AskState, number>> {
+    const counts = Object.fromEntries(ALL_ASK_STATES.map((s) => [s, 0])) as Record<
+      AskState,
+      number
+    >;
+    for (const ask of this.store.values()) {
+      counts[ask.state] += 1;
+    }
+    return counts;
   }
 
   /**

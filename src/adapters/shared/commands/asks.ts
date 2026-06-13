@@ -47,6 +47,7 @@ import {
   dispatchToElicitation,
   type ElicitationClosedAsk,
 } from "@minsky/domain/ask/transports/elicitation";
+import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
@@ -517,49 +518,6 @@ export interface CreateAskParams {
 }
 
 /**
- * Walk a persisted Ask forward to `"suspended"` from any pre-suspended state.
- *
- * Used by the strand-recovery path in `createAsk` when the router decided
- * elicitation but no active MCP server is reachable. Mirrors the helper in
- * the elicitation transport but lives here to avoid an import cycle (the
- * transport imports from `router.ts`, which is upstream of this file).
- *
- * Throws on terminal/post-suspended states — re-suspending a closed Ask is
- * a programming error.
- */
-async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): Promise<void> {
-  const persisted = await repo.getById(askId);
-  if (!persisted) {
-    throw new Error(`asks.create: Ask not found: ${askId}`);
-  }
-  switch (persisted.state) {
-    case "detected":
-      await repo.transition(askId, "classified");
-      await repo.transition(askId, "routed");
-      await repo.transition(askId, "suspended");
-      return;
-    case "classified":
-      await repo.transition(askId, "routed");
-      await repo.transition(askId, "suspended");
-      return;
-    case "routed":
-      await repo.transition(askId, "suspended");
-      return;
-    case "suspended":
-      return;
-    case "responded":
-    case "closed":
-    case "cancelled":
-    case "expired":
-      throw new Error(
-        `asks.create: cannot strand-suspend Ask in terminal state "${persisted.state}"`
-      );
-    default:
-      throw new Error(`asks.create: unhandled Ask state "${persisted.state}"`);
-  }
-}
-
-/**
  * Create an Ask, route it via mt#1069's policy-first router, and — for the
  * elicitation transport — dispatch synchronously through the active MCP
  * server.
@@ -636,57 +594,63 @@ export async function createAsk(
   const ask = await repo.create(input);
   const routed = await policyFirstRoute(ask, routerOptions);
 
-  // Window-deferred path: Ask is suspended pending a service window.
-  // Walk the DB row to "suspended" immediately so the persisted state
-  // matches the router decision. The reaper (mt#1490) transitions it
-  // to "routed" and dispatches when the window opens.
+  // Live elicitation path: dispatch synchronously when an active server is
+  // available — dispatchToElicitation owns its own persistence walk. The
+  // no-active-server race (disconnect between hasElicitation() and the
+  // server lookup) falls through to the shared persist path below, which
+  // lands it as operator-suspended for recovery via the cockpit/CLI.
+  if (!isSuspendedAsk(routed) && routed.transport.kind === "elicitation") {
+    const registry = routerOptions.capabilityRegistry;
+    const server = registry?.activeElicitationServer();
+    if (server) {
+      return await dispatchToElicitation(routed, { server, repo });
+    }
+    log.warn(
+      "createAsk: elicitation routed but no active server — persisting as operator-suspended for recovery",
+      {
+        askId: routed.id,
+      }
+    );
+  }
+
+  // All remaining paths (mt#2265): persist the route outcome atomically so
+  // the row reflects the router decision. Before this fix, async transports
+  // (inbox / subagent / mesh / retriever) and policy closes returned an
+  // in-memory result while the row stayed "detected" forever — the
+  // write-only-graveyard root cause. The returned object is reconciled from
+  // the persisted row so the tool response never narrates unpersisted state.
+  const { write } = routeResultToOutcomeWrite(routed);
+  const persisted = await repo.persistRouteOutcome(ask.id, write);
+
+  if (write.state === "suspended") {
+    // Operator-bound (inbox / elicitation-fallback) or window-deferred:
+    // suspended = waiting for a response; visible on the cockpit /asks
+    // surface and respondable via respondAndClose.
+    const suspended: SuspendedAsk = {
+      ...routed,
+      state: "suspended",
+      routingTarget: routed.routingTarget,
+      transport: routed.transport,
+      packagedPayload: routed.packagedPayload,
+      routedAt: persisted.routedAt,
+      suspendedAt: persisted.suspendedAt,
+      suspendedForWindowKey: isSuspendedAsk(routed) ? routed.suspendedForWindowKey : undefined,
+    };
+    return suspended;
+  }
+
+  // write.state is "routed" (async transport awaiting delivery) or "closed"
+  // (policy-covered) — both only arise from RoutedAsk router results.
   if (isSuspendedAsk(routed)) {
-    await advanceRoutedAskToSuspended(repo, ask.id);
-    // Persist the routing target the router resolved in Phase 3 so the
-    // Ask the reaper reloads at dispatch time carries the necessary
-    // target. Without this, repo.getById returns routingTarget=undefined
-    // and the dispatch callback can't decide where to deliver. R5 fix.
-    if (routed.routingTarget !== undefined) {
-      await repo.updateRoutingTarget(ask.id, routed.routingTarget);
-    }
+    // Unreachable by construction (suspended results map to write.state
+    // "suspended" above); defensive return keeps the type sound.
     return routed;
   }
-
-  // Non-elicitation paths: return the routed Ask as-is. Async transports
-  // (subagent, inbox, mesh, retriever) are dispatched elsewhere; policy
-  // coverage already produced state="closed" via closeWithPolicy.
-  if (routed.transport.kind !== "elicitation") {
-    return routed;
-  }
-
-  // Elicitation path: dispatch synchronously when an active server is
-  // available. The capabilityRegistry came from routerOptions (the same
-  // path the router used to choose elicitation); reading it again here
-  // keeps the dispatch decision colocated with the rest of the elicitation
-  // logic.
-  const registry = routerOptions.capabilityRegistry;
-  const server = registry?.activeElicitationServer();
-  if (server) {
-    return await dispatchToElicitation(routed, { server, repo });
-  }
-
-  // Defensive: capability registry said hasElicitation() but no server is
-  // currently active (race between hasElicitation() returning true and
-  // activeElicitationServer() lookup — disconnect mid-call, etc.). Walk
-  // the Ask to "suspended" so the operator CLI (mt#1458) can recover.
-  log.warn(
-    "createAsk: elicitation routed but no active server — walking to suspended for recovery",
-    {
-      askId: routed.id,
-    }
-  );
-  await advanceRoutedAskToSuspended(repo, routed.id);
-  const suspended: ElicitationClosedAsk = {
+  return {
     ...routed,
-    state: "suspended",
-    routingTarget: "operator",
+    routedAt: persisted.routedAt ?? routed.routedAt,
+    closedAt: persisted.closedAt ?? routed.closedAt,
   };
-  return suspended;
 }
 
 // ---------------------------------------------------------------------------
