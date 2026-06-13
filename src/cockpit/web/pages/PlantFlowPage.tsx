@@ -1051,47 +1051,11 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
 // ---------------------------------------------------------------------------
 
 const INITIAL_EDGES: Edge[] = [
-  // S5 → S1 Operations (policy governs the work process).
-  // Targets the SESSIONS top handle (where work executes) — routing to TASKS
-  // would pass through the S4 node, which sits between S5 and the spine's left end.
-  {
-    id: "s5-to-s1",
-    source: "s5-identity",
-    sourceHandle: "s5-out",
-    target: "s1-sessions",
-    targetHandle: "sessions-recirc",
-    type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-s5) / 0.65)`, strokeDasharray: "4 6", strokeWidth: 1.5 },
-    label: "governs",
-    labelStyle: edgeLabelStyle("var(--vsm-s5)"),
-    labelBgStyle: EDGE_LABEL_BG_STYLE,
-    labelBgPadding: [4, 2] as [number, number],
-    labelBgBorderRadius: 3,
-    labelShowBg: true,
-  },
-
-  // S4 → S1 Tasks (roadmap feeds the task pool).
-  // S4 sits directly above TASKS — a clean vertical drop into the top handle.
-  {
-    id: "s4-to-tasks",
-    source: "s4-future",
-    sourceHandle: "s4-out",
-    target: "s1-tasks",
-    targetHandle: "tasks-in-top",
-    type: "smoothstep",
-    animated: true,
-    style: { stroke: `oklch(var(--vsm-s4) / 0.75)`, strokeWidth: 1.5 },
-    label: "feeds",
-    labelStyle: edgeLabelStyle("var(--vsm-s4)"),
-    labelBgStyle: EDGE_LABEL_BG_STYLE,
-    labelBgPadding: [4, 2] as [number, number],
-    labelBgBorderRadius: 3,
-    labelShowBg: true,
-  },
-
   // S1 spine PIPE underlay — recreates the SVG board's 10px pipe body under
   // the teal flow dashes (mt#2466 item 2). Same handles as the flow edges so
-  // the paths coincide exactly; defined first so they paint underneath.
+  // the paths coincide exactly. MUST stay first in this array: react-flow
+  // paints edges in array order, and an underlay that renders above any other
+  // edge would occlude it at crossings.
   {
     id: "pipe-1",
     source: "s1-tasks",
@@ -1145,6 +1109,45 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "done-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
+  },
+
+
+  // S5 → S1 Operations (policy governs the work process).
+  // Targets the SESSIONS top handle (where work executes) — routing to TASKS
+  // would pass through the S4 node, which sits between S5 and the spine's left end.
+  {
+    id: "s5-to-s1",
+    source: "s5-identity",
+    sourceHandle: "s5-out",
+    target: "s1-sessions",
+    targetHandle: "sessions-recirc",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--vsm-s5) / 0.65)`, strokeDasharray: "4 6", strokeWidth: 1.5 },
+    label: "governs",
+    labelStyle: edgeLabelStyle("var(--vsm-s5)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
+  },
+
+  // S4 → S1 Tasks (roadmap feeds the task pool).
+  // S4 sits directly above TASKS — a clean vertical drop into the top handle.
+  {
+    id: "s4-to-tasks",
+    source: "s4-future",
+    sourceHandle: "s4-out",
+    target: "s1-tasks",
+    targetHandle: "tasks-in-top",
+    type: "smoothstep",
+    animated: true,
+    style: { stroke: `oklch(var(--vsm-s4) / 0.75)`, strokeWidth: 1.5 },
+    label: "feeds",
+    labelStyle: edgeLabelStyle("var(--vsm-s4)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
   // S1 spine main flow (left to right) — primary information channel, most visible
