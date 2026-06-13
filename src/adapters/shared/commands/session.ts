@@ -75,6 +75,13 @@ export async function registerSessionCommands(
   // Optional (non-throwing) persistence provider for best-effort event emission
   // (mt#2487 session.started). Returns undefined when persistence isn't wired
   // (e.g., CLI without a DB) so the emit skips silently rather than throwing.
+  //
+  // Injected as a separate getter — mirroring how the task commands receive
+  // `getPersistenceProvider` (src/adapters/shared/commands/tasks/registry-setup.ts)
+  // — rather than widening the domain `SessionDeps` bundle. SessionDeps is the
+  // session-service dependency superset (gitService/taskService/workspaceUtils/…);
+  // persistence is an adapter-composition concern for this best-effort emit and is
+  // deliberately kept out of that domain type, matching the tasks-command convention.
   const getOptionalPersistenceProvider = (): PersistenceProvider | undefined => {
     if (!container?.has("persistence")) return undefined;
     return container.get("persistence") as PersistenceProvider;

@@ -1333,17 +1333,23 @@ export async function mergeSessionPr(
   // Wired in the in-band session_pr_merge path (the "at-merge" handler), which
   // fires once per merge — webhook/sweeper/repair detection paths are out of
   // scope here (they call applyPostMergeStateSync directly).
+  //
+  // Only emit when an actual PR record is present: pr.merged is PR-semantic and
+  // its payload requires prUrl + prNumber (the schema doc comment), so a
+  // non-GitHub / no-PR merge skips the event rather than writing a row with
+  // undefined required fields.
   try {
+    const pr = sessionRecord.pullRequest;
     const sqlProvider = deps.persistenceProvider as SqlCapablePersistenceProvider | undefined;
-    if (sqlProvider?.getDatabaseConnection) {
+    if (pr?.url && pr.number != null && sqlProvider?.getDatabaseConnection) {
       const db = await sqlProvider.getDatabaseConnection();
       if (db) {
         const { DrizzleEventEmitter } = await import("../events/emitter");
         await new DrizzleEventEmitter(db).emit({
           eventType: "pr.merged",
           payload: {
-            prUrl: sessionRecord.pullRequest?.url,
-            prNumber: sessionRecord.pullRequest?.number,
+            prUrl: pr.url,
+            prNumber: pr.number,
             taskId: sessionRecord.taskId ?? undefined,
           },
           relatedTaskId: sessionRecord.taskId ?? undefined,
