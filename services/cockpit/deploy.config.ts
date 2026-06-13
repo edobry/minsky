@@ -25,7 +25,8 @@ export default defineDeployment({
     source: {
       repo: "edobry/minsky",
       branch: "main",
-      rootDirectory: "",
+      // rootDirectory omitted (repo-root build) — Railway rejects an empty
+      // root_directory; see infra/index.ts cockpitService (mt#2474).
     },
     build: {
       builder: "RAILPACK",
