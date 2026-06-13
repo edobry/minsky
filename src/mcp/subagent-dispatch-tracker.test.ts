@@ -39,6 +39,7 @@ import {
 } from "./subagent-dispatch-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import { NoopEventEmitter } from "@minsky/domain/events/emitter";
 
 // ---------------------------------------------------------------------------
 // Outcome class constants (used in tests to avoid magic-string duplication)
@@ -1014,5 +1015,77 @@ describe("SubagentDispatchTracker", () => {
       expect(typeof DAILY_RATE_LIMITED_THRESHOLD).toBe("number");
       expect(DAILY_RATE_LIMITED_THRESHOLD).toBeGreaterThan(0);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// System event emission (mt#2487)
+//
+// subagent.completed fires on success outcomes, co-located with the existing
+// subagent.failed branch; the two are mutually exclusive, and rate-limited
+// emits neither. Emission is best-effort — a missing emitter must not break
+// the row write.
+// ---------------------------------------------------------------------------
+
+describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
+  let store: Map<string, FakeRow>;
+  let emitter: NoopEventEmitter;
+  let tracker: SubagentDispatchTracker;
+
+  beforeEach(() => {
+    store = new Map<string, FakeRow>();
+    nextId = 1;
+    emitter = new NoopEventEmitter();
+    tracker = new SubagentDispatchTracker(makeFakeDb(store), emitter);
+  });
+
+  const SUCCESS_OUTCOMES: SubagentInvocationOutcome[] = [
+    OUTCOME_COMPLETED_WITH_PR,
+    OUTCOME_COMMITTED_NO_PR,
+    OUTCOME_PARTIAL_COMMITTED_HANDOFF,
+  ];
+  const FAILURE_OUTCOMES: SubagentInvocationOutcome[] = [
+    OUTCOME_CRASHED,
+    OUTCOME_PARTIAL_UNCOMMITTED,
+  ];
+
+  for (const outcome of SUCCESS_OUTCOMES) {
+    test(`emits subagent.completed for success outcome "${outcome}"`, async () => {
+      await tracker.recordSubagentInvocation(
+        makeInput({ outcome, taskId: "mt#900", agentType: "refactorer", parentSessionId: "ps-1" })
+      );
+      const completed = emitter.emitted.filter((e) => e.eventType === "subagent.completed");
+      expect(completed.length).toBe(1);
+      expect(completed[0]?.payload).toEqual({
+        taskId: "mt#900",
+        agentType: "refactorer",
+        outcome,
+      });
+      expect(completed[0]?.relatedTaskId).toBe("mt#900");
+      expect(completed[0]?.relatedSessionId).toBe("ps-1");
+      // Mutually exclusive with the failure branch.
+      expect(emitter.emitted.some((e) => e.eventType === "subagent.failed")).toBe(false);
+    });
+  }
+
+  for (const outcome of FAILURE_OUTCOMES) {
+    test(`emits subagent.failed (not completed) for failure outcome "${outcome}"`, async () => {
+      await tracker.recordSubagentInvocation(makeInput({ outcome }));
+      expect(emitter.emitted.some((e) => e.eventType === "subagent.failed")).toBe(true);
+      expect(emitter.emitted.some((e) => e.eventType === "subagent.completed")).toBe(false);
+    });
+  }
+
+  test("emits neither completed nor failed for rate-limited", async () => {
+    await tracker.recordSubagentInvocation(makeInput({ outcome: OUTCOME_RATE_LIMITED }));
+    expect(emitter.emitted.length).toBe(0);
+  });
+
+  test("records the row even with no event emitter wired (emit is best-effort/optional)", async () => {
+    const noEmitterTracker = new SubagentDispatchTracker(makeFakeDb(store));
+    await noEmitterTracker.recordSubagentInvocation(
+      makeInput({ outcome: OUTCOME_COMPLETED_WITH_PR })
+    );
+    expect(store.size).toBe(1);
   });
 });
