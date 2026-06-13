@@ -7,6 +7,8 @@
  *   - READY node shows live /api/tasks count.
  *   - Loading state handled correctly.
  *   - Cross-links to the retired comparison routes are gone (mt#2423).
+ *   - Instrument layer (mt#2466): S2 interlock valves, vessel tanks,
+ *     memory reservoir, and the reading-grammar legend are present.
  *   - Retired routes (/plant-flow, /plant-grid) redirect to /plant
  *     (exercises App.tsx's exported plantRoutes wiring).
  *
@@ -267,6 +269,36 @@ describe("PlantFlowPage", () => {
     renderPlantFlow();
     expect(screen.queryByRole("link", { name: /schematic/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /grid/i })).toBeNull();
+  });
+
+  // ---- Instrument layer (mt#2466) ----
+
+  test("renders the four S2 interlock valves on the spine", () => {
+    mockTasksFetch([]);
+    renderPlantFlow();
+    for (const key of ["ready", "agents", "pr", "done"]) {
+      expect(screen.getByTestId(`flow-node-valve-${key}`)).toBeDefined();
+    }
+  });
+
+  test("renders vessel tanks in READY and REVIEW", () => {
+    mockTasksFetch([]);
+    renderPlantFlow();
+    expect(screen.getByTestId("vessel-tank-queued")).toBeDefined();
+    expect(screen.getByTestId("vessel-tank-awaiting")).toBeDefined();
+  });
+
+  test("renders the memory reservoir in the learning loop", () => {
+    mockTasksFetch([]);
+    renderPlantFlow();
+    expect(screen.getByTestId("memory-reservoir")).toBeDefined();
+  });
+
+  test("renders the legend with the S2 organ entry", () => {
+    mockTasksFetch([]);
+    renderPlantFlow();
+    expect(screen.getByTestId("plant-legend")).toBeDefined();
+    expect(screen.getByText(/S2 valves/i)).toBeDefined();
   });
 
   // ---- Version / subtitle ----
