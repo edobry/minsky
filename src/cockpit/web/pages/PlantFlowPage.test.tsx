@@ -112,6 +112,14 @@ function mockTasksFetch(tasks: Array<{ id: string; title: string; status: string
         })
       );
     }
+    if (pathname === "/api/activity") {
+      return Promise.resolve(
+        new Response(JSON.stringify({ events: [], total: 0, limit: 50 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }
     return Promise.resolve(new Response("Not found", { status: 404 }));
   }) as typeof globalThis.fetch;
 }
@@ -303,10 +311,19 @@ describe("PlantFlowPage", () => {
 
   // ---- Version / subtitle ----
 
-  test("renders the v1 notice in header subtitle", () => {
+  test("renders the v2 notice in header subtitle", () => {
     mockTasksFetch([]);
     renderPlantFlow();
-    expect(screen.getByText(/v1.*node-link canvas/i)).toBeDefined();
+    expect(screen.getByText(/v2.*node-link canvas.*event-driven motion/i)).toBeDefined();
+  });
+
+  // ---- Idle honesty (mt#2377 v2.0) ----
+
+  test("initial render fires no gestures — idle reads calm", () => {
+    mockTasksFetch([]);
+    const { container } = renderPlantFlow();
+    expect(container.querySelectorAll(".vsm-gesture-pulse").length).toBe(0);
+    expect(container.querySelectorAll('[data-testid^="gesture-dot-"]').length).toBe(0);
   });
 });
 
