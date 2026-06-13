@@ -26,6 +26,8 @@
  * @see mt#2265, mt#2257 (originating audit), packages/domain/src/ask/advancement.ts
  */
 
+import "reflect-metadata";
+
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { Ask } from "@minsky/domain/ask/types";
 
