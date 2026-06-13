@@ -36,7 +36,7 @@
  *   - Per-organ drill-down routes (Shneiderman zoom-to-detail).
  */
 
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ReactFlow,
   type Node,
@@ -46,6 +46,7 @@ import {
   Position,
   Background,
   BackgroundVariant,
+  Panel,
   useNodesState,
   useEdgesState,
   useNodesInitialized,
@@ -77,6 +78,7 @@ const ORGAN_ACCENTS = {
   s5: "var(--vsm-s5)",
   s4: "var(--vsm-s4)",
   s3: "var(--vsm-s3)",
+  s2: "var(--vsm-s2)",
   s1: "var(--vsm-s1)",
   seam: "var(--vsm-seam)",
   learn: "var(--vsm-learn)",
@@ -187,46 +189,69 @@ function MiniGaugeArc({
   );
 }
 
-/** Tank fill level bar — used inside lifecycle stage nodes. */
-function TankBar({
+/** Vertical vessel tank glyph — the SVG board's tank-straddling-the-pipe
+ *  instrument, ported into node interiors (mt#2466 item 3). Fill level rises
+ *  from the bottom; placeholder tanks breathe (vsm-breath) like the SVG's. */
+function VesselTank({
   label,
   count,
   max,
   isLoading,
   accentVar,
+  placeholder = false,
 }: {
   label: string;
   count: number | undefined;
   max: number;
   isLoading: boolean;
   accentVar: string;
+  placeholder?: boolean;
 }) {
-  const fill = count !== undefined ? Math.min(1, Math.max(0, count / max)) : 0;
+  const fill = placeholder
+    ? 0.25
+    : count !== undefined
+      ? Math.min(1, Math.max(0, count / max))
+      : 0;
   const displayCount = isLoading ? "…" : (count ?? "—");
+  const tankW = 26;
+  const tankH = 44;
+  const fillH = Math.round((tankH - 4) * fill);
 
   return (
-    <div className="flex flex-col gap-1" aria-label={`${label} tank: ${displayCount}`}>
-      <div className="flex items-center justify-between">
+    <div
+      className="flex items-center gap-2.5"
+      aria-label={`${label} tank: ${displayCount}`}
+      data-testid={`vessel-tank-${label}`}
+    >
+      <svg width={tankW} height={tankH} viewBox={`0 0 ${tankW} ${tankH}`} aria-hidden="true">
+        <rect
+          x="0.5"
+          y="0.5"
+          width={tankW - 1}
+          height={tankH - 1}
+          rx="4"
+          fill="none"
+          stroke={`oklch(${accentVar} / 0.9)`}
+          strokeWidth="1"
+        />
+        <rect
+          x="2"
+          y={tankH - 2 - fillH}
+          width={tankW - 4}
+          height={fillH}
+          rx="2"
+          fill={`oklch(${accentVar} / 0.35)`}
+          className={placeholder ? "vsm-breath" : undefined}
+        />
+      </svg>
+      <div className="flex flex-col gap-0.5">
         <span className="text-[9px] font-mono text-muted-foreground">{label}</span>
         <span
-          className="text-[10px] font-mono font-semibold"
-          style={{ color: `oklch(${accentVar} / 0.9)` }}
+          className="text-[13px] font-mono font-semibold leading-none"
+          style={{ color: `oklch(${accentVar} / 0.95)` }}
         >
           {displayCount}
         </span>
-      </div>
-      <div
-        className="h-1.5 rounded-full overflow-hidden"
-        style={{ background: `oklch(${accentVar} / 0.15)` }}
-        aria-hidden="true"
-      >
-        <div
-          className="h-full rounded-full vsm-breath transition-all duration-500"
-          style={{
-            width: `${fill * 100}%`,
-            background: `oklch(${accentVar} / 0.55)`,
-          }}
-        />
       </div>
     </div>
   );
@@ -364,7 +389,7 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
         <div className="flex items-center gap-2">
           <div
             className="w-4 rounded border overflow-hidden flex-none"
-            style={{ height: "28px", borderColor: `oklch(${accentVar} / 0.6)` }}
+            style={{ height: "40px", borderColor: `oklch(${accentVar} / 0.6)` }}
             aria-label="Backlog feed tank"
           >
             <div
@@ -377,8 +402,14 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
               aria-hidden="true"
             />
           </div>
-          <span className="text-[9px] font-mono text-muted-foreground">backlog feed</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[9px] font-mono text-muted-foreground">backlog feed</span>
+            <span className="text-[8px] font-mono text-muted-foreground/70">
+              PLANNING — · TODO —
+            </span>
+          </div>
         </div>
+        <div className="text-[8px] font-mono text-muted-foreground">knowledge sources ▸ —</div>
         <div
           className="rounded px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground"
           style={{ border: `1px solid oklch(${accentVar} / 0.3)` }}
@@ -478,7 +509,7 @@ function S1ReadyNode(props: NodeProps<Node<S1StageNodeData>>) {
         { type: "source", position: Position.Right, id: "ready-out" },
       ]}
     >
-      <TankBar
+      <VesselTank
         label="queued"
         count={readyCount}
         max={20}
@@ -495,16 +526,13 @@ function S1SessionsNode(_props: NodeProps<Node<S1StageNodeData>>) {
     <OrganNodeShell
       accentVar={accentVar}
       label="SESSIONS"
-      sublabel="active workspaces"
+      sublabel="workspaces"
       data-testid="flow-node-sessions"
-      // The two bottom handles are offset apart so the ask-exit and
-      // interlock-entry verticals don't coincide at bottom-center.
       handles={[
         { type: "target", position: Position.Left, id: "sessions-in" },
         { type: "source", position: Position.Right, id: "sessions-out" },
         { type: "target", position: Position.Top, id: "sessions-recirc" },
-        { type: "source", position: Position.Bottom, id: "sessions-seam", style: { left: "30%" } },
-        { type: "target", position: Position.Bottom, id: "sessions-learn-in", style: { left: "70%" } },
+        { type: "source", position: Position.Bottom, id: "sessions-seam" },
       ]}
     >
       <div className="text-[9px] font-mono text-muted-foreground">— active</div>
@@ -518,7 +546,7 @@ function S1AgentsNode(_props: NodeProps<Node<S1StageNodeData>>) {
     <OrganNodeShell
       accentVar={accentVar}
       label="AGENTS"
-      sublabel="dispatched workers"
+      sublabel="workers"
       data-testid="flow-node-agents"
       handles={[
         { type: "target", position: Position.Left, id: "agents-in" },
@@ -575,12 +603,13 @@ function S1ReviewNode(_props: NodeProps<Node<S1StageNodeData>>) {
         { type: "source", position: Position.Top, id: "review-recirc" },
       ]}
     >
-      <TankBar
+      <VesselTank
         label="awaiting"
         count={undefined}
         max={10}
         isLoading={false}
         accentVar={accentVar}
+        placeholder
       />
     </OrganNodeShell>
   );
@@ -662,27 +691,57 @@ function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
       label="Learning Loop"
       sublabel="failure → rule → interlock"
       data-testid="flow-node-learning-loop"
+      // Both learning edges route over the TOP (offset handles): the failure
+      // inflow at 30%, the interlock outflow at 70% — keeping the node's right
+      // flank clear of the bottom-right legend panel's viewport column.
       handles={[
-        { type: "target", position: Position.Top, id: "learn-fail-in" },
-        { type: "source", position: Position.Right, id: "learn-out" },
+        { type: "target", position: Position.Top, id: "learn-fail-in", style: { left: "30%" } },
+        { type: "source", position: Position.Top, id: "learn-out", style: { left: "70%" } },
       ]}
     >
-      <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono text-muted-foreground">
-        <span>failure</span>
-        <span className="text-muted-foreground/40">▸</span>
-        <span>retro</span>
-        <span className="text-muted-foreground/40">▸</span>
-        <span
-          className="px-1 py-0.5 rounded border vsm-breath"
-          style={{
-            borderColor: `oklch(${accentVar} / 0.6)`,
-            color: `oklch(${accentVar} / 0.9)`,
-          }}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-1 flex-wrap text-[9px] font-mono text-muted-foreground">
+          <span>failure</span>
+          <span className="text-muted-foreground/40">▸</span>
+          <span>retro</span>
+          <span className="text-muted-foreground/40">▸</span>
+          <span style={{ color: `oklch(${accentVar} / 0.9)` }}>memory</span>
+          <span className="text-muted-foreground/40">▸</span>
+          <span>rule</span>
+          <span className="text-muted-foreground/40">▸</span>
+          <span style={{ color: `oklch(${accentVar} / 0.7)` }}>⟂ interlock</span>
+        </div>
+        {/* Memory reservoir — the SVG board's tank instrument (mt#2466 item 4) */}
+        <div
+          className="flex items-center gap-2"
+          aria-label="Memory reservoir"
+          data-testid="memory-reservoir"
         >
-          memory
-        </span>
-        <span className="text-muted-foreground/40">▸</span>
-        <span style={{ color: `oklch(${accentVar} / 0.7)` }}>⟂ interlock</span>
+          <svg width="46" height="20" viewBox="0 0 46 20" aria-hidden="true">
+            <rect
+              x="0.5"
+              y="0.5"
+              width="45"
+              height="19"
+              rx="4"
+              fill="none"
+              stroke={`oklch(${accentVar} / 0.9)`}
+              strokeWidth="1"
+            />
+            <rect
+              x="2"
+              y="10"
+              width="42"
+              height="8"
+              rx="2"
+              fill={`oklch(${accentVar} / 0.3)`}
+              className="vsm-breath"
+            />
+          </svg>
+          <span className="text-[8px] font-mono text-muted-foreground">
+            memory reservoir · —
+          </span>
+        </div>
       </div>
     </OrganNodeShell>
   );
@@ -731,6 +790,53 @@ function InfraSupplyNode(_props: NodeProps<Node<OrganNodeData>>) {
 }
 
 // ---------------------------------------------------------------------------
+// S2 interlock valve node — the coordination organ (mt#2466 item 1)
+// Small rotated-square valve glyphs that sit ON the spine pipe, ported from
+// the SVG board. v2 will flash them red=blocked / amber=override on real
+// guard events; in v1 they are the static organ presence.
+// ---------------------------------------------------------------------------
+
+interface S2ValveNodeData {
+  valveKey: string;
+  /** when true, exposes a bottom target handle (the learning-loop interlock weld) */
+  interlockTarget?: boolean;
+  [key: string]: unknown;
+}
+
+function S2ValveNode(props: NodeProps<Node<S2ValveNodeData>>) {
+  const { valveKey, interlockTarget } = props.data as S2ValveNodeData;
+  return (
+    <div
+      className="relative"
+      style={{ width: 16, height: 16 }}
+      data-testid={`flow-node-valve-${valveKey}`}
+      aria-label={`S2 interlock valve before ${valveKey}`}
+    >
+      <div
+        style={{
+          width: 12,
+          height: 12,
+          margin: 2,
+          transform: "rotate(45deg)",
+          border: `1.5px solid oklch(${ORGAN_ACCENTS.s2} / 1)`,
+          background: "oklch(var(--background) / 1)",
+        }}
+        aria-hidden="true"
+      />
+      {interlockTarget && (
+        <Handle
+          type="target"
+          position={Position.Bottom}
+          id="valve-in"
+          isConnectable={false}
+          style={{ opacity: 0, width: 6, height: 6 }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Node type registry — maps type strings to components
 // ---------------------------------------------------------------------------
 
@@ -738,6 +844,7 @@ const nodeTypes = {
   "s5-identity": S5IdentityNode,
   "s4-future": S4FutureNode,
   "s3-management": S3ManagementNode,
+  "s2-valve": S2ValveNode,
   "s1-tasks": S1TasksNode,
   "s1-ready": S1ReadyNode,
   "s1-sessions": S1SessionsNode,
@@ -753,36 +860,40 @@ const nodeTypes = {
 // ---------------------------------------------------------------------------
 // Initial node positions — fixed layout encoding the VSM topology
 //
-// Layout design (high-level, mt#2422 vertical-fill pass):
-//   Row 0 (y=0):   S5 Identity (top center — policy canopy)
-//   Row 1 (y=150): S4 Future (left) | S3 Management (right)
-//   Row 2 (y=385): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
-//   Row 3 (y=555): Attention Seam (center-left) | Learning Loop (center-right)
-//   Row 4 (y=700): Infra Supply (bottom) → bottom ≈ 770
+// Layout design (mt#2466 instrument-parity pass, re-tuned for the sidebar
+// shell: canvas ≈ 1200×805 at 1440×900, aspect ~1.49):
+//   Row 0 (y=0):   S5 Identity (top, left-of-center)
+//   Row 1 (y=160): S4 Future (left) | S3 Management (right)
+//   Row 2 (y=400): S1 lifecycle spine + S2 interlock valves ON the pipe
+//   Row 3 (y=550): Attention Seam (center-left) | Learning Loop (center-right)
+//                  — at 550 (not lower) so the learning→valve interlock edge's
+//                  smoothstep midpoint stays ABOVE the bottom-right legend panel
+//   Row 4 (y=770): Infra Supply (bottom left) → bottom ≈ 840
 //
-// S3 sits at y=150 with height ~185px → bottom ≈ 335, leaving ~50px clearance
-// above SPINE_Y=385 for the CHANGES_REQUESTED recirculation arc.
-// Bounding box ≈ 1330 × 770 (aspect ~1.73) — close to a 1440×859 canvas
-// (1440×900 minus header, aspect ~1.68), so fitView fills the viewport in both
-// axes at zoom ≈ 1.0 instead of letterboxing.
+// Bounding box ≈ 1276 × 840 (aspect ~1.5) — close to the post-sidebar canvas
+// aspect, so fitView fills both axes. S5.x=402 puts the seam→S5 "decision ↓"
+// approach channel (s5-in left handle, approach ≈ x-22 = 380) through the
+// READY/SESSIONS spine gap — the one gap WITHOUT an S2 valve.
 // Robustness: positions are a hint; the nodes-initialized refit effect below
 // re-runs fitView with MEASURED node bounds, so nothing clips even if node
 // heights drift from these estimates.
 // ---------------------------------------------------------------------------
 
-const SPINE_Y = 385;
-const SPINE_SPACING = 195;
+const SPINE_Y = 400;
+const SPINE_SPACING = 182;
 const SPINE_START_X = 30;
+/** Vertical center of the spine pipe — valves sit on it. */
+const VALVE_Y = 426;
 
 function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean): Node[] {
   return [
-    // S5 Identity — top, left-of-center: x=422 puts the seam→S5 "decision ↓"
-    // approach channel (s5-in left handle, approach ≈ x-22 = 400) through the
-    // READY/SESSIONS spine gap instead of behind a spine node.
+    // S5 Identity — top, left-of-center: x=402 puts the seam→S5 "decision ↓"
+    // approach channel (s5-in left handle, approach ≈ x-22 = 380) through the
+    // READY/SESSIONS spine gap (the valve-free gap).
     {
       id: "s5-identity",
       type: "s5-identity",
-      position: { x: 422, y: 0 },
+      position: { x: 402, y: 0 },
       data: { organKey: "s5", label: "S5 · Identity", sublabel: "", accentVar: ORGAN_ACCENTS.s5 },
       draggable: true,
     },
@@ -791,16 +902,16 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "s4-future",
       type: "s4-future",
-      position: { x: 30, y: 150 },
+      position: { x: 30, y: 160 },
       data: { organKey: "s4", label: "S4 · Future", sublabel: "", accentVar: ORGAN_ACCENTS.s4 },
       draggable: true,
     },
 
-    // S3 Management — upper right; height ~185px so bottom ≈ 335, clears SPINE_Y=385
+    // S3 Management — upper right; bottom clears SPINE_Y=400
     {
       id: "s3-management",
       type: "s3-management",
-      position: { x: 1090, y: 150 },
+      position: { x: 940, y: 160 },
       data: { organKey: "s3", label: "S3 · Management", sublabel: "", accentVar: ORGAN_ACCENTS.s3 },
       draggable: true,
     },
@@ -868,16 +979,17 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "attention-seam",
       type: "attention-seam",
-      position: { x: 440, y: 555 },
+      position: { x: 420, y: 550 },
       data: { organKey: "seam", label: "Attention · Ask Seam", sublabel: "", accentVar: ORGAN_ACCENTS.seam },
       draggable: true,
     },
 
-    // Learning loop — below spine, center-right (separated from seam horizontally)
+    // Learning loop — below spine, center-right; right edge clears the
+    // bottom-right legend panel's viewport column
     {
       id: "learning-loop",
       type: "learning-loop",
-      position: { x: 840, y: 555 },
+      position: { x: 760, y: 550 },
       data: { organKey: "learn", label: "Learning Loop", sublabel: "", accentVar: ORGAN_ACCENTS.learn },
       draggable: true,
     },
@@ -887,9 +999,46 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "infra-supply",
       type: "infra-supply",
-      position: { x: 140, y: 700 },
+      position: { x: 140, y: 770 },
       data: { organKey: "infra", label: "Infra Supply", sublabel: "", accentVar: ORGAN_ACCENTS.infra },
       draggable: true,
+    },
+
+    // S2 interlock valves — ON the spine pipe, in the gaps before READY,
+    // AGENTS, PR, DONE (mt#2466 item 1). Not draggable: they are plumbing,
+    // not panels. The DONE valve carries the learning-loop interlock target
+    // (item 5 — "new interlock welds onto an S2 valve").
+    {
+      id: "s2-valve-ready",
+      type: "s2-valve",
+      position: { x: 190, y: VALVE_Y },
+      data: { valveKey: "ready" },
+      draggable: false,
+      selectable: false,
+    },
+    {
+      id: "s2-valve-agents",
+      type: "s2-valve",
+      position: { x: 554, y: VALVE_Y },
+      data: { valveKey: "agents" },
+      draggable: false,
+      selectable: false,
+    },
+    {
+      id: "s2-valve-pr",
+      type: "s2-valve",
+      position: { x: 736, y: VALVE_Y },
+      data: { valveKey: "pr" },
+      draggable: false,
+      selectable: false,
+    },
+    {
+      id: "s2-valve-done",
+      type: "s2-valve",
+      position: { x: 1090, y: VALVE_Y },
+      data: { valveKey: "done", interlockTarget: true },
+      draggable: false,
+      selectable: false,
     },
   ];
 }
@@ -938,6 +1087,64 @@ const INITIAL_EDGES: Edge[] = [
     labelBgPadding: [4, 2] as [number, number],
     labelBgBorderRadius: 3,
     labelShowBg: true,
+  },
+
+  // S1 spine PIPE underlay — recreates the SVG board's 10px pipe body under
+  // the teal flow dashes (mt#2466 item 2). Same handles as the flow edges so
+  // the paths coincide exactly; defined first so they paint underneath.
+  {
+    id: "pipe-1",
+    source: "s1-tasks",
+    sourceHandle: "tasks-out",
+    target: "s1-ready",
+    targetHandle: "ready-in",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
+  },
+  {
+    id: "pipe-2",
+    source: "s1-ready",
+    sourceHandle: "ready-out",
+    target: "s1-sessions",
+    targetHandle: "sessions-in",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
+  },
+  {
+    id: "pipe-3",
+    source: "s1-sessions",
+    sourceHandle: "sessions-out",
+    target: "s1-agents",
+    targetHandle: "agents-in",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
+  },
+  {
+    id: "pipe-4",
+    source: "s1-agents",
+    sourceHandle: "agents-out",
+    target: "s1-pr",
+    targetHandle: "pr-in",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
+  },
+  {
+    id: "pipe-5",
+    source: "s1-pr",
+    sourceHandle: "pr-out",
+    target: "s1-review",
+    targetHandle: "review-in",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
+  },
+  {
+    id: "pipe-6",
+    source: "s1-review",
+    sourceHandle: "review-out",
+    target: "s1-done",
+    targetHandle: "done-in",
+    type: "smoothstep",
+    style: { stroke: `oklch(var(--border) / 1)`, strokeWidth: 5 },
   },
 
   // S1 spine main flow (left to right) — primary information channel, most visible
@@ -1050,7 +1257,7 @@ const INITIAL_EDGES: Edge[] = [
     target: "attention-seam",
     targetHandle: "seam-in",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-seam) / 0.70)`, strokeDasharray: "3 5", strokeWidth: 1.5 },
+    style: { stroke: `oklch(var(--vsm-seam) / 0.8)`, strokeDasharray: "6 4", strokeWidth: 2.5 },
     label: "ask ↑",
     labelStyle: edgeLabelStyle("var(--vsm-seam)"),
     labelBgStyle: EDGE_LABEL_BG_STYLE,
@@ -1065,7 +1272,7 @@ const INITIAL_EDGES: Edge[] = [
     target: "s5-identity",
     targetHandle: "s5-in",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-seam) / 0.75)`, strokeWidth: 1.5 },
+    style: { stroke: `oklch(var(--vsm-seam) / 0.8)`, strokeDasharray: "6 4", strokeWidth: 2.5 },
     label: "decision ↓",
     labelStyle: edgeLabelStyle("var(--vsm-seam)"),
     labelBgStyle: EDGE_LABEL_BG_STYLE,
@@ -1093,14 +1300,15 @@ const INITIAL_EDGES: Edge[] = [
     labelBgBorderRadius: 3,
     labelShowBg: true,
   },
-  // learn-to-s1: new interlock enters sessions from below-left
-  // Uses the sessions-seam (bottom) handle — shares with seam edge but distinct path
+  // learn-to-s1: the new interlock WELDS ONTO AN S2 VALVE (mt#2466 item 5,
+  // matching the SVG board's "closes onto an S2 valve" arc) — the rule
+  // becomes a guard on the pipe, entering the valve before DONE.
   {
     id: "learn-to-s1",
     source: "learning-loop",
     sourceHandle: "learn-out",
-    target: "s1-sessions",
-    targetHandle: "sessions-learn-in",
+    target: "s2-valve-done",
+    targetHandle: "valve-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--vsm-learn) / 0.75)`, strokeWidth: 1.5 },
     label: "new interlock",
@@ -1131,6 +1339,84 @@ const INITIAL_EDGES: Edge[] = [
     labelShowBg: true,
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Plant legend — the reading grammar (mt#2466 item 8), ported from the SVG
+// board's legend sidebar. Lives in a react-flow Panel in the bottom-right
+// (the board's open corner). Collapsible; expanded by default.
+// ---------------------------------------------------------------------------
+
+const LEGEND_ORGANS: Array<{ colorVar: string; label: string }> = [
+  { colorVar: ORGAN_ACCENTS.s1, label: "S1 operations" },
+  { colorVar: ORGAN_ACCENTS.s2, label: "S2 valves (interlocks)" },
+  { colorVar: ORGAN_ACCENTS.s3, label: "S3 management + 3★" },
+  { colorVar: ORGAN_ACCENTS.s4, label: "S4 future" },
+  { colorVar: ORGAN_ACCENTS.s5, label: "S5 identity" },
+  { colorVar: ORGAN_ACCENTS.seam, label: "attention seam" },
+  { colorVar: ORGAN_ACCENTS.learn, label: "learning loop" },
+];
+
+function PlantLegend() {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <div
+      className="rounded-md border border-border bg-card/95 font-mono"
+      data-testid="plant-legend"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 px-2.5 py-1.5 text-[9px] tracking-[0.12em] uppercase text-muted-foreground hover:text-foreground transition-colors w-full"
+        aria-expanded={open}
+        aria-label={open ? "Collapse legend" : "Expand legend"}
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        <span>legend</span>
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2.5 flex flex-col gap-2 max-w-[200px]">
+          <div className="flex flex-col gap-1">
+            <div className="text-[8px] tracking-[0.1em] uppercase text-muted-foreground/70">
+              organs (VSM)
+            </div>
+            {LEGEND_ORGANS.map((o) => (
+              <div key={o.label} className="flex items-center gap-1.5">
+                <span
+                  className="w-2 h-2 rounded-full flex-none"
+                  style={{ background: `oklch(${o.colorVar} / 0.9)` }}
+                  aria-hidden="true"
+                />
+                <span className="text-[9px] text-muted-foreground">{o.label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <div className="text-[8px] tracking-[0.1em] uppercase text-muted-foreground/70">
+              timescales
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              <span className="font-bold">STABLE</span> — pipes · organs
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              <span className="font-bold">FLUID</span> — instances as flow/level
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              <span className="font-bold">BREATH</span> — levels, ~60s poll
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              <span className="font-bold">SLOW</span> — plant grows valves
+            </div>
+          </div>
+          <div className="text-[8px] text-muted-foreground/70 leading-snug">
+            idle-honest: only the breath and a pending ask move. READY is live;
+            — = placeholder.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main: PlantFlowCanvas (inner — needs ReactFlowProvider)
@@ -1207,6 +1493,9 @@ function PlantFlowCanvas() {
         size={1}
         color="oklch(var(--border) / 0.5)"
       />
+      <Panel position="bottom-right">
+        <PlantLegend />
+      </Panel>
     </ReactFlow>
   );
 }
