@@ -6,8 +6,8 @@ const HTTP_NOT_FOUND = 404;
 
 import { config } from "@dotenvx/dotenvx";
 import { execSync } from "child_process";
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, statSync } from "fs";
+import { isAbsolute, join } from "path";
 import { log } from "@minsky/shared/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { getErrorMessage } from "../errors/index";
@@ -22,25 +22,57 @@ if (existsSync(envPath)) {
 }
 
 /**
- * Extract GitHub repository info from git remote
+ * Injectable dependencies for GitHub repo detection (test seam — production
+ * callers use the defaults). Mirrors `RepositoryBackendDetectionDeps` in
+ * session/repository-backend-detection.ts.
  */
-function extractGitHubRepoFromRemote(
-  workspacePath: string
+export interface GitHubRepoDetectionDeps {
+  execSync: (
+    cmd: string,
+    opts?: { cwd?: string; encoding?: string; stdio?: "pipe" }
+  ) => string | Buffer;
+  /** True only for an existing DIRECTORY — a file is not a usable cwd. */
+  isDirectory: (path: string) => boolean;
+  isInsideGitWorkTree: (dir: string) => boolean;
+}
+
+const defaultDetectionDeps: GitHubRepoDetectionDeps = {
+  execSync: execSync as GitHubRepoDetectionDeps["execSync"],
+  isDirectory: (path: string) => {
+    try {
+      return statSync(path).isDirectory();
+    } catch {
+      return false;
+    }
+  },
+  isInsideGitWorkTree,
+};
+
+/**
+ * Extract GitHub repository info from git remote
+ *
+ * Exported for tests (mt#2470); production callers go through
+ * `getGitHubBackendConfig`.
+ */
+export function extractGitHubRepoFromRemote(
+  workspacePath: string,
+  deps: GitHubRepoDetectionDeps = defaultDetectionDeps
 ): { owner: string; repo: string } | null {
   try {
     // No-spawn short-circuit: outside a git work tree the remote lookup is
     // knowably doomed — skip the subprocess (which would leak `fatal: not a
     // git repository` onto stderr on every CLI command) (mt#1428).
-    if (!isInsideGitWorkTree(workspacePath)) {
+    if (!deps.isInsideGitWorkTree(workspacePath)) {
       return null;
     }
 
     // Get the origin remote URL
-    const remoteUrl = execSync("git remote get-url origin", {
-      cwd: workspacePath,
-      encoding: "utf8",
-      stdio: "pipe",
-    })
+    const remoteUrl = deps
+      .execSync("git remote get-url origin", {
+        cwd: workspacePath,
+        encoding: "utf8",
+        stdio: "pipe",
+      })
       .toString()
       .trim();
 
@@ -59,14 +91,27 @@ function extractGitHubRepoFromRemote(
     }
 
     // Handle local paths (for development/session workspaces)
-    // If remote points to a local path, try to get GitHub info from that repository
-    if (remoteUrl.startsWith("/") && existsSync(remoteUrl)) {
+    // If remote points to a local path, try to get GitHub info from that
+    // repository. `remoteUrl` is whatever `git remote get-url origin` printed
+    // — usually a URL — so before using it as a subprocess cwd it must be
+    // validated as an absolute path to an existing directory inside a git
+    // work tree (mt#2470). URLs and relative paths fail `isAbsolute`;
+    // dangling paths and files fail `isDirectory` (a file inside a work tree
+    // would pass an existence check AND the upward work-tree walk, but is not
+    // a usable cwd — reviewer finding on PR #1690); non-repo dirs (incl. bare
+    // repos — not work trees) fail the work-tree check. No doomed spawns.
+    if (
+      isAbsolute(remoteUrl) &&
+      deps.isDirectory(remoteUrl) &&
+      deps.isInsideGitWorkTree(remoteUrl)
+    ) {
       try {
-        const upstreamUrl = execSync("git remote get-url origin", {
-          cwd: remoteUrl,
-          encoding: "utf8",
-          stdio: "pipe",
-        })
+        const upstreamUrl = deps
+          .execSync("git remote get-url origin", {
+            cwd: remoteUrl,
+            encoding: "utf8",
+            stdio: "pipe",
+          })
           .toString()
           .trim();
 

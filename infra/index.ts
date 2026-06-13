@@ -168,10 +168,13 @@ export const cockpitService = new railway.Service("cockpit", {
   name: "cockpit-preview",
   sourceRepo: "edobry/minsky",
   sourceRepoBranch: "main",
-  // Build context is the repo root; the Dockerfile lives at
-  // services/cockpit/Dockerfile (see services/cockpit/deploy.config.ts for
-  // the build wiring).
-  rootDirectory: "",
+  // Build context is the repo root — same pattern as services/reviewer (which
+  // also OMITS rootDirectory). The Dockerfile lives at services/cockpit/Dockerfile
+  // (build wiring in services/cockpit/deploy.config.ts). rootDirectory is OMITTED,
+  // NOT set to "": Railway rejects an empty root_directory ("Invalid Attribute Value
+  // Length ... must be at least 1, got: 0"), which blocked pulumi up entirely
+  // (mt#2474). Omitting it = Railway default (repo root), matching the working
+  // reviewer service (verified <unset> in the prod stack state).
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
