@@ -45,7 +45,10 @@ const BRANCH = "main";
 const DESIRED_CONFIG_BASE = {
   required_status_checks: {
     strict: true,
-    contexts: ["build", "Prevent Placeholder Tests"],
+    // `cold-start-migrate` added per mt#2478 (mt#2439's post-green follow-up):
+    // the fresh-DB bootstrap regression class previously landed silently
+    // because the gate was advisory-only and red-on-arrival (mt#2411).
+    contexts: ["build", "Prevent Placeholder Tests", "cold-start-migrate"],
   },
   enforce_admins: false,
   required_pull_request_reviews: {
