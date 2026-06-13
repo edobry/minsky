@@ -37,7 +37,7 @@ function makeDeps(
       }
       throw new Error(`unexpected execSync cwd: ${cwd}`);
     },
-    existsSync: () => true,
+    isDirectory: () => true,
     isInsideGitWorkTree: () => true,
     ...overrides,
   };
@@ -84,7 +84,18 @@ describe("extractGitHubRepoFromRemote local-path origin handling (mt#2470)", () 
 
   test("a dangling absolute path is not probed", () => {
     const { deps, cwdsSeen } = makeDeps(LOCAL_ORIGIN, {
-      existsSync: () => false,
+      isDirectory: () => false,
+    });
+    expect(extractGitHubRepoFromRemote(WORKSPACE, deps)).toBeNull();
+    expect(cwdsSeen).toEqual([WORKSPACE]);
+  });
+
+  test("a FILE inside a work tree is not used as cwd (PR #1690 reviewer finding)", () => {
+    // A file path passes an existence check and the upward work-tree walk,
+    // but is not a usable cwd — the isDirectory guard must reject it.
+    const { deps, cwdsSeen } = makeDeps("/repo/some-file.txt", {
+      isDirectory: (p) => p !== "/repo/some-file.txt",
+      isInsideGitWorkTree: () => true,
     });
     expect(extractGitHubRepoFromRemote(WORKSPACE, deps)).toBeNull();
     expect(cwdsSeen).toEqual([WORKSPACE]);

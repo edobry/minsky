@@ -6,7 +6,7 @@ const HTTP_NOT_FOUND = 404;
 
 import { config } from "@dotenvx/dotenvx";
 import { execSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, statSync } from "fs";
 import { isAbsolute, join } from "path";
 import { log } from "@minsky/shared/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
@@ -31,13 +31,20 @@ export interface GitHubRepoDetectionDeps {
     cmd: string,
     opts?: { cwd?: string; encoding?: string; stdio?: "pipe" }
   ) => string | Buffer;
-  existsSync: (path: string) => boolean;
+  /** True only for an existing DIRECTORY — a file is not a usable cwd. */
+  isDirectory: (path: string) => boolean;
   isInsideGitWorkTree: (dir: string) => boolean;
 }
 
 const defaultDetectionDeps: GitHubRepoDetectionDeps = {
   execSync: execSync as GitHubRepoDetectionDeps["execSync"],
-  existsSync,
+  isDirectory: (path: string) => {
+    try {
+      return statSync(path).isDirectory();
+    } catch {
+      return false;
+    }
+  },
   isInsideGitWorkTree,
 };
 
@@ -89,11 +96,13 @@ export function extractGitHubRepoFromRemote(
     // — usually a URL — so before using it as a subprocess cwd it must be
     // validated as an absolute path to an existing directory inside a git
     // work tree (mt#2470). URLs and relative paths fail `isAbsolute`;
-    // dangling paths fail `existsSync`; non-repo dirs (incl. bare repos —
-    // not work trees) fail the work-tree check, avoiding a doomed spawn.
+    // dangling paths and files fail `isDirectory` (a file inside a work tree
+    // would pass an existence check AND the upward work-tree walk, but is not
+    // a usable cwd — reviewer finding on PR #1690); non-repo dirs (incl. bare
+    // repos — not work trees) fail the work-tree check. No doomed spawns.
     if (
       isAbsolute(remoteUrl) &&
-      deps.existsSync(remoteUrl) &&
+      deps.isDirectory(remoteUrl) &&
       deps.isInsideGitWorkTree(remoteUrl)
     ) {
       try {
