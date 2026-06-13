@@ -109,6 +109,29 @@ and must not be hardcoded into widget vocabularies.
 | `memories-search`                                                                              | `/memories`         | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
 | `memories-detail`                                                                              | `/memories` (modal) | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
 
+## Ask advancement sweep (mt#2265)
+
+The cockpit daemon runs the **ask advancement sweep**: one pass at boot, then
+every 60s (`startAskAdvancementSweeper` in `src/cockpit/server.ts`, domain
+logic in `packages/domain/src/ask/advancement.ts`). The sweep advances
+`detected` asks that nothing else routed — emission-callsite rows, rows from
+crashed processes — and expires stale ones (`detected` older than 7 days;
+ephemeral authorization/review requests whose moment has passed).
+**`direction.decide` asks are exempt from staleness expiry everywhere** —
+they are durable principal decisions, so a stale one is routed to the
+operator surface (where it can be declined) rather than silently expired;
+the triage script likewise never bulk-expires them. Per-kind
+coverage: operator-bound asks (inbox / elicitation-fallback) land `suspended`
+and appear on `/asks`; policy-covered asks close with the citation;
+subagent/mesh/retriever asks persist as `routed` awaiting a delivery loop
+(mt#1570 family). `createAsk` itself persists its route outcome at create
+(the sweep is the recovery backstop, not the primary path). Observability:
+asks count-by-state on `debug_systemInfo` (`asks` field) — a growing
+`detected` count means the advancement path is not running. One-time backlog
+triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
+`--execute` to expire the stale set; `direction.decide` asks are never
+bulk-expired).
+
 ## Operator dev loop
 
 Dev mode (recommended for active UI work):

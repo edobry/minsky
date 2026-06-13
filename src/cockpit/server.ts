@@ -31,6 +31,7 @@ import {
   createNoopChannelListener,
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { log } from "@minsky/shared/logger";
+import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import { execSync } from "child_process";
 
 // Lazy + memoized: this module loads during CLI command registration (e.g. on
@@ -186,6 +187,50 @@ async function getServerAskRepository(): Promise<
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Ask advancement sweeper (mt#2265)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the periodic ask-advancement sweep in this cockpit process.
+ *
+ * Advances `detected` asks the create path missed (emission-callsite rows,
+ * rows from crashed processes) and expires stale ones, so the operator
+ * surface reflects reality without a manual probe. Runs one pass at boot,
+ * then every `intervalMs` (sweeper-not-queue per decision-defaults
+ * §Reliability; the asks table is the single source of truth).
+ *
+ * Fail-open: a failed pass logs and waits for the next tick — the sweep
+ * must never crash the cockpit. Overlapping ticks are skipped.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startAskAdvancementSweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const repo = await getServerAskRepository();
+      if (!repo) return;
+      const { runAskAdvancementSweep } = await import("@minsky/domain/ask/advancement");
+      await runAskAdvancementSweep(repo);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: ask advancement sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  // Never hold the process open on account of the sweeper.
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
 }
 
 // ---------------------------------------------------------------------------

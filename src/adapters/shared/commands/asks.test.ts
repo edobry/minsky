@@ -834,10 +834,38 @@ describe("createAsk — scheduled ask lands with state=suspended (R1 fix)", () =
     // asap Asks are immediately routed, not suspended (in the returned object).
     expect(result.state).toBe("routed");
 
-    // For async transports (subagent), the persisted row stays at "detected"
-    // per createAsk's persistence contract — downstream adapters own the walk.
+    // mt#2265: the route outcome is now PERSISTED at create. stuck.unblock
+    // routes to the subagent transport (no delivery loop yet), so the row
+    // lands as "routed" with the target recorded — previously it stayed at
+    // "detected" forever (the write-only-graveyard root cause).
     const persisted = await repo.getById(result.id);
-    expect(persisted?.state).toBe("detected");
+    expect(persisted?.state).toBe("routed");
+    expect(persisted?.routingTarget).toBe("subagent");
+    expect(persisted?.routedAt).toBeDefined();
+  });
+
+  test("inbox-routed asap ask persists as suspended/operator at create (mt#2265)", async () => {
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Decision for the operator",
+        question: "Pick X or Y?",
+        forceImmediate: true, // bypass the direction.decide scheduled-window default
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    // The returned object reflects the PERSISTED state — suspended (waiting
+    // on the operator surface), never a narrated-but-unpersisted "routed".
+    expect(result.state).toBe("suspended");
+
+    const persisted = await repo.getById(result.id);
+    expect(persisted?.state).toBe("suspended");
+    expect(persisted?.routingTarget).toBe("operator");
+    expect(persisted?.suspendedAt).toBeDefined();
   });
 });
 

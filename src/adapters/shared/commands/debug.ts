@@ -165,6 +165,12 @@ export function registerDebugCommands(): void {
           dispatchTracker.getEscalation(),
         ]);
 
+        // mt#2265: asks count-by-state — the stuck-pipeline detector. Wired
+        // by the MCP start-command; zero-filled `available: false` on the CLI
+        // path or before the DB connection resolves. Fail-safe (never throws).
+        const { getAskStateCounts } = await import("@minsky/domain/ask/state-counts-provider");
+        const askStateCounts = await getAskStateCounts();
+
         // Return formatted system information
         return {
           nodejs: {
@@ -221,6 +227,17 @@ export function registerDebugCommands(): void {
             ...dispatchCadence,
             escalation: dispatchEscalation,
           },
+          /**
+           * Asks count-by-state (mt#2265).
+           *
+           * The stuck-pipeline detector: a growing `detected` count means the
+           * advancement path (persist-at-create in `createAsk` + the cockpit
+           * advancement sweep) is not running. Before this signal, 3,195 asks
+           * sat in `detected` for 5+ weeks and were only found by manual DB
+           * probe (mt#2257). `available: false` = no DB wired in this context
+           * (CLI path) — counts are zero-filled, not meaningful.
+           */
+          asks: askStateCounts,
           embeddingsHealth: EmbeddingsHealthTracker.getInstance().getSummary(),
           /**
            * Loaded-source freshness (mt#2335).
