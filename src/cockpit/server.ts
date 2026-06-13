@@ -31,6 +31,7 @@ import {
   createNoopChannelListener,
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { log } from "@minsky/shared/logger";
+import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import { execSync } from "child_process";
 
 // Lazy + memoized: this module loads during CLI command registration (e.g. on
@@ -225,7 +226,7 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
   };
 
   void tick();
-  const resolvedInterval = intervalMs ?? 60_000;
+  const resolvedInterval = intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   const id = setInterval(() => void tick(), resolvedInterval);
   // Never hold the process open on account of the sweeper.
   if (typeof id === "object" && "unref" in id) id.unref();

@@ -167,8 +167,13 @@ export async function advanceDetectedAsk(
   const maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_DETECTED_AGE_MS;
 
   try {
+    // Staleness expiry applies to EPHEMERAL kinds only. `direction.decide`
+    // asks are durable principal decisions — they may still be live questions
+    // however old, so a stale one is ROUTED to the operator surface (where it
+    // can be declined) rather than silently expired. Same policy as the
+    // backlog-triage script's never-bulk-expire exemption.
     const ageMs = nowMs - new Date(ask.createdAt).getTime();
-    if (Number.isFinite(ageMs) && ageMs > maxAgeMs) {
+    if (ask.kind !== "direction.decide" && Number.isFinite(ageMs) && ageMs > maxAgeMs) {
       await repo.persistRouteOutcome(ask.id, { state: "expired" });
       return { askId: ask.id, kind: "expired-stale", detail: `ageMs=${Math.round(ageMs)}` };
     }

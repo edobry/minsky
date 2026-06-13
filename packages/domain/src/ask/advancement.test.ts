@@ -135,6 +135,22 @@ describe("advanceDetectedAsk", () => {
     expect(persisted?.closedAt).toBeDefined();
   });
 
+  it("routes a stale direction.decide ask instead of expiring it (durable principal decision)", async () => {
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    const ask = await createDetectedAsk(KIND_DIRECTION_DECIDE, { createdAt: eightDaysAgo });
+
+    const outcome = await advanceDetectedAsk(repo, ask, ROUTER_OPTS(), {
+      maxAgeMs: DEFAULT_MAX_DETECTED_AGE_MS,
+    });
+
+    // NOT expired-stale — direction.decide is exempt from staleness expiry
+    // (same policy as the triage script's never-bulk-expire exemption).
+    expect(outcome.kind).toBe(OUTCOME_SUSPENDED_FOR_OPERATOR);
+    const persisted = await repo.getById(ask.id);
+    expect(persisted?.state).toBe("suspended");
+    expect(persisted?.routingTarget).toBe("operator");
+  });
+
   it("skips asks not in detected state", async () => {
     const ask = await createDetectedAsk(KIND_DIRECTION_DECIDE);
     await repo.transition(ask.id, "classified");

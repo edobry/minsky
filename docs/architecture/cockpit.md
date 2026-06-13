@@ -116,7 +116,11 @@ every 60s (`startAskAdvancementSweeper` in `src/cockpit/server.ts`, domain
 logic in `packages/domain/src/ask/advancement.ts`). The sweep advances
 `detected` asks that nothing else routed — emission-callsite rows, rows from
 crashed processes — and expires stale ones (`detected` older than 7 days;
-ephemeral authorization/review requests whose moment has passed). Per-kind
+ephemeral authorization/review requests whose moment has passed).
+**`direction.decide` asks are exempt from staleness expiry everywhere** —
+they are durable principal decisions, so a stale one is routed to the
+operator surface (where it can be declined) rather than silently expired;
+the triage script likewise never bulk-expires them. Per-kind
 coverage: operator-bound asks (inbox / elicitation-fallback) land `suspended`
 and appear on `/asks`; policy-covered asks close with the citation;
 subagent/mesh/retriever asks persist as `routed` awaiting a delivery loop
