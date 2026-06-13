@@ -302,12 +302,47 @@ function getDefaultLogger() {
   return defaultLogger;
 }
 
-// Export the default logger for backward compatibility (lazy)
-export const log = new Proxy({} as ReturnType<typeof createLogger>, {
-  get(_target, prop) {
-    return (getDefaultLogger() as Record<string | symbol, unknown>)[prop as string | symbol];
+// Export the default logger for backward compatibility (lazy).
+//
+// This is a PLAIN OBJECT of forwarding members, NOT a Proxy. The pre-mt#1859
+// shape was `new Proxy({}, { get: ... })` over the lazy singleton — which kept
+// module-load side effects out, but made `spyOn(log, "debug")` a silent no-op:
+// bun's spyOn installs the patched method through a native path that bypasses
+// proxy traps, so the spy landed nowhere reads happen and every logger
+// call-count assertion in the test suite saw 0 calls. A plain object with own
+// function properties is spy-able directly, and laziness is preserved because
+// each forwarder defers `getDefaultLogger()` to its first CALL (data members
+// like `mode`/`config`/`_internal` defer via getters).
+type DefaultLogger = ReturnType<typeof createLogger>;
+
+export const log: DefaultLogger = {
+  agent: (message) => getDefaultLogger().agent(message),
+  debug: (message, context?) => getDefaultLogger().debug(message, context),
+  info: (message, context?) => getDefaultLogger().info(message, context),
+  warn: (message, context?) => getDefaultLogger().warn(message, context),
+  error: ((message: Parameters<DefaultLogger["error"]>[0], context?: unknown) =>
+    (getDefaultLogger().error as (m: unknown, c?: unknown) => void)(
+      message,
+      context
+    )) as DefaultLogger["error"],
+  cli: (message) => getDefaultLogger().cli(message),
+  cliWarn: (message) => getDefaultLogger().cliWarn(message),
+  cliError: (message) => getDefaultLogger().cliError(message),
+  setLevel: (level) => getDefaultLogger().setLevel(level),
+  cliDebug: (message) => getDefaultLogger().cliDebug(message),
+  systemDebug: (message) => getDefaultLogger().systemDebug(message),
+  isStructuredMode: () => getDefaultLogger().isStructuredMode(),
+  isHumanMode: () => getDefaultLogger().isHumanMode(),
+  get mode() {
+    return getDefaultLogger().mode;
   },
-}) as ReturnType<typeof createLogger>;
+  get config() {
+    return getDefaultLogger().config;
+  },
+  get _internal() {
+    return getDefaultLogger()._internal;
+  },
+} as DefaultLogger;
 
 /**
  * TEST-ONLY: reset the cached default logger singleton so the next access
