@@ -255,7 +255,10 @@ describe("computeLogResult — at or above threshold", () => {
     const count = FIRES_THRESHOLD;
     const content = buildLines(count, () => makeCausalRecord(["same phrase always"]));
     const result = computeLogResult(CAUSAL_ENTRY, content, true, undefined);
-    expect(result.pastThreshold).toBe(true);
+    // Diversity-aware: hit the count bar but only 1 distinct phrase → NOT past
+    // threshold (keep collecting), lowDiversity flagged, count bar recorded.
+    expect(result.atCountThreshold).toBe(true);
+    expect(result.pastThreshold).toBe(false);
     expect(result.distinctPhrases).toBe(1);
     expect(result.lowDiversity).toBe(true);
   });

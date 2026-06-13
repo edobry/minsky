@@ -88,10 +88,11 @@ export const FIRES_THRESHOLD = 10;
  * Rationale: a log with 10 fires but all on the same single phrase may simply
  * reflect a single recurring false-positive pattern; 3 distinct phrases means
  * the hook is firing across diverse contexts, making the FP-rate review
- * meaningful. When fires >= FIRES_THRESHOLD AND distinctPhrases < DIVERSITY_THRESHOLD,
- * `pastThreshold` is still true (the fires count alone warrants a review), but
- * the report includes a `lowDiversity` flag so the operator knows the sample is
- * pattern-concentrated.
+ * meaningful. The threshold is diversity-aware: when fires >= FIRES_THRESHOLD AND
+ * distinctPhrases < DIVERSITY_THRESHOLD, `pastThreshold` is FALSE (a uniform
+ * pattern is not yet a review signal) and the report sets `lowDiversity` so the
+ * operator knows the count bar was hit but the sample is pattern-concentrated —
+ * the "keep collecting" state.
  */
 export const DIVERSITY_THRESHOLD = 3;
 
@@ -155,11 +156,17 @@ export interface CalibrationLogResult {
   firesSinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
-  /** Whether distinctPhrases < DIVERSITY_THRESHOLD while pastThreshold is true. */
+  /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
+  atCountThreshold: boolean;
+  /** True when the count bar is hit but distinctPhrases < DIVERSITY_THRESHOLD ("keep collecting"). */
   lowDiversity: boolean;
-  /** True when fires-since-last-review >= FIRES_THRESHOLD. */
+  /**
+   * The DIVERSITY-AWARE review signal: true only when fires-since-last-review >=
+   * FIRES_THRESHOLD AND distinctPhrases >= DIVERSITY_THRESHOLD. This is what the
+   * skill keys the Ask off; lowDiversity logs are NOT pastThreshold.
+   */
   pastThreshold: boolean;
-  /** The un-reviewed records (since last watermark). Empty when not past threshold. */
+  /** The un-reviewed records (since last watermark). Empty when below the count bar. */
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
@@ -278,8 +285,16 @@ export function computeLogResult(
   const newRecords = allRecords.slice(watermarkCount);
 
   const distinctPhrases = extractDistinctPhrases(newRecords).size;
-  const pastThreshold = firesSinceLastReview >= FIRES_THRESHOLD;
-  const lowDiversity = pastThreshold && distinctPhrases < DIVERSITY_THRESHOLD;
+  // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
+  // only "past threshold" — i.e. worth surfacing for review — when it has enough
+  // fires AND enough distinct shapes. Ten identical fires are NOT a review signal,
+  // they're a uniform pattern; keep collecting until diversity arrives.
+  const atCountThreshold = firesSinceLastReview >= FIRES_THRESHOLD;
+  const hasDiversity = distinctPhrases >= DIVERSITY_THRESHOLD;
+  const pastThreshold = atCountThreshold && hasDiversity;
+  // lowDiversity: hit the fire count but not the diversity bar (the "keep
+  // collecting" state, distinct from below-count and from past-threshold).
+  const lowDiversity = atCountThreshold && !hasDiversity;
 
   return {
     entry,
@@ -287,9 +302,12 @@ export function computeLogResult(
     totalFires,
     firesSinceLastReview,
     distinctPhrases,
+    atCountThreshold,
     lowDiversity,
     pastThreshold,
-    newRecords: pastThreshold ? newRecords : [],
+    // Records are surfaced once the COUNT bar is hit (so a reviewer can see why a
+    // log is low-diversity), even though the Ask only fires on pastThreshold.
+    newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
   };
 }

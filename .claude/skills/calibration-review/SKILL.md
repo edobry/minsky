@@ -57,16 +57,16 @@ log.
 
 ## Step 3 — Recommendation
 
-Per log, pick one:
+Per log (a `pastThreshold` log already cleared BOTH the fire-count and the
+diversity bar — the command gates `pastThreshold` on both, so low-diversity logs
+never reach this step; they stay in the "keep collecting" state with
+`atCountThreshold: true, pastThreshold: false` and produce no Ask), pick one:
 
-- **flip** — FP rate is low (rule of thumb: < ~20%) and the sample is diverse
-  (`lowDiversity: false`): recommend enabling the hook's injection mode (e.g.
-  flip `INJECTION_ENABLED` to `true` for the causal-premise hook, or stop
-  treating retrospective-trigger as log-only).
+- **flip** — FP rate is low (rule of thumb: < ~20%): recommend enabling the
+  hook's injection mode (e.g. flip `INJECTION_ENABLED` to `true` for the
+  causal-premise hook, or stop treating retrospective-trigger as log-only).
 - **tune** — FP rate is high: recommend tightening the detector's patterns
   (name the phrases driving the false positives).
-- **keep** — too few or too uniform (`lowDiversity: true`) to judge: recommend
-  continuing to collect.
 
 ## Step 4 — Emit ONE Ask (do not flip anything yourself)
 

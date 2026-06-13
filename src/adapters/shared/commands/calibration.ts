@@ -2,7 +2,7 @@
  * Shared Calibration Commands (mt#2483)
  *
  * Exposes the hook-calibration review sweep as both CLI and MCP surfaces via
- * the shared command registry. The `calibration.review` command:
+ * the shared command registry. The `observability.calibration-review` command:
  *
  *   - Reads from a registry of known hook-calibration JSONL logs (NOT a single
  *     hardcoded path — adding a third log is a one-line registry change in
@@ -23,7 +23,11 @@
  */
 
 import { z } from "zod";
-import { sharedCommandRegistry, CommandCategory } from "../command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  type CommandExecutionContext,
+} from "../command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CALIBRATION_LOG_REGISTRY,
@@ -43,9 +47,11 @@ const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
 // Filesystem helpers (isolated here so the pure logic stays testable)
 // ---------------------------------------------------------------------------
 
-async function resolveWorkspacePath(): Promise<string> {
-  // Use cwd as the workspace root; the calibration logs are always repo-relative.
-  return process.cwd();
+function resolveWorkspacePath(ctx?: CommandExecutionContext): string {
+  // Prefer the workspace resolved by the execution context (correct for MCP /
+  // session-scoped invocations where the server cwd is not the user's workspace);
+  // fall back to cwd for plain CLI use. The calibration logs are repo-relative.
+  return ctx?.workspacePath ?? process.cwd();
 }
 
 async function readFileOrNull(filePath: string): Promise<string | null> {
@@ -96,11 +102,12 @@ function formatResult(results: CalibrationLogResult[]): string {
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
     lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
+    lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
     if (r.lowDiversity) {
-      lines.push(`  ⚠  Low diversity (< 3 distinct phrases despite fires >= threshold)`);
+      lines.push(`  ⚠  Low diversity (count bar hit but < 3 distinct phrases) — keep collecting`);
     }
-    if (r.pastThreshold && r.newRecords.length > 0) {
+    if (r.atCountThreshold && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);
       for (const rec of r.newRecords.slice(0, 5)) {
         if ("matchedPhrases" in rec) {
@@ -166,9 +173,9 @@ export function registerCalibrationCommands(): void {
         defaultValue: false,
       },
     },
-    async execute(params, _ctx) {
+    async execute(params, ctx) {
       try {
-        const workspacePath = await resolveWorkspacePath();
+        const workspacePath = resolveWorkspacePath(ctx);
         const { join } = await import("node:path");
 
         // Build the reader function (resolves repo-relative paths)
@@ -209,6 +216,7 @@ export function registerCalibrationCommands(): void {
               watermarkCount: r.watermarkCount,
               firesSinceLastReview: r.firesSinceLastReview,
               distinctPhrases: r.distinctPhrases,
+              atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,
               pastThreshold: r.pastThreshold,
               newRecordCount: r.newRecords.length,
