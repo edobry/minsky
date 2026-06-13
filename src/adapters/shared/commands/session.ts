@@ -5,6 +5,7 @@
  * in the shared command registry.
  */
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./session/types";
 import {
   createSessionListCommand,
@@ -71,11 +72,19 @@ export async function registerSessionCommands(
     return cachedDeps;
   };
 
+  // Optional (non-throwing) persistence provider for best-effort event emission
+  // (mt#2487 session.started). Returns undefined when persistence isn't wired
+  // (e.g., CLI without a DB) so the emit skips silently rather than throwing.
+  const getOptionalPersistenceProvider = (): PersistenceProvider | undefined => {
+    if (!container?.has("persistence")) return undefined;
+    return container.get("persistence") as PersistenceProvider;
+  };
+
   const commands: CommandDefinition[] = [
     // Basic
     createSessionListCommand(getDeps),
     createSessionGetCommand(getDeps),
-    createSessionStartCommand(getDeps),
+    createSessionStartCommand(getDeps, getOptionalPersistenceProvider),
     createSessionDirCommand(getDeps),
     createSessionSearchCommand(getDeps),
     createSessionExecCommand(getDeps),

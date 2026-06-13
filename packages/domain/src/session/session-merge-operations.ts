@@ -1327,6 +1327,37 @@ export async function mergeSessionPr(
     }
   }
 
+  // Emit pr.merged system event (best-effort, informational — mt#2487).
+  // Mirrors emitTaskStatusChangedEvent: skip silently when no SQL-capable
+  // provider/DB is available; emission failure must never affect the merge.
+  // Wired in the in-band session_pr_merge path (the "at-merge" handler), which
+  // fires once per merge — webhook/sweeper/repair detection paths are out of
+  // scope here (they call applyPostMergeStateSync directly).
+  try {
+    const sqlProvider = deps.persistenceProvider as SqlCapablePersistenceProvider | undefined;
+    if (sqlProvider?.getDatabaseConnection) {
+      const db = await sqlProvider.getDatabaseConnection();
+      if (db) {
+        const { DrizzleEventEmitter } = await import("../events/emitter");
+        await new DrizzleEventEmitter(db).emit({
+          eventType: "pr.merged",
+          payload: {
+            prUrl: sessionRecord.pullRequest?.url,
+            prNumber: sessionRecord.pullRequest?.number,
+            taskId: sessionRecord.taskId ?? undefined,
+          },
+          relatedTaskId: sessionRecord.taskId ?? undefined,
+          relatedSessionId: sessionIdToUse,
+        });
+      }
+    }
+  } catch (err: unknown) {
+    log.warn("pr.merged: event emission failed (best-effort, swallowed)", {
+      session: sessionIdToUse,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   return {
     session: sessionIdToUse,
     taskId: sessionRecord.taskId,
