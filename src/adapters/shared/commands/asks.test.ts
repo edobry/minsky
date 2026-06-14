@@ -18,7 +18,8 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createAsk, respondToAsk, validateAsksCreateParams } from "./asks";
+import { createAsk, respondToAsk, validateAsksCreateParams, formatAskWaitMessage } from "./asks";
+import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
   getServiceWindowDefault,
@@ -1189,5 +1190,67 @@ describe("respondToAsk", () => {
 
     const persisted = await repo.getById(suspended.id);
     expect(persisted?.state).toBe("closed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatAskWaitMessage (mt#2266) — text-mode render contract
+// ---------------------------------------------------------------------------
+
+describe("formatAskWaitMessage", () => {
+  test("resolved result renders the responder, state, and payload", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: true,
+      ask: {} as never, // not read by the formatter
+      response: { responder: "operator", payload: { chosen: "A" } },
+      state: "closed",
+      elapsedMs: 1500,
+      pollCount: 2,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain("✓ Ask resolved (closed) by operator");
+    expect(msg).toContain("2 poll(s)");
+    // Object payloads are pretty-printed.
+    expect(msg).toContain('"chosen": "A"');
+  });
+
+  test("resolved result with a string payload renders it verbatim (no JSON quoting)", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: true,
+      ask: {} as never,
+      response: { responder: "operator", payload: "proceed with option B" },
+      state: "responded",
+      elapsedMs: 500,
+      pollCount: 1,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain("proceed with option B");
+    expect(msg).not.toContain('"proceed with option B"');
+  });
+
+  test("terminal-without-response result names the terminal state", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: false,
+      terminal: true,
+      lastState: "cancelled",
+      elapsedMs: 0,
+      pollCount: 1,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain('terminal state "cancelled" without a response');
+    expect(msg).toContain("can no longer be answered");
+  });
+
+  test("timeout result names the still-pending state", () => {
+    const result: AskWaitForResponseResult = {
+      resolved: false,
+      terminal: false,
+      lastState: "suspended",
+      elapsedMs: 30_000,
+      pollCount: 6,
+    };
+    const msg = formatAskWaitMessage(result);
+    expect(msg).toContain('Ask still pending (state "suspended")');
+    expect(msg).toContain("Timeout reached");
   });
 });

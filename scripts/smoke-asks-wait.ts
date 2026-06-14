@@ -25,27 +25,25 @@ import "reflect-metadata";
 
 import type { AskRepository } from "@minsky/domain/ask/repository";
 
-async function buildAskRepository(): Promise<AskRepository | null> {
+/**
+ * Build the repo via the SAME canonical path the MCP tool uses
+ * (`buildAskRepository` in the asks adapter — duck-typed on
+ * `getDatabaseConnection`), so the smoke exercises the production
+ * construction logic rather than a parallel re-implementation.
+ */
+async function buildRepo(): Promise<AskRepository | null> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
     "@minsky/domain/configuration"
   );
   const { createCliContainer } = await import("../src/composition/cli");
-  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-  const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
+  const { buildAskRepository } = await import("../src/adapters/shared/commands/asks");
 
   await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
 
   const container = await createCliContainer();
   await container.initialize();
 
-  const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-  if (!persistence || !(persistence instanceof PersistenceProvider)) return null;
-  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-    return null;
-  }
-  const connection = await persistence.getDatabaseConnection();
-  if (!connection) return null;
-  return new DrizzleAskRepository(connection);
+  return buildAskRepository(container);
 }
 
 async function main(): Promise<void> {
@@ -61,7 +59,7 @@ async function main(): Promise<void> {
   const timeoutSeconds = toIdx >= 0 ? parseInt(argv[toIdx + 1] as string, 10) : 2;
   const intervalSeconds = ivIdx >= 0 ? parseInt(argv[ivIdx + 1] as string, 10) : 5;
 
-  const repo = await buildAskRepository();
+  const repo = await buildRepo();
   if (!repo) {
     console.log("SKIP: no SQL-capable persistence provider available");
     process.exit(0);
