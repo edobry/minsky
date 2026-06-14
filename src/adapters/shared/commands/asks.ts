@@ -48,6 +48,10 @@ import {
   type ElicitationClosedAsk,
 } from "@minsky/domain/ask/transports/elicitation";
 import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
+import {
+  askWaitForResponse,
+  type AskWaitForResponseResult,
+} from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
@@ -654,6 +658,60 @@ export async function createAsk(
 }
 
 // ---------------------------------------------------------------------------
+// asks.wait-for-response — schemas + render helper (mt#2266)
+// ---------------------------------------------------------------------------
+
+const asksWaitForResponseParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description: "Ask ID (UUID) to wait on until it reaches responded/closed",
+    required: true,
+  },
+  timeoutSeconds: {
+    schema: z.number().int().positive(),
+    description: "Max seconds to wait (default 600; clamped to [1, 1800])",
+    required: false,
+    defaultValue: 600,
+  },
+  intervalSeconds: {
+    schema: z.number().int().positive(),
+    description: "Polling interval in seconds (default 15; clamped to [5, 60])",
+    required: false,
+    defaultValue: 15,
+  },
+};
+
+/**
+ * Render the text-mode message for an `asks.wait-for-response` result.
+ * Exported (pure) so the format contract can be unit-tested independently of
+ * the wait tool's dependency chain — mirrors `formatMatchMessage` /
+ * `formatTimeoutMessage` in the session PR wait-for-review adapter.
+ */
+export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
+  const secs = Math.round(result.elapsedMs / 1000);
+  if (result.resolved) {
+    const payload = result.response.payload;
+    const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    return [
+      `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
+        `after ${secs}s / ${result.pollCount} poll(s)`,
+      "",
+      payloadStr,
+    ].join("\n");
+  }
+  if (result.terminal) {
+    return (
+      `✗ Ask reached terminal state "${result.lastState}" without a response ` +
+      `after ${secs}s / ${result.pollCount} poll(s). It can no longer be answered.`
+    );
+  }
+  return (
+    `⏳ Ask still pending (state "${result.lastState}") after ${secs}s / ` +
+    `${result.pollCount} poll(s). Timeout reached without a response — re-wait or act on the pending state.`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -869,6 +927,40 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         }
 
         return result;
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.wait-for-response",
+      category: CommandCategory.TOOLS,
+      name: "wait-for-response",
+      description:
+        "Block until an Ask reaches responded/closed (returns the response payload), " +
+        "or a cancelled/expired terminal state, or the timeout elapses. " +
+        "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
+        "Caller-managed gating: does NOT mutate task status.",
+      // requiresSetup: false — depends only on the persistence provider
+      // (like asks.respond), not on global Minsky configuration.
+      requiresSetup: false,
+      parameters: asksWaitForResponseParams,
+      execute: async (params): Promise<AskWaitForResponseResult> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.wait-for-response: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        return askWaitForResponse(
+          {
+            id: params.id as string,
+            timeoutSeconds: params.timeoutSeconds as number | undefined,
+            intervalSeconds: params.intervalSeconds as number | undefined,
+          },
+          { repo }
+        );
       },
     })
   );
