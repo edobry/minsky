@@ -77,6 +77,18 @@ What's mid-flight or unresolved?
 - Investigations that surfaced a problem but didn't fix it
 - Spec calibrations the user might want to review before implementation
 
+**Ask-or-cite-ask for principal-gated threads (mt#2471).** If an open thread is gated on a
+**principal-owned decision** (architectural direction, scope, framework, naming — the kinds
+`humility.mdc` reserves for the principal), do NOT surface it as chat prose ("X needs your
+call", "that decision is yours") and end the handoff. Route it through the Ask substrate:
+file it via `mcp__minsky__asks_create` (kind `direction.decide`, packaged per
+`humility.mdc §Escalation packaging`) OR cite the id of an existing open ask. Chat prose
+evaporates and never reaches the attention surface; an ask persists and is answerable on the
+cockpit `/ask` surface. (For a non-principal next-step a lookup or standing default resolves,
+that's a normal "Suggested next sessions" entry, not an ask.) This is the handoff enforcement
+of the escalation-packaging family (memory `3e3f29d8`; R4 2026-06-12 was an end-of-session
+handoff that named the mt#2372 lens decision in prose with no ask).
+
 ### 6. Recommend next sessions
 
 In **priority order**, list 1-4 specific next-session kickoffs. Each entry:
