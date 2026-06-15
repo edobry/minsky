@@ -91,6 +91,30 @@ async function main(): Promise<number> {
         : `discovery HTTP ${discoveryResp.status}`,
   });
 
+  // ---- 1b. Unauthenticated /mcp 401 carries WWW-Authenticate (mt#2493, RFC 9728) ----
+  const unauthResp = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+  });
+  const wwwAuth = unauthResp.headers.get("www-authenticate") ?? "";
+  // Derive the expected scheme from BASE_URL so the check also holds for a
+  // non-TLS (http) self-hosted target, not only the TLS-terminated prod host.
+  const expectedScheme = base.startsWith("https://") ? "https" : "http";
+  const resourceMetadataRe = new RegExp(
+    `resource_metadata="${expectedScheme}://[^"]+/\\.well-known/oauth-protected-resource"`
+  );
+  results.push({
+    name: "401 carries WWW-Authenticate with resource_metadata",
+    ok: unauthResp.status === 401 && /^Bearer\b/.test(wwwAuth) && resourceMetadataRe.test(wwwAuth),
+    detail:
+      unauthResp.status === 401
+        ? wwwAuth
+          ? `WWW-Authenticate: ${wwwAuth}`
+          : "401 but NO WWW-Authenticate header"
+        : `expected 401, got HTTP ${unauthResp.status}`,
+  });
+
   // ---- 2. Dynamic Client Registration -----------------------------------------
   const regResp = await fetch(`${base}/register`, {
     method: "POST",
