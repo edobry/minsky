@@ -327,6 +327,29 @@ export function composeRequestBaseUrl(req: import("express").Request): string {
 }
 
 /**
+ * Build the RFC 9728 §5.1 `WWW-Authenticate: Bearer ...` challenge for a 401
+ * from the OAuth-protected MCP endpoint. Always includes the `resource_metadata`
+ * parameter pointing at this server's protected-resource-metadata document
+ * (`${baseUrl}/.well-known/oauth-protected-resource`), so a spec-compliant MCP
+ * client can discover the authorization server straight from the 401 instead of
+ * having to know to probe the well-known path itself. Optional RFC 6750
+ * `error` / `error_description` parameters describe an invalid/expired/revoked
+ * token. The base URL is derived from the request (honoring `trust proxy`), so
+ * it matches the URL the client actually used to reach the resource. mt#2493.
+ */
+export function composeWwwAuthenticate(
+  req: import("express").Request,
+  opts?: { error?: string; errorDescription?: string }
+): string {
+  const resourceMetadataUrl = `${composeRequestBaseUrl(req)}/.well-known/oauth-protected-resource`;
+  const params: string[] = [];
+  if (opts?.error) params.push(`error="${opts.error}"`);
+  if (opts?.errorDescription) params.push(`error_description="${opts.errorDescription}"`);
+  params.push(`resource_metadata="${resourceMetadataUrl}"`);
+  return `Bearer ${params.join(", ")}`;
+}
+
+/**
  * Ensure a route path starts with a single leading slash. Used when the
  * user-configurable `--endpoint` value is embedded into a public metadata
  * URL: `--endpoint mcp` (no leading slash) would otherwise produce an
@@ -424,6 +447,8 @@ async function startHttpServer(
         // OAuth-token path: try to validate as an OAuth-issued token.
         const bearer = extractBearer(header);
         if (!bearer) {
+          // mt#2493: advertise OAuth discovery on the 401 per RFC 9728 §5.1.
+          res.set("WWW-Authenticate", composeWwwAuthenticate(req));
           res.status(401).json({
             error: "unauthorized",
             message: "valid bearer token required",
@@ -456,6 +481,13 @@ async function startHttpServer(
                 : oauthResult.reason === "revoked"
                   ? "token revoked"
                   : "invalid token";
+          // mt#2493: advertise OAuth discovery + the RFC 6750 token error on the
+          // 401 per RFC 9728 §5.1, so a spec-compliant client can re-discover and
+          // re-authorize.
+          res.set(
+            "WWW-Authenticate",
+            composeWwwAuthenticate(req, { error: errorCode, errorDescription: description })
+          );
           res.status(401).json({
             error: errorCode,
             error_description: description,
@@ -482,6 +514,11 @@ async function startHttpServer(
         }
       } else {
         // No OAuth provider available; static-bearer check already failed.
+        // mt#2493: emit a bare RFC 6750 Bearer challenge. No `resource_metadata`
+        // here — without an OAuth provider the
+        // `/.well-known/oauth-protected-resource` route is not registered, so
+        // there is nothing to advertise for discovery.
+        res.set("WWW-Authenticate", "Bearer");
         res.status(401).json({
           error: "unauthorized",
           message: "valid bearer token required",

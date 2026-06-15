@@ -5,6 +5,7 @@ import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   checkBearerAuth,
   composeRequestBaseUrl,
+  composeWwwAuthenticate,
   normalizeEndpointPath,
   extractBearer,
   validateOAuthBearer,
@@ -30,6 +31,11 @@ const ERR_INVALID_CLIENT_METADATA: string = "invalid_" + "client_metadata";
 const ERR_SERVICE_UNAVAILABLE: string = "service_" + "unavailable";
 const ERR_SERVER_ERROR: string = "server_" + "error";
 const ERR_REGISTRATION_NOT_SUPPORTED: string = "registration_" + "not_supported";
+// mt#2493 dedup constants (concatenated to match the file convention above).
+const WWW_AUTHENTICATE: string = "WWW-" + "Authenticate";
+const HDR_X_FORWARDED_PROTO: string = "X-Forwarded-" + "Proto";
+const HDR_X_FORWARDED_HOST: string = "X-Forwarded-" + "Host";
+const AUDIENCE_MISMATCH_DESC: string = "audience" + " mismatch";
 const GRANT_AUTHORIZATION_CODE: string = "authorization_" + "code";
 
 /**
@@ -706,8 +712,8 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
         `http://127.0.0.1:${PORT_X_FORWARDED}/.well-known/oauth-authorization-server`,
         {
           headers: {
-            "X-Forwarded-Proto": "https",
-            "X-Forwarded-Host": "minsky-mcp-production.up.railway.app",
+            [HDR_X_FORWARDED_PROTO]: "https",
+            [HDR_X_FORWARDED_HOST]: "minsky-mcp-production.up.railway.app",
           },
         }
       );
@@ -998,6 +1004,9 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
   }) => {
     const expressModule = await import("express");
     const expressApp = expressModule.default();
+    // mt#2493: mirror production's trust-proxy so X-Forwarded-Proto/Host drive
+    // the request base URL (and thus the WWW-Authenticate resource_metadata URL).
+    expressApp.set("trust proxy", 1);
     expressApp.use(expressModule.default.json());
 
     const { checkBearerAuth: chkAuth, extractBearer: exBearer } = await import("./start-command");
@@ -1023,6 +1032,7 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
         } else if (oauthProvider) {
           const bearer = exBearer(header);
           if (!bearer) {
+            res.set(WWW_AUTHENTICATE, composeWwwAuthenticate(req));
             res.status(401).json({ error: "unauthorized", message: "valid bearer token required" });
             return;
           }
@@ -1037,6 +1047,10 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
                 : oauthResult.reason === "expired"
                   ? "token expired"
                   : "invalid token";
+            res.set(
+              WWW_AUTHENTICATE,
+              composeWwwAuthenticate(req, { error: errorCode, errorDescription: description })
+            );
             res.status(401).json({ error: errorCode, error_description: description });
             return;
           }
@@ -1059,6 +1073,7 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
             }
           }
         } else {
+          res.set(WWW_AUTHENTICATE, "Bearer");
           res.status(401).json({ error: "unauthorized", message: "valid bearer token required" });
           return;
         }
@@ -1294,6 +1309,87 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  // ---- mt#2493: WWW-Authenticate header on the OAuth 401 (RFC 9728 §5.1) ----
+
+  const PORT_WWWAUTH_MISSING = 41080;
+  const PORT_WWWAUTH_INVALID = 41081;
+  const FORWARDED_HOST = "minsky-mcp-production.up.railway.app";
+
+  test("401 (missing bearer) carries WWW-Authenticate with the https resource_metadata URL (mt#2493)", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "not_found" });
+    const app = await buildMcpAuthApp({ provider });
+    const server = app.listen(PORT_WWWAUTH_MISSING);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_WWWAUTH_MISSING}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          // Simulate the TLS-terminating edge so the advertised metadata URL is https.
+          [HDR_X_FORWARDED_PROTO]: "https",
+          [HDR_X_FORWARDED_HOST]: FORWARDED_HOST,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const wwwAuth = response.headers.get("www-authenticate");
+      expect(wwwAuth).toMatch(
+        /^Bearer .*resource_metadata="https:\/\/minsky-mcp-production\.up\.railway\.app\/\.well-known\/oauth-protected-resource"/
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("401 (invalid token) carries WWW-Authenticate with the RFC 6750 error + resource_metadata (mt#2493)", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "expired" });
+    const app = await buildMcpAuthApp({ provider });
+    const server = app.listen(PORT_WWWAUTH_INVALID);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_WWWAUTH_INVALID}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Bearer some-expired-token",
+          [HDR_X_FORWARDED_PROTO]: "https",
+          [HDR_X_FORWARDED_HOST]: FORWARDED_HOST,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const wwwAuth = response.headers.get("www-authenticate") ?? "";
+      expect(wwwAuth).toMatch(/^Bearer /);
+      expect(wwwAuth).toContain('error="unauthorized"');
+      expect(wwwAuth).toMatch(
+        /resource_metadata="https:\/\/minsky-mcp-production\.up\.railway\.app\/\.well-known\/oauth-protected-resource"/
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("composeWwwAuthenticate builds the RFC 9728 challenge from the request (mt#2493)", () => {
+    const req = {
+      protocol: "https",
+      hostname: FORWARDED_HOST,
+    } as unknown as import("express").Request;
+
+    // Bare discovery hint (no token error).
+    expect(composeWwwAuthenticate(req)).toBe(
+      'Bearer resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
+    );
+
+    // With RFC 6750 error params (invalid/expired/revoked token case).
+    expect(
+      composeWwwAuthenticate(req, {
+        error: "invalid_token",
+        errorDescription: AUDIENCE_MISMATCH_DESC,
+      })
+    ).toBe(
+      'Bearer error="invalid_token", error_description="audience mismatch", ' +
+        'resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
+    );
   });
 });
 
