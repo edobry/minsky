@@ -161,22 +161,63 @@ describe("InProcessOAuthProvider — Provider construction regression (mt#1703)"
 // HTTP needed).
 
 describe("InProcessOAuthProvider — proxy-trust regression (mt#1780)", () => {
-  test("getProvider() sets provider.proxy=true so Koa honors X-Forwarded-Proto", async () => {
+  // The oidc-provider `Provider` class EXTENDS Koa, so the instance IS the Koa
+  // app: `provider.proxy` is Koa's `app.proxy` and `provider.createContext` is
+  // Koa's. Build the provider and trigger getProvider() (via discoveryMetadata,
+  // which needs no DB) to construct that instance with the proxy flag set.
+  type KoaProviderInternals = {
+    proxy: boolean;
+    createContext: (
+      req: unknown,
+      res: unknown
+    ) => { request: { protocol: string; secure: boolean; href: string } };
+  };
+
+  async function buildKoaProvider(): Promise<KoaProviderInternals> {
     const provider = new InProcessOAuthProvider({
       db: makeStubDb(),
       issuer: "https://test.example.com",
     });
-
-    // discoveryMetadata() triggers getProvider() → Provider construction + the
-    // proxy flag being set.
     await provider.discoveryMetadata(mockReq());
+    return (provider as unknown as { provider: KoaProviderInternals }).provider;
+  }
 
-    // Reach into the private oidc-provider instance. `provider.proxy` is
-    // oidc-provider's documented setter mapping to Koa's `app.proxy`; with it
-    // true, request-derived URLs (interaction form action, redirects) render
-    // `https` and cookies get `Secure` behind a TLS-terminating proxy.
-    const oidc = (provider as unknown as { provider: { proxy: boolean } }).provider;
-    expect(oidc.proxy).toBe(true);
+  test("getProvider() sets provider.proxy=true (Koa app.proxy) so X-Forwarded-* is trusted", async () => {
+    const koa = await buildKoaProvider();
+    expect(koa.proxy).toBe(true);
+  });
+
+  test("behind X-Forwarded-Proto: https the Koa layer derives https origin + secure (the values the consent form action and Secure cookie are built from)", async () => {
+    const koa = await buildKoaProvider();
+
+    // Minimal Node-request shape Koa.createContext needs. `socket.encrypted` is
+    // falsy — exactly the plain-TCP situation behind a TLS-terminating edge —
+    // so the only `https` signal is `X-Forwarded-Proto`, which Koa honors IFF
+    // `app.proxy` is true (Koa 3 request.protocol getter). With the mt#1780 fix
+    // absent, `protocol` would be "http", `secure` false, and `href` http://.
+    const req = {
+      headers: {
+        "x-forwarded-proto": "https",
+        host: "minsky-mcp-production.up.railway.app",
+      },
+      socket: {},
+      url: "/interaction/abc123",
+      method: "GET",
+    };
+    const ctx = koa.createContext(req, {});
+
+    // oidc-provider's devInteractions renders the consent form `action` as an
+    // ABSOLUTE URL (scheme + host + path, the same shape as `ctx.request.href`),
+    // and sets the `_interaction` cookie's `Secure` attribute from
+    // `ctx.request.secure`. Asserting these here is asserting the consent form
+    // action scheme and the cookie Secure flag at the exact layer that produces
+    // them — in default CI, no DB / HTTP. (Koa 3's `request.origin` is the CORS
+    // Origin header, not scheme+host; `href` is the full scheme+host+path URL.)
+    expect(ctx.request.protocol).toBe("https");
+    expect(ctx.request.secure).toBe(true);
+    expect(ctx.request.href).toBe(
+      "https://minsky-mcp-production.up.railway.app/interaction/abc123"
+    );
   });
 });
 

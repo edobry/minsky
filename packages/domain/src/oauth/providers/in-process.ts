@@ -460,6 +460,17 @@ exception:         ${escapeHtml(errAsError?.constructor?.name ?? "Error")}: ${es
     // and cookies get `Secure`. The Express-served discovery endpoints were
     // already correct because Express has its own trust-proxy setting; this
     // closes the same gap on the oidc-provider Koa layer.
+    //
+    // Security assumption: trusting `X-Forwarded-Proto` unconditionally is safe
+    // here because (a) the same trust is ALREADY granted at the Express layer
+    // (`trust proxy = 1`), and (b) the deployment always sits behind Railway's
+    // edge, which sets `X-Forwarded-*` on inbound requests. When the header is
+    // ABSENT (e.g. a local `curl` with no proxy in front), Koa 3's
+    // `request.protocol` falls back to `"http"` — so a non-proxied dev request
+    // is NOT misclassified as https. The only residual risk is a forged
+    // `X-Forwarded-Proto` from a client able to reach the app directly
+    // (bypassing the edge), which is the identical residual risk Express's
+    // `trust proxy = 1` already accepts for this single-tenant server.
     this.provider.proxy = true;
 
     return this.provider;
