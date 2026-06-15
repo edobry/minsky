@@ -445,6 +445,23 @@ exception:         ${escapeHtml(errAsError?.constructor?.name ?? "Error")}: ${es
       httpOptions: () => ({ timeout: 30000 }),
     }) as OidcProvider;
 
+    // mt#1780: oidc-provider runs as its OWN Koa app and does NOT inherit
+    // Express's `app.set("trust proxy", 1)` (set in start-command.ts). Behind a
+    // TLS-terminating edge (Railway), Koa derives the request protocol from its
+    // own `app.proxy` flag — which defaults OFF — so it sees `http` even though
+    // the client connection is `https`. The consequence: the devInteractions
+    // consent/login form renders `action="http://.../interaction/<uid>"` and the
+    // `_interaction` session cookie is not marked `Secure`. In the claude.ai web
+    // connector flow (a strict-HTTPS browser context) that `http` form submission
+    // is active mixed content — the browser blocks/upgrades it, the
+    // authorization-code step never completes, and the connector stays
+    // unauthenticated. Setting `proxy = true` makes Koa honor `X-Forwarded-Proto`,
+    // so every request-derived URL (form action, redirects) renders `https://`
+    // and cookies get `Secure`. The Express-served discovery endpoints were
+    // already correct because Express has its own trust-proxy setting; this
+    // closes the same gap on the oidc-provider Koa layer.
+    this.provider.proxy = true;
+
     return this.provider;
   }
 

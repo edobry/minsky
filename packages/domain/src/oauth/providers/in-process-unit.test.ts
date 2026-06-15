@@ -140,6 +140,47 @@ describe("InProcessOAuthProvider — Provider construction regression (mt#1703)"
 });
 
 // ---------------------------------------------------------------------------
+// Proxy-trust regression — mt#1780
+// ---------------------------------------------------------------------------
+//
+// oidc-provider runs as its OWN Koa app and does NOT inherit Express's
+// `app.set("trust proxy", 1)`. Behind a TLS-terminating edge (Railway), Koa
+// derives the request protocol from its own `app.proxy` flag — default OFF —
+// so the devInteractions consent form action renders `http://.../interaction/<uid>`
+// and the `_interaction` cookie is not `Secure`. In the claude.ai web connector
+// flow (a strict-HTTPS browser context) that http form submission is active
+// mixed content → blocked/upgraded → the authorization-code step never completes
+// → the connector stays unauthenticated.
+//
+// The fix sets `this.provider.proxy = true` in getProvider(). This test locks
+// it: before the fix `proxy` is the Koa default (false); after, true. The
+// existing start-command integration test ("X-Forwarded-Proto: https is
+// forwarded correctly") only asserts the EXPRESS discovery endpoint — it never
+// exercises the oidc-provider Koa layer, which is why the http leak shipped.
+// This unit test closes that coverage gap at the provider layer (no DB / no
+// HTTP needed).
+
+describe("InProcessOAuthProvider — proxy-trust regression (mt#1780)", () => {
+  test("getProvider() sets provider.proxy=true so Koa honors X-Forwarded-Proto", async () => {
+    const provider = new InProcessOAuthProvider({
+      db: makeStubDb(),
+      issuer: "https://test.example.com",
+    });
+
+    // discoveryMetadata() triggers getProvider() → Provider construction + the
+    // proxy flag being set.
+    await provider.discoveryMetadata(mockReq());
+
+    // Reach into the private oidc-provider instance. `provider.proxy` is
+    // oidc-provider's documented setter mapping to Koa's `app.proxy`; with it
+    // true, request-derived URLs (interaction form action, redirects) render
+    // `https` and cookies get `Secure` behind a TLS-terminating proxy.
+    const oidc = (provider as unknown as { provider: { proxy: boolean } }).provider;
+    expect(oidc.proxy).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DCR token_endpoint_auth_method regression tests — mt#1746
 // ---------------------------------------------------------------------------
 //
