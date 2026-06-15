@@ -55,6 +55,7 @@
     "test:reviewer": "cd services/reviewer && bun run test",
     "validate-commit": "bun scripts/validate-commit-message.ts",
     "smoke:gh-timeout": "bun scripts/smoke-mt2245-github-timeout.ts",
+    "smoke:oauth-consent": "bun scripts/smoke-oauth-consent-https.ts",
     "typecheck": "bunx @typescript/native-preview --noEmit",
     "typecheck:hooks": "bunx @typescript/native-preview --noEmit -p tsconfig.hooks.json",
     "validate-all": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run test:eslint-rules",
