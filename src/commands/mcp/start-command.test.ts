@@ -32,6 +32,8 @@ const ERR_SERVICE_UNAVAILABLE: string = "service_" + "unavailable";
 const ERR_SERVER_ERROR: string = "server_" + "error";
 const ERR_REGISTRATION_NOT_SUPPORTED: string = "registration_" + "not_supported";
 // mt#2493 dedup constants (concatenated to match the file convention above).
+// Canonical-case header NAME for res.set(); Node lowercases header names on
+// retrieval, so reads use response.headers.get("www-authenticate") (lowercase).
 const WWW_AUTHENTICATE: string = "WWW-" + "Authenticate";
 const HDR_X_FORWARDED_PROTO: string = "X-Forwarded-" + "Proto";
 const HDR_X_FORWARDED_HOST: string = "X-Forwarded-" + "Host";
@@ -1389,6 +1391,27 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
     ).toBe(
       'Bearer error="invalid_token", error_description="audience mismatch", ' +
         'resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
+    );
+  });
+
+  test("composeWwwAuthenticate escapes quotes/backslashes in quoted-string values (mt#2493)", () => {
+    const req = {
+      protocol: "https",
+      hostname: FORWARDED_HOST,
+    } as unknown as import("express").Request;
+
+    // A description carrying a raw double-quote and a backslash must be escaped
+    // per RFC 7230 quoted-string rules so it stays one well-formed parameter and
+    // cannot inject a sibling auth-param.
+    const header = composeWwwAuthenticate(req, {
+      error: "invalid_token",
+      errorDescription: 'a " quote and a \\ slash',
+    });
+
+    expect(header).toContain('error_description="a \\" quote and a \\\\ slash"');
+    // resource_metadata still follows as its own well-formed parameter.
+    expect(header).toContain(
+      'resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
     );
   });
 });

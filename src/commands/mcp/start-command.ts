@@ -337,15 +337,29 @@ export function composeRequestBaseUrl(req: import("express").Request): string {
  * token. The base URL is derived from the request (honoring `trust proxy`), so
  * it matches the URL the client actually used to reach the resource. mt#2493.
  */
+/**
+ * Escape a value for use inside an RFC 7230 `quoted-string` (the form
+ * `WWW-Authenticate` auth-param values take). Backslash MUST be escaped before
+ * the double-quote, otherwise the backslash inserted to escape a `"` would
+ * itself be re-escaped. Today's callers pass fixed token-like strings, but the
+ * helper is exported, so this guards a future caller from passing a value with
+ * a `"` or `\` that would otherwise break header framing or inject a parameter.
+ */
+function escapeQuotedString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 export function composeWwwAuthenticate(
   req: import("express").Request,
   opts?: { error?: string; errorDescription?: string }
 ): string {
   const resourceMetadataUrl = `${composeRequestBaseUrl(req)}/.well-known/oauth-protected-resource`;
   const params: string[] = [];
-  if (opts?.error) params.push(`error="${opts.error}"`);
-  if (opts?.errorDescription) params.push(`error_description="${opts.errorDescription}"`);
-  params.push(`resource_metadata="${resourceMetadataUrl}"`);
+  if (opts?.error) params.push(`error="${escapeQuotedString(opts.error)}"`);
+  if (opts?.errorDescription) {
+    params.push(`error_description="${escapeQuotedString(opts.errorDescription)}"`);
+  }
+  params.push(`resource_metadata="${escapeQuotedString(resourceMetadataUrl)}"`);
   return `Bearer ${params.join(", ")}`;
 }
 

@@ -98,12 +98,15 @@ async function main(): Promise<number> {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
   });
   const wwwAuth = unauthResp.headers.get("www-authenticate") ?? "";
+  // Derive the expected scheme from BASE_URL so the check also holds for a
+  // non-TLS (http) self-hosted target, not only the TLS-terminated prod host.
+  const expectedScheme = base.startsWith("https://") ? "https" : "http";
+  const resourceMetadataRe = new RegExp(
+    `resource_metadata="${expectedScheme}://[^"]+/\\.well-known/oauth-protected-resource"`
+  );
   results.push({
     name: "401 carries WWW-Authenticate with resource_metadata",
-    ok:
-      unauthResp.status === 401 &&
-      /^Bearer\b/.test(wwwAuth) &&
-      /resource_metadata="https:\/\/[^"]+\/\.well-known\/oauth-protected-resource"/.test(wwwAuth),
+    ok: unauthResp.status === 401 && /^Bearer\b/.test(wwwAuth) && resourceMetadataRe.test(wwwAuth),
     detail:
       unauthResp.status === 401
         ? wwwAuth
