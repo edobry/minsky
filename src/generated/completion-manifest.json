@@ -4518,6 +4518,22 @@
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
                 }
               ]
+            },
+            {
+              "name": "wait-for-response",
+              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status.",
+              "options": [
+                {
+                  "flags": ["--timeout-seconds"],
+                  "description": "Max seconds to wait (default 600; clamped to [1, 1800])",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--interval-seconds"],
+                  "description": "Polling interval in seconds (default 15; clamped to [5, 60])",
+                  "takesValue": true
+                }
+              ]
             }
           ]
         },
@@ -4834,6 +4850,36 @@
                   "takesValue": true
                 }
               ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "observability",
+      "description": "OBSERVABILITY commands",
+      "subcommands": [
+        {
+          "name": "calibration-review",
+          "description": "Review hook-calibration JSONL logs: count fires, check diversity threshold, and return unreviewed records. Read-only by default; pass --ack to advance watermarks after inspection.",
+          "options": [
+            {
+              "flags": ["--ack"],
+              "description": "Advance the watermark for all past-threshold logs, marking them as reviewed. Without this flag the command is read-only."
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output results as JSON instead of human-readable text."
+            }
+          ]
+        },
+        {
+          "name": "smoke-test",
+          "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output as JSON"
             }
           ]
         }
@@ -5500,22 +5546,6 @@
                   "takesValue": true
                 }
               ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "observability",
-      "description": "OBSERVABILITY commands",
-      "subcommands": [
-        {
-          "name": "smoke-test",
-          "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
-          "options": [
-            {
-              "flags": ["--json"],
-              "description": "Output as JSON"
             }
           ]
         }
