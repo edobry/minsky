@@ -24,6 +24,8 @@ import {
 // Shared string constants (extracted to satisfy no-magic-string-duplication).
 const CAUSAL_PATH = ".minsky/causal-premise-calibration.jsonl";
 const RETRO_KIND = "retrospective-trigger";
+const DEFERRAL_KIND = "ask-routing-deferral";
+const DEFERRAL_CLASS = "principal-reserved";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -51,6 +53,19 @@ function makeRetroRecord(
   });
 }
 
+function makeDeferralRecord(
+  matches: Array<{ class: string; phrase: string }> = [
+    { class: DEFERRAL_CLASS, phrase: "needs your call" },
+  ]
+): string {
+  return JSON.stringify({
+    timestamp: "2026-06-16T00:00:00Z",
+    session_id: "test-session",
+    injection_enabled: false,
+    matches,
+  });
+}
+
 function buildLines(count: number, makeLine: (i: number) => string): string {
   return Array.from({ length: count }, (_, i) => makeLine(i)).join("\n");
 }
@@ -60,8 +75,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has two entries in v1", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(2);
+  test("has three entries (causal-premise, retrospective-trigger, ask-routing-deferral)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(3);
   });
 
   test("first entry is causal-premise", () => {
@@ -72,6 +87,14 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
   test("second entry is retrospective-trigger", () => {
     expect(CALIBRATION_LOG_REGISTRY[1]?.kind).toBe(RETRO_KIND);
     expect(CALIBRATION_LOG_REGISTRY[1]?.name).toBe(RETRO_KIND);
+  });
+
+  test("third entry is ask-routing-deferral (mt#2498)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[2]?.kind).toBe(DEFERRAL_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[2]?.name).toBe(DEFERRAL_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[2]?.path).toBe(
+      ".minsky/ask-routing-deferral-calibration.jsonl"
+    );
   });
 });
 
@@ -112,6 +135,21 @@ describe("parseCalibrationRecord", () => {
     expect(result).not.toBeNull();
     if (!result || !("matches" in result)) throw new Error("wrong type");
     expect(result.matches).toEqual([]);
+  });
+
+  test("parses an ask-routing-deferral record (class-keyed matches, mt#2498)", () => {
+    // The hook writes { matches: [{class, phrase}] } — `class` not `family`.
+    const line = JSON.stringify({
+      timestamp: "2026-06-16T00:00:00Z",
+      session_id: "test-session",
+      injection_enabled: false,
+      matches: [{ class: DEFERRAL_CLASS, phrase: "needs your call" }],
+    });
+    const result = parseCalibrationRecord(line, DEFERRAL_KIND);
+    expect(result).not.toBeNull();
+    if (!result || !("matches" in result)) throw new Error("wrong type");
+    // `class` is read into the `family` field; `phrase` is preserved.
+    expect(result.matches).toEqual([{ family: DEFERRAL_CLASS, phrase: "needs your call" }]);
   });
 });
 
@@ -207,6 +245,12 @@ const RETRO_ENTRY: CalibrationLogEntry = {
   kind: RETRO_KIND,
 };
 
+const DEFERRAL_ENTRY: CalibrationLogEntry = {
+  path: ".minsky/ask-routing-deferral-calibration.jsonl",
+  name: DEFERRAL_KIND,
+  kind: DEFERRAL_KIND,
+};
+
 describe("computeLogResult — below threshold", () => {
   test("not past threshold with 0 fires", () => {
     const result = computeLogResult(CAUSAL_ENTRY, "", false, undefined);
@@ -272,6 +316,41 @@ describe("computeLogResult — at or above threshold", () => {
     expect(result.pastThreshold).toBe(true);
     expect(result.distinctPhrases).toBeGreaterThanOrEqual(DIVERSITY_THRESHOLD);
     expect(result.lowDiversity).toBe(false);
+  });
+});
+
+describe("computeLogResult — ask-routing-deferral kind (mt#2498)", () => {
+  test("enumerates fires + distinct phrases from class-keyed records against a fixture", () => {
+    // Fixture: FIRES_THRESHOLD records, each a distinct {class, phrase} match,
+    // so both the count bar and the diversity bar are cleared.
+    const count = FIRES_THRESHOLD;
+    const content = buildLines(count, (i) =>
+      makeDeferralRecord([{ class: DEFERRAL_CLASS, phrase: `deferral phrase ${i}` }])
+    );
+    const result = computeLogResult(DEFERRAL_ENTRY, content, true, undefined);
+    expect(result.totalFires).toBe(count);
+    expect(result.firesSinceLastReview).toBe(count);
+    expect(result.distinctPhrases).toBe(count);
+    expect(result.lowDiversity).toBe(false);
+    expect(result.pastThreshold).toBe(true);
+  });
+
+  test("counts distinct phrases across multi-match records (class-keyed)", () => {
+    // Two records, 3 distinct phrases total — phrase dedup works on the
+    // class-keyed shape exactly as it does for retrospective-trigger.
+    const content = [
+      makeDeferralRecord([
+        { class: DEFERRAL_CLASS, phrase: "needs your call" },
+        { class: "deferral-menu", phrase: "what's your call?" },
+      ]),
+      makeDeferralRecord([
+        { class: DEFERRAL_CLASS, phrase: "needs your call" }, // dup
+        { class: "deferral-menu", phrase: "say the word" },
+      ]),
+    ].join("\n");
+    const result = computeLogResult(DEFERRAL_ENTRY, content, true, undefined);
+    expect(result.totalFires).toBe(2);
+    expect(result.distinctPhrases).toBe(3);
   });
 });
 
