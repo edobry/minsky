@@ -32,7 +32,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import { getStateDir } from "./lifecycle";
+import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -111,7 +111,9 @@ export function writeProdStateCache(
     const dir = path.dirname(cachePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const record: ProdStateCacheRecord = { ...snapshot, checkedAt: nowIso };
-    fs.writeFileSync(cachePath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    // Atomic temp+rename (handles crash mid-write + Windows rename semantics) via the
+    // shared helper — a partial/corrupt cache would otherwise read back as UNKNOWN.
+    atomicWriteJSON(cachePath, record);
     return true;
   } catch (err) {
     log.warn("prod-state-cache: failed to write cache", {

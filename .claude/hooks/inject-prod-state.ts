@@ -49,11 +49,17 @@ const PROD_STATE_CACHE_FILENAME = "prod-state-cache.json";
 
 /** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
 function getStateDir(): string {
-  const envDir = process.env["MINSKY_STATE_DIR"];
-  if (envDir) return envDir;
-  const xdg = process.env["XDG_STATE_HOME"];
-  const base = xdg && xdg.length > 0 ? xdg : path.join(os.homedir(), ".local", "state");
-  return path.join(base, "minsky");
+  // MUST match the producer's path EXACTLY (the cache is written by src/cockpit, read here).
+  // cockpit getStateDir() (src/cockpit/lifecycle.ts) = MINSKY_STATE_DIR override, else
+  // getMinskyStateDir() from packages/shared/src/paths.ts =
+  //   join(XDG_STATE_HOME || join(process.env.HOME || homedir(), ".local/state"), "minsky").
+  // This hook is a separate module graph and cannot import those; replicate precisely —
+  // note the `process.env.HOME || os.homedir()` precedence (paths.ts uses HOME first).
+  const override = process.env["MINSKY_STATE_DIR"];
+  if (override) return override;
+  const xdgStateHome =
+    process.env["XDG_STATE_HOME"] || path.join(process.env["HOME"] || os.homedir(), ".local/state");
+  return path.join(xdgStateHome, "minsky");
 }
 
 function getProdStateCachePath(): string {
