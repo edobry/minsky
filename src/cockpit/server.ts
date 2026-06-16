@@ -234,6 +234,67 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// Prod-state cache refresh sweeper (mt#2506)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default refresh interval for the prod-state cache. Kept well below the consumer hook's
+ * staleness threshold (`PROD_STATE_STALENESS_MS` = 30m in inject-prod-state.ts) so a healthy
+ * sweep keeps the injected snapshot labelled "fresh"; only a stalled/absent sweep trips the
+ * hook's STALE path.
+ */
+const PROD_STATE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * Start the periodic prod-state cache refresh in this cockpit process (mt#2506).
+ *
+ * The PRODUCER half of the hybrid cached-injection for the R10 no-tool-boundary status-claim
+ * seam: reads the prod migration ledger via the provider's raw-SQL connection and writes a
+ * small local cache that `.claude/hooks/inject-prod-state.ts` injects each turn. Doing the
+ * network read here (once at boot, then every `intervalMs`) keeps the per-turn hook read
+ * cheap (local fs only) per memory `08606f7c`'s ≤50ms bar.
+ *
+ * Fail-open: no DB / unreadable ledger / a failed pass logs and waits for the next tick —
+ * never crashes the cockpit, and leaves the last-good cache in place. Overlapping ticks skip.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const { getSharedPersistenceService } = await import("./shared-persistence");
+      const { refreshProdStateCache } = await import("./prod-state-cache");
+      const svc = await getSharedPersistenceService();
+      const provider = svc.getProvider();
+      const getRawSql =
+        "getRawSqlConnection" in provider &&
+        typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
+          ? (provider as { getRawSqlConnection: () => Promise<unknown> }).getRawSqlConnection.bind(
+              provider
+            )
+          : null;
+      if (!getRawSql) return;
+      const sql = (await getRawSql()) as import("./prod-state-cache").UnsafeSql | null | undefined;
+      await refreshProdStateCache(sql, new Date().toISOString());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: prod-state refresh sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? PROD_STATE_REFRESH_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
 // Task service lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 

@@ -225,6 +225,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
   "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
   "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
+  "MINSKY_SKIP_PROD_STATE_INJECTION", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
   "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
   // mt#2324 — process-only overrides read via the BRACKET form
   // (process.env["MINSKY_*"]) in src/. They surfaced once the
