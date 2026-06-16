@@ -6,6 +6,15 @@ CREATE TYPE "public"."subagent_invocation_outcome" AS ENUM('completed-with-pr', 
 CREATE TYPE "public"."memory_scope" AS ENUM('project', 'user', 'cross_project');--> statement-breakpoint
 CREATE TYPE "public"."memory_type" AS ENUM('user', 'feedback', 'project', 'reference');--> statement-breakpoint
 CREATE TYPE "public"."system_event_type" AS ENUM('ask.created', 'task.auto_created', 'pr.review_posted', 'subagent.failed', 'embeddings.provider_degraded', 'task.status_changed', 'pr.merged', 'subagent.completed', 'session.started');--> statement-breakpoint
+CREATE TABLE "projects" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"slug" text NOT NULL,
+	"repo_url" text,
+	"display_name" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "projects_slug_unique" UNIQUE("slug")
+);
+--> statement-breakpoint
 CREATE TABLE "sessions" (
 	"session" varchar(255) PRIMARY KEY NOT NULL,
 	"repo_name" varchar(255) NOT NULL,
@@ -22,7 +31,8 @@ CREATE TABLE "sessions" (
 	"last_commit_message" text,
 	"commit_count" integer,
 	"status" text,
-	"agent_id" text
+	"agent_id" text,
+	"project_id" uuid
 );
 --> statement-breakpoint
 CREATE TABLE "deleted_task_ids" (
@@ -58,7 +68,8 @@ CREATE TABLE "tasks" (
 	"kind" text DEFAULT 'implementation' NOT NULL,
 	"last_indexed_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now(),
-	"updated_at" timestamp with time zone DEFAULT now()
+	"updated_at" timestamp with time zone DEFAULT now(),
+	"project_id" uuid
 );
 --> statement-breakpoint
 CREATE TABLE "rules_embeddings" (
@@ -179,6 +190,7 @@ CREATE TABLE "asks" (
 	"window_missed_count" integer DEFAULT 0,
 	"force_immediate" boolean DEFAULT false,
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"project_id" uuid,
 	CONSTRAINT "chk_asks_kind" CHECK (kind IN ('capability.escalate', 'information.retrieve', 'authorization.approve', 'direction.decide', 'coordination.notify', 'quality.review', 'stuck.unblock')),
 	CONSTRAINT "chk_asks_state" CHECK (state IN ('detected', 'classified', 'routed', 'suspended', 'responded', 'closed', 'cancelled', 'expired')),
 	CONSTRAINT "chk_asks_service_strategy" CHECK (service_strategy IS NULL OR service_strategy IN ('asap', 'scheduled', 'deadline-bound')),
@@ -358,6 +370,7 @@ ALTER TABLE "minsky_session_links" ADD CONSTRAINT "minsky_session_links_agent_se
 ALTER TABLE "oauth_access_tokens" ADD CONSTRAINT "fk_access_tokens_client_id" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_authorization_codes" ADD CONSTRAINT "fk_auth_codes_client_id" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_tokens" ADD CONSTRAINT "fk_refresh_tokens_client_id" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "idx_projects_slug" ON "projects" USING btree ("slug");--> statement-breakpoint
 CREATE INDEX "idx_tasks_embeddings_hnsw" ON "tasks_embeddings" USING hnsw ("vector" vector_l2_ops);--> statement-breakpoint
 CREATE INDEX "idx_rules_embeddings_hnsw" ON "rules_embeddings" USING hnsw ("vector" vector_l2_ops);--> statement-breakpoint
 CREATE UNIQUE INDEX "tr_unique_edge" ON "task_relationships" USING btree ("from_task_id","to_task_id","type");--> statement-breakpoint

@@ -206,6 +206,11 @@ export const asksTable = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
+
+    // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
+    // project; NOT NULL deferred to Phase 1.3 (mt#2416).
+    // Plain uuid column — no DB-level FK per project convention (documented above).
+    projectId: uuid("project_id"),
   },
   (table) => ({
     // Composite index for the most common query pattern: filter by state + kind

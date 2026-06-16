@@ -48,6 +48,7 @@ function getPostgresConnectionString(): string {
 
 export default {
   schema: [
+    "./packages/domain/src/storage/schemas/projects-schema.ts",
     "./packages/domain/src/storage/schemas/session-schema.ts",
     "./packages/domain/src/storage/schemas/task-embeddings.ts",
     "./packages/domain/src/storage/schemas/rule-embeddings.ts",

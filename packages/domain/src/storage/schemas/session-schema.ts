@@ -12,6 +12,7 @@ import {
   timestamp,
   text as pgText,
   integer as pgInteger,
+  uuid,
 } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
@@ -42,6 +43,12 @@ export const postgresSessions = pgTable("sessions", {
   commitCount: pgInteger("commit_count"),
   status: pgText("status"),
   agentId: pgText("agent_id"),
+
+  // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
+  // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
+  // canonical; repo_name/repo_url here stay as a denormalized cache.
+  // Plain uuid column — no DB-level FK per project convention (ask-schema.ts).
+  projectId: uuid("project_id"),
 });
 
 // Type exports for better type inference
