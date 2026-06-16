@@ -15,6 +15,7 @@
  *
  * Usage: bun scripts/smoke-prod-state-cache.ts
  */
+import "reflect-metadata";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -22,23 +23,34 @@ import { refreshProdStateCache, type UnsafeSql } from "../src/cockpit/prod-state
 
 const connectionString = process.env.DATABASE_URL ?? process.env.MINSKY_POSTGRES_CONNECTION_STRING;
 
-if (!connectionString) {
-  console.log("SKIP: no DATABASE_URL / MINSKY_POSTGRES_CONNECTION_STRING set — cannot reach a DB.");
-  process.exit(0);
-}
-
 const tmpPath = path.join(os.tmpdir(), `smoke-prod-state-${process.pid}.json`);
 
 async function main(): Promise<void> {
   const { PersistenceService } = await import("@minsky/domain/persistence/service");
   const service = new PersistenceService();
   try {
-    await service.initialize({ backend: "postgres", postgres: { connectionString } });
+    if (connectionString) {
+      await service.initialize({ backend: "postgres", postgres: { connectionString } });
+    } else {
+      // No explicit env connection — bootstrap the app config, then fall back to the
+      // configured backend (the same source the cockpit prod-state sweeper uses). SKIPs
+      // below if that isn't a reachable postgres.
+      const { initializeConfiguration, CustomConfigFactory } = await import(
+        "@minsky/domain/configuration"
+      );
+      await initializeConfiguration(new CustomConfigFactory(), {
+        workingDirectory: process.cwd(),
+      });
+      await service.initialize();
+    }
   } catch (err) {
-    console.error(
-      `FAIL: cannot connect to DB: ${err instanceof Error ? err.message : String(err)}`
-    );
-    process.exit(1);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (connectionString) {
+      console.error(`FAIL: cannot connect to DB via provided connection string: ${msg}`);
+      process.exit(1);
+    }
+    console.log(`SKIP: no reachable DB configured (env unset + config init failed): ${msg}`);
+    process.exit(0);
   }
 
   const provider = service.getProvider();
@@ -50,8 +62,8 @@ async function main(): Promise<void> {
         )
       : null;
   if (!getRawSql) {
-    console.error("FAIL: provider has no getRawSqlConnection (not a postgres provider).");
-    process.exit(1);
+    console.log("SKIP: configured backend has no raw SQL connection (not postgres).");
+    process.exit(0);
   }
 
   const sql = (await getRawSql()) as UnsafeSql;
