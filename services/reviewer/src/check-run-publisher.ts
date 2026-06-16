@@ -110,13 +110,16 @@ export interface CheckRunPayload {
  *   `submit_finding` with severity NON-BLOCKING → annotation_level "warning"
  *   `submit_finding` with any other severity   → annotation_level "notice"
  *
- * Conclusion mapping:
- *   any "failure" annotation (BLOCKING)  → "failure"
- *   only "warning" annotations           → "neutral"
- *   no annotations / all "notice"        → "success"
+ * Conclusion mapping (blockingCount is authoritative for the failure verdict —
+ * NOT the annotations, because the prose review path has a blockingCount but
+ * emits no `submit_finding` annotations; deriving failure from annotations alone
+ * would post a green "success" check-run on a prose CHANGES_REQUESTED review):
+ *   failureSummary set OR blockingCount > 0  → "failure"
+ *   blockingCount == 0, any "warning"        → "neutral"
+ *   blockingCount == 0, no annotations/notice → "success"
  *
  * When `failureSummary` is set, the conclusion is forced to "failure"
- * regardless of annotations (liveness failure path per SC#1).
+ * regardless of annotations or blockingCount (liveness failure path per SC#1).
  */
 export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckRunPayload {
   const { toolCalls, convergenceState, failureSummary } = params;
@@ -139,10 +142,14 @@ export function buildCheckRunPayload(params: BuildCheckRunPayloadParams): CheckR
 
   const levels: AnnotationLevel[] = annotations.map((a) => a.annotationLevel);
 
-  // Conclusion: forced "failure" on liveness errors; otherwise derived from annotations.
-  const conclusion: "success" | "failure" | "neutral" = failureSummary
-    ? "failure"
-    : deriveConclusion(levels);
+  // Conclusion: forced "failure" on liveness errors; otherwise blockingCount is
+  // the authoritative failure signal (the prose path carries blockingCount but
+  // no annotations, so deriving failure from annotations alone would emit a
+  // green check-run on a prose CHANGES_REQUESTED review). With no blocking
+  // findings, annotations distinguish neutral (NON-BLOCKING present) from
+  // success (none / informational only).
+  const conclusion: "success" | "failure" | "neutral" =
+    failureSummary || blockingCount > 0 ? "failure" : deriveConclusion(levels);
 
   // Summary: liveness failure overrides convergence state.
   let summary: string;

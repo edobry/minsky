@@ -48,6 +48,48 @@ function makeConvergence(roundNumber = 1, blockingCount = 0): ConvergenceState {
   return { roundNumber, blockingCount };
 }
 
+// ── buildCheckRunPayload: blockingCount is authoritative for conclusion ─────
+// Regression coverage for the prose-path bug (R1): the prose review path carries
+// a blockingCount but emits NO submit_finding annotations. Deriving conclusion
+// from annotations alone posted a green "success" check-run on a prose
+// CHANGES_REQUESTED review. blockingCount must drive the failure verdict.
+
+describe("buildCheckRunPayload: blockingCount authoritative for conclusion (R1)", () => {
+  test("prose path (no tool calls) with blockingCount > 0 → conclusion 'failure'", () => {
+    const payload = buildCheckRunPayload({
+      toolCalls: [], // prose path: review verdict has blocking findings but no annotations
+      convergenceState: makeConvergence(2, 3),
+    });
+    expect(payload.output.annotations).toHaveLength(0);
+    expect(payload.conclusion).toBe("failure");
+    expect(payload.output.summary).toContain("3 blocking finding");
+  });
+
+  test("blockingCount > 0 with no annotations → 'failure' (not 'success')", () => {
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: makeConvergence(1, 1),
+    });
+    expect(payload.conclusion).toBe("failure");
+  });
+
+  test("blockingCount == 0 with only a NON-BLOCKING annotation → 'neutral'", () => {
+    const payload = buildCheckRunPayload({
+      toolCalls: [makeFinding("NON-BLOCKING")],
+      convergenceState: makeConvergence(1, 0),
+    });
+    expect(payload.conclusion).toBe("neutral");
+  });
+
+  test("blockingCount == 0 with no annotations → 'success'", () => {
+    const payload = buildCheckRunPayload({
+      toolCalls: [],
+      convergenceState: makeConvergence(1, 0),
+    });
+    expect(payload.conclusion).toBe("success");
+  });
+});
+
 // ── buildCheckRunPayload: annotation level mapping ────────────────────────
 
 describe("buildCheckRunPayload: annotation level mapping", () => {
