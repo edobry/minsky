@@ -1,25 +1,32 @@
 #!/usr/bin/env bun
 /**
- * Smoke test for projects-scoping migration (mt#2415, Phase 1.2 of mt#2391).
+ * Smoke test for the projects-scoping migration (mt#2415, Phase 1.2 of mt#2391).
  *
- * Verifies that after applying migrations 0046 + 0047 against a throwaway
- * empty Postgres:
- *   1. The `projects` table exists.
- *   2. The Minsky project row (slug = 'edobry/minsky') is present.
- *   3. `project_id` column exists on tasks, sessions, and asks.
- *   4. All rows in tasks/sessions/asks have project_id set (zero orphans).
- *      (On a fresh empty DB this is vacuously true — zero rows, zero orphans.)
+ * Verifies BOTH paths the migration travels:
  *
- * HARD PROD-SAFETY: this script NEVER connects to production. It only connects
- * when DATABASE_URL or MINSKY_POSTGRES_URL is explicitly provided by the caller.
+ *  A. Fresh-DB SCHEMA path (bootstrap): a brand-new empty Postgres bootstraps
+ *     the full-schema snapshot, yielding the `projects` table and a nullable
+ *     uuid `project_id` column on tasks/sessions/asks. NOTE: on a fresh DB the
+ *     bootstrap stamps the ledger through the latest journal entry, so the
+ *     0047 DATA backfill is (correctly) NOT run — a brand-new project is not
+ *     "Minsky" and gets no Minsky project row. So this path verifies SCHEMA only.
+ *
+ *  B. Incremental DATA path (the prod scenario): applying 0047 to a populated
+ *     DB creates the Minsky project row (idempotently) and backfills existing
+ *     rows' project_id. This is what prod does (ledger at 0045 → migrator
+ *     applies 0046 + 0047). Nothing else exercises 0047, so we apply it
+ *     directly here against seeded rows and assert INSERT-idempotency + the
+ *     UPDATE backfill.
+ *
+ * HARD PROD-SAFETY: this script NEVER connects to production. It connects only
+ * to the throwaway Postgres explicitly provided via DATABASE_URL /
+ * MINSKY_POSTGRES_URL. Point it at an empty, disposable database.
  *
  * Usage (env-gated — skips gracefully when no DATABASE_URL/MINSKY_POSTGRES_URL):
- *   DATABASE_URL=postgres://localhost:5432/smoke_test \
+ *   DATABASE_URL=postgres://localhost:5434/throwaway \
  *     bun scripts/smoke-projects-scoping-migration.ts
  *
- * Exit codes:
- *   0  — passed (or skipped due to missing env)
- *   1  — failed
+ * Exit codes: 0 = passed (or skipped due to missing env); 1 = failed.
  *
  * @see mt#2415 — Phase 1.2 tracking task
  * @see packages/domain/src/storage/migrations/pg/0046_glossy_ultragirl.sql
@@ -30,231 +37,160 @@ import { spawnSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
 
-// ── env-gate ──────────────────────────────────────────────────────────────────
-
 const DATABASE_URL = process.env["DATABASE_URL"] ?? process.env["MINSKY_POSTGRES_URL"];
 if (!DATABASE_URL) {
   console.log("SKIP: neither DATABASE_URL nor MINSKY_POSTGRES_URL is set.");
-  console.log("      Set one to point at a throwaway Postgres and re-run.");
-  console.log(
-    "      Example: DATABASE_URL=postgres://localhost:5432/smoke bun scripts/smoke-projects-scoping-migration.ts"
-  );
+  console.log("      Set one to point at a THROWAWAY (empty, disposable) Postgres and re-run.");
   process.exit(0);
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 const repoRoot = import.meta.dir.replace(/\/scripts$/, "");
+const BACKFILL_SQL = join(
+  repoRoot,
+  "packages/domain/src/storage/migrations/pg/0047_backfill_project_id_minsky.sql"
+);
 
 function psql(sql: string): { ok: boolean; stdout: string; stderr: string } {
-  // DATABASE_URL is checked above; non-null at this point.
-  const result = spawnSync("psql", [DATABASE_URL as string, "-c", sql, "--no-psqlrc", "-t"], {
+  const r = spawnSync("psql", [DATABASE_URL as string, "-c", sql, "--no-psqlrc", "-t"], {
     stdio: "pipe",
     encoding: "utf8",
   });
-  return {
-    ok: result.status === 0,
-    stdout: (result.stdout ?? "").trim(),
-    stderr: (result.stderr ?? "").trim(),
-  };
+  return { ok: r.status === 0, stdout: (r.stdout ?? "").trim(), stderr: (r.stderr ?? "").trim() };
 }
 
-function assert(label: string, condition: boolean, detail?: string): boolean {
-  if (condition) {
-    console.log(`  PASS: ${label}`);
-    return true;
-  } else {
-    console.error(`  FAIL: ${label}${detail ? ` — ${detail}` : ""}`);
-    return false;
-  }
+function psqlFile(path: string): { ok: boolean; out: string } {
+  const r = spawnSync("psql", [DATABASE_URL as string, "-f", path, "--no-psqlrc"], {
+    stdio: "pipe",
+    encoding: "utf8",
+  });
+  return { ok: r.status === 0, out: [r.stdout ?? "", r.stderr ?? ""].join("\n").trim() };
 }
 
 let failed = false;
+function assert(label: string, condition: boolean, detail?: string): void {
+  if (condition) {
+    console.log(`  PASS: ${label}`);
+  } else {
+    console.error(`  FAIL: ${label}${detail ? ` — ${detail}` : ""}`);
+    failed = true;
+  }
+}
 
-// ── step 0: confirm psql is available ────────────────────────────────────────
-
+// ── step 0: psql available ────────────────────────────────────────────────────
 console.log("--- Step 0: confirm psql is on PATH ---");
-const psqlCheck = spawnSync("psql", ["--version"], { stdio: "pipe", encoding: "utf8" });
-if (psqlCheck.status !== 0) {
+if (spawnSync("psql", ["--version"], { stdio: "pipe", encoding: "utf8" }).status !== 0) {
   console.error(
-    "FAIL: psql not found in PATH. Install postgresql-client and re-run.\n" +
-      "  macOS: brew install libpq && brew link --force libpq\n" +
-      "  Linux: apt-get install -y postgresql-client"
+    "FAIL: psql not found in PATH (brew install libpq / apt-get install postgresql-client)."
   );
   process.exit(1);
 }
-console.log(`  psql version: ${(psqlCheck.stdout ?? "").trim()}`);
 
-// ── step 1: apply migrations via minsky persistence migrate --execute ─────────
-
+// ── step 1: bootstrap fresh DB (schema) via minsky persistence migrate ────────
 console.log("\n--- Step 1: apply migrations (minsky persistence migrate --execute) ---");
-
 const bundlePath = join(repoRoot, "dist", "minsky.js");
-const useBundle = existsSync(bundlePath);
-const migrateCmd = useBundle
-  ? ["bun", [bundlePath, "persistence", "migrate", "--execute"]]
-  : ["bun", ["run", join(repoRoot, "src", "cli.ts"), "persistence", "migrate", "--execute"]];
+const migrate = existsSync(bundlePath)
+  ? spawnSync("bun", [bundlePath, "persistence", "migrate", "--execute"], mkEnv())
+  : spawnSync(
+      "bun",
+      ["run", join(repoRoot, "src", "cli.ts"), "persistence", "migrate", "--execute"],
+      mkEnv()
+    );
+console.log([migrate.stdout ?? "", migrate.stderr ?? ""].join("\n").trim());
+assert("migrate --execute exited 0", migrate.status === 0);
 
-const migrateResult = spawnSync(migrateCmd[0] as string, migrateCmd[1] as string[], {
-  cwd: repoRoot,
-  env: {
-    ...process.env,
-    DATABASE_URL,
-    MINSKY_PERSISTENCE_POSTGRES_URL: DATABASE_URL,
-    MINSKY_PERSISTENCE_BACKEND: "postgres",
-  },
-  stdio: "pipe",
-  encoding: "utf8",
-});
-const migrateOutput = [migrateResult.stdout ?? "", migrateResult.stderr ?? ""].join("\n").trim();
-console.log(migrateOutput);
-
-if (migrateResult.status !== 0) {
-  console.error("FAIL: 'minsky persistence migrate --execute' exited non-zero.");
-  failed = true;
-} else {
-  console.log("  PASS: migrate --execute exited 0.");
+function mkEnv() {
+  return {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      DATABASE_URL,
+      MINSKY_PERSISTENCE_POSTGRES_URL: DATABASE_URL,
+      MINSKY_PERSISTENCE_BACKEND: "postgres",
+    },
+    stdio: "pipe" as const,
+    encoding: "utf8" as const,
+  };
 }
 
-// ── step 2: assert projects table exists ─────────────────────────────────────
-
+// ── step 2: SCHEMA — projects table + project_id columns (uuid, nullable) ─────
 if (!failed) {
-  console.log("\n--- Step 2: assert `projects` table exists ---");
-  const r = psql(
-    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'projects' AND table_schema = 'public';"
+  console.log("\n--- Step 2: schema end-state (projects table + project_id columns) ---");
+  const t = psql(
+    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='projects' AND table_schema='public';"
   );
-  if (!r.ok) {
-    console.error(`  FAIL: psql query failed — ${r.stderr}`);
-    failed = true;
-  } else {
-    const count = parseInt(r.stdout, 10);
-    if (!assert("`projects` table exists in public schema", count === 1, `count=${count}`)) {
-      failed = true;
-    }
-  }
-}
+  assert(
+    "`projects` table exists",
+    t.ok && parseInt(t.stdout, 10) === 1,
+    t.stderr || `count=${t.stdout}`
+  );
 
-// ── step 3: assert Minsky project row exists ──────────────────────────────────
-
-if (!failed) {
-  console.log("\n--- Step 3: assert Minsky project row (slug='edobry/minsky') ---");
-  const r = psql("SELECT COUNT(*) FROM projects WHERE slug = 'edobry/minsky';");
-  if (!r.ok) {
-    console.error(`  FAIL: psql query failed — ${r.stderr}`);
-    failed = true;
-  } else {
-    const count = parseInt(r.stdout, 10);
-    if (
-      !assert("Minsky project row present (slug='edobry/minsky')", count === 1, `count=${count}`)
-    ) {
-      failed = true;
-    }
-  }
-}
-
-// ── step 4: assert project_id column exists on tasks/sessions/asks ────────────
-
-if (!failed) {
-  console.log("\n--- Step 4: assert `project_id` column on tasks, sessions, asks ---");
   for (const table of ["tasks", "sessions", "asks"]) {
-    const r = psql(
-      `SELECT COUNT(*) FROM information_schema.columns WHERE table_name = '${table}' AND column_name = 'project_id' AND table_schema = 'public';`
+    const c = psql(
+      `SELECT data_type, is_nullable FROM information_schema.columns WHERE table_name='${table}' AND column_name='project_id' AND table_schema='public';`
     );
-    if (!r.ok) {
-      console.error(`  FAIL: psql query failed for ${table} — ${r.stderr}`);
-      failed = true;
-    } else {
-      const count = parseInt(r.stdout, 10);
-      if (!assert(`\`${table}\`.project_id column exists`, count === 1, `count=${count}`)) {
-        failed = true;
-      }
-    }
-  }
-}
-
-// ── step 5: assert zero orphaned rows (project_id IS NULL) ───────────────────
-// On a fresh empty DB all counts are 0 which trivially satisfies the constraint.
-// Against a backfill-target DB (prod-shaped), this proves the backfill ran.
-
-if (!failed) {
-  console.log("\n--- Step 5: assert zero orphaned rows (project_id IS NULL) ---");
-  for (const table of ["tasks", "sessions", "asks"]) {
-    const r = psql(`SELECT COUNT(*) FROM ${table} WHERE project_id IS NULL;`);
-    if (!r.ok) {
-      console.error(`  FAIL: psql query failed for ${table} — ${r.stderr}`);
-      failed = true;
-    } else {
-      const count = parseInt(r.stdout, 10);
-      if (
-        !assert(
-          `\`${table}\`: zero NULL project_id rows (orphan count = ${count})`,
-          count === 0,
-          `orphan count=${count}`
-        )
-      ) {
-        failed = true;
-      }
-    }
-  }
-}
-
-// ── step 6: assert project_id data type is uuid ───────────────────────────────
-
-if (!failed) {
-  console.log("\n--- Step 6: assert project_id columns have data_type='uuid' ---");
-  for (const table of ["tasks", "sessions", "asks"]) {
-    const r = psql(
-      `SELECT data_type FROM information_schema.columns WHERE table_name = '${table}' AND column_name = 'project_id' AND table_schema = 'public';`
+    const [dtype, nullable] = c.stdout.split("|").map((s) => s.trim().toLowerCase());
+    assert(
+      `\`${table}\`.project_id is uuid + nullable`,
+      c.ok && dtype === "uuid" && nullable === "yes",
+      c.stderr || `got '${c.stdout}'`
     );
-    if (!r.ok) {
-      console.error(`  FAIL: psql query failed for ${table} — ${r.stderr}`);
-      failed = true;
-    } else {
-      const dtype = r.stdout.trim().toLowerCase();
-      if (
-        !assert(`\`${table}\`.project_id data_type is 'uuid'`, dtype === "uuid", `got='${dtype}'`)
-      ) {
-        failed = true;
-      }
-    }
   }
 }
 
-// ── step 7: interruption-safety — assert no NOT NULL on project_id ────────────
-// This migration intentionally leaves project_id nullable (NOT NULL deferred
-// to Phase 1.3). Verify the column IS NULLABLE.
-
+// ── step 3: DATA backfill (prod path) — apply 0047 directly, seeded ───────────
+// The bootstrap stamps 0047 as applied without running its DATA, so we exercise
+// the backfill SQL directly here (this is exactly what the migrator runs on an
+// existing/prod DB where the ledger is below 0047).
 if (!failed) {
-  console.log("\n--- Step 7: assert project_id is nullable (NOT NULL deferred to Phase 1.3) ---");
-  for (const table of ["tasks", "sessions", "asks"]) {
-    const r = psql(
-      `SELECT is_nullable FROM information_schema.columns WHERE table_name = '${table}' AND column_name = 'project_id' AND table_schema = 'public';`
-    );
-    if (!r.ok) {
-      console.error(`  FAIL: psql query failed for ${table} — ${r.stderr}`);
-      failed = true;
-    } else {
-      const nullable = r.stdout.trim().toUpperCase();
-      if (
-        !assert(
-          `\`${table}\`.project_id IS NULLABLE (is_nullable='${nullable}')`,
-          nullable === "YES",
-          `got='${nullable}'`
-        )
-      ) {
-        failed = true;
-      }
-    }
-  }
-}
+  console.log("\n--- Step 3: data backfill (apply 0047 against seeded rows) ---");
 
-// ── summary ───────────────────────────────────────────────────────────────────
+  // 3a: apply 0047 on the (empty-table) bootstrapped DB → creates the Minsky row.
+  const a = psqlFile(BACKFILL_SQL);
+  assert("0047 applies cleanly", a.ok, a.out.slice(0, 400));
+  const row = psql("SELECT COUNT(*) FROM projects WHERE slug='edobry/minsky';");
+  assert(
+    "Minsky project row created",
+    row.ok && parseInt(row.stdout, 10) === 1,
+    `count=${row.stdout}`
+  );
+
+  // 3b: seed a task row with NULL project_id, re-apply 0047 → backfilled.
+  const seed = psql(
+    "INSERT INTO tasks (id) VALUES ('mt#smoke-backfill') ON CONFLICT (id) DO NOTHING;"
+  );
+  assert("seed task row inserted", seed.ok, seed.stderr);
+  const b = psqlFile(BACKFILL_SQL); // idempotent re-apply
+  assert(
+    "0047 re-applies idempotently (no error, no duplicate Minsky row)",
+    b.ok,
+    b.out.slice(0, 400)
+  );
+  const dupe = psql("SELECT COUNT(*) FROM projects WHERE slug='edobry/minsky';");
+  assert(
+    "still exactly one Minsky row (ON CONFLICT held)",
+    dupe.ok && parseInt(dupe.stdout, 10) === 1,
+    `count=${dupe.stdout}`
+  );
+  const backfilled = psql(
+    "SELECT COUNT(*) FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id='mt#smoke-backfill' AND p.slug='edobry/minsky';"
+  );
+  assert(
+    "seeded task backfilled to the Minsky project",
+    backfilled.ok && parseInt(backfilled.stdout, 10) === 1,
+    `count=${backfilled.stdout}`
+  );
+  const orphans = psql("SELECT COUNT(*) FROM tasks WHERE project_id IS NULL;");
+  assert(
+    "zero NULL project_id rows in tasks after backfill",
+    orphans.ok && parseInt(orphans.stdout, 10) === 0,
+    `orphan count=${orphans.stdout}`
+  );
+}
 
 console.log("");
 if (failed) {
   console.error("smoke-projects-scoping-migration: FAILED");
   process.exit(1);
-} else {
-  console.log("smoke-projects-scoping-migration: PASSED");
-  process.exit(0);
 }
+console.log("smoke-projects-scoping-migration: PASSED");
+process.exit(0);
