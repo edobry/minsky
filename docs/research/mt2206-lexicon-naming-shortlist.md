@@ -30,7 +30,7 @@ Four background workflows (~7.5M subagent tokens total):
 | `wf_f00c0152-ccb` | Generate v3 (9 orthogonal pillar bases, Pareto sweep) | **the winning basis**                    |
 | `wf_4a06cfe5-ce5` | Screen v3 robust-top (Markbase + whois)               | **5/15 clean-and-acquirable, high-myth** |
 
-All generation used the topology-agnostic recursion-aware brief (no "single principal" framing; per mt#1953 / mt#2194). Screens used Markbase (free USPTO mirror) for IC-009/042 + `whois` (primary) / RDAP (secondary) for domains. **Trademark status is mutable — reconfirm via USPTO TSDR before relying; full clearance is parked at mt#2189.** These are pre-filing risk screens, not legal opinions.
+All generation used the topology-agnostic recursion-aware brief (no "single principal" framing; per mt#1953 / mt#2194). Screens used Markbase (free USPTO mirror, query form `GET https://api.markbase.co/search?q=<name>`) for IC-009/042 + `whois <name>.{com,ai,dev}` (primary) / RDAP (secondary) for domains. **Trademark status is mutable — reconfirm via USPTO TSDR before relying; full clearance is parked at mt#2189.** These are pre-filing risk screens, not legal opinions.
 
 ### Pass v1 — rejected (the rubric phoneme-density trap)
 
@@ -62,20 +62,31 @@ The strongest Lexicon picks were all blocked — **Patchbay (4.8)** domains-tigh
 
 ## Final shortlist — high-myth ∩ trademark-clean ∩ acquirable (v3 screen)
 
-**5 of 15 robust-top candidates cleared both screens — all high-myth.**
+**5 of 15 robust-top candidates cleared both screens — all high-myth.** Live screens ran 2026-06-01 (v3 screen `wf_4a06cfe5-ce5` completed ~01:24Z; v2 screen `wf_23d039ca-a97` ~2026-05-31 23:44Z).
 
-| Name          | Mean | Myth | Distinct | Domains                               | Register / read                                                           |
-| ------------- | ---- | ---- | -------- | ------------------------------------- | ------------------------------------------------------------------------- |
-| **Nervecord** | 4.58 | 5    | 5        | `.ai`+`.dev` open (.com held 12/2025) | Eva umbilical + signal-bearing spine; Pareto-optimal                      |
-| **Orrery**    | 4.53 | 5    | 5        | `.dev` open                           | clockwork model of coordinated motion — most accessible REAL word         |
-| **Cordmeld**  | 4.43 | 5    | 5        | **all 3 open**                        | neural-tether fusion                                                      |
-| **Pleromesh** | 4.41 | 5    | 5        | **all 3 open**                        | _pleroma_ (gnostic divine-fullness) + mesh — richest myth, lowest fluency |
-| **Nerveclad** | 4.33 | 4    | 5        | **all 3 open**                        | protected neural infrastructure                                           |
+**Full per-candidate Lexicon-axis breakdown** (each axis 0–5). Legend: **T** tangibility · **So** sound-balance · **C** compound-multiplier · **F** processing-fluency · **P** polarization · **M** myth-fit · **D** distinctiveness (ownability proxy). **Mean** = mean of the candidate's score across the four weighting profiles (myth-max / ownability-max / compound-max / balanced).
 
-**Pareto front = {Daimon, Nervecord}** (non-dominated across all four profiles). The two highest-fit names overall both carry a counsel **flag**, not a clean bill:
+| Name          | T   | So  | C   | F   | P   | M   | D   | Mean | Screen verdict / domains                               |
+| ------------- | --- | --- | --- | --- | --- | --- | --- | ---- | ------------------------------------------------------ |
+| **Nervecord** | 5   | 4   | 4   | 4   | 4   | 5   | 5   | 4.58 | clean · `.ai`+`.dev` open (.com held 12/2025)          |
+| **Orrery**    | 5   | 5   | 4   | 3   | 4   | 5   | 5   | 4.53 | clean · `.dev` open                                    |
+| **Cordmeld**  | 4   | 4   | 4   | 4   | 4   | 5   | 5   | 4.43 | clean · **all 3 open**                                 |
+| **Pleromesh** | 3   | 4   | 5   | 3   | 4   | 5   | 5   | 4.41 | clean · **all 3 open**                                 |
+| **Nerveclad** | 5   | 4   | 4   | 4   | 4   | 4   | 5   | 4.33 | clean · **all 3 open**                                 |
+| **Daimon**    | 4   | 4   | 5   | 5   | 5   | 5   | 4   | 4.63 | **FLAG** (live same-class, diff. goods) · domains gone |
+| **Quipu**     | 5   | 4   | 4   | 3   | 5   | 5   | 5   | 4.54 | **FLAG** (live same-class, diff. goods) · domains gone |
 
-- **Daimon** (4.63) — daemon (POSIX) × daímōn (Greek guiding-spirit); the dual engineer/mythic read. Live same-class differentiated-goods mark → flag; domains gone.
-- **Quipu** (4.54) — Inca knotted-cord externalized-memory device. Live same-class differentiated mark → flag; domains gone.
+**Tagline pairing per candidate** (the foreground line each name composes with):
+
+- **Nervecord** — "The cyberbrain for software organizations." (Eva umbilical + signal-bearing spine; Pareto-optimal)
+- **Orrery** — "The external model you consult to reason about systems too large to hold in head." (clockwork model of coordinated motion — most accessible REAL word)
+- **Cordmeld** — "The substrate mediates the meld. Keeps it controlled." (neural-tether fusion)
+- **Pleromesh** — "The complete field of emanations, coordinated." (_pleroma_ = gnostic divine-fullness + mesh — richest myth, lowest fluency)
+- **Nerveclad** — "The cyberbrain for software organizations." (protected neural infrastructure)
+- **Daimon** — "The guiding intelligence between mortal intent and realized work." (daemon/POSIX × daímōn/Greek guiding-spirit dual read)
+- **Quipu** — "Knotted memory. Distributed record. Extended mind." (Inca knotted-cord externalized-memory device)
+
+**Pareto front = {Daimon, Nervecord}** (non-dominated across all four profiles). The two highest-fit names overall (**Daimon** 4.63, **Quipu** 4.54) both carry a counsel **flag** — a live same-class mark with differentiated goods — not a clean bill, and their `.com`/`.ai`/`.dev` are all taken; a cheap counsel relatedness read is the gate before either could advance.
 
 **Struck:** Graft / Golem / Reticle (live related-goods marks → disqualify); Syncwell (flag); Scrim / Glassware / Ganglia / Netdive (trademark-clean but domains gone).
 
