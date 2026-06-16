@@ -105,6 +105,32 @@ mt#1887's port-recovery (`src/cockpit/port-recovery.ts`) reads recognition state
 the lifecycle module so per-workspace cockpits don't false-positive each other.
 Full architecture: [`docs/architecture/cockpit.md#operator-dev-loop`](../../docs/architecture/cockpit.md). Tracking task: mt#1904.
 
+**Visual verification (screenshots / react-flow) — use the PROD bundle, not dev HMR.**
+The Vite HMR dev server is great for iterating on code but UNRELIABLE for
+screenshot verification: WS-port conflicts, segfaults, and intermittent
+zero-renders (especially with react-flow, which measures the DOM). To verify a
+render reliably:
+
+```bash
+bun run cockpit:build
+bun src/cli.ts cockpit start --port=<N>
+# then screenshot via playwright at 1440x900:
+#   waitUntil: "domcontentloaded"  (NOT networkidle — the page polls /api/* forever)
+#   wait for a known data-testid, save a PNG, then Read the PNG to inspect
+```
+
+`chrome-devtools-mcp` may be unavailable; playwright is the fallback. If
+playwright's browser binary is missing, install the version pinned to the
+bun-cached `playwright-core`: `bunx playwright@<ver> install chromium`.
+
+**react-flow height trap:** the `<ReactFlow>` container needs an EXPLICIT
+height. Under the cockpit shell (sticky `h-14` AppHeader + `min-h-screen`
+Layout root), a `h-full` page collapses to `height:0` — a blank canvas that
+still passes unit tests. Size the page `h-[calc(100vh-3.5rem)]`. The fuller
+react-flow gotcha set (silently-dropped edges, `fitView`-before-measurement,
+smoothstep routing, undefined `style` spread, underlay paint order) lives in
+the `cockpit-design` skill §Whole-system view.
+
 ## Future architecture decision
 
 **Express → Hono migration (deferred).** Cockpit's server is Express today (`src/cockpit/server.ts`, ~10 routes). The skill research strongly flagged Hono as a better Bun fit (native TypeScript RPC, ~10KB, Zod validators, multi-runtime). Migration ROI doesn't materialize at the current server surface size. Revisit when Cockpit grows past ~25 routes or hits a multi-runtime requirement.

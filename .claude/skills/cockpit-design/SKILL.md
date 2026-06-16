@@ -432,6 +432,33 @@ The Workstreams widget (mt#1452, DONE) shows parent tasks with collapsible child
 
 Each workstream card can show a recent-activity feed (last N events: commits, PRs, status changes). Implementation choice: separate `activity_events` table OR derive from PR + commit + status-set audit logs. The vendored skill `tanstack-query` covers caching the feed.
 
+## Whole-system / observability view (the plant board)
+
+The `/plant` board (mt#2375 cluster, ADR-020) is the cockpit's whole-system view — a single living schematic of all of Minsky. When building or extending it (or any "see the whole system breathe" surface), inherit this canon rather than re-deriving it. Full depth: the reference memory _"Whole-system observability view — design canon + build playbook"_ (id `8d3d4f06`), ADR-020, and memories `82c7a58e` (research) / `67676430` (visual-verification discipline).
+
+### Design canon
+
+- **VSM-organ layout.** Lay the whole system on the five-organ Viable System Model skeleton — S1 operations / S2 coordination-valves / S3 management+3★ / S4 future / S5 identity — plus the attention/ask seam (cognition coupling) and the learning loop. All five organs must be visually present; a missing organ (S2 valves were dropped in the first node-link cut) reads as an incomplete system.
+- **Four timescales, rendered differently.** STABLE (the plant itself — pipes, stages, organs; internalized, rarely changes) · FLUID (instances as flow-rate / tank-level, never as fixed nodes) · BREATH (aggregate levels, ~60s) · SLOW (the plant grows new parts — e.g. a hook welded onto the pipe).
+- **Honest-motion law.** Every motion is driven by a real event (a `system_events` row). No event → no motion. Idle reads calm. A faked-busy idle (always-on dash-marching, decorative spinners) destroys the operator's ability to read the system — remove it. The fixed event→gesture dictionary lives in `src/cockpit/web/lib/plant-gestures.ts`; the first poll baselines (history is not motion).
+- **HMI-bones / lush-skin.** Adopt High-Performance-HMI's _information architecture_ (node-link topology, live data embedded in context, overview→drill-down hierarchy, anomaly-pops) but KEEP the dense cyberbrain aesthetic — do NOT go sterile grayscale. Reinterpret HMI's "grayscale-at-rest / color-on-alarm" as **"coherent rich field at rest / deviation breaks the harmony."**
+- **Instrument language, not text panels.** The board reads as a _plant_ because metrics are rendered as INSTRUMENTS embedded in the topology — tanks with fill levels, valves on the pipe, reservoirs, gauges with alarm setpoints, a scan sweep — not as nodes that merely contain text. Port new metrics in as instruments.
+- **Tufte + Shneiderman.** Tufte: layer & separate the relational layer from the data layer; small multiples; sparklines; micro/macro readings. Shneiderman: overview first → zoom & filter → details on demand (semantic zoom / focus+context).
+- **Substrate = node-link** (`@xyflow/react`, per ADR-020): rich HTML nodes (density + reuse + responsive fill) wired by animatable SVG edges (relational flow + dots-on-edges) on a pan/zoom canvas. This is the converged substrate; the earlier fixed-SVG and CSS-grid prototypes are retired.
+
+### react-flow build gotchas (hard-won; will save you an hour)
+
+- **Container needs an EXPLICIT height.** If an ancestor is `min-h-screen` / auto-height, a `h-full` page collapses and react-flow renders `height:0` — a blank page that still passes unit tests. Inside the cockpit shell (sticky `h-14` AppHeader + `min-h-screen` Layout root) size the page `h-[calc(100vh-3.5rem)]`; bare `h-screen` overflows 56px below the fold.
+- **Silently dropped edges.** An edge whose target node has no matching TARGET handle (or whose `targetHandle` points at a SOURCE handle) is NOT rendered — no error, tests pass, the relation just isn't on screen. Probe the DOM (`.react-flow__edge` count vs the edge-array length) when an edge "should be there."
+- **`fitView` runs before node measurement.** The `fitView` prop computes bounds from bare positions (custom HTML node heights are unknown at first paint) → over-zoom + bottom clipping. Fix structurally with a `useNodesInitialized()` + `fitView()` effect so the refit uses MEASURED bounds; do NOT hand-tune y-coordinates to compensate.
+- **smoothstep routing collisions.** smoothstep approaches a Left/Right handle ~20px outside the node and picks midpoint corners you don't control, so long verticals pass behind unrelated nodes. Place source/target so the approach channel threads a real gap, and offset same-side handles apart (`style: { left: "30%" }`) so two edges don't superimpose at a node's center.
+- **Custom edges and `style` can be undefined.** `EdgeProps.style` is `React.CSSProperties | undefined`; spreading it (`{ ...style }`) throws. Guard with `...(style ?? {})`.
+- **Underlay paint order.** react-flow paints edges in array order. A "pipe underlay" edge must be FIRST in the edges array or it overpaints what crosses it.
+
+### Verifying a plant-board render
+
+Visual verification of react-flow is unreliable through the Bun dev server (Vite HMR: WS-port conflicts, segfaults, zero-renders). Verify against the PROD bundle: `bun run cockpit:build` → `bun src/cli.ts cockpit start --port=<N>` → screenshot via playwright (load at 1440×900, `waitUntil: "domcontentloaded"` — NOT `networkidle`, the page polls forever — wait for a node `data-testid`, save a PNG, then `Read` it). Run the objective-defect checklist (memory `67676430` (A)) on the full uncropped render and FIX every objective defect BEFORE presenting; only the subjective composition is the principal's call. See `src/cockpit/CLAUDE.md §Operator dev loop` for the gotcha-aware commands.
+
 ## Anti-patterns specific to Minsky
 
 Refuse these Minsky-domain anti-patterns when designing Cockpit UI:
@@ -470,6 +497,9 @@ The widget framework (mt#1144) lets each widget declare its data dependencies an
 
 ## Cross-references
 
+- Reference memory `8d3d4f06` — _Whole-system observability view — design canon + build playbook_ (the plant-board canon this skill's §Whole-system view condenses)
+- `docs/architecture/adr-020-plant-board-rendering-substrate.md` — node-link substrate decision (Accepted)
+- mt#2375 — plant-board / whole-system-view umbrella (canon, four timescales, honest motion)
 - `src/cockpit/CLAUDE.md` — descriptive companion (path-scoped activation surface)
 - `.minsky/agents/cockpit-dev/prompt.md` — prescriptive companion (agent prompt directives)
 - The 12 vendored Tier-1 skills — general patterns this skill specializes (notably `interface-design` for elevation, `shadcn-ui` for primitives, `tanstack-query` for data, `react-best-practices` + `composition-patterns` for engineering)
