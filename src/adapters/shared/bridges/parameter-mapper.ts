@@ -238,6 +238,13 @@ function getZodSchemaType(schema: z.ZodType): string | undefined {
  * auto-JSON-parsing a bare string array value would regress those. Record and
  * object have no scalar CLI form, so a string value is unambiguously JSON.
  * (mt#2482)
+ *
+ * Wrapper handling (zod v4): `optional` / `nullable` / `default` unwrap to the
+ * inner schema; `.refine()` keeps `.type === "record"`/`"object"` (checks are
+ * added in place, no wrapper) so it needs no special case; `.transform()`
+ * produces a `pipe` whose INPUT side is the original schema — we recurse into
+ * `.in` so `record.transform(...)` is detected as a record while
+ * `string.pipe(...)` (string input) is correctly left alone (mt#2482 R1).
  */
 function structuredZodType(schema: z.ZodType): "record" | "object" | undefined {
   const schemaType = (schema as { type?: string }).type;
@@ -247,6 +254,12 @@ function structuredZodType(schema: z.ZodType): "record" | "object" | undefined {
   }
   if (schemaType === "default") {
     return structuredZodType((schema as z.ZodDefault).removeDefault() as z.ZodType);
+  }
+  if (schemaType === "pipe") {
+    // A.pipe(B) and X.transform() are both `pipe`; the CLI value must match the
+    // INPUT side. `.in` is the public ZodPipe input accessor in zod v4.
+    const inSchema = (schema as z.ZodPipe).in as z.ZodType | undefined;
+    return inSchema ? structuredZodType(inSchema) : undefined;
   }
   return undefined;
 }

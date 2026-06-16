@@ -33,6 +33,22 @@ describe("normalizeCliParameters — structured (record/object) params (mt#2482)
     expect(out.payload).toEqual({ k: 1 });
   });
 
+  test("refined record param: JSON string parses (refine keeps .type=record)", () => {
+    const schema = {
+      payload: def(z.record(z.string(), z.unknown()).refine((v) => Object.keys(v).length > 0)),
+    };
+    const out = normalizeCliParameters(schema, { payload: '{"k":1}' });
+    expect(out.payload).toEqual({ k: 1 });
+  });
+
+  test("transformed record param: JSON string parses (pipe input is record, mt#2482 R1)", () => {
+    const schema = {
+      payload: def(z.record(z.string(), z.unknown()).transform((v) => ({ ...v, seen: true }))),
+    };
+    const out = normalizeCliParameters(schema, { payload: '{"k":1}' });
+    expect(out.payload).toEqual({ k: 1, seen: true });
+  });
+
   test("record param already an object (MCP/in-process path) passes through", () => {
     const schema = { payload: def(z.record(z.string(), z.unknown()), true) };
     const obj = { taskId: "mt#1" };
@@ -82,6 +98,13 @@ describe("normalizeCliParameters — non-structured params are unaffected", () =
     const schema = { tag: def(z.union([z.string(), z.array(z.string())])) };
     expect(normalizeCliParameters(schema, { tag: "solo" }).tag).toBe("solo");
     expect(normalizeCliParameters(schema, { tag: ["a", "b"] }).tag).toEqual(["a", "b"]);
+  });
+
+  test("string.transform param (string input) is NOT JSON-parsed", () => {
+    // pipe whose input side is a string → leave the raw string alone.
+    const schema = { name: def(z.string().transform((s) => s.toUpperCase())) };
+    const out = normalizeCliParameters(schema, { name: "hello" });
+    expect(out.name).toBe("HELLO");
   });
 
   test("optional param omitted is skipped", () => {
