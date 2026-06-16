@@ -605,6 +605,19 @@ runtime-diagnosis sibling surface (citing a stale warning while debugging) is ow
 
    **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /merge-coordination walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, merge-coordination SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
 
+   **Ask-or-cite-ask at closeout (mt#2471).** If a gate criterion surfaced a dependency or
+   open question that is gated on a **principal-owned decision** (the spec records it as
+   "principal wants further discussion", "resolve before dependent impl", or the gate halted
+   on "external decision the user owns"), the closeout MUST route it through the Ask substrate
+   — file it via `mcp__minsky__asks_create` (kind `direction.decide`, packaged per
+   `humility.mdc §Escalation packaging`, `parentTaskId` set) OR cite the id of an existing
+   open ask that covers it. Do NOT reference the decision by pointer in chat prose ("the
+   rail-axis discussion", "needs your call") and end the turn — chat prose evaporates and never
+   reaches the attention surface. This is the planning-closeout enforcement of the
+   escalation-packaging family (memory `3e3f29d8`; originating recurrences R3 2026-06-09 in
+   THIS skill's closeout, R4 2026-06-12). For a NON-principal deferral (a next-step a lookup or
+   standing default resolves), use `/classify-before-deferring` instead of an ask.
+
 **One or more gate criteria fail:**
 
 1. Do **not** call `tasks_status_set` → READY.
