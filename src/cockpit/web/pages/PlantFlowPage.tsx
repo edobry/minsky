@@ -1533,7 +1533,7 @@ function PlantFlowCanvas() {
       if (pulse && pulse.until > Date.now()) {
         out = {
           ...out,
-          className: "vsm-gesture-pulse",
+          className: [out.className, "vsm-gesture-pulse"].filter(Boolean).join(" "),
           style: {
             ...out.style,
             "--gesture-color": pulse.colorVar,
@@ -1558,7 +1558,7 @@ function PlantFlowCanvas() {
       }
       const flash = activeGestures.edgeFlashes[edge.id];
       if (flash && flash.until > Date.now()) {
-        out = { ...out, className: "edge-gesture" };
+        out = { ...out, className: [out.className, "edge-gesture"].filter(Boolean).join(" ") };
       }
       return out;
     });

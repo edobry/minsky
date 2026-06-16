@@ -55,7 +55,7 @@ export function GestureEdge({
 
   const effectiveStyle =
     active && reduced
-      ? { ...style, stroke: `oklch(${colorVar} / 1)`, strokeWidth: 3.5 }
+      ? { ...(style ?? {}), stroke: `oklch(${colorVar} / 1)`, strokeWidth: 3.5 }
       : style;
 
   return (
