@@ -41,10 +41,13 @@ export interface CalibrationLogEntry {
   name: string;
   /**
    * Record kind — drives how matched phrases are extracted from each record.
-   * "causal-premise"     → record.matchedPhrases: string[]
+   * "causal-premise"        → record.matchedPhrases: string[]
    * "retrospective-trigger" → record.matches: {family, phrase}[]
+   * "ask-routing-deferral"  → record.matches: {class, phrase}[] (mt#2498) —
+   *   same matches-shape as retrospective-trigger; the per-match label key is
+   *   `class` not `family`. Both parse through the same branch.
    */
-  kind: "causal-premise" | "retrospective-trigger";
+  kind: "causal-premise" | "retrospective-trigger" | "ask-routing-deferral";
 }
 
 /**
@@ -53,8 +56,9 @@ export interface CalibrationLogEntry {
  * V1 entries (mt#2483):
  *   - causal-premise-calibration.jsonl (mt#2216)
  *   - retrospective-trigger-calibration.jsonl (mt#2057)
+ *   - ask-routing-deferral-calibration.jsonl (mt#2471, registered mt#2498)
  *
- * To add a third log: append one CalibrationLogEntry here.
+ * To add another log: append one CalibrationLogEntry here.
  */
 export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
   {
@@ -66,6 +70,11 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/retrospective-trigger-calibration.jsonl",
     name: "retrospective-trigger",
     kind: "retrospective-trigger",
+  },
+  {
+    path: ".minsky/ask-routing-deferral-calibration.jsonl",
+    name: "ask-routing-deferral",
+    kind: "ask-routing-deferral",
   },
 ];
 
@@ -198,12 +207,18 @@ export function parseCalibrationRecord(
         hadSameTurnVerification: Boolean(raw["hadSameTurnVerification"]),
       } satisfies CausalPremiseRecord;
     } else {
-      // retrospective-trigger
-      // Shape: { timestamp, session_id?, matches: [{family, phrase}][], transcript_excerpt? }
+      // retrospective-trigger OR ask-routing-deferral (mt#2498) — same
+      // matches-shape. retrospective-trigger labels each match with `family`;
+      // ask-routing-deferral labels it with `class`. Read both so either kind
+      // parses; only `.phrase` is used downstream (diversity + fire-count).
+      // Shape: { timestamp, session_id?, matches: [{family|class, phrase}][], transcript_excerpt? }
       const matches = Array.isArray(raw["matches"])
         ? (raw["matches"] as unknown[]).map((m) => {
             const obj = m as Record<string, unknown>;
-            return { family: String(obj["family"] ?? ""), phrase: String(obj["phrase"] ?? "") };
+            return {
+              family: String(obj["family"] ?? obj["class"] ?? ""),
+              phrase: String(obj["phrase"] ?? ""),
+            };
           })
         : [];
       return {
