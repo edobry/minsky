@@ -140,6 +140,88 @@ describe("InProcessOAuthProvider — Provider construction regression (mt#1703)"
 });
 
 // ---------------------------------------------------------------------------
+// Proxy-trust regression — mt#1780
+// ---------------------------------------------------------------------------
+//
+// oidc-provider runs as its OWN Koa app and does NOT inherit Express's
+// `app.set("trust proxy", 1)`. Behind a TLS-terminating edge (Railway), Koa
+// derives the request protocol from its own `app.proxy` flag — default OFF —
+// so the devInteractions consent form action renders `http://.../interaction/<uid>`
+// and the `_interaction` cookie is not `Secure`. In the claude.ai web connector
+// flow (a strict-HTTPS browser context) that http form submission is active
+// mixed content → blocked/upgraded → the authorization-code step never completes
+// → the connector stays unauthenticated.
+//
+// The fix sets `this.provider.proxy = true` in getProvider(). This test locks
+// it: before the fix `proxy` is the Koa default (false); after, true. The
+// existing start-command integration test ("X-Forwarded-Proto: https is
+// forwarded correctly") only asserts the EXPRESS discovery endpoint — it never
+// exercises the oidc-provider Koa layer, which is why the http leak shipped.
+// This unit test closes that coverage gap at the provider layer (no DB / no
+// HTTP needed).
+
+describe("InProcessOAuthProvider — proxy-trust regression (mt#1780)", () => {
+  // The oidc-provider `Provider` class EXTENDS Koa, so the instance IS the Koa
+  // app: `provider.proxy` is Koa's `app.proxy` and `provider.createContext` is
+  // Koa's. Build the provider and trigger getProvider() (via discoveryMetadata,
+  // which needs no DB) to construct that instance with the proxy flag set.
+  type KoaProviderInternals = {
+    proxy: boolean;
+    createContext: (
+      req: unknown,
+      res: unknown
+    ) => { request: { protocol: string; secure: boolean; href: string } };
+  };
+
+  async function buildKoaProvider(): Promise<KoaProviderInternals> {
+    const provider = new InProcessOAuthProvider({
+      db: makeStubDb(),
+      issuer: "https://test.example.com",
+    });
+    await provider.discoveryMetadata(mockReq());
+    return (provider as unknown as { provider: KoaProviderInternals }).provider;
+  }
+
+  test("getProvider() sets provider.proxy=true (Koa app.proxy) so X-Forwarded-* is trusted", async () => {
+    const koa = await buildKoaProvider();
+    expect(koa.proxy).toBe(true);
+  });
+
+  test("behind X-Forwarded-Proto: https the Koa layer derives https origin + secure (the values the consent form action and Secure cookie are built from)", async () => {
+    const koa = await buildKoaProvider();
+
+    // Minimal Node-request shape Koa.createContext needs. `socket.encrypted` is
+    // falsy — exactly the plain-TCP situation behind a TLS-terminating edge —
+    // so the only `https` signal is `X-Forwarded-Proto`, which Koa honors IFF
+    // `app.proxy` is true (Koa 3 request.protocol getter). With the mt#1780 fix
+    // absent, `protocol` would be "http", `secure` false, and `href` http://.
+    const req = {
+      headers: {
+        "x-forwarded-proto": "https",
+        host: "minsky-mcp-production.up.railway.app",
+      },
+      socket: {},
+      url: "/interaction/abc123",
+      method: "GET",
+    };
+    const ctx = koa.createContext(req, {});
+
+    // oidc-provider's devInteractions renders the consent form `action` as an
+    // ABSOLUTE URL (scheme + host + path, the same shape as `ctx.request.href`),
+    // and sets the `_interaction` cookie's `Secure` attribute from
+    // `ctx.request.secure`. Asserting these here is asserting the consent form
+    // action scheme and the cookie Secure flag at the exact layer that produces
+    // them — in default CI, no DB / HTTP. (Koa 3's `request.origin` is the CORS
+    // Origin header, not scheme+host; `href` is the full scheme+host+path URL.)
+    expect(ctx.request.protocol).toBe("https");
+    expect(ctx.request.secure).toBe(true);
+    expect(ctx.request.href).toBe(
+      "https://minsky-mcp-production.up.railway.app/interaction/abc123"
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DCR token_endpoint_auth_method regression tests — mt#1746
 // ---------------------------------------------------------------------------
 //
