@@ -2,6 +2,7 @@ import { pgTable, text, integer, timestamp, pgEnum, uuid } from "drizzle-orm/pg-
 import { TaskStatus } from "../../tasks/taskConstants";
 import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
+import { projectsTable } from "./projects-schema";
 
 // Enumerated task status using centralized TaskStatus enum
 export const taskStatusEnum = pgEnum(
@@ -29,8 +30,7 @@ export const tasksTable = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
     // project; NOT NULL deferred to Phase 1.3 (mt#2416).
-    // Plain uuid column — no DB-level FK per project convention (ask-schema.ts).
-    projectId: uuid("project_id"),
+    projectId: uuid("project_id").references(() => projectsTable.id),
   },
   () => []
 );

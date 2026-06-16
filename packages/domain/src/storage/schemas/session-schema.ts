@@ -15,6 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
+import { projectsTable } from "./projects-schema";
 
 // PostgreSQL Schema
 export const postgresSessions = pgTable("sessions", {
@@ -47,8 +48,7 @@ export const postgresSessions = pgTable("sessions", {
   // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
   // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
   // canonical; repo_name/repo_url here stay as a denormalized cache.
-  // Plain uuid column — no DB-level FK per project convention (ask-schema.ts).
-  projectId: uuid("project_id"),
+  projectId: uuid("project_id").references(() => projectsTable.id),
 });
 
 // Type exports for better type inference

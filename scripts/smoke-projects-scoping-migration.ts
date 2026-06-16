@@ -159,6 +159,23 @@ if (!failed) {
     "INSERT INTO tasks (id) VALUES ('mt#smoke-backfill') ON CONFLICT (id) DO NOTHING;"
   );
   assert("seed task row inserted", seed.ok, seed.stderr);
+
+  // 3c: seed a sessions row with NULL project_id (required NOT NULL cols).
+  const seedSession = psql(
+    `INSERT INTO sessions (session, repo_name, repo_url, created_at)
+     VALUES ('smoke-session-backfill', 'smoke-repo', 'https://github.com/smoke/repo', NOW())
+     ON CONFLICT (session) DO NOTHING;`
+  );
+  assert("seed sessions row inserted", seedSession.ok, seedSession.stderr);
+
+  // 3d: seed an asks row with NULL project_id (required NOT NULL cols).
+  const seedAsk = psql(
+    `INSERT INTO asks (kind, classifier_version, state, requestor, title, question)
+     VALUES ('direction.decide', 'smoke-v1', 'detected', 'agent:smoke:1', 'Smoke ask', 'Is this working?')
+     ON CONFLICT DO NOTHING;`
+  );
+  assert("seed asks row inserted", seedAsk.ok, seedAsk.stderr);
+
   const b = psqlFile(BACKFILL_SQL); // idempotent re-apply
   assert(
     "0047 re-applies idempotently (no error, no duplicate Minsky row)",
@@ -171,6 +188,8 @@ if (!failed) {
     dupe.ok && parseInt(dupe.stdout, 10) === 1,
     `count=${dupe.stdout}`
   );
+
+  // Assert tasks backfill.
   const backfilled = psql(
     "SELECT COUNT(*) FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id='mt#smoke-backfill' AND p.slug='edobry/minsky';"
   );
@@ -179,12 +198,78 @@ if (!failed) {
     backfilled.ok && parseInt(backfilled.stdout, 10) === 1,
     `count=${backfilled.stdout}`
   );
-  const orphans = psql("SELECT COUNT(*) FROM tasks WHERE project_id IS NULL;");
+  const taskOrphans = psql("SELECT COUNT(*) FROM tasks WHERE project_id IS NULL;");
   assert(
     "zero NULL project_id rows in tasks after backfill",
-    orphans.ok && parseInt(orphans.stdout, 10) === 0,
-    `orphan count=${orphans.stdout}`
+    taskOrphans.ok && parseInt(taskOrphans.stdout, 10) === 0,
+    `orphan count=${taskOrphans.stdout}`
   );
+
+  // Assert sessions backfill.
+  const sessionBackfilled = psql(
+    `SELECT COUNT(*) FROM sessions s JOIN projects p ON s.project_id = p.id
+     WHERE s.session='smoke-session-backfill' AND p.slug='edobry/minsky';`
+  );
+  assert(
+    "seeded sessions row backfilled to the Minsky project",
+    sessionBackfilled.ok && parseInt(sessionBackfilled.stdout, 10) === 1,
+    `count=${sessionBackfilled.stdout}`
+  );
+  const sessionOrphans = psql("SELECT COUNT(*) FROM sessions WHERE project_id IS NULL;");
+  assert(
+    "zero NULL project_id rows in sessions after backfill",
+    sessionOrphans.ok && parseInt(sessionOrphans.stdout, 10) === 0,
+    `orphan count=${sessionOrphans.stdout}`
+  );
+
+  // Assert asks backfill.
+  const askBackfilled = psql(
+    `SELECT COUNT(*) FROM asks a JOIN projects p ON a.project_id = p.id
+     WHERE a.title='Smoke ask' AND p.slug='edobry/minsky';`
+  );
+  assert(
+    "seeded asks row backfilled to the Minsky project",
+    askBackfilled.ok && parseInt(askBackfilled.stdout, 10) === 1,
+    `count=${askBackfilled.stdout}`
+  );
+  const askOrphans = psql("SELECT COUNT(*) FROM asks WHERE project_id IS NULL;");
+  assert(
+    "zero NULL project_id rows in asks after backfill",
+    askOrphans.ok && parseInt(askOrphans.stdout, 10) === 0,
+    `orphan count=${askOrphans.stdout}`
+  );
+}
+
+// ── step 4: FK constraint existence ─────────────────────────────────────────
+// Confirm the DB-level FOREIGN KEY constraints on project_id exist for
+// tasks, sessions, and asks (added in migration 0048, mt#2415 R1).
+if (!failed) {
+  console.log("\n--- Step 4: FK constraint existence (project_id → projects.id) ---");
+  for (const table of ["tasks", "sessions", "asks"]) {
+    const fk = psql(
+      `SELECT COUNT(*)
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+       JOIN information_schema.referential_constraints rc
+         ON tc.constraint_name = rc.constraint_name
+         AND tc.table_schema = rc.constraint_schema
+       JOIN information_schema.table_constraints tc2
+         ON rc.unique_constraint_name = tc2.constraint_name
+         AND rc.unique_constraint_schema = tc2.table_schema
+       WHERE tc.table_schema = 'public'
+         AND tc.table_name = '${table}'
+         AND tc.constraint_type = 'FOREIGN KEY'
+         AND kcu.column_name = 'project_id'
+         AND tc2.table_name = 'projects';`
+    );
+    assert(
+      `FK constraint exists: ${table}.project_id → projects.id`,
+      fk.ok && parseInt(fk.stdout, 10) >= 1,
+      fk.stderr || `count=${fk.stdout}`
+    );
+  }
 }
 
 console.log("");

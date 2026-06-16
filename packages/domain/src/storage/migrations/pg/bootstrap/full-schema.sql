@@ -364,9 +364,12 @@ CREATE TABLE "detector_dismissals" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "tasks" ADD CONSTRAINT "tasks_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_transcript_turns" ADD CONSTRAINT "agent_transcript_turns_agent_session_id_agent_transcripts_agent_session_id_fk" FOREIGN KEY ("agent_session_id") REFERENCES "public"."agent_transcripts"("agent_session_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "agent_spawns" ADD CONSTRAINT "agent_spawns_parent_agent_session_id_agent_transcripts_agent_session_id_fk" FOREIGN KEY ("parent_agent_session_id") REFERENCES "public"."agent_transcripts"("agent_session_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "minsky_session_links" ADD CONSTRAINT "minsky_session_links_agent_session_id_agent_transcripts_agent_session_id_fk" FOREIGN KEY ("agent_session_id") REFERENCES "public"."agent_transcripts"("agent_session_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "asks" ADD CONSTRAINT "asks_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_access_tokens" ADD CONSTRAINT "fk_access_tokens_client_id" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_authorization_codes" ADD CONSTRAINT "fk_auth_codes_client_id" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_tokens" ADD CONSTRAINT "fk_refresh_tokens_client_id" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_clients"("client_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

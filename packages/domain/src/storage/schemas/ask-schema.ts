@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { AskKind, AskState, AskOption, ContextRef } from "../../ask/types";
+import { projectsTable } from "./projects-schema";
 
 /**
  * Asks table — the unified domain entity for all human-in-the-loop mechanisms.
@@ -22,7 +23,8 @@ import type { AskKind, AskState, AskOption, ContextRef } from "../../ask/types";
  *
  * Conventions followed (consistent with task-relationships and provenance):
  * - UUID PK with defaultRandom()
- * - No FK constraints — taskId/sessionId are plain text refs per project convention
+ * - taskId/sessionId are plain text refs (no FK — denormalized cross-table refs)
+ * - projectId has a DB-level FK to projects.id (uuid → uuid, mt#2415 R1)
  * - jsonb for structured/array columns (options, contextRefs, response, metadata)
  * - withTimezone on all timestamps
  * - snake_case column names, camelCase TypeScript identifiers
@@ -209,8 +211,8 @@ export const asksTable = pgTable(
 
     // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
     // project; NOT NULL deferred to Phase 1.3 (mt#2416).
-    // Plain uuid column — no DB-level FK per project convention (documented above).
-    projectId: uuid("project_id"),
+    // FK to projects.id (uuid → uuid, consistent with agent-transcripts cluster).
+    projectId: uuid("project_id").references(() => projectsTable.id),
   },
   (table) => ({
     // Composite index for the most common query pattern: filter by state + kind
