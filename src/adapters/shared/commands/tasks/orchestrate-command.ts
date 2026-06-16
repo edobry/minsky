@@ -145,8 +145,13 @@ export function createTasksOrchestrateCommand(
         lines.push("");
         lines.push("To dispatch a subtask:");
         lines.push(
-          `  tasks_dispatch(parentTaskId: "${parentTaskId}", title: "...", instructions: "...")`
+          `  tasks_dispatch(parentTaskId: "${parentTaskId}", title: "...", instructions: "...",`
         );
+        lines.push(`    premiseClaim: "...", premiseFalsifier: "...", premiseEvidence: "...")`);
+        lines.push(
+          `  (mt#2488 evidence gate: state the premise this dispatch rests on, the cheapest`
+        );
+        lines.push(`   check that would disprove it, and the result of running that check.)`);
         lines.push("Or start a session directly for an existing subtask:");
         lines.push(`  session_start(task: "${dispatchable[0]?.taskId}")`);
       }
