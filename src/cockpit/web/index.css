@@ -197,6 +197,45 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * Plant-board fast-clock gestures (mt#2377 v2.0 — honest motion).
+ * One-shot, event-driven: applied transiently by the gesture engine when a
+ * real system_events row lands; removed when the gesture expires. CSS-only,
+ * so the universal prefers-reduced-motion rule below gates them.
+ * --------------------------------------------------------------------------- */
+
+@keyframes vsm-gesture-pulse {
+  0% {
+    box-shadow: 0 0 0 0 oklch(var(--gesture-color, var(--vsm-s1)) / 0);
+  }
+  35% {
+    box-shadow: 0 0 22px 3px oklch(var(--gesture-color, var(--vsm-s1)) / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(var(--gesture-color, var(--vsm-s1)) / 0);
+  }
+}
+
+.vsm-gesture-pulse {
+  animation: vsm-gesture-pulse 1.8s ease-out;
+  border-radius: 6px;
+}
+
+@keyframes edge-gesture-flash {
+  0%,
+  100% {
+    stroke-opacity: 0.7;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+}
+
+.edge-gesture path.react-flow__edge-path {
+  animation: edge-gesture-flash 0.9s ease-in-out 4;
+  stroke-width: 3px !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -30,13 +30,20 @@
  *     the global CSS rule in index.css (@media prefers-reduced-motion: reduce).
  *   - Fixed initial node positions; pan/zoom enabled (react-flow default).
  *
- * Deferred (v2):
- *   - Dagre/elk auto-layout for slow-clock topology derivation.
- *   - Real event-driven dot motion on edges (mt#2375 honest-motion law).
- *   - Per-organ drill-down routes (Shneiderman zoom-to-detail).
+ * Deferred:
+ *   - Dagre/elk auto-layout for slow-clock topology derivation (v3).
+ *   - Per-organ drill-down routes (Shneiderman zoom-to-detail) (v3).
+ *   - Valve-flash / weld / reservoir-glow / deploy-pipe gestures — need the
+ *     mt#2481 event types + emit wiring.
+ *
+ * v2.0 (mt#2377): event-driven fast-clock motion. Gestures (spine dots, node
+ * pulses, edge flashes) fire ONLY from real system_events rows polled via
+ * /api/activity — see lib/plant-gestures.ts for the fixed dictionary and the
+ * honest-motion law. The always-on edge dash-marching from v1 was REMOVED:
+ * idle must read calm.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   type Node,
@@ -55,6 +62,15 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useReadyCount } from "../hooks/useReadyCount";
+import { useSystemEvents } from "../hooks/useSystemEvents";
+import { GestureEdge } from "../components/GestureEdge";
+import {
+  GESTURE_MS,
+  GESTURE_TONE_VARS,
+  createGestureEngineState,
+  mapEventToGestures,
+  takeNewEvents,
+} from "../lib/plant-gestures";
 
 // ---------------------------------------------------------------------------
 // Node data types
@@ -857,6 +873,11 @@ const nodeTypes = {
   "infra-supply": InfraSupplyNode,
 } as const;
 
+/** Custom edge types — "gesture" renders the event-driven traveling dot. */
+const edgeTypes = {
+  gesture: GestureEdge,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Initial node positions — fixed layout encoding the VSM topology
 //
@@ -1045,9 +1066,9 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
 
 // ---------------------------------------------------------------------------
 // Initial edges — the plant topology (pipes + seam + recirc + weld)
-// animated: true on key flow edges previews v2 dot-motion
-// (the global prefers-reduced-motion CSS rule in index.css disables animation
-//  when the user has opted into reduced motion)
+// No edge is permanently animated (honest-motion law): fast-clock motion is
+// event-driven via the gesture engine (lib/plant-gestures.ts), which sets
+// transient gesture data / classes when real system_events rows land.
 // ---------------------------------------------------------------------------
 
 const INITIAL_EDGES: Edge[] = [
@@ -1140,7 +1161,6 @@ const INITIAL_EDGES: Edge[] = [
     target: "s1-tasks",
     targetHandle: "tasks-in-top",
     type: "smoothstep",
-    animated: true,
     style: { stroke: `oklch(var(--vsm-s4) / 0.75)`, strokeWidth: 1.5 },
     label: "feeds",
     labelStyle: edgeLabelStyle("var(--vsm-s4)"),
@@ -1150,15 +1170,17 @@ const INITIAL_EDGES: Edge[] = [
     labelShowBg: true,
   },
 
-  // S1 spine main flow (left to right) — primary information channel, most visible
+  // S1 spine main flow (left to right) — primary information channel, most
+  // visible. Type "gesture": dots travel these edges ONLY when a real
+  // system_events row fires (mt#2377 v2.0). The v1 always-on `animated` dash
+  // marching was removed — fake busy-motion violates the honest-motion law.
   {
     id: "tasks-to-ready",
     source: "s1-tasks",
     sourceHandle: "tasks-out",
     target: "s1-ready",
     targetHandle: "ready-in",
-    type: "smoothstep",
-    animated: true,
+    type: "gesture",
     style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
@@ -1167,8 +1189,7 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "ready-out",
     target: "s1-sessions",
     targetHandle: "sessions-in",
-    type: "smoothstep",
-    animated: true,
+    type: "gesture",
     style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
@@ -1177,8 +1198,7 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "sessions-out",
     target: "s1-agents",
     targetHandle: "agents-in",
-    type: "smoothstep",
-    animated: true,
+    type: "gesture",
     style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
@@ -1187,8 +1207,7 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "agents-out",
     target: "s1-pr",
     targetHandle: "pr-in",
-    type: "smoothstep",
-    animated: true,
+    type: "gesture",
     style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
@@ -1197,8 +1216,7 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "pr-out",
     target: "s1-review",
     targetHandle: "review-in",
-    type: "smoothstep",
-    animated: true,
+    type: "gesture",
     style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
@@ -1207,8 +1225,7 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "review-out",
     target: "s1-done",
     targetHandle: "done-in",
-    type: "smoothstep",
-    animated: true,
+    type: "gesture",
     style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
 
@@ -1412,8 +1429,8 @@ function PlantLegend() {
             </div>
           </div>
           <div className="text-[8px] text-muted-foreground/70 leading-snug">
-            idle-honest: only the breath and a pending ask move. READY is live;
-            — = placeholder.
+            idle-honest: gestures fire only on real system events; breath and a
+            pending ask are the only ambient cues. READY is live; — = placeholder.
           </div>
         </div>
       )}
@@ -1429,6 +1446,60 @@ function PlantFlowCanvas() {
   const { data: readyCount, isLoading: readyLoading } = useReadyCount();
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
+
+  // -------------------------------------------------------------------------
+  // Fast-clock gesture engine (mt#2377 v2.0). Polls system_events; the FIRST
+  // poll only baselines (history is not motion); each subsequent poll fires
+  // the fixed gesture dictionary for genuinely-new rows. Expired gestures are
+  // pruned so the indefinite SMIL dots unmount.
+  // -------------------------------------------------------------------------
+  const { data: eventRows } = useSystemEvents();
+  const engineRef = useRef(createGestureEngineState());
+  const [activeGestures, setActiveGestures] = useState<{
+    edgeDots: Record<string, { until: number; colorVar: string }>;
+    edgeFlashes: Record<string, { until: number }>;
+    nodePulses: Record<string, { until: number; colorVar: string }>;
+  }>({ edgeDots: {}, edgeFlashes: {}, nodePulses: {} });
+
+  useEffect(() => {
+    if (!eventRows) return;
+    const fresh = takeNewEvents(engineRef.current, eventRows);
+    if (fresh.length === 0) return;
+    const until = Date.now() + GESTURE_MS;
+    setActiveGestures((prev) => {
+      const next = {
+        edgeDots: { ...prev.edgeDots },
+        edgeFlashes: { ...prev.edgeFlashes },
+        nodePulses: { ...prev.nodePulses },
+      };
+      for (const ev of fresh) {
+        const g = mapEventToGestures(ev);
+        for (const d of g.edgeDots) {
+          next.edgeDots[d.edgeId] = { until, colorVar: GESTURE_TONE_VARS[d.tone] };
+        }
+        for (const f of g.edgeFlashes) {
+          next.edgeFlashes[f.edgeId] = { until };
+        }
+        for (const p of g.nodePulses) {
+          next.nodePulses[p.nodeId] = { until, colorVar: GESTURE_TONE_VARS[p.tone] };
+        }
+      }
+      return next;
+    });
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      setActiveGestures((prev) => ({
+        edgeDots: Object.fromEntries(Object.entries(prev.edgeDots).filter(([, v]) => v.until > now)),
+        edgeFlashes: Object.fromEntries(
+          Object.entries(prev.edgeFlashes).filter(([, v]) => v.until > now)
+        ),
+        nodePulses: Object.fromEntries(
+          Object.entries(prev.nodePulses).filter(([, v]) => v.until > now)
+        ),
+      }));
+    }, GESTURE_MS + 200);
+    return () => clearTimeout(timer);
+  }, [eventRows]);
 
   // Build the initial node layout with placeholder ready data.
   // Live readyCount is propagated into the READY node via `updatedNodes` below,
@@ -1451,15 +1522,47 @@ function PlantFlowCanvas() {
   // Propagate live readyCount into the READY node data without resetting layout.
   const updatedNodes = useMemo(() => {
     return nodes.map((node) => {
+      let out = node;
       if (node.id === "s1-ready") {
-        return {
-          ...node,
-          data: { ...node.data, readyCount, readyLoading },
+        out = {
+          ...out,
+          data: { ...out.data, readyCount, readyLoading },
         };
       }
-      return node;
+      const pulse = activeGestures.nodePulses[node.id];
+      if (pulse && pulse.until > Date.now()) {
+        out = {
+          ...out,
+          className: [out.className, "vsm-gesture-pulse"].filter(Boolean).join(" "),
+          style: {
+            ...out.style,
+            "--gesture-color": pulse.colorVar,
+          } as React.CSSProperties,
+        };
+      }
+      return out;
     });
-  }, [nodes, readyCount, readyLoading]);
+  }, [nodes, readyCount, readyLoading, activeGestures]);
+
+  // Apply edge gestures: traveling-dot data on the spine's gesture edges,
+  // flash class on governance edges.
+  const renderedEdges = useMemo(() => {
+    return edges.map((edge) => {
+      let out = edge;
+      if (edge.type === "gesture") {
+        const dot = activeGestures.edgeDots[edge.id];
+        out = {
+          ...out,
+          data: { ...out.data, gestureUntil: dot?.until, gestureColorVar: dot?.colorVar },
+        };
+      }
+      const flash = activeGestures.edgeFlashes[edge.id];
+      if (flash && flash.until > Date.now()) {
+        out = { ...out, className: [out.className, "edge-gesture"].filter(Boolean).join(" ") };
+      }
+      return out;
+    });
+  }, [edges, activeGestures]);
 
   const onNodesChangeCallback = useCallback(onNodesChange, [onNodesChange]);
   const onEdgesChangeCallback = useCallback(onEdgesChange, [onEdgesChange]);
@@ -1467,8 +1570,9 @@ function PlantFlowCanvas() {
   return (
     <ReactFlow
       nodes={updatedNodes}
-      edges={edges}
+      edges={renderedEdges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onNodesChange={onNodesChangeCallback}
       onEdgesChange={onEdgesChangeCallback}
       fitView
@@ -1523,7 +1627,7 @@ export function PlantFlowPage() {
           MINSKY · PLANT
         </h1>
         <span className="text-[11px] font-mono text-muted-foreground">
-          v1 · node-link canvas · READY tank live · pan/zoom · animated edges (v2 preview)
+          v2 · node-link canvas · READY tank live · event-driven motion · idle-honest
         </span>
         <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
           <span className="text-liveness-healthy">● system nominal</span>
