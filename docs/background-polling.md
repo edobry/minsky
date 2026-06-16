@@ -234,6 +234,26 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 - **Production status:** **available.** The dog-food consumer for the Ask system; works
   today without infrastructure changes.
 
+### 2.13a `mcp__minsky__asks_wait-for-response` — blocking Ask-response wait
+
+- **Class:** C (agent-driven poll, server-side)
+- **Shape:** MCP tool that blocks until an Ask reaches a response-bearing state
+  (`responded` / `closed`, returning the response payload), a non-response terminal
+  state (`cancelled` / `expired` — returns immediately without blocking to timeout), or
+  the timeout elapses (returns the still-pending state). Polls `AskRepository.getById`
+  server-side; clamps mirror `session_pr_wait-for-review` (timeout default 600s / [1, 1800];
+  interval default 15s / [5, 60]). The agent-side analogue of `session_pr_wait-for-review`
+  for the Ask system (mt#2266) — supersedes the `/loop` + `asks_list` poll workaround
+  for the "Ask responded" case.
+- **Gating semantics:** caller-managed — the tool does the wait only; it does NOT mutate
+  task status. Task↔ask linkage is the ask's `parentTaskId` (set at create time).
+- **Fit:** the correct answer for "I filed a `direction.decide` / `authorization.approve`
+  ask and need to block until the operator answers." Depends on the production advancement
+  loop (mt#2265) so the ask can actually reach `responded`.
+- **Latency:** bounded by the call's `timeoutSeconds`; sub-interval for an already-resolved
+  ask.
+- **Production status:** **available (mt#2266, DONE).**
+
 ### 2.14 `RemoteTrigger` / `PushNotification`
 
 - **Class:** A (push) — Claude Code-internal primitives.
@@ -250,16 +270,17 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 
 For each event, the _right class_ first, then the _concrete mechanism_ within it.
 
-| Event                            | Class today | Mechanism today                                      | Class with bridge | Mechanism with bridge |
-| -------------------------------- | ----------- | ---------------------------------------------------- | ----------------- | --------------------- |
-| Reviewer-bot review posted on PR | C           | `session_pr_wait-for-review`                         | B                 | mt#1588 + wake sink   |
-| `quality.review` Ask responded   | C           | `/loop` + `asks_list` poll                           | B                 | mt#1588 + wake sink   |
-| Sibling PR merged on `main`      | C / B       | `git_log` poll OR `pr_watch_create` (B post-mt#1725) | A (mt#1001)       | mesh push subscriber  |
-| CI completed on a PR             | C           | `pull_request_read get_check_runs` poll              | A (mt#1001)       | mesh push subscriber  |
-| Long subprocess finished         | C           | `Monitor` (line-by-line)                             | (no change)       | (no change)           |
-| Sweeper output ready             | C           | `asks_list` poll                                     | B                 | mt#1588 + wake sink   |
-| Cron-fired routine               | C           | `CronCreate` / `/schedule`                           | (no change)       | (no change)           |
-| MCP server became stale          | A (limited) | `notifications/message` + exit (mt#1315)             | (no change)       | (no change)           |
+| Event                            | Class today | Mechanism today                                        | Class with bridge | Mechanism with bridge |
+| -------------------------------- | ----------- | ------------------------------------------------------ | ----------------- | --------------------- |
+| Reviewer-bot review posted on PR | C           | `session_pr_wait-for-review`                           | B                 | mt#1588 + wake sink   |
+| `quality.review` Ask responded   | C           | `asks_wait-for-response` (mt#2266) OR `asks_list` poll | B                 | mt#1588 + wake sink   |
+| `direction.decide` Ask responded | C           | `asks_wait-for-response` (mt#2266)                     | B                 | mt#1588 + wake sink   |
+| Sibling PR merged on `main`      | C / B       | `git_log` poll OR `pr_watch_create` (B post-mt#1725)   | A (mt#1001)       | mesh push subscriber  |
+| CI completed on a PR             | C           | `pull_request_read get_check_runs` poll                | A (mt#1001)       | mesh push subscriber  |
+| Long subprocess finished         | C           | `Monitor` (line-by-line)                               | (no change)       | (no change)           |
+| Sweeper output ready             | C           | `asks_list` poll                                       | B                 | mt#1588 + wake sink   |
+| Cron-fired routine               | C           | `CronCreate` / `/schedule`                             | (no change)       | (no change)           |
+| MCP server became stale          | A (limited) | `notifications/message` + exit (mt#1315)               | (no change)       | (no change)           |
 
 **Reading the table:** the "today" columns describe what works as of 2026-05-08. The
 "with bridge" columns describe what would work after the §5 short-term bridge ships and

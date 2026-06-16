@@ -374,6 +374,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/causal-premise-detector.ts",
             "timeout": 10,
             "statusMessage": "Checking for unverified causal/mechanism claims..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/code-mechanism-assertion-detector.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for unread code-mechanism claims..."
           }
         ]
       }

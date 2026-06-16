@@ -260,6 +260,28 @@ export class SubagentDispatchTracker {
           relatedSessionId: input.parentSessionId ?? undefined,
         });
       }
+
+      // Emit subagent.completed event for success outcomes (mt#2487).
+      // Co-located with the subagent.failed branch above; the two are
+      // mutually exclusive (rate-limited emits neither). Best-effort —
+      // EventEmitter.emit() never throws.
+      if (
+        this.eventEmitter &&
+        (input.outcome === "completed-with-pr" ||
+          input.outcome === "committed-no-pr" ||
+          input.outcome === "partial-committed-handoff-written")
+      ) {
+        await this.eventEmitter.emit({
+          eventType: "subagent.completed",
+          payload: {
+            taskId: input.taskId,
+            agentType: input.agentType,
+            outcome: input.outcome,
+          },
+          relatedTaskId: input.taskId ?? undefined,
+          relatedSessionId: input.parentSessionId ?? undefined,
+        });
+      }
     } catch (err) {
       log.warn("subagent_dispatch_tracker: failed to record invocation", {
         taskId: input.taskId,

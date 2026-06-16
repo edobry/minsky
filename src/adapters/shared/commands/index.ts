@@ -43,6 +43,7 @@ import { registerObservabilityCommands } from "./observability";
 import { registerPrincipalCorpusCommands } from "./principal-corpus";
 import { registerForgeCommands } from "./forge";
 import { registerEventsCommands } from "./events";
+import { registerCalibrationCommands } from "./calibration";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -95,6 +96,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register asks commands (Ask subsystem — mt#1034 / ADR-008)
   registerAsksCommands(container);
+
+  // Register calibration commands (hook-calibration review sweep — mt#2483)
+  registerCalibrationCommands();
 
   // Register pr-watch commands (PR-state watcher — mt#1295)
   registerPrWatchCommands(container);
