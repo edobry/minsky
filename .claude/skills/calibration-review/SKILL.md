@@ -95,6 +95,7 @@ fires emits no Ask.
 - Tracking task: mt#2483. Migration target for the recurring trigger: mt#2322
   (cockpit-daemon scheduler) — until then the trigger is an interim `/schedule`
   routine.
-- Hooks reviewed: mt#2216 (causal-premise), mt#2057 (retrospective-trigger).
+- Hooks reviewed: mt#2216 (causal-premise), mt#2057 (retrospective-trigger),
+  mt#2471 (ask-routing-deferral; registered in the sweep by mt#2498).
 - Memory `3772c77d` (the causal-premise pattern this calibration data measures).
 - Asks subsystem: mt#1034 / ADR-008.

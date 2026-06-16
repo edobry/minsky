@@ -24,6 +24,7 @@ import {
 // Shared string constants (extracted to satisfy no-magic-string-duplication).
 const CAUSAL_PATH = ".minsky/causal-premise-calibration.jsonl";
 const RETRO_KIND = "retrospective-trigger";
+const DEFERRAL_KIND = "ask-routing-deferral";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -60,8 +61,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has two entries in v1", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(2);
+  test("has three entries (causal-premise, retrospective-trigger, ask-routing-deferral)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(3);
   });
 
   test("first entry is causal-premise", () => {
@@ -72,6 +73,14 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
   test("second entry is retrospective-trigger", () => {
     expect(CALIBRATION_LOG_REGISTRY[1]?.kind).toBe(RETRO_KIND);
     expect(CALIBRATION_LOG_REGISTRY[1]?.name).toBe(RETRO_KIND);
+  });
+
+  test("third entry is ask-routing-deferral (mt#2498)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[2]?.kind).toBe(DEFERRAL_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[2]?.name).toBe(DEFERRAL_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[2]?.path).toBe(
+      ".minsky/ask-routing-deferral-calibration.jsonl"
+    );
   });
 });
 
@@ -112,6 +121,21 @@ describe("parseCalibrationRecord", () => {
     expect(result).not.toBeNull();
     if (!result || !("matches" in result)) throw new Error("wrong type");
     expect(result.matches).toEqual([]);
+  });
+
+  test("parses an ask-routing-deferral record (class-keyed matches, mt#2498)", () => {
+    // The hook writes { matches: [{class, phrase}] } — `class` not `family`.
+    const line = JSON.stringify({
+      timestamp: "2026-06-16T00:00:00Z",
+      session_id: "test-session",
+      injection_enabled: false,
+      matches: [{ class: "principal-reserved", phrase: "needs your call" }],
+    });
+    const result = parseCalibrationRecord(line, DEFERRAL_KIND);
+    expect(result).not.toBeNull();
+    if (!result || !("matches" in result)) throw new Error("wrong type");
+    // `class` is read into the `family` field; `phrase` is preserved.
+    expect(result.matches).toEqual([{ family: "principal-reserved", phrase: "needs your call" }]);
   });
 });
 
