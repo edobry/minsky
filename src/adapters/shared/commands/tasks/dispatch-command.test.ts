@@ -7,6 +7,11 @@
  * passes straight to the harness check (no dep touched); on an env WITH support it reaches
  * a stub. Either way the assertion is that the failure (if any) is NOT an evidence-gate
  * error, i.e. the gate let it through.
+ *
+ * This is environment-AGNOSTIC by construction (NOT environment-sensitive): the assertions
+ * hold regardless of what `hasNativeSubagentSupport()` returns in this env. `mock.module`
+ * is deliberately avoided — bun runs test files in one shared process, so a module mock of
+ * harness-detection could leak into sibling test files that rely on the real implementation.
  */
 import { describe, test, expect } from "bun:test";
 import { createTasksDispatchCommand } from "./dispatch-command";

@@ -124,7 +124,7 @@ export function createTasksDispatchCommand(
           falsifier: p.premiseFalsifier,
           evidence: p.premiseEvidence,
         },
-        { action: "tasks_dispatch" }
+        { action: "tasks.dispatch" }
       );
       log.info("[tasks.dispatch] Evidence gate passed", {
         claim: premise.claim,

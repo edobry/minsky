@@ -19,7 +19,6 @@
  * See the mt#2488 spec for the full design note and the enumeration of consequential
  * actions in scope.
  */
-import { z } from "zod";
 import { ValidationError } from "../errors";
 
 /**
@@ -43,15 +42,13 @@ export interface EvidenceArgument {
   evidence: string;
 }
 
-/** Minimum substantive length (trimmed chars) for each evidence field. */
+/**
+ * Minimum substantive length (trimmed chars) for each evidence field. Tuned to reject
+ * placeholder no-ops ("n/a", "none", "ok", "tbd") while accepting a terse-but-real check
+ * like "check main CI" — roughly "a few words," not a single token. The gate cannot force
+ * honesty, only presence + a substance floor.
+ */
 export const MIN_EVIDENCE_FIELD_LENGTH = 12;
-
-/** Zod shape for an evidence argument. Substantive validation lives in {@link validateEvidenceArgument}. */
-export const evidenceArgumentSchema = z.object({
-  claim: z.string(),
-  falsifier: z.string(),
-  evidence: z.string(),
-});
 
 export interface ValidateEvidenceOptions {
   /** Action name surfaced in the error message (e.g. "tasks_dispatch"). */

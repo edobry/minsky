@@ -255,6 +255,18 @@ Must serialize: mt#C after mt#A (shared: src/domain/foo.ts)
 Recommended order: dispatch mt#A ∥ mt#B first, then mt#C after mt#A merges.
 \`\`\`
 
+### Evidence gate on dispatch (mt#2488)
+
+\`tasks_dispatch\` requires a structured **premise**, validated at the tool boundary before
+the subtask + session are created. A dispatch without a well-formed premise is BLOCKED —
+this generalizes the \`session_pr_merge forceBypass\` evidence gate and retires the R7
+failure (a fix subagent dispatched on a misdiagnosed cause). Supply all three:
+
+- \`premiseClaim\` — the load-bearing assumption this dispatch rests on (for greenfield work,
+  state that as the claim, e.g. "spec fully specifies the acceptance criteria").
+- \`premiseFalsifier\` — the cheapest check that would disprove the claim if it were false.
+- \`premiseEvidence\` — the result of actually running that check (the outcome, not a promise to run it).
+
 ### D. In-flight iteration: branch-divergence check
 
 The pre-dispatch sweep in §A catches sibling work that's already filed/merged at decomposition
