@@ -88,7 +88,7 @@ When reporting results and closing the task:
 
     The phrase "browser verification not done" alone — without (a) or (b) — is **forbidden** as a final-report conclusion.
 
-    For your OWN visual check (looking at the render, not just handing it off), the canonical tool is **chrome-devtools-mcp** (`mcp__chrome-devtools__*`) attached to the shared dev canary chromium (started by `cockpit start` unless `--no-dev-chromium` is passed) — follow `cockpit-design` skill §0 (find your tab by URL, `select_page`, then `take_snapshot`/`take_screenshot`, passing `pageId` explicitly). Playwright is the FALLBACK, not the default.
+    For your OWN visual check (looking at the render, not just handing it off), the canonical tool is **chrome-devtools-mcp** (`mcp__chrome-devtools__*`) attached to the shared dev canary chromium (started by `minsky cockpit start` unless `--no-dev-chromium` is passed) — follow `cockpit-design` skill §0 (find your tab by URL, `select_page`, then `take_snapshot`/`take_screenshot`, passing `pageId` explicitly). Playwright is the FALLBACK, not the default.
 
 20. **4-label follow-up format.** Every item you "notice" or mark as "worth a follow-up" in the final report MUST carry exactly one of these labels:
 
