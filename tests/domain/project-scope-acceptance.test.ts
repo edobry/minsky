@@ -154,11 +154,9 @@ function makeTaskDb(
 
   const db = {
     select() {
-      let table;
       let _whereCond: unknown = null;
       const chain = {
-        from(table: unknown) {
-          _table = table;
+        from(_table: unknown) {
           void _table;
           return chain;
         },
