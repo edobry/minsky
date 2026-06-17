@@ -20,6 +20,7 @@ import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-i
 import { RepositoryBackendType } from "../repository";
 import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
 import { SessionStatus } from "./types";
+import type { ScopeResolverDb } from "../project/scope-resolver";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -32,6 +33,14 @@ export interface StartSessionDependencies {
     backendType: RepositoryBackendType;
     github?: { owner: string; repo: string };
   }>;
+  /**
+   * Optional database connection for project-scope resolution (ADR-021, mt#2416).
+   * When provided, the session writer resolves the current project and stamps
+   * `project_id` on the new session row. When absent (e.g. in-memory test doubles
+   * that don't wire a DB), stamping is skipped — inserts stay nullable, preserving
+   * current behavior for hosted/cockpit no-single-repo scenarios.
+   */
+  db?: ScopeResolverDb;
   /** Optional filesystem adapter for testing to avoid real fs operations */
   fs?: {
     exists: (path: string) => boolean | Promise<boolean>;
@@ -348,6 +357,28 @@ async function executeMutations(
     }
   }
 
+  // ADR-021 / mt#2416: resolve the current project so the new session row is
+  // stamped with project_id. Mirrors resolveCurrentProjectId in taskService.ts.
+  // Best-effort: never throws — when the DB is absent or resolution fails,
+  // projectId stays undefined and the insert stays nullable (the hosted/cockpit
+  // no-single-repo case, or test doubles without a real DB connection).
+  let resolvedProjectId: string | undefined;
+  if (deps.db) {
+    try {
+      const { resolveProjectIdentity } = await import("../project/identity");
+      const { resolveProjectScope } = await import("../project/scope-resolver");
+      const { isAllProjects } = await import("../project/scope");
+      const identity = resolveProjectIdentity({ repoPath: sessionDir });
+      const scope = await resolveProjectScope(identity, deps.db);
+      resolvedProjectId = isAllProjects(scope) ? undefined : scope;
+    } catch (err: unknown) {
+      log.debug(
+        "[session.start] Project scope resolution failed; session.project_id will be NULL",
+        { error: err instanceof Error ? err.message : String(err) }
+      );
+    }
+  }
+
   // Prepare session record
   const sessionRecord: SessionRecord = {
     sessionId: sessionId,
@@ -359,6 +390,7 @@ async function executeMutations(
     branch: branchName,
     lastActivityAt: new Date().toISOString(),
     status: SessionStatus.CREATED,
+    projectId: resolvedProjectId,
   };
 
   let sessionAdded = false;

@@ -198,7 +198,29 @@ export function createSessionStartCommand(
       }
 
       const { SessionService } = await import("@minsky/domain/session/session-service");
-      const deps = await getDeps();
+      const baseDeps = await getDeps();
+
+      // ADR-021 / mt#2416: resolve the DB so session.start can stamp project_id
+      // on the new session row (mirrors session.list scope resolution above).
+      // Best-effort: when the persistence provider is absent or returns no DB,
+      // deps.db stays undefined and the stamping is silently skipped.
+      let resolvedDb: import("@minsky/domain/project/scope-resolver").ScopeResolverDb | undefined;
+      const provider = getPersistenceProvider?.();
+      const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+      if (sqlProvider?.getDatabaseConnection) {
+        try {
+          const rawDb = await sqlProvider.getDatabaseConnection();
+          if (rawDb) {
+            resolvedDb = rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb;
+          }
+        } catch (err: unknown) {
+          log.debug("[session.start] Failed to obtain DB for project-scope stamping", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const deps = resolvedDb ? { ...baseDeps, db: resolvedDb } : baseDeps;
       const service = new SessionService(deps);
 
       const session = await service.start({

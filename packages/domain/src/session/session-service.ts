@@ -12,6 +12,7 @@ import type { WorkspaceUtilsInterface } from "../workspace";
 import type { TaskServiceInterface } from "../tasks/taskService";
 import { RepositoryBackendType } from "../repository/index";
 import type { SessionProviderInterface } from "./types";
+import type { ScopeResolverDb } from "../project/scope-resolver";
 import {
   getSessionImpl,
   listSessionsImpl,
@@ -68,6 +69,11 @@ export interface SessionDeps {
     backendType: RepositoryBackendType;
     github?: { owner: string; repo: string };
   }>;
+  /**
+   * Optional database connection for project-scope write-stamping (ADR-021, mt#2416).
+   * When present, session.start stamps project_id on the new session row.
+   */
+  db?: ScopeResolverDb;
 }
 
 /**
@@ -130,6 +136,7 @@ export class SessionService {
       taskService: this.deps.taskService,
       workspaceUtils: this.deps.workspaceUtils,
       getRepositoryBackend: this.deps.getRepositoryBackend,
+      db: this.deps.db,
     });
   }
 
