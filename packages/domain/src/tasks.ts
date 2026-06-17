@@ -21,6 +21,9 @@ import {
 } from "./schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
+import { ALL_PROJECTS, type ProjectScope } from "./project/scope";
+import { resolveProjectIdentity } from "./project/identity";
+import { resolveProjectScope } from "./project/scope-resolver";
 
 // ---- Dependency injection types ----
 
@@ -80,11 +83,39 @@ export async function listTasksFromParams(params: Record<string, unknown>, deps?
   log.debug("tasks.list created TaskService", {
     backend: taskService.listBackends?.().find((b) => b.prefix === backend)?.name || "default",
   });
+
+  // Resolve project scope (ADR-021, mt#2416)
+  // allProjects=true → skip scope filter; otherwise resolve per-process identity
+  let projectScope: ProjectScope = ALL_PROJECTS;
+  if (!validParams.allProjects) {
+    const persistenceProvider = deps?.persistenceProvider;
+    try {
+      const identity = resolveProjectIdentity({ repoPath: workspacePath });
+      if (
+        identity.kind === "resolved" &&
+        persistenceProvider &&
+        "getDatabaseConnection" in persistenceProvider
+      ) {
+        const sqlProvider =
+          persistenceProvider as import("./persistence/types").SqlCapablePersistenceProvider;
+        const db = await sqlProvider.getDatabaseConnection?.();
+        if (db) {
+          projectScope = await resolveProjectScope(identity, db);
+        }
+      }
+    } catch (err) {
+      log.debug("[tasks.list] Project scope resolution failed; defaulting to ALL_PROJECTS", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   let tasks = await taskService.listTasks({
     status: validParams.status,
     all: validParams.all,
     backend: validParams.backend,
     tags: validParams.tags,
+    projectScope,
   });
   // Apply limit client-side if provided
   if (typeof validParams.limit === "number" && validParams.limit > 0) {

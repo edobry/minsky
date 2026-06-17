@@ -2,6 +2,7 @@ import type { TaskServiceInterface } from "../tasks";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
+import type { ProjectScope } from "../project/scope";
 
 /**
  * Generic options for querying/listing session records at the storage layer.
@@ -73,6 +74,9 @@ export interface SessionRecord {
   // NEW: Simple PR approval tracking (Task #358)
   prBranch?: string; // PR branch if one exists ("pr/session-id")
   prApproved?: boolean; // Whether this session's PR is approved
+
+  /** Project uuid this session belongs to (nullable; set on insert from resolved scope). */
+  projectId?: string;
 
   // Legacy / compatibility fields
   /** @deprecated Use `sessionId` instead */
@@ -169,6 +173,8 @@ export interface SessionListOptions extends DatabaseQueryOptions {
   session?: string;
   /** Exclude sessions with any of these statuses (DB-level WHERE NOT IN) */
   statusNotIn?: SessionStatus[];
+  /** Project scope for filtering (ADR-021, mt#2416). Defaults to ALL_PROJECTS when omitted. */
+  projectScope?: ProjectScope;
 }
 
 /**

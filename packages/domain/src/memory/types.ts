@@ -136,6 +136,13 @@ export interface MemoryListFilter {
   type?: MemoryType;
   scope?: MemoryScope;
   projectId?: string;
+  /**
+   * Project scope for filtering (ADR-021, mt#2416).
+   * When set to a uuid string, filters to memories belonging to that project.
+   * When set to ALL_PROJECTS sentinel or omitted, returns cross-project rows.
+   * Takes precedence over `projectId` when both are set.
+   */
+  projectScope?: import("../project/scope").ProjectScope;
   /** When true, excludes memories that have been superseded (superseded_by IS NOT NULL) */
   excludeSuperseded?: boolean;
   /**

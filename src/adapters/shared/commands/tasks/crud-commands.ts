@@ -46,6 +46,8 @@ interface TasksListParams extends BaseTaskParams {
   hierarchical?: boolean;
   showDeps?: boolean;
   showAttention?: boolean;
+  /** When true, skip project-scope filtering (ADR-021, mt#2416). */
+  allProjects?: boolean;
 }
 
 /**
@@ -129,6 +131,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         filter: params.filter,
         limit: params.limit,
         tags,
+        allProjects: params.allProjects,
       },
       { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
