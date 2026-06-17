@@ -71,7 +71,7 @@ export function TabBar() {
           >
             <Link
               to={tab.path}
-              className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+              className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring rounded-sm"
               aria-current={active ? "location" : undefined}
               title={tab.entityId}
             >
@@ -86,7 +86,7 @@ export function TabBar() {
               aria-label={`Close ${tab.entityId}`}
               onClick={() => closeTab(tab.path)}
               className={cn(
-                "rounded p-0.5 transition-opacity hover:bg-muted focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "rounded p-0.5 transition-opacity hover:bg-muted focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                 active ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-70"
               )}
             >
