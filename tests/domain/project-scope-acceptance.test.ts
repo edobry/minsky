@@ -33,6 +33,7 @@ import { MemoryService, type MemoryServiceDb } from "@minsky/domain/memory/memor
 import { MemoryVectorStorage } from "@minsky/domain/storage/vector/memory-vector-storage";
 import { MinskyTaskBackend } from "@minsky/domain/tasks/minskyTaskBackend";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import { toPostgresInsert } from "@minsky/domain/storage/schemas/session-schema";
 import type {
   SessionProviderInterface,
   SessionRecord,
@@ -743,5 +744,178 @@ describe("Scope helpers (ADR-021, mt#2416)", () => {
 
   it("isAllProjects returns false for an empty string", () => {
     expect(isAllProjects("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Writer stamping — session.start and memory.create (ADR-021, mt#2416)
+// ---------------------------------------------------------------------------
+
+/**
+ * Verifies that the write path correctly stamps projectId on new records.
+ *
+ * Session write path:
+ *   startSessionImpl builds a SessionRecord with projectId resolved from cwd,
+ *   then passes it to toPostgresInsert → the DB insert includes project_id.
+ *   We test toPostgresInsert directly (pure function; no DB needed).
+ *
+ * Memory write path:
+ *   MemoryService.create accepts projectId on MemoryCreateInput and stores it.
+ *   The adapter (memory/index.ts) fills in projectId from resolveMemoryProjectScope
+ *   when not explicitly provided; here we test the service layer's contract:
+ *   - explicit projectId is stored as-is
+ *   - the stored row's projectId is readable via list({ projectScope })
+ */
+
+describe("Writer stamping — sessions toPostgresInsert (ADR-021, mt#2416)", () => {
+  it("toPostgresInsert maps SessionRecord.projectId → postgres insert projectId", () => {
+    const record: SessionRecord = {
+      sessionId: "test-session-1",
+      repoName: "test-repo",
+      repoUrl: "https://github.com/test/repo",
+      createdAt: new Date().toISOString(),
+      projectId: PROJECT_A,
+    };
+
+    const insert = toPostgresInsert(record);
+    expect(insert.projectId).toBe(PROJECT_A);
+  });
+
+  it("toPostgresInsert maps null projectId when session is unscoped (unidentified project)", () => {
+    const record: SessionRecord = {
+      sessionId: "test-session-2",
+      repoName: "test-repo",
+      repoUrl: "https://github.com/test/repo",
+      createdAt: new Date().toISOString(),
+      // No projectId set — fallback / unidentified
+    };
+
+    const insert = toPostgresInsert(record);
+    expect(insert.projectId).toBeNull();
+  });
+
+  it("toPostgresInsert maps undefined projectId to null (consistent storage)", () => {
+    const record: SessionRecord = {
+      sessionId: "test-session-3",
+      repoName: "test-repo",
+      repoUrl: "https://github.com/test/repo",
+      createdAt: new Date().toISOString(),
+      projectId: undefined,
+    };
+
+    const insert = toPostgresInsert(record);
+    expect(insert.projectId).toBeNull();
+  });
+
+  it("ScopedFakeSessionProvider.addSession then listSessions returns stamped projectId", async () => {
+    const provider = new ScopedFakeSessionProvider();
+    const record = makeSession("sess-stamp-1", PROJECT_A);
+
+    await provider.addSession(record);
+    const listed = await provider.listSessions({ projectScope: PROJECT_A });
+
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.projectId).toBe(PROJECT_A);
+  });
+
+  it("session stamped with PROJECT_A is NOT returned when listing PROJECT_B scope", async () => {
+    const provider = new ScopedFakeSessionProvider();
+    await provider.addSession(makeSession("sess-stamp-2", PROJECT_A));
+
+    const results = await provider.listSessions({ projectScope: PROJECT_B });
+    expect(results).toHaveLength(0);
+  });
+});
+
+describe("Writer stamping — memory.create projectId (ADR-021, mt#2416)", () => {
+  let db: ReturnType<typeof createMemoryFakeDb>;
+  let service: MemoryService;
+
+  beforeEach(() => {
+    memIdCounter = 1;
+    db = createMemoryFakeDb();
+    const vectorStorage = new MemoryVectorStorage(4);
+    service = new MemoryService({ db, vectorStorage, embeddingService: mockEmbeddingService });
+  });
+
+  it("explicitly-provided projectId is stored on the created memory row", async () => {
+    const created = await service.create({
+      type: "user",
+      name: "stamped-mem",
+      description: "d",
+      content: "content",
+      scope: "project",
+      projectId: PROJECT_A,
+    });
+
+    // The returned record carries the stamped projectId
+    expect(created.projectId).toBe(PROJECT_A);
+
+    // And it's retrievable via projectScope filtering
+    const listed = await service.list({ projectScope: PROJECT_A });
+    expect(listed.some((m) => m.name === "stamped-mem")).toBe(true);
+  });
+
+  it("explicitly-provided projectId is NOT overridden by a different scope on list", async () => {
+    await service.create({
+      type: "user",
+      name: "explicit-proj-a",
+      description: "d",
+      content: "content",
+      scope: "project",
+      projectId: PROJECT_A,
+    });
+
+    // Listing with PROJECT_B should not include this memory
+    const resultsB = await service.list({ projectScope: PROJECT_B });
+    expect(resultsB.some((m) => m.name === "explicit-proj-a")).toBe(false);
+
+    // Listing with PROJECT_A should include it
+    const resultsA = await service.list({ projectScope: PROJECT_A });
+    expect(resultsA.some((m) => m.name === "explicit-proj-a")).toBe(true);
+  });
+
+  it("memory created without projectId has null projectId and is returned by ALL_PROJECTS list", async () => {
+    const created = await service.create({
+      type: "user",
+      name: "unscoped-mem",
+      description: "d",
+      content: "content",
+      scope: "user",
+      // No projectId — simulates the default before adapter-level stamping
+    });
+
+    expect(created.projectId).toBeNull();
+
+    // The ALL_PROJECTS list returns unscoped records too
+    const listed = await service.list({ projectScope: ALL_PROJECTS });
+    expect(listed.some((m) => m.name === "unscoped-mem")).toBe(true);
+  });
+
+  it("two memories with different projectIds are independently retrievable by scope", async () => {
+    await service.create({
+      type: "user",
+      name: "mem-for-a",
+      description: "d",
+      content: "a content",
+      scope: "project",
+      projectId: PROJECT_A,
+    });
+    await service.create({
+      type: "user",
+      name: "mem-for-b",
+      description: "d",
+      content: "b content",
+      scope: "project",
+      projectId: PROJECT_B,
+    });
+
+    const scopedA = await service.list({ projectScope: PROJECT_A });
+    expect(scopedA.some((m) => m.name === "mem-for-a")).toBe(true);
+    expect(scopedA.some((m) => m.name === "mem-for-b")).toBe(false);
+
+    const scopedB = await service.list({ projectScope: PROJECT_B });
+    expect(scopedB.some((m) => m.name === "mem-for-b")).toBe(true);
+    expect(scopedB.some((m) => m.name === "mem-for-a")).toBe(false);
   });
 });
