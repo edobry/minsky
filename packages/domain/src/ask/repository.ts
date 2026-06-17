@@ -27,6 +27,7 @@ import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId } from "./types";
 import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
+import { isAllProjects, type ProjectScope } from "../project/scope";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -79,6 +80,11 @@ export function toAsk(row: AskRecord): Ask {
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
 function toInsert(input: CreateAskInput): AskInsert {
+  // ADR-021 / mt#2416: project_id write-stamping deferred to Phase-1.3b.
+  // The Ask domain type (CreateAskInput / Ask) does not yet carry a projectId
+  // field; adding it here requires a domain-type / contract change to AskInsert
+  // and the asksTable schema, which is scoped to Phase-1.3b.
+  // Read-scoping via listByState(state, projectScope) IS wired (mt#2416).
   return {
     kind: input.kind,
     classifierVersion: input.classifierVersion,
@@ -163,8 +169,12 @@ export interface AskRepository {
   /** List all Asks whose `parentSessionId` matches the given session ID. */
   listByParentSession(sessionId: string): Promise<Ask[]>;
 
-  /** List all Asks currently in the given state. */
-  listByState(state: AskState): Promise<Ask[]>;
+  /**
+   * List all Asks currently in the given state.
+   * When `projectScope` is a uuid, filters to Asks belonging to that project.
+   * When omitted or ALL_PROJECTS, returns cross-project rows (ADR-021, mt#2416).
+   */
+  listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]>;
 
   /** List all Asks produced by the given classifier version. */
   listByClassifierVersion(version: string): Promise<Ask[]>;
@@ -456,8 +466,17 @@ export class DrizzleAskRepository implements AskRepository {
     return rows.map(toAsk);
   }
 
-  async listByState(state: AskState): Promise<Ask[]> {
-    const rows = await this.db.select().from(asksTable).where(eq(asksTable.state, state));
+  async listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [eq(asksTable.state, state)];
+    // Project scope filter (ADR-021, mt#2416)
+    if (projectScope && !isAllProjects(projectScope)) {
+      conditions.push(eq(asksTable.projectId, projectScope));
+    }
+    const rows = await this.db
+      .select()
+      .from(asksTable)
+      .where(conditions.length === 1 ? conditions[0] : and(...conditions));
     return rows.map(toAsk);
   }
 
@@ -815,7 +834,10 @@ export class FakeAskRepository implements AskRepository {
     return this.all.filter((a) => a.parentSessionId === sessionId).map((a) => ({ ...a }));
   }
 
-  async listByState(state: AskState): Promise<Ask[]> {
+  async listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]> {
+    // In-memory fake: no projectId on Ask domain objects yet; scope filtering is a no-op
+    // unless the Ask type grows a projectId field (ADR-021, mt#2416 follow-up).
+    void projectScope;
     return this.all.filter((a) => a.state === state).map((a) => ({ ...a }));
   }
 

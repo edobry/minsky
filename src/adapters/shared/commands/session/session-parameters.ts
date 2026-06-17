@@ -104,6 +104,12 @@ export const sessionListCommandParams = {
     required: false,
     defaultValue: false,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return sessions from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 /**

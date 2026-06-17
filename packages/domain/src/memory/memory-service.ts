@@ -21,6 +21,7 @@ import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
 import { log } from "@minsky/shared/logger";
+import { isAllProjects } from "../project/scope";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -195,7 +196,10 @@ export class MemoryService implements MemoryServiceSurface {
     if (filter?.scope) {
       conditions.push(eq(memoriesTable.scope, filter.scope));
     }
-    if (filter?.projectId) {
+    // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
+    if (filter?.projectScope && !isAllProjects(filter.projectScope)) {
+      conditions.push(eq(memoriesTable.projectId, filter.projectScope));
+    } else if (filter?.projectId) {
       conditions.push(eq(memoriesTable.projectId, filter.projectId));
     }
     if (filter?.excludeSuperseded) {
@@ -328,7 +332,10 @@ export class MemoryService implements MemoryServiceSurface {
     if (opts?.filter?.scope) {
       conditions.push(eq(memoriesTable.scope, opts.filter.scope));
     }
-    if (opts?.filter?.projectId) {
+    // projectScope takes precedence over projectId when both are set (ADR-021, mt#2416)
+    if (opts?.filter?.projectScope && !isAllProjects(opts.filter.projectScope)) {
+      conditions.push(eq(memoriesTable.projectId, opts.filter.projectScope));
+    } else if (opts?.filter?.projectId) {
       conditions.push(eq(memoriesTable.projectId, opts.filter.projectId));
     }
     if (opts?.filter?.excludeSuperseded) {

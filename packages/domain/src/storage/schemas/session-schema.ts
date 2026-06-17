@@ -112,6 +112,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     commitCount: record.commitCount ?? null,
     status: record.status || null,
     agentId: record.agentId || null,
+
+    // Project scoping (mt#2415 / mt#2416)
+    projectId: record.projectId ?? null,
   };
 }
 
@@ -142,5 +145,8 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     commitCount: record.commitCount ?? undefined,
     status: (record.status || undefined) as import("../../session/types").SessionStatus | undefined,
     agentId: record.agentId || undefined,
+
+    // Project scoping (mt#2415 / mt#2416)
+    projectId: record.projectId ?? undefined,
   };
 }

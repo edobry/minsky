@@ -167,6 +167,12 @@ const asksListParams = {
     required: false,
     defaultValue: 50,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 interface AsksListResult {
@@ -178,16 +184,17 @@ interface AsksListResult {
 async function gatherAsks(
   repo: AskRepository,
   state: AskState | undefined,
-  kind: AskKind | undefined
+  kind: AskKind | undefined,
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope
 ): Promise<Ask[]> {
   if (state) {
-    const subset = await repo.listByState(state);
+    const subset = await repo.listByState(state, projectScope);
     return kind ? subset.filter((a) => a.kind === kind) : subset;
   }
   // No state filter — gather across all states.
   const all: Ask[] = [];
   for (const s of ALL_STATES) {
-    const subset = await repo.listByState(s);
+    const subset = await repo.listByState(s, projectScope);
     all.push(...subset);
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
@@ -741,8 +748,42 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const state = params.state as AskState | undefined;
         const kind = params.kind as AskKind | undefined;
         const limit = (params.limit as number | undefined) ?? 50;
+        const allProjects = params.allProjects as boolean | undefined;
 
-        const asks = await gatherAsks(repo, state, kind);
+        // ADR-021 / mt#2416: resolve project scope so list returns only this
+        // project's asks by default. When allProjects=true, skip resolution.
+        let projectScope: import("@minsky/domain/project/scope").ProjectScope | undefined;
+        if (!allProjects && container?.has("persistence")) {
+          try {
+            const persistenceProvider = container.get(
+              "persistence"
+            ) as SqlCapablePersistenceProvider;
+            if (persistenceProvider.getDatabaseConnection) {
+              const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+              const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+              const { isAllProjects } = await import("@minsky/domain/project/scope");
+              const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+              if (identity.kind === "resolved") {
+                const rawDb = await persistenceProvider.getDatabaseConnection();
+                if (rawDb) {
+                  const scope = await resolveProjectScope(
+                    identity,
+                    rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+                  );
+                  if (!isAllProjects(scope)) {
+                    projectScope = scope;
+                  }
+                }
+              }
+            }
+          } catch (err: unknown) {
+            log.debug("[asks.list] Project scope resolution failed; defaulting to all projects", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        const asks = await gatherAsks(repo, state, kind, projectScope);
         return {
           asks: asks.slice(0, limit),
           total: asks.length,
@@ -853,6 +894,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             "asks.create: AskRepository unavailable — persistence provider does not support SQL"
           );
         }
+
+        // ADR-021 / mt#2416: project_id write-stamping is deferred to Phase-1.3b.
+        // The Ask domain type has no projectId field; stamping requires extending
+        // CreateAskInput, AskInsert, and the asksTable schema — a domain-contract
+        // change out of scope for mt#2416. Read-scoping via
+        // listByState(state, projectScope) IS wired (mt#2416).
+        // See packages/domain/src/ask/repository.ts toInsert() for the corresponding note.
 
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch

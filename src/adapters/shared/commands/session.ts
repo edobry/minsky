@@ -89,7 +89,7 @@ export async function registerSessionCommands(
 
   const commands: CommandDefinition[] = [
     // Basic
-    createSessionListCommand(getDeps),
+    createSessionListCommand(getDeps, getOptionalPersistenceProvider),
     createSessionGetCommand(getDeps),
     createSessionStartCommand(getDeps, getOptionalPersistenceProvider),
     createSessionDirCommand(getDeps),

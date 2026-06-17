@@ -27,6 +27,7 @@
 import { injectable } from "tsyringe";
 import { eq, and, gte, lte, sql, notInArray, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { isAllProjects } from "../project/scope";
 import { join } from "path";
 
 import { log } from "@minsky/shared/logger";
@@ -127,6 +128,10 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       }
       if (options?.createdBefore) {
         conditions.push(lte(postgresSessions.createdAt, new Date(options.createdBefore)));
+      }
+      // Project scope filter (ADR-021, mt#2416)
+      if (options?.projectScope && !isAllProjects(options.projectScope)) {
+        conditions.push(eq(postgresSessions.projectId, options.projectScope));
       }
 
       const orderBy = (options?.orderBy ?? []).map((spec) => {
