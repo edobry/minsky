@@ -49,7 +49,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Open entities"
-      className="flex h-9 flex-shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border bg-background px-1"
+      className="flex h-9 flex-shrink-0 items-stretch gap-0.5 overflow-x-auto scrollbar-none border-b border-border bg-background px-1"
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
@@ -60,7 +60,7 @@ export function TabBar() {
             className={cn(
               "group flex items-center gap-1.5 rounded-t-md border-b-2 px-2.5 text-sm transition-colors",
               active
-                ? "border-primary bg-muted/60 text-foreground"
+                ? "border-primary bg-muted font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground"
             )}
           >
@@ -70,7 +70,10 @@ export function TabBar() {
               aria-current={active ? "location" : undefined}
               title={tab.entityId}
             >
-              <Icon aria-hidden className="h-3.5 w-3.5 flex-shrink-0" />
+              <Icon
+                aria-hidden
+                className={cn("h-3.5 w-3.5 flex-shrink-0", active && "text-primary")}
+              />
               <span className="max-w-[160px] truncate font-mono text-xs">{tab.label}</span>
             </Link>
             <button

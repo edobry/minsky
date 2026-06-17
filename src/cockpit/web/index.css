@@ -122,6 +122,21 @@
   }
 }
 
+@layer utilities {
+  /* Keep an element horizontally scrollable while hiding the scrollbar chrome.
+     Used by the TabBar strip (fixed-height h-9): a native horizontal scrollbar
+     renders INSIDE the strip, squishing the tabs and looking broken at zoom.
+     This matches the browser tab-strip convention — scroll via trackpad /
+     shift-wheel; chrome hidden. */
+  .scrollbar-none {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none; /* Chromium / WebKit */
+  }
+}
+
 /* -----------------------------------------------------------------------------
  * Motion budget (mt#1935; docs/brand-system.md §3)
  *
