@@ -3,7 +3,12 @@
  *
  * Renders the open entity tabs (IDE model: entities only, never list pages).
  * Hidden entirely while the working set is empty so the default landing stays
- * clean. Overflow: horizontal scroll (craft decision recorded in the spec).
+ * clean. Overflow: horizontal scroll (craft decision recorded in the spec). The
+ * scroll container hides its scrollbar chrome via `.scrollbar-none` and pins
+ * overflow-y hidden, so no scrollbar (horizontal or vertical) renders inside
+ * the fixed h-9 strip at any zoom level — with overflow-x auto, the y-axis
+ * would otherwise compute to auto and flash a vertical bar at extreme
+ * zoom/DPI.
  *
  * Semantics: these are URL-driven LINKS, not ARIA tabs — each "tab" navigates
  * to its entity route, so the honest pattern is a <nav> of links with
@@ -49,7 +54,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Open entities"
-      className="flex h-9 flex-shrink-0 items-stretch gap-0.5 overflow-x-auto scrollbar-none border-b border-border bg-background px-1"
+      className="flex h-9 flex-shrink-0 items-stretch gap-0.5 overflow-x-auto overflow-y-hidden scrollbar-none border-b border-border bg-background px-1"
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
