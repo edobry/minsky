@@ -81,6 +81,7 @@ export async function listSessionsImpl(
     createdAfter: params.since,
     createdBefore: params.until,
     orderBy,
+    projectScope: params.projectScope,
   });
 
   return sessions.map((s) => ({ ...s, liveness: deriveSessionLiveness(s) })) as Session[];
