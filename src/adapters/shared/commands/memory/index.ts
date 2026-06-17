@@ -765,13 +765,24 @@ export function registerMemoryCommands(
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
+      // ADR-021 / mt#2416: default projectId to the resolved current project
+      // scope when the caller has not explicitly supplied one. An explicit
+      // params.projectId is always respected (even if it differs from the
+      // current-project scope — e.g., a migration tool). When scope is
+      // ALL_PROJECTS / unidentified, the returned value is undefined → null,
+      // which preserves current behavior (cross-project inserts).
+      const resolvedProjectId =
+        params.projectId != null
+          ? params.projectId
+          : ((await resolveMemoryProjectScope(false, ctx ?? {})) ?? null);
+
       const input: MemoryCreateInput = {
         type: params.type,
         name: params.name,
         description: params.description,
         content: params.content,
         scope: params.scope,
-        projectId: params.projectId ?? null,
+        projectId: resolvedProjectId,
         tags: params.tags ?? [],
         sourceAgentId: params.sourceAgentId ?? null,
         sourceSessionId: params.sourceSessionId ?? null,
