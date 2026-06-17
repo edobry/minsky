@@ -82,6 +82,48 @@ Harder / committed:
   with a named hook (`_meta` injection), committing the future implementation to the `agentId`
   precedent rather than request-scoped DI.
 
+## User-facing behavior (mt#2416)
+
+### Default project scoping on reads
+
+After mt#2416, the CLI and per-session stdio MCP daemon scope their list and
+search operations to the **current project by default**:
+
+| Operation                                    | Default scope   | Opt-out flag                           |
+| -------------------------------------------- | --------------- | -------------------------------------- |
+| `minsky tasks list`                          | Current project | `--all-projects`                       |
+| `minsky session list`                        | Current project | `--all-projects`                       |
+| `minsky memory list` / `memory.list` MCP     | Current project | `--all-projects` / `allProjects: true` |
+| `minsky memory search` / `memory.search` MCP | Current project | `--all-projects` / `allProjects: true` |
+| `minsky asks list` / `asks.list*`            | Current project | `allProjects: true`                    |
+
+"Current project" is resolved from the process working directory via
+`resolveProjectIdentity` (git-remote / config-slug / env lookup) and then
+`resolveProjectScope` (slug → `projects` table uuid). When the project is
+unidentified (no git remote, no config, or the hosted server's `/app` cwd),
+the result falls back to ALL / unscoped — preserving today's behavior for
+the hosted server and the cockpit cross-project dashboard.
+
+### `--all-projects` / `allProjects` opt-out
+
+Pass `--all-projects` (CLI) or `allProjects: true` (MCP) to any list or
+search command to bypass project scoping and return rows from all projects.
+This is useful for cross-project audit queries, the cockpit dashboard, and
+migration tooling.
+
+### Write stamping
+
+New **session** and **memory** records are also stamped with the resolved
+`project_id` at creation time (mt#2416 writers):
+
+- `session.start` stamps `project_id` on the new session row via the DB
+  connection supplied to the session writer (fallback: NULL when unidentified).
+- `memory.create` defaults `project_id` to the resolved current scope when
+  no explicit `projectId` is provided; an explicitly-provided value is always
+  respected.
+- **Ask write-stamping** is deferred to Phase-1.3b — the Ask domain type
+  does not yet carry a `projectId` field (see `ask/repository.ts` `toInsert`).
+
 ## Cross-references
 
 - Related ADRs: ADR-002 (persistence provider architecture), ADR-018 (domain persistence pattern)
