@@ -80,6 +80,11 @@ export function toAsk(row: AskRecord): Ask {
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
 function toInsert(input: CreateAskInput): AskInsert {
+  // ADR-021 / mt#2416: project_id write-stamping deferred to Phase-1.3b.
+  // The Ask domain type (CreateAskInput / Ask) does not yet carry a projectId
+  // field; adding it here requires a domain-type / contract change to AskInsert
+  // and the asksTable schema, which is scoped to Phase-1.3b.
+  // Read-scoping via listByState(state, projectScope) IS wired (mt#2416).
   return {
     kind: input.kind,
     classifierVersion: input.classifierVersion,

@@ -895,6 +895,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // ADR-021 / mt#2416: project_id write-stamping is deferred to Phase-1.3b.
+        // The Ask domain type has no projectId field; stamping requires extending
+        // CreateAskInput, AskInsert, and the asksTable schema — a domain-contract
+        // change out of scope for mt#2416. Read-scoping via
+        // listByState(state, projectScope) IS wired (mt#2416).
+        // See packages/domain/src/ask/repository.ts toInsert() for the corresponding note.
+
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch
         // through the active MCP Server.
