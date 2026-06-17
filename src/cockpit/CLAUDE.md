@@ -105,23 +105,34 @@ mt#1887's port-recovery (`src/cockpit/port-recovery.ts`) reads recognition state
 the lifecycle module so per-workspace cockpits don't false-positive each other.
 Full architecture: [`docs/architecture/cockpit.md#operator-dev-loop`](../../docs/architecture/cockpit.md). Tracking task: mt#1904.
 
-**Visual verification (screenshots / react-flow) — use the PROD bundle, not dev HMR.**
-The Vite HMR dev server is great for iterating on code but UNRELIABLE for
-screenshot verification: WS-port conflicts, segfaults, and intermittent
-zero-renders (especially with react-flow, which measures the DOM). To verify a
-render reliably:
+**Visual verification — use chrome-devtools-mcp + the shared dev canary, not Playwright.**
+The canonical way to look at a rendered cockpit is **chrome-devtools-mcp**
+(`mcp__chrome-devtools__*`) attached to the shared dev canary chromium (the
+`--remote-debugging-port=9222` instance described above). Start the server so the
+canary launches — do **NOT** pass `--no-dev-chromium`, which disables exactly the
+browser chrome-devtools-mcp attaches to:
 
 ```bash
-bun run cockpit:build
-bun src/cli.ts cockpit start --port=<N>
-# then screenshot via playwright at 1440x900:
-#   waitUntil: "domcontentloaded"  (NOT networkidle — the page polls /api/* forever)
-#   wait for a known data-testid, save a PNG, then Read the PNG to inspect
+bun run cockpit:build               # PROD bundle — Vite HMR is unreliable for screenshots
+bun src/cli.ts cockpit start --port=<N>   # keep the :9222 canary up (no --no-dev-chromium)
 ```
 
-`chrome-devtools-mcp` may be unavailable; playwright is the fallback. If
-playwright's browser binary is missing, install the version pinned to the
-bun-cached `playwright-core`: `bunx playwright@<ver> install chromium`.
+Then drive the canary via chrome-devtools-mcp: `list_pages` -> `new_page` (your cockpit
+URL) or `select_page` -> `take_snapshot` (a11y tree; preferred for textual reasoning) or
+`take_screenshot` (pixels). **Pass `pageId` explicitly on every page-scoped call** — the
+canary is shared across sessions and has a cross-tab race (mt#1912); a `pageId`-less call
+can land on another session's tab. The full procedure (find-your-tab-by-URL -> select ->
+act) is in the `cockpit-design` skill §0. Use the PROD bundle, not dev HMR, for screenshot
+verification: WS-port conflicts, segfaults, and zero-renders (especially react-flow, which
+measures the DOM) make HMR unreliable here.
+
+**Playwright is the FALLBACK** — use it only when chrome-devtools-mcp is unavailable (not
+configured, or the canary can't launch). It is a legit ad-hoc tool (memory `f2df223d`), not
+the default for cockpit verification. Recipe: `bun src/cli.ts cockpit start --port=<N>` then
+playwright at 1440x900 with `waitUntil: "domcontentloaded"` (NOT networkidle — the page
+polls `/api/*` forever), wait for a known `data-testid`, save a PNG, then Read it. If
+playwright's browser binary is missing, install the version pinned to the bun-cached
+`playwright-core`: `bunx playwright@<ver> install chromium`.
 
 **react-flow height trap:** the `<ReactFlow>` container needs an EXPLICIT
 height. Under the cockpit shell (sticky `h-14` AppHeader + `min-h-screen`
