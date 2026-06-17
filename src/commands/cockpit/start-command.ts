@@ -8,6 +8,7 @@ import {
   createCockpitServer,
   initServerSseBroker,
   startAskAdvancementSweeper,
+  startProdStateRefreshSweeper,
 } from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
@@ -202,12 +203,16 @@ export function createStartCommand(): Command {
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
       const stopAskSweeper = startAskAdvancementSweeper();
+      // Prod-state cache refresh (mt#2506): periodically read the prod migration
+      // ledger and write the local cache that inject-prod-state.ts injects each turn.
+      const stopProdStateSweeper = startProdStateRefreshSweeper();
 
       let shuttingDown = false;
       const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
         stopAskSweeper();
+        stopProdStateSweeper();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
