@@ -2519,7 +2519,7 @@
                 },
                 {
                   "flags": ["--accept-stale-reviewer-silence"],
-                  "description": "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; (2) at least one COMMENTED review from the same identity as the PR author must exist; (3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); (4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; (5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. Emits an audit log entry at INFO level when the waiver is applied. Default: false."
+                  "description": "Operator-override waiver: allow merge when the reviewer bot (reviewer.botLogin, default minsky-reviewer[bot]) is absent (webhook-miss class). All five constraints must hold: (1) PR author must be the configured bot identity (github.botIdentityLogin, default minsky-ai[bot]) -- waiver never applies to human-authored PRs; (2) at least one COMMENTED review from the same identity as the PR author must exist; (3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); (4) no review from the configured reviewer bot may exist -- waiver is inapplicable when the reviewer bot has already acted; (5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. Emits an audit log entry at INFO level when the waiver is applied. Default: false."
                 },
                 {
                   "flags": ["--force-bypass"],
@@ -2647,7 +2647,7 @@
                   "subcommands": [
                     {
                       "name": "review-submit",
-                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the implementer App (`minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the reviewer App (`minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is configured. APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool throws a typed MinskyError naming the missing config key rather than silently falling back to implementer, because that would re-introduce GitHub's self-approval block on bot-authored PRs. The optional `identity` parameter can override the default mapping explicitly. See ADR-006 for the architectural decision record.",
+                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the implementer App (default `minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the reviewer App (default `minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is configured. APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool throws a typed MinskyError naming the missing config key rather than silently falling back to implementer, because that would re-introduce GitHub's self-approval block on bot-authored PRs. The optional `identity` parameter can override the default mapping explicitly. See ADR-006 for the architectural decision record.",
                       "options": [
                         {
                           "flags": ["--session-id"],
@@ -4025,7 +4025,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
@@ -4071,25 +4071,16 @@
           "options": [
             {
               "flags": ["--from"],
-              "description": "Source backend (auto-detect if not specified)",
-              "takesValue": true
-            },
-            {
-              "flags": ["--sqlite-path"],
-              "description": "SQLite database file path",
+              "description": "Source backup file path (auto-detect if not specified)",
               "takesValue": true
             },
             {
               "flags": ["--backup"],
-              "description": "Create backup in specified directory"
+              "description": "Create a JSON backup of the source before migration, written to the Minsky state dir with an auto-generated filename (default: true)"
             },
             {
               "flags": ["--execute"],
               "description": "Actually perform the migration (default is preview mode)"
-            },
-            {
-              "flags": ["--set-default"],
-              "description": "Update configuration to use migrated backend as default"
             },
             {
               "flags": ["-n", "--dry-run"],
@@ -4106,15 +4097,10 @@
           "description": "Check database integrity and detect issues",
           "options": [
             {
-              "flags": ["--file"],
-              "description": "Path to database file to check (SQLite only)",
-              "takesValue": true
-            },
-            {
               "flags": ["--backend"],
               "description": "Force specific backend validation",
               "takesValue": true,
-              "values": ["sqlite", "postgres"]
+              "values": ["postgres"]
             },
             {
               "flags": ["--fix"],
@@ -4532,6 +4518,22 @@
                   "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
                 }
               ]
+            },
+            {
+              "name": "wait-for-response",
+              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status.",
+              "options": [
+                {
+                  "flags": ["--timeout-seconds"],
+                  "description": "Max seconds to wait (default 600; clamped to [1, 1800])",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--interval-seconds"],
+                  "description": "Polling interval in seconds (default 15; clamped to [5, 60])",
+                  "takesValue": true
+                }
+              ]
             }
           ]
         },
@@ -4635,7 +4637,7 @@
                     },
                     {
                       "flags": ["--bot-login"],
-                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN, then the configured reviewer.botLogin, then 'minsky-reviewer[bot]')",
                       "takesValue": true
                     },
                     {
@@ -4661,7 +4663,7 @@
                     },
                     {
                       "flags": ["--bot-login"],
-                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN, then the configured reviewer.botLogin, then 'minsky-reviewer[bot]')",
                       "takesValue": true
                     },
                     {
@@ -4706,18 +4708,38 @@
               "options": [
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace directory to run validation in (defaults to current working directory)",
+                  "description": "Workspace directory to run validation in. When omitted (and no task/sessionId), defaults to the current working directory.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID whose session workspace should be validated (e.g. 'mt#123')",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID whose workspace should be validated",
                   "takesValue": true
                 }
               ]
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes. Pass `task` or `sessionId` to run against a session workspace.",
               "options": [
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace directory to run validation in (defaults to current working directory)",
+                  "description": "Specific workspace directory to typecheck (uses that directory's tsconfig.json). When omitted, typechecks the root tsconfig AND every workspace (packages/*, services/*) that declares its own `typecheck` script, reporting per-workspace errors.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID whose session workspace should be validated (e.g. 'mt#123')",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID whose workspace should be validated",
                   "takesValue": true
                 }
               ]
@@ -4828,6 +4850,36 @@
                   "takesValue": true
                 }
               ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "observability",
+      "description": "OBSERVABILITY commands",
+      "subcommands": [
+        {
+          "name": "calibration-review",
+          "description": "Review hook-calibration JSONL logs: count fires, check diversity threshold, and return unreviewed records. Read-only by default; pass --ack to advance watermarks after inspection.",
+          "options": [
+            {
+              "flags": ["--ack"],
+              "description": "Advance the watermark for all past-threshold logs, marking them as reviewed. Without this flag the command is read-only."
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output results as JSON instead of human-readable text."
+            }
+          ]
+        },
+        {
+          "name": "smoke-test",
+          "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output as JSON"
             }
           ]
         }
@@ -5307,7 +5359,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -5322,12 +5374,12 @@
             },
             {
               "flags": ["--from"],
-              "description": "ISO date string — include only turns from sessions started after this date",
+              "description": "ISO date string — include only turns whose own timestamp is on/after this date",
               "takesValue": true
             },
             {
               "flags": ["--to"],
-              "description": "ISO date string — include only turns from sessions started before this date",
+              "description": "ISO date string — include only turns whose own timestamp is on/before this date",
               "takesValue": true
             },
             {
@@ -5375,7 +5427,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -5390,12 +5442,12 @@
             },
             {
               "flags": ["--from"],
-              "description": "ISO date string — include only turns from sessions started after this date",
+              "description": "ISO date string — include only turns whose own timestamp is on/after this date",
               "takesValue": true
             },
             {
               "flags": ["--to"],
-              "description": "ISO date string — include only turns from sessions started before this date",
+              "description": "ISO date string — include only turns whose own timestamp is on/before this date",
               "takesValue": true
             },
             {
@@ -5500,22 +5552,6 @@
       ]
     },
     {
-      "name": "observability",
-      "description": "OBSERVABILITY commands",
-      "subcommands": [
-        {
-          "name": "smoke-test",
-          "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
-          "options": [
-            {
-              "flags": ["--json"],
-              "description": "Output as JSON"
-            }
-          ]
-        }
-      ]
-    },
-    {
       "name": "principal_corpus",
       "description": "PRINCIPAL_CORPUS commands",
       "subcommands": [
@@ -5600,15 +5636,25 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started)",
               "takesValue": true,
               "values": [
                 "ask.created",
                 "task.auto_created",
                 "pr.review_posted",
                 "subagent.failed",
-                "embeddings.provider_degraded"
+                "embeddings.provider_degraded",
+                "task.status_changed",
+                "pr.merged",
+                "subagent.completed",
+                "session.started"
               ]
+            },
+            {
+              "flags": ["--category"],
+              "description": "Filter by category (actionable | informational) — the activity feed defaults to 'actionable'",
+              "takesValue": true,
+              "values": ["actionable", "informational"]
             },
             {
               "flags": ["--since"],
@@ -6134,6 +6180,21 @@
               "flags": ["--web-base-url"],
               "description": "GitHub web base URL for the wizard (default: https://github.com; set for GHE)",
               "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "db",
+          "description": "Configure Postgres persistence: capture a connection string, write config, run migrations, and verify connectivity (Docker / Supabase / bring-your-own)",
+          "options": [
+            {
+              "flags": ["--connection-string"],
+              "description": "Postgres connection string (required in non-interactive mode; otherwise captured via the wizard)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--yes"],
+              "description": "Skip the confirmation prompt before writing config"
             }
           ]
         }

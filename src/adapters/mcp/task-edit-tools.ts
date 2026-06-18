@@ -53,7 +53,10 @@ const TaskEditSchema = TaskIdentifierSchema.extend(
  */
 const TaskSearchReplaceSchema = TaskIdentifierSchema.extend(
   z.object({
-    search: z.string().describe("Text to search for (must be unique in the task spec)"),
+    search: z
+      .string()
+      .min(1, "search text must be non-empty")
+      .describe("Text to search for (must be unique in the task spec)"),
     replace: z.string().describe("Text to replace with"),
   }).shape
 );
@@ -94,18 +97,22 @@ Bias towards repeating as few lines of the original spec as possible. Each edit 
 
 DO NOT omit spans of pre-existing content without using the // ... existing code ... comment. If you omit it, the model may inadvertently delete those sections.
 
-Make all edits to a task spec in a single call instead of multiple calls to the same task.`,
+Make all edits to a task spec in a single call instead of multiple calls to the same task.
+
+FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.`,
     parameters: TaskEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy domain imports until first call.
       const [
         { getTaskSpecContentFromParams, updateTaskFromParams },
         { applyEditPattern },
+        { hasExistingCodeMarkers },
         { autoIndexTaskEmbedding },
         { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
         import("@minsky/domain/tasks"),
         import("@minsky/domain/ai/edit-pattern-service"),
+        import("@minsky/domain/ai/edit-pattern-utils"),
         import("../shared/commands/tasks/auto-index-embedding"),
         import("@minsky/domain/schemas"),
       ]);
@@ -151,16 +158,31 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
             log.debug("Task spec not found or empty", { taskId: typedArgs.taskId });
           }
 
+          const hasMarkers = hasExistingCodeMarkers(typedArgs.content);
+
           // If spec doesn't exist and we have existing code markers, that's an error
-          if (!specExists && typedArgs.content.includes("// ... existing code ...")) {
+          if (!specExists && hasMarkers) {
             throw new Error(
               `Cannot apply edits with existing code markers to task ${typedArgs.taskId} - task spec is empty or task doesn't exist`
             );
           }
 
+          // mt#2400 fail-closed guard: patching an EXISTING spec with marker-less
+          // content routes to a direct full-spec overwrite (the silent
+          // content-destruction family — R4, mt#2369). tasks_spec_patch is a
+          // partial-edit tool by contract; intentional full replacement has its
+          // own explicit path. Refuse rather than silently destroy the spec.
+          if (specExists && !hasMarkers) {
+            throw new Error(
+              `Refusing to patch task ${typedArgs.taskId} with marker-less content: this would silently replace the entire spec. ` +
+                `Add '// ... existing code ...' markers around unchanged sections for a partial edit, ` +
+                `or use 'tasks_edit' with specContent for an intentional full replacement.`
+            );
+          }
+
           let finalContent: string;
 
-          if (specExists && typedArgs.content.includes("// ... existing code ...")) {
+          if (specExists && hasMarkers) {
             // Apply the edit pattern using fast-apply providers, passing optional instruction
             finalContent = await applyEditPattern(
               originalContent,
@@ -168,7 +190,7 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
               typedArgs.instructions
             );
           } else {
-            // Direct write for new specs or complete replacements
+            // Direct write for a brand-new spec (specExists === false, no markers)
             finalContent = typedArgs.content;
           }
 
@@ -280,6 +302,12 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
               `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
                 `Expected: taskId, search, replace`
             );
+          }
+
+          // mt#2408: an empty search string has no well-defined occurrences and
+          // would otherwise drive an unbounded scan. Reject it explicitly.
+          if (typedArgs.search === "") {
+            throw new Error(`Search text must be a non-empty string; received an empty string.`);
           }
 
           log.debug("Starting task search_replace operation", { taskId: typedArgs.taskId });

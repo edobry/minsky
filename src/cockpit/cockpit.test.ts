@@ -820,6 +820,114 @@ describe("Cockpit server", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // 11e–11h. Slice/altitude parameterization (mt#2385)
+  // ---------------------------------------------------------------------------
+
+  // Shared fixture: parent mt#10 with IN-PROGRESS / DONE / TODO children (all
+  // three non-actionable-only parents excluded by "actionable"), and parent
+  // mt#30 whose only non-terminal child is TODO (upcoming, not actionable).
+  function makeAltitudeFixture() {
+    const tasks = [
+      { id: "mt#10", title: "Active Parent", status: "IN-PROGRESS" },
+      { id: "mt#11", title: "Child In Progress", status: "IN-PROGRESS" },
+      { id: "mt#12", title: "Child Done", status: "DONE" },
+      { id: "mt#13", title: "Child Todo", status: "TODO" },
+      { id: "mt#30", title: "Upcoming Parent", status: "TODO" },
+      { id: "mt#31", title: "Upcoming Child", status: "TODO" },
+    ];
+    const parentRels = [
+      { fromTaskId: "mt#11", toTaskId: "mt#10" },
+      { fromTaskId: "mt#12", toTaskId: "mt#10" },
+      { fromTaskId: "mt#13", toTaskId: "mt#10" },
+      { fromTaskId: "mt#31", toTaskId: "mt#30" },
+    ];
+    return makeMockWorkstreamsDeps(tasks, parentRels);
+  }
+
+  // 11e. rollup altitude → cards keep counts but carry no child rows; altitude echoed
+  test("workstreams ?altitude=rollup returns header-only cards with counts intact", async () => {
+    const widget = createWorkstreamsWidget(async () => makeAltitudeFixture());
+    const url = await server({ overrideRegistry: { workstreams: widget } });
+    const res = await fetch(`${url}/api/widget/workstreams/data?altitude=rollup`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { workstreams: WorkstreamCard[]; altitude: string };
+    };
+    expect(body.state).toBe("ok");
+    expect(body.payload.altitude).toBe("rollup");
+    // Both active workstreams present, children stripped, counts preserved
+    expect(body.payload.workstreams.length).toBe(2);
+    for (const card of body.payload.workstreams) {
+      expect(card.children.length).toBe(0);
+    }
+    const active = body.payload.workstreams.find((w) => w.parentId === "mt#10");
+    expect(active?.activeChildCount).toBe(2);
+    expect(active?.doneChildCount).toBe(1);
+  });
+
+  // 11f. actionable altitude → children narrowed to actionable-now statuses;
+  // workstreams without any actionable child are dropped entirely
+  test("workstreams ?altitude=actionable narrows children and drops non-actionable workstreams", async () => {
+    const widget = createWorkstreamsWidget(async () => makeAltitudeFixture());
+    const url = await server({ overrideRegistry: { workstreams: widget } });
+    const res = await fetch(`${url}/api/widget/workstreams/data?altitude=actionable`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { workstreams: WorkstreamCard[]; altitude: string };
+    };
+    expect(body.state).toBe("ok");
+    expect(body.payload.altitude).toBe("actionable");
+    // mt#30 (only TODO child — upcoming, not actionable) is dropped
+    expect(body.payload.workstreams.length).toBe(1);
+    const card = body.payload.workstreams[0];
+    expect(card?.parentId).toBe("mt#10");
+    // Only the IN-PROGRESS child survives the narrowing (DONE + TODO excluded)
+    expect(card?.children.length).toBe(1);
+    expect(card?.children[0]?.status).toBe("IN-PROGRESS");
+    // Counts still describe the COMPLETE child set, not the narrowed rows
+    expect(card?.activeChildCount).toBe(2);
+    expect(card?.doneChildCount).toBe(1);
+  });
+
+  // 11g. unknown altitude value → falls back to the full slice (never an error)
+  test("workstreams unknown altitude value falls back to full", async () => {
+    const widget = createWorkstreamsWidget(async () => makeAltitudeFixture());
+    const url = await server({ overrideRegistry: { workstreams: widget } });
+    const res = await fetch(`${url}/api/widget/workstreams/data?altitude=ceo`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { workstreams: WorkstreamCard[]; altitude: string };
+    };
+    expect(body.state).toBe("ok");
+    expect(body.payload.altitude).toBe("full");
+    const card = body.payload.workstreams.find((w) => w.parentId === "mt#10");
+    expect(card?.children.length).toBe(3);
+  });
+
+  // 11h. acceptance: two distinct altitudes return two distinct slices
+  test("workstreams two distinct altitudes return two distinct slices", async () => {
+    const widget = createWorkstreamsWidget(async () => makeAltitudeFixture());
+    const url = await server({ overrideRegistry: { workstreams: widget } });
+
+    const [rollupRes, actionableRes] = await Promise.all([
+      fetch(`${url}/api/widget/workstreams/data?altitude=rollup`),
+      fetch(`${url}/api/widget/workstreams/data?altitude=actionable`),
+    ]);
+    const rollup = (await rollupRes.json()) as {
+      payload: { workstreams: WorkstreamCard[]; altitude: string };
+    };
+    const actionable = (await actionableRes.json()) as {
+      payload: { workstreams: WorkstreamCard[]; altitude: string };
+    };
+
+    expect(rollup.payload.altitude).not.toBe(actionable.payload.altitude);
+    expect(rollup.payload.workstreams.length).not.toBe(actionable.payload.workstreams.length);
+  });
+
+  // ---------------------------------------------------------------------------
   // Attention widget tests (mt#1147)
   // ---------------------------------------------------------------------------
 

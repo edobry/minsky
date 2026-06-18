@@ -21,6 +21,49 @@
 import { TsyringeContainer } from "./container";
 import type { AppContainerInterface } from "./types";
 import { NoopClientCapabilityRegistry } from "../client-capabilities";
+// Type-only import — erased at runtime, so the detection module still loads
+// lazily (only when the resolver below first runs).
+import type { RepositoryBackendInfo } from "../session/repository-backend-detection";
+
+/**
+ * Build a lazy, memoizing repository-backend resolver.
+ *
+ * Repository-backend detection is environment-dependent: with no
+ * `repository.backend` in config it falls back to shelling out to
+ * `git remote get-url origin` in `process.cwd()`. Running that EAGERLY at
+ * container boot made every CLI command — including repo-orthogonal ones like
+ * `config get` and `persistence migrate` — spawn git and crash (pre-mt#2460)
+ * or leak `fatal: not a git repository` noise (post-mt#2460) when invoked
+ * outside a git checkout, and broke deployed headless containers with no git
+ * binary. Detection therefore runs ONLY when a consumer first calls
+ * `getRepositoryBackend()` (mt#1428; supersedes mt#2460's boot-time
+ * deferred-failure placeholder, which laziness makes unreachable).
+ *
+ * Successful detection is memoized; failures are NOT cached, so a transient
+ * failure in a long-lived process (MCP server) can recover on a later call.
+ *
+ * The `detect` parameter is a test seam; production callers use the default.
+ */
+export function makeLazyRepositoryBackendResolver(
+  detect?: () => Promise<RepositoryBackendInfo>
+): () => Promise<RepositoryBackendInfo> {
+  const detectFn =
+    detect ??
+    (async () => {
+      const { getRepositoryBackendFromConfig } = await import(
+        "../session/repository-backend-detection"
+      );
+      return getRepositoryBackendFromConfig();
+    });
+  let resolved: Promise<RepositoryBackendInfo> | undefined;
+  return () => {
+    resolved ??= detectFn().catch((err) => {
+      resolved = undefined;
+      throw err;
+    });
+    return resolved;
+  };
+}
 
 /**
  * Create a container with all domain service factories registered.
@@ -43,10 +86,48 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
   container.register(
     "persistence",
     async () => {
+      const { log } = await import("@minsky/shared/logger");
+      const { UnconfiguredPersistenceProvider } = await import(
+        "../persistence/unconfigured-provider"
+      );
+
+      // Pre-check (mt#2349): if no Postgres connection is configured, boot in
+      // DB-unavailable mode WITHOUT attempting (and error-logging) a doomed
+      // initialize(). This is the expected bare-install / offline path now that
+      // the silent SQLite fallback is gone — keep it quiet (warn, not error).
+      const { getConfiguration } = await import("../configuration");
+      const { getEffectivePersistenceConfig } = await import("../configuration/persistence-config");
+      const effective = getEffectivePersistenceConfig(getConfiguration());
+      if (effective.backend === "postgres" && !effective.connectionString) {
+        log.warn(
+          "Persistence not configured (no Postgres connection) — booting in " +
+            "DB-unavailable mode. `/health` and non-DB commands work; DB-backed " +
+            "operations fail until persistence.postgres.connectionString (or " +
+            "MINSKY_POSTGRES_URL) is set."
+        );
+        return new UnconfiguredPersistenceProvider("no Postgres connection configured");
+      }
+
       const { PersistenceService } = await import("../persistence/service");
       const service = new PersistenceService();
-      await service.initialize();
-      return service.getProvider();
+      try {
+        await service.initialize();
+        return service.getProvider();
+      } catch (err) {
+        // Boot-tolerant fallback (mt#2349): a connection WAS configured but
+        // initialize() failed (DB unreachable, bad credentials, etc.). Still
+        // don't crash the whole process — boot in DB-unavailable mode so
+        // `/health` responds — but this is a genuine failure, so the underlying
+        // error is already logged by PersistenceService. DB-backed operations
+        // fail with the clear error on first use.
+        const { getErrorMessage } = await import("../errors/index");
+        const reason = getErrorMessage(err);
+        log.warn(
+          "Persistence initialization failed — booting without a database " +
+            `connection. DB-backed operations will fail. Reason: ${reason}`
+        );
+        return new UnconfiguredPersistenceProvider(reason);
+      }
     },
     {
       dispose: async (provider) => {
@@ -58,7 +139,7 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
   // --- Session layer (depends on persistence) ---
 
   container.register("sessionProvider", async (c) => {
-    const { createSessionProvider } = await import("../session/session-db-adapter");
+    const { createSessionProvider } = await import("../session/drizzle-session-repository");
     const persistence = c.get("persistence");
     return await createSessionProvider(undefined, {
       persistenceService: {
@@ -102,13 +183,6 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
     return createWorkspaceUtils(c.get("sessionProvider"));
   });
 
-  container.register("repositoryBackend", async () => {
-    const { getRepositoryBackendFromConfig } = await import(
-      "../session/repository-backend-detection"
-    );
-    return getRepositoryBackendFromConfig();
-  });
-
   // Default ClientCapabilityRegistry is the no-op implementation. Entry
   // points that attach an MCP host (e.g., the MCP server) override this
   // with a per-connection-aware registry after container creation.
@@ -129,7 +203,9 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
         const result = await getCurrentSession(repoPath, execAsync, sessionProvider);
         return result ?? null;
       },
-      getRepositoryBackend: async () => c.get("repositoryBackend"),
+      // Lazy: git-remote detection runs on first call, not at container boot
+      // (mt#1428). Commands that never need a repo backend never spawn git.
+      getRepositoryBackend: makeLazyRepositoryBackendResolver(),
     };
   });
 

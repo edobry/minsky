@@ -100,6 +100,40 @@ npm link
 minsky init
 ```
 
+### Configure the database
+
+Minsky requires a PostgreSQL database. `minsky setup db` is an interactive wizard
+that captures a connection string, writes it to your config, runs the schema
+migrations, and verifies connectivity:
+
+```bash
+minsky setup db
+```
+
+It offers three ways to get a connection string:
+
+- **Docker** (detected automatically) — prints a copy-paste one-liner to start a
+  local Postgres, then captures the resulting connection string. Minsky does not
+  manage the container; you run and stop it with your own Docker.
+- **Supabase free tier** — points you at the no-credit-card signup and prompts
+  for the connection string.
+- **Bring your own** — paste any existing Postgres connection string.
+
+Before writing anything it shows a plan and asks to confirm (the config write is
+the only mutating step). It is re-runnable — running it again updates the
+connection string and re-verifies.
+
+Non-interactive / scripted use:
+
+```bash
+# Supply the connection string directly; --yes skips the confirmation prompt.
+minsky setup db --connection-string "postgresql://user:password@host:5432/dbname" --yes
+```
+
+On failure it reports which step failed (`validate` / `connectivity` /
+`config-write` / `migrate` / `verify`) with an actionable message; connection
+strings are masked in all output.
+
 ### Create and work on tasks
 
 ```bash
@@ -173,6 +207,56 @@ Operational implementation tokens — typography stack, color palette in OKLCH, 
 Marketing-surface design patterns (Idiom B product-screenshot-dominant, layout, anti-patterns, the new-surface workshop process) live in the [`marketing-site-design`](./.claude/skills/marketing-site-design/SKILL.md) skill.
 
 The principal's literary voice — the corpus-grounded register used in long-form prose — is codified in the [`pz-voice`](./.claude/skills/pz-voice/SKILL.md) skill.
+
+## Configuration notes
+
+### Observability (Braintrust)
+
+To use Braintrust for LLM observability, both an API key and a project name are required.
+The project name has **no default** — it must be set explicitly so traces do not silently
+accumulate in a project named after someone else's installation:
+
+```bash
+# Configure via config
+minsky config set observability.providers.braintrust.apiKey --value <your-key>
+minsky config set observability.providers.braintrust.projectName --value <your-project>
+
+# Or via environment variables
+export BRAINTRUST_API_KEY=<your-key>
+export BRAINTRUST_PROJECT_NAME=<your-project>
+
+# Verify connectivity
+minsky observability smoke-test
+```
+
+See `observability.providers.braintrust.projectName` in the configuration schema
+(`packages/domain/src/configuration/schemas/observability.ts`).
+
+### Postgres schema migrations (bundle-aware resolver)
+
+`minsky persistence migrate` resolves the migrations folder in a bundle-aware way —
+it no longer requires running from the Minsky repo root. The resolver probes candidates
+in order:
+
+1. `import.meta.dir/../storage/migrations/pg` — source-tree (dev)
+2. `import.meta.dir/storage/migrations/pg` — bundled dist (co-located with `dist/minsky.js`)
+3. `dirname(process.argv[1])/storage/migrations/pg` — secondary bundled probe
+4. `<cwd>/packages/domain/src/storage/migrations/pg` — legacy repo-root fallback
+
+The first candidate whose `meta/_journal.json` exists wins. When using the production
+bundle (`dist/minsky.js`) from an arbitrary working directory, candidates 2 and 3 resolve
+to the migrations co-located with the bundle.
+
+## CI workflows
+
+| Workflow             | Trigger              | Purpose                                                                                                                                                                                  |
+| -------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundle-boot-smoke`  | every PR / main push | Builds the bundle and asserts `GET /health` returns 200                                                                                                                                  |
+| `cold-start-migrate` | every PR / main push | Builds the bundle, runs `minsky persistence migrate --execute` from a temp dir outside the repo, then asserts the `tasks` table was created and `--dry-run` reports 0 pending migrations |
+
+The `cold-start-migrate` workflow is the regression gate for the bundle-aware migration
+resolver. It proves that the production binary can find and apply its bundled migrations
+from an arbitrary working directory.
 
 ## Contributing
 

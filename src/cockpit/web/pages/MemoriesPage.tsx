@@ -1,25 +1,22 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { MemoriesHealth } from "../widgets/MemoriesHealth";
 import { MemorySearch } from "../widgets/MemorySearch";
 import { MemoryStats } from "../widgets/MemoryStats";
 import { MemoriesList } from "../widgets/MemoriesList";
-import { MemoryDetail } from "../widgets/MemoryDetail";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 
 export function MemoriesPage() {
-  const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
-  const handleRowClick = useCallback((record: MemoryRecord) => {
-    setSelectedMemoryId(record.id);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    setSelectedMemoryId(null);
-  }, []);
-
-  const handleNavigate = useCallback((id: string) => {
-    setSelectedMemoryId(id);
-  }, []);
+  // Detail is URL-addressable (mt#2410): rows navigate to the /memory/:id
+  // entity tab instead of opening the retired slide-in drawer.
+  const handleRowClick = useCallback(
+    (record: MemoryRecord) => {
+      navigate(`/memory/${encodeURIComponent(record.id)}`);
+    },
+    [navigate]
+  );
 
   return (
     <div className="p-4 max-w-6xl mx-auto w-full space-y-4">
@@ -41,13 +38,6 @@ export function MemoriesPage() {
 
       {/* Main list — takes remaining space */}
       <MemoriesList onRowClick={handleRowClick} />
-
-      {/* Detail panel (slide-in dialog) */}
-      <MemoryDetail
-        memoryId={selectedMemoryId}
-        onClose={handleClose}
-        onNavigate={handleNavigate}
-      />
     </div>
   );
 }

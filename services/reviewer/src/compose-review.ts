@@ -63,6 +63,8 @@ export interface ComposedInlineComment {
   file: SubmitInlineCommentArgs["file"];
   line: SubmitInlineCommentArgs["line"];
   body: SubmitInlineCommentArgs["body"];
+  /** Diff side (mt#2350). Threaded through so anchor pre-validation can honor it. */
+  side?: SubmitInlineCommentArgs["side"];
   inReplyTo?: number;
 }
 
@@ -152,6 +154,7 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     file: tc.args.file,
     line: tc.args.line,
     body: tc.args.body,
+    ...(tc.args.side !== undefined ? { side: tc.args.side } : {}),
     ...(tc.args.inReplyTo !== undefined ? { inReplyTo: tc.args.inReplyTo } : {}),
   }));
 

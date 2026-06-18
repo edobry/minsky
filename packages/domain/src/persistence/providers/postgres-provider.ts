@@ -16,7 +16,6 @@ import {
   SqlCapablePersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
-  type SessionStorage,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "@minsky/shared/logger";
@@ -189,7 +188,6 @@ export class PostgresPersistenceProvider
   protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
-  private cachedStorage: SessionStorage | null = null;
 
   /**
    * Base PostgreSQL capabilities (no vector storage)
@@ -330,32 +328,6 @@ export class PostgresPersistenceProvider
   }
 
   /**
-   * Get storage instance for domain entities
-   */
-  getStorage(): SessionStorage {
-    if (!this.isInitialized) {
-      throw new Error("PostgresPersistenceProvider not initialized");
-    }
-
-    // Return cached storage instance — creating a new one every call caused
-    // independent connection pools and fire-and-forget initialization (mt#722)
-    if (this.cachedStorage) {
-      return this.cachedStorage;
-    }
-
-    const { PostgresStorage } = require("../../storage/backends/postgres-storage");
-    // PostgresStorage reuses this provider's sql client (see constructor); it
-    // does not open its own sockets, so only connectionString is needed.
-    const storage = new PostgresStorage(
-      { connectionString: this.pgConfig.connectionString },
-      this // Pass provider so storage reuses our connections
-    );
-
-    this.cachedStorage = storage;
-    return storage as SessionStorage;
-  }
-
-  /**
    * Get direct database connection
    */
   async getDatabaseConnection(): Promise<PostgresJsDatabase> {
@@ -448,6 +420,37 @@ export class PostgresPersistenceProvider
 
     try {
       log.info(`Running migrations from ${migrationsFolder}`);
+
+      // Fresh-DB bootstrap (mt#2439): a database with an absent-or-empty
+      // drizzle ledger cannot replay the migration tree — `0000` is an empty
+      // baseline that assumes the pre-baseline schema exists, so `0001` fails
+      // on a fresh database. Bootstrap from the committed full-schema snapshot
+      // first; migrate() below then applies only entries newer than the
+      // snapshot. Non-empty databases never enter this branch.
+      if (this.sql) {
+        const { bootstrapFreshPostgres, isMigrationLedgerEmpty } = await import(
+          "../postgres-bootstrap"
+        );
+        if (await isMigrationLedgerEmpty(this.sql)) {
+          const { readFileSync } = await import("fs");
+          const { join } = await import("path");
+          const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
+            encoding: "utf8",
+          }) as string;
+          const bootstrap = await bootstrapFreshPostgres(
+            this.sql,
+            migrationsFolder,
+            JSON.parse(journalRaw)
+          );
+          if (bootstrap) {
+            log.info(
+              `Bootstrapped fresh database through ${bootstrap.throughTag} ` +
+                `(${bootstrap.stampedCount} journal entries stamped)`
+            );
+          }
+        }
+      }
+
       await migrate(this.db, { migrationsFolder });
       log.info("Migrations completed successfully");
     } catch (error) {

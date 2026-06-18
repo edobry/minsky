@@ -601,7 +601,7 @@ describe("Session Merge Security Validation", () => {
           { session: "bot-pr-session", json: true, acceptStaleReviewerSilence: true },
           nonBotDeps
         )
-      ).rejects.toThrow(/not minsky-ai\[bot\]/);
+      ).rejects.toThrow(/not the configured bot identity "minsky-ai\[bot\]"/);
     });
 
     // B2 acceptance test (round-4):

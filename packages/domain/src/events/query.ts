@@ -7,12 +7,14 @@
  * @see mt#2092 — Event log Phase 1a
  */
 
-import { and, desc, eq, gte, lte, isNotNull, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, lte, inArray, isNotNull, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   systemEventsTable,
+  eventTypesForCategory,
   type SystemEventRecord,
   type SystemEventType,
+  type EventCategory,
   type SystemEvent,
 } from "../storage/schemas/system-events-schema";
 
@@ -45,6 +47,13 @@ function toSystemEvent(row: SystemEventRecord): SystemEvent {
 export interface ListEventsOptions {
   /** Filter by event type. */
   eventType?: SystemEventType;
+  /**
+   * Filter by category (read-side classification, mt#2340). Resolves to a
+   * `WHERE event_type IN (...)` over the category's member types. When both
+   * `category` and `eventType` are set, `eventType` is the narrower filter and
+   * both apply (AND); an `eventType` outside the category yields no rows.
+   */
+  category?: EventCategory;
   /** Lower bound (inclusive) — ISO-8601 string. */
   since?: string;
   /** Upper bound (inclusive) — ISO-8601 string. */
@@ -76,6 +85,19 @@ export async function listEvents(
 
   if (options.eventType !== undefined) {
     conditions.push(eq(systemEventsTable.eventType, options.eventType));
+  }
+
+  if (options.category !== undefined) {
+    // Generated WHERE event_type IN (...) from the code-side category map.
+    // At v1 volume the existing event_type index covers this; no composite
+    // index needed (RFC defers that to post-50K-rows). Guard the empty-list
+    // case: a valid category always has >=1 member, but skip the filter rather
+    // than emit a degenerate `IN ()` if a future/invalid category resolves
+    // empty (callers validate at the boundary; this is defensive depth).
+    const categoryTypes = eventTypesForCategory(options.category);
+    if (categoryTypes.length > 0) {
+      conditions.push(inArray(systemEventsTable.eventType, categoryTypes));
+    }
   }
 
   if (options.since !== undefined) {

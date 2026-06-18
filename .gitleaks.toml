@@ -17,7 +17,10 @@ paths = [
   '''docs/.*''',
   '''README\.md''',
   '''process/tasks/.*\.md''',
-  '''.*\.test\.ts'''
+  '''.*\.test\.ts''',
+  # The .gitleaksignore file itself is scanned by protect --staged and may
+  # contain fingerprint comments that reference the patterns they suppress.
+  '''^\.gitleaksignore$'''
 ]
 regexes = [
   '''postgresql://(user|username|admin):(password|pass|secret)@(localhost|host|example\.com)''',

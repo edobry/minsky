@@ -7,6 +7,8 @@
  *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
  *                               404 only for ids absent from WIDGET_REGISTRY)
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
+ *   GET /api/agents/:id       — workspace-session detail: meta, commits, PR
+ *                               state, transcript bridge (mt#1919)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
@@ -29,17 +31,27 @@ import {
   createNoopChannelListener,
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { log } from "@minsky/shared/logger";
+import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import { execSync } from "child_process";
 
+// Lazy + memoized: this module loads during CLI command registration (e.g. on
+// `--help`), so a module-level spawn would run `git rev-parse` — and leak
+// `fatal: not a git repository` from non-repo cwds — on commands that never
+// touch the cockpit (mt#1428). `stdio: "pipe"` keeps the child's stderr out of
+// the parent's output either way.
+let gitCommit: string | undefined;
 function getGitCommit(): string {
-  try {
-    return String(execSync("git rev-parse --short HEAD", { encoding: "utf-8" })).trim();
-  } catch {
-    return "unknown";
+  if (gitCommit === undefined) {
+    try {
+      gitCommit = String(
+        execSync("git rev-parse --short HEAD", { encoding: "utf-8", stdio: "pipe" })
+      ).trim();
+    } catch {
+      gitCommit = "unknown";
+    }
   }
+  return gitCommit;
 }
-
-const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -178,6 +190,111 @@ async function getServerAskRepository(): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Ask advancement sweeper (mt#2265)
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the periodic ask-advancement sweep in this cockpit process.
+ *
+ * Advances `detected` asks the create path missed (emission-callsite rows,
+ * rows from crashed processes) and expires stale ones, so the operator
+ * surface reflects reality without a manual probe. Runs one pass at boot,
+ * then every `intervalMs` (sweeper-not-queue per decision-defaults
+ * §Reliability; the asks table is the single source of truth).
+ *
+ * Fail-open: a failed pass logs and waits for the next tick — the sweep
+ * must never crash the cockpit. Overlapping ticks are skipped.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startAskAdvancementSweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const repo = await getServerAskRepository();
+      if (!repo) return;
+      const { runAskAdvancementSweep } = await import("@minsky/domain/ask/advancement");
+      await runAskAdvancementSweep(repo);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: ask advancement sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  // Never hold the process open on account of the sweeper.
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
+// Prod-state cache refresh sweeper (mt#2506)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default refresh interval for the prod-state cache. Kept well below the consumer hook's
+ * staleness threshold (`PROD_STATE_STALENESS_MS` = 30m in inject-prod-state.ts) so a healthy
+ * sweep keeps the injected snapshot labelled "fresh"; only a stalled/absent sweep trips the
+ * hook's STALE path.
+ */
+const PROD_STATE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * Start the periodic prod-state cache refresh in this cockpit process (mt#2506).
+ *
+ * The PRODUCER half of the hybrid cached-injection for the R10 no-tool-boundary status-claim
+ * seam: reads the prod migration ledger via the provider's raw-SQL connection and writes a
+ * small local cache that `.claude/hooks/inject-prod-state.ts` injects each turn. Doing the
+ * network read here (once at boot, then every `intervalMs`) keeps the per-turn hook read
+ * cheap (local fs only) per memory `08606f7c`'s ≤50ms bar.
+ *
+ * Fail-open: no DB / unreadable ledger / a failed pass logs and waits for the next tick —
+ * never crashes the cockpit, and leaves the last-good cache in place. Overlapping ticks skip.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const { getSharedPersistenceService } = await import("./shared-persistence");
+      const { refreshProdStateCache } = await import("./prod-state-cache");
+      const svc = await getSharedPersistenceService();
+      const provider = svc.getProvider();
+      const getRawSql =
+        "getRawSqlConnection" in provider &&
+        typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
+          ? (provider as { getRawSqlConnection: () => Promise<unknown> }).getRawSqlConnection.bind(
+              provider
+            )
+          : null;
+      if (!getRawSql) return;
+      const sql = (await getRawSql()) as import("./prod-state-cache").UnsafeSql | null | undefined;
+      await refreshProdStateCache(sql, new Date().toISOString());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: prod-state refresh sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? PROD_STATE_REFRESH_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
 // Task service lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 
@@ -240,6 +357,40 @@ async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
 
     _cachedTaskDetailDeps = { taskService, taskGraphService };
     return _cachedTaskDetailDeps;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session provider lazy init — uses cockpit-wide PersistenceService singleton
+// (mt#1919). Mirrors the agents-widget defaultProviderFactory; kept separate
+// so the endpoint and the widget caches stay independently invalidatable
+// (mt#2362 touches the widget's cache).
+// ---------------------------------------------------------------------------
+
+let _cachedServerSessionProvider:
+  | import("@minsky/domain/session/types").SessionProviderInterface
+  | null = null;
+
+async function getServerSessionProvider(): Promise<
+  import("@minsky/domain/session/types").SessionProviderInterface | null
+> {
+  if (_cachedServerSessionProvider) return _cachedServerSessionProvider;
+  try {
+    const { getSharedPersistenceService } = await import("./shared-persistence");
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
+    const svc = await getSharedPersistenceService();
+    const provider = await createSessionProvider(undefined, {
+      persistenceService: {
+        isInitialized: () => true,
+        getProvider: () => svc.getProvider(),
+      },
+    });
+    _cachedServerSessionProvider = provider;
+    return provider;
   } catch {
     return null;
   }
@@ -324,7 +475,7 @@ export async function getServerSseBrokerForWidget(): Promise<SseBroker | null> {
  * Initialise the SSE broker and pre-subscribe to all canonical channels in
  * `COCKPIT_SSE_CHANNELS`.
  *
- * When the persistence provider is not Postgres (e.g. SQLite, offline mode),
+ * When the persistence provider is not Postgres (e.g. offline mode),
  * the broker is wired with a no-op listener. Clients that connect to
  * `/api/events` will receive an open SSE stream but no events — the endpoint
  * returns 200 (not 503), because the broker IS available; it just has no
@@ -468,7 +619,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch {
       // fallback: unknown
     }
-    res.json({ status: "ok", version, commit: GIT_COMMIT, uptimeSec });
+    res.json({ status: "ok", version, commit: getGitCommit(), uptimeSec });
   });
 
   /** GET /api/widgets — metadata for every registered widget */
@@ -638,11 +789,158 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   });
 
   /**
+   * GET /api/agents/:id — workspace-session detail for the drill-down page
+   * (mt#1919). Keyed by the MINSKY workspace sessionId (not the harness
+   * agentSessionId — see src/cockpit/session-detail.ts header).
+   *
+   * Returns: SessionDetailPayload { session, commits, pr, conversation }
+   * Every enrichment (git log, task title, transcript resolution) degrades
+   * independently — only a missing session record is a 404.
+   */
+  app.get("/api/agents/:id", async (req, res) => {
+    const rawId = req.params.id;
+    if (!rawId) {
+      res.status(400).json({ error: "Session ID required" });
+      return;
+    }
+    const sessionId = decodeURIComponent(rawId);
+
+    try {
+      const provider = await getServerSessionProvider();
+      if (!provider) {
+        res.status(503).json({
+          error: "Session service unavailable — persistence provider not ready",
+        });
+        return;
+      }
+
+      const record = await provider.getSession(sessionId);
+      if (!record) {
+        res.status(404).json({ error: `Session ${sessionId} not found` });
+        return;
+      }
+
+      const { buildSessionMeta, buildPrRef, githubRepoWebBase, parseGitLog, GIT_LOG_FORMAT } =
+        await import("./session-detail");
+
+      // Workspace dir: record fields first, provider lookup as fallback.
+      let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
+      if (!workdir) {
+        try {
+          workdir = await provider.getSessionWorkdir(sessionId);
+        } catch {
+          workdir = null;
+        }
+      }
+
+      // Enrichments run in parallel; each degrades to a safe default.
+      const repoWebBase = githubRepoWebBase(record.repoUrl);
+
+      const commitsPromise: Promise<ReturnType<typeof parseGitLog>> = (async () => {
+        if (!workdir) return [];
+        const { existsSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        // .git may be a directory (normal checkout) or a file (worktree
+        // indirection) — existsSync covers both. A workspace without it is
+        // not a git checkout; skip rather than let git walk up to a parent repo.
+        if (!existsSync(workdir) || !existsSync(join(workdir, ".git"))) {
+          log.debug(`[agents] commits enrichment skipped — no git workspace at ${workdir}`);
+          return [];
+        }
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execFileAsync = promisify(execFile);
+        try {
+          const { stdout } = await execFileAsync(
+            "git",
+            ["-C", workdir, "log", `--format=${GIT_LOG_FORMAT}`, "-n", "10"],
+            { timeout: 5_000, maxBuffer: 256 * 1024 }
+          );
+          return parseGitLog(stdout, repoWebBase);
+        } catch (gitErr) {
+          const msg = gitErr instanceof Error ? gitErr.message : String(gitErr);
+          log.debug(`[agents] commits enrichment degraded — git log failed: ${msg}`);
+          return [];
+        }
+      })();
+
+      const taskTitlePromise: Promise<string | null> = (async () => {
+        if (!record.taskId) return null;
+        try {
+          const taskService = await getServerTaskService();
+          if (!taskService) return null;
+          const task = await taskService.getTask(record.taskId);
+          return task?.title ?? null;
+        } catch (titleErr) {
+          const msg = titleErr instanceof Error ? titleErr.message : String(titleErr);
+          log.debug(`[agents] task-title enrichment degraded: ${msg}`);
+          return null;
+        }
+      })();
+
+      // Workspace → transcript resolution (mt#2420 deferral): newest
+      // agent_transcripts row whose cwd is the session workspace (or below).
+      const conversationPromise: Promise<{ agentSessionId: string } | null> = (async () => {
+        if (!workdir) return null;
+        try {
+          const db = await getContextInspectorDb();
+          if (!db) return null;
+          const { agentTranscriptsTable } = await import(
+            "@minsky/domain/storage/schemas/agent-transcripts-schema"
+          );
+          const { eq, like, or, desc, sql } = await import("drizzle-orm");
+          // Escape LIKE wildcards in the literal path (Postgres default escape
+          // char is backslash), then match descendants under either separator —
+          // POSIX "/" and Windows "\" (stored as an escaped "\\" in the pattern).
+          const escaped = workdir.replace(/([\\%_])/g, "\\$1");
+          const rows = await db
+            .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
+            .from(agentTranscriptsTable)
+            .where(
+              or(
+                eq(agentTranscriptsTable.cwd, workdir),
+                like(agentTranscriptsTable.cwd, `${escaped}/%`),
+                like(agentTranscriptsTable.cwd, `${escaped}\\\\%`)
+              )
+            )
+            .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
+            .limit(1);
+          const first = rows[0];
+          return first ? { agentSessionId: first.agentSessionId } : null;
+        } catch (convErr) {
+          const msg = convErr instanceof Error ? convErr.message : String(convErr);
+          log.debug(`[agents] conversation enrichment degraded: ${msg}`);
+          return null;
+        }
+      })();
+
+      const [commits, taskTitle, conversation] = await Promise.all([
+        commitsPromise,
+        taskTitlePromise,
+        conversationPromise,
+      ]);
+
+      res.json({
+        session: buildSessionMeta(record, taskTitle),
+        commits,
+        pr: buildPrRef(record),
+        conversation,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[agents] GET /api/agents/:id — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while fetching the session." });
+    }
+  });
+
+  /**
    * GET /api/tasks — lightweight task list for the command palette (mt#1917).
    *
    * Returns: { tasks: { id, title, status }[] }
    * Uses the shared task service singleton (same bootstrap pattern as
    * workstreams.ts). Returns 503 when the task service is unavailable.
+   * Most-recently-updated first before the 500-cap (mt#2444): an unordered
+   * slice over a >500 backlog hid every recent task from the palette.
    */
   app.get("/api/tasks", async (_req, res) => {
     try {
@@ -654,12 +952,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+      const { sortTasksByRecency } = await import("./palette-tasks");
       const tasks = await taskService.listTasks({});
-      const taskList = tasks.slice(0, 500).map((t) => ({
-        id: formatTaskIdForDisplay(t.id),
-        title: t.title ?? "",
-        status: (t.status ?? "TODO").toUpperCase(),
-      }));
+      const taskList = sortTasksByRecency(tasks)
+        .slice(0, 500)
+        .map((t) => ({
+          id: formatTaskIdForDisplay(t.id),
+          title: t.title ?? "",
+          status: (t.status ?? "TODO").toUpperCase(),
+        }));
       res.json({ tasks: taskList });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -787,9 +1088,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   /**
    * GET /api/activity — list system events for the activity feed (mt#2092)
    *
-   * Query params:
-   *   - eventType: filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed)
-   *   - limit: max results (default 100, max 500)
+   * Query params (mt#2340):
+   *   - eventType: filter by a single event type. Must be a valid
+   *                SystemEventType; an invalid value is a 400.
+   *   - category:  filter by category — `actionable` or `informational`.
+   *                Omit the param entirely to include ALL categories (the
+   *                client drops it rather than sending a sentinel). An invalid
+   *                value is a 400 (no `all` sentinel; strict at the boundary
+   *                so a typo can't silently produce an empty `IN ()` filter).
+   *   - limit:     max results (default 100, max 500)
    *
    * Returns: { events: SystemEvent[], total: number, limit: number }
    */
@@ -804,18 +1111,47 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
 
       const { listEvents } = await import("@minsky/domain/events/query");
-      const eventType =
-        typeof req.query["eventType"] === "string" ? req.query["eventType"] : undefined;
+      const { SYSTEM_EVENT_TYPE_VALUES, EVENT_CATEGORY_VALUES } = await import(
+        "@minsky/domain/storage/schemas/system-events-schema"
+      );
+      type SystemEventType =
+        import("@minsky/domain/storage/schemas/system-events-schema").SystemEventType;
+      type EventCategory =
+        import("@minsky/domain/storage/schemas/system-events-schema").EventCategory;
+
+      // Validate filter params strictly at the trust boundary. Invalid values
+      // are rejected with 400 rather than cast through — a bogus `category`
+      // would otherwise resolve to an empty `WHERE event_type IN ()` and
+      // silently return zero rows (mt#2340 R1 review).
+      const rawEventType = req.query["eventType"];
+      let eventType: SystemEventType | undefined;
+      if (typeof rawEventType === "string") {
+        if (!(SYSTEM_EVENT_TYPE_VALUES as readonly string[]).includes(rawEventType)) {
+          res.status(400).json({
+            error: `Invalid eventType '${rawEventType}'. Valid values: ${SYSTEM_EVENT_TYPE_VALUES.join(", ")}`,
+          });
+          return;
+        }
+        eventType = rawEventType as SystemEventType;
+      }
+
+      const rawCategory = req.query["category"];
+      let category: EventCategory | undefined;
+      if (typeof rawCategory === "string") {
+        if (!(EVENT_CATEGORY_VALUES as readonly string[]).includes(rawCategory)) {
+          res.status(400).json({
+            error: `Invalid category '${rawCategory}'. Valid values: ${EVENT_CATEGORY_VALUES.join(", ")} (omit the param for all categories)`,
+          });
+          return;
+        }
+        category = rawCategory as EventCategory;
+      }
+
       const limitParam =
         typeof req.query["limit"] === "string" ? parseInt(req.query["limit"], 10) : 100;
       const limit = isNaN(limitParam) ? 100 : Math.min(Math.max(limitParam, 1), 500);
 
-      const events = await listEvents(db, {
-        eventType: eventType as
-          | import("@minsky/domain/storage/schemas/system-events-schema").SystemEventType
-          | undefined,
-        limit,
-      });
+      const events = await listEvents(db, { eventType, category, limit });
 
       res.json({ events, total: events.length, limit });
     } catch (err: unknown) {

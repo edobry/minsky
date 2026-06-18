@@ -23,9 +23,9 @@ export const defaultConfiguration: PartialConfiguration = {
   },
 
   // Persistence configuration is intentionally omitted from defaults.
-  // getEffectivePersistenceConfig provides the final backend fallback ("sqlite")
-  // and the default SQLite dbPath at read time, so omitting the block here is
-  // safe and keeps PartialConfiguration shapes unambiguous.
+  // getEffectivePersistenceConfig provides the final backend fallback
+  // ("postgres") at read time, so omitting the block here is safe and keeps
+  // PartialConfiguration shapes unambiguous.
 
   // GitHub configuration (all optional)
   github: {

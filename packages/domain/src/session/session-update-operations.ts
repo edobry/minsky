@@ -14,6 +14,11 @@ import { resolveSessionContextWithFeedback } from "./session-context-resolver";
 import { gitFetchWithTimeout } from "../utils/git-exec";
 import { assertSessionMutable } from "./session-mutability";
 import { taskIdToBranchName } from "../tasks/task-id";
+import {
+  restoreSessionStash,
+  type SessionUpdateResult,
+  type StashRestoreOutcome,
+} from "./session-stash-restore";
 
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;
@@ -28,7 +33,7 @@ export interface UpdateSessionDependencies {
 export async function updateSessionImpl(
   params: SessionUpdateParameters,
   deps: UpdateSessionDependencies
-): Promise<Session> {
+): Promise<SessionUpdateResult> {
   const {
     sessionId: sessionIdParam,
     branch,
@@ -154,13 +159,34 @@ export async function updateSessionImpl(
     const currentBranch = await deps.gitService.getCurrentBranch(workdir);
     log.debug("Current branch", { currentBranch });
 
+    // Tracks whether THIS call created a stash. The pop must be gated on this,
+    // not on `!noStash` alone — otherwise the restore path runs even when nothing
+    // was stashed (force, clean tree), and conversely a stash created here must be
+    // restored (or surfaced) on EVERY return path, never silently abandoned (mt#2325).
+    let didStash = false;
+    // The commit SHA of the stash we created, captured while it is unambiguously
+    // on top. Lets the restore step pop OUR stash specifically rather than trust
+    // a positional `stash@{0}` that another process could have shifted.
+    let stashSha: string | undefined;
+
     // Validate current state if not forced
     if (!force) {
       const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(workdir);
       if (hasUncommittedChanges && !noStash) {
         log.debug("Stashing uncommitted changes", { workdir });
-        await deps.gitService.stashChanges(workdir);
-        log.debug("Changes stashed");
+        const stashResult = await deps.gitService.stashChanges(workdir);
+        // stashChanges is a no-op (stashed:false) when the tree is already clean.
+        didStash = stashResult.stashed !== false;
+        if (didStash) {
+          try {
+            stashSha = (
+              await deps.gitService.execInRepository(workdir, "git rev-parse stash@{0}")
+            ).trim();
+          } catch {
+            // best-effort — restore falls back to the positional pop
+          }
+        }
+        log.debug("Changes stashed", { didStash, stashSha });
       }
     }
 
@@ -168,6 +194,31 @@ export async function updateSessionImpl(
     // When true, popStash must be skipped: git stash pop during an in-progress merge
     // is refused by git or corrupts the working tree.
     let mergeInProgress = false;
+
+    // Restore the stash (if we made one) and fold the outcome into the result.
+    // Centralizing this guarantees no return path leaves work silently parked:
+    // a failed pop is REPORTED via stashRestore + a CLI warning, not swallowed.
+    const finalize = async (): Promise<SessionUpdateResult> => {
+      let stashRestore: StashRestoreOutcome | undefined;
+      if (didStash && !mergeInProgress) {
+        stashRestore = await restoreSessionStash(workdir, deps.gitService, stashSha);
+        if (!stashRestore.restored) {
+          const parked = (stashRestore.parkedFiles ?? []).map((f) => `     - ${f}`).join("\n");
+          log.cli(
+            `⚠️  Session '${sessionId}' was updated, but your uncommitted changes could NOT be ` +
+              `restored and remain parked in ${stashRestore.stashRef}.${
+                parked ? `\n   Parked files:\n${parked}` : ""
+              }\n   ${stashRestore.recovery ?? ""}`
+          );
+        } else if (stashRestore.autoRestoredFiles && stashRestore.autoRestoredFiles.length > 0) {
+          log.cli(
+            `   (Discarded ${stashRestore.autoRestoredFiles.length} regenerated file(s) to ` +
+              `restore your uncommitted changes after the update.)`
+          );
+        }
+      }
+      return { session: sessionRecord as Session, stashRestore };
+    };
 
     try {
       // Fetch latest changes
@@ -274,7 +325,9 @@ export async function updateSessionImpl(
           );
         } else {
           log.cli("✅ No conflicts detected. Safe to proceed with update.");
-          return sessionRecord as Session;
+          // Dry run made no commits, but a stash may have been created above —
+          // restore it (or report it) rather than abandoning it on this return.
+          return await finalize();
         }
       }
 
@@ -302,7 +355,8 @@ export async function updateSessionImpl(
             log.cli("\n💡 Your session changes are already merged. Proceeding with PR creation...");
           }
 
-          return sessionRecord as Session;
+          // No merge happened, but a stash may exist — restore/report it.
+          return await finalize();
         }
 
         if (!updateResult.updated && updateResult.conflictDetails) {
@@ -374,36 +428,25 @@ export async function updateSessionImpl(
         log.debug("Changes pushed to remote");
       }
 
-      // Restore stashed changes if we stashed them
-      if (!noStash) {
-        try {
-          log.debug("Restoring stashed changes", { workdir });
-          await deps.gitService.popStash(workdir);
-          log.debug("Stashed changes restored");
-        } catch (error) {
-          log.warn("Failed to restore stashed changes", {
-            error: getErrorMessage(error),
-            workdir,
-          });
-          // Don't fail the entire operation if stash pop fails
-        }
-      }
-
       log.cli(`Session '${sessionId}' updated successfully`);
 
-      return sessionRecord as Session;
+      // Restore the stash and fold its outcome into the result. finalize() emits
+      // a CLI warning if the changes could not be restored, so the parked state
+      // is never silent (mt#2325).
+      return await finalize();
     } catch (error) {
       // If there's an error during update, try to clean up any stashed changes.
       // Exception: when a merge is in-progress (conflict markers in working tree),
       // skip popStash — git refuses or corrupts the working tree when popping a
       // stash during an active merge.
-      if (!noStash && !mergeInProgress) {
+      if (didStash && !mergeInProgress) {
         try {
           await deps.gitService.popStash(workdir);
           log.debug("Restored stashed changes after error");
         } catch (stashError) {
-          log.warn("Failed to restore stashed changes after error", {
+          log.warn("Failed to restore stashed changes after error; they remain in stash@{0}", {
             stashError: getErrorMessage(stashError),
+            workdir,
           });
         }
       }

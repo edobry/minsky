@@ -17,7 +17,10 @@ import { join } from "path";
 // Set up automatic mock cleanup
 setupTestMocks();
 
-import { registerSessionEditTools } from "../../../src/adapters/mcp/session-edit-tools";
+import {
+  registerSessionEditTools,
+  countOccurrences,
+} from "../../../src/adapters/mcp/session-edit-tools";
 
 // Build a mock container exposing a sessionProvider that points at a real
 // temp directory as the session workspace. SessionPathResolver consumes this
@@ -45,16 +48,25 @@ function buildSessionContainer(workspaceDir: string) {
 }
 
 // Register tools against a fresh container; returns the captured tools map.
-function registerToolsWithContainer(
+// Resolves the lazy `getHandler` thunks (mt#1792) into concrete `.handler`
+// functions — post-mt#1792 the command objects expose `getHandler`, not
+// `handler`, so the real-handler tests must await the thunk first.
+async function registerToolsWithContainer(
   container: ReturnType<typeof buildSessionContainer>
-): Record<string, { handler: (args: any) => Promise<any> }> {
+): Promise<Record<string, { handler: (args: any) => Promise<any> }>> {
   const tools: Record<string, any> = {};
   const cm = {
-    addCommand: (cmd: { name: string; handler: any }) => {
+    addCommand: (cmd: { name: string; handler?: any; getHandler?: any }) => {
       tools[cmd.name] = cmd;
     },
   };
   registerSessionEditTools(cm as any, container);
+  for (const name of Object.keys(tools)) {
+    const cmd = tools[name];
+    if (!cmd.handler && typeof cmd.getHandler === "function") {
+      cmd.handler = await cmd.getHandler();
+    }
+  }
   return tools;
 }
 
@@ -355,6 +367,98 @@ describe("Session Edit Tools", () => {
         ).rejects.toThrow("Cannot apply edits with existing code markers to non-existent file");
       });
     });
+
+    describe("mt#2400 fail-closed guard (real handler)", () => {
+      test("marker-less content on an existing file is refused and leaves it intact", async () => {
+        const workspaceDir = await mkdtemp(join(tmpdir(), "mt2400-edit-"));
+        const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+        const filePath = join(workspaceDir, "existing.ts");
+        const originalContent =
+          "export function keepMe() {\n  return 1;\n}\n\nexport const ALSO = 2;\n";
+
+        try {
+          await fsWriteFile(filePath, originalContent, "utf8");
+          const tool = tools["session.edit_file"];
+          expect(tool).toBeDefined();
+          if (!tool) return;
+
+          const result = await tool.handler({
+            sessionId: "test-session",
+            path: "existing.ts",
+            instructions: "replace everything",
+            content: "export const ONLY = 3;\n",
+          });
+
+          // Structured error envelope, not a throw.
+          expect(result.success).toBe(false);
+          expect(String(result.error)).toContain("marker-less content");
+          expect(String(result.error)).toContain("session_write_file");
+          // File untouched — the destructive overwrite did not happen.
+          const actual = await fsReadFile(filePath, "utf8");
+          expect(actual).toBe(originalContent);
+        } finally {
+          // eslint-disable-next-line custom/no-real-fs-in-tests
+          await rm(workspaceDir, { recursive: true, force: true });
+        }
+      });
+
+      test("marker-less content with fullReplace=true intentionally overwrites the file", async () => {
+        const workspaceDir = await mkdtemp(join(tmpdir(), "mt2400-edit-fr-"));
+        const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+        const filePath = join(workspaceDir, "existing.ts");
+        const originalContent = "old content\nmore old content\n";
+        const replacement = "brand new content\n";
+
+        try {
+          await fsWriteFile(filePath, originalContent, "utf8");
+          const tool = tools["session.edit_file"];
+          expect(tool).toBeDefined();
+          if (!tool) return;
+
+          const result = await tool.handler({
+            sessionId: "test-session",
+            path: "existing.ts",
+            instructions: "full replace",
+            content: replacement,
+            fullReplace: true,
+          });
+
+          expect(result.success).toBe(true);
+          const actual = await fsReadFile(filePath, "utf8");
+          expect(actual).toBe(replacement);
+        } finally {
+          // eslint-disable-next-line custom/no-real-fs-in-tests
+          await rm(workspaceDir, { recursive: true, force: true });
+        }
+      });
+
+      test("marker-less content on a NEW file is allowed (creates it)", async () => {
+        const workspaceDir = await mkdtemp(join(tmpdir(), "mt2400-edit-new-"));
+        const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+        const newContent = "export const fresh = true;\n";
+
+        try {
+          const tool = tools["session.edit_file"];
+          expect(tool).toBeDefined();
+          if (!tool) return;
+
+          const result = await tool.handler({
+            sessionId: "test-session",
+            path: "brand-new.ts",
+            instructions: "create file",
+            content: newContent,
+          });
+
+          expect(result.success).toBe(true);
+          expect(result.created).toBe(true);
+          const actual = await fsReadFile(join(workspaceDir, "brand-new.ts"), "utf8");
+          expect(actual).toBe(newContent);
+        } finally {
+          // eslint-disable-next-line custom/no-real-fs-in-tests
+          await rm(workspaceDir, { recursive: true, force: true });
+        }
+      });
+    });
   });
 
   describe("session_search_replace", () => {
@@ -599,7 +703,7 @@ describe("Session Edit Tools", () => {
       // replacement to contain the preceding file content.
       // This test exercises the REAL session.search_replace handler end-to-end.
       const workspaceDir = await mkdtemp(join(tmpdir(), "mt1361-real-"));
-      const tools = registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
       const filePath = join(workspaceDir, "test.txt");
       const searchText = "SEARCH_TOKEN";
       // Build replace text containing the bug-triggering byte sequence
@@ -642,11 +746,111 @@ describe("Session Edit Tools", () => {
       }
     });
 
+    test("mt#2400: replace_all that balloons the file past 1.5x is refused and leaves it intact (real handler)", async () => {
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt2400-grow-"));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const search = "X";
+      // 5 occurrences; replacing each short token with a long string blows the
+      // file well past 1.5x its original size.
+      const replace = "REPLACEMENT_TOKEN_THAT_IS_VERY_LONG_INDEED_0123456789";
+      const originalContent = "X\nX\nX\nX\nX\n";
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search,
+          replace,
+          replace_all: true,
+        });
+
+        // Handler returns a structured error envelope rather than throwing.
+        expect(result.success).toBe(false);
+        expect(String(result.error)).toContain("Refusing replace_all");
+        expect(String(result.error)).toContain("allow_growth");
+        // File must be untouched.
+        const actual = await fsReadFile(filePath, "utf8");
+        expect(actual).toBe(originalContent);
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+
+    test("mt#2400: replace_all growth past 1.5x is allowed with allow_growth=true (real handler)", async () => {
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt2400-grow-ok-"));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const search = "X";
+      const replace = "REPLACEMENT_TOKEN_THAT_IS_VERY_LONG_INDEED_0123456789";
+      const originalContent = "X\nX\nX\nX\nX\n";
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search,
+          replace,
+          replace_all: true,
+          allow_growth: true,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.replacementCount).toBe(5);
+        const actual = await fsReadFile(filePath, "utf8");
+        expect(actual).toBe(originalContent.split(search).join(replace));
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+
+    test("mt#2400: ordinary replace_all under the growth threshold still works (real handler)", async () => {
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt2400-grow-normal-"));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const originalContent = "alpha foo beta foo gamma foo delta";
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search: "foo",
+          replace: "bar",
+          replace_all: true,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.replacementCount).toBe(3);
+        const actual = await fsReadFile(filePath, "utf8");
+        expect(actual).toBe("alpha bar beta bar gamma bar delta");
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+
     test("regression: dollar-ampersand in replace string does not expand the match (real handler)", async () => {
       // mt#1361: dollar-ampersand normally expands to the matched substring.
       // Real-handler test that the function-replacer fix prevents this.
       const workspaceDir = await mkdtemp(join(tmpdir(), "mt1361-real-"));
-      const tools = registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
       const filePath = join(workspaceDir, "test.txt");
       const searchText = "TARGET";
       // Build "dollar-ampersand-literal" at runtime to avoid putting the bug
@@ -680,5 +884,49 @@ describe("Session Edit Tools", () => {
         await rm(workspaceDir, { recursive: true, force: true });
       }
     });
+
+    test("mt#2408: empty search string is rejected fast and does not hang (real handler)", async () => {
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt2408-empty-"));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const originalContent = "some content here\n";
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search: "",
+          replace: "anything",
+        });
+
+        // Structured error envelope, returned promptly (no infinite loop).
+        expect(result.success).toBe(false);
+        expect(String(result.error)).toContain("non-empty");
+        // File untouched.
+        const actual = await fsReadFile(filePath, "utf8");
+        expect(actual).toBe(originalContent);
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+  });
+});
+
+describe("countOccurrences — mt#2408 empty-search guard", () => {
+  test("returns 0 for an empty search string (never loops)", () => {
+    expect(countOccurrences("anything at all", "")).toBe(0);
+    expect(countOccurrences("", "")).toBe(0);
+  });
+
+  test("still counts non-empty needles correctly", () => {
+    expect(countOccurrences("foo bar foo baz foo", "foo")).toBe(3);
+    expect(countOccurrences("aaaa", "aa")).toBe(2);
+    expect(countOccurrences("no match here", "xyz")).toBe(0);
   });
 });

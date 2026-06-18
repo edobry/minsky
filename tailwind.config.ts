@@ -56,6 +56,18 @@ export default {
         },
         subtle: "oklch(var(--text-subtle) / <alpha-value>)",
 
+        // VSM organ palette — plant board (mt#2376; docs/brand-system.md §7).
+        // Available as `bg-vsm-s1`, `text-vsm-seam`, `fill-vsm-learn`, etc.
+        vsm: {
+          s1: "oklch(var(--vsm-s1) / <alpha-value>)",
+          s2: "oklch(var(--vsm-s2) / <alpha-value>)",
+          s3: "oklch(var(--vsm-s3) / <alpha-value>)",
+          s4: "oklch(var(--vsm-s4) / <alpha-value>)",
+          s5: "oklch(var(--vsm-s5) / <alpha-value>)",
+          seam: "oklch(var(--vsm-seam) / <alpha-value>)",
+          learn: "oklch(var(--vsm-learn) / <alpha-value>)",
+        },
+
         // Liveness status sub-tokens — cockpit-local per docs/brand-system.md §7.
         liveness: {
           healthy: "oklch(var(--liveness-healthy) / <alpha-value>)",

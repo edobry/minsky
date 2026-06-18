@@ -1,7 +1,8 @@
-import { pgTable, text, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, pgEnum, uuid } from "drizzle-orm/pg-core";
 import { TaskStatus } from "../../tasks/taskConstants";
 import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
+import { projectsTable } from "./projects-schema";
 
 // Enumerated task status using centralized TaskStatus enum
 export const taskStatusEnum = pgEnum(
@@ -27,6 +28,9 @@ export const tasksTable = pgTable(
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
+    // project; NOT NULL deferred to Phase 1.3 (mt#2416).
+    projectId: uuid("project_id").references(() => projectsTable.id),
   },
   () => []
 );

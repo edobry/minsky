@@ -111,3 +111,39 @@ Obtain a key at https://aistudio.google.com/apikey. Add via `minsky config crede
 For Postgres-specific runtime settings — connection pool size (`persistence.postgres.maxConnections`,
 `MINSKY_POSTGRES_MAX_CONNECTIONS`), connection-exhaustion retry behavior, and MCP graceful shutdown —
 see [Postgres Persistence Configuration](./persistence-configuration.md).
+
+## Reviewer Configuration
+
+The `reviewer.retrigger` command re-triggers a review on a PR's current HEAD by calling the
+minsky-reviewer webhook service's `POST /retrigger` endpoint (mt#2269). As of mt#2346 it
+authenticates with the **Minsky MCP auth token** (`mcp.auth.token` ← `MINSKY_MCP_AUTH_TOKEN`)
+— the operator->service credential you already hold for the hosted Minsky MCP endpoint, which
+the reviewer service also has — **not** the webhook HMAC secret. Operators therefore never
+need to obtain or store the reviewer's webhook signing secret locally; that secret stays on
+the reviewer service for GitHub->reviewer webhook signature verification only.
+
+```yaml
+mcp:
+  auth:
+    # Bearer token for the hosted Minsky MCP endpoint. Also used by
+    # reviewer.retrigger to authenticate against the reviewer service.
+    token: "<mcp-auth-token>"
+reviewer:
+  # Base URL of the reviewer webhook service. Optional; when unset, falls back to
+  # the hosted production service (minsky-reviewer-webhook-production.up.railway.app).
+  # Set this only to point at a non-default deployment.
+  url: "https://minsky-reviewer-webhook-production.up.railway.app"
+```
+
+- `mcp.auth.token` — required to run `reviewer.retrigger`. When absent the command errors.
+  Environment override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
+- `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment
+  override: `MINSKY_REVIEWER_URL` → `reviewer.url`.
+- `reviewer.webhookSecret` (`MINSKY_REVIEWER_WEBHOOK_SECRET`) — **deprecated for retrigger
+  (mt#2346)**; no longer read by the command. The config key + env mapping are retained only
+  so a lingering value still parses safely at boot. The reviewer service reads its webhook
+  secret from its own loader, not this config path.
+- Per the precedence order above, environment variables override the config-file values.
+
+> Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
+> not require any token (the reviewer bot advertises it in its status comment).

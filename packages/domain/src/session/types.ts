@@ -2,7 +2,31 @@ import type { TaskServiceInterface } from "../tasks";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
-import type { DatabaseQueryOptions } from "../storage/database-storage";
+import type { ProjectScope } from "../project/scope";
+
+/**
+ * Generic options for querying/listing session records at the storage layer.
+ * (Relocated from the retired `storage/database-storage` module in mt#2329;
+ * the sessions domain is now its sole consumer.)
+ */
+export interface DatabaseQueryOptions {
+  /** Inclusive lower bound on createdAt (ISO string) */
+  createdAfter?: string;
+  /** Inclusive upper bound on createdAt (ISO string) */
+  createdBefore?: string;
+  /** Maximum number of records to return */
+  limit?: number;
+  /** Number of records to skip (for paging) */
+  offset?: number;
+  /**
+   * Ordering directives applied at the storage layer.
+   * Multiple entries are applied in order; the first is the primary sort key.
+   * `field` must match a column on the entity (e.g., "lastActivityAt", "createdAt").
+   */
+  orderBy?: Array<{ field: string; direction: "asc" | "desc" }>;
+  /** Allow additional implementation-specific options */
+  [key: string]: unknown;
+}
 
 export enum SessionStatus {
   CREATED = "CREATED",
@@ -16,8 +40,10 @@ export enum SessionStatus {
 /**
  * Core session record interface
  *
- * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
- * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
+ * Task IDs are stored in QUALIFIED format (e.g., "mt#283") — verified against
+ * live rows and matched by getSessionByTaskId / listSessions({ taskId }) via
+ * validateQualifiedTaskId (mt#2329 PR #1625 R1; the prior "plain 283" note was
+ * stale). Use formatTaskIdForDisplay() from task-id-utils.ts for display.
  */
 export interface SessionRecord {
   sessionId: string;
@@ -25,7 +51,7 @@ export interface SessionRecord {
   repoUrl: string;
   repoPath?: string; // Local path to the repository
   createdAt: string;
-  /** Task ID in storage format (plain number string, e.g., "283") */
+  /** Task ID in storage format (qualified, e.g., "mt#283") */
   taskId?: string;
   backendType?: "github" | "gitlab" | "bitbucket"; // Repository backend type
   lastActivityAt?: string;
@@ -48,6 +74,9 @@ export interface SessionRecord {
   // NEW: Simple PR approval tracking (Task #358)
   prBranch?: string; // PR branch if one exists ("pr/session-id")
   prApproved?: boolean; // Whether this session's PR is approved
+
+  /** Project uuid this session belongs to (nullable; set on insert from resolved scope). */
+  projectId?: string;
 
   // Legacy / compatibility fields
   /** @deprecated Use `sessionId` instead */
@@ -89,8 +118,10 @@ export function deriveSessionLiveness(
 /**
  * Session interface for external use
  *
- * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
- * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
+ * Task IDs are stored in QUALIFIED format (e.g., "mt#283") — verified against
+ * live rows and matched by getSessionByTaskId / listSessions({ taskId }) via
+ * validateQualifiedTaskId (mt#2329 PR #1625 R1; the prior "plain 283" note was
+ * stale). Use formatTaskIdForDisplay() from task-id-utils.ts for display.
  */
 export interface Session {
   sessionId: string;
@@ -99,7 +130,7 @@ export interface Session {
   /** @deprecated No longer stored persistently; kept for compatibility with code that still reads it */
   branch?: string;
   createdAt?: string;
-  /** Task ID in storage format (plain number string, e.g., "283") */
+  /** Task ID in storage format (qualified, e.g., "mt#283") */
   taskId?: string;
   /** Computed liveness status derived from lastActivityAt and session status */
   liveness?: SessionLiveness;
@@ -142,6 +173,8 @@ export interface SessionListOptions extends DatabaseQueryOptions {
   session?: string;
   /** Exclude sessions with any of these statuses (DB-level WHERE NOT IN) */
   statusNotIn?: SessionStatus[];
+  /** Project scope for filtering (ADR-021, mt#2416). Defaults to ALL_PROJECTS when omitted. */
+  projectScope?: ProjectScope;
 }
 
 /**

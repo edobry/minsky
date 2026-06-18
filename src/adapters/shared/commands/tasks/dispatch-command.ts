@@ -14,6 +14,10 @@ import {
 } from "@minsky/domain/runtime/harness-detection";
 import { log } from "@minsky/shared/logger";
 import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
+import {
+  validateEvidenceArgument,
+  type EvidenceArgument,
+} from "@minsky/domain/validation/evidence-argument";
 
 const tasksDispatchParams = {
   title: {
@@ -48,6 +52,29 @@ const tasksDispatchParams = {
     description: "Task description/spec content",
     required: false,
   },
+  premiseClaim: {
+    schema: z.string(),
+    description:
+      "Evidence gate (mt#2488): the load-bearing premise this dispatch rests on — the " +
+      "assumption that, if false, means the dispatch is misdirected. For premise-free / " +
+      "greenfield work, state that as the claim. Required: dispatching a subagent on an " +
+      "unverified premise (e.g. a fix on a misdiagnosed cause) is the R7 failure this gate retires.",
+    required: true,
+  },
+  premiseFalsifier: {
+    schema: z.string(),
+    description:
+      "Evidence gate (mt#2488): the CHEAPEST check that would disprove `premiseClaim` if it " +
+      "were false (e.g. 'is this CI check red on main too?').",
+    required: true,
+  },
+  premiseEvidence: {
+    schema: z.string(),
+    description:
+      "Evidence gate (mt#2488): the result of actually running `premiseFalsifier` — not an " +
+      "assertion that you would, the actual outcome.",
+    required: true,
+  },
 } satisfies CommandParameterMap;
 
 interface DispatchParams {
@@ -57,6 +84,9 @@ interface DispatchParams {
   type: "implementation" | "refactor" | "review" | "cleanup" | "audit";
   scope?: string;
   description?: string;
+  premiseClaim: string;
+  premiseFalsifier: string;
+  premiseEvidence: string;
 }
 
 export function createTasksDispatchCommand(
@@ -82,6 +112,25 @@ export function createTasksDispatchCommand(
     parameters: tasksDispatchParams,
     execute: async (params: InferParams<typeof tasksDispatchParams>) => {
       const p = params as DispatchParams;
+
+      // Evidence gate (mt#2488): a subagent dispatch must carry the premise it rests on as
+      // a STRUCTURED, mechanically-validated argument — generalizing the mt#2215 forceBypass
+      // tool-boundary evidence gate. Dispatching on an unverified premise (R7: a fix subagent
+      // spawned on a misdiagnosed CI failure) is the failure this retires. Throws
+      // ValidationError when the premise is absent or not well-formed, blocking the dispatch.
+      const premise: EvidenceArgument = validateEvidenceArgument(
+        {
+          claim: p.premiseClaim,
+          falsifier: p.premiseFalsifier,
+          evidence: p.premiseEvidence,
+        },
+        { action: "tasks.dispatch" }
+      );
+      log.info("[tasks.dispatch] Evidence gate passed", {
+        claim: premise.claim,
+        falsifier: premise.falsifier,
+      });
+
       const harness = detectAgentHarness();
 
       if (!hasNativeSubagentSupport()) {
@@ -250,6 +299,7 @@ export function createTasksDispatchCommand(
         skillsEmbedded: promptResult.skillsEmbedded,
         scopeWarning: promptResult.scopeWarning,
         batches: promptResult.batches,
+        premise,
       };
     },
   };

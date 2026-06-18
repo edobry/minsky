@@ -10,6 +10,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
+import { createTimeoutFetch } from "../github/octokit-timeout";
 import { MinskyError, getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { execGitWithTimeout } from "../utils/git-exec";
@@ -61,6 +62,9 @@ export function createOctokit(token: string): Octokit {
   return new Octokit({
     auth: token,
     log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    // Bound every request to a deadline so a hung GitHub call can't wedge a
+    // long-lived process (mt#2270 sweep; mt#2245 originating fix, mt#2186 incident).
+    request: { fetch: createTimeoutFetch() },
   });
 }
 
@@ -783,6 +787,8 @@ export async function getPullRequestDiff(
     log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     request: {
       headers: { accept: "application/vnd.github.v3.diff" },
+      // Bound every request (mt#2270 sweep; see octokit-timeout.ts).
+      fetch: createTimeoutFetch(),
     },
   });
 

@@ -69,6 +69,8 @@ export default [
       "infra/node_modules/**",
       // Exclude ESLint rule test fixtures (intentionally contain rule violations)
       "eslint-rules/__fixtures__/**",
+      // Exclude GitHub Actions workflows (YAML files; no ESLint config for them)
+      ".github/**",
     ],
   },
   {
@@ -322,7 +324,7 @@ export default [
             // Session provider composition roots
             "**/src/domain/session/session-service.ts",
             "**/src/domain/session/session-provider-cache.ts",
-            "**/src/domain/session/session-db-adapter.ts",
+            "**/src/domain/session/drizzle-session-repository.ts",
             // Session path resolver (lazy fallback for MCP handlers without DI context)
             "**/src/domain/session/session-path-resolver.ts",
             // Domain-level facade files that re-export/wire providers
@@ -358,6 +360,8 @@ export default [
             "**/subcommands/*.ts",
             // Cockpit widget composition roots (wire DI providers for the cockpit server)
             "**/src/cockpit/widgets/agents.ts",
+            // Cockpit server (lazy-wires session/task/ask providers for its endpoints)
+            "**/src/cockpit/server.ts",
             // Scripts and one-off tools (composition roots by nature)
             "**/scripts/*.ts",
             "**/debug-*.ts",

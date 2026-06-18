@@ -18,3 +18,10 @@ services/site/public/talks/
 CLAUDE.md
 AGENTS.md
 .cursor/rules/
+
+# Compiled agent outputs — managed by "minsky compile --target claude-agents",
+# not Prettier. js-yaml emits single-quoted YAML for comma-containing scalars
+# (e.g. `tools: 'Read, Bash'`) which Prettier rewrites to double quotes; the two
+# can't both win, so the generator owns the format and the compile-check guard
+# (src/hooks/pre-commit.ts runCompileCheck) enforces staleness instead (mt#2497).
+.claude/agents/

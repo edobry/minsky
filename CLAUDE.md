@@ -184,6 +184,48 @@ echo 'Step 2 complete'
 echo 'Step 3 complete'
 ```
 
+## Verification Commands
+
+When running a verification command — lint, `format:check`, typecheck, test, build —
+whose pass/fail result you intend to **read and act on**, optimize the command for
+**interpretability on failure**, not terseness. Two anti-patterns destroy that
+interpretability:
+
+1. **Output suppression.** `cmd >/dev/null 2>&1 && echo PASS || echo FAIL` discards the
+   diagnostic you need the moment the check fails — so a failure forces an immediate re-run
+   without `>/dev/null` just to see why. Suppressing the output of a command whose result
+   you must interpret is self-defeating.
+2. **Chaining multiple checks in one call.** `lint && format; typecheck` (or with `||`)
+   collapses several results into one ambiguous exit code — the tool returns "exitCode 1,
+   empty stdout" and you can't tell *which* check failed without re-running each separately.
+
+### Rules
+
+- **One verification command per call, output visible.** Pipe to `tail -n N` if it is chatty;
+  never `>/dev/null` a command whose pass/fail you need to read.
+- **Never chain verification commands** with `&&` / `||` / `;` in a single call. Run lint,
+  then format, then typecheck as separate calls so each result — and which one failed — is
+  unambiguous.
+- **Prefer the structured MCP tools where they exist.** `mcp__minsky__validate_lint` and
+  `mcp__minsky__validate_typecheck` return structured `{ errorCount, warningCount, errors[] }`
+  and are session-aware (pass `task` / `sessionId`, per mt#2336) — no shell, no suppression,
+  no ambiguity. For `format:check` / `lint:strict` / `test` (no MCP equivalent, or you need
+  the exact CI gate) run the bare command and READ the output rather than reducing it to a
+  PASS/FAIL echo.
+
+**❌ Problematic (output suppressed + chained — uninterpretable on failure):**
+```bash
+bun run lint:strict >/dev/null 2>&1 && echo PASS || echo FAIL; bun run format:check >/dev/null 2>&1 && echo PASS || echo FAIL
+```
+
+**✅ Preferred (separate calls, visible output):**
+```bash
+bun run lint:strict 2>&1 | tail -n 20
+```
+```bash
+bun run format:check 2>&1 | tail -n 20
+```
+
 ## Rationale
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
@@ -233,7 +275,7 @@ PR/commit, overlapping files, and four recommended actions (wait / coordinate / 
 **Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
 
 ```bash
-MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
+MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
 ```
 
 The override is **logged to session stdout** (task ID, ISO timestamp).
@@ -246,6 +288,57 @@ non-allowlisted files, and operator-judgment overrides.
 
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
+
+### Duplicate-child matcher (mt#1435)
+
+The same hook ALSO fires on `mcp__minsky__tasks_create` when the `parent` argument is set —
+the upstream-of-session_start variant of the same guard. The session_start sweep and the
+`/plan-task` gate (g) both run at the *planning* boundary; when an umbrella is decomposed,
+minutes-to-hours can pass between the gate read and the actual `tasks_create` calls, during
+which a concurrent agent's children can land. This matcher fires at the *mutating action*,
+so it catches the concurrent-decomposition case regardless of that time gap.
+
+**How it works:**
+1. On a `tasks_create` with `parent` set, enumerate the parent's children via a
+   **hybrid** strategy that avoids a per-child N+1 (each `minsky tasks get` costs
+   ~2s of CLI startup): `minsky tasks children <parent>` for the IDs, then ONE
+   bulk `minsky tasks list --json` call to resolve every **active** child
+   (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/BLOCKED). Only **terminal-state**
+   children (DONE/CLOSED/COMPLETED — excluded from the default list) fall back to
+   a per-child `minsky tasks get <id> --json`. So the common case is 2 calls
+   regardless of child count. The fetch is still latency-bounded so it can't blow
+   the 30s PreToolUse host cap: a `TASKS_CHILDREN_FETCH_CAP = 25` hard cap, a
+   `DUP_GUARD_CLI_TIMEOUT_MS = 4000` per-call timeout (must clear the ~2s CLI
+   cold-start), AND a
+   `DUP_GUARD_OVERALL_BUDGET_MS = 20000` wall-clock budget that hard-breaks the
+   per-child fallback early (visible warning + partial-set check —
+   fail-open-on-budget). **ALL statuses** are enumerated
+   (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
+   decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
+   terminal-status-only filter would miss exactly the case this exists to catch.
+2. Tokenize the new title and each child title into lowercase 4+-char non-stopword tokens
+   (domain nouns are deliberately NOT stopworded — they are the duplicate signal).
+3. If the new title shares ≥ `DUPLICATE_TOKEN_THRESHOLD` (2) substantive tokens with any
+   existing child, BLOCK with a structured message naming the offending child's id, status,
+   and the overlapping tokens.
+
+**Fail-open posture:** a no-parent create is a no-op; an unreadable children list is
+warn-and-permit; an individual unreadable/malformed child is skipped (not fatal); a
+wall-clock-budget exhaustion checks the partial set with a visible warning; and any
+unexpected exception is caught, logged to stderr, and fails OPEN (permit) — so the
+guard can never silently block.
+
+**Override mechanism:** Set `MINSKY_FORCE_DUPLICATE_OK=1` in your environment before the
+`tasks_create` to bypass with an audit line on stdout naming the parent, title, and the
+would-be duplicate match. The override env var is registered in `HOOK_ONLY_ENV_VARS`
+(`packages/domain/src/configuration/sources/environment.ts`) per the
+`custom/no-unregistered-minsky-env-var` rule (mt#1788).
+
+**Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
+umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent
+agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
+~80 minutes before the `tasks_create` calls. See family memory `fe68f2a7`; the Tier-2 floor
+complement is `/plan-task` gate (g) parent-children enumeration (mt#1434).
 
 ## Bypass-Merge Guard
 
@@ -1553,6 +1646,99 @@ silently-wrong assertions; cost is bounded; value is high.
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
   contract this hook conforms to)
 
+## Prod-State Injection Hook
+
+A `UserPromptSubmit` hook (`.claude/hooks/inject-prod-state.ts`) that injects the current
+shared/PROD state (count of applied migrations + the latest-applied-migration timestamp)
+into every turn's `additionalContext` (mt#2506). Third instance of the structural-injection
+pattern after `inject-current-time` (mt#2181) and `inject-git-state` (mt#2275); same override
+convention; same rationale (memory `08606f7c` — "structural injection beats retrieval
+discipline").
+
+**Producer / consumer split (the cost-aware variant).** Unlike its siblings — which read
+*local* state cheaply per turn — prod state lives behind a network query. Per `08606f7c`'s
+≤50ms / non-churny bar, a per-turn prod-DB query is disallowed. So the mechanism is split:
+
+- **Producer:** `src/cockpit/prod-state-cache.ts` + `startProdStateRefreshSweeper` in
+  `src/cockpit/server.ts` (wired at cockpit boot in `src/commands/cockpit/start-command.ts`).
+  Piggybacks the cockpit cadence sweep (sibling of the mt#2265 ask-advancement sweeper):
+  once at boot, then every ~10m, it reads `drizzle.__drizzle_migrations` via the persistence
+  provider's `getRawSqlConnection()` and writes a small local cache file
+  (`<state-dir>/prod-state-cache.json`).
+- **Consumer:** this hook reads ONLY the local cache (cheap fs read, no network) and injects
+  the snapshot, labelled with its last-checked age — the same "last-fetched/last-checked"
+  honesty tradeoff `inject-git-state` uses for ahead/behind.
+
+**Hook file:** `.claude/hooks/inject-prod-state.ts`
+
+**Output formats (three shapes):**
+
+Fresh (cache age ≤ `PROD_STATE_STALENESS_MS` = 30m):
+```
+Current prod state (last-checked 2026-06-16T20:00:00.000Z, 5m ago): 48 migrations applied; latest applied 2026-06-16T14:02:00.000Z. Treat this as ground truth for prod-state claims this turn ...
+```
+Stale (cache age > 30m — the cadence sweep may be stopped):
+```
+Current prod state snapshot is STALE (last-checked ..., 2h ago). ... re-verify the prod migration ledger before asserting prod state.
+```
+Unknown (no cache yet):
+```
+Current prod state: UNKNOWN (no local snapshot yet). Do NOT assert prod state ("nothing has touched prod") from memory — read the prod migration ledger (drizzle.__drizzle_migrations) to verify before asserting.
+```
+
+**Why this exists.** R10 of the assertion-without-verification family (family tracker
+`b0b294ab`, 2026-06-16): the agent told the principal "nothing has touched prod" without
+reading the prod ledger — false (migrations had auto-applied via the `initialize()`
+side-channel). That is an objectively-verifiable factual claim about shared/prod state, made
+in a status report, that gates NO tool call — so the tier-1 tool-boundary evidence gate
+(mt#2488) structurally cannot reach it. This hook is the no-tool-boundary sibling: it puts the
+prod ground truth in front of the agent every turn so the claim is informed, not asserted
+from stale memory.
+
+**Performance budget:** <50ms per invocation — the hook does a single local fs read + parse,
+NO network and NO git. The expensive prod-DB read is amortized into the producer's ~10m
+cadence sweep, never the per-turn hook.
+
+**Fail-open posture:** the hook emits an explicit "UNKNOWN" note (never crashes, never blocks
+the prompt) when the cache is absent, unreadable, or malformed; and a "STALE" note when the
+snapshot is older than the staleness threshold. The producer fails open too: no DB / an
+unreadable ledger / a failed sweep pass logs and leaves the last-good cache in place rather
+than blanking it.
+
+**Override mechanism:** Set `MINSKY_SKIP_PROD_STATE_INJECTION=1` (or `true` / `yes`) to
+disable injection:
+
+```bash
+MINSKY_SKIP_PROD_STATE_INJECTION=1 claude
+```
+
+When the override fires, the hook emits an audit-log line to stdout
+(`[inject-prod-state] override active: ...`) and returns no additionalContext — matching the
+sibling-hook audit convention.
+
+**Env-var registration:** `MINSKY_SKIP_PROD_STATE_INJECTION` is registered in
+`HOOK_ONLY_ENV_VARS` at `packages/domain/src/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override env-var name's
+source of truth lives in `.claude/hooks/inject-prod-state.ts` as the exported constant
+`PROD_STATE_INJECTION_OVERRIDE_ENV`; the cache filename + state-dir resolution are duplicated
+between the hook and `src/cockpit/prod-state-cache.ts` (separate module graphs) and kept in
+sync by contract.
+
+**Verification artifact:** `scripts/smoke-prod-state-cache.ts` live-verifies the producer's
+real ledger query (env-gated on `DATABASE_URL`; skips gracefully without it).
+
+**Cross-references:**
+
+- mt#2506 — this hook (the R10 no-tool-boundary seam, split from tier-1 mt#2488)
+- mt#2485 — parent reframe; mt#2488 — tier-1 tool-boundary evidence gate (the write-side
+  sibling); mt#2277 — unmerged-migration guard (also write-side)
+- mt#2275 `inject-git-state.ts` / mt#2181 `inject-current-time.ts` — sibling injection hooks
+- mt#2234 — cockpit cadence sweep (the periodic-refresh host); mt#2265 — ask-advancement
+  sweeper (the sweeper pattern this producer mirrors)
+- Memory `08606f7c` — Structural injection beats retrieval discipline (synthesis-level lesson;
+  this hook is its third instance and the first cost-aware/cached variant)
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+
 ## Immutable-Migration Pre-Commit Guard
 
 A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`,
@@ -1752,6 +1938,150 @@ chain (env-gated; skips gracefully without `minsky` or a discoverable session).
 - mt#2051 — boot-time ingest sweep (the prior sole automatic trigger)
 - mt#1418 — `ingestAll()` single-writer concurrency guard (soft prerequisite once
   multiple triggers overlap)
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+
+## Causal-Premise Detector (calibration)
+
+A `UserPromptSubmit` hook that scans the prior assistant turn for volunteered
+causal/mechanism claims about tool or system behavior that lack same-turn
+verification. In **v1 / calibration mode** it logs matches to a JSONL file
+and injects **nothing** — the injection gate (`INJECTION_ENABLED`) is `false`.
+After ~10 fires, review the FP rate; only then flip the flag to enable
+`additionalContext` injection. This is the same rollout pattern as
+`mt#2057` (retrospective-trigger-scanner).
+
+**Hook file:** `.claude/hooks/causal-premise-detector.ts`
+
+**Detector contract:**
+
+- **Fires on** a volunteered causal/mechanism claim about TOOL/SYSTEM behavior:
+  - Retrodictive: "X behaved this way **because** Y", "the reason is Y",
+    "X blocks/causes Y" — where Y invokes a structural mechanism (identity /
+    permission / config / algorithm / data-shape).
+  - Forward: "running X will do Y", "X is unsafe because Z".
+  - AND the same turn contains **no** backing tool call AND **no** `file:line`
+    or `node_modules/…` citation.
+- **Does NOT fire** when the claim is immediately backed by a same-turn tool
+  result or a cited source.
+
+**Calibration JSONL:** `.minsky/causal-premise-calibration.jsonl` — each
+match record contains: `timestamp`, `session_id`, `matchedPhrases[]`, and
+`hadSameTurnVerification` (boolean). Review after ~10 fires to determine the
+FP rate before enabling injection.
+
+**Originating incidents:** R1–R5 documented in memory `3772c77d`:
+- R1 (2026-04-24, mt#994): git error misattributed to missing `-u` flag; real cause was detached HEAD.
+- R2 (2026-05-31, mt#2045): `#`-in-branch-got-mangled story; real cause was unprefixed filter + hyphens.
+- R3 (2026-05-31): "reviewer shares author identity so APPROVE blocked" — false; distinct bot ids.
+- R4 (2026-06-02, mt#2250): fabricated out-of-band migration event; real cause was edited-after-apply migrations.
+- R5 (2026-06-03, mt#2250): forward predictive claim — `migrate --execute` "unsafe" based on unread drizzle mechanism.
+
+**Companion skill:** `.claude/skills/check-premise/SKILL.md` — agent-invoked
+step: "list the premises this claim rests on; check the cheapest falsifier
+first."
+
+**Override mechanism:** Set `MINSKY_ACK_CAUSAL_PREMISE=1` (or `true` / `yes`)
+to suppress detection and emit an audit line to stdout (non-JSON per sibling
+hook convention).
+
+**Env-var registration:** `MINSKY_ACK_CAUSAL_PREMISE` is registered in
+`HOOK_ONLY_ENV_VARS` at
+`packages/domain/src/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override
+env-var name's source of truth lives in the hook file as the exported constant
+`OVERRIDE_ENV_VAR`.
+
+**Fail-open posture:** any error reading the transcript or running detection
+exits 0 with a `console.error` warning. The hook never blocks the user prompt.
+
+**Cross-references:**
+
+- mt#2216 — this hook's tracking task
+- Memory `3772c77d` — "Verify the premises of a causal explanation before
+  asserting it" — R1–R5 incident log + escalation trigger
+- `.claude/hooks/substrate-bypass-detector.ts` — sibling UserPromptSubmit
+  hook (mt#2020) with the same architecture
+- `.claude/hooks/retrospective-trigger-scanner.ts` — sibling hook (mt#2057);
+  calibration-first rollout pattern this hook mirrors
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+
+## Ask-Routing Deferral Detector (calibration)
+
+A `UserPromptSubmit` hook that scans the prior assistant turn for **decision
+deferrals routed to the principal via chat prose** instead of through the Ask
+substrate. In **v1 / calibration mode** it logs matches to a JSONL file and
+injects **nothing** — the injection gate (`INJECTION_ENABLED`) is `false`.
+After ~10 fires, review the FP rate (via the `calibration-review` skill); only
+then flip the flag. Same rollout pattern as the causal-premise detector
+(mt#2216) and retrospective-trigger scanner (mt#2057).
+
+**Hook file:** `.claude/hooks/ask-routing-deferral-detector.ts`
+
+**Two sub-classes:**
+
+- **PRINCIPAL-RESERVED** — phrases handing a decision to the principal in prose
+  ("needs your call", "that decision is his", "you decide", "reserved for
+  Eugene", "waiting on your decision", "surface to you"). The fix the reminder
+  names: package per `humility.mdc §Escalation packaging` and file via
+  `mcp__minsky__asks_create` (kind `direction.decide`) — or cite an existing
+  open ask id.
+- **DEFERRAL-MENU** — option-menus / "do nothing" recommendations / hand-back
+  shapes ("what's your call?", "say the word", "stop here" as a recommendation,
+  "want me to X or Y?"). The fix: route through `/classify-before-deferring`
+  FIRST (Class A → run the lookup now; Class B → apply the standing default;
+  only Class C → asks_create). NOT unconditionally an ask.
+
+**Suppression:** fires only when the same assistant turn contains **no**
+`mcp__minsky__asks_create` tool_use (the agent already routed the decision).
+Quoted/code/blockquote contexts are elided before scanning (offset-preserving),
+so a phrase the agent is DESCRIBING — e.g. documenting this detector — does not
+fire.
+
+**Calibration JSONL:** `.minsky/ask-routing-deferral-calibration.jsonl` — each
+record carries `timestamp`, `session_id`, `injection_enabled`, and `matches[]`
+(`{class, phrase}`).
+
+**Originating incidents (escalation-packaging family, memory `3e3f29d8`):**
+R1 2026-04-26 (mt#1316 A/B/C labels), R2 2026-06-02 (mt#2249 buried decision +
+AskUserQuestion instead of asks_create), R3 2026-06-09 (mt#2374 `/plan-task`
+closeout, rail-axis by pointer), R4 2026-06-12 (end-of-session summary, same
+rail-axis question, no ask). Plus the post-closeout register-shift sub-class
+(memory `6abe89c6`, 2026-06-11 mt#2394 closeout). 0-for-4 unprompted compliance
+at the behavioral-checklist tier drove the hook-tier escalation.
+
+**Override mechanism:** Set `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1` (or `true` /
+`yes`) to suppress detection and emit an audit line to stdout (non-JSON per
+sibling-hook convention).
+
+**Env-var registration:** `MINSKY_ACK_ASK_ROUTING_DEFERRAL` is registered in
+`HOOK_ONLY_ENV_VARS` at
+`packages/domain/src/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override
+env-var name's source of truth lives in the hook file as the exported constant
+`OVERRIDE_ENV_VAR`.
+
+**Skill-step tier (paired with this hook):** `/plan-task` Step 4 closeout and
+`/handoff` Step 5 both carry an "ask-or-cite-ask" requirement — a principal-gated
+dependency/next-step must be filed (or an existing ask cited), not referenced by
+pointer. The hook is the always-on detector; the skill-steps are the in-chain
+enforcement at the two closeout surfaces where R3/R4 occurred.
+
+**Fail-open posture:** any error reading the transcript or running detection
+exits 0. The hook never blocks the user prompt.
+
+**Cross-references:**
+
+- mt#2471 — this hook's tracking task
+- Memory `3e3f29d8` — escalation-packaging family (R1–R4); names mt#2471 as
+  the live structural target
+- Memory `6abe89c6` — post-closeout register-shift sub-class (the deferral-menu
+  phrase class)
+- `.claude/skills/classify-before-deferring/SKILL.md` — the substrate the
+  deferral-menu reminder routes through
+- `.claude/hooks/causal-premise-detector.ts` / `retrospective-trigger-scanner.ts`
+  — sibling calibration-first UserPromptSubmit detectors
+- mt#2263 — future consolidation of the regex-scanner family into a unified
+  (possibly embedding-based) matcher; this hook is a framework sibling
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
 
 # User Preferences
@@ -2658,7 +2988,7 @@ Required before encoding the approach in a spec:
 
 **Originating incident:** mt#1477 (filed ~2026-04-30) proposed migrating CI workflows from `pull_request` to `pull_request_target` to fix the App-token workflow trigger drop. The spec acknowledged some risks (fork PRs, secrets exposure) but treated them as acceptable tradeoffs. Research on 2026-05-24 revealed: (a) `pull_request_target` is a well-documented security anti-pattern — GitHub Security Lab calls it "pwn requests," ~1% of repos using it are exploitable; (b) the spec's factual premise was wrong — `session_commit` pushes via system keychain credentials, not the App token; (c) the community-standard fix is to use the App token for git push, requiring no workflow changes. Neither a security literature check nor a community-practice check was performed during spec authoring.
 
-**Structural enforcement.** `/plan-task` gate criterion (l) — when a spec proposes changing a CI/CD security surface, require documented community-practice check with at least one authoritative citation. Tracking task: mt#2090. Until gate (l) ships, this is corpus-tier discipline.
+**Structural enforcement.** `/plan-task` gate criterion (l) — *Authoritative-source check for third-party-system decisions* — is live (restored + generalized via mt#2445). It fires when a spec changes a CI/CD security surface (sub-case 1), designs a mechanism on a third-party system's internals (sub-case 2), or recommends how to use a named tool that has official docs (sub-case 3), and requires a documented vendor-docs/community-practice check with at least one authoritative citation plus a match/extend/deviate statement before READY. The original security-surface-only criterion was tracked by mt#2090 (its body was lost on a skill recompile and restored here).
 
 ## How this is enforced
 
@@ -2693,7 +3023,7 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
 - mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
 - Memory `22a55d66` — originating memory for `§Security-surface changes require community-practice check`
-- mt#2090 — gate criterion (l) implementation task for `§Security-surface changes require community-practice check`
+- mt#2090 — original (security-surface-only) gate criterion (l) task; mt#2445 — restored + generalized gate (l) (now also covers mechanism-design-on-internals and how-to-use-a-named-tool) for `§Security-surface changes require community-practice check`
 - mt#1477 — originating incident for `§Security-surface changes require community-practice check`
 
 # Memory Usage
@@ -2852,4 +3182,4 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety
-- `custom/no-unregistered-minsky-env-var` (mt#1788) — every `process.env.MINSKY_*` read in `src/` must be registered in `environmentMappings` (config-mapped) or `HOOK_ONLY_ENV_VARS` (hook-only) at `src/domain/configuration/sources/environment.ts`; otherwise the env-var-to-config dot-path parser will reject it at boot when the var is set on Railway. Severity `error`.
+- `custom/no-unregistered-minsky-env-var` (mt#1788, extended mt#2324) — every `process.env.MINSKY_*` read in `src/` and `.claude/hooks/`, via either bare-identifier (`process.env.MINSKY_FOO`) **or** static-string-literal bracket (`process.env["MINSKY_FOO"]` / `process.env['MINSKY_FOO']`) access, must be registered in `environmentMappings` (config-mapped) or `HOOK_ONLY_ENV_VARS` (hook-only) at `packages/domain/src/configuration/sources/environment.ts`; otherwise the env-var-to-config dot-path parser will reject it at boot when the var is set on Railway. Genuinely dynamic computed access (`process.env[someVar]`, interpolated template literals) is not statically resolvable and is not flagged. The `services/*/` tree is excluded — independent deploy packages (reviewer, site) with their own config loaders, not the main dot-path parser. Severity `error`.

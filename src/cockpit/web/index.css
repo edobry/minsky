@@ -52,6 +52,18 @@
      dark-first via <html class="dark">. The light-theme --muted-foreground
      should remain text.muted (0.717), distinct from --text-subtle (0.517). */
 
+  /* VSM organ palette — plant board (mt#2376; docs/brand-system.md §7)
+     These are the five VSM-organ colors + seam + learn, mapped from the
+     design reference mock. No raw hex; stored as OKLCH triplets per the
+     brand token convention above. */
+  --vsm-s1: 0.720 0.120 185;   /* S1 Operations — teal (from mock --s1:#4db6ac) */
+  --vsm-s2: 0.756 0.180 70;    /* S2 Coordination — amber (reuses --warn-amber) */
+  --vsm-s3: 0.745 0.124 215;   /* S3 Management+3★ — signal-cyan (reuses --signal-cyan) */
+  --vsm-s4: 0.620 0.110 295;   /* S4 Future — purple (from mock --s4:#9d7cd8) */
+  --vsm-s5: 0.717 0 0;         /* S5 Identity — neutral, near muted-foreground */
+  --vsm-seam: 0.680 0.210 355; /* Attention seam — pink (from mock --seam:#ff6b9d) */
+  --vsm-learn: 0.740 0.148 152;/* Learning loop — emerald (from mock --learn:#6ee7b7) */
+
   /* Typography stacks (docs/brand-system.md §1; fonts loaded in index.html) */
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -110,6 +122,21 @@
   }
 }
 
+@layer utilities {
+  /* Keep an element horizontally scrollable while hiding the scrollbar chrome.
+     Used by the TabBar strip (fixed-height h-9): a native horizontal scrollbar
+     renders INSIDE the strip, squishing the tabs and looking broken at zoom.
+     This matches the browser tab-strip convention — scroll via trackpad /
+     shift-wheel; chrome hidden. */
+  .scrollbar-none {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none; /* Chromium / WebKit */
+  }
+}
+
 /* -----------------------------------------------------------------------------
  * Motion budget (mt#1935; docs/brand-system.md §3)
  *
@@ -128,6 +155,54 @@
   }
 }
 
+/* VSM plant board animations (mt#2376)
+ * vsm-breath — slow 3s oscillation on tank fill levels; simulates the diurnal rhythm.
+ * vsm-ask-pulse — seam circle pulses when a pending ask is open.
+ * vsm-scan — 3★ audit sweep; CSS stroke-dashoffset (NOT SVG SMIL) so the universal
+ *   prefers-reduced-motion rule below disables it. All three honor reduced-motion.
+ */
+@keyframes vsm-breath {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes vsm-ask-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.vsm-breath {
+  animation: vsm-breath 3s ease-in-out infinite;
+}
+
+.vsm-ask-pulse {
+  animation: vsm-ask-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes vsm-scan {
+  to {
+    stroke-dashoffset: -180;
+  }
+}
+
+.vsm-scan {
+  animation: vsm-scan 9s linear infinite;
+}
+
 @keyframes hook-denial-flash {
   0% {
     background-color: oklch(var(--warn-amber) / 0.4);
@@ -135,6 +210,45 @@
   100% {
     background-color: transparent;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Plant-board fast-clock gestures (mt#2377 v2.0 — honest motion).
+ * One-shot, event-driven: applied transiently by the gesture engine when a
+ * real system_events row lands; removed when the gesture expires. CSS-only,
+ * so the universal prefers-reduced-motion rule below gates them.
+ * --------------------------------------------------------------------------- */
+
+@keyframes vsm-gesture-pulse {
+  0% {
+    box-shadow: 0 0 0 0 oklch(var(--gesture-color, var(--vsm-s1)) / 0);
+  }
+  35% {
+    box-shadow: 0 0 22px 3px oklch(var(--gesture-color, var(--vsm-s1)) / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(var(--gesture-color, var(--vsm-s1)) / 0);
+  }
+}
+
+.vsm-gesture-pulse {
+  animation: vsm-gesture-pulse 1.8s ease-out;
+  border-radius: 6px;
+}
+
+@keyframes edge-gesture-flash {
+  0%,
+  100% {
+    stroke-opacity: 0.7;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+}
+
+.edge-gesture path.react-flow__edge-path {
+  animation: edge-gesture-flash 0.9s ease-in-out 4;
+  stroke-width: 3px !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

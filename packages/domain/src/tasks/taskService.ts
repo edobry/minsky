@@ -12,6 +12,24 @@ import { createTaskService } from "./multi-backend-service";
 import { TaskBackend } from "../configuration/backend-detection";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
+import { resolveProjectIdentity } from "../project/identity";
+import { resolveProjectScope, type ScopeResolverDb } from "../project/scope-resolver";
+import { isAllProjects } from "../project/scope";
+
+/**
+ * Resolve the current project's uuid for stamping `project_id` on Minsky-backend
+ * inserts (ADR-021, mt#2416). Mirrors the read-side resolution used in
+ * `tasks.ts`. Returns `undefined` when the project is unidentified or resolves
+ * to ALL_PROJECTS, so inserts stay nullable in those cases (e.g. the hosted
+ * server / cockpit daemon, which have no single repo cwd).
+ */
+async function resolveCurrentProjectId(
+  workspacePath: string,
+  db: ScopeResolverDb
+): Promise<string | undefined> {
+  const scope = await resolveProjectScope(resolveProjectIdentity({ repoPath: workspacePath }), db);
+  return isAllProjects(scope) ? undefined : scope;
+}
 
 // Define the base TaskService interface used across the domain
 export interface TaskServiceInterface {
@@ -95,6 +113,7 @@ export async function createConfiguredTaskService(options: {
             name: TaskBackend.MINSKY,
             workspacePath: options.workspacePath,
             db,
+            currentProjectId: await resolveCurrentProjectId(options.workspacePath, db),
           });
           minskyBackend.prefix = "mt";
           service.registerBackend(minskyBackend);
@@ -151,6 +170,7 @@ export async function createConfiguredTaskService(options: {
               name: TaskBackend.MINSKY,
               workspacePath: options.workspacePath,
               db,
+              currentProjectId: await resolveCurrentProjectId(options.workspacePath, db),
             });
             minskyBackend.prefix = "mt";
             service.registerBackend(minskyBackend);

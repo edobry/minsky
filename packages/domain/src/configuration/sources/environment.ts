@@ -58,7 +58,6 @@ export const environmentMappings = {
 
   // Persistence configuration (modern — populates `persistence.*`)
   MINSKY_PERSISTENCE_BACKEND: "persistence.backend",
-  MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
   MINSKY_PERSISTENCE_POSTGRES_URL: "persistence.postgres.connectionString",
 
   // Persistence configuration (modern key). MINSKY_POSTGRES_URL is the canonical
@@ -78,6 +77,31 @@ export const environmentMappings = {
   // `just supabase-usage`). Distinct from the Postgres connection string,
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
   MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
+
+  // Reviewer webhook-service configuration (mt#2269). Consumed by the
+  // `reviewer.retrigger` command to authenticate against the reviewer
+  // service's /retrigger endpoint. Explicit mappings are required so a value
+  // set on a deployed environment routes to the correct config path instead of
+  // the dot-path auto-conversion (which would produce `reviewer.webhook.secret`
+  // / a rejected key) and crash the loader at boot.
+  MINSKY_REVIEWER_WEBHOOK_SECRET: "reviewer.webhookSecret",
+  MINSKY_REVIEWER_URL: "reviewer.url",
+
+  // Bot-identity de-hardcoding (mt#2392). The merge-gate waiver logic, the
+  // reviewer-watch detector, and the check-run submitter resolve bot identities
+  // from these config paths (falling back to Minsky's own App logins when
+  // unset) so external projects can run Minsky against their own bots.
+  MINSKY_REVIEWER_BOT_LOGIN: "reviewer.botLogin",
+  MINSKY_REVIEWER_CHECK_RUN_NAME: "reviewer.checkRunName",
+  MINSKY_GITHUB_BOT_IDENTITY_LOGIN: "github.botIdentityLogin",
+
+  // MCP operator->service auth token (mt#2346). Promoted from HOOK_ONLY_ENV_VARS
+  // to a real config path (its standing TODO). Consumed by `reviewer.retrigger`
+  // to authenticate against the reviewer service's /retrigger endpoint without
+  // the webhook HMAC secret. Explicit mapping mirrors the reviewer.* entries
+  // above; the dot-path auto-conversion would also produce `mcp.auth.token`, but
+  // an explicit entry documents intent and is robust to future renames.
+  MINSKY_MCP_AUTH_TOKEN: "mcp.auth.token",
 
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
@@ -122,6 +146,7 @@ export const environmentMappings = {
 
 export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
+  "MINSKY_FORCE_DUPLICATE_OK", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
   "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
   "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
@@ -134,6 +159,14 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
   "MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
   "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
+  // mt#2335 — loaded-source freshness signal. Set by scripts/cli-entry.ts BEFORE
+  // it imports the bundle, read by src/mcp/source-freshness.ts (surfaced in
+  // debug.systemInfo). Must be registered so the env-var-to-config dot-path
+  // parser skips them at boot (mt#1785 class) instead of mapping e.g.
+  // MINSKY_LOADED_COMMIT -> loaded.commit.
+  "MINSKY_LOADED_COMMIT", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
+  "MINSKY_RUN_MODE", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
+  "MINSKY_PACKAGE_ROOT", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
   // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
   // Many of these arguably belong in environmentMappings with a proper config
   // path; that promotion is a follow-up. The immediate goal is making the
@@ -146,7 +179,6 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
   "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
-  "MINSKY_MCP_AUTH_TOKEN", // src/mcp (auth — promote to mcp.auth.token)
   "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
   "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
   "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
@@ -193,7 +225,49 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
   "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
   "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
+  "MINSKY_SKIP_PROD_STATE_INJECTION", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
   "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
+  // mt#2324 — process-only overrides read via the BRACKET form
+  // (process.env["MINSKY_*"]) in src/. They surfaced once the
+  // no-unregistered-minsky-env-var ESLint rule was extended to catch
+  // static-literal computed access (the rule previously skipped all bracket
+  // reads). Registering them hook-only so a value set on a deployed
+  // environment doesn't crash the env-var-to-config dot-path parser at boot.
+  "MINSKY_DEV_CHROMIUM_USER_DATA_DIR", // src/cockpit/dev-chromium.ts (dev Chromium profile dir override)
+  "MINSKY_DEV_CHROMIUM_EXECUTABLE", // src/cockpit/dev-chromium.ts (dev Chromium binary path override)
+  "MINSKY_REVIEWER_WATCH_OWNER", // src/adapters/shared/commands/reviewer-watch.ts (watch-target owner default)
+  "MINSKY_REVIEWER_WATCH_REPO", // src/adapters/shared/commands/reviewer-watch.ts (watch-target repo default)
+  "MINSKY_REVIEWER_WATCH_BOT_LOGIN", // src/adapters/shared/commands/reviewer-watch.ts (reviewer-bot login default)
+  "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
+  "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
+  "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
+  "MINSKY_ACK_CODE_MECHANISM_ASSERTION", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
+  "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
+  // mt#2414 — project identity resolver override. Read by
+  // packages/domain/src/project/identity.ts at identity-resolution time (not
+  // via the config-schema path). Placing it here so the env-var-to-config
+  // dot-path parser skips it at boot — the auto-conversion would produce
+  // "minsky.project" which is rejected as an unrecognised key.
+  "MINSKY_PROJECT", // packages/domain/src/project/identity.ts (project identity override)
+  // mt#2452 — reviewer-service env vars consumed by services/reviewer/src/config.ts
+  // via direct process.env reads (NOT via the domain config loader). Without
+  // registration here, the auto-mapping fallback maps them to reviewer.* paths
+  // (e.g. MINSKY_REVIEWER_APP_ID → reviewer.app.id) that the strict
+  // reviewerConfigSchema (z.strictObject — only webhookSecret and url) rejects,
+  // crashing the domain container boot with "Unrecognized keys: app, tier2,
+  // private, installation" when services/reviewer runs bootDomainContainer().
+  //
+  // NOTE: MINSKY_REVIEWER_WEBHOOK_SECRET and MINSKY_REVIEWER_URL are NOT here —
+  // they have explicit entries in environmentMappings (reviewer.webhookSecret and
+  // reviewer.url respectively) so the auto-mapping skip fires on the
+  // `envVar in environmentMappings` check before reaching this set.
+  //
+  // Enumeration of all MINSKY_REVIEWER_* vars set on the Railway reviewer service
+  // (per infra/index.ts defineVariables("reviewer", ...)):
+  "MINSKY_REVIEWER_APP_ID", // services/reviewer/src/config.ts (GitHub App ID for reviewer identity)
+  "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
+  "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
+  "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
 ]);
 
 /**
@@ -313,7 +387,6 @@ function envVarToConfigPath(envVar: string): string | null {
 
   if (parts[0] === "persistence") {
     // PERSISTENCE_BACKEND -> persistence.backend
-    // PERSISTENCE_SQLITE_DBPATH -> persistence.sqlite.dbPath
     // PERSISTENCE_POSTGRES_CONNECTIONSTRING -> persistence.postgres.connectionString
     if (parts.length === 2) {
       return `persistence.${camelCase(elementAt(parts, 1, "persistence field"))}`;
@@ -399,7 +472,21 @@ export function getEnvironmentConfiguration(): {
       // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
       // Stays in sync with loadEnvironmentConfiguration so metadata reporting
       // does not diverge from actual load behavior.
-      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+      //
+      // Exception (mt#2414): MINSKY_PROJECT is hook-only (no dot-path mapping)
+      // but IS surfaced in loadedVariables for observability — operators need an
+      // audit trail for why a project resolved as it did. It deliberately has NO
+      // entry in `mappings` (it is not a config dot-path value).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) {
+        if (
+          envVar === "MINSKY_PROJECT" &&
+          process.env[envVar] !== undefined &&
+          process.env[envVar] !== ""
+        ) {
+          loadedVariables.push(envVar);
+        }
+        continue;
+      }
 
       const configPath = envVarToConfigPath(envVar);
       if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {

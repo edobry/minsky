@@ -1,9 +1,9 @@
 import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
+import { WidgetShell } from "./components/WidgetShell";
 import {
   fetchWidgets,
   fetchWidgetData,
@@ -18,22 +18,81 @@ import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { McpServerStatus } from "./widgets/McpServerStatus";
-import { PageNavTiles } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
-// HomePage's PageNavTiles stays eagerly imported above (first-paint critical).
-const AgentsPage = lazy(() => import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage })));
-const ContextPage = lazy(() => import("./pages/ContextPage").then((m) => ({ default: m.ContextPage })));
-const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
-const WorkstreamsPage = lazy(() => import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage })));
-const TasksLayout = lazy(() => import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout })));
-const TasksListPage = lazy(() => import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage })));
-const TasksGraphPage = lazy(() => import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage })));
-const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage })));
+const AgentsPage = lazy(() =>
+  import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
+);
+const SessionDetailPage = lazy(() =>
+  import("./pages/SessionDetailPage").then((m) => ({ default: m.SessionDetailPage }))
+);
+const ContextPage = lazy(() =>
+  import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
+);
+const SessionPage = lazy(() =>
+  import("./pages/SessionPage").then((m) => ({ default: m.SessionPage }))
+);
+const SessionsPage = lazy(() =>
+  import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
+);
+const WorkstreamsPage = lazy(() =>
+  import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
+);
+const TasksLayout = lazy(() =>
+  import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout }))
+);
+const TasksListPage = lazy(() =>
+  import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage }))
+);
+const TasksGraphPage = lazy(() =>
+  import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage }))
+);
+const TaskDetailPage = lazy(() =>
+  import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage }))
+);
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
-const ActivityPage = lazy(() => import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
-const EmbeddingsPage = lazy(() => import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage })));
-const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage })));
+const AskPage = lazy(() => import("./pages/AskPage").then((m) => ({ default: m.AskPage })));
+const ActivityPage = lazy(() =>
+  import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
+);
+const EmbeddingsPage = lazy(() =>
+  import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage }))
+);
+const MemoriesPage = lazy(() =>
+  import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage }))
+);
+const MemoryPage = lazy(() =>
+  import("./pages/MemoryPage").then((m) => ({ default: m.MemoryPage }))
+);
+const PlantFlowPage = lazy(() =>
+  import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
+);
+
+/**
+ * Plant board routes — the node-link whole-system view (ADR-020, converged
+ * mt#2423: the SVG schematic and panel-grid comparison routes are retired;
+ * old paths redirect for bookmark continuity).
+ *
+ * Exported as a Routes-children fragment so the redirect wiring is testable
+ * (react-router flattens fragments via createRoutesFromChildren).
+ */
+export const plantRoutes = (
+  <>
+    <Route
+      path="/plant"
+      element={
+        <ErrorBoundary id="plant-page">
+          <PlantFlowPage />
+        </ErrorBoundary>
+      }
+    />
+    <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
+    <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
+  </>
+);
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -41,7 +100,7 @@ const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ de
 // Self-fetching widgets: own their data via TanStack Query; no data prop needed.
 // These remain on the home page grid.
 // ---------------------------------------------------------------------------
-const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
+const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>> = {
   attention: Attention,
   "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
@@ -57,26 +116,34 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 // Widgets whose data App fetches at the app level and distributes via props:
 //   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
 //   - promoted prop-driven page widgets whose routes receive data via props
-//     (WorkstreamsPage, TasksLayout) rather than self-fetching.
+//     (TasksLayout) rather than self-fetching.
 // All other widgets — self-fetching home cards (attention, credentials, ...) and
 // self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
 // the registry-gated /api/widget/:id/data endpoint and must NOT be polled
 // app-wide. This keeps app-level background load bounded to a small fixed set,
 // independent of how many widgets the registry contains (mt#2294).
+// Workstreams migrated off this list to a param-aware self-fetching query
+// (mt#2385 slice/altitude parameterization — see lib/use-workstreams-data.ts).
 //
 // Drift guard: the explicit page-widget entries below MUST also be in
 // PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
-// via props — see workstreamsData / taskGraphData below). A dev-time assertion
+// via props — see taskGraphData below). A dev-time assertion
 // enforces this so adding a self-fetching page widget here (which would start
 // needless app-wide polling) fails fast rather than silently regressing load.
-const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["workstreams", "task-graph"] as const;
+const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["task-graph"] as const;
 const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
   ...Object.keys(PROP_DRIVEN_RENDERERS),
   ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
 ]);
 
-// IDs of widgets that have dedicated page routes — App still polls their data
-// so page routes receive it without a separate fetch setup.
+// IDs of widgets that have dedicated page routes — excluded from the home grid
+// (see homeWidgets below). Their data strategy varies: only the ones ALSO in
+// APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are app-level-polled and
+// prop-driven; the rest (agents, context-inspector, task-list, workstreams)
+// self-fetch on their own pages. Workstreams self-fetches via a param-aware
+// query hook (use-workstreams-data.ts) — do NOT re-add it to the app-level
+// prop list: that would resurrect param-less app-wide polling and break the
+// altitude-keyed caching (mt#2385).
 const PAGE_ROUTE_WIDGET_IDS = new Set([
   "agents",
   "context-inspector",
@@ -85,9 +152,18 @@ const PAGE_ROUTE_WIDGET_IDS = new Set([
   "task-list",
 ]);
 
-// Drift guard (mt#2294): every app-level page-prop widget must be a real page
-// route. If one isn't, it has no prop consumer and would only add needless
-// app-wide polling — fail fast in dev rather than silently regress load.
+// Page widgets that own their data via self-fetching queries — these must
+// NEVER appear in APP_LEVEL_PAGE_PROP_WIDGET_IDS. Workstreams in particular
+// is param-aware (altitude-keyed query cache, mt#2385); app-level param-less
+// polling would duplicate its fetches and bypass the keyed cache.
+const SELF_FETCHING_PAGE_WIDGET_IDS = ["agents", "context-inspector", "task-list", "workstreams"] as const;
+
+// Drift guards (mt#2294, mt#2385) — fail fast in dev rather than silently
+// regress load or caching:
+//  1. Every app-level page-prop widget must be a real page route; otherwise it
+//     has no prop consumer and app-wide polling runs for nothing.
+//  2. No self-fetching page widget may be app-level-polled; that would
+//     reintroduce param-less app-wide polling alongside its own queries.
 if (process.env.NODE_ENV !== "production") {
   for (const id of APP_LEVEL_PAGE_PROP_WIDGET_IDS) {
     if (!PAGE_ROUTE_WIDGET_IDS.has(id)) {
@@ -95,6 +171,13 @@ if (process.env.NODE_ENV !== "production") {
         `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is not a page route ` +
           `(missing from PAGE_ROUTE_WIDGET_IDS) — app-level polling would run for a ` +
           `widget with no prop consumer. Fix the set (mt#2294).`
+      );
+    }
+    if ((SELF_FETCHING_PAGE_WIDGET_IDS as readonly string[]).includes(id)) {
+      throw new Error(
+        `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is a self-fetching ` +
+          `page widget — app-level polling would duplicate its fetches and bypass ` +
+          `its query-keyed cache. Remove it from the app-level prop list (mt#2385).`
       );
     }
   }
@@ -128,25 +211,25 @@ function HomePage({ widgets }: HomePageProps) {
                 return (
                   <ErrorBoundary key={meta.id} id={meta.id}>
                     {SelfFetchingRenderer ? (
-                      <SelfFetchingRenderer />
+                      meta.id === "attention" ? (
+                        /* Attention is the algedonic top surface — give it the
+                           full row so the default landing leads with it (mt#2398). */
+                        <div className="md:col-span-2 lg:col-span-3">
+                          <SelfFetchingRenderer title={meta.title} />
+                        </div>
+                      ) : (
+                        <SelfFetchingRenderer title={meta.title} />
+                      )
                     ) : !PropDrivenRenderer ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{meta.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-muted-foreground">
-                          <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
-                        </CardContent>
-                      </Card>
+                      <WidgetShell variant="card" title={meta.title}>
+                        <p className="text-muted-foreground text-sm">
+                          Widget &apos;{meta.id}&apos; has no frontend renderer registered
+                        </p>
+                      </WidgetShell>
                     ) : data === null ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{meta.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-muted-foreground">
-                          <p>Loading...</p>
-                        </CardContent>
-                      </Card>
+                      <WidgetShell variant="card" title={meta.title}>
+                        <p className="text-muted-foreground text-sm">Loading...</p>
+                      </WidgetShell>
                     ) : (
                       <PropDrivenRenderer data={data} />
                     )}
@@ -158,8 +241,8 @@ function HomePage({ widgets }: HomePageProps) {
         </section>
       )}
 
-      {/* Navigate section — below status: where am I going? */}
-      <PageNavTiles />
+      {/* Nav tiles removed (mt#2398): the persistent rail (mt#2397) is the
+          navigation surface; the tile grid duplicated it. */}
     </div>
   );
 }
@@ -261,7 +344,6 @@ export function App() {
   // ---------------------------------------------------------------------------
   // Data accessors for promoted page routes
   // ---------------------------------------------------------------------------
-  const workstreamsData = widgets.find((w) => w.meta.id === "workstreams")?.data ?? null;
   const taskGraphData = widgets.find((w) => w.meta.id === "task-graph")?.data ?? null;
 
   // Home page only receives the non-promoted, renderable widgets
@@ -290,6 +372,17 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Workspace-session entity route (mt#1919): keyed by the Minsky
+              workspace sessionId — distinct from /session/:id, which takes the
+              harness agentSessionId (transcript). */}
+          <Route
+            path="/agents/:id"
+            element={
+              <ErrorBoundary id="session-detail-page">
+                <SessionDetailPage />
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/context"
             element={
@@ -299,10 +392,28 @@ export function App() {
             }
           />
           <Route
+            path="/sessions"
+            element={
+              <ErrorBoundary id="sessions-page">
+                <SessionsPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Session entity route (mt#2398): URL-addressable session tab; body is
+              mt#2374's ConversationView, re-homed from the retired /conversation host. */}
+          <Route
+            path="/session/:id"
+            element={
+              <ErrorBoundary id="session-page">
+                <SessionPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
             path="/workstreams"
             element={
               <ErrorBoundary id="workstreams-page">
-                <WorkstreamsPage data={workstreamsData} />
+                <WorkstreamsPage />
               </ErrorBoundary>
             }
           />
@@ -324,6 +435,15 @@ export function App() {
             element={
               <ErrorBoundary id="asks-page">
                 <AsksPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Ask entity route (mt#2410, mt#2398 PR2): URL-addressable ask tab. */}
+          <Route
+            path="/ask/:id"
+            element={
+              <ErrorBoundary id="ask-page">
+                <AskPage />
               </ErrorBoundary>
             }
           />
@@ -359,6 +479,16 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Memory entity route (mt#2410, mt#2398 PR2): URL-addressable memory tab. */}
+          <Route
+            path="/memory/:id"
+            element={
+              <ErrorBoundary id="memory-page">
+                <MemoryPage />
+              </ErrorBoundary>
+            }
+          />
+          {plantRoutes}
         </Routes>
       </Suspense>
     </Layout>

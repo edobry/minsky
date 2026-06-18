@@ -34,8 +34,8 @@ minsky tasks status gh#456 DONE
 
 ```bash
 # Start session
-minsky session start mt#123          # Minsky backend task
-minsky session start gh#456          # GitHub backend issue
+minsky session start --task mt#123   # Minsky backend task
+minsky session start --task gh#456   # GitHub backend issue
 
 # List sessions
 minsky session list
@@ -92,7 +92,7 @@ minsky session validate
 ```bash
 # Explicit qualified IDs
 minsky tasks get mt#123
-minsky session start gh#456
+minsky session start --task gh#456
 ```
 
 ### Backend Selection
@@ -109,7 +109,7 @@ minsky session start gh#456
 minsky tasks list --status IN-PROGRESS --all-backends
 
 # Quick session jump
-minsky session start $(minsky tasks list --status IN-PROGRESS | head -1 | cut -d' ' -f1)
+minsky session start --task $(minsky tasks list --status IN-PROGRESS | head -1 | cut -d' ' -f1)
 ```
 
 ### Status Updates

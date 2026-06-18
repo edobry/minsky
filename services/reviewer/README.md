@@ -51,6 +51,37 @@ bun install
 bun run dev   # runs on localhost:3000 with smee.io webhook forwarding
 ```
 
+## Tests
+
+The reviewer's unit suite lives in `services/reviewer/src/*.test.ts` (~1235
+tests). It is hermetic — no live GitHub/model credentials required — and runs
+via this service's own `test` script:
+
+```bash
+# From services/reviewer/ — this service has its own node_modules
+bun install
+bun run test          # = bun test --preload ../../tests/setup.ts
+```
+
+Or from the repo root (single canonical invocation):
+
+```bash
+bun run test:reviewer  # = cd services/reviewer && bun run test
+```
+
+**CI status (mt#2367).** This suite runs on every PR as the
+`Test (services/reviewer)` step in `.github/workflows/ci.yml`'s required
+`build` job — a failing reviewer unit test fails the required check and blocks
+merge. Before mt#2367 only the reviewer _typecheck_ ran in CI, so reviewer test
+regressions merged undetected (mt#2346 / mt#2350 each shipped 4 red `/retrigger`
+tests). The root `bun run test` deliberately scopes its paths and does **not**
+include `services/reviewer`, so this dedicated step is what gates the suite.
+
+This is distinct from the **live harness scripts** under `scripts/`
+(`seeded-bug-harness.ts`, `reviewer-benchmark.ts`) which must NOT run in CI —
+see [Re-running the harness](#re-running-the-harness-mt1515) → Notes. Those
+consume real GitHub quota and create real PRs; the unit suite does neither.
+
 ## Tier activation
 
 Reviewer runs on Tier 3 PRs (agent-authored) mandatory, Tier 2 (co-authored) opt-in via `MINSKY_REVIEWER_TIER2_ENABLED=true`, Tier 1 (human-authored) never.
@@ -122,16 +153,23 @@ Resolves all unresolved bot-authored review threads (via GraphQL `resolveReviewT
 
 ### Programmatic retrigger
 
-The service exposes `POST /retrigger` for agent-driven retriggers:
+The service exposes `POST /retrigger` for agent-driven retriggers. It is
+authenticated with the **Minsky MCP auth token** (`MINSKY_MCP_AUTH_TOKEN`) —
+the operator->service credential operators already hold for the hosted Minsky
+MCP endpoint, and which the reviewer service already has — **not** the webhook
+HMAC secret (mt#2346). Operators therefore never need to obtain or store the
+reviewer's webhook signing secret locally; that secret is sealed on the
+reviewer service and used only for GitHub->reviewer webhook signature
+verification.
 
 ```bash
 curl -X POST https://<service>/retrigger \
-  -H "Authorization: Bearer $MINSKY_REVIEWER_WEBHOOK_SECRET" \
+  -H "Authorization: Bearer $MINSKY_MCP_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"pr": 42, "owner": "edobry", "repo": "minsky"}'
 ```
 
-All three fields (`pr`, `owner`, `repo`) are required. Returns JSON `{ ok, pr, deliveryId }` on success, `{ error }` on failure.
+All three fields (`pr`, `owner`, `repo`) are required. Returns JSON `{ ok, pr, deliveryId }` on success, `{ error }` on failure. Returns `503` if the service itself has no `MINSKY_MCP_AUTH_TOKEN` configured (fail-closed), `401` on a wrong/missing token.
 
 The equivalent MCP command is `reviewer.retrigger`:
 
@@ -139,7 +177,9 @@ The equivalent MCP command is `reviewer.retrigger`:
 minsky reviewer retrigger --pr 42 --owner edobry --repo minsky
 ```
 
-Requires `MINSKY_REVIEWER_URL` and `MINSKY_REVIEWER_WEBHOOK_SECRET` environment variables.
+Resolves its target URL from `reviewer.url` (env override `MINSKY_REVIEWER_URL`,
+hosted default otherwise) and its auth token from `mcp.auth.token` (env override
+`MINSKY_MCP_AUTH_TOKEN`) through the standard Minsky config system.
 
 ## PR status comment (mt#2131)
 
@@ -229,6 +269,107 @@ The benchmark lists recent merged PRs, identifies Tier-3 ones by body marker or 
 - **Do not add these scripts to CI.** They consume real GitHub API quota, create real PRs (harness), and require live credentials. Run manually for baseline collection.
 - The seeded-bug target directory (`scripts/__seeded_bug_targets__/`) is gitignored locally. Harness runs write files there but do not commit them; the remote branch is deleted by the harness in its cleanup step.
 - Results files (`seeded-bug-results.json`, `reviewer-benchmark-results.json`) are written locally in the `scripts/` directory. Commit them manually if you want to checkpoint a baseline.
+
+## Operator alerts (mt#2364 / mt#1596)
+
+When the submission-failure circuit breaker (mt#2350) trips — a PR's review submission keeps failing with a non-retryable error and the sweeper has stopped retriggering it — the failure is surfaced two ways:
+
+1. **On-cockpit (Phase 1, mt#2363, always on):** an operator-routed `coordination.notify` Ask is created and rendered on the cockpit `AsksPage`.
+2. **Off-cockpit (Phase 2, mt#2364, opt-in):** an external alert sink pushes the same failure to a channel that reaches you when the cockpit isn't open (after-hours, weekend, mobile).
+
+The external sink is **disabled by default**. It fails open — a sink error never crashes the sweep, and never affects the circuit-breaker dedup (which is gated on the cockpit-Ask outcome).
+
+### Telegram (recommended) — Pulumi-native setup (mt#2419)
+
+The reviewer's env vars are owned by Pulumi (`infra/index.ts`); do NOT hand-edit them in the
+Railway dashboard (drift). The setup flow keeps the token out of chat, shell history, and the
+repo (it lives passphrase-encrypted in the gitignored `infra/Pulumi.prod.yaml`):
+
+1. **Create the bot:** message [@BotFather](https://t.me/BotFather), send `/newbot`, follow the
+   prompts, copy the token. Then **send your new bot any message** (required: Telegram only
+   exposes a chat id after the user has messaged the bot — there is no lookup API).
+2. **Store the token (masked prompt — value omitted on purpose):**
+
+   ```bash
+   pulumi -C infra config set --secret secrets:minsky-reviewer-telegram-bot-token
+   ```
+
+3. **Discover your chat id** (reads the token internally; prints only the id):
+
+   ```bash
+   bun scripts/reviewer-alerts/discover-chat-id.ts
+   ```
+
+4. **Enable on the stack** (per-stack opt-in — the chat id and enablement live in the
+   gitignored `Pulumi.<stack>.yaml`, never in the shared IaC):
+
+   ```bash
+   pulumi -C infra config set reviewer-telegram-chat-id <discovered id>
+   ```
+
+   `infra/index.ts` declares `ALERT_SINK_TYPE` / `TELEGRAM_CHAT_ID` /
+   `TELEGRAM_BOT_TOKEN` only when that config value is present. Then `pulumi up` from `infra/`.
+
+5. **Verify** (sends one real message; PASS only on a 2xx from Telegram):
+
+   ```bash
+   bun scripts/reviewer-alerts/verify-send.ts <chat-id>
+   ```
+
+The Telegram sink posts via the Bot API `sendMessage` endpoint with a raw `fetch` — no SDK dependency. A future `MatrixAlertSink` (mt#1454) will drop in behind the same `AlertSink` interface.
+
+#### Fallback: manual env vars (non-Pulumi deployments only)
+
+```bash
+ALERT_SINK_TYPE=telegram
+TELEGRAM_BOT_TOKEN=<bot token from @BotFather>
+TELEGRAM_CHAT_ID=<your chat id>
+```
+
+Only for deployments whose env is not IaC-managed — on the Minsky production reviewer these
+would be clobbered by the next `pulumi up`.
+
+### Generic webhook
+
+```bash
+ALERT_SINK_TYPE=webhook
+ALERT_SINK_URL=https://your-endpoint.example/alerts
+ALERT_SINK_SECRET=<optional shared secret>   # sent as the x-alert-secret header
+```
+
+POSTs `{ severity, title, body }` as JSON.
+
+### Verify the wiring
+
+```bash
+ALERT_SINK_TYPE=telegram TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
+  bun services/reviewer/scripts/smoke-alert-sink.ts
+```
+
+Sends one test message through the configured sink (SKIPs gracefully when no sink is configured).
+
+### Verify the DEPLOYED path (`POST /alert-test`, mt#2451)
+
+`smoke-alert-sink.ts` above proves the sink works from **your laptop's** env. To prove the
+**deployed** path — the service's own env config → its sink instance → Telegram → your phone —
+without waiting for a real circuit-breaker trip, hit the authenticated `/alert-test` endpoint.
+It calls the SAME sink instance the sweeper uses:
+
+```bash
+curl -X POST https://<service>/alert-test \
+  -H "authorization: Bearer $MINSKY_MCP_AUTH_TOKEN"
+```
+
+Auth is the MCP auth token (`MINSKY_MCP_AUTH_TOKEN`), same as `/retrigger`. Responses:
+
+- **200** `{ ok: true, sinkType, deliveryAttempted: true }` — the send path was invoked and
+  accepted. Sinks are fail-open (`notify` never throws), so a 200 means "accepted by the sink
+  path"; **confirm actual receipt on your phone**.
+- **401** — missing or wrong bearer token.
+- **503** `{ error: "alert-test auth not configured" }` — `MINSKY_MCP_AUTH_TOKEN` is unset on
+  the service.
+- **503** `{ error: "no alert sink configured", hint }` — `ALERT_SINK_TYPE` is unset/off (the
+  hint names the env vars to set).
 
 ## Self-hosting
 

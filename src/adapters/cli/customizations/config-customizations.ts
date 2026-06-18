@@ -285,19 +285,17 @@ export function getPersistenceCustomizations(): {
           parameters: {
             to: {
               asArgument: true,
-              description: "Target backend (sqlite, postgres)",
+              description: "Target backend (postgres)",
             },
             from: {
-              description: "Source backend (auto-detect if not specified)",
-            },
-            sqlitePath: {
-              description: "SQLite database file path",
+              description: "Source backup file path (auto-detect if not specified)",
             },
             connectionString: {
               description: "PostgreSQL connection string",
             },
             backup: {
-              description: "Create backup in specified directory",
+              description:
+                "Create a JSON backup of the source before migration, written to the Minsky state dir with an auto-generated filename (default: true)",
             },
             dryRun: {
               alias: "n",

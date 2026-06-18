@@ -59,6 +59,16 @@ export const sessionListParamsSchema = commonCommandOptionsSchema.extend({
     .nonnegative()
     .optional()
     .describe("Number of sessions to skip for pagination (default: 0)"),
+  allProjects: z
+    .boolean()
+    .optional()
+    .describe(
+      "Return sessions from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+    ),
+  projectScope: z
+    .string()
+    .optional()
+    .describe("Resolved project scope UUID (internal, set by adapter layer; not a user parameter)"),
 });
 
 /**

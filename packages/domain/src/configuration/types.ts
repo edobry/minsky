@@ -109,16 +109,13 @@ export interface BackendConfig {
 }
 
 export interface PersistenceConfig {
-  backend: "postgres" | "sqlite";
+  backend: "postgres";
   postgres?: {
     connectionString: string;
     maxConnections?: number;
     connectTimeout?: number;
     idleTimeout?: number;
     prepareStatements?: boolean;
-  };
-  sqlite?: {
-    dbPath: string;
   };
 }
 

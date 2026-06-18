@@ -1,50 +1,21 @@
 /**
  * Drizzle Schema for Session Records
  *
- * This module defines the database schema for session records using Drizzle ORM.
- * It supports both SQLite and PostgreSQL databases with identical schemas.
+ * This module defines the PostgreSQL schema for session records using Drizzle
+ * ORM. Sessions are Postgres-only (ADR-018); the former SQLite session schema
+ * was retired with the DatabaseStorage layer (mt#2329).
  */
 
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import {
   pgTable,
   varchar,
   timestamp,
   text as pgText,
   integer as pgInteger,
+  uuid,
 } from "drizzle-orm/pg-core";
-import type { SessionRecord, PullRequestInfo } from "../../session/session-db";
-
-// SQLite Schema - Match existing database structure (camelCase column names)
-export const sqliteSessions = sqliteTable("sessions", {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  sessionId: text("session")!.primaryKey(),
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  repoName: text("repoName")!.notNull(),
-  repoUrl: text("repoUrl"),
-  createdAt: text("createdAt").notNull(),
-  taskId: text("taskId"),
-
-  // Legacy column (keeping for compatibility)
-  repoPath: text("repoPath"),
-
-  // PR-related fields with automatic JSON parsing (will be added via migration)
-  prBranch: text("prBranch"),
-  prApproved: text("prApproved", { mode: "json" }).$type<boolean>(),
-  prState: text("prState", { mode: "json" }).$type<NonNullable<SessionRecord["prState"]>>(),
-
-  // Backend configuration with automatic JSON parsing (will be added via migration)
-  backendType: text("backendType"),
-  pullRequest: text("pullRequest", { mode: "json" }).$type<PullRequestInfo>(),
-
-  // Session liveness tracking fields (will be added via migration)
-  lastActivityAt: text("last_activity_at"),
-  lastCommitHash: text("last_commit_hash"),
-  lastCommitMessage: text("last_commit_message"),
-  commitCount: integer("commit_count"),
-  status: text("status"),
-  agentId: text("agent_id"),
-});
+import type { SessionRecord } from "../../session/session-db";
+import { projectsTable } from "./projects-schema";
 
 // PostgreSQL Schema
 export const postgresSessions = pgTable("sessions", {
@@ -73,11 +44,14 @@ export const postgresSessions = pgTable("sessions", {
   commitCount: pgInteger("commit_count"),
   status: pgText("status"),
   agentId: pgText("agent_id"),
+
+  // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
+  // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
+  // canonical; repo_name/repo_url here stay as a denormalized cache.
+  projectId: uuid("project_id").references(() => projectsTable.id),
 });
 
 // Type exports for better type inference
-export type SqliteSessionRecord = typeof sqliteSessions.$inferSelect;
-export type SqliteSessionInsert = typeof sqliteSessions.$inferInsert;
 export type PostgresSessionRecord = typeof postgresSessions.$inferSelect;
 export type PostgresSessionInsert = typeof postgresSessions.$inferInsert;
 
@@ -112,40 +86,6 @@ function coerceToDate(input: unknown): Date {
 }
 
 /**
- * Convert SessionRecord to SQLite insert format
- * Drizzle handles JSON serialization automatically for json mode columns
- */
-export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
-  return {
-    sessionId: record.sessionId,
-    repoName: record.repoName,
-    repoUrl: record.repoUrl,
-    createdAt: record.createdAt,
-    taskId: record.taskId || null,
-
-    // JSON fields - Drizzle handles serialization automatically
-    prBranch: record.prBranch || null,
-    prApproved: record.prApproved || null,
-    prState: record.prState || null,
-
-    // Backend configuration - Drizzle handles JSON serialization
-    backendType: record.backendType || null,
-    pullRequest: record.pullRequest || null,
-
-    // Session liveness tracking fields
-    lastActivityAt: record.lastActivityAt || null,
-    lastCommitHash: record.lastCommitHash || null,
-    lastCommitMessage: record.lastCommitMessage || null,
-    commitCount: record.commitCount ?? null,
-    status: record.status || null,
-    agentId: record.agentId || null,
-  };
-}
-
-// fromSqliteSelect is NO LONGER NEEDED!
-// Drizzle automatically handles JSON parsing and field mapping.
-
-/**
  * Convert SessionRecord to PostgreSQL insert format
  */
 export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
@@ -172,6 +112,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     commitCount: record.commitCount ?? null,
     status: record.status || null,
     agentId: record.agentId || null,
+
+    // Project scoping (mt#2415 / mt#2416)
+    projectId: record.projectId ?? null,
   };
 }
 
@@ -192,7 +135,7 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     prState: record.prState ? JSON.parse(record.prState) : undefined,
 
     // Backend configuration
-    backendType: (record.backendType || undefined) as "github" | undefined,
+    backendType: (record.backendType || undefined) as SessionRecord["backendType"],
     pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
 
     // Session liveness tracking fields
@@ -202,5 +145,8 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     commitCount: record.commitCount ?? undefined,
     status: (record.status || undefined) as import("../../session/types").SessionStatus | undefined,
     agentId: record.agentId || undefined,
+
+    // Project scoping (mt#2415 / mt#2416)
+    projectId: record.projectId ?? undefined,
   };
 }

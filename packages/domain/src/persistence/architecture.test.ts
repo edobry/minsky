@@ -9,11 +9,12 @@
  */
 import { describe, test, expect, beforeAll } from "bun:test";
 
-// Source file paths — single source of truth for all test references
+// Source file paths — single source of truth for all test references.
+// Repo-root-relative: persistence sources moved to packages/domain/ in the
+// monorepo split; the session command adapters remain under root src/.
 const PATHS = {
-  sessionAdapter: "src/domain/session/session-db-adapter.ts",
-  persistenceService: "src/domain/persistence/service.ts",
-  postgresProvider: "src/domain/persistence/providers/postgres-provider.ts",
+  persistenceService: "packages/domain/src/persistence/service.ts",
+  postgresProvider: "packages/domain/src/persistence/providers/postgres-provider.ts",
   basicCommands: "src/adapters/shared/commands/session/basic-commands.ts",
   managementCommands: "src/adapters/shared/commands/session/management-commands.ts",
   workflowCommands: "src/adapters/shared/commands/session/workflow-commands.ts",
@@ -25,7 +26,8 @@ const sourceCache: Record<string, string> = {};
 const SOURCE_FILES = Object.values(PATHS);
 
 beforeAll(async () => {
-  const root = [import.meta.dir, "..", "..", ".."].join("/");
+  // import.meta.dir = <repo>/packages/domain/src/persistence → repo root is 4 up.
+  const root = [import.meta.dir, "..", "..", "..", ".."].join("/");
   for (const f of SOURCE_FILES) {
     sourceCache[f] = await Bun.file([root, f].join("/")).text();
   }
@@ -38,21 +40,10 @@ function getSource(key: string): string {
 }
 
 describe("Cache-before-init detection", () => {
-  test("SessionDbAdapter.getStorage() assigns storage only after initialize()", () => {
-    const source = getSource(PATHS.sessionAdapter);
-
-    const getStorageMethod = source.match(
-      /private async getStorage\(\)[\s\S]*?return this\.storage/
-    )?.[0];
-    expect(getStorageMethod).toBeDefined();
-
-    // Verify: "this.storage = storage" appears AFTER "await storage.initialize()"
-    const initIdx = getStorageMethod?.indexOf("await storage.initialize()") ?? -1;
-    const assignIdx = getStorageMethod?.indexOf("this.storage = storage") ?? -1;
-    expect(initIdx).toBeGreaterThan(-1);
-    expect(assignIdx).toBeGreaterThan(-1);
-    expect(assignIdx).toBeGreaterThan(initIdx);
-  });
+  // NOTE: the former SessionDbAdapter.getStorage() cache-before-init test was
+  // removed in mt#2329 — sessions migrated to DrizzleSessionRepository (no
+  // lazy getStorage() init). The persistence-provider cache-before-init
+  // invariants below still apply.
 
   test("PersistenceService.performInitialization() assigns provider only after initialize()", () => {
     const source = getSource(PATHS.persistenceService);
@@ -99,28 +90,11 @@ describe("Cache-before-init detection", () => {
   });
 });
 
-describe("Error swallowing prevention", () => {
-  test("SessionDbAdapter does not catch-and-return-default in core query methods", () => {
-    const source = getSource(PATHS.sessionAdapter);
-
-    const dangerousPatterns = [
-      { method: "getSession", badReturn: "return null" },
-      { method: "listSessions", badReturn: "return []" },
-      { method: "doesSessionExist", badReturn: "return false" },
-    ];
-
-    for (const { method, badReturn } of dangerousPatterns) {
-      const methodRegex = new RegExp(
-        `async ${method}\\([^)]*\\)[^{]*\\{([\\s\\S]*?)(?=\\n  async |\\n  // Internal|\\n  private)`
-      );
-      const methodBody = source.match(methodRegex)?.[1];
-      expect(methodBody).toBeDefined();
-
-      const hasCatchWithDefault = methodBody?.includes("catch") && methodBody?.includes(badReturn);
-      expect(hasCatchWithDefault).toBe(false);
-    }
-  });
-});
+// NOTE: the "Error swallowing prevention" describe block (SessionDbAdapter
+// core query methods) was removed in mt#2329 — sessions migrated to
+// DrizzleSessionRepository, whose getSession/listSessions let withPgPoolRetry
+// errors propagate (no catch-and-return-default). The equivalent invariant is
+// covered by the SessionProviderInterface contract tests.
 
 describe("DI bypass prevention", () => {
   test("session command handlers do not import *FromParams without eslint-disable", () => {

@@ -20,8 +20,8 @@ const mockLoadConfiguration = mock(() =>
         strictIds: false,
       },
       persistence: {
-        backend: "sqlite",
-        sqlite: { dbPath: ".minsky/sessions.db" },
+        backend: "postgres",
+        postgres: { connectionString: "postgresql://localhost/minsky_test" },
       },
       workspace: ".",
       defaultBranch: "main",

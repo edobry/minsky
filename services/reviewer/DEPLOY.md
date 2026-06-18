@@ -45,7 +45,9 @@ railway variable set REVIEWER_PROVIDER=openai
 railway variable set OPENAI_API_KEY=<your-key>
 
 # REQUIRED: Postgres connection for the convergence-metrics schema. The
-# service reads MINSKY_SESSIONDB_POSTGRES_URL (or legacy MINSKY_POSTGRES_URL)
+# service reads MINSKY_PERSISTENCE_POSTGRES_URL — the canonical name, also
+# consumed by the domain container (mt#2463) — falling back to the legacy
+# MINSKY_SESSIONDB_POSTGRES_URL / MINSKY_POSTGRES_URL names
 # at startup via src/db/client.ts and applies drizzle migrations from
 # services/reviewer/migrations/pg before opening the webhook listener. If
 # neither is set, the service falls back to a dev-only
@@ -126,6 +128,20 @@ After setting variables, trigger a redeploy:
 ```bash
 railway redeploy
 ```
+
+### Operator alert sink (optional — mt#2364 / mt#2419 / mt#2450)
+
+The service can push operator alerts (circuit-breaker trips, domain-container
+boot failures) to an external channel. Opt-in via:
+
+- `ALERT_SINK_TYPE` — `telegram` or `webhook` (unset = disabled)
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — for `telegram`
+- `ALERT_SINK_URL`, `ALERT_SINK_SECRET` — for `webhook`
+
+On the Minsky production stack these are **Pulumi-managed** (declared in
+`infra/index.ts`, gated on the per-stack `reviewer-telegram-chat-id` config) —
+do NOT hand-set them in the Railway dashboard there (drift). Full setup +
+verification flow: `services/reviewer/README.md §Operator alerts`.
 
 ## Generate a public URL
 

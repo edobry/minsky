@@ -91,8 +91,8 @@ export interface ContextElement {
    * / metadata / other.
    *
    * Observation-path kinds (per-harness reality): hook-injection / skill-body /
-   * tool-result / tool-schema / deferred-tool-catalog / mcp-instructions / system-prompt
-   * / user-prompt / assistant-text / assistant-thinking.
+   * tool-call / tool-result / tool-schema / deferred-tool-catalog / mcp-instructions /
+   * system-prompt / user-prompt / assistant-text / assistant-thinking.
    */
   type: // Synthesis-path kinds
   | "rule"
@@ -103,6 +103,7 @@ export interface ContextElement {
     // Observation-path kinds (mt#2033 Path A, 2026-05-21)
     | "hook-injection"
     | "skill-body"
+    | "tool-call"
     | "tool-result"
     | "tool-schema"
     | "deferred-tool-catalog"

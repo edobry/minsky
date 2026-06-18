@@ -22,7 +22,7 @@ describe("configurationSchema — lenient top-level mode (mt#2161, replaces mt#1
 
   test("strips a typo of a real top-level key without error", () => {
     const result = configurationSchema.safeParse({
-      persistance: { backend: "sqlite" },
+      persistance: { backend: "postgres" },
     });
     expect(result.success).toBe(true);
     if (!result.success) return;

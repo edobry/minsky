@@ -56,8 +56,9 @@ a status transition; everything else is investigation and gate-check.
   - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
     with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
   - (k) Third-party tool/dependency verification
-  - (m) Factual-claim citation verification (letter `l` reserved for the
-    security-surface community-practice check, mt#2090)
+  - (l) Authoritative-source check for third-party-system decisions (security surfaces,
+    designing a mechanism on a third-party's internals, or how to use a named tool with docs)
+  - (m) Factual-claim citation verification
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -260,10 +261,30 @@ Run all three:
      recently-merged commits.
 
 3. **Parent/sibling enumeration** — if the task has a parent:
+
    - Walk `mcp__minsky__tasks_parent` then `mcp__minsky__tasks_children` to enumerate the
-     full sibling/descendant set.
+     full sibling/descendant set. **Fail closed (do not pass):** if `tasks_children` errors or
+     returns a result you cannot trust (transient MCP failure), do NOT pass this criterion —
+     retry, or record a blocking gap. A silent "no children" read is exactly how the
+     duplicate-decomposition recurrences slipped through (mt#1423/1424/1425 duplicated DONE
+     mt#1188/1189; mt#2403-2406 duplicated mt#2397/2398/2399).
+   - For **each** child surface its `(taskId, status, title)` — **including children in a
+     terminal status** (DONE / CLOSED / COMPLETED are all valid Minsky task statuses; see
+     CLAUDE.md §Task Lifecycle), not just active/in-flight ones. A sibling that already SHIPPED
+     or was closed-as-redundant is just as much a duplicate as one in flight; the time-windowed
+     open-PR/recent-merge checks above do not catch a terminal-status sibling outside the
+     window. Flag any child whose title shares **≥2 substantive tokens** (4+ char, non-stopword)
+     with the task being planned.
    - For each related task ID, call `mcp__minsky__session_pr_list` with `status: "open"`
      and `task: "mt#X"`; surface any open PR.
+   - **Hard reconciliation requirement:** any flagged title-overlap or already-shipped sibling
+     MUST be reconciled before READY — subsume (close one, absorb its constraints), supersede,
+     or confirm-orthogonal (state explicitly why the scopes don't actually overlap). Do NOT
+     promote to READY with an unreconciled overlap.
+
+   NOTE: this planning-time enumeration is the Tier-2 floor. It reads children at planning
+   START; concurrent children filed in the gap before `tasks_create` are caught at the
+   mutating action by the Tier-3 `parallel-work-guard.ts` `tasks_create` matcher (mt#1435).
 
 If any check hits, surface findings as a blocking gap with task/PR IDs and the specific
 overlap (file, phrase, or sibling). Do NOT promote to READY until the user resolves the
@@ -505,6 +526,108 @@ at spec-authoring time`) is the precedent memory this gate formalizes; once this
 that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
 (Surface 1 policy-coverage detector, graduating to enforcing mode).
 
+#### Gate criterion (l) — Authoritative-source check for third-party-system decisions
+
+When the spec or plan-decision **designs a mechanism on — or recommends how to use — a
+third-party system that has authoritative documentation on the decision**, the spec must
+document a vendor-docs / community-practice check (at least one authoritative citation) and an
+explicit match/extend/deviate statement BEFORE the mechanism is encoded and the task passes to
+READY. First-principles design from mechanism-level knowledge — or a polished tradeoff table —
+is not a substitute for checking the vendor's intended workflow.
+
+Rationale: the **first-principles-design-without-prior-art** family (sub-thread of
+build-path-as-research, memory `f6607043`). The rest of the gate battery points investigation
+INWARD — (e) repo refs, (g) parallel work, (h) consumer enumeration — and (k) points outward
+but only for _adopting a NEW_ third-party dependency (license / maintenance / install).
+Nothing asked "does the third-party system you are building ON, or the named tool you are
+recommending, already solve this — and what does its documentation say?" Knowing HOW a tool
+works internally (e.g. drizzle's ledger high-water-mark, memory `0c2427e5`) breeds false
+confidence that the design space is understood; it is not knowledge of the vendor's INTENDED
+workflow.
+
+Recurrence record (each prior fix was too narrow to catch the next instance):
+
+- R1 (2026-05-24, mt#1477): `pull_request_target` CI migration spec'd without a
+  security-literature check — fixed as the original security-surface-only gate (l) (mt#2090;
+  later lost on a skill recompile and restored generalized here, mt#2445).
+- R3 (2026-06-11, mt#2439): a bespoke "snapshot + stamp" fresh-DB baseline designed from first
+  principles and gate-passed to READY; `drizzle-kit pull --init` is the documented canonical
+  baseline (and the hand-authored empty `0000` baseline is the documented anti-pattern). The
+  invented design converged with canon only by luck.
+- R7 (2026-06-15, mt#2449): "vendor the generated `@pulumi/railway` SDK" recommended from a
+  clean first-principles tradeoff table; Pulumi's Local Packages doc recommends the OPPOSITE
+  (gitignore the SDK + regenerate via `pulumi install`), a pattern the repo already followed.
+
+**Trigger condition.** This criterion fires when the spec or plan-decision does any of:
+
+- **(sub-case 1 — security surface)** changes a CI/CD security surface: workflow trigger
+  events, token scopes, secrets-exposure models, permission boundaries, credential flows, or
+  authentication mechanisms.
+- **(sub-case 2 — mechanism on third-party internals)** designs a mechanism that operates on or
+  extends a third-party system's internals or workflows: migration ledgers, ORM/CLI workflows,
+  API semantics, build tooling, connection-pooler behavior, etc.
+- **(sub-case 3 — how-to-use a named tool with official docs)** recommends HOW to use a
+  specific named third-party tool/framework on a decision that tool has authoritative
+  documentation about.
+
+If none apply, the criterion passes automatically. State that explicitly:
+"(l) No third-party-system decision designed — criterion passes."
+
+**Required when triggered:**
+
+1. **Search** — at least one vendor-docs or community-practice search for the canonical pattern
+   (and, for sub-case 1, the security implications of the approach; e.g. "pull_request_target
+   security" surfaces the pwn-request literature in seconds).
+2. **Cite** — at least one authoritative citation in the spec (vendor docs, the project's own
+   widely-adopted reference, or security-lab guidance). For sub-case 1 the canonical
+   bot-commit-workflow reference is peter-evans/create-pull-request (as of 2026-05-24).
+3. **Match / extend / deviate** — an explicit statement of whether the proposed mechanism
+   matches, extends, or deviates from the vendor-canonical pattern, with justification for any
+   deviation. The documented pattern is the default; the spec justifies a DEVIATION from it,
+   not the choice itself.
+
+**Rigor-theater callout (esp. sub-case 3).** A well-structured options/tradeoff table is NOT a
+substitute for consulting an authoritative source that exists — its FORM looks like diligence
+and masks that the source of truth was never read. A polished tradeoff table with no
+authoritative citation, on a decision a named tool documents, is the tell; treat it as a red
+flag in your own output. Also check current repo state against the recommended pattern — you
+may already be doing it (as in R7).
+
+**Disambiguation from adjacent gates.** Gate (k) verifies a NEW dependency at ADOPTION time
+(license / maintenance / install-path / canonical-URL). This gate (l) is about an
+already-known third-party system: are you designing a mechanism on it, or recommending how to
+USE it, against what its docs say? `/declare-framework` (mt#1789) is framework _selection_,
+not how-to-use verification.
+
+**Worked example — mt#2439 (sub-case 2).** The "Plan decision" encoded a bespoke baseline
+mechanism on drizzle's migration ledger and walked the full READY gate battery; no gate asked
+"does drizzle solve this?". Walking gate (l): the design operates on a third-party migration
+ledger → sub-case 2 fires → the required search surfaces `drizzle-kit pull --init` (canonical)
+and the empty-`0000` baseline as the documented anti-pattern → the gate blocks READY until the
+citation + a match/extend/deviate statement is in the spec. The bespoke design is recognized as
+a needless deviation BEFORE READY rather than by luck.
+
+**Worked example — mt#2449 (sub-case 3).** The recommendation "vendor the generated
+`@pulumi/railway` SDK" was presented in a clean a/b/c tradeoff table with no doc citation.
+Walking gate (l): recommending how to use a named tool (Pulumi) that documents this exact
+decision → sub-case 3 fires → reading Pulumi's Local Packages doc reverses the recommendation
+(gitignore + regenerate via `pulumi install`), which `infra/Pulumi.yaml` already did → the
+gate blocks until the citation + match/deviate statement replaces the un-cited table.
+
+**Counter-case (no over-fire).** A pure in-repo change with no third-party-system decision
+(e.g. a refactor, a logic fix, a docs edit) passes automatically with the explicit "(l) No
+third-party-system decision designed — criterion passes" statement. The criterion does not
+fire on first-principles design where no authoritative tool-specific source exists.
+
+Cross-references: `decision-defaults.mdc §Security-surface changes require community-practice
+check` (the corpus rule for sub-case 1); bridge memories `dad73290` (R3 design-on-internals)
+and `60219837` (R7 how-to-use-a-named-tool); the originating R1 memory `22a55d66`. The
+implement-time sibling — verify an architectural pattern against community practice BEFORE
+implementing (R6, memory `4012b934`, the never-shipped implement-task §7 check) — is a
+separate surface (implementation, not planning); file/keep it as its own task if it ships.
+This criterion is the gate-tier successor to the lost mt#2090 security-only gate (l), restored
+and generalized by mt#2445 (which subsumed the recommendation-time-only mt#2494).
+
 #### Gate criterion (m) — Factual-claim citation verification
 
 When the spec (or amendment) **cites a memory ID, rule section, or doc passage** AND that
@@ -584,6 +707,19 @@ runtime-diagnosis sibling surface (citing a stale warning while debugging) is ow
    **Multi-next-step disambiguation guard (mt#1842).** The chain-walk-on-affirmative discipline above assumes an UNAMBIGUOUS next step. When the just-READY'd task is a child of a parent with multiple unblocked siblings — i.e., walking to `/implement-task` on THIS task silently picks one of N possible next moves — invoke `/disambiguate-next` BEFORE the chain-walk to `/implement-task`. Trigger detection: call `mcp__minsky__tasks_parent <this-task>`; if a parent exists, call `mcp__minsky__tasks_children <parent>` and count tasks in walkable state (TODO + spec-substantive, READY, IN-PROGRESS). If count ≥ 2, the disambiguation guard fires — surface the option set in user-facing output BEFORE the `/implement-task` call. The exception: if the prior agent turn explicitly recommended THIS specific task as next and the user's brief affirmative followed that recommendation, no disambiguation is needed (the recommendation IS the disambiguation). See `/disambiguate-next` for the full skill including the stakes-filter sub-check.
 
    **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /merge-coordination walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, merge-coordination SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
+
+   **Ask-or-cite-ask at closeout (mt#2471).** If a gate criterion surfaced a dependency or
+   open question that is gated on a **principal-owned decision** (the spec records it as
+   "principal wants further discussion", "resolve before dependent impl", or the gate halted
+   on "external decision the user owns"), the closeout MUST route it through the Ask substrate
+   — file it via `mcp__minsky__asks_create` (kind `direction.decide`, packaged per
+   `humility.mdc §Escalation packaging`, `parentTaskId` set) OR cite the id of an existing
+   open ask that covers it. Do NOT reference the decision by pointer in chat prose ("the
+   rail-axis discussion", "needs your call") and end the turn — chat prose evaporates and never
+   reaches the attention surface. This is the planning-closeout enforcement of the
+   escalation-packaging family (memory `3e3f29d8`; originating recurrences R3 2026-06-09 in
+   THIS skill's closeout, R4 2026-06-12). For a NON-principal deferral (a next-step a lookup or
+   standing default resolves), use `/classify-before-deferring` instead of an ask.
 
 **One or more gate criteria fail:**
 

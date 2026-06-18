@@ -8,8 +8,8 @@
  * Takes the task ID from a URL param passed by the parent page component.
  */
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -266,31 +266,18 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main widget export — self-fetching via TanStack Query
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
 // ---------------------------------------------------------------------------
 
-interface TaskDetailProps {
+interface TaskDetailBodyProps {
   taskId: string;
+  query: UseQueryResult<TaskDetailPayload, Error>;
 }
 
-export function TaskDetail({ taskId }: TaskDetailProps) {
-  const query = useQuery<TaskDetailPayload, Error>({
-    queryKey: ["task-detail", taskId],
-    queryFn: () => fetchTaskDetail(taskId),
-    staleTime: 30_000,
-    retry: 1,
-  });
-
+function TaskDetailBody({ taskId, query }: TaskDetailBodyProps) {
   if (query.isLoading) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold font-mono">{taskId}</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
-        </CardContent>
-      </Card>
+      <p className="text-muted-foreground text-sm font-mono">Loading {taskId}…</p>
     );
   }
 
@@ -298,41 +285,50 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
     const msg = query.error.message;
     const isNotFound = msg.includes("not found") || msg.includes("404");
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold font-mono">{taskId}</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>{isNotFound ? `Task ${taskId} not found.` : `Error: ${msg}`}</p>
-        </CardContent>
-      </Card>
+      <p className="text-muted-foreground text-sm font-mono">
+        {isNotFound ? `Task ${taskId} not found.` : `Error: ${msg}`}
+      </p>
     );
   }
 
   const data = query.data;
   if (!data || !isTaskDetailPayload(data)) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold font-mono">{taskId}</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Unexpected response shape.</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm font-mono">Unexpected response shape.</p>;
   }
 
+  return <TaskDetailInner data={data} />;
+}
+
+// ---------------------------------------------------------------------------
+// Main widget export — self-fetching via TanStack Query (mt#2373)
+//
+// Title is dynamic: taskId (font-mono) while loading/error, data.task.title
+// (leading-snug) on success. WidgetShell title is registry-driven; the
+// font-mono/leading-snug styling difference is preserved by rendering the
+// title text inline via a `title` prop that switches on query state.
+// ---------------------------------------------------------------------------
+
+interface TaskDetailProps {
+  taskId: string;
+  /** Render-context variant; defaults to the full-page card frame. */
+  variant?: WidgetVariant;
+}
+
+export function TaskDetail({ taskId, variant = "card" }: TaskDetailProps) {
+  const query = useQuery<TaskDetailPayload, Error>({
+    queryKey: ["task-detail", taskId],
+    queryFn: () => fetchTaskDetail(taskId),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  // Dynamic title: task.title on success, taskId while loading/error
+  const title =
+    query.data && isTaskDetailPayload(query.data) ? query.data.task.title : taskId;
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold leading-snug">
-          {data.task.title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <TaskDetailInner data={data} />
-      </CardContent>
-    </Card>
+    <WidgetShell variant={variant} title={title}>
+      <TaskDetailBody taskId={taskId} query={query} />
+    </WidgetShell>
   );
 }

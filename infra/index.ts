@@ -2,6 +2,10 @@ import * as pulumi from "@pulumi/pulumi";
 import * as railway from "@pulumi/railway";
 
 const secrets = new pulumi.Config("secrets");
+// Project-namespaced plain config (minsky-infra:*). Per-stack operator
+// settings live here (gitignored Pulumi.<stack>.yaml), not in this file.
+const stackConfig = new pulumi.Config();
+const telegramChatId = stackConfig.get("reviewer-telegram-chat-id");
 
 interface VarDef {
   value: string | pulumi.Output<string>;
@@ -43,6 +47,16 @@ export const minskyMcpService = new railway.Service("minsky-mcp", {
   projectId: minskyMcpProject,
   name: "minsky-mcp",
   sourceImage: "ghcr.io/edobry/minsky:latest",
+  // minsky-mcp deploys from a GHCR image (sourceImage above), NOT from a
+  // repo+Dockerfile, so Railway config-as-code (`config_path` / railway.json) is
+  // INCOMPATIBLE here: Railway rejects `config_path` when `source_image` is set
+  // ("Invalid Attribute Combination"), which blocks `pulumi up` (mt#2472).
+  // Deploy-scoping for this image-based service lives entirely in
+  // `.github/workflows/deploy-minsky-mcp.yml` `paths:` — the workflow builds +
+  // pushes the GHCR image only on changes within the build closure; that is the
+  // single source of truth. (mt#2461 added a config_path here by analogy to the
+  // reviewer service — which IS repo+Dockerfile-source and so CAN use config-as-code
+  // — and broke the prod stack; mt#2472 removed it.)
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
@@ -71,6 +85,11 @@ export const reviewerService = new railway.Service("reviewer", {
   name: "minsky-reviewer-webhook",
   sourceRepo: "edobry/minsky",
   sourceRepoBranch: "main",
+  // Scope the deploy trigger to the reviewer's build/dependency closure via
+  // Railway config-as-code `build.watchPatterns` (the provider exposes no
+  // watch field). Without this the service redeploys on EVERY push to main,
+  // and each restart drops in-flight GitHub->reviewer webhooks (mt#2345).
+  configPath: "services/reviewer/railway.json",
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
@@ -86,7 +105,32 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
-  MINSKY_SESSIONDB_POSTGRES_URL: sealed("minsky-sessiondb-postgres-url"),
+  // Canonical persistence config (mt#2463): the domain container reads
+  // MINSKY_PERSISTENCE_POSTGRES_URL; without it the container boots in
+  // DB-unavailable mode and every pr-watch scheduler cycle throws. Replaces
+  // the deprecated MINSKY_SESSIONDB_POSTGRES_URL (sessiondb retired in
+  // mt#1610) — the reviewer's own DB client prefers the canonical name and
+  // both secrets resolve to the same prod database.
+  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
+  // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
+  // trips to the operator's Telegram after-hours. PER-STACK opt-in (PR #1672
+  // R1): the chat id is an operator-specific identifier and the sink must not
+  // default on — both live in the stack config (gitignored Pulumi.<stack>.yaml),
+  // not in this shared file. Enable on a stack with:
+  //   pulumi config set reviewer-telegram-chat-id <id>     (plain; discover
+  //     via scripts/reviewer-alerts/discover-chat-id.ts)
+  //   pulumi config set --secret secrets:minsky-reviewer-telegram-bot-token
+  //     (masked; or via the cockpit credentials widget's Telegram provider)
+  // When the chat id is unset, no alert vars are declared and the sealed
+  // token is not required — stacks without the secret stay applyable.
+  ...(telegramChatId
+    ? {
+        ALERT_SINK_TYPE: plain("telegram"),
+        TELEGRAM_CHAT_ID: plain(telegramChatId),
+        TELEGRAM_BOT_TOKEN: sealed("minsky-reviewer-telegram-bot-token"),
+      }
+    : {}),
 });
 
 // ---------------------------------------------------------------------------
@@ -114,18 +158,37 @@ defineVariables("site", siteEnv, siteServiceId, {
 });
 
 // ---------------------------------------------------------------------------
-// cockpit preview (placeholder — Railway project not yet created, mt#2096)
+// cockpit preview (mt#2096; project provisioned + IaC reconciled mt#2401)
 // ---------------------------------------------------------------------------
-// const cockpitService = new railway.Service("cockpit", {
-//   projectId: "REPLACE_AFTER_CREATION",
-//   name: "cockpit-preview",
-//   regions: [{ region: "us-west2", numReplicas: 1 }],
-// });
-// defineVariables("cockpit", "REPLACE", "REPLACE", {
-//   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-//   MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-cockpit-preview-postgres-url"),
-//   MINSKY_COCKPIT_PREVIEW: plain("true"),
-// });
+const cockpitProject = "62db6727-ed10-415e-afc5-7188c9983c81";
+const cockpitServiceId = "83273eef-b451-42af-b3e4-7e1c42b8bb50";
+
+export const cockpitService = new railway.Service("cockpit", {
+  projectId: cockpitProject,
+  name: "cockpit-preview",
+  sourceRepo: "edobry/minsky",
+  sourceRepoBranch: "main",
+  // Build context is the repo root — same pattern as services/reviewer (which
+  // also OMITS rootDirectory). The Dockerfile lives at services/cockpit/Dockerfile
+  // (build wiring in services/cockpit/deploy.config.ts). rootDirectory is OMITTED,
+  // NOT set to "": Railway rejects an empty root_directory ("Invalid Attribute Value
+  // Length ... must be at least 1, got: 0"), which blocked pulumi up entirely
+  // (mt#2474). Omitting it = Railway default (repo root), matching the working
+  // reviewer service (verified <unset> in the prod stack state).
+  regions: [{ region: "us-west2", numReplicas: 1 }],
+});
+
+// Env-var IaC for cockpit-preview is deferred to mt#2407. Declaring a
+// `defineVariables(...)` block here would `requireSecret(...)` the
+// `minsky-cockpit-preview-postgres-url` Pulumi stack secret, which is not yet
+// configured in the (gitignored) Pulumi.<stack>.yaml — a latent `pulumi up`
+// break. Managing the live service's env vars is also out of scope for mt#2401
+// (the live service already has its vars set out-of-band). Intended set
+// (production env cc3d2bc3-13cc-4061-9633-cd58f48dc3fe), validated against
+// services/cockpit/src/server.ts + the domain config-setup it boots:
+//   MINSKY_PERSISTENCE_BACKEND=postgres
+//   MINSKY_PERSISTENCE_POSTGRES_URL=<sealed: minsky-cockpit-preview-postgres-url>
+//   MINSKY_COCKPIT_PREVIEW=true
 
 // ---------------------------------------------------------------------------
 // Exports
@@ -134,4 +197,5 @@ export const services = {
   minskyMcp: { projectId: minskyMcpProject, serviceId: minskyMcpServiceId },
   reviewer: { projectId: reviewerProject, serviceId: reviewerServiceId },
   site: { projectId: siteProject, serviceId: siteServiceId },
+  cockpit: { projectId: cockpitProject, serviceId: cockpitServiceId },
 };

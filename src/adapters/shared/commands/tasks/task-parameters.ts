@@ -111,6 +111,12 @@ export const taskFilterParams = {
       "Include per-task attention cost rollup in the output (ADR-008 §Attention accounting)",
     required: false,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return tasks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 /**

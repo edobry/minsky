@@ -64,9 +64,36 @@ export interface WorkstreamCard {
   blockedChildCount: number;
 }
 
+/**
+ * Slice/altitude vocabulary (mt#2385, Constraint-2 of mt#2373).
+ *
+ * Names are SEMANTIC, not persona-named — lenses (mt#2372) are user-definable
+ * modes that will parameterize widgets with these slices; the widget itself
+ * must not encode a persona model (memory bd38be2c §2).
+ *
+ *   full       — default; the current complete card view
+ *   rollup     — outcome rollup: card headers + counts only, no child rows
+ *   actionable — actionable-now: children narrowed to statuses needing action
+ *                (IN-PROGRESS / IN-REVIEW / READY / BLOCKED); only workstreams
+ *                with at least one such child are included
+ */
+export type WorkstreamAltitude = "full" | "rollup" | "actionable";
+
+const KNOWN_ALTITUDES: ReadonlySet<string> = new Set(["full", "rollup", "actionable"]);
+
+/** Unknown / absent altitude values fall back to "full" (never an error). */
+export function parseAltitude(raw: string | undefined): WorkstreamAltitude {
+  if (raw !== undefined && KNOWN_ALTITUDES.has(raw)) {
+    return raw as WorkstreamAltitude;
+  }
+  return "full";
+}
+
 /** Full payload returned by this widget when state === "ok" */
 export interface WorkstreamsPayload {
   workstreams: WorkstreamCard[];
+  /** The slice that produced this payload — echoed so slices are observably distinct */
+  altitude: WorkstreamAltitude;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +140,41 @@ const NON_TERMINAL_STATUSES: Set<TaskStatus> = new Set([
 
 function isActive(status: TaskStatus): boolean {
   return NON_TERMINAL_STATUSES.has(status);
+}
+
+/**
+ * Actionable-now statuses for the "actionable" altitude — children in motion
+ * or needing unblocking. Deliberately narrower than NON_TERMINAL_STATUSES:
+ * TODO/PLANNING children are upcoming, not actionable now.
+ */
+const ACTIONABLE_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  "IN-PROGRESS",
+  "IN-REVIEW",
+  "READY",
+  "BLOCKED",
+]);
+
+/**
+ * Apply an altitude slice to the full card list. Counts on each card always
+ * describe the COMPLETE child set (the workstream's true state); only the
+ * rendered child rows are narrowed.
+ */
+export function sliceWorkstreams(
+  cards: WorkstreamCard[],
+  altitude: WorkstreamAltitude
+): WorkstreamCard[] {
+  switch (altitude) {
+    case "rollup":
+      return cards.map((card) => ({ ...card, children: [] }));
+    case "actionable":
+      return cards.flatMap((card) => {
+        const actionable = card.children.filter((c) => ACTIONABLE_STATUSES.has(c.status));
+        if (actionable.length === 0) return [];
+        return [{ ...card, children: actionable }];
+      });
+    case "full":
+      return cards;
+  }
 }
 
 /**
@@ -168,8 +230,9 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
     // Workstream state changes slowly — 30s polling is lighter than agents/task-graph
     updateMode: { type: "polling", intervalMs: 30_000 },
 
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
+        const altitude = parseAltitude(ctx.query?.["altitude"]);
         const { taskService, taskGraphService } = await getDeps();
 
         // Fetch all tasks (no limit — we want the full picture)
@@ -257,7 +320,10 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
           return a.parentId.localeCompare(b.parentId);
         });
 
-        const payload: WorkstreamsPayload = { workstreams };
+        const payload: WorkstreamsPayload = {
+          workstreams: sliceWorkstreams(workstreams, altitude),
+          altitude,
+        };
         return { state: "ok", payload };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

@@ -6,6 +6,7 @@
  */
 import type { GitServiceInterface } from "../git/types";
 import type { FsLike } from "../interfaces/fs-like";
+import type { ProjectScope } from "../project/scope";
 
 /**
  * Simple backend capabilities interface
@@ -110,6 +111,8 @@ export interface TaskListOptions {
   all?: boolean;
   limit?: number;
   tags?: string[];
+  /** Project scope for filtering (ADR-021, mt#2416). Defaults to ALL_PROJECTS when omitted. */
+  projectScope?: ProjectScope;
 }
 
 /**

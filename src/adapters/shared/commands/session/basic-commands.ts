@@ -5,6 +5,11 @@
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
+import { log } from "@minsky/shared/logger";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -14,12 +19,18 @@ import {
   sessionExecCommandParams,
 } from "./session-parameters";
 
-export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionListCommand(
+  getDeps: LazySessionDeps,
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.list",
     category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
+    // Served entirely from the central session DB — works from any directory,
+    // no project init required (mt#1428).
+    requiresSetup: false,
     parameters: sessionListCommandParams,
     execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
       const { SessionService } = await import("@minsky/domain/session/session-service");
@@ -28,12 +39,47 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
       const service = new SessionService(deps);
 
       const verbose = params.verbose as boolean | undefined;
+      const allProjects = params.allProjects as boolean | undefined;
 
       // Parse since/until into ISO strings so the storage layer can apply the
       // window directly (otherwise pagination + post-filter would silently
       // drop matches that fell outside the first page).
       const sinceTs = parseTime(params.since as string | undefined);
       const untilTs = parseTime(params.until as string | undefined);
+
+      // ADR-021 / mt#2416: resolve project scope so list returns only this
+      // project's sessions by default. When allProjects=true, skip scope
+      // resolution and let the repository return all rows.
+      let projectScope: string | undefined;
+      if (!allProjects) {
+        const provider = getPersistenceProvider?.();
+        const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+        if (sqlProvider?.getDatabaseConnection) {
+          try {
+            const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+            const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+            const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+            if (identity.kind === "resolved") {
+              const db = await sqlProvider.getDatabaseConnection();
+              if (db) {
+                const scope = await resolveProjectScope(identity, db);
+                // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
+                const { isAllProjects } = await import("@minsky/domain/project/scope");
+                if (!isAllProjects(scope)) {
+                  projectScope = scope;
+                }
+              }
+            }
+          } catch (err: unknown) {
+            log.debug(
+              "[session.list] Project scope resolution failed; defaulting to all projects",
+              {
+                error: err instanceof Error ? err.message : String(err),
+              }
+            );
+          }
+        }
+      }
 
       let sessions = await service.list({
         repo: params.repo as string | undefined,
@@ -43,6 +89,7 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
         offset: params.offset as number | undefined,
         since: sinceTs !== null ? new Date(sinceTs).toISOString() : undefined,
         until: untilTs !== null ? new Date(untilTs).toISOString() : undefined,
+        projectScope,
       });
 
       // Lean-output by default — strip the heavy nested PR payload that drives
@@ -101,7 +148,42 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
   };
 }
 
-export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefinition {
+/**
+ * Emit a `session.started` system event (best-effort, informational — mt#2487).
+ *
+ * Mirrors `emitTaskStatusChangedEvent` (mt#2340): resolves the DB from the
+ * SQL-capable persistence provider and skips silently when none is available
+ * (e.g., CLI without a DB) — never fabricating a provider (no DI fallback).
+ * Never throws — event emission must not affect the session-start outcome.
+ */
+async function emitSessionStartedEvent(
+  provider: PersistenceProvider | undefined,
+  payload: { sessionId: string; taskId?: string }
+): Promise<void> {
+  try {
+    const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+    if (!sqlProvider?.getDatabaseConnection) return;
+    const db = await sqlProvider.getDatabaseConnection();
+    if (!db) return;
+    const { DrizzleEventEmitter } = await import("@minsky/domain/events/emitter");
+    await new DrizzleEventEmitter(db).emit({
+      eventType: "session.started",
+      payload,
+      relatedTaskId: payload.taskId,
+      relatedSessionId: payload.sessionId,
+    });
+  } catch (err: unknown) {
+    log.warn("session.started: event emission failed (best-effort, swallowed)", {
+      sessionId: payload.sessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+export function createSessionStartCommand(
+  getDeps: LazySessionDeps,
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.start",
     category: CommandCategory.SESSION,
@@ -116,7 +198,29 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
       }
 
       const { SessionService } = await import("@minsky/domain/session/session-service");
-      const deps = await getDeps();
+      const baseDeps = await getDeps();
+
+      // ADR-021 / mt#2416: resolve the DB so session.start can stamp project_id
+      // on the new session row (mirrors session.list scope resolution above).
+      // Best-effort: when the persistence provider is absent or returns no DB,
+      // deps.db stays undefined and the stamping is silently skipped.
+      let resolvedDb: import("@minsky/domain/project/scope-resolver").ScopeResolverDb | undefined;
+      const provider = getPersistenceProvider?.();
+      const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+      if (sqlProvider?.getDatabaseConnection) {
+        try {
+          const rawDb = await sqlProvider.getDatabaseConnection();
+          if (rawDb) {
+            resolvedDb = rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb;
+          }
+        } catch (err: unknown) {
+          log.debug("[session.start] Failed to obtain DB for project-scope stamping", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const deps = resolvedDb ? { ...baseDeps, db: resolvedDb } : baseDeps;
       const service = new SessionService(deps);
 
       const session = await service.start({
@@ -130,6 +234,12 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
         skipInstall: (params.skipInstall as boolean | undefined) ?? false,
         packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+      });
+
+      // Best-effort informational event (mt#2487). Never blocks session start.
+      await emitSessionStartedEvent(getPersistenceProvider?.(), {
+        sessionId: session.sessionId,
+        taskId: session.taskId,
       });
 
       return {

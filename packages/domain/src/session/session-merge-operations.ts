@@ -7,7 +7,7 @@
 
 import { log } from "@minsky/shared/logger";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
-import { type SessionProviderInterface } from "./session-db-adapter";
+import { type SessionProviderInterface } from "./types";
 import {
   detectRepositoryBackendTypeFromUrl,
   extractGitHubInfoFromUrl,
@@ -42,7 +42,7 @@ import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
-import { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
+import { resolveBotIdentities } from "../configuration/bot-identity";
 import type { AskRepository } from "../ask/repository";
 import { existsSync, rmSync } from "node:fs";
 import { getSessionsDir } from "@minsky/shared/paths";
@@ -480,16 +480,18 @@ export interface SessionMergeParams {
   cleanupSession?: boolean; // Session cleanup after merge (default: true)
   /**
    * Operator-override waiver: when true, allows merge for self-authored bot PRs
-   * blocked only by the same-App-identity self-approval rule when
-   * minsky-reviewer[bot] has not fired (webhook-miss class).
+   * blocked only by the same-App-identity self-approval rule when the reviewer
+   * bot has not fired (webhook-miss class). Bot identities resolve from config
+   * (github.botIdentityLogin / reviewer.botLogin, mt#2392) with Minsky's own
+   * App logins (minsky-ai[bot] / minsky-reviewer[bot]) as defaults.
    *
    * Only used by session.pr.merge -- has no effect in other contexts.
    *
    * Conditions that must ALL hold for the waiver to apply:
-   *   - PR author is minsky-ai[bot] (waiver does not apply to human-authored PRs).
+   *   - PR author is the configured bot identity (waiver does not apply to human-authored PRs).
    *   - No CHANGES_REQUESTED review exists on the PR (DISMISSED reviews are excluded).
    *   - At least one COMMENTED review from the SAME identity as the PR author exists.
-   *   - No review from minsky-reviewer[bot] exists.
+   *   - No review from the configured reviewer bot exists.
    *   - No other merge blockers are active (PR is not a draft, no merge conflicts, PR is open).
    *     Checked via approvalStatus.hasNonApprovalMergeBlockers rather than canMerge because
    *     canMerge is always false when isApproved=false, making it useless in this path.
@@ -724,19 +726,24 @@ export async function mergeSessionPr(
         // Check whether the operator-override waiver applies before blocking.
         // Waiver conditions (ALL must hold):
         //   1. acceptStaleReviewerSilence flag explicitly set to true.
-        //   2. PR author is the configured bot identity (minsky-ai[bot]).
+        //   2. PR author is the configured bot identity (default minsky-ai[bot]).
         //   3. No CHANGES_REQUESTED review (substantive findings unaddressed).
-        //   4. No minsky-reviewer[bot] review (webhook-miss class).
+        //   4. No reviewer-bot review (webhook-miss class).
         //   5. At least one COMMENTED review from the SAME identity as the PR author.
+        //
+        // Bot identities resolve from config (github.botIdentityLogin /
+        // reviewer.botLogin) with Minsky's own App logins as defaults (mt#2392),
+        // so external projects can satisfy the waiver with their own bots.
+        const { botIdentityLogin, reviewerBotLogin } = resolveBotIdentities();
         const rawReviews = approvalStatus.rawReviews ?? [];
         const prAuthor = sessionRecord.pullRequest.github?.author ?? "";
-        const isPrAuthorBot = prAuthor.toLowerCase() === BOT_IDENTITY_LOGIN.toLowerCase();
+        const isPrAuthorBot = prAuthor.toLowerCase() === botIdentityLogin.toLowerCase();
         // Exclude DISMISSED reviews from CHANGES_REQUESTED check (stale reviews that no longer block)
         const hasChangesRequested = rawReviews
           .filter((r) => r.state !== "DISMISSED")
           .some((r) => r.state === "CHANGES_REQUESTED");
         const hasReviewerBotReview = rawReviews.some(
-          (r) => r.reviewerLogin.toLowerCase() === REVIEWER_BOT_LOGIN.toLowerCase()
+          (r) => r.reviewerLogin.toLowerCase() === reviewerBotLogin.toLowerCase()
         );
         // Waiver requires COMMENTED review from the SAME identity as the PR author.
         // Normalize both sides to lowercase: GitHub logins are case-insensitive.
@@ -908,12 +915,12 @@ export async function mergeSessionPr(
             `WAIVER: acceptStaleReviewerSilence applied for PR #${prNumber}. ` +
               `PR author identity: ${sessionRecord.pullRequest.github?.author ?? "unknown"}. ` +
               `COMMENT reviewer(s): ${commentReviewers}. ` +
-              `${REVIEWER_BOT_LOGIN} review absent (webhook-miss class). ` +
+              `${reviewerBotLogin} review absent (webhook-miss class). ` +
               `Proceeding with merge under operator-override waiver.`
           );
           if (!params.json) {
             log.cli(
-              `⚠️  Operator-override waiver applied: ${REVIEWER_BOT_LOGIN} review absent. ` +
+              `⚠️  Operator-override waiver applied: ${reviewerBotLogin} review absent. ` +
                 `Merging under acceptStaleReviewerSilence. See audit log for details.`
             );
           }
@@ -924,7 +931,9 @@ export async function mergeSessionPr(
           const reasons: string[] = [];
           if (!isPrAuthorBot) {
             reasons.push(
-              `PR author is "${prAuthor}", not minsky-ai[bot] (waiver only applies to self-authored bot PRs)`
+              `PR author is "${prAuthor}", not the configured bot identity "${botIdentityLogin}" ` +
+                `(waiver only applies to self-authored bot PRs; set github.botIdentityLogin / ` +
+                `reviewer.botLogin if this project uses its own bots)`
             );
           }
           if (hasChangesRequested) {
@@ -934,7 +943,7 @@ export async function mergeSessionPr(
           }
           if (hasReviewerBotReview) {
             reasons.push(
-              `${REVIEWER_BOT_LOGIN} review exists (waiver only applies when reviewer-bot is absent)`
+              `${reviewerBotLogin} review exists (waiver only applies when reviewer-bot is absent)`
             );
           }
           if (!hasCommentedReview) {
@@ -959,7 +968,7 @@ export async function mergeSessionPr(
           // the PR must be authored by the bot identity (waiver never applies to human-authored PRs).
           const missingReviewerNote =
             isPrAuthorBot && !hasReviewerBotReview
-              ? `\n   Note: ${REVIEWER_BOT_LOGIN} has not reviewed this PR. ` +
+              ? `\n   Note: ${reviewerBotLogin} has not reviewed this PR. ` +
                 `If the reviewer bot is silent (webhook-miss), you may use ` +
                 `acceptStaleReviewerSilence=true as an operator-override waiver.`
               : "";
@@ -1316,6 +1325,43 @@ export async function mergeSessionPr(
     if (syncResult.sessionCleanup?.errors.length) {
       log.cli(`⚠️  ${syncResult.sessionCleanup.errors.length} cleanup errors occurred`);
     }
+  }
+
+  // Emit pr.merged system event (best-effort, informational — mt#2487).
+  // Mirrors emitTaskStatusChangedEvent: skip silently when no SQL-capable
+  // provider/DB is available; emission failure must never affect the merge.
+  // Wired in the in-band session_pr_merge path (the "at-merge" handler), which
+  // fires once per merge — webhook/sweeper/repair detection paths are out of
+  // scope here (they call applyPostMergeStateSync directly).
+  //
+  // Only emit when an actual PR record is present: pr.merged is PR-semantic and
+  // its payload requires prUrl + prNumber (the schema doc comment), so a
+  // non-GitHub / no-PR merge skips the event rather than writing a row with
+  // undefined required fields.
+  try {
+    const pr = sessionRecord.pullRequest;
+    const sqlProvider = deps.persistenceProvider as SqlCapablePersistenceProvider | undefined;
+    if (pr?.url && pr.number != null && sqlProvider?.getDatabaseConnection) {
+      const db = await sqlProvider.getDatabaseConnection();
+      if (db) {
+        const { DrizzleEventEmitter } = await import("../events/emitter");
+        await new DrizzleEventEmitter(db).emit({
+          eventType: "pr.merged",
+          payload: {
+            prUrl: pr.url,
+            prNumber: pr.number,
+            taskId: sessionRecord.taskId ?? undefined,
+          },
+          relatedTaskId: sessionRecord.taskId ?? undefined,
+          relatedSessionId: sessionIdToUse,
+        });
+      }
+    }
+  } catch (err: unknown) {
+    log.warn("pr.merged: event emission failed (best-effort, swallowed)", {
+      session: sessionIdToUse,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return {

@@ -22,25 +22,12 @@
  * @see mt#2033 — canonical SessionContextSnapshot shape
  */
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { isSessionsPayload } from "../lib/sessions-source";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // ── Frontend mirror types — keep in sync with backend ─────────────────────────
-
-/** Inline mirror of ContextInspectorSessionRow from the backend widget. */
-interface SessionRow {
-  agentSessionId: string;
-  harness: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  cwd: string | null;
-  label: string;
-}
-
-interface SessionsPayload {
-  sessions: SessionRow[];
-}
 
 /** Inline mirror of SessionContextSnapshotBlock from src/domain/context/types.ts. */
 interface SnapshotBlock {
@@ -63,14 +50,6 @@ interface Snapshot {
 }
 
 // ── Type guards ──────────────────────────────────────────────────────────────
-
-function isSessionsPayload(payload: unknown): payload is SessionsPayload {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    Array.isArray((payload as { sessions?: unknown }).sessions)
-  );
-}
 
 function isSnapshot(value: unknown): value is Snapshot {
   return (
@@ -244,16 +223,13 @@ function ContentViewer({ block }: { block: SnapshotBlock }) {
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch ─────────
 
-export function ContextInspector() {
-  const sessionsQuery = useQuery<WidgetData, Error>({
-    queryKey: ["context-inspector", "sessions"],
-    queryFn: fetchSessions,
-    staleTime: 30_000,
-    refetchInterval: 15_000,
-  });
+interface ContextInspectorBodyProps {
+  sessionsQuery: UseQueryResult<WidgetData, Error>;
+}
 
+function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [disabledChips, setDisabledChips] = useState<Set<string>>(new Set());
@@ -265,54 +241,17 @@ export function ContextInspector() {
     staleTime: 30_000,
   });
 
-  // Sessions list state machine
   if (sessionsQuery.isError) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Context</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load sessions: {sessionsQuery.error.message}</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">Failed to load sessions: {sessionsQuery.error.message}</p>;
   }
   if (sessionsQuery.isLoading || !sessionsQuery.data) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Context</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
   }
   if (sessionsQuery.data.state === "degraded") {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Context</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>{sessionsQuery.data.reason}</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">{sessionsQuery.data.reason}</p>;
   }
   if (!isSessionsPayload(sessionsQuery.data.payload)) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Context</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Unexpected payload shape</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
   }
 
   const sessions = sessionsQuery.data.payload.sessions;
@@ -337,95 +276,114 @@ export function ContextInspector() {
       : null;
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">Context</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {/* Session picker */}
-        <div className="mb-3">
-          <label className="text-xs font-medium text-muted-foreground block mb-1">Session</label>
-          <select
-            className="w-full text-sm bg-background border border-input rounded px-2 py-1"
-            value={selectedSessionId ?? ""}
-            onChange={(e) => {
-              setSelectedSessionId(e.target.value || null);
-              setSelectedBlockId(null);
-            }}
-          >
-            <option value="">— select —</option>
-            {sessions.map((s) => (
-              <option key={s.agentSessionId} value={s.agentSessionId}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
+    <>
+      {/* Session picker */}
+      <div className="mb-3">
+        <label className="text-xs font-medium text-muted-foreground block mb-1">Session</label>
+        <select
+          className="w-full text-sm bg-background border border-input rounded px-2 py-1"
+          value={selectedSessionId ?? ""}
+          onChange={(e) => {
+            setSelectedSessionId(e.target.value || null);
+            setSelectedBlockId(null);
+          }}
+        >
+          <option value="">— select —</option>
+          {sessions.map((s) => (
+            <option key={s.agentSessionId} value={s.agentSessionId}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
-        {/* Filter chips */}
-        <div className="mb-3 flex flex-wrap gap-1">
-          {FILTER_CHIPS.map((chip) => {
-            const disabled = disabledChips.has(chip.key);
-            return (
-              <button
-                key={chip.key}
-                type="button"
-                onClick={() => toggleChip(chip.key)}
-                className={`text-xs px-2 py-0.5 rounded border ${
-                  disabled
-                    ? "bg-muted text-muted-foreground border-border line-through"
-                    : "bg-background text-foreground border-input hover:bg-muted/50"
-                }`}
-                aria-pressed={!disabled}
-              >
-                {chip.label}
-              </button>
-            );
-          })}
-        </div>
+      {/* Filter chips */}
+      <div className="mb-3 flex flex-wrap gap-1">
+        {FILTER_CHIPS.map((chip) => {
+          const disabled = disabledChips.has(chip.key);
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => toggleChip(chip.key)}
+              className={`text-xs px-2 py-0.5 rounded border ${
+                disabled
+                  ? "bg-muted text-muted-foreground border-border line-through"
+                  : "bg-background text-foreground border-input hover:bg-muted/50"
+              }`}
+              aria-pressed={!disabled}
+            >
+              {chip.label}
+            </button>
+          );
+        })}
+      </div>
 
-        {/* Snapshot state */}
-        {selectedSessionId === null ? (
-          <p className="text-sm text-muted-foreground">Select a session to view its context.</p>
-        ) : snapshotQuery.isError ? (
-          <p className="text-sm text-muted-foreground">
-            Failed to load snapshot: {snapshotQuery.error?.message ?? "unknown error"}
-          </p>
-        ) : snapshotQuery.isLoading || !snapshotQuery.data ? (
-          <p className="text-sm text-muted-foreground">Loading snapshot…</p>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {/* Block list */}
-            <div className="border border-border rounded max-h-96 overflow-auto">
-              {visibleBlocks.length === 0 ? (
-                <p className="text-sm text-muted-foreground p-2">
-                  No blocks match the active filter set.
-                </p>
-              ) : (
-                visibleBlocks.map((block) => (
-                  <BlockRow
-                    key={block.id}
-                    block={block}
-                    selected={selectedBlockId === block.id}
-                    onClick={() => setSelectedBlockId(block.id)}
-                  />
-                ))
-              )}
-            </div>
-
-            {/* Content viewer side-panel */}
-            <div className="border border-border rounded p-2">
-              {selectedBlock ? (
-                <ContentViewer block={selectedBlock} />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Click a block to view its full content.
-                </p>
-              )}
-            </div>
+      {/* Snapshot state */}
+      {selectedSessionId === null ? (
+        <p className="text-sm text-muted-foreground">Select a session to view its context.</p>
+      ) : snapshotQuery.isError ? (
+        <p className="text-sm text-muted-foreground">
+          Failed to load snapshot: {snapshotQuery.error?.message ?? "unknown error"}
+        </p>
+      ) : snapshotQuery.isLoading || !snapshotQuery.data ? (
+        <p className="text-sm text-muted-foreground">Loading snapshot…</p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {/* Block list */}
+          <div className="border border-border rounded max-h-96 overflow-auto">
+            {visibleBlocks.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-2">
+                No blocks match the active filter set.
+              </p>
+            ) : (
+              visibleBlocks.map((block) => (
+                <BlockRow
+                  key={block.id}
+                  block={block}
+                  selected={selectedBlockId === block.id}
+                  onClick={() => setSelectedBlockId(block.id)}
+                />
+              ))
+            )}
           </div>
-        )}
-      </CardContent>
-    </Card>
+
+          {/* Content viewer side-panel */}
+          <div className="border border-border rounded p-2">
+            {selectedBlock ? (
+              <ContentViewer block={selectedBlock} />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Click a block to view its full content.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Main widget export (mt#2373) ─────────────────────────────────────────────
+
+interface Props {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function ContextInspector({ variant = "card", title = "Context" }: Props) {
+  const sessionsQuery = useQuery<WidgetData, Error>({
+    queryKey: ["context-inspector", "sessions"],
+    queryFn: fetchSessions,
+    staleTime: 30_000,
+    refetchInterval: 15_000,
+  });
+
+  return (
+    <WidgetShell variant={variant} title={title}>
+      <ContextInspectorBody sessionsQuery={sessionsQuery} />
+    </WidgetShell>
   );
 }

@@ -4,7 +4,12 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
-import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
+import {
+  createCockpitServer,
+  initServerSseBroker,
+  startAskAdvancementSweeper,
+  startProdStateRefreshSweeper,
+} from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
@@ -194,10 +199,20 @@ export function createStartCommand(): Command {
       // through `cleanupSync` which removes the state file unconditionally
       // before exit. State file moved from a single-global path to the
       // per-workspace lifecycle module in mt#1904.
+      // Ask advancement sweep (mt#2265): advance `detected` asks (route or
+      // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
+      // fail-open inside the sweeper.
+      const stopAskSweeper = startAskAdvancementSweeper();
+      // Prod-state cache refresh (mt#2506): periodically read the prod migration
+      // ledger and write the local cache that inject-prod-state.ts injects each turn.
+      const stopProdStateSweeper = startProdStateRefreshSweeper();
+
       let shuttingDown = false;
       const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
+        stopAskSweeper();
+        stopProdStateSweeper();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

@@ -182,6 +182,89 @@ To rotate the signing key in production:
 
 For zero-downtime rotation (multiple keys advertised in JWKS during a transition window): `oidc-provider` supports an array of signing keys via `jwks.keys` config — staging a new key while the old one is still advertised lets clients pick up the new key before the old is removed. Wiring this through `InProcessOAuthProvider` is out of scope for v1; tracked as a follow-up.
 
+## Continuous monitoring
+
+Post-deploy outcome and health verification for all deployed services runs automatically
+every 10 minutes via a scheduled GitHub Action:
+
+**Workflow:** `.github/workflows/post-deploy-health-monitor.yml`
+
+**What is checked (per service with a provisioned serviceId):**
+
+- **Deploy terminal status** via Railway GraphQL API — alerts on `FAILED` or `CRASHED`.
+  Catches build failures (e.g. `bun install --frozen-lockfile` in Dockerfile).
+- **HTTP health endpoint** — alerts when `GET <service>/health` (or `/api/health`
+  for cockpit) returns non-200 or times out (10s threshold). Catches the
+  runtime-crash-after-green-build class (mt#2345).
+
+**Service discovery (mt#1302):**
+
+The monitor discovers services at runtime by enumerating `services/*/deploy.config.ts`
+and importing each config file. The service list, Railway `serviceId`s, and health URLs
+are all read from those config files — nothing is hardcoded in the monitor script.
+
+- **A service is skipped when its `railway.serviceId` is empty** (the standard
+  "not yet provisioned" convention). This is exclusion by data, not by name.
+- **Health URLs** are declared in the `healthUrl` field of each `DeploymentConfig`
+  (see `packages/shared/src/deployment/config.ts`). To add or change a health URL,
+  update the service's `deploy.config.ts` — no changes to the monitor script are needed.
+
+To add a new service to the monitor: create `services/<name>/deploy.config.ts` with a
+non-empty `railway.serviceId` and set the `healthUrl` field. The monitor picks it up
+automatically on the next run.
+
+**Current monitored services** (from `services/*/deploy.config.ts`):
+
+| Service      | `railway.serviceId` (provisioned?) | `healthUrl`                                                        |
+| ------------ | ---------------------------------- | ------------------------------------------------------------------ |
+| `minsky-mcp` | yes                                | `https://minsky-mcp-production.up.railway.app/health`              |
+| `reviewer`   | yes                                | `https://minsky-reviewer-webhook-production.up.railway.app/health` |
+| `cockpit`    | yes                                | `https://cockpit-preview-production.up.railway.app/api/health`     |
+| `site`       | yes                                | `https://minsky-site-production.up.railway.app/health`             |
+| `minsky-ops` | no (empty serviceId) — skipped     | `null` — no health check                                           |
+
+**Alerts:**
+
+1. **Primary (infra-independent):** a GitHub P0 issue is opened (or updated if already
+   open) per service+failure-class. De-duplicated so a sustained outage produces one
+   issue, not N. Issues are labelled `p0-outage` and `post-deploy-monitor`.
+
+   - To mute during a planned redeploy: close the issue manually or let it
+     auto-resolve (close the issue once the service is confirmed healthy).
+
+2. **Secondary (best-effort):** when `MINSKY_MCP_AUTH_TOKEN` is set and the MCP service
+   is reachable, a `coordination.notify` ask is created over hosted MCP so it surfaces
+   on the cockpit AsksPage. Failure of this path never suppresses the primary alert.
+
+**Required secrets (set as repository secrets):**
+
+- `RAILWAY_TOKEN` — Railway API token with read access to the project's services.
+- `MINSKY_MCP_AUTH_TOKEN` — Bearer token for the hosted MCP (secondary path).
+
+**Dashboard:** https://github.com/edobry/minsky/actions/workflows/post-deploy-health-monitor.yml
+
+**Manual retrigger:**
+
+```bash
+gh workflow run post-deploy-health-monitor.yml
+```
+
+**Dry run (logs findings without opening issues):**
+
+```bash
+gh workflow run post-deploy-health-monitor.yml -f dry_run=true
+```
+
+**Local smoke test:**
+
+```bash
+# Health-only (no Railway token required):
+bun scripts/smoke-post-deploy-health-monitor.ts
+
+# Full run with Railway deploy-status checks:
+RAILWAY_TOKEN=... bun scripts/smoke-post-deploy-health-monitor.ts
+```
+
 ## Verify deployment
 
 Run the automated verify phase:

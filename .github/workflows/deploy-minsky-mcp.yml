@@ -9,6 +9,18 @@ name: Deploy MCP
 # but not the Docker build, missing a Bun-version-specific bundler
 # regression that only surfaced in the Docker/Railway environment.
 #
+# mt#2461 — paths filter scopes the trigger to minsky-mcp's actual build
+# closure (the root Dockerfile's COPY set + Dockerfile itself). Commits
+# that only touch services/cockpit/web/**, docs/**, or other unrelated
+# paths no longer trigger a Docker build or Railway redeploy, eliminating
+# the ~10-20 unnecessary redeploys/day that were rotating Railway logs and
+# dropping in-flight requests. This `paths:` filter is the SINGLE SOURCE of
+# minsky-mcp's build closure: minsky-mcp is a GHCR image-based (sourceImage)
+# Railway service, which cannot use Railway config-as-code (config_path), so
+# there is no railway.json for it (mt#2472 removed the one mt#2461 added —
+# Railway rejects config_path on a source_image service). Keep this list in
+# sync with the root Dockerfile's COPY set.
+#
 # Prerequisites (one-time setup):
 # 1. RAILWAY_TOKEN secret in GitHub Actions (Railway dashboard > Account >
 #    Tokens > create; add as repo secret).
@@ -21,8 +33,44 @@ name: Deploy MCP
 on:
   push:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/shared/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "packages/domain/src/**"
+      - "services/reviewer/package.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - ".minsky/config.yaml"
+      - "src/**"
+      - ".github/workflows/deploy-minsky-mcp.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/shared/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "packages/domain/src/**"
+      - "services/reviewer/package.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - ".minsky/config.yaml"
+      - "src/**"
+      - ".github/workflows/deploy-minsky-mcp.yml"
   workflow_dispatch:
 
 permissions:
@@ -110,21 +158,50 @@ jobs:
             exit 0
           fi
 
-          # Railway service identifiers from services/minsky-mcp/railway.config.ts
+          # Railway service identifiers from services/minsky-mcp/deploy.config.ts
           SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
           ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
 
-          RESPONSE=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
+          # This explicit redeploy trigger is REDUNDANT (mt#2342): Railway auto-deploys
+          # the pushed ghcr.io/edobry/minsky:latest image independently (verified:
+          # minsky-mcp deploys per-commit without this call). Therefore EVERY failure
+          # branch below is warn-not-fail — a failure here must NOT red the build.
+          # (Re-scope the RAILWAY_TOKEN secret to re-enable the explicit trigger; not
+          # required for deploys to happen.)
+          RESP_FILE="$(mktemp)"
+          HTTP_STATUS=$(curl -sS -o "${RESP_FILE}" -w "%{http_code}" -X POST https://backboard.railway.com/graphql/v2 \
             -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}")
+            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}") || {
+              echo "::warning::Railway redeploy request failed (curl/network error). Non-fatal — Railway auto-deploys the pushed image independently."
+              exit 0
+            }
 
-          echo "Railway API response: ${RESPONSE}"
+          echo "Railway API HTTP ${HTTP_STATUS}; body: $(cat "${RESP_FILE}")"
 
-          if echo "${RESPONSE}" | jq -e '.errors // empty' > /dev/null 2>&1; then
-            echo "::error::Railway redeploy failed"
-            echo "${RESPONSE}" | jq '.errors'
-            exit 1
+          if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
+            echo "::warning::Railway redeploy got HTTP ${HTTP_STATUS}. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
           fi
 
-          echo "Railway redeploy triggered successfully"
+          if ! jq -e . > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy response was not valid JSON. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
+          fi
+
+          if jq -e '.errors and (.errors | length > 0)' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
+            jq '.errors' < "${RESP_FILE}"
+            exit 0
+          fi
+
+          # Positive success gate (shape-agnostic): Railway's serviceInstanceRedeploy
+          # return type is undocumented, so accept any present, non-null, non-false
+          # data value as success and warn otherwise — never report false success.
+          if jq -e '.data.serviceInstanceRedeploy != null and .data.serviceInstanceRedeploy != false' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "Railway redeploy triggered successfully"
+          else
+            echo "::warning::Railway redeploy did not confirm success (data.serviceInstanceRedeploy missing/null/false). Non-fatal — Railway auto-deploys the pushed image independently."
+            jq . < "${RESP_FILE}"
+            exit 0
+          fi

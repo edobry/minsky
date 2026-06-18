@@ -55,8 +55,34 @@ jobs:
           bun install --frozen-lockfile --no-progress
           bun run typecheck
 
+      # Run the reviewer unit suite (mt#2367). It lives in
+      # services/reviewer/src/*.test.ts and ran nowhere else in CI before this
+      # step existed — only the reviewer typecheck ran, so reviewer test
+      # regressions merged undetected (mt#2346 / mt#2350 each shipped 4 red
+      # /retrigger tests). if: always() + a self-contained install mirror the
+      # reviewer typecheck step so the gate holds regardless of step ordering
+      # or earlier-step failures.
+      - name: Test (services/reviewer)
+        if: ${{ always() }}
+        run: |
+          bun install --cwd services/reviewer --frozen-lockfile --no-progress
+          bun run test:reviewer
+
+      # Reviewer-image module-resolution smoke (mt#2453): replicates the
+      # reviewer Dockerfile's COPY set in a temp dir and fails if any relative
+      # import reachable from the boot entry points escapes into root src/
+      # (the class that crashed bootDomainContainer in deploy 8128911c).
+      # Needs only bun + the checkout (~2s); no install, env vars, or DB.
+      - name: Smoke (reviewer image module resolution)
+        if: ${{ always() }}
+        run: bun services/reviewer/scripts/smoke-image-module-resolution.ts
+
       - name: Test
         run: bun run test
+
+      - name: Test (ESLint rules)
+        if: ${{ always() }}
+        run: bun run test:eslint-rules
 
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun

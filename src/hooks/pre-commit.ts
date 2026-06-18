@@ -252,7 +252,14 @@ export class PreCommitHook {
       try {
         const result = await execAsync(lintJsonCommand, {
           cwd: this.projectRoot,
-          timeout: 30000, // 30 second timeout
+          // Full-repo eslint wall time has grown to ~29s (measured 2026-06-13,
+          // mt#1859 session) — the former 30s timeout fired on any loaded run,
+          // blocking every commit with a bare "Command failed". 120s gives
+          // repo-growth headroom; a hung eslint still gets killed.
+          timeout: 120000,
+          // The --format json payload is ~850KB and grows with file count;
+          // the 1MB exec default truncate-kills the process at the boundary.
+          maxBuffer: 64 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();
@@ -1059,7 +1066,7 @@ export class PreCommitHook {
       log.cli("   Originating incidents: mt#1641, mt#2250 (migrations 0002/0014/0015).");
       log.cli("");
       log.cli("To fix: write a NEW migration that makes the desired schema change.");
-      log.cli("   Run `bun run db:generate:pg` (or the sqlite equivalent) to generate it.");
+      log.cli("   Run `bun run db:generate:pg` to generate it.");
       log.cli("   See .minsky/rules/migration-authoring.mdc for the canonical workflow.");
       log.cli("");
       log.cli(`If a modification is genuinely legitimate (e.g. fixing a never-applied migration),`);
@@ -1454,36 +1461,33 @@ export class PreCommitHook {
    * Targets checked (opted in when their `.minsky/` source dir exists):
    * - `claude-skills`  (.minsky/skills/) — the mt#2182 originating target.
    * - `cursor-rules-ts` (.minsky/rules/) — verified in sync as of mt#2252.
-   *
-   * `claude-agents` is intentionally EXCLUDED: as of mt#2252 its output is
-   * stale (source↔output drift, the agents analog of the mt#2253 skills drift).
-   * Enabling its check would block every commit until that drift is reconciled.
-   * Add it here only after reconciliation lands (tracking task: mt#1654 —
-   * "Reconcile agent source-of-truth split: .minsky/agents/ vs .claude/agents/").
+   * - `claude-agents`  (.minsky/agents/) — enabled by mt#2497 after the
+   *   source↔output drift was reconciled (auditor/reviewer/fixture sources
+   *   regenerated to reproduce their committed outputs). Before mt#2497 this
+   *   was excluded because the outputs were richer than their sources, so a
+   *   recompile silently reverted ~130 lines of mt#1551/#1606/#1611 content;
+   *   the gap let that drift accumulate unguarded. mt#2497 subsumes the prior
+   *   tracking task mt#1654 ("Reconcile agent source-of-truth split").
    */
   private async runCompileCheck(): Promise<HookResult> {
     log.cli(
-      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-hooks)..."
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
     );
 
     const fsp = await import("fs/promises");
-    const targetsToCheck: string[] = [];
-
-    // claude-skills: opt in when .minsky/skills/ exists.
-    try {
-      await fsp.access(`${this.projectRoot}/.minsky/skills`);
-      targetsToCheck.push("claude-skills");
-    } catch {
-      // No .minsky/skills/ — skip
-    }
-
-    // cursor-rules-ts: opt in when .minsky/rules/ exists.
-    try {
-      await fsp.access(`${this.projectRoot}/.minsky/rules`);
-      targetsToCheck.push("cursor-rules-ts");
-    } catch {
-      // No .minsky/rules/ — skip
-    }
+    const dirExists = async (p: string): Promise<boolean> => {
+      try {
+        await fsp.access(p);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const targetsToCheck = compileCheckTargets({
+      skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
+      rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
+      agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
+    });
 
     // claude-hooks: opt in when .minsky/hooks/ exists.
     try {
@@ -1502,7 +1506,7 @@ export class PreCommitHook {
       try {
         // `target` is from the locally-built `targetsToCheck` array which
         // contains only the hardcoded literals "claude-skills",
-        // "cursor-rules-ts", and "claude-hooks". Bounded enum, no shell
+        // "cursor-rules-ts", "claude-agents", and "claude-hooks". Bounded enum, no shell
         // metacharacters — no safeShellQuote needed (mirrors
         // runRulesCompileCheck / mt#1829).
         await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
@@ -1521,6 +1525,24 @@ export class PreCommitHook {
     log.cli(`✅ All compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Compile check passed", exitCode: 0 };
   }
+}
+
+/**
+ * Maps which `.minsky/` source dirs are present to the compile targets the
+ * pre-commit check verifies. Each target is opted in only when its source dir
+ * exists, so repos without a given source tree skip that check. Pure +
+ * exported for unit testing (mt#2497).
+ */
+export function compileCheckTargets(present: {
+  skills: boolean;
+  rules: boolean;
+  agents: boolean;
+}): string[] {
+  const targets: string[] = [];
+  if (present.skills) targets.push("claude-skills");
+  if (present.rules) targets.push("cursor-rules-ts");
+  if (present.agents) targets.push("claude-agents");
+  return targets;
 }
 
 /**

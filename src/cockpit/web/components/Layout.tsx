@@ -1,17 +1,23 @@
 /**
- * Layout — shell wrapper for the Cockpit app.
+ * Layout — shell wrapper for the Cockpit app (mt#2397 rail, mt#2398 tabs).
  *
- * Renders:
- *   1. AppHeader (sticky top bar — nav, wordmark, settings, user)
- *   2. Main content area (scrollable, full-height below header)
+ * Two-column app shell:
+ *   1. Rail — persistent left navigation spine (mt#2397).
+ *   2. Workspace column — TabBar (the open-entity working set, hidden when
+ *      empty) above the scrollable main content area.
  *
- * Children are rendered inside <main> as-is. Individual pages control their
- * own internal layout (grid, flex, max-width, padding). This keeps Layout thin
- * and avoids forcing all pages into the same grid.
+ * TabsProvider lives here so the tab model is URL-driven app-wide: any
+ * navigation to an entity route (rail, palette, row click, deep link) opens
+ * its tab on visit. The global CommandPalette (⌘K) is mounted here so it is
+ * available from every route. Children render inside <main> as-is; individual
+ * pages control their own internal layout (Layout-flexibility mandate,
+ * mt#2370).
  */
 import { type ReactNode } from "react";
-import { AppHeader } from "./AppHeader";
+import { Rail } from "./Rail";
+import { TabBar } from "./TabBar";
 import { CommandPalette } from "./CommandPalette";
+import { TabsProvider } from "../lib/tabs";
 
 interface Props {
   children: ReactNode;
@@ -19,12 +25,15 @@ interface Props {
 
 export function Layout({ children }: Props) {
   return (
-    <div className="flex flex-col min-h-screen bg-background">
-      <AppHeader />
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
-      <CommandPalette />
-    </div>
+    <TabsProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Rail />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TabBar />
+          <main className="flex-1 overflow-auto min-w-0">{children}</main>
+        </div>
+        <CommandPalette />
+      </div>
+    </TabsProvider>
   );
 }

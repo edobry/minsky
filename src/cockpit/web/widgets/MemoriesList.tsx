@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import type { MemoryRecord, MemoryType, MemoryScope } from "@minsky/domain/memory/types";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 interface MemoriesListPayload {
   records: MemoryRecord[];
@@ -12,6 +12,10 @@ interface MemoriesListPayload {
 
 interface MemoriesListProps {
   onRowClick?: (record: MemoryRecord) => void;
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -28,7 +32,10 @@ const TYPE_BADGE: Record<MemoryType, string> = {
 function TypeBadge({ type }: { type: MemoryType }) {
   return (
     <span
-      className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-xs capitalize", TYPE_BADGE[type])}
+      className={cn(
+        "inline-flex items-center px-1.5 py-0.5 rounded text-xs capitalize",
+        TYPE_BADGE[type]
+      )}
     >
       {type}
     </span>
@@ -126,55 +133,24 @@ function FilterBar({
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
 // ---------------------------------------------------------------------------
 
-export function MemoriesList({ onRowClick }: MemoriesListProps) {
-  const [filter, setFilter] = useState<FilterState>({
-    type: "",
-    scope: "",
-    tagFilter: "",
-    excludeSuperseded: true,
-  });
+interface MemoriesListBodyProps {
+  onRowClick?: (record: MemoryRecord) => void;
+  filter: FilterState;
+  setFilter: (f: FilterState) => void;
+  query: UseQueryResult<WidgetData, Error>;
+}
 
-  const queryParams = new URLSearchParams();
-  if (filter.type) queryParams.set("type", filter.type);
-  if (filter.scope) queryParams.set("scope", filter.scope);
-  if (filter.excludeSuperseded) queryParams.set("excludeSuperseded", "true");
-
-  const query = useQuery<WidgetData, Error>({
-    queryKey: ["widget", "memories-list", filter.type, filter.scope, filter.excludeSuperseded],
-    queryFn: () =>
-      fetchWidgetData(
-        `memories-list${queryParams.toString() ? `?${queryParams.toString()}` : ""}`
-      ),
-    staleTime: 25_000,
-    refetchInterval: 30_000,
-  });
-
+function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesListBodyProps) {
   if (query.isLoading || !query.data) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Memories</CardTitle>
-        </CardHeader>
-        <CardContent className="text-xs text-muted-foreground py-8 text-center">
-          Loading…
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-xs text-muted-foreground py-8 text-center">Loading…</p>;
   }
 
   if (query.isError || query.data.state === "degraded") {
     const reason = query.isError ? query.error.message : (query.data as { reason: string }).reason;
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Memories</CardTitle>
-        </CardHeader>
-        <CardContent className="text-xs text-muted-foreground">{reason}</CardContent>
-      </Card>
-    );
+    return <p className="text-xs text-muted-foreground">{reason}</p>;
   }
 
   const payload = query.data.payload as MemoriesListPayload;
@@ -187,114 +163,151 @@ export function MemoriesList({ onRowClick }: MemoriesListProps) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="text-sm">
-            Memories
-            <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
-              {records.length}
-              {records.length !== payload.total ? ` / ${payload.total}` : ""}
-            </span>
-          </CardTitle>
-          <FilterBar filter={filter} onChange={setFilter} />
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        {records.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-8 px-4">
-            No memories match the current filters.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-left">
-                  <th className="px-3 py-2 font-medium text-muted-foreground">Type</th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground">Name</th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell">
-                    Description
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground hidden md:table-cell">
-                    Scope
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground hidden lg:table-cell">
-                    Tags
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground text-right hidden md:table-cell">
-                    Accesses
-                  </th>
-                  <th className="px-3 py-2 font-medium text-muted-foreground text-right">
-                    Created
-                  </th>
+    <>
+      {/* Count + FilterBar — was in CardTitle/CardHeader area */}
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {records.length}
+          {records.length !== payload.total ? ` / ${payload.total}` : ""}
+        </span>
+        <FilterBar filter={filter} onChange={setFilter} />
+      </div>
+
+      {/* Table — negative margin to flush against card edges (mirrors original CardContent p-0) */}
+      {records.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-8 px-4">
+          No memories match the current filters.
+        </p>
+      ) : (
+        <div className="overflow-x-auto -mx-6">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border text-left">
+                <th className="px-3 py-2 font-medium text-muted-foreground">Type</th>
+                <th className="px-3 py-2 font-medium text-muted-foreground">Name</th>
+                <th className="px-3 py-2 font-medium text-muted-foreground hidden sm:table-cell">
+                  Description
+                </th>
+                <th className="px-3 py-2 font-medium text-muted-foreground hidden md:table-cell">
+                  Scope
+                </th>
+                <th className="px-3 py-2 font-medium text-muted-foreground hidden lg:table-cell">
+                  Tags
+                </th>
+                <th className="px-3 py-2 font-medium text-muted-foreground text-right hidden md:table-cell">
+                  Accesses
+                </th>
+                <th className="px-3 py-2 font-medium text-muted-foreground text-right">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rec) => (
+                <tr
+                  key={rec.id}
+                  onClick={() => onRowClick?.(rec)}
+                  className={cn(
+                    "border-b border-border/50 last:border-0",
+                    onRowClick && "cursor-pointer hover:bg-muted/40 transition-colors",
+                    rec.supersededBy && "opacity-50"
+                  )}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={(e) => {
+                    if (onRowClick && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      onRowClick(rec);
+                    }
+                  }}
+                  role={onRowClick ? "button" : undefined}
+                  aria-label={onRowClick ? `View details for ${rec.name}` : undefined}
+                >
+                  <td className="px-3 py-1.5">
+                    <TypeBadge type={rec.type} />
+                  </td>
+                  <td className="px-3 py-1.5 font-medium max-w-[160px]">
+                    <span className="truncate block" title={rec.name}>
+                      {rec.name}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-muted-foreground max-w-[220px] hidden sm:table-cell">
+                    <span className="truncate block" title={rec.description}>
+                      {rec.description}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-muted-foreground hidden md:table-cell">
+                    {rec.scope}
+                  </td>
+                  <td className="px-3 py-1.5 hidden lg:table-cell">
+                    <div className="flex flex-wrap gap-0.5">
+                      {rec.tags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag}
+                          className="px-1 py-0.5 rounded bg-muted text-muted-foreground text-[10px]"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {rec.tags.length > 3 && (
+                        <span className="text-muted-foreground text-[10px]">
+                          +{rec.tags.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground hidden md:table-cell">
+                    {rec.accessCount > 0 ? rec.accessCount : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                    {relativeTime(rec.createdAt)}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {records.map((rec) => (
-                  <tr
-                    key={rec.id}
-                    onClick={() => onRowClick?.(rec)}
-                    className={cn(
-                      "border-b border-border/50 last:border-0",
-                      onRowClick && "cursor-pointer hover:bg-muted/40 transition-colors",
-                      rec.supersededBy && "opacity-50"
-                    )}
-                    tabIndex={onRowClick ? 0 : undefined}
-                    onKeyDown={(e) => {
-                      if (onRowClick && (e.key === "Enter" || e.key === " ")) {
-                        e.preventDefault();
-                        onRowClick(rec);
-                      }
-                    }}
-                    role={onRowClick ? "button" : undefined}
-                    aria-label={onRowClick ? `View details for ${rec.name}` : undefined}
-                  >
-                    <td className="px-3 py-1.5">
-                      <TypeBadge type={rec.type} />
-                    </td>
-                    <td className="px-3 py-1.5 font-medium max-w-[160px]">
-                      <span className="truncate block" title={rec.name}>
-                        {rec.name}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1.5 text-muted-foreground max-w-[220px] hidden sm:table-cell">
-                      <span className="truncate block" title={rec.description}>
-                        {rec.description}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1.5 text-muted-foreground hidden md:table-cell">
-                      {rec.scope}
-                    </td>
-                    <td className="px-3 py-1.5 hidden lg:table-cell">
-                      <div className="flex flex-wrap gap-0.5">
-                        {rec.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-1 py-0.5 rounded bg-muted text-muted-foreground text-[10px]"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                        {rec.tags.length > 3 && (
-                          <span className="text-muted-foreground text-[10px]">
-                            +{rec.tags.length - 3}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground hidden md:table-cell">
-                      {rec.accessCount > 0 ? rec.accessCount : "—"}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                      {relativeTime(rec.createdAt)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget export (mt#2373)
+// ---------------------------------------------------------------------------
+
+export function MemoriesList({
+  onRowClick,
+  variant = "card",
+  title = "Memories",
+}: MemoriesListProps) {
+  const [filter, setFilter] = useState<FilterState>({
+    type: "",
+    scope: "",
+    tagFilter: "",
+    excludeSuperseded: true,
+  });
+
+  const queryParams: Record<string, string> = {};
+  if (filter.type) queryParams.type = filter.type;
+  if (filter.scope) queryParams.scope = filter.scope;
+  if (filter.excludeSuperseded) queryParams.excludeSuperseded = "true";
+
+  const query = useQuery<WidgetData, Error>({
+    queryKey: ["widget", "memories-list", filter.type, filter.scope, filter.excludeSuperseded],
+    // Params go through fetchWidgetData's params argument — embedding them in
+    // the id segment puts the "?" before "/data" and the request falls through
+    // to the SPA fallback (mt#2443).
+    queryFn: () => fetchWidgetData("memories-list", queryParams),
+    staleTime: 25_000,
+    refetchInterval: 30_000,
+  });
+
+  return (
+    <WidgetShell variant={variant} title={title}>
+      <MemoriesListBody
+        onRowClick={onRowClick}
+        filter={filter}
+        setFilter={setFilter}
+        query={query}
+      />
+    </WidgetShell>
   );
 }

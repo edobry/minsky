@@ -88,6 +88,17 @@ export const SubmitInlineCommentArgsSchema = z.object({
   body: z.string().min(1),
 
   /**
+   * Which side of the diff the line refers to:
+   *   "RIGHT" — the new/head version of the file (an added or context line)
+   *   "LEFT"  — the old/base version of the file (a removed line)
+   * Omit for the common case (defaults to RIGHT). Mirrors `submit_finding`'s
+   * `side`. Threaded through to anchor pre-validation (mt#2350): a LEFT-side
+   * comment that cannot be resolved against the diff is demoted to the review
+   * body rather than 422'ing the whole review.
+   */
+  side: z.enum(["LEFT", "RIGHT"]).optional(),
+
+  /**
    * When replying to an existing review-thread comment, set this to the parent
    * comment's database ID. Obtain from `reviewThreads[].comments[].databaseId`
    * (the numeric REST id) in the context provided by the worker.
@@ -396,6 +407,13 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             type: "string",
             minLength: 1,
             description: "Comment body. Markdown is supported.",
+          },
+          side: {
+            type: "string",
+            enum: ["LEFT", "RIGHT"],
+            description:
+              "Diff side: RIGHT for an added or context line (new file), LEFT for a removed " +
+              "line (old file). Omit for the common case (defaults to RIGHT).",
           },
           inReplyTo: {
             type: "integer",

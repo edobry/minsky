@@ -8,6 +8,7 @@
 import { describe, expect, test, mock } from "bun:test";
 import { listWorkflowRuns, viewWorkflowRunLogs, type WorkflowRun } from "./github-workflow-runs";
 import { MinskyError } from "../errors/index";
+import { deflateRawSync } from "node:zlib";
 
 const TEST_GH = {
   owner: "test-owner",
@@ -16,6 +17,41 @@ const TEST_GH = {
 };
 
 const METHOD_LIST_RUNS = "listWorkflowRuns";
+
+/**
+ * Build a minimal single-entry ZIP (local file header + data) with the given
+ * compression method. extractZipText only reads sig / method / compressedSize /
+ * fileNameLength / extraFieldLength, so the other header fields are zeroed.
+ */
+function buildSingleEntryZip(filename: string, data: Uint8Array, method: number): Uint8Array {
+  const nameBytes = new TextEncoder().encode(filename);
+  const header = new Uint8Array(30);
+  const dv = new DataView(header.buffer);
+  dv.setUint32(0, 0x04034b50, true); // local file header signature
+  dv.setUint16(8, method, true); // compression method
+  dv.setUint32(18, data.length, true); // compressed size
+  dv.setUint32(22, data.length, true); // uncompressed size (unread by extractZipText)
+  dv.setUint16(26, nameBytes.length, true); // filename length
+  dv.setUint16(28, 0, true); // extra field length
+  const out = new Uint8Array(30 + nameBytes.length + data.length);
+  out.set(header, 0);
+  out.set(nameBytes, 30);
+  out.set(data, 30 + nameBytes.length);
+  return out;
+}
+
+function octokitReturningZip(zip: Uint8Array) {
+  return {
+    rest: {
+      actions: {
+        downloadWorkflowRunLogs: mock(async () => ({ data: zip })),
+      },
+    },
+  };
+}
+
+/** Marker emitted by extractZipText's DEFLATE-inflate fallback (corrupt or over-cap). */
+const DEFLATE_FALLBACK_MARKER = "DEFLATE entry could not be inflated";
 
 function rawRun(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
@@ -237,5 +273,54 @@ describe("viewWorkflowRunLogs", () => {
     await expect(
       viewWorkflowRunLogs(TEST_GH, -1, oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2])
     ).rejects.toThrow(MinskyError);
+  });
+
+  test("inflates DEFLATE (method 8) entries to readable text (mt#2343)", async () => {
+    const content = "step 1: build\nstep 2: boot\nstep 3: probe /health\n";
+    const compressed = new Uint8Array(deflateRawSync(Buffer.from(content, "utf8")));
+    const zip = buildSingleEntryZip("0_job.txt", compressed, 8);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain("0_job.txt");
+    expect(result).toContain("step 1: build");
+    expect(result).toContain("step 3: probe /health");
+    // Must NOT leak the un-inflated placeholder.
+    expect(result).not.toContain("DEFLATE entry could not be inflated");
+    expect(result).not.toContain("decode: base64 then inflate-raw");
+  });
+
+  test("falls back to base64 placeholder when a DEFLATE entry cannot be inflated", async () => {
+    // Method 8 declared, but the bytes are not valid raw DEFLATE → inflate throws.
+    const garbage = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
+    const zip = buildSingleEntryZip("0_job.txt", garbage, 8);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain(DEFLATE_FALLBACK_MARKER);
+  });
+
+  test("caps decompression (zip-bomb guard): >64MB expansion aborts to base64 fallback (mt#2343 R1)", async () => {
+    // A tiny DEFLATE stream that expands past MAX_DECOMPRESSED_ENTRY_BYTES (64MB):
+    // 64MB+1 zero bytes compress to a few KB. The cap must abort inflation
+    // (ERR_BUFFER_TOO_LARGE) and fall back to base64 rather than allocating it.
+    const bombSource = new Uint8Array(64 * 1024 * 1024 + 1); // zeros
+    const compressed = new Uint8Array(deflateRawSync(Buffer.from(bombSource.buffer)));
+    expect(compressed.length).toBeLessThan(1024 * 1024); // sanity: tiny compressed payload
+    const zip = buildSingleEntryZip("0_bomb.txt", compressed, 8);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    // Aborted into the fallback — not 64MB of decoded text.
+    expect(result).toContain(DEFLATE_FALLBACK_MARKER);
   });
 });

@@ -17,7 +17,6 @@ import type { SessionDeps } from "../session/session-service";
 import type { GitServiceInterface } from "../git/types";
 import type { TaskServiceInterface } from "../tasks/taskService";
 import type { WorkspaceUtilsInterface } from "../workspace";
-import type { RepositoryBackendType } from "../repository";
 import type { TaskGraphService } from "../tasks/task-graph-service";
 import type { TaskRoutingService } from "../tasks/task-routing-service";
 import type { ClientCapabilityRegistry } from "../client-capabilities";
@@ -48,13 +47,6 @@ export interface AppServices {
 
   /** Workspace detection and path utilities. */
   workspaceUtils: WorkspaceUtilsInterface;
-
-  /** Repository backend configuration (from project config). */
-  repositoryBackend: {
-    repoUrl: string;
-    backendType: RepositoryBackendType;
-    github?: { owner: string; repo: string };
-  };
 
   /** Task dependency graph operations (SQL-backed). */
   taskGraphService: TaskGraphService;

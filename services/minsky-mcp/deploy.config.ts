@@ -16,6 +16,9 @@ import { defineDeployment } from "@minsky/shared/deployment-config";
 
 export default defineDeployment({
   platform: "railway",
+  // Health URL for post-deploy health monitor (mt#1302).
+  // Source of truth — do not hardcode this URL in monitor scripts.
+  healthUrl: "https://minsky-mcp-production.up.railway.app/health",
   railway: {
     projectId: "0e054318-7e19-4489-8e1e-de787965161d",
     environmentId: "0289b171-1514-4540-ac93-19b30da3e2c0",

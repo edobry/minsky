@@ -104,10 +104,16 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Require every `process.env.MINSKY_*` read in src/ to be registered " +
-        "in `environmentMappings` or `HOOK_ONLY_ENV_VARS` to prevent " +
-        "env-var-namespace conflicts with the config-loader's dot-path parser " +
-        "(mt#1610, mt#1624, mt#1785).",
+        "Require every `process.env.MINSKY_*` read in src/ and .claude/hooks/ " +
+        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VARS` to " +
+        "prevent env-var-namespace conflicts with the config-loader's dot-path " +
+        "parser (mt#1610, mt#1624, mt#1785). Catches all statically-resolvable " +
+        "access forms (mt#2324): bare-identifier (process.env.MINSKY_FOO), " +
+        'string-literal bracket (process.env["MINSKY_FOO"]), and ' +
+        "non-interpolated template-literal bracket (process.env[`MINSKY_FOO`]). " +
+        "Dynamic computed access (variable key, interpolated template literal) " +
+        "is not statically resolvable and is skipped. The services/* tree is " +
+        "excluded (independent deploy packages with their own config loaders).",
       category: "Best Practices",
       recommended: true,
     },
@@ -151,11 +157,25 @@ export default {
     const srcSegment = `${pathSep}src${pathSep}`;
     const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
     const minskyHooksSegment = `${pathSep}.minsky${pathSep}hooks${pathSep}`;
+    const servicesSegment = `${pathSep}services${pathSep}`;
     const isTsFile = normalized.endsWith(".ts");
     const inSrc = normalized.includes(srcSegment);
     const inClaudeHooks = normalized.includes(claudeHooksSegment);
     const inMinskyHooks = normalized.includes(minskyHooksSegment);
-    if (!isTsFile || (!inSrc && !inClaudeHooks && !inMinskyHooks)) {
+    // services/*/** are independent deploy packages (reviewer, site) with their
+    // OWN config loaders — requireEnv() / direct process.env reads, NOT the
+    // main env-var-to-config dot-path parser. The MCP-boot-crash class this rule
+    // guards does not apply to them, so a bracket-form read such as
+    // services/reviewer/src/config.ts's `process.env["MINSKY_MCP_URL"]` must NOT
+    // be forced into the MAIN allowlist (which would mislead readers into
+    // thinking it is a main-config key). Exclude the services tree (mt#2324).
+    // This matches the existing root-config exclusion rationale above — files
+    // with their own lifecycle separate from the MCP boot path.
+    const inServices = normalized.includes(servicesSegment);
+    // mt#2304: scan .minsky/hooks/ (canonical hook source) in addition to
+    // src/ and .claude/hooks/, so new hook-only env vars are caught at authoring
+    // time. mt#2324: but never the services/ tree (own config loaders).
+    if (!isTsFile || (!inSrc && !inClaudeHooks && !inMinskyHooks) || inServices) {
       return {};
     }
 
@@ -182,13 +202,33 @@ export default {
           return;
         }
         const prop = node.property;
-        // Skip computed access like process.env["MINSKY_FOO"] for now —
-        // the bracket form is rare and dynamically computed; we'd need
-        // string-literal narrowing. Bare-identifier access is the dominant
-        // pattern and what the originating incidents involved.
-        if (node.computed || prop.type !== "Identifier") return;
-
-        const name = prop.name;
+        // Resolve the env-var NAME from the property node (mt#2324). All
+        // STATICALLY-resolvable forms are covered:
+        //   - bare-identifier access      process.env.MINSKY_FOO    → prop.name
+        //   - string-literal bracket      process.env["MINSKY_FOO"] → prop.value
+        //     (both single- and double-quoted literals)
+        //   - non-interpolated template   process.env[`MINSKY_FOO`] → the cooked
+        //     literal bracket               quasi (zero expressions)
+        // Genuinely DYNAMIC computed access — process.env[someVar],
+        // process.env[`MINSKY_${x}`] (interpolated template literal) — cannot be
+        // resolved statically and is intentionally skipped.
+        let name;
+        if (!node.computed && prop.type === "Identifier") {
+          name = prop.name;
+        } else if (node.computed && prop.type === "Literal" && typeof prop.value === "string") {
+          name = prop.value;
+        } else if (
+          node.computed &&
+          prop.type === "TemplateLiteral" &&
+          prop.expressions.length === 0 &&
+          prop.quasis.length === 1
+        ) {
+          const cooked = prop.quasis[0].value.cooked;
+          if (typeof cooked !== "string") return;
+          name = cooked;
+        } else {
+          return;
+        }
         if (!name.startsWith("MINSKY_")) return;
         if (REGISTERED.has(name)) return;
 

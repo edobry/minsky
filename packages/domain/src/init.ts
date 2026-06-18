@@ -151,7 +151,11 @@ export async function initializeProject(
     mcp?.enabled !== false
       ? { transport: mcp?.transport, port: mcp?.port, host: mcp?.host }
       : undefined;
-  const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig);
+  // Pass repoPath so getMinskyConfigContentYaml can auto-derive the project slug
+  // from the git remote (mt#2414). Falls back gracefully when no remote exists.
+  const configContent = getMinskyConfigContentYaml(backend, repository, mcpForConfig, {
+    repoPath,
+  });
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
   // === Phase 2: Developer-local setup ===

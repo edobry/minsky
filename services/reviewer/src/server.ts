@@ -7,6 +7,13 @@
  * Deploys to Railway (or any Node-compatible target). See DEPLOY.md.
  */
 
+// MUST be the first import (mt#2450): tsyringe (used by the domain container,
+// mt#2121) requires the reflect-metadata polyfill before any decorated class
+// loads. Without this, bootDomainContainer() throws at every production boot
+// and the service silently degrades (no pr-watch scheduler, no merge-state
+// sweeper, no tier resolution, no circuit-breaker→Ask path) behind a single
+// warn-level log line — the mt#1596 "logging ≠ surfacing" failure class.
+import "reflect-metadata";
 import { Webhooks } from "@octokit/webhooks";
 import type { ReviewerConfig } from "./config";
 import { loadConfig, parsePositiveIntEnv } from "./config";
@@ -14,6 +21,7 @@ import { log } from "./logger";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
+import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -157,7 +165,11 @@ export function createApp(
   cfg: ReviewerConfig,
   runReviewFn: RunReviewFn = runReview,
   db?: ReviewerDb,
-  domainServices?: DomainServices
+  domainServices?: DomainServices,
+  // mt#2451: the external alert sink, shared with the sweeper (single instance
+  // built once at server start). When omitted (tests / standalone createApp),
+  // the /alert-test route builds one from env via loadAlertSinkConfig().
+  alertSink?: AlertSink | null
 ): {
   server: ReturnType<typeof Bun.serve>;
   gracefulShutdown: () => Promise<void>;
@@ -988,10 +1000,33 @@ export function createApp(
       // POST /retrigger — programmatic review retrigger (mt#2127 SC#5).
       // Accepts { pr: number, owner: string, repo: string } and triggers a
       // review on the PR's current HEAD.
-      // Authenticated by the same webhook secret as the webhook endpoint.
+      //
+      // mt#2346: authenticated with the Minsky MCP auth token (cfg.mcpToken,
+      // from MINSKY_MCP_AUTH_TOKEN) — the operator->service credential the
+      // operator already holds and the reviewer service already has — NOT the
+      // webhook HMAC secret. The webhook secret stays GitHub->reviewer signature
+      // verification only (see the Webhooks handler above), so on-demand
+      // triggering never requires spreading the signing secret to operators.
       if (request.method === "POST" && url.pathname === "/retrigger") {
+        // Fail closed when the MCP auth token isn't configured on the service,
+        // rather than silently falling back to the webhook secret. The caller
+        // gets a generic message (don't leak the internal env-var name to an
+        // unauthenticated caller); the specific cause is logged server-side so
+        // an operator can diagnose it in headless runs.
+        if (!cfg.mcpToken) {
+          log.error("retrigger.auth_not_configured", {
+            event: "retrigger.auth_not_configured",
+            message:
+              "POST /retrigger received but MINSKY_MCP_AUTH_TOKEN is unset on the reviewer " +
+              "service; retrigger auth is unavailable until it is configured.",
+          });
+          return new Response(JSON.stringify({ error: "retrigger auth not configured" }), {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
         const authHeader = request.headers.get("authorization");
-        const expectedToken = `Bearer ${cfg.webhookSecret}`;
+        const expectedToken = `Bearer ${cfg.mcpToken}`;
         if (authHeader !== expectedToken) {
           return new Response(JSON.stringify({ error: "unauthorized" }), {
             status: 401,
@@ -1084,6 +1119,86 @@ export function createApp(
             headers: { "content-type": "application/json" },
           });
         }
+      }
+
+      // POST /alert-test — on-demand test send through the DEPLOYED alert sink
+      // (mt#2451). Proves the production env-config → sink → Telegram → operator
+      // path without waiting for a real circuit-breaker trip. Same bearer auth
+      // as /retrigger (cfg.mcpToken, from MINSKY_MCP_AUTH_TOKEN).
+      if (request.method === "POST" && url.pathname === "/alert-test") {
+        // Fail closed when the MCP auth token isn't configured (mirror /retrigger).
+        if (!cfg.mcpToken) {
+          log.error("alert_test.auth_not_configured", {
+            event: "alert_test.auth_not_configured",
+            message:
+              "POST /alert-test received but MINSKY_MCP_AUTH_TOKEN is unset on the reviewer " +
+              "service; alert-test auth is unavailable until it is configured.",
+          });
+          return new Response(JSON.stringify({ error: "alert-test auth not configured" }), {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const authHeader = request.headers.get("authorization");
+        if (authHeader !== `Bearer ${cfg.mcpToken}`) {
+          return new Response(JSON.stringify({ error: "unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        // Resolve the sink: prefer the shared instance passed from server start
+        // (the SAME instance the sweeper uses); otherwise build from env. The
+        // reported type comes from env config so it's accurate in production.
+        const sinkConfig = loadAlertSinkConfig();
+        const sink = alertSink !== undefined ? alertSink : buildAlertSink(sinkConfig);
+        if (!sink) {
+          return new Response(
+            JSON.stringify({
+              error: "no alert sink configured",
+              hint:
+                "Set ALERT_SINK_TYPE=telegram|webhook (and the corresponding " +
+                "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or ALERT_SINK_URL) on the reviewer service.",
+            }),
+            { status: 503, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        // Sinks are CONTRACTED fail-open: notify() catches internally and
+        // resolves (a delivery failure does NOT throw — it's swallowed, so a
+        // 200 below means "accepted by the sink path; confirm receipt on the
+        // phone"). A throw here is a contract violation (a buggy/future sink).
+        // Defense-in-depth for a confidence probe: never let that 500 the
+        // route. Log it (the reviewer logger redacts secrets) and return a 503
+        // with a GENERIC body — do not echo the raw error to the caller, which
+        // could carry credentials (mt#2463 redaction lesson).
+        try {
+          await sink.notify(
+            "info",
+            "Minsky reviewer alert test",
+            "Minsky reviewer alert test — triggered via /alert-test. " +
+              "If you received this, the deployed env-config → sink → operator alert path is healthy."
+          );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error("alert_test.sink_error", {
+            event: "alert_test.sink_error",
+            sinkType: sinkConfig.type,
+            error: message,
+          });
+          return new Response(
+            JSON.stringify({ error: "alert sink threw during send", sinkType: sinkConfig.type }),
+            { status: 503, headers: { "content-type": "application/json" } }
+          );
+        }
+        log.info("alert_test.sent", {
+          event: "alert_test.sent",
+          sinkType: sinkConfig.type,
+        });
+        return new Response(
+          JSON.stringify({ ok: true, sinkType: sinkConfig.type, deliveryAttempted: true }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
       }
 
       if (request.method === "POST" && url.pathname === "/webhook") {
@@ -1274,15 +1389,36 @@ if (import.meta.main) {
     domainServices = await bootDomainContainer();
     log.info("domain_container_booted", { event: "domain_container_booted" });
   } catch (err: unknown) {
+    const errorDetail = err instanceof Error ? err.message : String(err);
     log.warn("domain_container_boot_failed", {
       event: "domain_container_boot_failed",
-      error: err instanceof Error ? err.message : String(err),
+      error: errorDetail,
       message:
         "Domain services unavailable — task-spec fetch and tier resolution will degrade gracefully.",
     });
+    // mt#2450 surfacing: this failure silently disables the pr-watch
+    // scheduler, merge-state sweeper, tier resolution, AND the
+    // circuit-breaker→Ask path (mt#2363) — it went unnoticed in production
+    // behind the warn line above (the mt#1596 "logging ≠ surfacing" class).
+    // Push it through the external alert sink so the operator is paged.
+    // Fail-open: a sink failure must not affect boot.
+    void Promise.resolve(
+      buildAlertSink(loadAlertSinkConfig())?.notify(
+        "error",
+        "Reviewer domain container failed to boot",
+        `bootDomainContainer() threw at startup: ${errorDetail}. ` +
+          "Degraded: no pr-watch scheduler, no merge-state sweeper, no tier " +
+          "resolution, no circuit-breaker Asks. See mt#2450."
+      )
+    ).catch(() => {});
   }
 
-  const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices);
+  // mt#2451: build the external alert sink ONCE at server start and share the
+  // single instance with both createApp (the /alert-test route) and startSweeper.
+  // Null when ALERT_SINK_TYPE is unset/off; both consumers degrade gracefully.
+  const alertSink = buildAlertSink(loadAlertSinkConfig());
+
+  const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices, alertSink);
 
   log.info("server_started", {
     event: "server_started",
@@ -1356,7 +1492,10 @@ if (import.meta.main) {
   // Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
   // SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
-  startSweeper(config, loadSweeperConfig(), db);
+  // mt#2363 / mt#1596 Phase 1: the domain container is forwarded so a tripped
+  // circuit breaker also surfaces as an operator-routed Ask on the cockpit
+  // (direct domain imports, mt#2121 — no MCP-over-HTTP).
+  startSweeper(config, loadSweeperConfig(), db, domainServices?.container, alertSink);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Uses domain imports (mt#2121) via the booted domain container — no MCP-over-HTTP.

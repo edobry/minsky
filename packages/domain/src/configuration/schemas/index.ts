@@ -42,6 +42,7 @@ import {
 } from "./knowledge-reconciliation";
 import { supabaseConfigSchema, type SupabaseConfig } from "./supabase";
 import { railwayConfigSchema, type RailwayConfig } from "./railway";
+import { reviewerConfigSchema, type ReviewerConfig } from "./reviewer";
 import {
   oauthConfigSchema,
   oauthProviderSchema,
@@ -56,6 +57,8 @@ import {
   type ObservabilityProviderConfig,
   type ObservabilityProvidersConfig,
 } from "./observability";
+
+import { projectConfigSchema, type ProjectConfig } from "./project";
 
 /**
  * Complete application configuration schema
@@ -126,11 +129,18 @@ export const configurationSchema = z.object({
   // Railway API token for Pulumi IaC management (mt#2124 / mt#2138)
   railway: railwayConfigSchema,
 
+  // Reviewer webhook-service configuration (mt#2269 — secret + URL for reviewer.retrigger)
+  reviewer: reviewerConfigSchema,
+
   // OAuth identity provider configuration (mt#1634 / mt#1662)
   oauth: oauthConfigSchema,
 
   // Observability provider configuration (mt#1791 — Braintrust + future providers)
   observability: observabilityConfigSchema,
+
+  // Project identity configuration (mt#2414 — Phase 1.1 of mt#2391)
+  // Stamped by `minsky init` / `minsky setup` with the project slug.
+  project: projectConfigSchema,
 });
 
 /**
@@ -180,12 +190,14 @@ export type {
   KnowledgeReconciliationConfig,
   SupabaseConfig,
   RailwayConfig,
+  ReviewerConfig,
   OAuthConfig,
   OAuthProvider,
   ObservabilityConfig,
   BraintrustConfig,
   ObservabilityProviderConfig,
   ObservabilityProvidersConfig,
+  ProjectConfig,
 };
 
 // Re-export schemas for external use
@@ -207,9 +219,11 @@ export {
   knowledgeReconciliationSchema,
   supabaseConfigSchema,
   railwayConfigSchema,
+  reviewerConfigSchema,
   oauthConfigSchema,
   oauthProviderSchema,
   observabilityConfigSchema,
+  projectConfigSchema,
 };
 
 // Export the main schema as default

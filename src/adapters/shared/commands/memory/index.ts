@@ -54,6 +54,7 @@ export interface MemorySearchParams {
   scope?: MemoryScope;
   projectId?: string;
   excludeSuperseded?: boolean;
+  allProjects?: boolean;
 }
 
 export interface MemoryGetParams {
@@ -70,6 +71,7 @@ export interface MemoryListParams {
   limit?: number;
   associationType?: string;
   associationTarget?: string;
+  allProjects?: boolean;
 }
 
 export interface MemoryLineageParams {
@@ -167,6 +169,12 @@ const memorySearchParams = {
     required: false as const,
     defaultValue: false,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false as const,
+  },
 } satisfies CommandParameterMap;
 
 const memoryGetParams = {
@@ -226,6 +234,12 @@ const memoryListParams = {
     schema: z.string(),
     description:
       "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
+    required: false as const,
+  },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)",
     required: false as const,
   },
 } satisfies CommandParameterMap;
@@ -569,6 +583,56 @@ async function resolveMemoryService(
   return new MemoryServiceClass({ db, vectorStorage, embeddingService });
 }
 
+// ─── ADR-021 project scope resolution ────────────────────────────────────────
+
+/**
+ * Resolve the current project scope for memory queries (ADR-021, mt#2416).
+ *
+ * Returns a project UUID string when this workspace maps to a known project,
+ * or undefined when allProjects=true, no persistence is available, the project
+ * is unidentified, or resolution fails (fail-open: never throws).
+ */
+async function resolveMemoryProjectScope(
+  allProjects: boolean | undefined,
+  ctx: CommandExecutionContext
+): Promise<string | undefined> {
+  if (allProjects) return undefined;
+
+  const persistence = ctx?.container?.has("persistence")
+    ? ctx.container.get("persistence")
+    : undefined;
+  if (!persistence) return undefined;
+
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+  if (!(persistence instanceof PersistenceProvider)) return undefined;
+  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+    return undefined;
+  }
+
+  try {
+    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { isAllProjects } = await import("@minsky/domain/project/scope");
+    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+    if (identity.kind !== "resolved") return undefined;
+    const rawDb = await persistence.getDatabaseConnection();
+    if (!rawDb) return undefined;
+    const { type: _t, ...db } =
+      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb &
+        Record<string, unknown>;
+    const scope = await resolveProjectScope(
+      identity,
+      db as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+    );
+    return isAllProjects(scope) ? undefined : scope;
+  } catch (err: unknown) {
+    log.debug("[memory] Project scope resolution failed; defaulting to all projects", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
 // ─── Registration function ────────────────────────────────────────────────────
 
 export function registerMemoryCommands(
@@ -590,6 +654,9 @@ export function registerMemoryCommands(
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
+      // ADR-021 / mt#2416: resolve project scope for this query.
+      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+
       try {
         const response = await service.search(params.query, {
           limit: params.limit ?? 10,
@@ -597,6 +664,7 @@ export function registerMemoryCommands(
             type: params.type,
             scope: params.scope,
             projectId: params.projectId,
+            projectScope,
             excludeSuperseded: params.excludeSuperseded,
           },
         });
@@ -645,10 +713,15 @@ export function registerMemoryCommands(
       });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
+
+      // ADR-021 / mt#2416: resolve project scope for this query.
+      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+
       let records = await service.list({
         type: params.type,
         scope: params.scope,
         projectId: params.projectId,
+        projectScope,
         excludeSuperseded: params.excludeSuperseded,
         stale: params.stale,
         stalenessDays: params.stalenessDays,
@@ -692,13 +765,24 @@ export function registerMemoryCommands(
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
+      // ADR-021 / mt#2416: default projectId to the resolved current project
+      // scope when the caller has not explicitly supplied one. An explicit
+      // params.projectId is always respected (even if it differs from the
+      // current-project scope — e.g., a migration tool). When scope is
+      // ALL_PROJECTS / unidentified, the returned value is undefined → null,
+      // which preserves current behavior (cross-project inserts).
+      const resolvedProjectId =
+        params.projectId != null
+          ? params.projectId
+          : ((await resolveMemoryProjectScope(false, ctx ?? {})) ?? null);
+
       const input: MemoryCreateInput = {
         type: params.type,
         name: params.name,
         description: params.description,
         content: params.content,
         scope: params.scope,
-        projectId: params.projectId ?? null,
+        projectId: resolvedProjectId,
         tags: params.tags ?? [],
         sourceAgentId: params.sourceAgentId ?? null,
         sourceSessionId: params.sourceSessionId ?? null,

@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
-use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_notification::NotificationExt;
@@ -69,6 +69,11 @@ struct StatusMenuItem(MenuItem<Wry>);
 /// Handle to the build-status dropdown `MenuItem` (mt#2297), held in managed
 /// state like `StatusMenuItem` so the supervisor loop can update it directly.
 struct BuildMenuItem(MenuItem<Wry>);
+
+/// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
+/// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
+/// ABSOLUTE factor — so we track the current value here in order to step it.
+struct ZoomLevel(Mutex<f64>);
 
 /// Sender for lifecycle commands from the (main-thread) menu handler to the
 /// supervisor thread that owns the daemon `Child`.
@@ -1398,6 +1403,10 @@ fn main() {
     let app = builder
         .setup(move |app| {
             let handle = app.handle().clone();
+            // Register zoom state before any menu handler that can read it
+            // (mt#2334 review): menu events fire post-setup, but managing it up
+            // front guarantees `try_state::<ZoomLevel>()` is always populated.
+            app.manage(ZoomLevel(Mutex::new(1.0)));
 
             // Keep the app out of the Dock even though it can open a window
             // (mt#2219). mt#2202 owns the Info.plist LSUIElement path; the Tauri
@@ -1466,6 +1475,92 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Application menu (mt#2327): the tray menu above drives the daemon
+            // lifecycle, but it does NOT give the cockpit *window* the standard
+            // web-app keyboard shortcuts. On macOS those come from the
+            // application menu's accelerators, which Tauri (unlike Electron) does
+            // not create by default — so Cmd+R / Cmd+W / Cmd+C&c. were dead in the
+            // cockpit window. Build a minimal app menu so they work when the
+            // window is focused. Zoom (Cmd +/-/0) is driven by the View-menu
+            // items below via `WebviewWindow::set_zoom` (mt#2334) — Tauri's
+            // native `zoom_hotkeys_enabled` did not fire for Cmd on macOS.
+            // Custom Quit item (NOT PredefinedMenuItem::quit): the predefined
+            // quit is self-handled by the OS and never reaches handle_menu_event,
+            // so it would bypass the supervisor-aware graceful shutdown
+            // (SupervisorCmd::Shutdown) that the tray Quit uses — risking leaving
+            // an adopted daemon running. Routing a custom "quit" id through
+            // handle_menu_event keeps app-menu Quit and tray Quit identical.
+            let quit_app_item = MenuItemBuilder::with_id("quit", "Quit Minsky Cockpit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
+            let app_submenu = SubmenuBuilder::new(app, "Minsky Cockpit")
+                .about(None)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .item(&quit_app_item)
+                .build()?;
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let reload_item = MenuItemBuilder::with_id("reload", "Reload")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            // Zoom items (mt#2334), applied via `WebviewWindow::set_zoom` in
+            // handle_menu_event. Zoom In binds `CmdOrCtrl+=` — the `=`/`+`
+            // physical key (muda has no "Plus" token).
+            let zoom_in_item = MenuItemBuilder::with_id("zoom_in", "Zoom In")
+                .accelerator("CmdOrCtrl+=")
+                .build(app)?;
+            let zoom_out_item = MenuItemBuilder::with_id("zoom_out", "Zoom Out")
+                .accelerator("CmdOrCtrl+-")
+                .build(app)?;
+            let zoom_reset_item = MenuItemBuilder::with_id("zoom_reset", "Actual Size")
+                .accelerator("CmdOrCtrl+0")
+                .build(app)?;
+            let view_submenu = SubmenuBuilder::new(app, "View")
+                .item(&reload_item)
+                .separator()
+                .item(&zoom_in_item)
+                .item(&zoom_out_item)
+                .item(&zoom_reset_item)
+                .build()?;
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .close_window()
+                .build()?;
+            let app_menu = MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&view_submenu)
+                .item(&window_submenu)
+                .build()?;
+            app.set_menu(app_menu)?;
+            // App-menu custom-id events. Predefined items (copy/paste/minimize/
+            // etc.) are handled natively by the OS; only our custom "reload" and
+            // "quit" items need forwarding. The filter also guards against
+            // double-firing the tray's daemon lifecycle commands should this
+            // global handler also receive tray-menu events on some platforms
+            // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
+            app.on_menu_event(move |app, event| {
+                match event.id().as_ref() {
+                    "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" => {
+                        handle_menu_event(app, event.id().as_ref())
+                    }
+                    _ => {}
+                }
+            });
+
             // Command channel: menu handler (main thread) → supervisor thread.
             let (tx, rx) = mpsc::unbounded_channel::<SupervisorCmd>();
             app.manage(SupervisorHandle(tx));
@@ -1480,10 +1575,19 @@ fn main() {
         .expect("error building cockpit tray");
 
     app.run(move |_app_handle, event| {
-        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            // Synchronous teardown of the daemon we spawned. Idempotent, so it's
-            // safe to also fire from the "quit" menu path and on both events.
-            teardown(&spawned);
+        match event {
+            // A window-close (Cmd+W or the red close button) requests exit with
+            // code None. This is a menu-bar app: closing the cockpit window must
+            // NOT kill the tray app or the daemon — keep running headless so the
+            // window can be reopened via "Open Cockpit". Only an explicit
+            // app.exit() (code Some — the Quit path) proceeds to teardown.
+            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            RunEvent::Exit => {
+                // Synchronous teardown of the daemon we spawned. Idempotent, so
+                // it's safe to fire here on the explicit-quit path.
+                teardown(&spawned);
+            }
+            _ => {}
         }
     });
 }
@@ -1491,6 +1595,31 @@ fn main() {
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "open_window" => open_cockpit_window(app),
+        "reload" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                if let Err(e) = window.eval("window.location.reload()") {
+                    eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+                }
+            }
+        }
+        "zoom_in" | "zoom_out" | "zoom_reset" => {
+            // try_state (not state) so an early/edge invocation before the
+            // managed value exists is a no-op rather than a panic (mt#2334 review).
+            if let (Some(window), Some(zoom_state)) = (
+                app.get_webview_window(COCKPIT_WINDOW_LABEL),
+                app.try_state::<ZoomLevel>(),
+            ) {
+                let mut zoom = zoom_state.0.lock().unwrap();
+                *zoom = match id {
+                    "zoom_out" => (*zoom - 0.1).max(0.3),
+                    "zoom_reset" => 1.0,
+                    _ => (*zoom + 0.1).min(3.0), // zoom_in
+                };
+                if let Err(e) = window.set_zoom(*zoom) {
+                    eprintln!("[cockpit-tray] failed to set cockpit window zoom: {e}");
+                }
+            }
+        }
         "open" => {
             let _ = open::that(COCKPIT_URL);
         }
@@ -1532,12 +1661,26 @@ fn open_cockpit_window(app: &AppHandle) {
         }
     };
 
-    if let Err(e) = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
+    match WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
         .build()
     {
-        eprintln!("[cockpit-tray] failed to create cockpit window: {e}");
+        // Re-apply the tracked zoom (mt#2334 review): closing the window
+        // destroys it (prevent_exit keeps the *app* alive, not the window), so a
+        // reopened window starts at the webview default — restore the stored
+        // factor or the next zoom step would jump from 1.0 to the tracked value.
+        Ok(window) => {
+            if let Some(zoom_state) = app.try_state::<ZoomLevel>() {
+                let factor = *zoom_state.0.lock().unwrap();
+                if (factor - 1.0).abs() > f64::EPSILON {
+                    if let Err(e) = window.set_zoom(factor) {
+                        eprintln!("[cockpit-tray] failed to apply saved cockpit zoom: {e}");
+                    }
+                }
+            }
+        }
+        Err(e) => eprintln!("[cockpit-tray] failed to create cockpit window: {e}"),
     }
 }
 

@@ -17,7 +17,9 @@ import { sharedCommandRegistry, CommandCategory, defineCommand } from "../comman
 import { log } from "@minsky/shared/logger";
 import {
   SYSTEM_EVENT_TYPE_VALUES,
+  EVENT_CATEGORY_VALUES,
   type SystemEventType,
+  type EventCategory,
   type SystemEvent,
 } from "@minsky/domain/storage/schemas/system-events-schema";
 import { listEvents } from "@minsky/domain/events/query";
@@ -63,6 +65,13 @@ const eventsListParams = {
       .enum([...SYSTEM_EVENT_TYPE_VALUES] as [SystemEventType, ...SystemEventType[]])
       .optional(),
     description: `Filter by event type (${SYSTEM_EVENT_TYPE_VALUES.join(" | ")})`,
+    required: false,
+  },
+  category: {
+    schema: z.enum([...EVENT_CATEGORY_VALUES] as [EventCategory, ...EventCategory[]]).optional(),
+    description: `Filter by category (${EVENT_CATEGORY_VALUES.join(
+      " | "
+    )}) — the activity feed defaults to 'actionable'`,
     required: false,
   },
   since: {
@@ -159,6 +168,7 @@ export function registerEventsCommands(container?: AppContainerInterface): void 
 
         const events = await listEvents(db, {
           eventType: params.eventType as SystemEventType | undefined,
+          category: params.category as EventCategory | undefined,
           since: params.since as string | undefined,
           until: params.until as string | undefined,
           relatedTaskId: params.relatedTaskId as string | undefined,

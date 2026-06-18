@@ -6,87 +6,52 @@
  * clean architecture boundaries.
  */
 
-import { existsSync } from "fs";
 import { getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
-import { getDefaultSqliteDbPath } from "@minsky/shared/paths";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import type { PersistenceProvider } from "./types";
 import { getPostgresMigrationsStatus } from "./migration-operations";
+import { logPostgresNotice } from "./postgres-notice-handler";
+import { maskConnectionString } from "./connection-string";
 
 /**
- * Validate SQLite backend
+ * Probe basic connectivity to a Postgres connection string by running a
+ * trivial `SELECT 1`. Unlike {@link validatePostgresBackend} (which validates
+ * the *configured* backend via an initialized PersistenceProvider), this works
+ * against an EXPLICIT connection string and does not read global config — so
+ * the `setup db` onboarding wizard can verify a string the user just supplied
+ * BEFORE it is written to config (mt#2429).
+ *
+ * Never throws: connection/auth/timeout failures are returned as
+ * `{ ok: false, error }` with the password masked so the caller can render a
+ * clean, actionable message.
  */
-export async function validateSqliteBackend(filePath: string | undefined): Promise<{
-  success: boolean;
-  details: string;
-  issues?: string[];
-  suggestions?: string[];
-}> {
-  const issues: string[] = [];
-  const suggestions: string[] = [];
-
+export async function verifyPostgresConnectivity(
+  connectionString: string,
+  options: { connectTimeoutSeconds?: number } = {}
+): Promise<{ ok: boolean; error?: string }> {
+  const { connectTimeoutSeconds = 10 } = options;
+  const postgres = (await import("postgres")).default;
+  const sql = postgres(connectionString, {
+    prepare: false,
+    onnotice: logPostgresNotice,
+    max: 1,
+    connect_timeout: connectTimeoutSeconds,
+  });
   try {
-    // Import configuration to get proper paths
-    const { getConfiguration } = await import("../configuration/index");
-    const config = getConfiguration();
-
-    // Determine SQLite file path
-    let dbPath: string;
-    if (filePath) {
-      dbPath = filePath;
-      log.cli(`Using specified file: ${dbPath}`);
-    } else {
-      // Use configured path or default
-      const effectiveConfig = getEffectivePersistenceConfig(config);
-      dbPath = effectiveConfig.dbPath ?? getDefaultSqliteDbPath();
-      log.cli(`Using configured/default file: ${dbPath}`);
-    }
-
-    // Check file existence
-    if (!existsSync(dbPath)) {
-      issues.push(`SQLite database file not found: ${dbPath}`);
-      suggestions.push("Run 'minsky session list' to initialize database");
-      return {
-        success: false,
-        details: `SQLite file not found at ${dbPath}`,
-        issues,
-        suggestions,
-      };
-    }
-
-    // Basic file validation
-    const { DatabaseIntegrityChecker } = await import("../storage/database-integrity-checker");
-
-    const integrityResult = await DatabaseIntegrityChecker.checkIntegrity("sqlite", dbPath);
-
-    if (!integrityResult.isValid) {
-      issues.push("SQLite integrity check failed");
-      if (Array.isArray(integrityResult.issues) && integrityResult.issues.length > 0) {
-        issues.push(...integrityResult.issues);
-      }
-      if (
-        Array.isArray(integrityResult.suggestedActions) &&
-        integrityResult.suggestedActions.length > 0
-      ) {
-        suggestions.push(...integrityResult.suggestedActions.map((action) => action.description));
-      }
-    }
-
-    return {
-      success: integrityResult.isValid,
-      details: `SQLite database validation at ${dbPath}`,
-      issues: issues.length > 0 ? issues : undefined,
-      suggestions: suggestions.length > 0 ? suggestions : undefined,
-    };
+    await sql`SELECT 1 as ok`;
+    return { ok: true };
   } catch (error) {
-    issues.push(`SQLite validation error: ${getErrorMessage(error)}`);
-    return {
-      success: false,
-      details: "SQLite validation failed with error",
-      issues,
-      suggestions: ["Check file permissions and SQLite installation"],
-    };
+    // Mask any embedded credentials — postgres-js errors can include the
+    // connection string verbatim (PR #1666 review).
+    return { ok: false, error: maskConnectionString(getErrorMessage(error)) };
+  } finally {
+    try {
+      await sql.end({ timeout: 5 });
+    } catch {
+      // Best-effort cleanup; a failure to close the probe connection must not
+      // mask the connectivity result.
+    }
   }
 }
 
@@ -164,9 +129,6 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
               log.cli(`   Run: minsky persistence migrate --execute`);
             }
           }
-        } else {
-          // For SQLite, we could add similar migration checking in the future
-          log.cli("✅ Schema status: SQLite (migration checking not implemented)");
         }
 
         // Test vector storage if supported

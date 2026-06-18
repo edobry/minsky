@@ -92,10 +92,30 @@ export interface RailwayDeploymentConfig {
  * Discriminated union over platform-specific config blocks. Adding a new
  * platform extends this type with a new variant and a new entry in
  * `PlatformName`.
+ *
+ * `healthUrl` is platform-neutral: the public HTTP URL that the post-deploy
+ * health monitor probes via GET. When present and the service has a provisioned
+ * serviceId, the monitor probes this URL and alerts on non-200/timeout.
+ * When absent (null / undefined), the health-probe check is skipped for that
+ * service. This is the single source of truth for health URLs — the monitor
+ * reads this field rather than hardcoding URLs.
+ *
+ * Source of truth (mt#1302): this field is the canonical health-URL declaration.
+ * Do not hardcode health URLs in monitor scripts; add/update them here.
  */
 export type DeploymentConfig = {
   platform: "railway";
   railway: RailwayDeploymentConfig;
+  /**
+   * Public HTTP URL for the health endpoint, used by the post-deploy health
+   * monitor (scripts/post-deploy-health-monitor.ts, mt#1302). Probed via GET;
+   * a 200 response is considered healthy. Null = no HTTP health check.
+   *
+   * Examples:
+   *   "https://minsky-mcp-production.up.railway.app/health"
+   *   "https://cockpit-preview-production.up.railway.app/api/health"
+   */
+  healthUrl?: string | null;
 };
 
 /**

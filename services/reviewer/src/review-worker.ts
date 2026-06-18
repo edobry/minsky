@@ -52,7 +52,6 @@ import {
   resolveThread,
   submitReview,
   type PullRequestContext,
-  type ReviewInlineComment,
   type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
@@ -107,6 +106,7 @@ import {
   type DiffScopeDowngradeAuditEntry,
   type FixCommitLineRangeMap,
 } from "./diff-scoper";
+import { submitReviewWithGuards } from "./guarded-submit";
 import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -1780,7 +1780,7 @@ async function runReviewBody(
       });
     }
 
-    const reviewBody = annotateReviewBody(
+    const annotatedBody = annotateReviewBody(
       composed.body,
       output,
       tier,
@@ -1788,28 +1788,23 @@ async function runReviewBody(
       recoveryResult.toolCalls
     );
 
-    // Map composed inline comments (file/line/body/inReplyTo) to the shape
-    // expected by submitReview's new inlineComments parameter (mt#1345).
-    const inlineCommentsForSubmit: ReviewInlineComment[] | undefined =
-      composed.inlineComments.length > 0
-        ? composed.inlineComments.map((c) => ({
-            path: c.file,
-            line: c.line,
-            body: c.body,
-            ...(c.inReplyTo !== undefined ? { inReplyTo: c.inReplyTo } : {}),
-          }))
-        : undefined;
-
-    const review = await submitReview(
+    // mt#2350: submit with anchor pre-validation + circuit-breaker recording.
+    // A single unresolvable inline-comment anchor 422s the entire createReview
+    // payload ("Line could not be resolved"); the guard demotes unanchorable
+    // comments to the body and records non-retryable failures for the sweeper.
+    const review = await submitReviewWithGuards({
       octokit,
       owner,
       repo,
       prNumber,
       event,
-      reviewBody,
-      config.githubTimeoutMs,
-      inlineCommentsForSubmit
-    );
+      body: annotatedBody,
+      composedInlineComments: composed.inlineComments,
+      diff: pr.diff,
+      headSha: pr.headSha,
+      timeoutMs: config.githubTimeoutMs,
+      db: deps.db,
+    });
 
     // Thread-resolve loop (mt#1345): after posting the review, resolve threads
     // that the model marked as fixed. Guard: only resolve threads whose first
@@ -2024,15 +2019,24 @@ async function runReviewBody(
     };
   }
 
-  const review = await submitReview(
+  // mt#2350 PR #1621 R2: route the prose-path final submission through the same
+  // guard as the output-tools path so the circuit-breaker record/clear chokepoint
+  // covers BOTH paths (a non-retryable 4xx here — closed PR, permission edge —
+  // must also stop the sweeper loop). No inline comments on the prose path, so
+  // anchor pre-validation is a no-op; the breaker recording is the point.
+  const review = await submitReviewWithGuards({
     octokit,
     owner,
     repo,
     prNumber,
-    outcome.event,
-    annotateReviewBody(sanitized.body, output, tier, isSelfReview),
-    config.githubTimeoutMs
-  );
+    event: outcome.event,
+    body: annotateReviewBody(sanitized.body, output, tier, isSelfReview),
+    composedInlineComments: [],
+    diff: pr.diff,
+    headSha: pr.headSha,
+    timeoutMs: config.githubTimeoutMs,
+    db: deps.db,
+  });
 
   // Best-effort count of BLOCKING findings in the submitted review body.
   // Enables "prior-blocker count / new-blocker count" convergence metric in logs.

@@ -11,7 +11,8 @@ import type { GitServiceInterface } from "../git/types";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { TaskServiceInterface } from "../tasks/taskService";
 import { RepositoryBackendType } from "../repository/index";
-import type { SessionProviderInterface } from "./session-db-adapter";
+import type { SessionProviderInterface } from "./types";
+import type { ScopeResolverDb } from "../project/scope-resolver";
 import {
   getSessionImpl,
   listSessionsImpl,
@@ -23,6 +24,7 @@ import {
 } from "./session-lifecycle-operations";
 import { startSessionImpl } from "./start-session-operations";
 import { updateSessionImpl } from "./session-update-operations";
+import type { SessionUpdateResult } from "./session-stash-restore";
 import { sessionReviewImpl } from "./session-review-operations";
 import type { SessionReviewParams, SessionReviewResult } from "./session-review-operations";
 import { approveSessionPr } from "./session-approval-operations";
@@ -67,6 +69,11 @@ export interface SessionDeps {
     backendType: RepositoryBackendType;
     github?: { owner: string; repo: string };
   }>;
+  /**
+   * Optional database connection for project-scope write-stamping (ADR-021, mt#2416).
+   * When present, session.start stamps project_id on the new session row.
+   */
+  db?: ScopeResolverDb;
 }
 
 /**
@@ -129,6 +136,7 @@ export class SessionService {
       taskService: this.deps.taskService,
       workspaceUtils: this.deps.workspaceUtils,
       getRepositoryBackend: this.deps.getRepositoryBackend,
+      db: this.deps.db,
     });
   }
 
@@ -152,7 +160,7 @@ export class SessionService {
   /**
    * Update a session (fetch/merge latest from base branch).
    */
-  async update(params: SessionUpdateParams): Promise<Session> {
+  async update(params: SessionUpdateParams): Promise<SessionUpdateResult> {
     return updateSessionImpl(params as SessionUpdateParameters, {
       gitService: this.deps.gitService,
       sessionDB: this.deps.sessionProvider,

@@ -29,7 +29,7 @@ import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory"
  * Resolution priority (see getEffectivePersistenceConfig):
  *   1. config.persistence.*
  *   2. MINSKY_POSTGRES_URL env var (connection string only)
- *   3. Hard-coded defaults (backend = sqlite, default sqlite path)
+ *   3. Hard-coded default (backend = postgres)
  *
  * Throws LegacySessiondbConfigError if the merged config still contains a
  * sessiondb: block (see mt#1610).
@@ -46,7 +46,6 @@ export function buildPersistenceConfigFrom(runtimeConfig: Configuration): Persis
     postgres:
       effective.postgres ??
       (effective.connectionString ? { connectionString: effective.connectionString } : undefined),
-    sqlite: effective.sqlite ?? (effective.dbPath ? { dbPath: effective.dbPath } : undefined),
   };
 }
 

@@ -18,6 +18,7 @@ import { useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
 
 // ---------------------------------------------------------------------------
@@ -52,14 +53,23 @@ interface WorkstreamCard {
   blockedChildCount: number;
 }
 
+/** Semantic slice names (mt#2385) — keep in sync with workstreams.ts */
+type WorkstreamAltitude = "full" | "rollup" | "actionable";
+
 interface WorkstreamsPayload {
   workstreams: WorkstreamCard[];
+  /** Slice that produced this payload; optional for back-compat with pre-mt#2385 payloads */
+  altitude?: WorkstreamAltitude;
 }
 
 type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"; reason: string };
 
 interface Props {
   data: WidgetData;
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +352,9 @@ interface WorkstreamCardProps {
 
 function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Rollup altitude returns cards without child rows — header-only card,
+  // no expand affordance (mt#2385).
+  const hasChildren = card.children.length > 0;
 
   return (
     <Card className="mb-3 last:mb-0">
@@ -367,18 +380,20 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
               {card.blockedChildCount > 0 && ` · ${card.blockedChildCount} blocked`}
             </span>
             {/* Expand/collapse button */}
-            <button
-              onClick={() => setIsOpen((prev) => !prev)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded"
-              aria-label={isOpen ? "Collapse workstream" : "Expand workstream"}
-            >
-              <Chevron open={isOpen} />
-            </button>
+            {hasChildren && (
+              <button
+                onClick={() => setIsOpen((prev) => !prev)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded"
+                aria-label={isOpen ? "Collapse workstream" : "Expand workstream"}
+              >
+                <Chevron open={isOpen} />
+              </button>
+            )}
           </div>
         </div>
       </CardHeader>
 
-      {isOpen && (
+      {isOpen && hasChildren && (
         <CardContent className="pt-0">
           {card.children.map((child) => (
             <Link
@@ -450,21 +465,17 @@ function workstreamSortFn(
 }
 
 // ---------------------------------------------------------------------------
-// Main widget component
+// Chrome-agnostic body — no widget-level Card/CardHeader/CardTitle
+// (WorkstreamCardItem's inner Cards are child item chrome, not widget chrome)
 // ---------------------------------------------------------------------------
 
-export function Workstreams({ data }: Props) {
+interface WorkstreamsBodyProps {
+  data: WidgetData;
+}
+
+function WorkstreamsBody({ data }: WorkstreamsBodyProps) {
   if (data.state === "degraded") {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Workstreams</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          <p>{data.reason}</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-sm text-muted-foreground">{data.reason}</p>;
   }
 
   const payload = data.payload as WorkstreamsPayload;
@@ -511,65 +522,72 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
   const defaultOpen = pageItems.length <= 5;
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">
-          Workstreams
-          {totalCount > 0 && (
-            <span className="text-sm font-normal text-muted-foreground ml-2">
-              ({filteredCount === totalCount ? totalCount : `${filteredCount}/${totalCount}`} active)
-            </span>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {/* Controls — always render when there are workstreams */}
-        {totalCount > 0 && (
-          <WorkstreamsControlBar
-            sortKey={sortKey}
-            sortDir={sortDir}
-            filters={filters}
-            pageSize={pageSize}
-            pageSizeOptions={pageSizeOptions}
-            hasActiveFilters={hasActiveFilters}
-            onSort={setSort}
-            onFilterStatus={(v) => setFilter("status", v)}
-            onFilterMinActive={(v) => setFilter("minActiveChildren", v)}
-            onPageSize={setPageSize}
-            onClearFilters={clearFilters}
-          />
-        )}
+    <>
+      {/* Count line — was in the CardTitle; now a subtitle below WidgetShell's title */}
+      {totalCount > 0 && (
+        <p className="text-xs text-muted-foreground mb-2">
+          {filteredCount === totalCount ? totalCount : `${filteredCount}/${totalCount}`} active
+        </p>
+      )}
 
-        {/* Content */}
-        {totalCount === 0 ? (
-          <p className="text-sm text-muted-foreground">No active workstreams</p>
-        ) : filteredCount === 0 ? (
-          <div className="py-6 text-center">
-            <p className="text-sm text-muted-foreground">No workstreams match these filters</p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearFilters}
-              className="mt-2 text-xs"
-            >
-              Clear filters
-            </Button>
-          </div>
-        ) : (
-          <div>
-            {pageItems.map((card) => (
-              <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} />
-            ))}
-            <PaginationBar
-              page={page}
-              pageCount={pageCount}
-              filteredCount={filteredCount}
-              totalCount={totalCount}
-              onPage={setPage}
-            />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      {/* Controls — always render when there are workstreams */}
+      {totalCount > 0 && (
+        <WorkstreamsControlBar
+          sortKey={sortKey}
+          sortDir={sortDir}
+          filters={filters}
+          pageSize={pageSize}
+          pageSizeOptions={pageSizeOptions}
+          hasActiveFilters={hasActiveFilters}
+          onSort={setSort}
+          onFilterStatus={(v) => setFilter("status", v)}
+          onFilterMinActive={(v) => setFilter("minActiveChildren", v)}
+          onPageSize={setPageSize}
+          onClearFilters={clearFilters}
+        />
+      )}
+
+      {/* Content */}
+      {totalCount === 0 ? (
+        <p className="text-sm text-muted-foreground">No active workstreams</p>
+      ) : filteredCount === 0 ? (
+        <div className="py-6 text-center">
+          <p className="text-sm text-muted-foreground">No workstreams match these filters</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearFilters}
+            className="mt-2 text-xs"
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : (
+        <div>
+          {pageItems.map((card) => (
+            <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} />
+          ))}
+          <PaginationBar
+            page={page}
+            pageCount={pageCount}
+            filteredCount={filteredCount}
+            totalCount={totalCount}
+            onPage={setPage}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget export (mt#2373)
+// ---------------------------------------------------------------------------
+
+export function Workstreams({ data, variant = "card", title = "Workstreams" }: Props) {
+  return (
+    <WidgetShell variant={variant} title={title}>
+      <WorkstreamsBody data={data} />
+    </WidgetShell>
   );
 }

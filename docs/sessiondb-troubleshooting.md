@@ -93,7 +93,7 @@ Error: SQLITE_CORRUPT: database disk image is malformed
 1. **Attempt automatic recovery**:
 
    ```bash
-   minsky sessiondb repair --backend sqlite --auto-recover
+   minsky sessiondb repair --backend postgres --auto-recover
    ```
 
 2. **Manual recovery**:
@@ -421,7 +421,7 @@ minsky session end --all
 minsky sessiondb export --all --format json > emergency-backup.json
 
 # 3. Reset to known good state
-minsky sessiondb reset --backend sqlite --force
+minsky sessiondb reset --backend postgres --force
 
 # 4. Import emergency backup
 minsky sessiondb import --file emergency-backup.json

@@ -47,6 +47,11 @@ import {
   dispatchToElicitation,
   type ElicitationClosedAsk,
 } from "@minsky/domain/ask/transports/elicitation";
+import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
+import {
+  askWaitForResponse,
+  type AskWaitForResponseResult,
+} from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
@@ -162,6 +167,12 @@ const asksListParams = {
     required: false,
     defaultValue: 50,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 interface AsksListResult {
@@ -173,16 +184,17 @@ interface AsksListResult {
 async function gatherAsks(
   repo: AskRepository,
   state: AskState | undefined,
-  kind: AskKind | undefined
+  kind: AskKind | undefined,
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope
 ): Promise<Ask[]> {
   if (state) {
-    const subset = await repo.listByState(state);
+    const subset = await repo.listByState(state, projectScope);
     return kind ? subset.filter((a) => a.kind === kind) : subset;
   }
   // No state filter — gather across all states.
   const all: Ask[] = [];
   for (const s of ALL_STATES) {
-    const subset = await repo.listByState(s);
+    const subset = await repo.listByState(s, projectScope);
     all.push(...subset);
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
@@ -517,49 +529,6 @@ export interface CreateAskParams {
 }
 
 /**
- * Walk a persisted Ask forward to `"suspended"` from any pre-suspended state.
- *
- * Used by the strand-recovery path in `createAsk` when the router decided
- * elicitation but no active MCP server is reachable. Mirrors the helper in
- * the elicitation transport but lives here to avoid an import cycle (the
- * transport imports from `router.ts`, which is upstream of this file).
- *
- * Throws on terminal/post-suspended states — re-suspending a closed Ask is
- * a programming error.
- */
-async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): Promise<void> {
-  const persisted = await repo.getById(askId);
-  if (!persisted) {
-    throw new Error(`asks.create: Ask not found: ${askId}`);
-  }
-  switch (persisted.state) {
-    case "detected":
-      await repo.transition(askId, "classified");
-      await repo.transition(askId, "routed");
-      await repo.transition(askId, "suspended");
-      return;
-    case "classified":
-      await repo.transition(askId, "routed");
-      await repo.transition(askId, "suspended");
-      return;
-    case "routed":
-      await repo.transition(askId, "suspended");
-      return;
-    case "suspended":
-      return;
-    case "responded":
-    case "closed":
-    case "cancelled":
-    case "expired":
-      throw new Error(
-        `asks.create: cannot strand-suspend Ask in terminal state "${persisted.state}"`
-      );
-    default:
-      throw new Error(`asks.create: unhandled Ask state "${persisted.state}"`);
-  }
-}
-
-/**
  * Create an Ask, route it via mt#1069's policy-first router, and — for the
  * elicitation transport — dispatch synchronously through the active MCP
  * server.
@@ -636,57 +605,117 @@ export async function createAsk(
   const ask = await repo.create(input);
   const routed = await policyFirstRoute(ask, routerOptions);
 
-  // Window-deferred path: Ask is suspended pending a service window.
-  // Walk the DB row to "suspended" immediately so the persisted state
-  // matches the router decision. The reaper (mt#1490) transitions it
-  // to "routed" and dispatches when the window opens.
+  // Live elicitation path: dispatch synchronously when an active server is
+  // available — dispatchToElicitation owns its own persistence walk. The
+  // no-active-server race (disconnect between hasElicitation() and the
+  // server lookup) falls through to the shared persist path below, which
+  // lands it as operator-suspended for recovery via the cockpit/CLI.
+  if (!isSuspendedAsk(routed) && routed.transport.kind === "elicitation") {
+    const registry = routerOptions.capabilityRegistry;
+    const server = registry?.activeElicitationServer();
+    if (server) {
+      return await dispatchToElicitation(routed, { server, repo });
+    }
+    log.warn(
+      "createAsk: elicitation routed but no active server — persisting as operator-suspended for recovery",
+      {
+        askId: routed.id,
+      }
+    );
+  }
+
+  // All remaining paths (mt#2265): persist the route outcome atomically so
+  // the row reflects the router decision. Before this fix, async transports
+  // (inbox / subagent / mesh / retriever) and policy closes returned an
+  // in-memory result while the row stayed "detected" forever — the
+  // write-only-graveyard root cause. The returned object is reconciled from
+  // the persisted row so the tool response never narrates unpersisted state.
+  const { write } = routeResultToOutcomeWrite(routed);
+  const persisted = await repo.persistRouteOutcome(ask.id, write);
+
+  if (write.state === "suspended") {
+    // Operator-bound (inbox / elicitation-fallback) or window-deferred:
+    // suspended = waiting for a response; visible on the cockpit /asks
+    // surface and respondable via respondAndClose.
+    const suspended: SuspendedAsk = {
+      ...routed,
+      state: "suspended",
+      routingTarget: routed.routingTarget,
+      transport: routed.transport,
+      packagedPayload: routed.packagedPayload,
+      routedAt: persisted.routedAt,
+      suspendedAt: persisted.suspendedAt,
+      suspendedForWindowKey: isSuspendedAsk(routed) ? routed.suspendedForWindowKey : undefined,
+    };
+    return suspended;
+  }
+
+  // write.state is "routed" (async transport awaiting delivery) or "closed"
+  // (policy-covered) — both only arise from RoutedAsk router results.
   if (isSuspendedAsk(routed)) {
-    await advanceRoutedAskToSuspended(repo, ask.id);
-    // Persist the routing target the router resolved in Phase 3 so the
-    // Ask the reaper reloads at dispatch time carries the necessary
-    // target. Without this, repo.getById returns routingTarget=undefined
-    // and the dispatch callback can't decide where to deliver. R5 fix.
-    if (routed.routingTarget !== undefined) {
-      await repo.updateRoutingTarget(ask.id, routed.routingTarget);
-    }
+    // Unreachable by construction (suspended results map to write.state
+    // "suspended" above); defensive return keeps the type sound.
     return routed;
   }
-
-  // Non-elicitation paths: return the routed Ask as-is. Async transports
-  // (subagent, inbox, mesh, retriever) are dispatched elsewhere; policy
-  // coverage already produced state="closed" via closeWithPolicy.
-  if (routed.transport.kind !== "elicitation") {
-    return routed;
-  }
-
-  // Elicitation path: dispatch synchronously when an active server is
-  // available. The capabilityRegistry came from routerOptions (the same
-  // path the router used to choose elicitation); reading it again here
-  // keeps the dispatch decision colocated with the rest of the elicitation
-  // logic.
-  const registry = routerOptions.capabilityRegistry;
-  const server = registry?.activeElicitationServer();
-  if (server) {
-    return await dispatchToElicitation(routed, { server, repo });
-  }
-
-  // Defensive: capability registry said hasElicitation() but no server is
-  // currently active (race between hasElicitation() returning true and
-  // activeElicitationServer() lookup — disconnect mid-call, etc.). Walk
-  // the Ask to "suspended" so the operator CLI (mt#1458) can recover.
-  log.warn(
-    "createAsk: elicitation routed but no active server — walking to suspended for recovery",
-    {
-      askId: routed.id,
-    }
-  );
-  await advanceRoutedAskToSuspended(repo, routed.id);
-  const suspended: ElicitationClosedAsk = {
+  return {
     ...routed,
-    state: "suspended",
-    routingTarget: "operator",
+    routedAt: persisted.routedAt ?? routed.routedAt,
+    closedAt: persisted.closedAt ?? routed.closedAt,
   };
-  return suspended;
+}
+
+// ---------------------------------------------------------------------------
+// asks.wait-for-response — schemas + render helper (mt#2266)
+// ---------------------------------------------------------------------------
+
+const asksWaitForResponseParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description: "Ask ID (UUID) to wait on until it reaches responded/closed",
+    required: true,
+  },
+  timeoutSeconds: {
+    schema: z.number().int().positive(),
+    description: "Max seconds to wait (default 600; clamped to [1, 1800])",
+    required: false,
+    defaultValue: 600,
+  },
+  intervalSeconds: {
+    schema: z.number().int().positive(),
+    description: "Polling interval in seconds (default 15; clamped to [5, 60])",
+    required: false,
+    defaultValue: 15,
+  },
+};
+
+/**
+ * Render the text-mode message for an `asks.wait-for-response` result.
+ * Exported (pure) so the format contract can be unit-tested independently of
+ * the wait tool's dependency chain — mirrors `formatMatchMessage` /
+ * `formatTimeoutMessage` in the session PR wait-for-review adapter.
+ */
+export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
+  const secs = Math.round(result.elapsedMs / 1000);
+  if (result.resolved) {
+    const payload = result.response.payload;
+    const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    return [
+      `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
+        `after ${secs}s / ${result.pollCount} poll(s)`,
+      "",
+      payloadStr,
+    ].join("\n");
+  }
+  if (result.terminal) {
+    return (
+      `✗ Ask reached terminal state "${result.lastState}" without a response ` +
+      `after ${secs}s / ${result.pollCount} poll(s). It can no longer be answered.`
+    );
+  }
+  return (
+    `⏳ Ask still pending (state "${result.lastState}") after ${secs}s / ` +
+    `${result.pollCount} poll(s). Timeout reached without a response — re-wait or act on the pending state.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -719,8 +748,42 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const state = params.state as AskState | undefined;
         const kind = params.kind as AskKind | undefined;
         const limit = (params.limit as number | undefined) ?? 50;
+        const allProjects = params.allProjects as boolean | undefined;
 
-        const asks = await gatherAsks(repo, state, kind);
+        // ADR-021 / mt#2416: resolve project scope so list returns only this
+        // project's asks by default. When allProjects=true, skip resolution.
+        let projectScope: import("@minsky/domain/project/scope").ProjectScope | undefined;
+        if (!allProjects && container?.has("persistence")) {
+          try {
+            const persistenceProvider = container.get(
+              "persistence"
+            ) as SqlCapablePersistenceProvider;
+            if (persistenceProvider.getDatabaseConnection) {
+              const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+              const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+              const { isAllProjects } = await import("@minsky/domain/project/scope");
+              const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+              if (identity.kind === "resolved") {
+                const rawDb = await persistenceProvider.getDatabaseConnection();
+                if (rawDb) {
+                  const scope = await resolveProjectScope(
+                    identity,
+                    rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+                  );
+                  if (!isAllProjects(scope)) {
+                    projectScope = scope;
+                  }
+                }
+              }
+            }
+          } catch (err: unknown) {
+            log.debug("[asks.list] Project scope resolution failed; defaulting to all projects", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        const asks = await gatherAsks(repo, state, kind, projectScope);
         return {
           asks: asks.slice(0, limit),
           total: asks.length,
@@ -832,6 +895,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // ADR-021 / mt#2416: project_id write-stamping is deferred to Phase-1.3b.
+        // The Ask domain type has no projectId field; stamping requires extending
+        // CreateAskInput, AskInsert, and the asksTable schema — a domain-contract
+        // change out of scope for mt#2416. Read-scoping via
+        // listByState(state, projectScope) IS wired (mt#2416).
+        // See packages/domain/src/ask/repository.ts toInsert() for the corresponding note.
+
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch
         // through the active MCP Server.
@@ -905,6 +975,40 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         }
 
         return result;
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.wait-for-response",
+      category: CommandCategory.TOOLS,
+      name: "wait-for-response",
+      description:
+        "Block until an Ask reaches responded/closed (returns the response payload), " +
+        "or a cancelled/expired terminal state, or the timeout elapses. " +
+        "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
+        "Caller-managed gating: does NOT mutate task status.",
+      // requiresSetup: false — depends only on the persistence provider
+      // (like asks.respond), not on global Minsky configuration.
+      requiresSetup: false,
+      parameters: asksWaitForResponseParams,
+      execute: async (params): Promise<AskWaitForResponseResult> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.wait-for-response: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        return askWaitForResponse(
+          {
+            id: params.id as string,
+            timeoutSeconds: params.timeoutSeconds as number | undefined,
+            intervalSeconds: params.intervalSeconds as number | undefined,
+          },
+          { repo }
+        );
       },
     })
   );
