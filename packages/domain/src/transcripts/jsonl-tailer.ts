@@ -136,7 +136,9 @@ export class JsonlTailer {
       }
 
       const length = size - start;
-      const buf = Buffer.allocUnsafe(length);
+      // Uint8Array (not Buffer): byte-accurate, and avoids the project's
+      // restricted Buffer type which exposes only Buffer.from.
+      const buf = new Uint8Array(length);
       const { bytesRead } = await handle.read(buf, 0, length, start);
       const view = buf.subarray(0, bytesRead);
 
@@ -147,7 +149,7 @@ export class JsonlTailer {
         return { rawLines: [], offset: start, pendingBytes: bytesRead, reset };
       }
 
-      const completeText = view.subarray(0, lastNewline).toString("utf-8");
+      const completeText = new TextDecoder().decode(view.subarray(0, lastNewline));
       const consumed = lastNewline + 1; // include the terminating newline
       const newOffset = start + consumed;
       this.offsets.set(path, newOffset);

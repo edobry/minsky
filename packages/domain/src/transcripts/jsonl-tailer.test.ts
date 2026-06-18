@@ -123,12 +123,12 @@ describe("JsonlTailer", () => {
 
     const first = await tailer.readNew<{ msg: string }>(file);
     expect(first.lines).toEqual([{ msg: "café ☕" }]);
-    expect(first.offset).toBe(Buffer.byteLength(`${line1}\n`, "utf-8"));
+    expect(first.offset).toBe(new TextEncoder().encode(`${line1}\n`).length);
 
     await appendFile(file, `${line2}\n`);
     const second = await tailer.readNew<{ msg: string }>(file);
     expect(second.lines).toEqual([{ msg: "naïve 🚀" }]);
-    expect(tailer.getOffset(file)).toBe(Buffer.byteLength(`${line1}\n${line2}\n`, "utf-8"));
+    expect(tailer.getOffset(file)).toBe(new TextEncoder().encode(`${line1}\n${line2}\n`).length);
   });
 
   test("setOffset seeds past pre-existing content (only tails later appends)", async () => {

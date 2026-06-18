@@ -40,6 +40,32 @@ export interface TranscriptWatcherSummary {
   lastError: string | null;
 }
 
+/**
+ * Per-session ingestion-freshness entry for the active-session registry (SC2).
+ * Seeded from the watcher's FS discovery and updated as files change/ingest.
+ */
+export interface ActiveSessionInfo {
+  agentSessionId: string;
+  /** Absolute path to the session's `.jsonl` transcript. */
+  jsonlPath: string;
+  /** True for subagent transcripts under `<parent>/subagents/`. */
+  isSubagent: boolean;
+  /** ISO timestamp of the last filesystem event observed for this session. */
+  lastEventAt: string | null;
+  /** ISO timestamp of the last successful ingest of this session, or null. */
+  lastIngestAt: string | null;
+  /** New turn lines ingested on the last successful ingest of this session. */
+  lastTurnsIngested: number;
+}
+
+interface ActiveSessionState {
+  jsonlPath: string;
+  isSubagent: boolean;
+  lastEventAtMs: number | null;
+  lastIngestAtMs: number | null;
+  lastTurnsIngested: number;
+}
+
 export class TranscriptWatcherTracker {
   private static _instance: TranscriptWatcherTracker | null = null;
 
@@ -52,6 +78,9 @@ export class TranscriptWatcherTracker {
   private lastIngestAtMs: number | null = null;
   private lastErrorAtMs: number | null = null;
   private lastError: string | null = null;
+
+  /** Per-session ingestion-freshness registry (SC2), keyed by agentSessionId. */
+  private readonly sessions = new Map<string, ActiveSessionState>();
 
   /** Process-lifetime singleton (created on first access). */
   static getInstance(): TranscriptWatcherTracker {
@@ -94,6 +123,53 @@ export class TranscriptWatcherTracker {
     this.ingestErrors++;
     this.lastErrorAtMs = Date.now();
     this.lastError = message;
+  }
+
+  /**
+   * Register/refresh a session from a filesystem event (SC2). Seeds the
+   * registry on FS discovery and stamps `lastEventAt`.
+   */
+  recordSessionEvent(agentSessionId: string, jsonlPath: string, isSubagent: boolean): void {
+    const existing = this.sessions.get(agentSessionId);
+    this.sessions.set(agentSessionId, {
+      jsonlPath,
+      isSubagent,
+      lastEventAtMs: Date.now(),
+      lastIngestAtMs: existing?.lastIngestAtMs ?? null,
+      lastTurnsIngested: existing?.lastTurnsIngested ?? 0,
+    });
+  }
+
+  /** Stamp a session's last successful ingest (SC2). */
+  recordSessionIngest(agentSessionId: string, turns: number): void {
+    const existing = this.sessions.get(agentSessionId);
+    if (!existing) return;
+    existing.lastIngestAtMs = Date.now();
+    existing.lastTurnsIngested = turns < 0 ? 0 : turns;
+  }
+
+  /** Drop a session from the registry (e.g. on file unlink). */
+  removeSession(agentSessionId: string): void {
+    this.sessions.delete(agentSessionId);
+  }
+
+  /** Number of sessions currently in the registry. */
+  get trackedSessionCount(): number {
+    return this.sessions.size;
+  }
+
+  /** Active-session registry snapshot, most-recently-active first (SC2). */
+  getActiveSessions(): ActiveSessionInfo[] {
+    return Array.from(this.sessions.entries())
+      .map(([agentSessionId, s]) => ({
+        agentSessionId,
+        jsonlPath: s.jsonlPath,
+        isSubagent: s.isSubagent,
+        lastEventAt: s.lastEventAtMs === null ? null : new Date(s.lastEventAtMs).toISOString(),
+        lastIngestAt: s.lastIngestAtMs === null ? null : new Date(s.lastIngestAtMs).toISOString(),
+        lastTurnsIngested: s.lastTurnsIngested,
+      }))
+      .sort((a, b) => (b.lastEventAt ?? "").localeCompare(a.lastEventAt ?? ""));
   }
 
   /** Snapshot the current counters for the cockpit `/api/health` surface. */
