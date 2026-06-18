@@ -206,6 +206,48 @@ export function extractToolUseNames(turnLines: TranscriptLine[]): string[] {
 }
 
 /**
+ * Extract the `input` object of every `tool_use` block whose name equals
+ * `toolName`. Unlike {@link extractToolUseNames} (turn-scoped name list), this
+ * is meant to run over the FULL `parseTranscript()` output to answer "did tool
+ * X ever run this session, and with what args?" — so it deliberately does NOT
+ * turn-bound, sidestepping the role=user tool_result turn-boundary hazard
+ * (mt#2255 / memory a3e60471: tool_result lines are user-role, so a turn slice
+ * built on user-role boundaries silently drops earlier tool calls).
+ *
+ * Handles both transcript shapes, mirroring {@link extractToolUseNames}:
+ *   - a top-level line with `type === "tool_use"`, `name`/`tool_name`, `input`
+ *   - an assistant line whose `message.content` array contains
+ *     `{ type: "tool_use", name, input }` blocks
+ *
+ * A tool_use with no object `input` contributes `{}` so callers can still count
+ * the call; callers read individual fields defensively.
+ */
+export function findToolUseInputs(
+  lines: TranscriptLine[],
+  toolName: string
+): Array<Record<string, unknown>> {
+  const inputs: Array<Record<string, unknown>> = [];
+  const pushInput = (raw: unknown): void => {
+    inputs.push(raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {});
+  };
+  for (const line of lines) {
+    if (line.type === "tool_use") {
+      const n = line.name ?? line.tool_name;
+      if (n === toolName) pushInput(line.input);
+    }
+    const content = line.message?.content;
+    if (Array.isArray(content)) {
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (block && block["type"] === "tool_use" && block["name"] === toolName) {
+          pushInput(block["input"]);
+        }
+      }
+    }
+  }
+  return inputs;
+}
+
+/**
  * Extract the text of the most-recent REAL user prompt (the current prompt
  * that fired the hook). Skips trailing `tool_result` user-role lines so it
  * never returns tool-result content as if it were the user's message.
