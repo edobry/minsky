@@ -199,7 +199,7 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
 6. **Architectural-pattern community-practice check (mt#2503).** Before committing a significant architectural pattern — a new workspace package, a module/package-boundary restructure, a re-export / proxy / barrel pattern, or a choice between competing structural approaches where the cheaper one is unvalidated — run ONE web search for community practice on the pattern and cite it (one line) before committing the approach. Evaluate the cheaper-effort path for CORRECTNESS, not just scope. This is the implement-execution-time sibling of \`/plan-task\` gate (l) (mt#2445), which covers plan/recommendation time.
 
-   Origin: mt#2108 (2026-05-25/26) — the \`packages/domain/\` extraction chose a barrel re-export to avoid a 224-file import rewrite; it hit an immediate runtime error (\`getConfigValue\` export not found), and a 30-second community-practice search returned unambiguous consensus (Turborepo / Nx) that barrel re-exports in monorepos are an anti-pattern. R6 of the build-path-as-research family (\`f6607043\`); see \`4012b934\`.
+   Origin: mt#2108 (2026-05-25/26) — the \`packages/domain/\` extraction chose a barrel re-export to avoid a 224-file import rewrite; it hit an immediate runtime error (\`getConfigValue\` export not found), and a 30-second community-practice search returned unambiguous consensus (Turborepo / Nx / Coder Spirit / WebDong) that barrel re-exports in monorepos are an anti-pattern. R6 of the build-path-as-research family (\`f6607043\`); see \`4012b934\`.
 
 **Reactive phase (when iterating on reviewer findings):**
 
