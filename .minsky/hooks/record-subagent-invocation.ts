@@ -56,11 +56,8 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     process.stderr.write(
       `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd}\n`
     );
-    // KNOWN BUG (mt#2315): this early return contradicts the comment above —
-    // it drops the DB write entirely when taskId can't be resolved, instead of
-    // recording with a placeholder keyed on subagentSessionId. Pre-existing
-    // (predates the mt#2304 relocation); fixing it needs tracker/schema
-    // null-taskId verification, tracked separately in mt#2315.
+    // Still record with a placeholder — the dispatch row was written at dispatch
+    // time with the real taskId; we upsert on subagentSessionId so we need it.
     return;
   }
 
@@ -208,18 +205,20 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
     const provider = await resolvePersistenceProvider();
     if (provider) {
       try {
-        const storage = provider.getStorage();
-        const sessions = await storage.getEntities();
-        if (Array.isArray(sessions)) {
-          for (const s of sessions) {
-            if (s && typeof s === "object" && "taskId" in s && typeof s.taskId === "string") {
-              const rec = s as { taskId: string; sessionId?: string };
-              // Check if cwd is under this session's directory
-              const sessionId = rec.sessionId ?? "";
-              if (sessionId && cwd.includes(sessionId)) {
-                await provider.close();
-                return rec.taskId;
-              }
+        const { createSessionProvider } = await import(
+          "../../packages/domain/src/session/drizzle-session-repository"
+        );
+        // eslint-disable-next-line custom/no-singleton-reach-in -- hook bootstrap: the provider is passed via arg (DI), not reached-in
+        const sessionProvider = await createSessionProvider(undefined, provider);
+        const sessions = await sessionProvider.listSessions();
+        for (const rec of sessions) {
+          if (typeof rec.taskId === "string") {
+            // Check if cwd is under this session's directory
+            const sessionId = rec.sessionId ?? "";
+            if (sessionId && cwd.includes(sessionId)) {
+              // The `finally` below closes the provider — no inner close (would
+              // double-close + mask close-time errors; PR #1625 R1 NON-BLOCKING).
+              return rec.taskId;
             }
           }
         }
