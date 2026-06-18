@@ -61,6 +61,12 @@ describe("normalizeTaskId", () => {
     expect(normalizeTaskId("mt2515")).toBe("mt2515");
   });
 
+  test("collapses separator forms (mt-2515 / mt_2515) to the hash form", () => {
+    expect(normalizeTaskId("mt-2515")).toBe("mt2515");
+    expect(normalizeTaskId("mt_2515")).toBe("mt2515");
+    expect(normalizeTaskId("task/mt-2515".replace("task/", ""))).toBe("mt2515");
+  });
+
   test("distinct backends do not collide", () => {
     expect(normalizeTaskId("md#2515")).not.toBe(normalizeTaskId("mt#2515"));
   });

@@ -48,13 +48,14 @@ export const SESSION_START_TOOL = "mcp__minsky__session_start";
 // ---------------------------------------------------------------------------
 
 /**
- * Normalise a task id for comparison: lowercase, strip `#` and whitespace.
- * `mt#2515` / `MT#2515` / `mt2515` all collapse to `mt2515`. Returns "" for a
- * non-string / empty id.
+ * Normalise a task id for comparison: lowercase, then strip every
+ * non-alphanumeric character. `mt#2515` / `MT#2515` / `mt-2515` / `mt_2515` /
+ * `mt2515` all collapse to `mt2515` (so a branch-style `mt-2515` compares equal
+ * to a tool-arg `mt#2515`). Returns "" for a non-string / empty id.
  */
 export function normalizeTaskId(raw: unknown): string {
   if (typeof raw !== "string") return "";
-  return raw.trim().toLowerCase().replace(/[#\s]/g, "");
+  return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /**
