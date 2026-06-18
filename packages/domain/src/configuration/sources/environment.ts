@@ -268,6 +268,11 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
   "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
   "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
+  // mt#2076 — cockpit reviewer-bot-status widget: URL override for the reviewer
+  // /health endpoint probe. Read by src/cockpit/widgets/reviewer-bot-status.ts
+  // at module-load time. Not a config-schema field; registering here so the
+  // env-var-to-config dot-path parser skips it at boot.
+  "MINSKY_REVIEWER_HEALTH_URL", // src/cockpit/widgets/reviewer-bot-status.ts (health probe URL override)
 ]);
 
 /**
