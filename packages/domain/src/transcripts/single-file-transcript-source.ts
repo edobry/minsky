@@ -34,7 +34,8 @@ import type {
 
 const HARNESS = "claude_code";
 const JSONL_EXT = ".jsonl";
-const SUBAGENTS_SEGMENT = "/subagents/";
+// Path-separator-agnostic so subagent transcripts classify correctly on Windows.
+const SUBAGENTS_SEGMENT_RE = /[\\/]subagents[\\/]/;
 const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system"]);
 
 export class SingleFileTranscriptSource implements TranscriptSource {
@@ -60,7 +61,7 @@ export class SingleFileTranscriptSource implements TranscriptSource {
       agentSessionId: basename(this.jsonlPath, JSONL_EXT),
       jsonlPath: this.jsonlPath,
       harness: HARNESS,
-      isSubagent: this.jsonlPath.includes(SUBAGENTS_SEGMENT),
+      isSubagent: SUBAGENTS_SEGMENT_RE.test(this.jsonlPath),
       mtime: stat.mtime,
       cwd: await this.recoverCwd(),
     };

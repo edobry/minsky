@@ -24,7 +24,6 @@ describe("TranscriptWatcherTracker", () => {
       turnsIngested: 0,
       lastIngestAt: null,
       lastErrorAt: null,
-      lastError: null,
     });
   });
 
@@ -51,11 +50,12 @@ describe("TranscriptWatcherTracker", () => {
   });
 
   test("records errors without dropping them (SC5)", () => {
-    tracker.recordIngestError("DB unavailable");
+    tracker.recordIngestError();
     const s = tracker.getSummary();
     expect(s.ingestErrors).toBe(1);
-    expect(s.lastError).toBe("DB unavailable");
     expect(s.lastErrorAt).not.toBeNull();
+    // The raw error message is deliberately NOT exposed (redacted from /api/health).
+    expect(s).not.toHaveProperty("lastError");
   });
 
   test("setRunning and setFilesWatched reflect in the summary; negatives clamp to 0", () => {
@@ -80,25 +80,26 @@ describe("TranscriptWatcherTracker", () => {
   });
 
   describe("active-session registry (SC2)", () => {
-    test("recordSessionEvent seeds the registry", () => {
-      tracker.recordSessionEvent("sess-a", "/p/sess-a.jsonl", false);
+    test("recordSessionEvent seeds the registry (no absolute path exposed)", () => {
+      tracker.recordSessionEvent("sess-a", false);
       const list = tracker.getActiveSessions();
       expect(list).toHaveLength(1);
       expect(list[0]).toMatchObject({
         agentSessionId: "sess-a",
-        jsonlPath: "/p/sess-a.jsonl",
         isSubagent: false,
         lastIngestAt: null,
         lastTurnsIngested: 0,
       });
       expect(list[0]?.lastEventAt).not.toBeNull();
+      // Absolute path is redacted from the public surface (reviewer R1).
+      expect(list[0]).not.toHaveProperty("jsonlPath");
     });
 
     test("recordSessionIngest stamps freshness only for a known session", () => {
       tracker.recordSessionIngest("unknown", 5); // no-op — not registered
       expect(tracker.getActiveSessions()).toHaveLength(0);
 
-      tracker.recordSessionEvent("sess-b", "/p/sess-b.jsonl", true);
+      tracker.recordSessionEvent("sess-b", true);
       tracker.recordSessionIngest("sess-b", 4);
       const [entry] = tracker.getActiveSessions();
       expect(entry?.isSubagent).toBe(true);
@@ -107,31 +108,31 @@ describe("TranscriptWatcherTracker", () => {
     });
 
     test("recordSessionEvent preserves prior ingest stamp on refresh", () => {
-      tracker.recordSessionEvent("sess-c", "/p/sess-c.jsonl", false);
+      tracker.recordSessionEvent("sess-c", false);
       tracker.recordSessionIngest("sess-c", 2);
-      tracker.recordSessionEvent("sess-c", "/p/sess-c.jsonl", false); // new event
+      tracker.recordSessionEvent("sess-c", false); // new event
       const [entry] = tracker.getActiveSessions();
       expect(entry?.lastIngestAt).not.toBeNull();
       expect(entry?.lastTurnsIngested).toBe(2);
     });
 
     test("removeSession drops the entry", () => {
-      tracker.recordSessionEvent("sess-d", "/p/sess-d.jsonl", false);
+      tracker.recordSessionEvent("sess-d", false);
       tracker.removeSession("sess-d");
       expect(tracker.getActiveSessions()).toHaveLength(0);
     });
 
     test("getActiveSessions sorts most-recently-active first", async () => {
-      tracker.recordSessionEvent("older", "/p/older.jsonl", false);
+      tracker.recordSessionEvent("older", false);
       // Small delay so "newer" gets a strictly later millisecond timestamp.
       await new Promise((resolve) => setTimeout(resolve, 3));
-      tracker.recordSessionEvent("newer", "/p/newer.jsonl", false);
+      tracker.recordSessionEvent("newer", false);
       const ids = tracker.getActiveSessions().map((s) => s.agentSessionId);
       expect(ids).toEqual(["newer", "older"]);
     });
 
     test("resetForTest clears the registry", () => {
-      tracker.recordSessionEvent("sess-e", "/p/sess-e.jsonl", false);
+      tracker.recordSessionEvent("sess-e", false);
       const fresh = TranscriptWatcherTracker.resetForTest();
       expect(fresh.getActiveSessions()).toHaveLength(0);
     });

@@ -37,7 +37,7 @@
  * @see scripts/smoke-transcript-watcher.ts — §7a end-to-end verification artifact
  */
 
-import { watch as fsWatch, type FSWatcher } from "node:fs";
+import { watch as fsWatch, type Dirent, type FSWatcher } from "node:fs";
 import { promises as fsp } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -50,7 +50,6 @@ import { JsonlTailer } from "@minsky/domain/transcripts/jsonl-tailer";
 import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 
 const JSONL_EXT = ".jsonl";
-const SUBAGENTS_SEGMENT = "/subagents/";
 const DEFAULT_DEBOUNCE_MS = 400;
 
 export type DbGetter = () => Promise<PostgresJsDatabase | null>;
@@ -104,18 +103,11 @@ export class TranscriptWatcher {
    * mt#2051). Returns the number of files seeded.
    */
   async seedExisting(): Promise<number> {
-    let entries: string[];
-    try {
-      entries = await fsp.readdir(this.projectsDir, { recursive: true });
-    } catch {
-      // Projects dir absent / unreadable — nothing to seed (fail-open).
-      return 0;
-    }
-
+    // Portable recursive walk (readdir withFileTypes) rather than
+    // `readdir({ recursive: true })` — the latter is newer/less portable
+    // (reviewer R1). Fail-open: an absent/unreadable dir yields no files.
     let count = 0;
-    for (const rel of entries) {
-      if (!rel.endsWith(JSONL_EXT)) continue;
-      const abs = join(this.projectsDir, rel);
+    for (const abs of await walkJsonlFiles(this.projectsDir)) {
       try {
         const stat = await fsp.stat(abs);
         if (!stat.isFile()) continue;
@@ -124,7 +116,7 @@ export class TranscriptWatcher {
       } catch {
         continue;
       }
-      this.tracker.recordSessionEvent(sessionIdFromPath(abs), abs, isSubagentPath(abs));
+      this.tracker.recordSessionEvent(sessionIdFromPath(abs), isSubagentPath(abs));
       count++;
     }
     this.tracker.setFilesWatched(this.tracker.trackedSessionCount);
@@ -149,7 +141,7 @@ export class TranscriptWatcher {
         return;
       }
 
-      this.tracker.recordSessionEvent(sessionId, jsonlPath, isSubagentPath(jsonlPath));
+      this.tracker.recordSessionEvent(sessionId, isSubagentPath(jsonlPath));
       this.tracker.setFilesWatched(this.tracker.trackedSessionCount);
 
       // Change-gate: only ingest when there is genuinely new complete content.
@@ -158,7 +150,7 @@ export class TranscriptWatcher {
         const res = await this.tailer.readNew(jsonlPath);
         hasNew = res.lines.length > 0 || res.reset;
       } catch (err) {
-        this.tracker.recordIngestError(messageOf(err));
+        this.tracker.recordIngestError();
         log.warn("cockpit transcript-watcher: tail read failed", {
           jsonlPath,
           message: messageOf(err),
@@ -209,7 +201,7 @@ export class TranscriptWatcher {
 
     const db = await this.resolveDb();
     if (!db) {
-      this.tracker.recordIngestError("DB unavailable");
+      this.tracker.recordIngestError();
       log.warn("cockpit transcript-watcher: ingest skipped, DB unavailable", { jsonlPath });
       return 0;
     }
@@ -235,7 +227,7 @@ export class TranscriptWatcher {
     const result = await svc.ingestSession(discovered);
 
     if (result.error) {
-      this.tracker.recordIngestError(messageOf(result.error));
+      this.tracker.recordIngestError();
       log.warn("cockpit transcript-watcher: degraded ingest", {
         jsonlPath,
         message: messageOf(result.error),
@@ -323,8 +315,31 @@ function sessionIdFromPath(jsonlPath: string): string {
   return basename(jsonlPath, JSONL_EXT);
 }
 
+// Path-separator-agnostic so it classifies correctly on Windows too (reviewer R1).
+const SUBAGENTS_SEGMENT_RE = /[\\/]subagents[\\/]/;
+
 function isSubagentPath(jsonlPath: string): boolean {
-  return jsonlPath.includes(SUBAGENTS_SEGMENT);
+  return SUBAGENTS_SEGMENT_RE.test(jsonlPath);
+}
+
+/** Portable recursive walk yielding every `.jsonl` file under `dir`. Fail-open. */
+async function walkJsonlFiles(dir: string): Promise<string[]> {
+  let dirents: Dirent[];
+  try {
+    dirents = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return []; // absent/unreadable directory
+  }
+  const out: string[] = [];
+  for (const ent of dirents) {
+    const full = join(dir, ent.name);
+    if (ent.isDirectory()) {
+      out.push(...(await walkJsonlFiles(full)));
+    } else if (ent.isFile() && ent.name.endsWith(JSONL_EXT)) {
+      out.push(full);
+    }
+  }
+  return out;
 }
 
 async function fileExists(path: string): Promise<boolean> {

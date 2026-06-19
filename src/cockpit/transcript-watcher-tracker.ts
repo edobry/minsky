@@ -36,18 +36,22 @@ export interface TranscriptWatcherSummary {
   lastIngestAt: string | null;
   /** ISO timestamp of the last ingest error, or null. */
   lastErrorAt: string | null;
-  /** Message of the last ingest error, or null. */
-  lastError: string | null;
+  // NOTE: the raw last-error MESSAGE is deliberately NOT exposed here. /api/health
+  // is unauthenticated, and error strings can leak absolute paths / internals
+  // (reviewer R1). The message is still emitted to the log surface by the
+  // watcher's log.warn at each call site; only the count + timestamp are public.
 }
 
 /**
  * Per-session ingestion-freshness entry for the active-session registry (SC2).
  * Seeded from the watcher's FS discovery and updated as files change/ingest.
+ *
+ * NOTE: the absolute `jsonlPath` is deliberately NOT exposed (reviewer R1 —
+ * /api/health is unauthenticated; absolute paths are an info-disclosure risk).
+ * `agentSessionId` (the JSONL filename stem) is the stable public identifier.
  */
 export interface ActiveSessionInfo {
   agentSessionId: string;
-  /** Absolute path to the session's `.jsonl` transcript. */
-  jsonlPath: string;
   /** True for subagent transcripts under `<parent>/subagents/`. */
   isSubagent: boolean;
   /** ISO timestamp of the last filesystem event observed for this session. */
@@ -59,7 +63,6 @@ export interface ActiveSessionInfo {
 }
 
 interface ActiveSessionState {
-  jsonlPath: string;
   isSubagent: boolean;
   lastEventAtMs: number | null;
   lastIngestAtMs: number | null;
@@ -77,7 +80,6 @@ export class TranscriptWatcherTracker {
   private turnsIngested = 0;
   private lastIngestAtMs: number | null = null;
   private lastErrorAtMs: number | null = null;
-  private lastError: string | null = null;
 
   /** Per-session ingestion-freshness registry (SC2), keyed by agentSessionId. */
   private readonly sessions = new Map<string, ActiveSessionState>();
@@ -118,21 +120,23 @@ export class TranscriptWatcherTracker {
     this.lastIngestAtMs = Date.now();
   }
 
-  /** Record an ingest error (surfaced, not dropped — SC5). */
-  recordIngestError(message: string): void {
+  /**
+   * Record an ingest error (surfaced, not dropped — SC5). Only the count +
+   * timestamp are retained; the raw message is logged by the caller, not stored
+   * here (it must not reach the unauthenticated /api/health surface — reviewer R1).
+   */
+  recordIngestError(): void {
     this.ingestErrors++;
     this.lastErrorAtMs = Date.now();
-    this.lastError = message;
   }
 
   /**
    * Register/refresh a session from a filesystem event (SC2). Seeds the
    * registry on FS discovery and stamps `lastEventAt`.
    */
-  recordSessionEvent(agentSessionId: string, jsonlPath: string, isSubagent: boolean): void {
+  recordSessionEvent(agentSessionId: string, isSubagent: boolean): void {
     const existing = this.sessions.get(agentSessionId);
     this.sessions.set(agentSessionId, {
-      jsonlPath,
       isSubagent,
       lastEventAtMs: Date.now(),
       lastIngestAtMs: existing?.lastIngestAtMs ?? null,
@@ -163,7 +167,6 @@ export class TranscriptWatcherTracker {
     return Array.from(this.sessions.entries())
       .map(([agentSessionId, s]) => ({
         agentSessionId,
-        jsonlPath: s.jsonlPath,
         isSubagent: s.isSubagent,
         lastEventAt: s.lastEventAtMs === null ? null : new Date(s.lastEventAtMs).toISOString(),
         lastIngestAt: s.lastIngestAtMs === null ? null : new Date(s.lastIngestAtMs).toISOString(),
@@ -184,7 +187,6 @@ export class TranscriptWatcherTracker {
       lastIngestAt:
         this.lastIngestAtMs === null ? null : new Date(this.lastIngestAtMs).toISOString(),
       lastErrorAt: this.lastErrorAtMs === null ? null : new Date(this.lastErrorAtMs).toISOString(),
-      lastError: this.lastError,
     };
   }
 }
