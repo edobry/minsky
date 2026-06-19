@@ -45,6 +45,7 @@ import {
 import { withPgPoolRetry } from "../persistence/postgres-retry";
 import type { PersistenceProvider } from "../persistence/types";
 import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provider";
+import type { WorkspaceId } from "../ids";
 
 // Re-export the interface for use by extracted modules that historically
 // imported it from `session-db-adapter` (now deleted).
@@ -85,7 +86,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       const result = await this.db
         .select()
         .from(postgresSessions)
-        .where(eq(postgresSessions.sessionId, sessionId))
+        .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
         .limit(1);
       return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
     }, "drizzle-session-repository.getSession");
@@ -226,7 +227,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
         await this.db
           .update(postgresSessions)
           .set(toPostgresInsert(merged as SessionRecord))
-          .where(eq(postgresSessions.sessionId, sessionId));
+          .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId));
         return merged;
       }, "drizzle-session-repository.updateSession");
       if (!updated) {
@@ -247,7 +248,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     const deleted = await withPgPoolRetry(async () => {
       const rows = await this.db
         .delete(postgresSessions)
-        .where(eq(postgresSessions.sessionId, sessionId))
+        .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
         .returning({ sessionId: postgresSessions.sessionId });
       return rows.length > 0;
     }, "drizzle-session-repository.deleteSession");
@@ -288,7 +289,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     const result = await this.db
       .select()
       .from(postgresSessions)
-      .where(eq(postgresSessions.sessionId, sessionId))
+      .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
       .limit(1);
     return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
   }

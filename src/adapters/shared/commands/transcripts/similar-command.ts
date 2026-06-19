@@ -33,6 +33,7 @@ import type {
   TranscriptTurnResult,
   TranscriptSessionResult,
 } from "@minsky/domain/transcripts/transcript-similarity-service";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ export function registerTranscriptSimilarCommand(
       }
 
       // sessionId is set (validated above)
-      const results = await svc.findSimilarSession(sessionId as string, { limit });
+      const results = await svc.findSimilarSession(sessionId as AgentSessionId, { limit });
       log.debug("transcripts.similar (session) complete", {
         sessionId,
         resultCount: results.length,

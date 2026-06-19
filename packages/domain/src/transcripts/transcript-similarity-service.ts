@@ -24,6 +24,7 @@ import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-sche
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
+import type { AgentSessionId } from "./transcript-source";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -348,7 +349,7 @@ export class TranscriptSimilarityService {
    * The seed session is excluded from results.
    */
   async findSimilarSession(
-    sessionId: string,
+    sessionId: AgentSessionId,
     opts: FindSimilarSessionOptions = {}
   ): Promise<TranscriptSessionResult[]> {
     const limit = opts.limit ?? 10;

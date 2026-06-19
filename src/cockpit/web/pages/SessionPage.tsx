@@ -13,6 +13,7 @@
  */
 import { useParams } from "react-router-dom";
 import { ConversationView } from "../widgets/ConversationView";
+import type { ConversationId } from "@minsky/domain/ids";
 
 export function SessionPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +21,9 @@ export function SessionPage() {
   if (!id) {
     return <div className="p-4 text-sm text-muted-foreground">No session id in the URL.</div>;
   }
+
+  // Mint at the URL boundary: /session/:id carries a harness agentSessionId (ConversationId).
+  const conversationId = id as ConversationId;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
@@ -29,7 +33,7 @@ export function SessionPage() {
           {id}
         </span>
       </div>
-      <ConversationView sessionId={id} />
+      <ConversationView sessionId={conversationId} />
     </div>
   );
 }

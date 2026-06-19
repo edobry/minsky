@@ -35,11 +35,12 @@ import {
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
 import type { SessionContextSnapshot } from "@minsky/domain/context/types";
+import type { ConversationId } from "@minsky/domain/ids";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 type ConversationViewProps =
-  | { sessionId: string; snapshot?: undefined; className?: string }
+  | { sessionId: ConversationId; snapshot?: undefined; className?: string }
   | { snapshot: SessionContextSnapshot; sessionId?: undefined; className?: string };
 
 // ── Snapshot fetch (mirrors ContextInspector's endpoint usage) ─────────────────
@@ -64,7 +65,7 @@ class SnapshotError extends Error {
   }
 }
 
-async function fetchSnapshot(sessionId: string): Promise<SessionContextSnapshot> {
+async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextSnapshot> {
   const res = await fetch(
     `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}`
   );
@@ -403,7 +404,7 @@ function ConversationThread({
 
 // ── Self-fetching wrapper ───────────────────────────────────────────────────────
 
-function ConversationFetcher({ sessionId, className }: { sessionId: string; className?: string }) {
+function ConversationFetcher({ sessionId, className }: { sessionId: ConversationId; className?: string }) {
   const query = useQuery<SessionContextSnapshot, Error>({
     queryKey: ["conversation", "snapshot", sessionId],
     queryFn: () => fetchSnapshot(sessionId),

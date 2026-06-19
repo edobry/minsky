@@ -25,6 +25,7 @@ import type { SharedCommandRegistry } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { TranscriptTurnResult } from "@minsky/domain/transcripts/transcript-fts-service";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -121,7 +122,7 @@ export function registerTranscriptGetCommand(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase
       );
 
-      const results = await svc.getSession(sessionId, { turnRange });
+      const results = await svc.getSession(sessionId as AgentSessionId, { turnRange });
 
       log.debug("transcripts.get complete", { sessionId, resultCount: results.length });
 

@@ -19,6 +19,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { promises as fs } from "fs";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
+import type { AgentSessionId } from "../transcripts/transcript-source";
 import { provenanceTable } from "../storage/schemas/provenance-schema";
 import { log } from "@minsky/shared/logger";
 
@@ -127,7 +128,7 @@ export class AgentTranscriptService {
     const existing = await this.db
       .select()
       .from(agentTranscriptsTable)
-      .where(eq(agentTranscriptsTable.agentSessionId, sessionId))
+      .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
       .limit(1);
 
     if (existing.length > 0) {
@@ -137,10 +138,10 @@ export class AgentTranscriptService {
           transcript: messages,
           ingestedAt: new Date(),
         })
-        .where(eq(agentTranscriptsTable.agentSessionId, sessionId));
+        .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId));
     } else {
       await this.db.insert(agentTranscriptsTable).values({
-        agentSessionId: sessionId,
+        agentSessionId: sessionId as AgentSessionId,
         harness: "legacy",
         transcript: messages,
       });
@@ -161,7 +162,7 @@ export class AgentTranscriptService {
     const rows = await this.db
       .select()
       .from(agentTranscriptsTable)
-      .where(eq(agentTranscriptsTable.agentSessionId, sessionId))
+      .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
       .limit(1);
 
     const row = rows[0];

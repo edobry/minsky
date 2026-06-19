@@ -58,7 +58,7 @@ export class SingleFileTranscriptSource implements TranscriptSource {
   async discovered(): Promise<DiscoveredSession> {
     const stat = await fs.stat(this.jsonlPath);
     return {
-      agentSessionId: basename(this.jsonlPath, JSONL_EXT),
+      agentSessionId: basename(this.jsonlPath, JSONL_EXT) as AgentSessionId,
       jsonlPath: this.jsonlPath,
       harness: HARNESS,
       isSubagent: SUBAGENTS_SEGMENT_RE.test(this.jsonlPath),

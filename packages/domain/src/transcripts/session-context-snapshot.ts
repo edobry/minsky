@@ -19,6 +19,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
+import type { AgentSessionId } from "./transcript-source";
 import type {
   ContextElement,
   SessionContextSnapshot,
@@ -159,7 +160,7 @@ function turnLineToBlock(
  */
 export async function assembleSessionContextSnapshot(
   db: PostgresJsDatabase,
-  agentSessionId: string
+  agentSessionId: AgentSessionId
 ): Promise<SessionContextSnapshot | null> {
   // 1. Fetch the parent transcripts row (provides turn jsonb + harness).
   const transcriptRows = await db
