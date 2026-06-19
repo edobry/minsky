@@ -29,6 +29,7 @@ import type { SessionRecord } from "./types";
 import { SessionStatus } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
+import { evaluateTaskCorrespondence } from "./task-correspondence";
 import { resolveRepository } from "../repository";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
 import { ProvenanceService } from "../provenance/provenance-service";
@@ -1182,6 +1183,57 @@ export async function mergeSessionPr(
     log.warn(
       `Tier-aware merge setup failed (falling back to default): ${getErrorMessage(tierError)}`
     );
+  }
+
+  // Seam 2 (mt#2514 / mt#2511): block a "task-hijack" cross-bind merge. If the
+  // PR's commits reference a task DIFFERENT from the one this session is bound
+  // to (and none reference the bound task), refuse the merge — merging would
+  // auto-complete the bound task with work that belongs elsewhere. Pre-merge is
+  // the only place the commit subjects are reliably available (the merge runs
+  // via the GitHub API, so the merge commit is not guaranteed local afterward).
+  // Fail-open on any error; override with MINSKY_ACK_TASK_HIJACK=1.
+  const hijackBlockMessage = await evaluateTaskCorrespondence({
+    boundTaskId: sessionRecord.taskId,
+    log,
+    listCommitSubjects: async () => {
+      const owner = config.github?.owner;
+      const repo = config.github?.repo;
+      const prNum = sessionRecord.pullRequest?.number;
+      // Source the token via the same provider the merge uses, so App-configured
+      // environments don't silently fail-open (reviewer #1); fall back to the raw
+      // config token.
+      const cfg = getConfiguration();
+      const tokenProvider = createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? "");
+      let token = "";
+      try {
+        token = (await tokenProvider.getUserToken()) ?? "";
+      } catch {
+        token = "";
+      }
+      if (!token) token = cfg.github?.token ?? "";
+      if (!owner || !repo || !prNum || !token) {
+        log.debug("task-correspondence: skipping check (missing owner/repo/PR-number/token)", {
+          hasOwner: !!owner,
+          hasRepo: !!repo,
+          prNum,
+          hasToken: !!token,
+        });
+        return []; // missing precondition → no refs → no mismatch
+      }
+      const { createOctokit } = await import("../repository/github-pr-operations");
+      const octokit = createOctokit(token);
+      // Paginate so a PR with >100 commits cannot bypass the check (reviewer BLOCKING).
+      const commits = await octokit.paginate(octokit.rest.pulls.listCommits, {
+        owner,
+        repo,
+        pull_number: prNum,
+        per_page: 100,
+      });
+      return commits.map((c) => (c.commit?.message ?? "").split("\n")[0] ?? "");
+    },
+  });
+  if (hijackBlockMessage) {
+    throw new ValidationError(hijackBlockMessage);
   }
 
   const mergeInfo = await repositoryBackend.pr.merge(prIdentifier, sessionIdToUse, mergeOptions);
