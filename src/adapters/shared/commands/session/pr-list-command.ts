@@ -54,7 +54,15 @@ export function mapSessionPrListParams(params: Record<string, unknown>) {
   };
 }
 
-export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDefinition {
+/**
+ * @param listFn injectable domain call — defaults to the real `sessionPrList`; the
+ *   default keeps existing one-arg callers working, and lets tests stub the domain
+ *   call to assert the command honors the `sessionId` filter at the execute boundary.
+ */
+export function createSessionPrListCommand(
+  getDeps: LazySessionDeps,
+  listFn: typeof sessionPrList = sessionPrList
+): CommandDefinition {
   return {
     id: "session.pr.list",
     category: CommandCategory.SESSION,
@@ -64,7 +72,7 @@ export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging("session.pr.list", async (params: Record<string, unknown>) => {
       try {
         const deps = await getDeps();
-        const result = await sessionPrList(mapSessionPrListParams(params), {
+        const result = await listFn(mapSessionPrListParams(params), {
           sessionDB: deps.sessionProvider,
         });
 
