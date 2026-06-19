@@ -32,6 +32,28 @@ function formatRelativeTime(isoString: string): string {
   }
 }
 
+/**
+ * Maps the `session.pr.list` command params to the domain `sessionPrList` filter args.
+ *
+ * Extracted + exported for regression testing (mt#2516): the command's parameter
+ * schema (`sessionPrListCommandParams`) exposes the identity key as `sessionId`, so
+ * the handler MUST read `params.sessionId`. The prior code read `params.session`,
+ * which is never populated — silently dropping the session filter.
+ */
+export function mapSessionPrListParams(params: Record<string, unknown>) {
+  return {
+    session: params.sessionId as string | undefined,
+    task: params.task as string | undefined,
+    status: params.status as string | undefined,
+    backend: params.backend as "github" | undefined,
+    since: params.since as string | undefined,
+    until: params.until as string | undefined,
+    repo: params.repo as string | undefined,
+    json: params.json as boolean | undefined,
+    verbose: params.verbose as boolean | undefined,
+  };
+}
+
 export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.pr.list",
@@ -42,20 +64,9 @@ export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging("session.pr.list", async (params: Record<string, unknown>) => {
       try {
         const deps = await getDeps();
-        const result = await sessionPrList(
-          {
-            session: params.session as string | undefined,
-            task: params.task as string | undefined,
-            status: params.status as string | undefined,
-            backend: params.backend as "github" | undefined,
-            since: params.since as string | undefined,
-            until: params.until as string | undefined,
-            repo: params.repo as string | undefined,
-            json: params.json as boolean | undefined,
-            verbose: params.verbose as boolean | undefined,
-          },
-          { sessionDB: deps.sessionProvider }
-        );
+        const result = await sessionPrList(mapSessionPrListParams(params), {
+          sessionDB: deps.sessionProvider,
+        });
 
         if (params.json) {
           return { success: true, ...result };
