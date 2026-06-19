@@ -307,7 +307,23 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
  * 30m keeps the backstop meaningful (catches sessions missed while the daemon was
  * down, dropped FS events) without hammering the DB on a tight loop.
  */
-export const TRANSCRIPT_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+const TRANSCRIPT_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * Resolve the sweep cadence (SC1 — externally configurable). An explicit
+ * `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` env override (positive-integer
+ * milliseconds) wins; otherwise the default. Env-var config mirrors the
+ * cockpit's existing `MINSKY_COCKPIT_*` reads — no config-schema change needed.
+ */
+export function resolveSweepIntervalMs(): number {
+  const raw = process.env.MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS;
+  if (raw !== undefined && raw !== "") {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    log.warn("cockpit: ignoring invalid MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", { raw });
+  }
+  return TRANSCRIPT_SWEEP_INTERVAL_MS;
+}
 
 /**
  * Injectable runners for the sweep tick — separate from the real DB wiring so
@@ -424,7 +440,7 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
  */
 export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptions): () => void {
   let running = false;
-  const resolvedInterval = opts?.intervalMs ?? TRANSCRIPT_SWEEP_INTERVAL_MS;
+  const resolvedInterval = opts?.intervalMs ?? resolveSweepIntervalMs();
 
   const tick = async (): Promise<void> => {
     if (running) return;

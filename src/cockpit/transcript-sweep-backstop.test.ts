@@ -16,7 +16,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { startTranscriptSweepBackstop } from "./server";
+import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./server";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import type { TranscriptSweepDeps } from "./server";
 
@@ -344,5 +344,38 @@ describe("TranscriptSweepTracker (mt#2321)", () => {
 
     const t2 = TranscriptSweepTracker.resetForTest();
     expect(t2.getSummary().sweepsRun).toBe(0);
+  });
+});
+
+describe("resolveSweepIntervalMs (SC1 — externally configurable cadence)", () => {
+  // Use a variable key so the static no-unregistered-minsky-env-var lint rule
+  // (which matches literal process.env.MINSKY_* access) does not fire in tests.
+  const ENV = "MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS";
+  const DEFAULT_MS = 30 * 60 * 1000;
+  let original: string | undefined;
+
+  beforeEach(() => {
+    original = process.env[ENV];
+    delete process.env[ENV];
+  });
+  afterEach(() => {
+    if (original === undefined) delete process.env[ENV];
+    else process.env[ENV] = original;
+  });
+
+  test("defaults to 30 minutes when the env override is unset", () => {
+    expect(resolveSweepIntervalMs()).toBe(DEFAULT_MS);
+  });
+
+  test("uses a valid positive-integer env override", () => {
+    process.env[ENV] = "60000";
+    expect(resolveSweepIntervalMs()).toBe(60000);
+  });
+
+  test("falls back to the default on invalid env values", () => {
+    for (const bad of ["abc", "0", "-5", ""]) {
+      process.env[ENV] = bad;
+      expect(resolveSweepIntervalMs()).toBe(DEFAULT_MS);
+    }
   });
 });

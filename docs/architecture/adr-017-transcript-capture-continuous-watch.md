@@ -100,6 +100,28 @@ point, so overlap between watcher, sweep, hook, and the MCP boot sweep (mt#2051)
 - The reliability guarantee is bounded by the daemon being alive. If the daemon is down, the
   MCP boot sweep (mt#2051) remains the floor; full freshness resumes when the daemon restarts.
 
+## Implementation status
+
+Implemented under the mt#2234 umbrella:
+
+- **Primary watcher — mt#2320 (DONE):** recursive `fs.watch` over
+  `~/.claude/projects/**/*.jsonl` with per-file offset tracking
+  (`JsonlTailer`), ingest-on-append via the idempotent `ingestSession`. Health
+  on the cockpit `/api/health` `transcriptWatcher` field.
+- **Sweep backstop — mt#2321:** `startTranscriptSweepBackstop`
+  (`src/cockpit/server.ts`) runs a full-discovery `ingestAll()` + vector-only
+  `index-embeddings` backfill on a **configurable cadence** (default 30m, env
+  override `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS`), fail-open. Health on the
+  cockpit `/api/health` `transcriptSweep` field (counts + ISO timestamps only;
+  redacted — no paths / no raw error strings). Observability is on the
+  same-process `/api/health` rather than `debug_systemInfo` (which runs in the
+  MCP-server process and would read zero for cockpit-process state). See
+  `docs/architecture/cockpit.md` for the operational detail.
+
+Both compose with the mt#2051 MCP boot sweep and the mt#2192 SessionEnd
+fast-path; overlap is harmless (per-`turn_index` upsert + timestamp HWM). The
+mt#1418 single-writer guard remains the soft prerequisite for the overlap.
+
 ## Cross-references
 
 - Related tasks: mt#2192 (SessionEnd hook fast-path, PR #1513), mt#2234 (cockpit-daemon
