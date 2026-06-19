@@ -12,6 +12,7 @@ import {
 } from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
+import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
 
@@ -206,6 +207,10 @@ export function createStartCommand(): Command {
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
+      // Transcript watcher (mt#2320): the PRIMARY transcript-capture path from
+      // ADR-017 — FS-watch ~/.claude/projects and ingest-on-append so in-flight
+      // sessions become searchable without an exit/manual ingest/reboot.
+      const stopTranscriptWatcher = startTranscriptWatcher();
 
       let shuttingDown = false;
       const cleanupSync = () => {
@@ -213,6 +218,7 @@ export function createStartCommand(): Command {
         shuttingDown = true;
         stopAskSweeper();
         stopProdStateSweeper();
+        stopTranscriptWatcher();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

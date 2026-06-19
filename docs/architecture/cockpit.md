@@ -132,6 +132,61 @@ triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
 `--execute` to expire the stale set; `direction.decide` asks are never
 bulk-expired).
 
+## Transcript watcher (mt#2320)
+
+The cockpit daemon runs the **transcript watcher** — the primary transcript-capture
+mechanism of ADR-017. It attaches a recursive `fs.watch` over
+`~/.claude/projects/**/*.jsonl` (`startTranscriptWatcher` in
+`src/cockpit/transcript-watcher.ts`) and, on append, ingests the changed
+session's new turns through the existing idempotent
+`AgentTranscriptIngestService` (via a `SingleFileTranscriptSource` so a single
+file ingest is O(1), not a full project scan). An in-flight session therefore
+becomes FTS-searchable shortly after its turns hit disk — no session exit, no
+manual `transcripts ingest`, no MCP reboot. Existing transcripts are seeded at
+start with their tailer offset at EOF (history is owned by the boot sweep,
+mt#2051); only post-attach appends are tailed. The shared incremental-read
+primitive is `JsonlTailer` (`packages/domain/src/transcripts/jsonl-tailer.ts`),
+reused by the Rung-1 live renderer (mt#2232). Ingest dedup is owned by the
+service's timestamp high-water-mark, so a missed/dropped FS event is recovered
+by the periodic sweep backstop (mt#2321); the watcher fails open (an
+unsupported recursive watch logs and no-ops).
+
+**Observability — `GET /api/health` `transcriptWatcher`.** Because the watcher
+runs in the cockpit process (unlike `debug_systemInfo`, which is the MCP-server
+process), its health is exposed on the cockpit's own `/api/health` endpoint
+under a `transcriptWatcher` object:
+
+```jsonc
+"transcriptWatcher": {
+  "running": true,
+  "filesWatched": 12,
+  "ingestsTriggered": 34,
+  "ingestsSucceeded": 33,
+  "ingestErrors": 1,
+  "turnsIngested": 410,
+  "lastIngestAt": "2026-06-18T20:00:00.000Z",
+  "lastErrorAt": "2026-06-18T19:58:00.000Z",
+  "activeSessions": [
+    {
+      "agentSessionId": "abc-123",
+      "isSubagent": false,
+      "lastEventAt": "2026-06-18T20:00:00.000Z",
+      "lastIngestAt": "2026-06-18T20:00:00.000Z",
+      "lastTurnsIngested": 3
+    }
+  ]
+}
+```
+
+**Security posture.** `/api/health` is unauthenticated, so the payload is
+deliberately redacted: it carries **no absolute filesystem paths** (the
+`agentSessionId` — the JSONL filename stem — is the only session identifier;
+the absolute `jsonlPath` is never exposed) and **no raw error-message strings**
+(only an `ingestErrors` count and `lastErrorAt` timestamp; the underlying error
+text is emitted to the daemon log surface, not the API). Adding a field here
+that could leak a path or internal detail re-opens that disclosure — keep the
+redaction when extending it.
+
 ## Operator dev loop
 
 Dev mode (recommended for active UI work):

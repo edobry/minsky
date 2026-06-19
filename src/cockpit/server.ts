@@ -22,6 +22,7 @@ import { cockpitWebDistDir, cockpitIndexHtml } from "./web-dist";
 import { randomUUID } from "crypto";
 import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
+import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
@@ -619,7 +620,21 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch {
       // fallback: unknown
     }
-    res.json({ status: "ok", version, commit: getGitCommit(), uptimeSec });
+    // Transcript watcher observability (mt#2320 SC2/SC5): the watcher runs in
+    // THIS cockpit process, so its tracker singleton is readable here directly
+    // (it is intentionally not on debug_systemInfo, which is a different
+    // process). Exposes aggregate counters + the per-session freshness registry.
+    const watcherTracker = TranscriptWatcherTracker.getInstance();
+    res.json({
+      status: "ok",
+      version,
+      commit: getGitCommit(),
+      uptimeSec,
+      transcriptWatcher: {
+        ...watcherTracker.getSummary(),
+        activeSessions: watcherTracker.getActiveSessions(),
+      },
+    });
   });
 
   /** GET /api/widgets — metadata for every registered widget */
