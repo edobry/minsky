@@ -16,11 +16,12 @@ import {
 } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 import { projectsTable } from "./projects-schema";
+import type { WorkspaceId } from "../../ids";
 
 // PostgreSQL Schema
 export const postgresSessions = pgTable("sessions", {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  sessionId: varchar("session", { length: 255 })!.primaryKey(),
+  sessionId: varchar("session", { length: 255 })!.primaryKey().$type<WorkspaceId>(),
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   repoName: varchar("repo_name", { length: 255 })!.notNull(),
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -90,7 +91,7 @@ function coerceToDate(input: unknown): Date {
  */
 export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
   return {
-    sessionId: record.sessionId,
+    sessionId: record.sessionId as WorkspaceId,
     repoName: record.repoName,
     repoUrl: record.repoUrl || "",
     createdAt: coerceToDate(record.createdAt),

@@ -28,7 +28,7 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import { extractTurns } from "./turn-extractor";
-import type { RawTurnLine } from "./transcript-source";
+import type { AgentSessionId, RawTurnLine } from "./transcript-source";
 import { SummaryGenerator } from "./summary-generator";
 import type { CognitionProvider } from "../cognition/types";
 
@@ -81,7 +81,11 @@ export class SummaryPipeline {
       embeddingCallsMade: 0,
     };
 
-    let rows: Array<{ agentSessionId: string; transcript: unknown; summary: string | null }>;
+    let rows: Array<{
+      agentSessionId: AgentSessionId;
+      transcript: unknown;
+      summary: string | null;
+    }>;
     try {
       rows = await this.db
         .select({
@@ -139,8 +143,12 @@ export class SummaryPipeline {
    *
    * @returns true if the summary was generated and written; false if skipped.
    */
-  async runForSession(agentSessionId: string): Promise<boolean> {
-    let rows: Array<{ agentSessionId: string; transcript: unknown; summary: string | null }>;
+  async runForSession(agentSessionId: AgentSessionId): Promise<boolean> {
+    let rows: Array<{
+      agentSessionId: AgentSessionId;
+      transcript: unknown;
+      summary: string | null;
+    }>;
     try {
       rows = await this.db
         .select({
@@ -195,7 +203,7 @@ export class SummaryPipeline {
    * @returns true if summary was generated and written; false if skipped (empty transcript).
    */
   private async processTranscript(
-    agentSessionId: string,
+    agentSessionId: AgentSessionId,
     transcript: unknown,
     result: SummaryPipelineRunResult
   ): Promise<boolean> {

@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { shortenId } from "../lib/format";
+import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/agents/:id response shape (src/cockpit/session-detail.ts)
@@ -40,7 +41,7 @@ export interface SessionPrRef {
 
 export interface SessionDetailPayload {
   session: {
-    sessionId: string;
+    sessionId: WorkspaceId;
     taskId: string | null;
     taskTitle: string | null;
     status: string | null;
@@ -57,7 +58,7 @@ export interface SessionDetailPayload {
   };
   commits: SessionCommitRef[];
   pr: SessionPrRef | null;
-  conversation: { agentSessionId: string } | null;
+  conversation: { agentSessionId: ConversationId } | null;
 }
 
 const LIVENESS_VALUES = ["healthy", "idle", "stale", "orphaned"] as const;
@@ -86,7 +87,7 @@ function isSessionDetailPayload(v: unknown): v is SessionDetailPayload {
 // Fetch
 // ---------------------------------------------------------------------------
 
-async function fetchSessionDetail(sessionId: string): Promise<SessionDetailPayload> {
+async function fetchSessionDetail(sessionId: WorkspaceId): Promise<SessionDetailPayload> {
   const encoded = encodeURIComponent(sessionId);
   const res = await fetch(`/api/agents/${encoded}`);
   if (!res.ok) {
@@ -138,7 +139,7 @@ function SessionDetailBody({
   sessionId,
   query,
 }: {
-  sessionId: string;
+  sessionId: WorkspaceId;
   query: UseQueryResult<SessionDetailPayload, Error>;
 }) {
   if (query.isPending) {
@@ -289,7 +290,7 @@ function SessionDetailBody({
 
 interface SessionDetailProps {
   /** Minsky workspace sessionId (NOT the harness agentSessionId). */
-  sessionId: string;
+  sessionId: WorkspaceId;
   /** Render-context variant; defaults to the full-page card frame. */
   variant?: WidgetVariant;
 }

@@ -12,10 +12,12 @@
 import { useParams, Link } from "react-router-dom";
 import { SessionDetail } from "../widgets/SessionDetail";
 import { shortenId } from "../lib/format";
+import type { WorkspaceId } from "@minsky/domain/ids";
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const sessionId = id ?? "";
+  // Mint at the URL boundary: /agents/:id carries a Minsky workspace sessionId.
+  const sessionId = (id ?? "") as WorkspaceId;
 
   return (
     <div className="p-4 w-full max-w-4xl">

@@ -40,6 +40,7 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
 import type { ExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
@@ -261,7 +262,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
         const trows = await pgDb
           .select({ transcript: agentTranscriptsTable.transcript })
           .from(agentTranscriptsTable)
-          .where(eq(agentTranscriptsTable.agentSessionId, sessionId as string))
+          .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
           .limit(1);
         const turnsWritten = await writeTurnsForTranscript(
           pgDb,
@@ -294,7 +295,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
       let summaryProcessed = false;
       let summaryResult: SummaryPipelineRunResult | null = null;
       try {
-        summaryProcessed = await summaryPipeline.runForSession(sessionId as string);
+        summaryProcessed = await summaryPipeline.runForSession(sessionId as AgentSessionId);
         summaryResult = {
           transcriptsScanned: 1,
           transcriptsProcessed: summaryProcessed ? 1 : 0,

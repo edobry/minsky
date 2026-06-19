@@ -33,6 +33,7 @@ import {
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { log } from "@minsky/shared/logger";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 import { execSync } from "child_process";
 
 // Lazy + memoized: this module loads during CLI command registration (e.g. on
@@ -1703,7 +1704,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const { assembleSessionContextSnapshot } = await import(
         "@minsky/domain/transcripts/session-context-snapshot"
       );
-      const snapshot = await assembleSessionContextSnapshot(db, sessionId);
+      const snapshot = await assembleSessionContextSnapshot(db, sessionId as AgentSessionId);
 
       if (snapshot === null) {
         contextInspectorError(
