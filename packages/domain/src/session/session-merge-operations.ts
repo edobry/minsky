@@ -1199,17 +1199,37 @@ export async function mergeSessionPr(
       const owner = config.github?.owner;
       const repo = config.github?.repo;
       const prNum = sessionRecord.pullRequest?.number;
-      const token = getConfiguration().github?.token ?? "";
-      if (!owner || !repo || !prNum || !token) return []; // missing precondition → no refs → no mismatch
+      // Source the token via the same provider the merge uses, so App-configured
+      // environments don't silently fail-open (reviewer #1); fall back to the raw
+      // config token.
+      const cfg = getConfiguration();
+      const tokenProvider = createTokenProvider(cfg.github ?? {}, cfg.github?.token ?? "");
+      let token = "";
+      try {
+        token = (await tokenProvider.getUserToken()) ?? "";
+      } catch {
+        token = "";
+      }
+      if (!token) token = cfg.github?.token ?? "";
+      if (!owner || !repo || !prNum || !token) {
+        log.debug("task-correspondence: skipping check (missing owner/repo/PR-number/token)", {
+          hasOwner: !!owner,
+          hasRepo: !!repo,
+          prNum,
+          hasToken: !!token,
+        });
+        return []; // missing precondition → no refs → no mismatch
+      }
       const { createOctokit } = await import("../repository/github-pr-operations");
       const octokit = createOctokit(token);
-      const resp = await octokit.rest.pulls.listCommits({
+      // Paginate so a PR with >100 commits cannot bypass the check (reviewer BLOCKING).
+      const commits = await octokit.paginate(octokit.rest.pulls.listCommits, {
         owner,
         repo,
         pull_number: prNum,
         per_page: 100,
       });
-      return resp.data.map((c) => (c.commit?.message ?? "").split("\n")[0] ?? "");
+      return commits.map((c) => (c.commit?.message ?? "").split("\n")[0] ?? "");
     },
   });
   if (hijackBlockMessage) {
