@@ -436,6 +436,7 @@ async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
  *
  * Deps are injectable so the sweep core can be unit-tested without a real DB or filesystem.
  *
+ * @see docs/architecture/cockpit.md — Transcript sweep backstop (cadence + /api/health payload)
  * @returns stop function (clears the interval).
  */
 export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptions): () => void {
