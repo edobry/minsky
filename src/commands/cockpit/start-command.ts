@@ -9,6 +9,7 @@ import {
   initServerSseBroker,
   startAskAdvancementSweeper,
   startProdStateRefreshSweeper,
+  startTranscriptSweepBackstop,
 } from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
@@ -211,6 +212,10 @@ export function createStartCommand(): Command {
       // ADR-017 — FS-watch ~/.claude/projects and ingest-on-append so in-flight
       // sessions become searchable without an exit/manual ingest/reboot.
       const stopTranscriptWatcher = startTranscriptWatcher();
+      // Transcript sweep backstop (mt#2321): BACKSTOP half of ADR-017 — periodic
+      // full-discovery ingest + embedding backfill to cover dropped FS events,
+      // sessions missed while the daemon was down, and stale embeddings.
+      const stopTranscriptSweep = startTranscriptSweepBackstop();
 
       let shuttingDown = false;
       const cleanupSync = () => {
@@ -219,6 +224,7 @@ export function createStartCommand(): Command {
         stopAskSweeper();
         stopProdStateSweeper();
         stopTranscriptWatcher();
+        stopTranscriptSweep();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

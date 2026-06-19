@@ -187,6 +187,43 @@ text is emitted to the daemon log surface, not the API). Adding a field here
 that could leak a path or internal detail re-opens that disclosure — keep the
 redaction when extending it.
 
+## Transcript sweep backstop (mt#2321)
+
+The cockpit daemon also runs the **transcript sweep backstop** — the recovery
+layer behind the watcher (mt#2320), per ADR-017's watcher-primary +
+sweep-backstop design. On a configurable cadence (`startTranscriptSweepBackstop`
+in `src/cockpit/server.ts`) it runs a full-discovery `ingestAll()` (idempotent /
+HWM-gated) followed by the vector-only semantic-embedding backfill
+(`index-embeddings`), run off the critical path and fail-open — a missing or
+failing embedding provider does not crash the sweep. It recovers what the watcher
+can miss: dropped/coalesced FS events, sessions that completed while the daemon
+was down, sessions predating the watcher's attach, and stale/missing embeddings.
+
+**Cadence.** Default 30 minutes (heavier than the prod-state sweeper because a
+full `ingestAll` re-discovers every session). Externally configurable via the
+`MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` env var (positive-integer milliseconds;
+invalid values fall back to the default with a warning).
+
+**Observability — `GET /api/health` `transcriptSweep`.** Like the watcher, the
+sweep runs in the cockpit process, so its health is on the cockpit's own
+`/api/health` — NOT `debug_systemInfo`, which runs in the MCP-server process and
+would read zero for cockpit-process state:
+
+```jsonc
+"transcriptSweep": {
+  "sweepsRun": 3,
+  "sessionsIngested": 41,
+  "sessionsErrored": 0,
+  "embedRuns": 3,
+  "lastSweepAt": "2026-06-19T22:00:00.000Z",
+  "lastErrorAt": null
+}
+```
+
+Same redaction posture as the watcher: counts + ISO timestamps only — no
+absolute paths, no raw error-message strings (the unauthenticated-endpoint
+disclosure constraint).
+
 ## Operator dev loop
 
 Dev mode (recommended for active UI work):

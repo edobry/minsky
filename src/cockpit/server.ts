@@ -23,6 +23,7 @@ import { randomUUID } from "crypto";
 import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
 import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
+import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
@@ -292,6 +293,228 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
   void tick();
   const resolvedInterval = intervalMs ?? PROD_STATE_REFRESH_INTERVAL_MS;
   const id = setInterval(() => void tick(), resolvedInterval);
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
+// Transcript sweep backstop (mt#2321)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default cadence for the transcript sweep backstop. Longer than the prod-state
+ * sweeper (10m) because a full ingestAll + embedding backfill is heavy — it
+ * re-discovers every JSONL session in ~/.claude/projects and calls the DB for each.
+ * 30m keeps the backstop meaningful (catches sessions missed while the daemon was
+ * down, dropped FS events) without hammering the DB on a tight loop.
+ */
+const TRANSCRIPT_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * Resolve the sweep cadence (SC1 — externally configurable). An explicit
+ * `MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` env override (positive-integer
+ * milliseconds) wins; otherwise the default. Env-var config mirrors the
+ * cockpit's existing `MINSKY_COCKPIT_*` reads — no config-schema change needed.
+ */
+export function resolveSweepIntervalMs(): number {
+  const raw = process.env.MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS;
+  if (raw !== undefined && raw !== "") {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    log.warn("cockpit: ignoring invalid MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", { raw });
+  }
+  return TRANSCRIPT_SWEEP_INTERVAL_MS;
+}
+
+/**
+ * Injectable runners for the sweep tick — separate from the real DB wiring so
+ * unit tests can inject spies without a real DB or filesystem.
+ */
+export interface TranscriptSweepDeps {
+  /** Run a full ingest sweep (wraps ingestAll). Must be idempotent/HWM-gated. */
+  runIngest: () => Promise<{ sessionsProcessed: number; sessionsErrored: number }>;
+  /** Run the embedding backfill (wraps PerTurnEmbeddingPipeline.run). May throw. */
+  runEmbeddings: () => Promise<void>;
+  /** Tracker singleton to record observability counters. */
+  tracker: TranscriptSweepTracker;
+}
+
+/** Options accepted by startTranscriptSweepBackstop. */
+export interface TranscriptSweepBackstopOptions {
+  /** Cadence override in milliseconds (default: TRANSCRIPT_SWEEP_INTERVAL_MS). */
+  intervalMs?: number;
+  /**
+   * Injectable deps for testing. When absent, the real DB path is used
+   * (ClaudeCodeTranscriptSource + AgentTranscriptIngestService + PerTurnEmbeddingPipeline).
+   */
+  deps?: TranscriptSweepDeps;
+}
+
+/**
+ * Build the real sweep deps from the shared persistence service.
+ * Returns null when the provider is not SQL-capable.
+ */
+async function buildRealSweepDeps(): Promise<TranscriptSweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  const tracker = TranscriptSweepTracker.getInstance();
+
+  const runIngest = async (): Promise<{ sessionsProcessed: number; sessionsErrored: number }> => {
+    const { ClaudeCodeTranscriptSource } = await import(
+      "@minsky/domain/transcripts/claude-code-transcript-source"
+    );
+    const { AgentTranscriptIngestService } = await import(
+      "@minsky/domain/transcripts/agent-transcript-ingest-service"
+    );
+    const source = new ClaudeCodeTranscriptSource();
+    const svcIngest = new AgentTranscriptIngestService(
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
+      source
+    );
+    const result = await svcIngest.ingestAll();
+    return {
+      sessionsProcessed: result.sessionsProcessed,
+      sessionsErrored: result.sessionsErrored,
+    };
+  };
+
+  const runEmbeddings = async (): Promise<void> => {
+    // createEmbeddingServiceFromConfig throws when no embedding provider is
+    // configured or reachable. The tick's outer try/catch (fail-open) handles
+    // that case: the sweep ingest counters are already recorded, and only the
+    // embedding backfill is skipped — per SC2's requirement that a missing
+    // embedding provider must not crash the sweep.
+    const { createEmbeddingServiceFromConfig } = await import(
+      "@minsky/domain/ai/embedding-service-factory"
+    );
+    const embeddingService = await createEmbeddingServiceFromConfig();
+    const { PerTurnEmbeddingPipeline } = await import(
+      "@minsky/domain/transcripts/per-turn-embedding-pipeline"
+    );
+    const pipeline = new PerTurnEmbeddingPipeline(
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
+      embeddingService
+    );
+    await pipeline.run();
+  };
+
+  return { runIngest, runEmbeddings, tracker };
+}
+
+/**
+ * Start the periodic transcript sweep backstop in this cockpit process (mt#2321).
+ *
+ * BACKSTOP half of ADR-017 (the primary capture path is the FS watcher, mt#2320).
+ * Covers failure modes the watcher cannot recover:
+ *   - Dropped / coalesced / lost FS-watch events
+ *   - Sessions that completed while the cockpit daemon was DOWN
+ *   - Sessions predating the watcher's attach that seedExisting did not cover
+ *   - Stale / missing pgvector embeddings (via the embedded backfill pass)
+ *
+ * Sweeper convention (mirrors startAskAdvancementSweeper and startProdStateRefreshSweeper):
+ *   - `running` flag skips overlapping ticks
+ *   - fail-open try/catch + log.warn on every failure path
+ *   - `void tick()` boot pass
+ *   - `setInterval` + `.unref()` so the process never stays alive for the sweep alone
+ *   - returns `() => clearInterval(id)` stop function
+ *
+ * Deps are injectable so the sweep core can be unit-tested without a real DB or filesystem.
+ *
+ * @see docs/architecture/cockpit.md — Transcript sweep backstop (cadence + /api/health payload)
+ * @returns stop function (clears the interval).
+ */
+export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptions): () => void {
+  let running = false;
+  const resolvedInterval = opts?.intervalMs ?? resolveSweepIntervalMs();
+
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      // Resolve deps: injected (for tests) or real (for production).
+      let sweepDeps: TranscriptSweepDeps | null;
+      if (opts?.deps) {
+        sweepDeps = opts.deps;
+      } else {
+        sweepDeps = await buildRealSweepDeps();
+      }
+
+      if (!sweepDeps) {
+        // Non-SQL provider: nothing to sweep.
+        log.debug("cockpit: transcript sweep: no SQL-capable DB, skipping tick");
+        return;
+      }
+
+      const { runIngest, runEmbeddings, tracker } = sweepDeps;
+
+      // ── Phase 1: ingest sweep (idempotent/HWM-gated) ──────────────────────
+      let ingestResult: { sessionsProcessed: number; sessionsErrored: number };
+      try {
+        ingestResult = await runIngest();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: transcript sweep: ingest failed", { message });
+        sweepDeps.tracker.recordSweepError();
+        return; // Can't meaningfully record a completed sweep if ingest threw.
+      }
+
+      // Record ingest counters (includes error count — surfaced, not dropped).
+      if (ingestResult.sessionsErrored > 0) {
+        log.warn("cockpit: transcript sweep: ingest completed with per-session errors", {
+          sessionsProcessed: ingestResult.sessionsProcessed,
+          sessionsErrored: ingestResult.sessionsErrored,
+        });
+      }
+      tracker.recordSweepCompleted(ingestResult.sessionsProcessed, ingestResult.sessionsErrored);
+
+      // ── Phase 2: embedding backfill (heavy, fail-open) ─────────────────────
+      // SC2: default semantic-embedding backfill, run off the critical path.
+      // A missing embedding provider, API error, or DB timeout must NOT crash
+      // the sweep or prevent the ingest counters from being recorded.
+      try {
+        await runEmbeddings();
+        tracker.recordEmbedRunCompleted();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: transcript sweep: embedding backfill failed (non-fatal)", { message });
+        tracker.recordSweepError();
+        // No return: the ingest phase already completed successfully.
+      }
+    } catch (err) {
+      // Outermost safety net — unexpected throw escaping either phase.
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: transcript sweep: unexpected error in tick", { message });
+      // If we have injected deps, at least record an error.
+      if (opts?.deps) {
+        opts.deps.tracker.recordSweepError();
+      } else {
+        TranscriptSweepTracker.getInstance().recordSweepError();
+      }
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const id = setInterval(() => void tick(), resolvedInterval);
+  // Never hold the process open on account of the sweeper.
   if (typeof id === "object" && "unref" in id) id.unref();
   return () => clearInterval(id);
 }
@@ -626,6 +849,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // (it is intentionally not on debug_systemInfo, which is a different
     // process). Exposes aggregate counters + the per-session freshness registry.
     const watcherTracker = TranscriptWatcherTracker.getInstance();
+    // Transcript sweep backstop observability (mt#2321 SC3): the sweep also runs
+    // in THIS cockpit process. Aggregate counters only; no raw error strings
+    // (redaction policy — same as the watcher tracker above, per reviewer R1 on
+    // mt#2320).
+    const sweepTracker = TranscriptSweepTracker.getInstance();
     res.json({
       status: "ok",
       version,
@@ -635,6 +863,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         ...watcherTracker.getSummary(),
         activeSessions: watcherTracker.getActiveSessions(),
       },
+      transcriptSweep: sweepTracker.getSummary(),
     });
   });
 
