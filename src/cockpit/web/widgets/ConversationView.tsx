@@ -85,10 +85,12 @@ async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextS
 // ── Entity index for linkification ────────────────────────────────────────────
 //
 // The linkifier resolves bare entity references (mt#NNNN, UUIDs) against a
-// known-entity id-set. We reuse the SAME data CommandPalette already fetches —
-// tasks from /api/tasks, sessions/asks/memories from widget endpoints — so no
-// new substrate is needed. The queries share the same cache keys as CommandPalette,
-// meaning a recently-opened palette warms the cache for free.
+// known-entity id-set. We fetch the same underlying data as CommandPalette (tasks
+// from /api/tasks, sessions/asks/memories from widget endpoints) but with DISTINCT
+// query keys for tasks (see useEntityIndex for the full rationale — shape mismatch
+// would poison the CommandPalette cache and cause entityToPath(undefined, id) →
+// navigate(undefined)). Widget-data queries (agents, attention, memories) share keys
+// with CommandPalette because their shapes are compatible.
 
 interface TaskListEntry {
   id: string;
@@ -130,20 +132,28 @@ function extractMemoryIds(data: WidgetData | undefined): string[] {
 }
 
 /**
- * Build the entity index from existing CommandPalette queries (shared cache).
+ * Build the entity index from data fetched for linkification purposes.
  * Returns an always-present EntityIndex (may be empty on load or error).
  *
- * Uses the SAME query keys as CommandPalette so the cached data is shared —
- * opening the command palette before viewing a transcript warms these for free.
+ * IMPORTANT: these queries use DISTINCT cache keys from CommandPalette's queries
+ * to prevent cache poisoning. CommandPalette's tasks key ("command-palette-tasks")
+ * caches PaletteTask[] (objects with a `type` field); entity-index needs only
+ * TaskListEntry[] (no `type` field). Sharing the key would corrupt the cache:
+ * whichever component fills it first wins, and the other reads objects of the
+ * wrong shape — causing entityToPath(undefined, id) → navigate(undefined).
+ *
+ * Cache isolation trade-off: opening the palette no longer warms the entity-
+ * index cache for free. The widget data queries (agents, attention, memories)
+ * DO share keys with CommandPalette because their shapes are compatible
+ * (both extract only ids from the WidgetData wrapper).
  */
 function useEntityIndex(): EntityIndex {
-  // All four queries use the same keys as CommandPalette to share the cache.
-  // The task query fn mirrors CommandPalette's `fetchTaskList` so the returned
-  // shape is compatible with what the cache already holds.
   const [tasksQ, agentsQ, attentionQ, memoriesQ] = useQueries({
     queries: [
       {
-        queryKey: ["command-palette-tasks"],
+        // Distinct key from CommandPalette's "command-palette-tasks" — different shape
+        // (TaskListEntry[] here vs PaletteTask[] there; sharing would poison the cache).
+        queryKey: ["entity-index", "tasks"],
         queryFn: fetchTaskList,
         staleTime: 30_000,
       },
@@ -404,9 +414,9 @@ function ConversationThread({
   snapshot: SessionContextSnapshot;
   className?: string;
 }) {
-  // Build the entity index for transcript linkification. Reuses cached data
-  // from CommandPalette's queries (same query keys) — no new fetch in practice
-  // when the palette has been opened recently.
+  // Build the entity index for transcript linkification. Fetches the same
+  // underlying data as CommandPalette via useEntityIndex (which uses distinct
+  // query keys to avoid cache-shape collisions — see useEntityIndex for details).
   const entityIndex = useEntityIndex();
 
   const turns = useMemo(() => snapshotBlocksToConversation(snapshot.blocks), [snapshot.blocks]);

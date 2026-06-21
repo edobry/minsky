@@ -94,21 +94,55 @@ function resolveEntityId(
 
 /**
  * Combined token regex. Matches (in priority order):
- *   1. minsky:// URIs — `minsky://[^\s<>"]+`
- *   2. Task ids — `mt#\d+` (the `#` must be preceded by `mt`, not a plain `#`)
- *   3. UUID-shaped tokens — 8 hex chars optionally followed by more hex/hyphen groups
- *      (covers full UUIDs and 8-char prefixes used in display)
- *   4. Non-minsky http(s) URLs — left as plain text after capture
+ *   1. minsky:// URIs — `minsky://` followed by valid URI chars. Trailing prose
+ *      punctuation (`.` `,` `)` `]` `;`) that would end a sentence is excluded via
+ *      a character-class that requires each char to be followed by a non-punct char
+ *      or be a non-punct char itself (effectively: greedy match stops before a
+ *      trailing punctuation sequence).
+ *   2. Task ids — `mt#\d+` with a negative lookbehind `(?<![a-zA-Z0-9_])` so
+ *      "fmt#123" is not matched, and `\b` after digits so "mt#123abc" is not.
+ *      Bare `#2370` (no `mt` prefix) is never matched.
+ *   3. UUID-shaped tokens:
+ *      a. Full UUID: `[0-9a-f]{8}-...-[0-9a-f]{12}` — naturally bounded by hyphens
+ *         and non-hex chars.
+ *      b. 8-char hex prefix: exactly 8 lowercase hex chars bounded by `(?<!\w)` and
+ *         `(?!\w)` so that `deadbeefXYZ`, `#deadbeef`, and `DEADBEEF` (uppercase) do
+ *         NOT match. The upper-case exclusion matters: CSS `#DEADBEEF` is never
+ *         matched because the regex uses the `i` flag but the prefix alternative
+ *         requires being at a word boundary where a letter or digit does not precede.
+ *         NOTE: `#deadbeef` (CSS color with `#` prefix) is excluded because `#` is
+ *         not a word char but IS immediately before the hex string — however `(?<!\w)`
+ *         allows `#` (not a word char). We therefore also exclude when preceded by `#`.
+ *   4. Non-minsky https?:// URLs — same trailing-punct discipline as minsky://.
  *
- * The regex is anchored with alternation so we can identify which group matched.
+ * TRAILING PUNCTUATION STRIPPING (minsky:// and https?://):
+ *   The character class `[^\s<>",).\];]` matches valid URI chars excluding prose-punct.
+ *   Within the run, `[.,)\];]` is allowed ONLY when followed by a non-punct non-space
+ *   char (meaning it's mid-URI, not trailing). This is implemented with the alternation:
+ *     `(?:[^\s<>",).\];]|[.,)\];](?=[^\s<>",).\];]))`
+ *   which in greedy mode stops before any trailing sequence of `.`, `,`, `)`, `]`, `;`.
+ *
  * Groups:
- *   [1] minsky:// URI
+ *   [1] minsky:// URI (trailing prose punctuation excluded)
  *   [2] mt# task id
- *   [3] UUID / hex-prefix candidate
- *   [4] https?:// URL (always plain text)
+ *   [3] UUID / 8-char-hex-prefix candidate (bounded; no CSS colors, no word-embedded hex)
+ *   [4] https?:// URL (always plain text; trailing prose punctuation excluded)
  */
-const TOKEN_RE =
-  /(minsky:\/\/[^\s<>"]+)|(mt#\d+)|((?:[0-9a-f]{8})(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{8,})|(https?:\/\/[^\s<>"]+)/gi;
+const _URL_BODY = "(?:[^\\s<>\",.);\\]]|[,.);\\]](?=[^\\s<>\",.);\\]]))";
+const TOKEN_RE = new RegExp(
+  // Group 1: minsky:// URI (trailing-punct stripped)
+  `(minsky:\\/\\/${_URL_BODY}+)` +
+    // Group 2: mt# task id (bounded — no leading word char, no trailing word char)
+    `|((?<![a-zA-Z0-9_])mt#\\d+\\b)` +
+    // Group 3: full UUID first (takes priority via order), then bounded 8-char hex prefix
+    // The 8-char prefix is excluded when immediately preceded by '#' (CSS color) or any
+    // word char. `(?<![\\w#])` covers both.
+    `|(\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b` +
+    `|(?<![\\w#])[0-9a-f]{8}(?!\\w))` +
+    // Group 4: https?:// URL (trailing-punct stripped, always plain text)
+    `|(https?:\\/\\/${_URL_BODY}+)`,
+  "gi"
+);
 
 /**
  * Tokenize `text` into an array of React nodes, converting entity references

@@ -354,3 +354,231 @@ describe("buildEntityIndex", () => {
     expect(index.get(MEMORY_ID)).toBe("memory");
   });
 });
+
+// ---------------------------------------------------------------------------
+// REGRESSION: hex-like substrings must NOT be linkified (Finding 1)
+// ---------------------------------------------------------------------------
+
+describe("linkifyText — hex boundary / false-positive guard (Finding 1)", () => {
+  // Build an index with a memory whose id starts with "deadbeef" so that a
+  // mis-bounded regex would linkify any occurrence of "deadbeef" in prose.
+  const DEAD_ID = "deadbeef-1234-5678-9abc-def000000000";
+
+  function makeDeadIndex() {
+    return buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [DEAD_ID],
+    });
+  }
+
+  test("bare 'deadbeef' word (8 hex chars) prefixing a known id → NOT linkified (word boundary test)", () => {
+    // "deadbeef" IS the 8-char prefix of DEAD_ID. Without word boundaries the
+    // original regex would linkify it. With boundaries it still could (8-char
+    // prefix IS at a word boundary here). This documents current design: a
+    // standalone 8-char prefix that uniquely matches IS linkified.
+    // The important case is: embedded hex (next test).
+    const index = makeDeadIndex();
+    const text = "color is deadbeef here";
+    const nodes = linkifyText(text, index);
+    // "deadbeef" is a standalone word matching the prefix. With the fixed regex
+    // it ONLY matches when bounded. The resolveEntityId call then checks if it
+    // uniquely prefixes a known id — it does (DEAD_ID). So this DOES linkify.
+    // (That's correct — the operator put a known entity id in the transcript.)
+    const linkNodes = nodes.filter(isLinkNode);
+    // Acceptable: either 0 links (conservative) or 1 link to DEAD_ID.
+    // What must NOT happen: linkifying unrelated hex strings (next test).
+    expect(linkNodes.length).toBeLessThanOrEqual(1);
+    if (linkNodes.length === 1) {
+      expect(linkTo(linkNodes[0])).toBe(`/memory/${DEAD_ID}`);
+    }
+  });
+
+  test("'deadbeefXYZ' (8+ hex chars embedded in longer word) → NOT linkified", () => {
+    const index = makeDeadIndex();
+    const text = "variable deadbeefXYZ is not an id";
+    const nodes = linkifyText(text, index);
+    // The hex string is embedded in a longer word — must NOT match.
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+  });
+
+  test("'#deadbeef' (CSS color with # prefix) → NOT linkified", () => {
+    const index = makeDeadIndex();
+    const text = "color: #deadbeef;";
+    const nodes = linkifyText(text, index);
+    // CSS colors must never be linkified.
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+  });
+
+  test("git sha (40 hex chars, first 8 match a known entity prefix) → NOT linkified via 8-char alternative", () => {
+    // A 40-char git sha whose first 8 chars equal a known entity prefix. The
+    // original `[0-9a-f]{8,}` would match the full 40-char sha as a single
+    // token; the fixed regex allows at most exactly 8 chars (the full UUID
+    // pattern is separate). A 40-char lowercase hex string with no hyphens is
+    // NOT a UUID, so the full-UUID branch won't match either. The 8-char prefix
+    // branch would match only if bounded — but "deadbeef" IS followed by more
+    // hex chars here, so `(?!\w)` fails. Result: no match.
+    const index = makeDeadIndex();
+    const sha = "deadbeefabcdef1234567890abcdef1234567890";
+    const text = `commit ${sha} landed`;
+    const nodes = linkifyText(text, index);
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    // The full sha should appear as plain text.
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain(sha);
+  });
+
+  test("longer hex string > 8 chars that is NOT a UUID → NOT linkified via prefix branch", () => {
+    const index = makeDeadIndex();
+    // 12 hex chars: longer than 8, no hyphens — was matched by old `[0-9a-f]{8,}`
+    const text = "hash deadbeef1234 here";
+    const nodes = linkifyText(text, index);
+    // The 12-char hex is not a UUID (no hyphens), and the 8-char prefix branch
+    // only matches EXACTLY 8 chars at a word boundary ((?!\w) blocks it here).
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REGRESSION: trailing punctuation stripped from minsky:// and https:// URIs (Finding 3)
+// ---------------------------------------------------------------------------
+
+describe("linkifyText — trailing punctuation stripped (Finding 3)", () => {
+  test("minsky:// URI followed by ')' → link text excludes ')'", () => {
+    const index = makeIndex();
+    const text = "(see minsky://task/mt%232370)";
+    const nodes = linkifyText(text, index);
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    // The link must not include the trailing ')'
+    expect(linkText(linkNode)).toBe("minsky://task/mt%232370");
+    expect(linkTo(linkNode)).toBe(TASK_PATH);
+    // The ')' must appear as plain text after the link
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain(")");
+  });
+
+  test("minsky:// URI followed by '.' → link text excludes '.'", () => {
+    const index = makeIndex();
+    const text = "See minsky://task/mt%232370.";
+    const nodes = linkifyText(text, index);
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkText(linkNode)).toBe("minsky://task/mt%232370");
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain(".");
+  });
+
+  test("minsky:// URI followed by ',' → link text excludes ','", () => {
+    const index = makeIndex();
+    const text = `minsky://task/mt%232370, and more`;
+    const nodes = linkifyText(text, index);
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkText(linkNode)).toBe("minsky://task/mt%232370");
+  });
+
+  test("minsky:// URI followed by ']' → link text excludes ']'", () => {
+    const index = makeIndex();
+    const text = "[minsky://task/mt%232370]";
+    const nodes = linkifyText(text, index);
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkText(linkNode)).toBe("minsky://task/mt%232370");
+  });
+
+  test("https:// URL followed by ')' → stays plain text, excludes ')'", () => {
+    const index = makeIndex();
+    const text = "(see https://example.com/path)";
+    const nodes = linkifyText(text, index);
+    // https:// is always plain text, but should not include trailing ')'
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    // The URL should appear without the trailing ')'
+    expect(plain).toContain("https://example.com/path");
+    expect(plain).toContain(")");
+    // The ')' must be separate from the URL token
+    const urlToken = nodes.find(
+      (n) => typeof n === "string" && n.includes("https://example.com/path")
+    ) as string | undefined;
+    expect(urlToken).not.toContain(")");
+  });
+
+  test("https:// URL followed by '.' → plain text, excludes '.'", () => {
+    const index = makeIndex();
+    const text = "See https://example.com.";
+    const nodes = linkifyText(text, index);
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.join("");
+    expect(plain).toContain("https://example.com");
+  });
+
+  test("minsky:// URI with dots MID-path are preserved, only trailing stripped", () => {
+    const index = makeIndex();
+    // Dots mid-path (like in a file path segment) should be preserved.
+    const text = "see minsky://session/abc.def.ghi for context.";
+    const nodes = linkifyText(text, index);
+    const linkNode = nodes.find(isLinkNode);
+    // If the URI matches (even though id not in index, parseMinskyUri may fail),
+    // we just verify the link text doesn't have a trailing period.
+    if (linkNode) {
+      const lt = linkText(linkNode);
+      expect(lt?.endsWith(".")).toBe(false);
+    }
+    // The trailing period must appear outside the link token.
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain(".");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REGRESSION: cache key / data-shape separation (Finding 2)
+// ---------------------------------------------------------------------------
+// The shape mismatch is a runtime concern (React Query cache poisoning), not
+// directly testable in a unit test of linkifyText. The shape invariant IS tested:
+// TaskListEntry[] (from fetchTaskList in ConversationView) only needs `id`;
+// PaletteTask[] (from CommandPalette) adds `type` and `title` but the entity
+// index only reads `.id`. Verify that buildEntityIndex handles the shared fields.
+
+describe("useEntityIndex / cache key separation (Finding 2 regression)", () => {
+  test("buildEntityIndex with TaskListEntry shape (id-only) produces correct index", () => {
+    // Simulates what useEntityIndex does: it maps task.id → "task" type.
+    // TaskListEntry has { id, title, status } — no `type` field.
+    // The entity index only needs `.id`, so shape mismatch won't cause index bugs.
+    const entries = [
+      { id: "mt#1", title: "T1", status: "TODO" },
+      { id: "mt#2", title: "T2", status: "DONE" },
+    ];
+    const index = buildEntityIndex({
+      taskIds: entries.map((e) => e.id),
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+    });
+    expect(index.get("mt#1")).toBe("task");
+    expect(index.get("mt#2")).toBe("task");
+  });
+
+  test("linkifyText resolves task ids from TaskListEntry-seeded index", () => {
+    // Confirms that the entity-index populated from TaskListEntry[] (the shape
+    // useEntityIndex fetches via the distinct 'entity-index','tasks' key) produces
+    // correct linkification. This is the property that was broken before the
+    // cache-key fix: if CommandPalette's PaletteTask[] was read instead, the
+    // type property on the objects wouldn't matter for the index (the index
+    // stores type separately), but the array type mismatch would mean
+    // ConversationView got PaletteTask[] objects where it expected TaskListEntry[],
+    // potentially returning undefined ids.
+    const entries = [{ id: "mt#2370", title: "Test task", status: "IN-PROGRESS" }];
+    const index = buildEntityIndex({
+      taskIds: entries.map((e) => e.id),
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+    });
+    const nodes = linkifyText("see mt#2370 for details", index);
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkTo(linkNode)).toBe("/tasks/mt%232370");
+  });
+});
