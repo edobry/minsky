@@ -24,6 +24,7 @@ import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
 import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import { classifySnapshotMiss, WRONG_ID_SPACE_MESSAGE } from "./conversation-id-space";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
@@ -1871,8 +1872,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * Query params:
    *   ?sessionId=<agent_session_id>   — required; the harness-native session UUID.
    *
-   * Response: SessionContextSnapshot JSON (categorized chronological block list)
-   *   or 404 when the session is unknown to the substrate.
+   * Response: SessionContextSnapshot JSON (categorized chronological block list);
+   *   404 `session_not_found` when no transcript exists for the id; or 422
+   *   `wrong_id_space` when the id is actually a Minsky WORKSPACE session id
+   *   (not a harness conversation id) — the mt#2420 / mt#2525 fail-loud branch,
+   *   so a misrouted id surfaces a clear error instead of "no transcript yet".
    *
    * The widget framework's single-payload shape doesn't fit the interactive
    * picker → detail pattern, so this endpoint lives as a sibling to the
@@ -1891,6 +1895,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     | "missing_field"
     | "unsupported_provider"
     | "session_not_found"
+    | "wrong_id_space"
     | "internal";
 
   function contextInspectorError(
@@ -1936,6 +1941,20 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const snapshot = await assembleSessionContextSnapshot(db, sessionId as AgentSessionId);
 
       if (snapshot === null) {
+        // Fail LOUD on the mt#2420 id-space mistake: a Minsky WORKSPACE id
+        // (from /agents rows) passed where a harness CONVERSATION id is
+        // expected. Probe the workspace substrate only on this miss path (no
+        // happy-path cost); a distinct 422 beats the misleading 404
+        // "no transcript yet" that ConversationView would otherwise render.
+        const missClass = await classifySnapshotMiss(sessionId, async (id) => {
+          const provider = await getServerSessionProvider();
+          if (!provider) return false;
+          return Boolean(await provider.getSession(id));
+        });
+        if (missClass === "wrong_id_space") {
+          contextInspectorError(res, 422, "wrong_id_space", WRONG_ID_SPACE_MESSAGE);
+          return;
+        }
         contextInspectorError(
           res,
           404,
