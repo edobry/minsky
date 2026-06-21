@@ -54,10 +54,15 @@ function isSnapshot(value: unknown): value is SessionContextSnapshot {
   );
 }
 
-/** Carries the HTTP status so callers can distinguish "no transcript" (404) from real failures. */
+/**
+ * Carries the HTTP status AND the structured error `code` so callers can
+ * distinguish "no transcript" (404 / `session_not_found`) from a wrong-id-space
+ * mistake (422 / `wrong_id_space`, mt#2525) and from real failures.
+ */
 class SnapshotError extends Error {
   constructor(
     public readonly status: number,
+    public readonly code: string | undefined,
     message: string
   ) {
     super(message);
@@ -70,8 +75,21 @@ async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextS
     `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}`
   );
   if (!res.ok) {
-    const text = await res.text();
-    throw new SnapshotError(res.status, `Snapshot fetch failed (${res.status}): ${text}`);
+    // The endpoint returns `{ error: { code, message } }`; fall back to the raw
+    // body when it isn't that shape (e.g. a proxy/HTML error page).
+    const raw = await res.text();
+    let code: string | undefined;
+    let detail = raw;
+    try {
+      const parsed = JSON.parse(raw) as { error?: { code?: unknown; message?: unknown } };
+      if (parsed.error && typeof parsed.error === "object") {
+        if (typeof parsed.error.code === "string") code = parsed.error.code;
+        if (typeof parsed.error.message === "string") detail = parsed.error.message;
+      }
+    } catch {
+      // Non-JSON body — keep the raw text as the detail.
+    }
+    throw new SnapshotError(res.status, code, `Snapshot fetch failed (${res.status}): ${detail}`);
   }
   const json: unknown = await res.json();
   if (!isSnapshot(json)) {
@@ -404,7 +422,13 @@ function ConversationThread({
 
 // ── Self-fetching wrapper ───────────────────────────────────────────────────────
 
-function ConversationFetcher({ sessionId, className }: { sessionId: ConversationId; className?: string }) {
+function ConversationFetcher({
+  sessionId,
+  className,
+}: {
+  sessionId: ConversationId;
+  className?: string;
+}) {
   const query = useQuery<SessionContextSnapshot, Error>({
     queryKey: ["conversation", "snapshot", sessionId],
     queryFn: () => fetchSnapshot(sessionId),
@@ -412,7 +436,29 @@ function ConversationFetcher({ sessionId, className }: { sessionId: Conversation
   });
 
   if (query.isError) {
-    const notFound = query.error instanceof SnapshotError && query.error.status === 404;
+    const snapErr = query.error instanceof SnapshotError ? query.error : null;
+    // Fail LOUD on the wrong-id-space mistake (mt#2525 / mt#2420): a workspace
+    // session id was passed where a harness conversation id is required. This
+    // must NOT fall through to the "no transcript yet" empty state — that was
+    // the original misleading surface.
+    if (snapErr?.code === "wrong_id_space") {
+      return (
+        <div
+          role="alert"
+          className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}
+        >
+          <p className="text-sm font-medium text-destructive">
+            Wrong id type for the conversation view.
+          </p>
+          <p className="max-w-md text-xs text-muted-foreground">
+            This looks like a Minsky workspace session id, not a harness conversation id. Open the
+            workspace&apos;s session detail page and use its &ldquo;View conversation&rdquo; link to
+            reach the transcript.
+          </p>
+        </div>
+      );
+    }
+    const notFound = snapErr?.status === 404;
     if (notFound) {
       return (
         <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>

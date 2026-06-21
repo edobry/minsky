@@ -24,6 +24,7 @@ import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
 import { TranscriptWatcherTracker } from "./transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
+import { classifySnapshotMiss, WRONG_ID_SPACE_MESSAGE } from "./conversation-id-space";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
@@ -1891,6 +1892,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     | "missing_field"
     | "unsupported_provider"
     | "session_not_found"
+    | "wrong_id_space"
     | "internal";
 
   function contextInspectorError(
@@ -1936,6 +1938,20 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const snapshot = await assembleSessionContextSnapshot(db, sessionId as AgentSessionId);
 
       if (snapshot === null) {
+        // Fail LOUD on the mt#2420 id-space mistake: a Minsky WORKSPACE id
+        // (from /agents rows) passed where a harness CONVERSATION id is
+        // expected. Probe the workspace substrate only on this miss path (no
+        // happy-path cost); a distinct 422 beats the misleading 404
+        // "no transcript yet" that ConversationView would otherwise render.
+        const missClass = await classifySnapshotMiss(sessionId, async (id) => {
+          const provider = await getServerSessionProvider();
+          if (!provider) return false;
+          return Boolean(await provider.getSession(id));
+        });
+        if (missClass === "wrong_id_space") {
+          contextInspectorError(res, 422, "wrong_id_space", WRONG_ID_SPACE_MESSAGE);
+          return;
+        }
         contextInspectorError(
           res,
           404,

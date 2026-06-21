@@ -10,6 +10,16 @@ read the cadence via `mcp__minsky__debug_systemInfo` (under `mcpDisconnects`)
 and the persisted JSONL log at
 `~/.local/state/minsky/mcp-disconnect-log.json`.
 
+> **Terminology (mt#2525).** Throughout this rule, **"session"** and
+> **"disconnect"** mean an **MCP transport connection** — a single MCP server
+> process's stdio (stdin/stdout) or hosted-HTTP connection lifecycle. This is
+> the **transport** sense of "session" from the mt#2513 inventory; it is NOT a
+> Minsky **workspace** session (the task-scoped clone created by `session_start`)
+> and NOT a harness **conversation** (a Claude Code chat). In particular,
+> `processRole: "main_session"` means an MCP connection that issued >= 1 tool
+> call, and `escalation: "session"` is scoped to the current MCP server-process
+> lifetime — neither refers to a workspace or a conversation.
+
 ## Cause classes
 
 A single `stdin_close` reading would conflate four real-world classes that
@@ -23,8 +33,9 @@ the tracker now distinguishes (mt#1682):
    intentionally exits the process so the next call gets a fresh server
    loaded from the new HEAD. Recorded as `cause: "staleness_exit"`.
    **Excluded from escalation** as by-design behavior.
-3. **Genuine long-lived-session closure** — the harness closes a session
-   that had been doing real work. Recorded as `cause: "stdin_close"` with
+3. **Genuine long-lived MCP-connection closure** — the harness closes an MCP
+   transport connection that had been doing real work. Recorded as
+   `cause: "stdin_close"` with
    `uptimeMs >= 5_000` AND `processRole: "main_session"`. **Counts toward
    escalation** — this is the user-visible reliability concern.
 4. **Signal-driven shutdowns** — process received SIGTERM, SIGINT, or
@@ -2774,7 +2785,7 @@ A mechanism with no invocation path is a stub. It may exist in the codebase, pas
 
 # Compact Instructions
 
-When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
+When compacting, preserve: current task ID and the workspace session path (the `session_start` clone dir), file paths being edited, architectural decisions made in this conversation, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
 
 # Decision Defaults
 
