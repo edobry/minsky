@@ -440,8 +440,10 @@ function ConversationFetcher({
     // Fail LOUD on the wrong-id-space mistake (mt#2525 / mt#2420): a workspace
     // session id was passed where a harness conversation id is required. This
     // must NOT fall through to the "no transcript yet" empty state — that was
-    // the original misleading surface.
-    if (snapErr?.code === "wrong_id_space") {
+    // the original misleading surface. Also key off the 422 status so an
+    // intermediary/proxy that drops the JSON body but preserves the status still
+    // routes here (reviewer #1729 robustness suggestion).
+    if (snapErr?.code === "wrong_id_space" || snapErr?.status === 422) {
       return (
         <div
           role="alert"
