@@ -27,7 +27,7 @@
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { cn } from "../lib/utils";
 import {
   snapshotBlocksToConversation,
@@ -36,6 +36,8 @@ import {
 } from "@minsky/domain/transcripts/conversation-elements";
 import type { SessionContextSnapshot } from "@minsky/domain/context/types";
 import type { ConversationId } from "@minsky/domain/ids";
+import { buildEntityIndex, linkifyText, type EntityIndex } from "../lib/entity-linkifier";
+import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +80,101 @@ async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextS
     throw new Error("Snapshot response did not match the expected shape");
   }
   return json;
+}
+
+// ── Entity index for linkification ────────────────────────────────────────────
+//
+// The linkifier resolves bare entity references (mt#NNNN, UUIDs) against a
+// known-entity id-set. We reuse the SAME data CommandPalette already fetches —
+// tasks from /api/tasks, sessions/asks/memories from widget endpoints — so no
+// new substrate is needed. The queries share the same cache keys as CommandPalette,
+// meaning a recently-opened palette warms the cache for free.
+
+interface TaskListEntry {
+  id: string;
+  title: string;
+  status: string;
+}
+
+async function fetchTaskList(): Promise<TaskListEntry[]> {
+  try {
+    const res = await fetch("/api/tasks");
+    if (!res.ok) return [];
+    const data = (await res.json()) as { tasks?: TaskListEntry[] };
+    if (!Array.isArray(data?.tasks)) return [];
+    return data.tasks;
+  } catch {
+    return [];
+  }
+}
+
+function extractAgentSessionIds(data: WidgetData | undefined): string[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { agents?: { sessionId: string }[] };
+  if (!Array.isArray(payload?.agents)) return [];
+  return payload.agents.map((a) => a.sessionId);
+}
+
+function extractAskIds(data: WidgetData | undefined): string[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { cohort?: { id: string }[] };
+  if (!Array.isArray(payload?.cohort)) return [];
+  return payload.cohort.map((a) => a.id);
+}
+
+function extractMemoryIds(data: WidgetData | undefined): string[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as { records?: { id: string }[] };
+  if (!Array.isArray(payload?.records)) return [];
+  return payload.records.map((r) => r.id);
+}
+
+/**
+ * Build the entity index from existing CommandPalette queries (shared cache).
+ * Returns an always-present EntityIndex (may be empty on load or error).
+ *
+ * Uses the SAME query keys as CommandPalette so the cached data is shared —
+ * opening the command palette before viewing a transcript warms these for free.
+ */
+function useEntityIndex(): EntityIndex {
+  // All four queries use the same keys as CommandPalette to share the cache.
+  // The task query fn mirrors CommandPalette's `fetchTaskList` so the returned
+  // shape is compatible with what the cache already holds.
+  const [tasksQ, agentsQ, attentionQ, memoriesQ] = useQueries({
+    queries: [
+      {
+        queryKey: ["command-palette-tasks"],
+        queryFn: fetchTaskList,
+        staleTime: 30_000,
+      },
+      {
+        queryKey: ["agents"],
+        queryFn: () => fetchWidgetData("agents"),
+        staleTime: 30_000,
+      },
+      {
+        queryKey: ["attention"],
+        queryFn: () => fetchWidgetData("attention"),
+        staleTime: 30_000,
+      },
+      {
+        queryKey: ["widget", "memories-list", "", "", true],
+        queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
+        staleTime: 30_000,
+      },
+    ],
+  });
+
+  return useMemo(
+    () =>
+      buildEntityIndex({
+        taskIds: (tasksQ.data ?? []).map((t) => t.id),
+        sessionIds: extractAgentSessionIds(agentsQ.data as WidgetData | undefined),
+        askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
+        memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),
+      }),
+    [tasksQ.data, agentsQ.data, attentionQ.data, memoriesQ.data]
+  );
 }
 
 // ── Content pretty-printing ────────────────────────────────────────────────────
@@ -202,14 +299,19 @@ function ToolResult({
 function ElementView({
   element,
   callNameByToolUseId,
+  entityIndex,
 }: {
   element: ConversationElement;
   callNameByToolUseId: Map<string, string>;
+  /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
+  entityIndex: EntityIndex;
 }) {
   switch (element.kind) {
     case "text":
       return element.text.trim().length > 0 ? (
-        <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{element.text}</p>
+        <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">
+          {linkifyText(element.text, entityIndex)}
+        </p>
       ) : null;
     case "thinking":
       return element.thinking.trim().length > 0 ? (
@@ -243,15 +345,22 @@ const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: str
 function TurnView({
   turn,
   callNameByToolUseId,
+  entityIndex,
 }: {
   turn: ConversationTurn;
   callNameByToolUseId: Map<string, string>;
+  entityIndex: EntityIndex;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
-        <ElementView key={i} element={element} callNameByToolUseId={callNameByToolUseId} />
+        <ElementView
+          key={i}
+          element={element}
+          callNameByToolUseId={callNameByToolUseId}
+          entityIndex={entityIndex}
+        />
       );
       return node;
     })
@@ -295,6 +404,11 @@ function ConversationThread({
   snapshot: SessionContextSnapshot;
   className?: string;
 }) {
+  // Build the entity index for transcript linkification. Reuses cached data
+  // from CommandPalette's queries (same query keys) — no new fetch in practice
+  // when the palette has been opened recently.
+  const entityIndex = useEntityIndex();
+
   const turns = useMemo(() => snapshotBlocksToConversation(snapshot.blocks), [snapshot.blocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
@@ -395,7 +509,12 @@ function ConversationThread({
         </div>
       )}
       {windowedTurns.map((turn) => (
-        <TurnView key={turn.blockId} turn={turn} callNameByToolUseId={callNameByToolUseId} />
+        <TurnView
+          key={turn.blockId}
+          turn={turn}
+          callNameByToolUseId={callNameByToolUseId}
+          entityIndex={entityIndex}
+        />
       ))}
       <div ref={endRef} aria-hidden />
     </div>
