@@ -153,18 +153,20 @@ describe("linkifyText — bare task ids", () => {
     expect(linkText(linkNode)).toBe(TASK_ID);
   });
 
-  test("mt#NNNN links even when NOT in id-set (fast path — spec mt#2518)", () => {
-    // Distinctive, unambiguous shape → always linked, without id-set membership.
-    // The /tasks/:id route handles a not-found id gracefully. Gating on the id-set
-    // would drop the large majority of real task refs (those outside the loaded page).
-    const index = makeIndex();
+  test("mt#NNNN NOT in id-set stays plain text (gated — spec mt#2518 R4)", () => {
+    // Bare mt# refs are gated on the id-set. A well-formed mt# that is not a known
+    // task id stays as plain text (zero false positives). The id-set is kept
+    // comprehensive (/api/tasks?all=true) so real task refs do link — but an mt#
+    // that genuinely doesn't exist in the index must not produce a broken link.
+    const index = makeIndex(); // contains TASK_ID = "mt#2370" but not "mt#9999"
     const text = "see mt#9999 for details";
     const nodes = linkifyText(text, index);
 
-    const linkNode = nodes.find(isLinkNode);
-    expect(linkNode).toBeDefined();
-    expect(linkTo(linkNode)).toBe("/tasks/mt%239999");
-    expect(linkText(linkNode)).toBe("mt#9999");
+    // No link nodes; the mt#9999 token stays as plain text
+    const linkNodes = nodes.filter(isLinkNode);
+    expect(linkNodes.length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain("mt#9999");
   });
 
   test("#define is not treated as a task id", () => {
@@ -183,6 +185,92 @@ describe("linkifyText — bare task ids", () => {
 
     expect(nodes.filter(isLinkNode).length).toBe(0);
     expect(nodes.join("")).toBe("fixed in #2370");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Comprehensive id-set tests (mt#2518 R4)
+// ---------------------------------------------------------------------------
+
+describe("linkifyText — comprehensive id-set (mt#2518 R4)", () => {
+  /**
+   * Build a large task-id index that includes many statuses (all, done, closed,
+   * completed) — simulating what useEntityIndex receives from /api/tasks?all=true.
+   */
+  function makeComprehensiveIndex() {
+    // 10 task ids across multiple statuses, including terminal ones
+    const taskIds = [
+      "mt#100", // TODO
+      "mt#200", // PLANNING
+      "mt#300", // READY
+      "mt#400", // IN-PROGRESS
+      "mt#500", // IN-REVIEW
+      "mt#600", // DONE (terminal — excluded by default /api/tasks but included with ?all=true)
+      "mt#700", // CLOSED (terminal)
+      "mt#800", // COMPLETED (terminal)
+      "mt#900", // BLOCKED
+      TASK_ID, // mt#2370 (existing fixture)
+    ];
+    return buildEntityIndex({
+      taskIds,
+      sessionIds: [SESSION_ID],
+      askIds: [ASK_ID],
+      memoryIds: [MEMORY_ID],
+    });
+  }
+
+  test("a comprehensive id-set with many task ids links all of them", () => {
+    const index = makeComprehensiveIndex();
+
+    // Each known task id in the text becomes a link
+    const taskIds = ["mt#100", "mt#200", "mt#300", "mt#400", "mt#500", "mt#600", "mt#700"];
+    for (const id of taskIds) {
+      const text = `see ${id} for details`;
+      const nodes = linkifyText(text, index);
+      const linkNodes = nodes.filter(isLinkNode);
+      expect(linkNodes.length).toBe(1);
+      const encodedId = id.replace("#", "%23");
+      expect(linkTo(linkNodes[0])).toBe(`/tasks/${encodedId}`);
+    }
+  });
+
+  test("terminal-status task ids (DONE/CLOSED) link when in the comprehensive set", () => {
+    // This is the core of the mt#2518 R4 fix: with ?all=true these are in the set
+    const index = makeComprehensiveIndex();
+
+    const text = "tasks mt#600 and mt#700 are done";
+    const nodes = linkifyText(text, index);
+    const linkNodes = nodes.filter(isLinkNode);
+    expect(linkNodes.length).toBe(2);
+
+    const paths = linkNodes.map(linkTo);
+    expect(paths).toContain("/tasks/mt%23600");
+    expect(paths).toContain("/tasks/mt%23700");
+  });
+
+  test("mt# NOT in the comprehensive set still stays plain text (gated)", () => {
+    // Even with a comprehensive set, an mt# that genuinely doesn't exist stays plain
+    const index = makeComprehensiveIndex();
+
+    const text = "the non-existent mt#99999 should be plain";
+    const nodes = linkifyText(text, index);
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain("mt#99999");
+  });
+
+  test("mixed text: known task ids link, unknown ones stay plain", () => {
+    const index = makeComprehensiveIndex();
+
+    // mt#2370 is in the set; mt#9999 is not
+    const text = "see mt#2370 and mt#9999 for context";
+    const nodes = linkifyText(text, index);
+    const linkNodes = nodes.filter(isLinkNode);
+    expect(linkNodes.length).toBe(1);
+    expect(linkTo(linkNodes[0])).toBe(TASK_PATH);
+
+    const plainText = nodes.filter((n) => typeof n === "string").join("");
+    expect(plainText).toContain("mt#9999");
   });
 });
 
@@ -582,6 +670,6 @@ describe("useEntityIndex / cache key separation (Finding 2 regression)", () => {
     const nodes = linkifyText("see mt#2370 for details", index);
     const linkNode = nodes.find(isLinkNode);
     expect(linkNode).toBeDefined();
-    expect(linkTo(linkNode)).toBe("/tasks/mt%232370");
+    expect(linkTo(linkNode)).toBe(TASK_PATH);
   });
 });

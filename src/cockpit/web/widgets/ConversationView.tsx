@@ -100,7 +100,12 @@ interface TaskListEntry {
 
 async function fetchTaskList(): Promise<TaskListEntry[]> {
   try {
-    const res = await fetch("/api/tasks");
+    // Use ?all=true to fetch ALL task ids regardless of status (DONE/CLOSED/COMPLETED
+    // included). Without this, the default endpoint excludes terminal-status tasks and
+    // only a small fraction of transcript task refs were in the id-set (observed: 2 of
+    // 70 live refs). The gated linkifier links mt#NNNN ONLY when its id is in this
+    // set, so the set must be comprehensive. See mt#2518 R4.
+    const res = await fetch("/api/tasks?all=true");
     if (!res.ok) return [];
     const data = (await res.json()) as { tasks?: TaskListEntry[] };
     if (!Array.isArray(data?.tasks)) return [];

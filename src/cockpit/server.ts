@@ -1186,8 +1186,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * workstreams.ts). Returns 503 when the task service is unavailable.
    * Most-recently-updated first before the 500-cap (mt#2444): an unordered
    * slice over a >500 backlog hid every recent task from the palette.
+   *
+   * Query params:
+   *   ?all=true — return ALL task ids regardless of status (DONE/CLOSED/COMPLETED
+   *               included). Used by the entity-index linkifier (mt#2518) to make
+   *               the task id-set comprehensive so every transcript ref links.
+   *               Without this flag the default excludes terminal statuses, which
+   *               caused only 2 of 70 task refs to link in live transcripts.
    */
-  app.get("/api/tasks", async (_req, res) => {
+  app.get("/api/tasks", async (req, res) => {
     try {
       const taskService = await getServerTaskService();
       if (!taskService) {
@@ -1198,7 +1205,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
       const { sortTasksByRecency } = await import("./palette-tasks");
-      const tasks = await taskService.listTasks({});
+      // ?all=true: include DONE/CLOSED/COMPLETED tasks (needed by the entity-index
+      // linkifier in ConversationView — mt#2518). Without this flag the backend
+      // default hides terminal-status tasks, leaving most transcript refs unlinkified.
+      const includeAll = req.query.all === "true";
+      const tasks = await taskService.listTasks({ all: includeAll });
       const taskList = sortTasksByRecency(tasks)
         .slice(0, 500)
         .map((t) => ({

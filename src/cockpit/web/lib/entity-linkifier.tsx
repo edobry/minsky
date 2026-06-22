@@ -2,13 +2,14 @@
  * Entity linkifier — tokenizes transcript text into React nodes, converting
  * entity references to in-SPA <Link> elements (mt#2518).
  *
- * Two pass strategy:
+ * Two-class strategy:
  *   (a) Explicit `minsky://<type>/<id>` substrings → <Link> routed by PATH via parseMinskyUri.
  *       These resolve even when the id is NOT in the loaded id-set (type is in the URI).
- *   (b) Bare `mt#NNNN` task ids — FAST PATH: linked unconditionally (distinctive,
- *       unambiguous shape; the /tasks/:id route handles not-found). No id-set needed.
- *   (c) Bare/prefix UUIDs (ask/session/memory) — resolved against a known-entity
- *       id-set; linked ONLY when the token matches a known entity.
+ *   (b) Bare references (mt#NNNN task ids and UUID-shaped tokens) — resolved against a
+ *       known-entity id-set via resolveEntityId(); linked ONLY when the token matches a
+ *       known entity in the index. A well-formed mt# NOT in the id-set stays plain text
+ *       (zero false positives). The id-set must be COMPREHENSIVE (useEntityIndex fetches
+ *       /api/tasks?all=true so DONE/CLOSED tasks are included) — see mt#2518 R4.
  *
  * Conservative design (zero false positives):
  *   - Non-matching tokens, `#define`, prefix-less `#2370`, non-entity UUIDs,
@@ -206,29 +207,35 @@ export function linkifyText(
       continue;
     }
 
-    // --- (b) Task id: mt#NNNN — FAST PATH (spec mt#2518) ---
-    // Bare `mt#NNNN` links WITHOUT requiring the id-set: the shape is distinctive
-    // and unambiguous (a task reference), so we always link it. The `/tasks/:id`
-    // route handles a not-found id gracefully. Gating on id-set membership would
-    // drop the large majority of real task refs (those outside the loaded page).
+    // --- (b) Bare task id: mt#NNNN — id-set GATED ---
+    // Bare `mt#NNNN` is linked ONLY when the id is present in the entity index.
+    // A well-formed mt# that is NOT a known task → plain text (zero false positives).
+    // The id-set is comprehensive (useEntityIndex fetches /api/tasks?all=true so
+    // DONE/CLOSED tasks are included) — see mt#2518 R4.
     if (taskId) {
-      const path = entityToPath("task", taskId);
-      nodes.push(
-        createElement(
-          Link,
-          {
-            key: `link-${matchStart}`,
-            to: path,
-            className: "font-mono text-primary underline-offset-2 hover:underline",
-            ...linkProps,
-          },
-          taskId
-        )
-      );
+      const resolved = resolveEntityId(taskId, index);
+      if (resolved) {
+        const path = entityToPath(resolved.type, resolved.id);
+        nodes.push(
+          createElement(
+            Link,
+            {
+              key: `link-${matchStart}`,
+              to: path,
+              className: "font-mono text-primary underline-offset-2 hover:underline",
+              ...linkProps,
+            },
+            taskId
+          )
+        );
+      } else {
+        // mt# not in id-set → plain text
+        nodes.push(taskId);
+      }
       continue;
     }
 
-    // --- (b) UUID / hex-prefix candidate ---
+    // --- (c) UUID / hex-prefix candidate ---
     if (uuidCandidate) {
       const resolved = resolveEntityId(uuidCandidate, index);
       if (resolved) {
