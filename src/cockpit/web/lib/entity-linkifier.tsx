@@ -5,8 +5,10 @@
  * Two pass strategy:
  *   (a) Explicit `minsky://<type>/<id>` substrings → <Link> routed by PATH via parseMinskyUri.
  *       These resolve even when the id is NOT in the loaded id-set (type is in the URI).
- *   (b) Bare references — `mt#NNNN` task ids + bare/prefix UUIDs — resolved against a
- *       known-entity id-set; linked ONLY when the token matches a known entity.
+ *   (b) Bare `mt#NNNN` task ids — FAST PATH: linked unconditionally (distinctive,
+ *       unambiguous shape; the /tasks/:id route handles not-found). No id-set needed.
+ *   (c) Bare/prefix UUIDs (ask/session/memory) — resolved against a known-entity
+ *       id-set; linked ONLY when the token matches a known entity.
  *
  * Conservative design (zero false positives):
  *   - Non-matching tokens, `#define`, prefix-less `#2370`, non-entity UUIDs,
@@ -204,27 +206,25 @@ export function linkifyText(
       continue;
     }
 
-    // --- (b) Task id: mt#NNNN ---
+    // --- (b) Task id: mt#NNNN — FAST PATH (spec mt#2518) ---
+    // Bare `mt#NNNN` links WITHOUT requiring the id-set: the shape is distinctive
+    // and unambiguous (a task reference), so we always link it. The `/tasks/:id`
+    // route handles a not-found id gracefully. Gating on id-set membership would
+    // drop the large majority of real task refs (those outside the loaded page).
     if (taskId) {
-      const resolved = resolveEntityId(taskId, index);
-      if (resolved) {
-        const path = entityToPath(resolved.type, resolved.id);
-        nodes.push(
-          createElement(
-            Link,
-            {
-              key: `link-${matchStart}`,
-              to: path,
-              className: "font-mono text-primary underline-offset-2 hover:underline",
-              ...linkProps,
-            },
-            taskId
-          )
-        );
-      } else {
-        // Not in id-set → plain text (conservative)
-        nodes.push(taskId);
-      }
+      const path = entityToPath("task", taskId);
+      nodes.push(
+        createElement(
+          Link,
+          {
+            key: `link-${matchStart}`,
+            to: path,
+            className: "font-mono text-primary underline-offset-2 hover:underline",
+            ...linkProps,
+          },
+          taskId
+        )
+      );
       continue;
     }
 

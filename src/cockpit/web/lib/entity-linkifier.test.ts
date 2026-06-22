@@ -153,15 +153,18 @@ describe("linkifyText — bare task ids", () => {
     expect(linkText(linkNode)).toBe(TASK_ID);
   });
 
-  test("mt#NNNN NOT in id-set stays plain text", () => {
+  test("mt#NNNN links even when NOT in id-set (fast path — spec mt#2518)", () => {
+    // Distinctive, unambiguous shape → always linked, without id-set membership.
+    // The /tasks/:id route handles a not-found id gracefully. Gating on the id-set
+    // would drop the large majority of real task refs (those outside the loaded page).
     const index = makeIndex();
     const text = "see mt#9999 for details";
     const nodes = linkifyText(text, index);
 
-    const linkNodes = nodes.filter(isLinkNode);
-    expect(linkNodes.length).toBe(0);
-    const plain = nodes.join("");
-    expect(plain).toContain("mt#9999");
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkTo(linkNode)).toBe("/tasks/mt%239999");
+    expect(linkText(linkNode)).toBe("mt#9999");
   });
 
   test("#define is not treated as a task id", () => {
