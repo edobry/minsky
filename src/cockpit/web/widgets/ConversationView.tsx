@@ -85,31 +85,26 @@ async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextS
 // ── Entity index for linkification ────────────────────────────────────────────
 //
 // The linkifier resolves bare entity references (mt#NNNN, UUIDs) against a
-// known-entity id-set. We fetch the same underlying data as CommandPalette (tasks
-// from /api/tasks, sessions/asks/memories from widget endpoints) but with DISTINCT
-// query keys for tasks (see useEntityIndex for the full rationale — shape mismatch
-// would poison the CommandPalette cache and cause entityToPath(undefined, id) →
-// navigate(undefined)). Widget-data queries (agents, attention, memories) share keys
+// known-entity id-set. Tasks are fetched from the uncapped /api/tasks/ids endpoint
+// (mt#2518 R5 — no 500-task cap, ids only). Sessions/asks/memories come from widget
+// endpoints. Task queries use DISTINCT cache keys from CommandPalette's queries (see
+// useEntityIndex for the full rationale — shape mismatch would poison the
+// CommandPalette cache). Widget-data queries (agents, attention, memories) share keys
 // with CommandPalette because their shapes are compatible.
 
-interface TaskListEntry {
-  id: string;
-  title: string;
-  status: string;
-}
-
-async function fetchTaskList(): Promise<TaskListEntry[]> {
+/**
+ * Fetch ALL task ids from the uncapped /api/tasks/ids endpoint (mt#2518 R5).
+ * Returns a string[] of every task id regardless of status — no 500 cap.
+ * The linkifier uses only the ids (not titles/statuses), so the ids-only
+ * endpoint is the correct target: cheaper and guaranteed comprehensive.
+ */
+async function fetchAllTaskIds(): Promise<string[]> {
   try {
-    // Use ?all=true to fetch ALL task ids regardless of status (DONE/CLOSED/COMPLETED
-    // included). Without this, the default endpoint excludes terminal-status tasks and
-    // only a small fraction of transcript task refs were in the id-set (observed: 2 of
-    // 70 live refs). The gated linkifier links mt#NNNN ONLY when its id is in this
-    // set, so the set must be comprehensive. See mt#2518 R4.
-    const res = await fetch("/api/tasks?all=true");
+    const res = await fetch("/api/tasks/ids");
     if (!res.ok) return [];
-    const data = (await res.json()) as { tasks?: TaskListEntry[] };
-    if (!Array.isArray(data?.tasks)) return [];
-    return data.tasks;
+    const data = (await res.json()) as { ids?: string[] };
+    if (!Array.isArray(data?.ids)) return [];
+    return data.ids;
   } catch {
     return [];
   }
@@ -142,8 +137,8 @@ function extractMemoryIds(data: WidgetData | undefined): string[] {
  *
  * IMPORTANT: these queries use DISTINCT cache keys from CommandPalette's queries
  * to prevent cache poisoning. CommandPalette's tasks key ("command-palette-tasks")
- * caches PaletteTask[] (objects with a `type` field); entity-index needs only
- * TaskListEntry[] (no `type` field). Sharing the key would corrupt the cache:
+ * caches PaletteTask[] (objects with a `type` field); entity-index fetches only
+ * string[] ids via /api/tasks/ids. Sharing the key would corrupt the cache:
  * whichever component fills it first wins, and the other reads objects of the
  * wrong shape — causing entityToPath(undefined, id) → navigate(undefined).
  *
@@ -157,9 +152,11 @@ function useEntityIndex(): EntityIndex {
     queries: [
       {
         // Distinct key from CommandPalette's "command-palette-tasks" — different shape
-        // (TaskListEntry[] here vs PaletteTask[] there; sharing would poison the cache).
+        // (string[] here via /api/tasks/ids vs PaletteTask[] there; sharing would
+        // poison the cache). Uses the uncapped ids-only endpoint (mt#2518 R5) so the
+        // id-set is comprehensive — no 500-task cap.
         queryKey: ["entity-index", "tasks"],
-        queryFn: fetchTaskList,
+        queryFn: fetchAllTaskIds,
         staleTime: 30_000,
       },
       {
@@ -183,7 +180,8 @@ function useEntityIndex(): EntityIndex {
   return useMemo(
     () =>
       buildEntityIndex({
-        taskIds: (tasksQ.data ?? []).map((t) => t.id),
+        // tasksQ.data is now string[] (ids directly from /api/tasks/ids)
+        taskIds: tasksQ.data ?? [],
         sessionIds: extractAgentSessionIds(agentsQ.data as WidgetData | undefined),
         askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
         memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),

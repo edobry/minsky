@@ -52,3 +52,51 @@ describe("GET /api/tasks (mt#1917)", () => {
     }
   });
 });
+
+describe("GET /api/tasks/ids (mt#2518 R5)", () => {
+  let closeServer: (() => Promise<void>) | null = null;
+
+  afterEach(async () => {
+    if (closeServer) {
+      await closeServer();
+      closeServer = null;
+    }
+  });
+
+  test("returns JSON with ids array or 503 when DB unavailable", async () => {
+    const { url, close } = await startTestServer({});
+    closeServer = close;
+
+    const res = await fetch(`${url}/api/tasks/ids`);
+    // Without a real DB, the task service returns null → 503
+    // OR init may succeed with an empty list → 200
+    expect([200, 503]).toContain(res.status);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    if (res.status === 200) {
+      expect(body).toHaveProperty("ids");
+      expect(Array.isArray(body["ids"])).toBe(true);
+    } else {
+      expect(body).toHaveProperty("error");
+    }
+  });
+
+  test("/api/tasks/ids is not caught by /api/tasks/:id (route ordering)", async () => {
+    const { url, close } = await startTestServer({});
+    closeServer = close;
+
+    const res = await fetch(`${url}/api/tasks/ids`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    // The ids endpoint should return { ids } or 503, NOT a task-detail 404
+    // that would have { error: "..." } with status 404.
+    if (res.status === 200) {
+      expect(body).toHaveProperty("ids");
+      expect(Array.isArray(body["ids"])).toBe(true);
+    } else {
+      // 503 (service unavailable) is acceptable; 404 is not
+      expect(res.status).toBe(503);
+      expect(body).toHaveProperty("error");
+    }
+  });
+});
