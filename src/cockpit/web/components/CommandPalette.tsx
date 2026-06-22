@@ -24,6 +24,7 @@ import {
   CommandItem,
 } from "./ui/command";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { entityToPath } from "../lib/entity-codec";
 
 // ---------------------------------------------------------------------------
 // Entity types for the palette
@@ -281,25 +282,14 @@ export function CommandPalette() {
   const handleSelect = useCallback(
     (entity: PaletteEntity) => {
       // Entity selections land on the URL-addressable detail routes; the tab
-      // model (mt#2398) opens them as entity tabs on visit. mt#X ids encode
-      // their "#" as %23 via encodeURIComponent.
+      // model (mt#2398) opens them as entity tabs on visit. Path composition
+      // is delegated to the shared entity codec (entity-codec.ts) — the single
+      // source of truth for (type, id) → cockpit path.
       let path: string;
-      switch (entity.type) {
-        case "task":
-          path = `/tasks/${encodeURIComponent(entity.id)}`;
-          break;
-        case "session":
-          path = `/agents/${encodeURIComponent(entity.id)}`;
-          break;
-        case "ask":
-          path = `/ask/${encodeURIComponent(entity.id)}`;
-          break;
-        case "memory":
-          path = `/memory/${encodeURIComponent(entity.id)}`;
-          break;
-        case "page":
-          path = entity.path;
-          break;
+      if (entity.type === "page") {
+        path = entity.path;
+      } else {
+        path = entityToPath(entity.type, entity.id);
       }
 
       setOpen(false);

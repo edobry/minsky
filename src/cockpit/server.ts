@@ -899,6 +899,43 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   });
 
   /**
+   * GET /api/tasks/ids — uncapped ids-only endpoint for the linkifier (mt#2518 R5).
+   *
+   * Returns: { ids: string[] } containing EVERY task id with no count cap.
+   * Task ids are tiny (~2 KB for ~2K tasks) so fetching all is cheap.
+   * This is the correct fetch target for the entity-index linkifier in
+   * ConversationView — it must have a comprehensive id-set so every real
+   * mt#NNNN reference in a transcript can be linked.
+   *
+   * The normal /api/tasks list carries a 500-cap (correct for the list UI)
+   * and returns full objects. This route is ids-only and uncapped: it is NOT
+   * a general-purpose task-list replacement.
+   *
+   * IMPORTANT: registered BEFORE /api/tasks/:id so "ids" is not interpreted
+   * as a task id parameter by Express's first-match-wins routing.
+   */
+  app.get("/api/tasks/ids", async (req, res) => {
+    try {
+      const taskService = await getServerTaskService();
+      if (!taskService) {
+        res.status(503).json({
+          error: "Task service unavailable — persistence provider not ready",
+        });
+        return;
+      }
+      const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+      // Fetch ALL tasks regardless of status (no 500 cap, no sort needed — ids only).
+      const tasks = await taskService.listTasks({ all: true });
+      const ids = tasks.map((t) => formatTaskIdForDisplay(t.id));
+      res.json({ ids });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[tasks] GET /api/tasks/ids — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while listing task ids." });
+    }
+  });
+
+  /**
    * GET /api/tasks/:id — task detail for the drill-down page (mt#1918).
    *
    * Returns: { task, spec, parent, children, deps }
@@ -1187,8 +1224,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * workstreams.ts). Returns 503 when the task service is unavailable.
    * Most-recently-updated first before the 500-cap (mt#2444): an unordered
    * slice over a >500 backlog hid every recent task from the palette.
+   *
+   * Query params:
+   *   ?all=true — return ALL task ids regardless of status (DONE/CLOSED/COMPLETED
+   *               included). Used by the entity-index linkifier (mt#2518) to make
+   *               the task id-set comprehensive so every transcript ref links.
+   *               Without this flag the default excludes terminal statuses, which
+   *               caused only 2 of 70 task refs to link in live transcripts.
    */
-  app.get("/api/tasks", async (_req, res) => {
+  app.get("/api/tasks", async (req, res) => {
     try {
       const taskService = await getServerTaskService();
       if (!taskService) {
@@ -1199,7 +1243,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
       const { sortTasksByRecency } = await import("./palette-tasks");
-      const tasks = await taskService.listTasks({});
+      // ?all=true: include DONE/CLOSED/COMPLETED tasks (needed by the entity-index
+      // linkifier in ConversationView — mt#2518). Without this flag the backend
+      // default hides terminal-status tasks, leaving most transcript refs unlinkified.
+      const includeAll = req.query.all === "true";
+      const tasks = await taskService.listTasks({ all: includeAll });
       const taskList = sortTasksByRecency(tasks)
         .slice(0, 500)
         .map((t) => ({
