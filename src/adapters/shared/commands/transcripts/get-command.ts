@@ -26,6 +26,11 @@ import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { TranscriptTurnResult } from "@minsky/domain/transcripts/transcript-fts-service";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -53,11 +58,10 @@ export function registerTranscriptGetCommand(
       "Coverage: sessions are auto-ingested on MCP server boot; " +
       "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
     parameters: {
-      sessionId: {
-        schema: z.string(),
-        description: "The agent session UUID to retrieve turns for",
-        required: true,
-      },
+      conversationId: conversationIdParam(
+        "The harness conversation id (agent-session UUID) to retrieve turns for"
+      ),
+      sessionId: deprecatedConversationAlias("sessionId"),
       turnRange: {
         schema: z
           .string()
@@ -70,7 +74,12 @@ export function registerTranscriptGetCommand(
     },
 
     async execute(params, context): Promise<TranscriptTurnResult[]> {
-      const sessionId = params.sessionId as string;
+      const sessionId = resolveConversationId(params);
+      if (!sessionId) {
+        throw new Error(
+          "transcripts.get requires conversationId (or its deprecated alias sessionId)."
+        );
+      }
       const turnRangeStr = params.turnRange as string | undefined;
 
       // ── Parse turnRange string into { start, end } ────────────────────────
