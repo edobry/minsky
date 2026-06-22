@@ -99,9 +99,10 @@ export function registerTranscriptIndexEmbeddingsCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "index-embeddings",
     description:
-      "Generate and store per-turn embeddings and session-level summary + summary embedding " +
-      "for agent transcripts. Pass --all to sweep every ingested session, or " +
-      "--session=<uuid> to target one. Both pipelines are idempotent.",
+      "Generate and store per-turn embeddings and conversation-level summary + summary embedding " +
+      "for agent transcripts. Pass --all to sweep every ingested conversation, or " +
+      "--conversationId=<uuid> to target one (--session is a deprecated alias). " +
+      "Both pipelines are idempotent.",
     parameters: {
       all: {
         schema: z.boolean(),

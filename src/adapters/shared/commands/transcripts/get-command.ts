@@ -52,12 +52,17 @@ export function registerTranscriptGetCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "get",
     description:
-      "Return all turns for an agent session in turn_index order. " +
+      "Return all turns for a harness conversation in turn_index order. " +
       "Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). " +
-      "Throws if the session is not found. " +
-      "Coverage: sessions are auto-ingested on MCP server boot; " +
-      "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+      "Throws if the conversation is not found. " +
+      "Coverage: conversations are auto-ingested on MCP server boot; " +
+      "if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
     parameters: {
+      // NOTE (mt#2526): the conversation id is REQUIRED, but enforced at execute time
+      // (resolveConversationId below) rather than via the schema `required` flag — so the
+      // deprecated `sessionId` alias still satisfies it. Schema/MCP consumers should NOT
+      // read `required: false` as "optional": exactly one of conversationId / sessionId
+      // must be supplied (the execute path throws otherwise).
       conversationId: conversationIdParam(
         "The harness conversation id (agent-session UUID) to retrieve turns for"
       ),

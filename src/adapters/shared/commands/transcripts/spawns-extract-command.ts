@@ -76,8 +76,9 @@ export function registerTranscriptSpawnsExtractCommand(
     name: "spawns-extract",
     description:
       "Extract agent spawn relationships from transcript turns where is_spawn_boundary=true " +
-      "and upsert into agent_spawns. Pass --all to sweep every ingested session, or " +
-      "--session=<uuid> to target one parent session. Idempotent.",
+      "and upsert into agent_spawns. Pass --all to sweep every ingested conversation, or " +
+      "--conversationId=<uuid> to target one parent conversation (--session is a deprecated " +
+      "alias). Idempotent.",
     parameters: {
       all: {
         schema: z.boolean(),
