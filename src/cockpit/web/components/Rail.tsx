@@ -45,7 +45,7 @@ const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitB
 /** Flat entity entry points below the spine. */
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
-  { to: "/sessions", label: "Sessions", icon: MessagesSquare },
+  { to: "/sessions", label: "Conversations", icon: MessagesSquare },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/context", label: "Context", icon: FileSearch },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },

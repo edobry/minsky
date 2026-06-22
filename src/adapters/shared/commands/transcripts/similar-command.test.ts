@@ -42,11 +42,12 @@ describe("transcripts.similar command", () => {
       expect(command.description).toContain("sessionId");
     });
 
-    test("declares turnId, sessionId, and limit parameters", () => {
+    test("declares turnId, conversationId (+ sessionId alias), and limit parameters", () => {
       const command = getCommand();
       const params = command.parameters as Record<string, unknown>;
       expect(params.turnId).toBeDefined();
-      expect(params.sessionId).toBeDefined();
+      expect(params.conversationId).toBeDefined();
+      expect(params.sessionId).toBeDefined(); // back-compat alias (mt#2526)
       expect(params.limit).toBeDefined();
     });
 
@@ -63,7 +64,7 @@ describe("transcripts.similar command", () => {
     test("throws when neither turnId nor sessionId is provided", async () => {
       const minimalContext = { interface: "cli" as const };
       await expect(getCommand().execute({}, minimalContext)).rejects.toThrow(
-        /requires exactly one of --turnId or --sessionId/
+        /requires exactly one of --turnId or --conversationId/
       );
     });
 
@@ -74,7 +75,7 @@ describe("transcripts.similar command", () => {
           { turnId: "abc-session:1", sessionId: "def-session-uuid" },
           minimalContext
         )
-      ).rejects.toThrow(/only one of --turnId or --sessionId/);
+      ).rejects.toThrow(/only one of --turnId or --conversationId/);
     });
 
     test("validation message for missing args guides toward --turnId and --sessionId", async () => {

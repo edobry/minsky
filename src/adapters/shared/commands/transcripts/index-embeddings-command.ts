@@ -34,6 +34,11 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -94,9 +99,10 @@ export function registerTranscriptIndexEmbeddingsCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "index-embeddings",
     description:
-      "Generate and store per-turn embeddings and session-level summary + summary embedding " +
-      "for agent transcripts. Pass --all to sweep every ingested session, or " +
-      "--session=<uuid> to target one. Both pipelines are idempotent.",
+      "Generate and store per-turn embeddings and conversation-level summary + summary embedding " +
+      "for agent transcripts. Pass --all to sweep every ingested conversation, or " +
+      "--conversationId=<uuid> to target one (--session is a deprecated alias). " +
+      "Both pipelines are idempotent.",
     parameters: {
       all: {
         schema: z.boolean(),
@@ -104,11 +110,10 @@ export function registerTranscriptIndexEmbeddingsCommand(
         required: false,
         defaultValue: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Index a single session by its agent session UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam(
+        "Index a single harness conversation by its id (agent-session UUID)"
+      ),
+      session: deprecatedConversationAlias("session"),
       force: {
         schema: z.boolean(),
         description: "Force re-generation of summaries even for already-summarized rows",
@@ -119,13 +124,13 @@ export function registerTranscriptIndexEmbeddingsCommand(
 
     async execute(params, context): Promise<TranscriptIndexEmbeddingsResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
       const force = (params.force as boolean | undefined) ?? false;
 
       if (!doAll && !sessionId) {
         throw new Error(
-          "transcripts.index-embeddings requires either --all or --session=<uuid>. " +
-            "Pass --all to sweep all ingested sessions."
+          "transcripts.index-embeddings requires either --all or --conversationId=<uuid> " +
+            "(--session is a deprecated alias). Pass --all to sweep all ingested conversations."
         );
       }
 
