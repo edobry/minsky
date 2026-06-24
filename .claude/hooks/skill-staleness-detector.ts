@@ -407,9 +407,9 @@ const ENVELOPE_FOOTER = "\n</system-reminder>";
  *     - <path2> (deleted)
  *     ...
  *     + N more
- *   Re-read the changed file(s) before relying on them, or start a fresh
- *   session to reload all skill/agent/rule content; otherwise proceed aware
- *   that previously-invoked skills may use cached logic.
+ *   Re-read the changed file(s) with the Read tool before relying on them, or
+ *   start a fresh session to reload all skill/agent/rule content; otherwise
+ *   proceed aware that previously-invoked skills may use cached logic.
  */
 export function buildWarning(stale: StaleEntry[]): string {
   if (stale.length === 0) return "";
@@ -426,7 +426,7 @@ export function buildWarning(stale: StaleEntry[]): string {
     lines.push(`  + ${overflow} more`);
   }
   lines.push(
-    "Re-read the changed file(s) before relying on them, or start a fresh session to reload all skill/agent/rule content; otherwise proceed aware that previously-invoked skills may use cached logic."
+    "Re-read the changed file(s) with the Read tool before relying on them, or start a fresh session to reload all skill/agent/rule content; otherwise proceed aware that previously-invoked skills may use cached logic."
   );
 
   return ENVELOPE_HEADER + lines.join("\n") + ENVELOPE_FOOTER;
