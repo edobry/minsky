@@ -45,6 +45,9 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "pr.merged",
   "subagent.completed",
   "session.started",
+  // mt#2489 (plant board v2.1) — DB-resident domain events
+  "memory.created",
+  "ask.answered",
 ] as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -81,6 +84,8 @@ export const eventCategory = {
   "pr.merged": "informational",
   "subagent.completed": "informational",
   "session.started": "informational",
+  "memory.created": "informational",
+  "ask.answered": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */

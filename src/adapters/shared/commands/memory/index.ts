@@ -39,6 +39,7 @@ import type {
 } from "@minsky/domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
+import { emitSystemEventBestEffort } from "../system-event-emit";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
@@ -791,6 +792,14 @@ export function registerMemoryCommands(
       };
 
       const record = await service.create(input);
+
+      // Best-effort system event for the plant-board activity stream (mt#2489).
+      // Never affects the create outcome.
+      await emitSystemEventBestEffort(ctx?.container, {
+        eventType: "memory.created",
+        payload: { memoryId: record.id, memoryType: record.type, scope: record.scope },
+      });
+
       return record;
     },
   });

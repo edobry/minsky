@@ -57,6 +57,7 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
+import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
 
@@ -869,6 +870,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           id: params.id as string,
           message: params.message as string,
           responder: params.responder as string | undefined,
+        }).then(async (result) => {
+          // Best-effort system event for the plant-board activity stream (mt#2489).
+          await emitSystemEventBestEffort(container, {
+            eventType: "ask.answered",
+            payload: { askId: params.id as string },
+          });
+          return result;
         });
       },
     })
