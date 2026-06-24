@@ -77,10 +77,14 @@ permissions:
   contents: read
   packages: write
 
-# Only one deploy at a time; cancel in-progress runs on new pushes.
+# Only one deploy at a time. cancel-in-progress is FALSE (mt#2505): the job now
+# runs a prod migration step, and cancelling mid-migration could leave held
+# locks or a partially-applied migration set. Serialize instead — a new push
+# queues behind the in-flight deploy rather than cancelling it. (Cost: redundant
+# builds are no longer auto-cancelled; acceptable for prod-migration safety.)
 concurrency:
   group: deploy-minsky-mcp-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   IMAGE: ghcr.io/edobry/minsky
@@ -166,11 +170,26 @@ jobs:
 
           # Forward the secret by NAME (no value on the command line / in logs).
           # MINSKY_PERSISTENCE_BACKEND mirrors the service env (infra/index.ts:69).
-          docker run --rm \
+          # Wrapped in `timeout` (mt#2505 R1): a hung DB connection / lock must
+          # fail the deploy fast, not sit until the GH Actions job cap (~6h). The
+          # migrator is idempotent (drizzle HWM), so a retried run resumes safely.
+          set +e
+          timeout 600 docker run --rm \
             -e MINSKY_PERSISTENCE_BACKEND=postgres \
             -e MINSKY_PERSISTENCE_POSTGRES_URL \
             "$IMAGE:ci" \
             bun run --preload reflect-metadata dist/minsky.js persistence migrate --execute
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -eq 124 ]; then
+              echo "::error::prod migration timed out after 600s — failing the deploy (no image pushed)."
+            else
+              echo "::error::prod migration failed (exit $rc) — failing the deploy (no image pushed)."
+            fi
+            exit "$rc"
+          fi
+          echo "Prod migration step completed (exit 0)."
 
       - name: Login to GHCR
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
