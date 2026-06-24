@@ -100,3 +100,46 @@ describe("no host/port in emitted links", () => {
     });
   }
 });
+
+describe("PR/changeset refs are inert (excluded until mt#2410)", () => {
+  // The rule instructs the agent NOT to wrap PR/changeset refs (no cockpit route
+  // yet). `RoutableEntityType` does not include "pr" or "changeset", so the typed
+  // emit helper cannot produce one. As a belt-and-suspenders guard, even a hand-
+  // written minsky://pr/... URI is inert — it does not parse to a routable entity,
+  // so a stray emit can never resolve to a (wrong) cockpit page.
+  test("a hand-written PR URI does not parse to a routable entity", () => {
+    expect(parseMinskyUri("minsky://pr/1234")).toBeNull();
+  });
+
+  test("a hand-written changeset URI does not parse to a routable entity", () => {
+    expect(parseMinskyUri("minsky://changeset/abc-123")).toBeNull();
+  });
+});
+
+describe("emit form is markdown-safe (label + URL closing)", () => {
+  const cases: Array<{ type: RoutableEntityType; id: string }> = [
+    { type: "task", id: "mt#2370" },
+    { type: "ask", id: ASK_ID },
+    { type: "session", id: SESSION_ID },
+    { type: "memory", id: MEMORY_ID },
+  ];
+
+  for (const { type, id } of cases) {
+    test(`${type} URI contains no ) or ] so the [label](url) close is unambiguous`, () => {
+      // linkTarget()'s /\]\(([^)]+)\)/ regex (and any markdown renderer) closes the
+      // link at the first ")". The codec percent-encodes the id, and real id shapes
+      // (mt#NNNN, UUIDs) contain no parens/brackets, so the URL side is always safe.
+      const uri = entityToMinskyUri(type, id);
+      expect(uri).not.toContain(")");
+      expect(uri).not.toContain("]");
+    });
+  }
+
+  test("a clean label yields exactly one extractable, balanced link", () => {
+    // Clean labels (the rule's requirement: no ] ( ) metacharacters) keep the
+    // markdown link parseable — linkTarget extracts the full URL intact.
+    const link = deeplink("mt#2370", "task", "mt#2370");
+    expect(link).toBe("[mt#2370](minsky://task/mt%232370)");
+    expect(linkTarget(link)).toBe("minsky://task/mt%232370");
+  });
+});
