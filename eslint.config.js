@@ -634,8 +634,10 @@ export default [
       "src/commands/**",
       // Claude Code hooks emit to stdout to inject additionalContext / audit lines.
       // The console-output pattern IS the public interface of a hook, not a debug
-      // smell. The pre-existing console usage in these files predates mt#1960.
+      // smell. .minsky/hooks/ is the canonical source (mt#2304); .claude/hooks/
+      // is the compiled output. Both share the same console-usage pattern.
       ".claude/hooks/**",
+      ".minsky/hooks/**",
       // ESLint rule files themselves use `console.warn` for diagnostic-time messages
       // that the rule emits to the developer (e.g., misconfiguration warnings). The
       // rule runtime is not equivalent to application code — keep the exemption.

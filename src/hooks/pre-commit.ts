@@ -1471,7 +1471,7 @@ export class PreCommitHook {
    */
   private async runCompileCheck(): Promise<HookResult> {
     log.cli(
-      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents)..."
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
     );
 
     const fsp = await import("fs/promises");
@@ -1489,6 +1489,14 @@ export class PreCommitHook {
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
     });
 
+    // claude-hooks: opt in when .minsky/hooks/ exists.
+    try {
+      await fsp.access(`${this.projectRoot}/.minsky/hooks`);
+      targetsToCheck.push("claude-hooks");
+    } catch {
+      // No .minsky/hooks/ — skip
+    }
+
     if (targetsToCheck.length === 0) {
       log.cli("✅ No new-compile-system outputs detected — skipping compile check.");
       return { success: true, message: "No compile targets to check", exitCode: 0 };
@@ -1498,7 +1506,7 @@ export class PreCommitHook {
       try {
         // `target` is from the locally-built `targetsToCheck` array which
         // contains only the hardcoded literals "claude-skills",
-        // "cursor-rules-ts", and "claude-agents". Bounded enum, no shell
+        // "cursor-rules-ts", "claude-agents", and "claude-hooks". Bounded enum, no shell
         // metacharacters — no safeShellQuote needed (mirrors
         // runRulesCompileCheck / mt#1829).
         await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {

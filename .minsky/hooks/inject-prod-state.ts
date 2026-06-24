@@ -1,0 +1,204 @@
+#!/usr/bin/env bun
+// UserPromptSubmit hook: inject the current shared/PROD state (latest applied
+// migration + ledger row count) into every turn's context (mt#2506) — the
+// CONSUMER side of the hybrid cached-injection mechanism for the R10
+// "no-tool-boundary status claim" seam.
+//
+// Why this exists. R10 (family tracker `b0b294ab`, 2026-06-16): the agent told
+// the principal "nothing has touched prod" without reading the prod migration
+// ledger — it was false (migrations had auto-applied). That is an objectively-
+// verifiable factual claim about shared/prod state, made in a status report,
+// gating NO tool call — so the tier-1 tool-boundary evidence gate (mt#2488)
+// cannot reach it. Per memory `08606f7c` ("Structural injection beats retrieval
+// discipline"), the fix for an action-time trigger that lives inside the agent's
+// reasoning is to INJECT the ground truth into every turn.
+//
+// Cost discipline (08606f7c: ≤50ms, non-churny). A per-turn query against the
+// prod DB is a network round-trip and fails that bar. So this hook reads ONLY a
+// local cache file — the PRODUCER (`src/cockpit/prod-state-cache.ts`, driven by
+// the cockpit cadence sweep) does the periodic network read and writes the cache.
+// Same "last-fetched/last-checked" honesty tradeoff as `inject-git-state` (mt#2275).
+//
+// Override: MINSKY_SKIP_PROD_STATE_INJECTION=1|true|yes skips injection with an
+// audit-log line to stdout.
+//
+// @see mt#2506 — this hook
+// @see src/cockpit/prod-state-cache.ts — the producer (refresh + cache write)
+// @see mt#2275 inject-git-state.ts / mt#2181 inject-current-time.ts — sibling pattern
+// @see memory 08606f7c — structural-injection rule this hook instantiates
+
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { readInput, writeOutput } from "./types";
+import type { ClaudeHookInput, HookOutput } from "./types";
+
+export const PROD_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_PROD_STATE_INJECTION";
+
+/**
+ * Cache age beyond which the snapshot is treated as STALE and the hook tells the agent to
+ * re-verify rather than trust it. Set well above the producer's ~10m refresh interval so a
+ * healthy cadence sweep keeps the cache "fresh"; only a stalled/absent producer trips this.
+ */
+export const PROD_STATE_STALENESS_MS = 30 * 60 * 1000;
+
+// Cache location — MUST match `src/cockpit/prod-state-cache.ts` (PROD_STATE_CACHE_FILENAME
+// + getStateDir). That module lives in a separate module graph and cannot be imported here,
+// so the path resolution is duplicated; keep the two in sync.
+const PROD_STATE_CACHE_FILENAME = "prod-state-cache.json";
+
+/** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
+function getStateDir(): string {
+  // MUST match the producer's path EXACTLY (the cache is written by src/cockpit, read here).
+  // cockpit getStateDir() (src/cockpit/lifecycle.ts) = MINSKY_STATE_DIR override, else
+  // getMinskyStateDir() from packages/shared/src/paths.ts =
+  //   join(XDG_STATE_HOME || join(process.env.HOME || homedir(), ".local/state"), "minsky").
+  // This hook is a separate module graph and cannot import those; replicate precisely —
+  // note the `process.env.HOME || os.homedir()` precedence (paths.ts uses HOME first).
+  const override = process.env["MINSKY_STATE_DIR"];
+  if (override) return override;
+  const xdgStateHome =
+    process.env["XDG_STATE_HOME"] || path.join(process.env["HOME"] || os.homedir(), ".local/state");
+  return path.join(xdgStateHome, "minsky");
+}
+
+function getProdStateCachePath(): string {
+  return path.join(getStateDir(), PROD_STATE_CACHE_FILENAME);
+}
+
+export interface UserPromptSubmitInput extends ClaudeHookInput {
+  prompt: string;
+}
+
+/** The on-disk cache record (mirrors src/cockpit/prod-state-cache.ts ProdStateCacheRecord). */
+export interface ProdStateCacheRecord {
+  ledgerRows: number;
+  latestAppliedAtMs: number | null;
+  checkedAt: string;
+}
+
+/**
+ * Parse + validate the cache JSON. Returns null on malformed/invalid content so the hook
+ * fails open (treats it as "unknown" rather than crashing). Pure function for testability.
+ */
+export function parseProdStateCache(raw: string): ProdStateCacheRecord | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object") return null;
+  const rec = obj as Record<string, unknown>;
+  if (typeof rec.checkedAt !== "string" || rec.checkedAt.length === 0) return null;
+  if (typeof rec.ledgerRows !== "number" || !Number.isFinite(rec.ledgerRows)) return null;
+  const latest = rec.latestAppliedAtMs;
+  const latestOk = latest === null || (typeof latest === "number" && Number.isFinite(latest));
+  if (!latestOk) return null;
+  return {
+    ledgerRows: rec.ledgerRows,
+    latestAppliedAtMs: latest === null ? null : (latest as number),
+    checkedAt: rec.checkedAt,
+  };
+}
+
+/** Humanize a duration in ms to a compact "Nm" / "Nh" / "Nd" string (floored, min "0m"). */
+export function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "unknown";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * Format the prod-state snapshot into the additionalContext payload. Three shapes:
+ *   - null cache → UNKNOWN: tell the agent not to assert prod state from memory.
+ *   - stale (age > PROD_STATE_STALENESS_MS) → STALE: re-verify before asserting.
+ *   - fresh → ground-truth snapshot the agent can trust this turn.
+ *
+ * Pure function for testability; the entrypoint feeds it the parsed cache + current time.
+ */
+export function formatProdState(record: ProdStateCacheRecord | null, nowMs: number): string {
+  if (record === null) {
+    return (
+      "Current prod state: UNKNOWN (no local snapshot yet). Do NOT assert prod state " +
+      '(e.g. "nothing has touched prod") from memory — read the prod migration ledger ' +
+      "(drizzle.__drizzle_migrations) to verify before asserting."
+    );
+  }
+
+  const checkedMs = Date.parse(record.checkedAt);
+  const ageMs = Number.isNaN(checkedMs) ? Number.POSITIVE_INFINITY : nowMs - checkedMs;
+  const ageStr = formatAge(ageMs);
+
+  if (ageMs > PROD_STATE_STALENESS_MS) {
+    return (
+      `Current prod state snapshot is STALE (last-checked ${record.checkedAt}, ${ageStr} ago). ` +
+      "The cadence-sweep refresh may be stopped — re-verify the prod migration ledger before " +
+      "asserting prod state."
+    );
+  }
+
+  const latestStr =
+    record.latestAppliedAtMs !== null
+      ? `; latest applied ${new Date(record.latestAppliedAtMs).toISOString()}`
+      : "";
+  return (
+    `Current prod state (last-checked ${record.checkedAt}, ${ageStr} ago): ` +
+    `${record.ledgerRows} migrations applied${latestStr}. Treat this as ground truth for ` +
+    "prod-state claims this turn (do not assert a different prod state from memory)."
+  );
+}
+
+function isOverrideTruthy(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** Read + parse the cache file. Returns null when absent/unreadable/invalid (fail-open). */
+function readCache(cachePath: string): ProdStateCacheRecord | null {
+  try {
+    if (!fs.existsSync(cachePath)) return null;
+    return parseProdStateCache(fs.readFileSync(cachePath, { encoding: "utf8" }));
+  } catch {
+    return null;
+  }
+}
+
+async function main(): Promise<void> {
+  if (isOverrideTruthy(process.env[PROD_STATE_INJECTION_OVERRIDE_ENV])) {
+    const auditLine = `[inject-prod-state] override active: ${PROD_STATE_INJECTION_OVERRIDE_ENV}=${process.env[PROD_STATE_INJECTION_OVERRIDE_ENV]} at ${new Date().toISOString()}`;
+    process.stdout.write(`${auditLine}\n`);
+    return;
+  }
+
+  let input: UserPromptSubmitInput;
+  try {
+    input = await readInput<UserPromptSubmitInput>();
+  } catch {
+    return;
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") return;
+
+  let record: ProdStateCacheRecord | null;
+  try {
+    record = readCache(getProdStateCachePath());
+  } catch {
+    return;
+  }
+
+  const output: HookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: formatProdState(record, Date.now()),
+    },
+  };
+  writeOutput(output);
+}
+
+if (import.meta.main) {
+  await main();
+}
