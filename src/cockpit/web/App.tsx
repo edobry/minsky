@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { WidgetShell } from "./components/WidgetShell";
+import { useDeepLinkHandler } from "./hooks/useDeepLinkHandler";
 import {
   fetchWidgets,
   fetchWidgetData,
@@ -254,6 +255,13 @@ function HomePage({ widgets }: HomePageProps) {
 export function App() {
   const [widgets, setWidgets] = useState<WidgetState[]>([]);
   const queryClient = useQueryClient();
+
+  // ---------------------------------------------------------------------------
+  // minsky:// deep-link handler (mt#2528, ADR-023).
+  // Installs window.__minskyDeepLink and drains window.__minskyPendingDeepLink.
+  // Called once; the hook is inside the router tree so useNavigate is available.
+  // ---------------------------------------------------------------------------
+  useDeepLinkHandler();
 
   // ---------------------------------------------------------------------------
   // SSE adapter — invalidates TanStack Query cache on push events (mt#1148).
