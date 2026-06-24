@@ -874,7 +874,10 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           // Best-effort system event for the plant-board activity stream (mt#2489).
           await emitSystemEventBestEffort(container, {
             eventType: "ask.answered",
-            payload: { askId: params.id as string },
+            payload: {
+              askId: params.id as string,
+              responder: (params.responder as string | undefined) ?? null,
+            },
           });
           return result;
         });

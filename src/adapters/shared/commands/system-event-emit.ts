@@ -28,17 +28,22 @@ export async function emitSystemEventBestEffort(
 ): Promise<void> {
   try {
     const persistence = container?.has("persistence") ? container.get("persistence") : undefined;
-    if (!persistence) return;
+    if (!persistence || typeof persistence !== "object") return;
 
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-    if (!(persistence instanceof PersistenceProvider)) return;
-    if (!persistence.capabilities?.sql || typeof persistence.getDatabaseConnection !== "function") {
+    // Duck-type the SQL capability rather than `instanceof PersistenceProvider`:
+    // a strict instanceof is brittle across DI/test setups that bind a
+    // structurally-compatible provider. This mirrors emitTaskStatusChangedEvent
+    // in status-commands.ts (cast + getDatabaseConnection presence check).
+    const candidate = persistence as {
+      capabilities?: { sql?: boolean };
+      getDatabaseConnection?: unknown;
+    };
+    if (!candidate.capabilities?.sql || typeof candidate.getDatabaseConnection !== "function") {
       return;
     }
 
     // Cast to the SQL-capable subinterface so getDatabaseConnection() is typed
-    // as PostgresJsDatabase (the base PersistenceProvider returns unknown) —
-    // mirrors emitTaskStatusChangedEvent in status-commands.ts.
+    // as PostgresJsDatabase (the container surfaces it as unknown).
     const sqlProvider = persistence as SqlCapablePersistenceProvider;
     const db = await sqlProvider.getDatabaseConnection();
     if (!db) return;

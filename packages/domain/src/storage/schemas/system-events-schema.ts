@@ -50,6 +50,17 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "ask.answered",
 ] as const;
 
+/**
+ * Payload shapes for the mt#2489 plant-board v2.1 event types. The table's
+ * `payload` JSONB is loosely typed as `Record<string, unknown>`; these are the
+ * concrete shapes the producers emit (see `system-event-emit.ts`):
+ *
+ *   - `memory.created` → `{ memoryId: string; memoryType: string; scope: string }`
+ *       emitted by the `memory.create` command after the record is persisted.
+ *   - `ask.answered`   → `{ askId: string; responder: string | null }`
+ *       emitted by the `asks.respond` command after the Ask is answered + closed.
+ */
+
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
 
 export const systemEventTypeEnum = pgEnum("system_event_type", SYSTEM_EVENT_TYPE_VALUES);
