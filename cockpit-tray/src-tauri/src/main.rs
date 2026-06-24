@@ -1732,10 +1732,21 @@ fn ensure_cockpit_window_visible(app: &AppHandle) {
 /// interpolated into the eval script -- never raw string-interpolated. This prevents
 /// a crafted `minsky://` URL from breaking out of the JS string context.
 fn handle_deep_link(app: &AppHandle, url: String) {
-    // Step 1: show + focus the cockpit window (create if needed).
-    // We use a variant that does NOT reload the page on an existing window, so
+    // Step 1: show + focus the cockpit window (create if needed) ON THE MAIN
+    // THREAD (mt#2546). macOS requires window creation (`WebviewWindowBuilder::build`)
+    // to run on the main thread. On a HOT-START deep link the `on_open_url` callback
+    // runs on a BACKGROUND thread, so calling `ensure_cockpit_window_visible`
+    // directly silently failed to create a window when none existed — breaking the
+    // common "tray running, no window, click a link" flow. (Cold-start worked only
+    // because it runs in `setup()` on the main thread.) Dispatching to the main
+    // thread fixes it. We use a variant that does NOT reload an existing window, so
     // a hot-start navigation doesn't discard the user's current cockpit view.
-    ensure_cockpit_window_visible(app);
+    let app_for_window = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        ensure_cockpit_window_visible(&app_for_window);
+    }) {
+        eprintln!("[cockpit-tray] deep-link: run_on_main_thread (window show/create) failed: {e}");
+    }
 
     // JSON-encode the URL once so all retry attempts can reuse it.
     // serde_json::to_string on a &str produces a valid JSON string literal
