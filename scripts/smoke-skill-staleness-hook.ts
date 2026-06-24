@@ -146,8 +146,8 @@ process.stdout.write("Step 2: touch watched file → expect warning... ");
   if (!ctx.includes("SKILL.md (modified)")) {
     fail(`expected additionalContext to mention SKILL.md (modified); got: ${ctx}`);
   }
-  if (!ctx.includes("/restart")) {
-    fail(`expected /restart hint in additionalContext; got: ${ctx}`);
+  if (!ctx.includes("fresh session")) {
+    fail(`expected reload hint (fresh session) in additionalContext; got: ${ctx}`);
   }
   process.stdout.write("OK\n");
 }
