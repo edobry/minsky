@@ -45,7 +45,21 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "pr.merged",
   "subagent.completed",
   "session.started",
+  // mt#2489 (plant board v2.1) — DB-resident domain events
+  "memory.created",
+  "ask.answered",
 ] as const;
+
+/**
+ * Payload shapes for the mt#2489 plant-board v2.1 event types. The table's
+ * `payload` JSONB is loosely typed as `Record<string, unknown>`; these are the
+ * concrete shapes the producers emit (see `system-event-emit.ts`):
+ *
+ *   - `memory.created` → `{ memoryId: string; memoryType: string; scope: string }`
+ *       emitted by the `memory.create` command after the record is persisted.
+ *   - `ask.answered`   → `{ askId: string; responder: string | null }`
+ *       emitted by the `asks.respond` command after the Ask is answered + closed.
+ */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
 
@@ -81,6 +95,8 @@ export const eventCategory = {
   "pr.merged": "informational",
   "subagent.completed": "informational",
   "session.started": "informational",
+  "memory.created": "informational",
+  "ask.answered": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
