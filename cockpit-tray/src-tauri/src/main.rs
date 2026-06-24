@@ -49,13 +49,16 @@ const UPTIME_MENU_ID: &str = "uptime";
 const RESTART_DEBOUNCE: Duration = Duration::from_secs(2);
 
 // Deep-link retry constants (mt#2528, ADR-023 cold-start handling).
-// After a minsky:// URL is opened, we retry calling window.__minskyDeepLink(...)
-// until the SPA has mounted its router (and thus defined the global). On the
-// final attempt we set window.__minskyPendingDeepLink instead so the SPA can
-// drain it on mount.
-/// Number of retry attempts before giving up on direct eval.
-const DEEP_LINK_RETRY_MAX: u32 = 40;
-/// Interval between retry attempts (ms). 40 × 150 ms = 6 s total window.
+// After a minsky:// URL is opened we retry window.eval(...) until the webview
+// FIRST accepts the script. Each successful eval sets window.__minskyPendingDeepLink
+// (the durable hand-off the SPA drains on mount) AND calls window.__minskyDeepLink
+// if it is already defined. We retry until the first success rather than a short
+// fixed count, so a slow cold start (daemon boot + webview load) never drops the
+// link; we only give up if the cockpit genuinely never comes up.
+/// Max retry attempts before giving up (cockpit never came up).
+const DEEP_LINK_RETRY_MAX: u32 = 400;
+/// Interval between retry attempts (ms). 400 × 150 ms = 60 s total window —
+/// generous enough to cover a cold daemon + webview start on a slow machine.
 const DEEP_LINK_RETRY_INTERVAL_MS: u64 = 150;
 
 const LABEL_RUNNING: &str = "Cockpit: running";
