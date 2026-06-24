@@ -2174,6 +2174,57 @@ exits 0. The hook never blocks the user prompt.
   (possibly embedding-based) matcher; this hook is a framework sibling
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
 
+# Cockpit Deeplinks in Terminal Output
+
+When you reference a Minsky entity — a **task**, **ask**, **session**, or **memory** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
+
+```
+[<clean label>](minsky://<type>/<id>)
+```
+
+Claude Code's renderer turns `[label](minsky://...)` into an OSC-8 terminal hyperlink; macOS terminals pass `minsky://` to `open`, and the cockpit-tray scheme handler (mt#2528) routes it to the cockpit — **launching the cockpit first if it is not running**. So always emit the link; never gate on whether the cockpit is currently open and never read cockpit state to decide.
+
+This is Surface A (the terminal). There is no harness hook that rewrites assistant output, so this linking is **agent discipline** — you emit the markdown by hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via mt#2518.)
+
+## The four entity types
+
+| Entity  | URI form                | Example                              | Note |
+| ------- | ----------------------- | ------------------------------------ | ---- |
+| task    | `minsky://task/<id>`    | `minsky://task/mt%232370`            | the `#` in a task id MUST be percent-encoded as `%23` |
+| ask     | `minsky://ask/<uuid>`   | `minsky://ask/38b1c0de-…`            | uuid is URL-safe; no encoding |
+| session | `minsky://session/<uuid>` | `minsky://session/2154425b-…`      | URI type is `session` (NOT `agent`), even though the cockpit page is `/agents/<id>` |
+| memory  | `minsky://memory/<uuid>` | `minsky://memory/bd38be2c-…`        | uuid is URL-safe; no encoding |
+
+Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe.
+
+## Format rules
+
+- **Label = the clean human-readable ref, kept verbatim.** For a task that is the bare `mt#2370` (with the `#`, unencoded — only the URI gets `%23`). For a UUID entity use a short readable label (a name, or a short id prefix) so the principal is not reading a raw UUID; the target still carries the **full** id.
+- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
+- **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
+- **Don't over-link.** Link a meaningful reference (typically the first mention), not every repetition in a long report. One clickable ref per entity per message is plenty; blanket linking is noise.
+- **PR / changeset references are NOT linked** — there is no cockpit detail route yet (deferred to mt#2410). Leave PR `#1234` and changeset refs as plain text.
+
+## Examples
+
+- `Implemented [mt#2519](minsky://task/mt%232519); the failing case is in [mt#2518](minsky://task/mt%232518).`
+- `Routed the decision to ask [38b1c0de](minsky://ask/38b1c0de-0000-0000-0000-000000000000).`
+- On a non-OSC-8 terminal the first renders as `Implemented mt#2519; the failing case is in mt#2518.` — still readable.
+
+## Terminal caveats
+
+- **tmux** strips OSC-8 hyperlinks unless passthrough is enabled (`set -g allow-passthrough on`). Under default tmux the link shows as the plain label.
+- **Ghostty** has a Cmd+click bug ([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — Cmd+click may not fire; **right-click → Open Link works**.
+- **Non-OSC-8 terminals** (older emulators, pipes, CI logs) show the plain label and drop the hyperlink — fine, because the label is the clean ref.
+
+## Cross-references
+
+- mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — this rule (Surface A / terminal).
+- mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.
+- mt#2528 — the `minsky://` OS scheme handler in the cockpit-tray app (required for a terminal click to actually open the cockpit).
+- mt#2410 — PR/changeset routes (until then, PR/changeset refs stay plain text).
+- `src/cockpit/web/lib/entity-codec.ts` — `entityToMinskyUri(type, id)` / `parseMinskyUri(uri)`; the format documented here matches the codec's output exactly.
+
 # User Preferences
 
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
