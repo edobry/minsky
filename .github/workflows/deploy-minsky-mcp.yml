@@ -128,6 +128,50 @@ jobs:
           docker logs minsky-smoke 2>&1 | tail -50 || true
           exit 1
 
+      # mt#2505 — deploy-keyed, single-runner PROD migration. Runs INSIDE the
+      # freshly-built image (the exact artifact about to deploy), BEFORE the
+      # :latest push that triggers the Railway deploy. Migrate therefore GATES
+      # the deploy: a failure here aborts the job, the image is never pushed, and
+      # Railway keeps the prior version running against the unchanged schema
+      # (Heroku-release-phase semantics). Idempotent (drizzle high-water-mark =
+      # no-op when nothing is pending); the workflow `concurrency` group keeps it
+      # single-runner. This is the controlled prod-touch that replaces
+      # auto-migrate-on-boot (the default flip ships separately, AFTER this is
+      # live + verified — the mt#2505 sequencing constraint).
+      #
+      # SECURITY: this step (like every secret-using step) is gated to
+      # push/workflow_dispatch on main; the workflow triggers on `pull_request`
+      # (NOT pull_request_target) and GitHub does not pass secrets to fork PRs,
+      # so the mt#1477 pwn-request class does not apply. NEVER convert this
+      # workflow to pull_request_target.
+      - name: Apply migrations to production
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          # Same canonical connection var the minsky-mcp service uses
+          # (infra/index.ts: MINSKY_PERSISTENCE_POSTGRES_URL ← sealed
+          # 'minsky-persistence-postgres-url'), stored here as a repo secret.
+          # mt#2439: the bundle reads MINSKY_PERSISTENCE_POSTGRES_URL — NOT
+          # MINSKY_POSTGRES_URL/DATABASE_URL — or it silently targets the wrong DB.
+          MINSKY_PERSISTENCE_POSTGRES_URL: ${{ secrets.MINSKY_PERSISTENCE_POSTGRES_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MINSKY_PERSISTENCE_POSTGRES_URL:-}" ]; then
+            echo "::error::MINSKY_PERSISTENCE_POSTGRES_URL secret not set — refusing to deploy."
+            echo "Add the prod Postgres connection as a repo secret to enable the deploy-keyed"
+            echo "migration (mt#2505). Failing the job avoids shipping new code against an"
+            echo "unmigrated schema (the out-of-band-coordination hazard)."
+            exit 1
+          fi
+
+          # Forward the secret by NAME (no value on the command line / in logs).
+          # MINSKY_PERSISTENCE_BACKEND mirrors the service env (infra/index.ts:69).
+          docker run --rm \
+            -e MINSKY_PERSISTENCE_BACKEND=postgres \
+            -e MINSKY_PERSISTENCE_POSTGRES_URL \
+            "$IMAGE:ci" \
+            bun run --preload reflect-metadata dist/minsky.js persistence migrate --execute
+
       - name: Login to GHCR
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
