@@ -36,11 +36,13 @@ Options weighed:
 2. **Bundle + transport shim** (the community-canonical "dual-mode" pattern). Bundle the SPA into
    the `.app` (trusted frontend, full IPC) and maintain a `backend.ts` abstraction
    (`isTauri ? invoke() : fetch()`) so the same SPA also runs in a browser.
-3. **Grant loopback IPC.** Keep the external URL but add a `remote` capability for
-   `127.0.0.1:3737`, making the daemon-served SPA a trusted origin. (A bundled-SPA-over-localhost
-   variant via `tauri-plugin-localhost` was also considered and dropped: Tauri's own docs flag it
-   as carrying "considerable security risks," and being bundled it gives no browser parity — option
-   2's parity loss without its secure default.)
+3. **Grant the SPA origin Tauri IPC.** Keep the external URL but add a `remote` capability for the
+   daemon origin, making the daemon-served SPA a trusted origin. (Scoping the capability to
+   `127.0.0.1:3737` would be illusory: the daemon binds all interfaces, so the same SPA is served to
+   LAN clients at the host's address — see the security-calibration driver below and mt#2538. A
+   bundled-SPA-over-localhost variant via `tauri-plugin-localhost` was also considered and dropped:
+   Tauri's own docs flag it as carrying "considerable security risks," and being bundled it gives no
+   browser parity — option 2's parity loss without its secure default.)
 
 Decision drivers:
 
