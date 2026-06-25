@@ -28,6 +28,7 @@
 import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import type { Root, Element, ElementContent } from "hast";
 import { parseMinskyUri, entityToPath, type RoutableEntityType } from "./entity-codec";
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ function resolveEntityId(
  *   [3] UUID / 8-char-hex-prefix candidate (bounded; no CSS colors, no word-embedded hex)
  *   [4] https?:// URL (always plain text; trailing prose punctuation excluded)
  */
-const _URL_BODY = "(?:[^\\s<>\",.);\\]]|[,.);\\]](?=[^\\s<>\",.);\\]]))";
+const _URL_BODY = '(?:[^\\s<>",.);\\]]|[,.);\\]](?=[^\\s<>",.);\\]]))';
 const TOKEN_RE = new RegExp(
   // Group 1: minsky:// URI (trailing-punct stripped)
   `(minsky:\\/\\/${_URL_BODY}+)` +
@@ -147,9 +148,112 @@ const TOKEN_RE = new RegExp(
   "gi"
 );
 
+// ---------------------------------------------------------------------------
+// Structured tokenizer (the reusable core)
+// ---------------------------------------------------------------------------
+
+/**
+ * A token produced by `tokenizeEntities`: either a run of plain text or a
+ * resolved entity link (the FULL SPA path is already computed).
+ *
+ * `mono: true` means the link should render in a monospace font (task ids and
+ * UUID-shaped refs); `mono: false` is for `minsky://` URIs.
+ */
+export type EntityToken =
+  | { kind: "text"; value: string }
+  | { kind: "link"; text: string; to: string; mono: boolean };
+
+const LINK_CLASS = "text-primary underline-offset-2 hover:underline";
+const LINK_CLASS_MONO = "font-mono text-primary underline-offset-2 hover:underline";
+
+/**
+ * Tokenize `text` into a flat array of {@link EntityToken}s. This is the pure,
+ * framework-agnostic core shared by:
+ *   - {@link linkifyText} — builds React `<Link>` nodes (flat plain-text callers)
+ *   - {@link rehypeEntityLinks} — splits hast text nodes inside a Markdown tree
+ *
+ * Recognizes the same four token classes as the original tokenizer (in priority
+ * order): `minsky://` URIs, id-set-gated `mt#NNNN`, id-set-gated UUID/hex
+ * prefixes, and `https?://` URLs (always plain text). Non-matching / unresolved
+ * tokens stay plain text (zero false positives — see the module header).
+ */
+export function tokenizeEntities(text: string, index: EntityIndex): EntityToken[] {
+  const tokens: EntityToken[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  // Reset the lastIndex since TOKEN_RE has the `g` flag.
+  TOKEN_RE.lastIndex = 0;
+
+  // Push a plain-text segment (skip empties). Segments are kept distinct (not
+  // coalesced) so this preserves linkifyText's original node structure — each
+  // run of plain text between/around matches is its own node.
+  const pushText = (value: string): void => {
+    if (value) tokens.push({ kind: "text", value });
+  };
+
+  while ((match = TOKEN_RE.exec(text)) !== null) {
+    const [fullMatch, minskyUri, taskId, uuidCandidate, httpsUrl] = match;
+    const matchStart = match.index;
+
+    if (matchStart > lastIndex) pushText(text.slice(lastIndex, matchStart));
+    lastIndex = matchStart + fullMatch.length;
+
+    // --- (a) Explicit minsky:// URI ---
+    if (minskyUri) {
+      const parsed = parseMinskyUri(minskyUri);
+      const path = parsed ? entityToPath(parsed.type, parsed.id) : null;
+      if (path) tokens.push({ kind: "link", text: minskyUri, to: path, mono: false });
+      else pushText(minskyUri); // malformed URI → plain text
+      continue;
+    }
+
+    // --- (b) Bare task id: mt#NNNN — id-set GATED (zero false positives) ---
+    if (taskId) {
+      const resolved = resolveEntityId(taskId, index);
+      if (resolved) {
+        tokens.push({
+          kind: "link",
+          text: taskId,
+          to: entityToPath(resolved.type, resolved.id),
+          mono: true,
+        });
+      } else pushText(taskId); // mt# not in id-set → plain text
+      continue;
+    }
+
+    // --- (c) UUID / hex-prefix candidate — id-set GATED ---
+    if (uuidCandidate) {
+      const resolved = resolveEntityId(uuidCandidate, index);
+      if (resolved) {
+        tokens.push({
+          kind: "link",
+          text: uuidCandidate,
+          to: entityToPath(resolved.type, resolved.id),
+          mono: true,
+        });
+      } else pushText(uuidCandidate); // UUID not in id-set → plain text
+      continue;
+    }
+
+    // --- https:// URL (always plain text) ---
+    if (httpsUrl) {
+      pushText(httpsUrl);
+      continue;
+    }
+
+    // Fallback: should not be reached, but append plain text to be safe.
+    pushText(fullMatch);
+  }
+
+  if (lastIndex < text.length) pushText(text.slice(lastIndex));
+
+  return tokens;
+}
+
 /**
  * Tokenize `text` into an array of React nodes, converting entity references
- * to in-SPA `<Link>` elements.
+ * to in-SPA `<Link>` elements. Thin wrapper over {@link tokenizeEntities}.
  *
  * @param text      The plain-text string to tokenize.
  * @param index     The known-entity id-set (from `buildEntityIndex`).
@@ -160,121 +264,19 @@ export function linkifyText(
   index: EntityIndex,
   linkProps?: Record<string, unknown>
 ): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  // Reset the lastIndex since TOKEN_RE has the `g` flag.
-  TOKEN_RE.lastIndex = 0;
-
-  while ((match = TOKEN_RE.exec(text)) !== null) {
-    const [fullMatch, minskyUri, taskId, uuidCandidate, httpsUrl] = match;
-    const matchStart = match.index;
-
-    // Append any plain text before this match.
-    if (matchStart > lastIndex) {
-      nodes.push(text.slice(lastIndex, matchStart));
-    }
-    lastIndex = matchStart + fullMatch.length;
-
-    // --- (a) Explicit minsky:// URI ---
-    if (minskyUri) {
-      const path = parseMinskyUri(minskyUri)
-        ? // parseMinskyUri succeeded; derive the path via the codec
-          (() => {
-            const parsed = parseMinskyUri(minskyUri)!;
-            return entityToPath(parsed.type, parsed.id);
-          })()
-        : null;
-
-      if (path) {
-        nodes.push(
-          createElement(
-            Link,
-            {
-              key: `link-${matchStart}`,
-              to: path,
-              className: "text-primary underline-offset-2 hover:underline",
-              ...linkProps,
-            },
-            minskyUri
-          )
-        );
-      } else {
-        // Malformed minsky URI (unknown type, etc.) → plain text
-        nodes.push(minskyUri);
-      }
-      continue;
-    }
-
-    // --- (b) Bare task id: mt#NNNN — id-set GATED ---
-    // Bare `mt#NNNN` is linked ONLY when the id is present in the entity index.
-    // A well-formed mt# that is NOT a known task → plain text (zero false positives).
-    // The id-set is comprehensive (useEntityIndex fetches /api/tasks?all=true so
-    // DONE/CLOSED tasks are included) — see mt#2518 R4.
-    if (taskId) {
-      const resolved = resolveEntityId(taskId, index);
-      if (resolved) {
-        const path = entityToPath(resolved.type, resolved.id);
-        nodes.push(
-          createElement(
-            Link,
-            {
-              key: `link-${matchStart}`,
-              to: path,
-              className: "font-mono text-primary underline-offset-2 hover:underline",
-              ...linkProps,
-            },
-            taskId
-          )
-        );
-      } else {
-        // mt# not in id-set → plain text
-        nodes.push(taskId);
-      }
-      continue;
-    }
-
-    // --- (c) UUID / hex-prefix candidate ---
-    if (uuidCandidate) {
-      const resolved = resolveEntityId(uuidCandidate, index);
-      if (resolved) {
-        const path = entityToPath(resolved.type, resolved.id);
-        nodes.push(
-          createElement(
-            Link,
-            {
-              key: `link-${matchStart}`,
-              to: path,
-              className: "font-mono text-primary underline-offset-2 hover:underline",
-              ...linkProps,
-            },
-            uuidCandidate
-          )
-        );
-      } else {
-        // UUID not in id-set → plain text
-        nodes.push(uuidCandidate);
-      }
-      continue;
-    }
-
-    // --- https:// URL (always plain text) ---
-    if (httpsUrl) {
-      nodes.push(httpsUrl);
-      continue;
-    }
-
-    // Fallback: should not be reached, but append plain text to be safe.
-    nodes.push(fullMatch);
-  }
-
-  // Append any remaining text after the last match.
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-
-  return nodes;
+  return tokenizeEntities(text, index).map((tok, i) => {
+    if (tok.kind === "text") return tok.value;
+    return createElement(
+      Link,
+      {
+        key: `link-${i}`,
+        to: tok.to,
+        className: tok.mono ? LINK_CLASS_MONO : LINK_CLASS,
+        ...linkProps,
+      },
+      tok.text
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -296,4 +298,78 @@ export function LinkifiedText({
   const nodes = linkifyText(text, index);
   // Use Fragment so the caller's <p> stays as the wrapper.
   return createElement(Fragment, null, ...nodes);
+}
+
+// ---------------------------------------------------------------------------
+// rehype plugin — entity-linkify inside a Markdown (hast) tree (mt#2550)
+// ---------------------------------------------------------------------------
+
+/** Tags whose text content must NOT be linkified: code spans, code blocks,
+ *  and existing anchors (markdown links / gfm autolinks). */
+const SKIP_TAGS = new Set(["code", "pre", "a"]);
+
+export interface RehypeEntityLinksOptions {
+  /** Known-entity id-set; bare refs link only when present here. */
+  index: EntityIndex;
+}
+
+/**
+ * A rehype plugin that walks the Markdown-rendered hast tree and converts
+ * entity references found in leaf TEXT nodes into anchor (`<a href="/...">`)
+ * nodes, reusing {@link tokenizeEntities}. Code spans, code blocks, and
+ * existing anchors are skipped (their text is left verbatim).
+ *
+ * This is the composition contract for `<Prose>`: Markdown is parsed FIRST
+ * (so it sees real structure, not syntax characters), THEN linkification runs
+ * over the resulting text leaves. The emitted anchors carry the SPA path in
+ * `href` (always `/`-prefixed via `entityToPath`); `<Prose>`'s `a` component
+ * override renders those as react-router `<Link>`s.
+ */
+export function rehypeEntityLinks(options: RehypeEntityLinksOptions) {
+  return (tree: Root): void => {
+    const index = options?.index;
+    if (!index || index.size === 0) return;
+    visitEntityNodes(tree, index);
+  };
+}
+
+function makeAnchor(tok: Extract<EntityToken, { kind: "link" }>): Element {
+  return {
+    type: "element",
+    tagName: "a",
+    properties: {
+      href: tok.to,
+      className: tok.mono
+        ? ["font-mono", "text-primary", "underline-offset-2", "hover:underline"]
+        : ["text-primary", "underline-offset-2", "hover:underline"],
+    },
+    children: [{ type: "text", value: tok.text }],
+  };
+}
+
+function visitEntityNodes(node: Root | Element, index: EntityIndex): void {
+  const out: ElementContent[] = [];
+  for (const child of node.children as ElementContent[]) {
+    if (child.type === "text") {
+      const tokens = tokenizeEntities(child.value, index);
+      // No entity links in this text node → keep it untouched (the common case
+      // for ordinary prose, incl. text with bare https URLs / unresolved refs).
+      if (!tokens.some((t) => t.kind === "link")) {
+        out.push(child);
+        continue;
+      }
+      for (const tok of tokens) {
+        if (tok.kind === "text") out.push({ type: "text", value: tok.value });
+        else out.push(makeAnchor(tok));
+      }
+      continue;
+    }
+    if (child.type === "element") {
+      if (!SKIP_TAGS.has(child.tagName)) visitEntityNodes(child, index);
+      out.push(child);
+      continue;
+    }
+    out.push(child);
+  }
+  node.children = out as typeof node.children;
 }

@@ -10,6 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
+import { Prose } from "../components/Prose";
+import { useEntityIndex } from "../lib/use-entity-index";
 import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
 
 interface MemorySearchResult {
@@ -61,6 +63,7 @@ export function MemoryDetailContent({
   onNavigate?: (id: string) => void;
 }) {
   const { record, lineage, lineageTruncated, similar } = payload;
+  const entityIndex = useEntityIndex();
 
   return (
     <div className="space-y-4 overflow-y-auto flex-1">
@@ -171,9 +174,12 @@ export function MemoryDetailContent({
         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
           Content
         </h3>
-        <pre className="text-xs font-mono bg-muted/30 border border-border/50 rounded p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+        <Prose
+          entityIndex={entityIndex}
+          className="max-h-64 overflow-y-auto rounded border border-border/50 bg-muted/30 p-3"
+        >
           {record.content}
-        </pre>
+        </Prose>
       </section>
 
       {/* Lineage */}

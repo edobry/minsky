@@ -27,7 +27,7 @@
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "../lib/utils";
 import {
   snapshotBlocksToConversation,
@@ -36,8 +36,9 @@ import {
 } from "@minsky/domain/transcripts/conversation-elements";
 import type { SessionContextSnapshot } from "@minsky/domain/context/types";
 import type { ConversationId } from "@minsky/domain/ids";
-import { buildEntityIndex, linkifyText, type EntityIndex } from "../lib/entity-linkifier";
-import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import type { EntityIndex } from "../lib/entity-linkifier";
+import { useEntityIndex } from "../lib/use-entity-index";
+import { Prose } from "../components/Prose";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -102,111 +103,10 @@ async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextS
 
 // ── Entity index for linkification ────────────────────────────────────────────
 //
-// The linkifier resolves bare entity references (mt#NNNN, UUIDs) against a
-// known-entity id-set. Tasks are fetched from the uncapped /api/tasks/ids endpoint
-// (mt#2518 R5 — no 500-task cap, ids only). Sessions/asks/memories come from widget
-// endpoints. Task queries use DISTINCT cache keys from CommandPalette's queries (see
-// useEntityIndex for the full rationale — shape mismatch would poison the
-// CommandPalette cache). Widget-data queries (agents, attention, memories) share keys
-// with CommandPalette because their shapes are compatible.
-
-/**
- * Fetch ALL task ids from the uncapped /api/tasks/ids endpoint (mt#2518 R5).
- * Returns a string[] of every task id regardless of status — no 500 cap.
- * The linkifier uses only the ids (not titles/statuses), so the ids-only
- * endpoint is the correct target: cheaper and guaranteed comprehensive.
- */
-async function fetchAllTaskIds(): Promise<string[]> {
-  try {
-    const res = await fetch("/api/tasks/ids");
-    if (!res.ok) return [];
-    const data = (await res.json()) as { ids?: string[] };
-    if (!Array.isArray(data?.ids)) return [];
-    return data.ids;
-  } catch {
-    return [];
-  }
-}
-
-function extractAgentSessionIds(data: WidgetData | undefined): string[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { agents?: { sessionId: string }[] };
-  if (!Array.isArray(payload?.agents)) return [];
-  return payload.agents.map((a) => a.sessionId);
-}
-
-function extractAskIds(data: WidgetData | undefined): string[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { cohort?: { id: string }[] };
-  if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort.map((a) => a.id);
-}
-
-function extractMemoryIds(data: WidgetData | undefined): string[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { records?: { id: string }[] };
-  if (!Array.isArray(payload?.records)) return [];
-  return payload.records.map((r) => r.id);
-}
-
-/**
- * Build the entity index from data fetched for linkification purposes.
- * Returns an always-present EntityIndex (may be empty on load or error).
- *
- * IMPORTANT: these queries use DISTINCT cache keys from CommandPalette's queries
- * to prevent cache poisoning. CommandPalette's tasks key ("command-palette-tasks")
- * caches PaletteTask[] (objects with a `type` field); entity-index fetches only
- * string[] ids via /api/tasks/ids. Sharing the key would corrupt the cache:
- * whichever component fills it first wins, and the other reads objects of the
- * wrong shape — causing entityToPath(undefined, id) → navigate(undefined).
- *
- * Cache isolation trade-off: opening the palette no longer warms the entity-
- * index cache for free. The widget data queries (agents, attention, memories)
- * DO share keys with CommandPalette because their shapes are compatible
- * (both extract only ids from the WidgetData wrapper).
- */
-function useEntityIndex(): EntityIndex {
-  const [tasksQ, agentsQ, attentionQ, memoriesQ] = useQueries({
-    queries: [
-      {
-        // Distinct key from CommandPalette's "command-palette-tasks" — different shape
-        // (string[] here via /api/tasks/ids vs PaletteTask[] there; sharing would
-        // poison the cache). Uses the uncapped ids-only endpoint (mt#2518 R5) so the
-        // id-set is comprehensive — no 500-task cap.
-        queryKey: ["entity-index", "tasks"],
-        queryFn: fetchAllTaskIds,
-        staleTime: 30_000,
-      },
-      {
-        queryKey: ["agents"],
-        queryFn: () => fetchWidgetData("agents"),
-        staleTime: 30_000,
-      },
-      {
-        queryKey: ["attention"],
-        queryFn: () => fetchWidgetData("attention"),
-        staleTime: 30_000,
-      },
-      {
-        queryKey: ["widget", "memories-list", "", "", true],
-        queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
-        staleTime: 30_000,
-      },
-    ],
-  });
-
-  return useMemo(
-    () =>
-      buildEntityIndex({
-        // tasksQ.data is now string[] (ids directly from /api/tasks/ids)
-        taskIds: tasksQ.data ?? [],
-        sessionIds: extractAgentSessionIds(agentsQ.data as WidgetData | undefined),
-        askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
-        memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),
-      }),
-    [tasksQ.data, agentsQ.data, attentionQ.data, memoriesQ.data]
-  );
-}
+// The known-entity id-set used to linkify bare references (mt#NNNN, UUIDs) is
+// now built by the shared `useEntityIndex` hook (../lib/use-entity-index.ts),
+// extracted from this file in mt#2550 so every prose surface (`<Prose>`) shares
+// one index. ConversationView consumes it via ConversationThread below.
 
 // ── Content pretty-printing ────────────────────────────────────────────────────
 
@@ -313,6 +213,10 @@ function ToolResult({
         <span className="font-medium">{element.isError ? "tool error" : "tool result"}</span>
         {callName && <span className="font-mono text-muted-foreground/70">{callName}</span>}
       </div>
+      {/* Tool results are kept as preformatted text here. Rich rendering —
+          JSON tree for JSON payloads, <Prose> for Markdown text — is owned by
+          the content-type dispatcher in mt#2552 (depends on mt#2550's <Prose>);
+          rendering JSON-shaped results as Markdown now would regress them. */}
       <pre
         className={cn(
           "max-h-48 overflow-auto whitespace-pre-wrap break-words border-t px-2 py-1 text-xs",
@@ -339,10 +243,10 @@ function ElementView({
 }) {
   switch (element.kind) {
     case "text":
+      // Assistant/user prose turns are Markdown — render via the shared <Prose>
+      // (Markdown structure + entity-linkification). mt#2550.
       return element.text.trim().length > 0 ? (
-        <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">
-          {linkifyText(element.text, entityIndex)}
-        </p>
+        <Prose entityIndex={entityIndex}>{element.text}</Prose>
       ) : null;
     case "thinking":
       return element.thinking.trim().length > 0 ? (
