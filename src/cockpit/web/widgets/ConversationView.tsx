@@ -148,6 +148,10 @@ export function ThinkingBlock({
       {open && (
         // Thinking is agent reasoning prose — render as Markdown via the shared
         // <Prose> (same as assistant text), entity-aware. mt#2556 (mt#2550 follow-up).
+        // Newline semantics intentionally match assistant text (Markdown soft
+        // newlines): model reasoning is paragraph-structured. remark-breaks is NOT
+        // enabled globally — it would regress spec/memory rendering on <Prose>'s
+        // other callers (PR #1746 reviewer note).
         <Prose entityIndex={entityIndex} className="px-2 pb-2 pt-1 text-xs text-muted-foreground">
           {thinking}
         </Prose>
