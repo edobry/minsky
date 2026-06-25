@@ -60,7 +60,21 @@ bun run dev        # == `tauri dev`: compiles, launches, and rebuilds + relaunch
 
 So GUI-behavior verification = `bun run dev` + a manual click. **Do not report a tray UI change "verified" off `cargo check` alone** — that proves compilation, nothing about the click.
 
-## Release install (rare — testing the packaged app, not iterating)
+## Deep-link / `minsky://` scheme verification (the one thing `tauri dev` can't do)
+
+The `minsky://` URL scheme is registered from the app's `Info.plist` by macOS Launch Services at INSTALL time, not at runtime — so `tauri dev` (an unregistered binary) **cannot** exercise deep links. This is a macOS platform constraint, not a Tauri one ([Tauri deep-linking docs](https://v2.tauri.app/plugin/deep-linking/)). It's the one tray change that needs a build+install instead of `bun run dev`.
+
+Use the **lean installer** — it builds APP-ONLY (`tauri build --bundles app`), so it does NOT produce a `.dmg` and does NOT flash the macOS installer window on every rebuild (a full `bun run build` does both — mt#2553):
+
+```bash
+cockpit-tray/scripts/install-local.sh                # app-only build + install + LS register + dequarantine
+cockpit-tray/scripts/install-local.sh --binary-only  # fast iterative re-install (swap inner binary only)
+cockpit-tray/scripts/verify-deeplink-hotstart.sh     # automated hot-start-no-window check
+```
+
+Do NOT use the full `bun run build` (DMG-producing) path below for deep-link verification.
+
+## Release install (rare — testing the packaged DMG experience, not iterating)
 
 ```bash
 cd cockpit-tray && bun run build      # tauri build → src-tauri/target/release/bundle/macos/Minsky Cockpit.app
