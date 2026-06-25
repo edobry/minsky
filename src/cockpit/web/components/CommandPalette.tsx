@@ -87,6 +87,7 @@ const PAGES: PalettePage[] = [
   },
   { type: "page", path: "/tasks", label: "Task List", description: "Flat sortable task table" },
   { type: "page", path: "/tasks/graph", label: "Task Graph", description: "Dependency graph view" },
+  { type: "page", path: "/changesets", label: "Changesets", description: "Active PRs across sessions" },
   { type: "page", path: "/asks", label: "Asks", description: "Pending principal-attention asks" },
   { type: "page", path: "/activity", label: "Activity", description: "System event log" },
   {
