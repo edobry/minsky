@@ -1,18 +1,25 @@
 #!/usr/bin/env bun
 // PreToolUse hook: block mcp__minsky__session_start when parallel work is detected.
 //
-// Rationale: Starting a new session while another open PR or a recently-merged commit
-// touches the same files produces silent merge conflicts, duplicated effort, and broken
-// session state. This hook enforces the parallel-work check that mt#1305 added to the
-// /plan-task and /implement-task skills — but structurally, at the tool call boundary,
-// so it fires regardless of which skill (or no skill) led to session_start.
+// Rationale: Starting a new session while another UNMERGED open PR touches the same
+// files produces silent merge conflicts and duplicated effort. This hook enforces the
+// parallel-work check that mt#1305 added to the /plan-task and /implement-task skills —
+// but structurally, at the tool call boundary, so it fires regardless of which skill
+// (or no skill) led to session_start.
 //
 // Two checks are run:
-//   A. Open-PR sweep: any open PR whose changed files overlap the task's in-scope paths.
-//   B. Recently-merged sweep: any commit on the default branch in the last 24h touching in-scope paths.
+//   A. Open-PR sweep (BLOCKING): any open PR whose changed files overlap the task's
+//      in-scope paths. This is the genuine merge-conflict signal.
+//   B. Recently-merged sweep (ADVISORY — mt#2337): any commit on the default branch in
+//      the last 24h touching in-scope paths. `session_start` clones the remote fresh
+//      every time, so the new branch ALWAYS includes these commits — they CANNOT
+//      conflict. Surfaced as a warning ("review recent changes to avoid duplicate
+//      work"), not a block. (Stale-base hazards are caught separately by
+//      check-branch-fresh.ts at commit/PR time.)
 //
-// On hit: BLOCK with structured message listing the colliding PR/commit.
-// On miss or warn: permit.
+// On open-PR hit: BLOCK with structured message listing the colliding PR.
+// On recently-merged hit: WARN (non-blocking advisory).
+// On miss: permit.
 // Override: MINSKY_FORCE_PARALLEL=1 env var bypasses with audit log.
 //
 // @see mt#1362 — Tier-3 structural ceiling for the parallel-work guard ladder
@@ -1188,6 +1195,16 @@ export function runParallelWorkChecks(
   }
 
   // Check B: recently merged — uses the default branch detected above.
+  //
+  // ADVISORY ONLY (mt#2337): `session_start` performs a fresh `git clone` of
+  // the remote (packages/domain/src/session/start-session-operations.ts →
+  // git/clone-operations.ts), so the new session branch ALWAYS includes the
+  // latest commits on the default branch. A commit already on the default
+  // branch therefore cannot produce a merge conflict for the new session — the
+  // merge-conflict rationale only holds for UNMERGED open PRs (Check A). These
+  // overlaps are surfaced as warnings, NOT pushed into `collisions`, so they
+  // never set `blocked`. (This removed the sequential-follow-up false positive:
+  // editing a file you just merged no longer denies session_start.)
   try {
     if (defaultBranchRef === null) {
       // All probes failed; skip the sweep rather than running against a wrong ref
@@ -1201,7 +1218,9 @@ export function runParallelWorkChecks(
         warnings,
         deps.isFileChangeAppendOnly
       );
-      collisions.push(...mergeCollisions);
+      for (const mergeCollision of mergeCollisions) {
+        warnings.push(formatRecentlyMergedAdvisory(mergeCollision));
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1209,6 +1228,9 @@ export function runParallelWorkChecks(
   }
 
   return {
+    // Only OPEN-PR collisions block (genuine unmerged concurrent work). The
+    // `collisions` array intentionally never contains recently-merged entries
+    // (those are advisory warnings — mt#2337).
     blocked: collisions.length > 0,
     collisions,
     warnings,
@@ -1249,6 +1271,25 @@ export function formatBlockMessage(taskId: string, collisions: ParallelWorkColli
   lines.push("       The override is audit-logged.");
 
   return lines.join("\n");
+}
+
+/**
+ * Format a recently-merged overlap as a non-blocking advisory warning (mt#2337).
+ *
+ * Recently-merged commits are already present in the freshly-cloned session
+ * branch, so they cannot cause a merge conflict — the value is purely "review
+ * this recent change to the same files to avoid duplicating it." Returned as a
+ * warning string rather than a blocking collision.
+ */
+export function formatRecentlyMergedAdvisory(collision: ParallelWorkCollision): string {
+  const sha = collision.commitSha ?? "unknown";
+  const message = collision.commitMessage ?? "";
+  const files = collision.overlappingFiles.join(", ");
+  return (
+    `Recently-merged ${sha} ("${message}") touched in-scope files: ${files}. ` +
+    `Your new session clones the latest default branch and already includes it ` +
+    `(no merge conflict) — review the change to avoid duplicate work.`
+  );
 }
 
 // ---------------------------------------------------------------------------

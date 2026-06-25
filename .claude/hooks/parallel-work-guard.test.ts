@@ -414,7 +414,7 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
     expect(collision.overlappingFiles).toContain(FIXTURE_ASK_TS);
   });
 
-  it("blocks on recently-merged collision", () => {
+  it("does NOT block on recently-merged overlap — surfaces a non-blocking advisory (mt#2337)", () => {
     const checkInput: ParallelWorkCheckInput = {
       taskId: "mt#9001",
       inScopeFiles: [FIXTURE_ASK_TS],
@@ -434,12 +434,16 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
     });
 
     const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, recentMergeDeps);
-    expect(result.blocked).toBe(true);
-    expect(result.collisions).toHaveLength(1);
-    const collision = result.collisions[0];
-    expect(collision).toBeDefined();
-    if (!collision) throw new Error("expected collision");
-    expect(collision.type).toBe("recently-merged");
+    // Recently-merged commits are already in the fresh-cloned session branch —
+    // they can't conflict, so they never block (mt#2337).
+    expect(result.blocked).toBe(false);
+    expect(result.collisions).toHaveLength(0);
+    // ...but the overlap is surfaced as an advisory warning naming the commit + files.
+    expect(
+      result.warnings.some(
+        (w) => w.includes("abcd123") && w.includes(FIXTURE_ASK_TS) && w.includes("Recently-merged")
+      )
+    ).toBe(true);
   });
 
   it("skips the task's own branch when scanning open PRs", () => {
@@ -470,6 +474,46 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
     );
     expect(result.blocked).toBe(false);
     expect(result.collisions).toHaveLength(0);
+  });
+
+  it("open-PR blocks while a concurrent recently-merged overlap is advisory (mt#2337)", () => {
+    const checkInput: ParallelWorkCheckInput = {
+      taskId: "mt#9002",
+      inScopeFiles: [FIXTURE_ASK_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+
+    const bothDeps: ParallelWorkCheckDeps = makeDeps({
+      fetchOpenPrs: () => [{ number: 788, title: "feat: peer PR", headRefName: "task/peer" }],
+      fetchPrFiles: () => [FIXTURE_ASK_TS],
+      fetchRecentMerges: () => [
+        {
+          type: "recently-merged",
+          commitSha: "abcd123",
+          commitMessage: "chore: landed earlier change",
+          overlappingFiles: [FIXTURE_ASK_TS],
+        },
+      ],
+    });
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, bothDeps);
+    // Blocks on the open PR only; the recently-merged overlap is advisory.
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    const collision = result.collisions[0];
+    expect(collision).toBeDefined();
+    if (!collision) throw new Error("expected collision");
+    expect(collision.type).toBe("open-pr");
+    expect(collision.prNumber).toBe(788);
+    // The block message lists the open-PR collision (not the merged commit).
+    const msg = formatBlockMessage(checkInput.taskId, result.collisions);
+    expect(msg).toContain("PR #788");
+    expect(msg).not.toContain("abcd123");
+    // The recently-merged overlap is surfaced as an advisory warning.
+    expect(
+      result.warnings.some((w) => w.includes("abcd123") && w.includes("Recently-merged"))
+    ).toBe(true);
   });
 });
 
@@ -671,14 +715,14 @@ describe("runParallelWorkChecks — failure and warning paths", () => {
     });
 
     const result = runParallelWorkChecks(baseInput, "/tmp/anywhere", undefined, resilientDeps);
-    // Open-PR sweep failed => warning, but recently-merged sweep ran and found collision
+    // Open-PR sweep failed => warning, but the recently-merged sweep still ran.
+    // Its overlap is advisory (mt#2337): it surfaces as a warning, not a block.
     expect(result.warnings.some((w) => w.includes("Open-PR sweep failed"))).toBe(true);
-    expect(result.blocked).toBe(true);
-    expect(result.collisions).toHaveLength(1);
-    const resilientCollision = result.collisions[0];
-    expect(resilientCollision).toBeDefined();
-    if (!resilientCollision) throw new Error("expected collision");
-    expect(resilientCollision.type).toBe("recently-merged");
+    expect(result.blocked).toBe(false);
+    expect(result.collisions).toHaveLength(0);
+    expect(
+      result.warnings.some((w) => w.includes("abc1234") && w.includes("Recently-merged"))
+    ).toBe(true);
   });
 });
 
