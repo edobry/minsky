@@ -40,7 +40,6 @@ TRAY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_NAME="Minsky Cockpit.app"
 BUILT_APP="$TRAY_DIR/src-tauri/target/release/bundle/macos/$APP_NAME"
 INSTALLED_APP="/Applications/$APP_NAME"
-BINARY_REL="Contents/MacOS/cockpit-tray"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 BINARY_ONLY=0
@@ -51,17 +50,30 @@ BINARY_ONLY=0
   exit 1
 }
 
-echo "==> app-only build (tauri build --bundles app — no DMG, no installer-window popup)"
-(cd "$TRAY_DIR" && bun run tauri build --bundles app)
+# Build APP-ONLY via the Tauri CLI directly (`bunx tauri`, the @tauri-apps/cli
+# devDependency) — no dependence on an npm passthrough script, and crucially no
+# `.dmg` / `bundle_dmg.sh` step (which flashes the installer window).
+echo "==> app-only build (bunx tauri build --bundles app — no DMG, no installer-window popup)"
+(cd "$TRAY_DIR" && bunx tauri build --bundles app)
 
 [[ -d "$BUILT_APP" ]] || {
   echo "install-local.sh: build did not produce '$BUILT_APP'"
   exit 1
 }
 
+# Derive the inner binary name from the freshly-built bundle rather than
+# hardcoding it (Tauri names it from tauri.conf.json productName / the Cargo bin,
+# which can change). Fail loudly if no executable is found.
+BINARY_NAME="$(ls "$BUILT_APP/Contents/MacOS/" 2>/dev/null | head -n1)"
+[[ -n "$BINARY_NAME" && -x "$BUILT_APP/Contents/MacOS/$BINARY_NAME" ]] || {
+  echo "install-local.sh: no executable found in '$BUILT_APP/Contents/MacOS/'"
+  exit 1
+}
+BINARY_REL="Contents/MacOS/$BINARY_NAME"
+
 # Quit any running instance so the bundle / binary can be replaced cleanly.
 osascript -e 'quit app "Minsky Cockpit"' 2>/dev/null || true
-pkill -f "$APP_NAME/Contents/MacOS/cockpit-tray" 2>/dev/null || true
+pkill -f "$APP_NAME/$BINARY_REL" 2>/dev/null || true
 sleep 1
 
 if [[ "$BINARY_ONLY" == "1" && -d "$INSTALLED_APP" ]]; then
