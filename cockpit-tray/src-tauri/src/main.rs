@@ -16,6 +16,7 @@ use std::io;
 use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -60,16 +61,6 @@ const DEEP_LINK_RETRY_MAX: u32 = 400;
 /// Interval between retry attempts (ms). 400 × 150 ms = 60 s total window —
 /// generous enough to cover a cold daemon + webview start on a slow machine.
 const DEEP_LINK_RETRY_INTERVAL_MS: u64 = 150;
-/// Grace window (in retry attempts) to wait after SCHEDULING window creation
-/// before re-scheduling it (mt#2551). `run_on_main_thread` returning Ok only
-/// means the create closure was enqueued — NOT that `open_cockpit_window`'s
-/// `build()` succeeded. If the window is still absent this many attempts after a
-/// successful schedule, the deferred create must have failed (a transient
-/// build()/URL-parse error), so it is re-scheduled rather than left to spin out
-/// the full retry budget with no second attempt. 20 × 150 ms = 3 s — far longer
-/// than a successful `build()` needs, so a re-schedule can't double-create (and
-/// `ensure_cockpit_window_visible` no-ops when the window already exists anyway).
-const DEEP_LINK_CREATE_GRACE_ATTEMPTS: u32 = 20;
 
 const LABEL_RUNNING: &str = "Cockpit: running";
 const LABEL_STOPPED: &str = "Cockpit: stopped";
@@ -1789,33 +1780,45 @@ fn handle_deep_link(app: &AppHandle, url: String) {
         // next run-loop tick (after the synchronous `on_open_url` callback returned),
         // so `build()` can complete instead of deadlocking.
         //
-        // `scheduled_at` records the attempt at which creation was last SCHEDULED
-        // (None = never). We re-schedule when (a) we never scheduled, OR (b) a prior
-        // schedule's grace window (`DEEP_LINK_CREATE_GRACE_ATTEMPTS`) elapsed with the
-        // window STILL absent — meaning the deferred `build()` failed — so a one-off
-        // transient failure doesn't starve the deep link for the whole retry budget
-        // (mt#2551). The grace window is long enough that a successful `build()` would
-        // already have produced a window, so a re-schedule can't double-create; and on
-        // `run_on_main_thread` Err we leave `scheduled_at` unchanged so the next tick
-        // retries the scheduling.
-        let mut scheduled_at: Option<u32> = None;
+        // `create_in_flight` (mt#2551) makes the deferred create resilient WITHOUT a
+        // double-create race. `run_on_main_thread` returning Ok means the create
+        // closure was ENQUEUED, not that `open_cockpit_window`'s `build()` succeeded.
+        // The flag is set BEFORE enqueueing and cleared only INSIDE the closure (once
+        // `ensure_cockpit_window_visible` has returned and the window therefore either
+        // exists or has definitively failed to build). So:
+        //   - while a create is queued OR mid-flight, no second create is scheduled —
+        //     even on a slow/back-pressured machine where `build()` outlasts any fixed
+        //     grace window (the race flagged on PR #1741);
+        //   - if the deferred create FAILS, the flag clears with the window still
+        //     absent, and the next tick re-schedules — so a one-off transient failure
+        //     doesn't spin out the whole retry budget with no window.
+        // On `run_on_main_thread` Err the closure never runs, so the flag is cleared
+        // here to allow a retry on the next tick.
+        let create_in_flight = Arc::new(AtomicBool::new(false));
+        let mut schedule_count: u32 = 0;
         for attempt in 0..DEEP_LINK_RETRY_MAX {
             std::thread::sleep(Duration::from_millis(DEEP_LINK_RETRY_INTERVAL_MS));
 
             let Some(window) = app_clone.get_webview_window(COCKPIT_WINDOW_LABEL) else {
-                // No window yet — schedule creation if we never have, or if a prior
-                // schedule's grace window elapsed with the window still missing.
-                let needs_schedule = match scheduled_at {
-                    None => true,
-                    Some(at) => attempt.saturating_sub(at) >= DEEP_LINK_CREATE_GRACE_ATTEMPTS,
-                };
-                if needs_schedule {
+                // No window yet — schedule creation unless one is already in flight.
+                if !create_in_flight.swap(true, Ordering::AcqRel) {
                     let app_for_window = app_clone.clone();
+                    let flag = create_in_flight.clone();
                     match app_clone.run_on_main_thread(move || {
                         ensure_cockpit_window_visible(&app_for_window);
+                        flag.store(false, Ordering::Release);
                     }) {
-                        Ok(()) => scheduled_at = Some(attempt),
+                        Ok(()) => {
+                            schedule_count += 1;
+                            // Log once, on the first RE-schedule (a prior deferred
+                            // create produced no window) — a useful field signal
+                            // without spamming the happy path.
+                            if schedule_count == 2 {
+                                eprintln!("[cockpit-tray] deep-link: re-scheduling window creation (prior deferred create produced no window) for {url:?}");
+                            }
+                        }
                         Err(e) => {
+                            create_in_flight.store(false, Ordering::Release);
                             if attempt == 0 {
                                 eprintln!("[cockpit-tray] deep-link: run_on_main_thread (window create) failed, will retry: {e}");
                             }
