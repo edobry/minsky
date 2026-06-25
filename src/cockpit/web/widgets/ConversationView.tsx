@@ -39,6 +39,7 @@ import type { ConversationId } from "@minsky/domain/ids";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { Prose } from "../components/Prose";
+import { ToolPayload } from "../components/ToolPayload";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -108,29 +109,7 @@ async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextS
 // extracted from this file in mt#2550 so every prose surface (`<Prose>`) shares
 // one index. ConversationView consumes it via ConversationThread below.
 
-// ── Content pretty-printing ────────────────────────────────────────────────────
-
-/** Render an unknown tool input/result payload as readable text. */
-function pretty(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  // tool_result content is often an array of { type: "text", text } blocks.
-  if (Array.isArray(value)) {
-    const texts = value
-      .map((b) =>
-        b !== null && typeof b === "object" && typeof (b as { text?: unknown }).text === "string"
-          ? (b as { text: string }).text
-          : null
-      )
-      .filter((t): t is string => t !== null);
-    if (texts.length > 0) return texts.join("\n");
-  }
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
+// ── Time formatting ─────────────────────────────────────────────────────────────
 
 function formatTime(iso: string): string {
   try {
@@ -169,8 +148,13 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
   );
 }
 
-function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "tool-call" }> }) {
-  const input = useMemo(() => pretty(element.input), [element.input]);
+function ToolCall({
+  element,
+  entityIndex,
+}: {
+  element: Extract<ConversationElement, { kind: "tool-call" }>;
+  entityIndex: EntityIndex;
+}) {
   return (
     <div className="rounded border border-sky-500/30 bg-sky-500/5">
       <div className="flex items-center gap-2 px-2 py-1 text-xs">
@@ -184,11 +168,13 @@ function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "
           </span>
         )}
       </div>
-      {input.length > 0 && (
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words border-t border-sky-500/20 px-2 py-1 text-xs text-foreground/80">
-          {input}
-        </pre>
-      )}
+      {/* tool-call args (mt#2552): JSON → entity-aware JsonView, else <pre> */}
+      <ToolPayload
+        value={element.input}
+        toolName={element.name}
+        entityIndex={entityIndex}
+        className="border-sky-500/20 text-foreground/80"
+      />
     </div>
   );
 }
@@ -196,11 +182,12 @@ function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "
 function ToolResult({
   element,
   callName,
+  entityIndex,
 }: {
   element: Extract<ConversationElement, { kind: "tool-result" }>;
   callName: string | undefined;
+  entityIndex: EntityIndex;
 }) {
-  const body = useMemo(() => pretty(element.content), [element.content]);
   return (
     <div
       className={cn(
@@ -213,20 +200,19 @@ function ToolResult({
         <span className="font-medium">{element.isError ? "tool error" : "tool result"}</span>
         {callName && <span className="font-mono text-muted-foreground/70">{callName}</span>}
       </div>
-      {/* Tool results are kept as preformatted text here. Rich rendering —
-          JSON tree for JSON payloads, <Prose> for Markdown text — is owned by
-          the content-type dispatcher in mt#2552 (depends on mt#2550's <Prose>);
-          rendering JSON-shaped results as Markdown now would regress them. */}
-      <pre
+      {/* Content-type dispatch (mt#2552): JSON payloads → JsonView (a Tier-3
+          per-tool renderer if registered, else the generic entity-aware tree);
+          non-JSON content → <pre> (unchanged). */}
+      <ToolPayload
+        value={element.content}
+        toolName={callName}
+        entityIndex={entityIndex}
         className={cn(
-          "max-h-48 overflow-auto whitespace-pre-wrap break-words border-t px-2 py-1 text-xs",
           element.isError
             ? "border-destructive/30 text-destructive"
             : "border-border/40 text-foreground/70"
         )}
-      >
-        {body}
-      </pre>
+      />
     </div>
   );
 }
@@ -253,12 +239,13 @@ function ElementView({
         <ThinkingBlock thinking={element.thinking} />
       ) : null;
     case "tool-call":
-      return <ToolCall element={element} />;
+      return <ToolCall element={element} entityIndex={entityIndex} />;
     case "tool-result":
       return (
         <ToolResult
           element={element}
           callName={element.toolUseId ? callNameByToolUseId.get(element.toolUseId) : undefined}
+          entityIndex={entityIndex}
         />
       );
     case "unknown":
