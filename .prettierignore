@@ -25,3 +25,15 @@ AGENTS.md
 # can't both win, so the generator owns the format and the compile-check guard
 # (src/hooks/pre-commit.ts runCompileCheck) enforces staleness instead (mt#2497).
 .claude/agents/
+
+# Compiled skill outputs — managed by "minsky compile --target claude-skills",
+# not Prettier. The compiler emits the source markdown verbatim, so when a source
+# uses Prettier-divergent markdown (e.g. `*italic*` vs `_italic_`), lint-staged
+# would rewrite the compiled SKILL.md and the compile-check guard
+# (src/hooks/pre-commit.ts runCompileCheck) would then flag it STALE — a deadlock
+# that blocks the commit (mt#2555). The compile-check guard owns staleness for
+# compiled skills instead.
+# NOTE: .claude/skills/ is a SHARED output dir — it also holds legacy hand-authored
+# SKILL.md files (no .minsky/skills/ source); those are no longer Prettier-checked
+# as a side effect of this ignore. Author new skills under .minsky/skills/ (ADR-015).
+.claude/skills/
