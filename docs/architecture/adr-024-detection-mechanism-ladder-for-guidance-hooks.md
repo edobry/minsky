@@ -107,8 +107,8 @@ embedding; learned confirm) are gated by measured evidence, not dates.
 - `docs/architecture/agent-guidance-mechanisms.md` — corrected in this change (the "strength
   ordering" + hook framework this ADR refines).
 - Reuse: `.claude/hooks/block-out-of-band-merge.ts` (`elideMarkdownNonProse` — the Rung-1
-  elision pattern); shared detector framework `packages/domain/src/detectors/` (ADR-008, mt#1035,
-  mt#1543).
+  elision pattern); shared detector framework `packages/domain/src/detectors/` (mt#1035,
+  mt#1543; part of the attention-allocation subsystem).
 - Shipped semantic-detection counter-examples: `.claude/hooks/memory-search.ts` (embedding),
   `.claude/hooks/post-merge-unasked-direction-scan.ts` (Haiku classification via
   `UnaskedDirectionAnalyzer`).
