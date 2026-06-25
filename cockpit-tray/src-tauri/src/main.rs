@@ -60,6 +60,16 @@ const DEEP_LINK_RETRY_MAX: u32 = 400;
 /// Interval between retry attempts (ms). 400 × 150 ms = 60 s total window —
 /// generous enough to cover a cold daemon + webview start on a slow machine.
 const DEEP_LINK_RETRY_INTERVAL_MS: u64 = 150;
+/// Grace window (in retry attempts) to wait after SCHEDULING window creation
+/// before re-scheduling it (mt#2551). `run_on_main_thread` returning Ok only
+/// means the create closure was enqueued — NOT that `open_cockpit_window`'s
+/// `build()` succeeded. If the window is still absent this many attempts after a
+/// successful schedule, the deferred create must have failed (a transient
+/// build()/URL-parse error), so it is re-scheduled rather than left to spin out
+/// the full retry budget with no second attempt. 20 × 150 ms = 3 s — far longer
+/// than a successful `build()` needs, so a re-schedule can't double-create (and
+/// `ensure_cockpit_window_visible` no-ops when the window already exists anyway).
+const DEEP_LINK_CREATE_GRACE_ATTEMPTS: u32 = 20;
 
 const LABEL_RUNNING: &str = "Cockpit: running";
 const LABEL_STOPPED: &str = "Cockpit: stopped";
@@ -1777,22 +1787,34 @@ fn handle_deep_link(app: &AppHandle, url: String) {
         // Create a MISSING window from this background thread, DEFERRED onto the
         // main run loop (mt#2546): scheduling via `run_on_main_thread` lands on the
         // next run-loop tick (after the synchronous `on_open_url` callback returned),
-        // so `build()` can complete instead of deadlocking. Schedule it ONCE —
-        // re-scheduling could race a mid-flight `build()` into a second window — but
-        // retry the SCHEDULING if `run_on_main_thread` itself returns Err, so a
-        // transient failure doesn't leave the deep link with no window.
-        let mut create_scheduled = false;
+        // so `build()` can complete instead of deadlocking.
+        //
+        // `scheduled_at` records the attempt at which creation was last SCHEDULED
+        // (None = never). We re-schedule when (a) we never scheduled, OR (b) a prior
+        // schedule's grace window (`DEEP_LINK_CREATE_GRACE_ATTEMPTS`) elapsed with the
+        // window STILL absent — meaning the deferred `build()` failed — so a one-off
+        // transient failure doesn't starve the deep link for the whole retry budget
+        // (mt#2551). The grace window is long enough that a successful `build()` would
+        // already have produced a window, so a re-schedule can't double-create; and on
+        // `run_on_main_thread` Err we leave `scheduled_at` unchanged so the next tick
+        // retries the scheduling.
+        let mut scheduled_at: Option<u32> = None;
         for attempt in 0..DEEP_LINK_RETRY_MAX {
             std::thread::sleep(Duration::from_millis(DEEP_LINK_RETRY_INTERVAL_MS));
 
             let Some(window) = app_clone.get_webview_window(COCKPIT_WINDOW_LABEL) else {
-                // No window yet — schedule creation once; retry the scheduling on Err.
-                if !create_scheduled {
+                // No window yet — schedule creation if we never have, or if a prior
+                // schedule's grace window elapsed with the window still missing.
+                let needs_schedule = match scheduled_at {
+                    None => true,
+                    Some(at) => attempt.saturating_sub(at) >= DEEP_LINK_CREATE_GRACE_ATTEMPTS,
+                };
+                if needs_schedule {
                     let app_for_window = app_clone.clone();
                     match app_clone.run_on_main_thread(move || {
                         ensure_cockpit_window_visible(&app_for_window);
                     }) {
-                        Ok(()) => create_scheduled = true,
+                        Ok(()) => scheduled_at = Some(attempt),
                         Err(e) => {
                             if attempt == 0 {
                                 eprintln!("[cockpit-tray] deep-link: run_on_main_thread (window create) failed, will retry: {e}");
