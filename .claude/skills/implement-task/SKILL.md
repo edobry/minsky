@@ -339,13 +339,26 @@ When the PR is authored by `minsky-ai[bot]` or another identity that the reviewe
 
 ### 10. Post-merge deploy verification (when the task touches a deployed service)
 
-When the merged PR changes code that runs in a deployed service (anything under
-`services/<svc>/` that has a `deploy.config.ts`, or any source that the deploy
-image bundles via the project Dockerfile), do NOT stop at merge. The merge
+When the merged PR changes anything that affects WHAT gets deployed or HOW, do
+NOT stop at merge. This covers both deployed SOURCE (anything under
+`services/<svc>/` that has a `deploy.config.ts`, or source the deploy image
+bundles via the project Dockerfile) AND deploy/infra CONFIG-as-code — the
+**deploy surface** the mt#2353 hooks fire on: `infra/**`,
+`services/*/Dockerfile`, `services/*/railway.json`, `services/*/deploy.config.ts`,
+`services/*/railway.config.ts`, `.github/workflows/deploy-*.yml`. The merge
 triggers an auto-deploy on Railway (or whatever platform the service declares);
 that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
-missing env var, schema migration error, container crash on start. Verify the
-post-merge deploy succeeded before reporting the task done.
+missing env var, config-as-code resolution error, schema migration error,
+container crash on start.
+
+**Verifying the post-merge deploy is MANDATORY before you report the task done**
+— not a discretionary follow-up. Two hooks enforce it (mt#2353): the PreToolUse
+gate `require-deploy-verification-before-merge.ts` blocks the merge of a
+deploy-surface PR unless its body carries a `Deploy verification:` commitment, and
+the PostToolUse `deploy-verification-after-merge.ts` injects a reminder on the
+merge turn. A `Deploy verification:` section that merely DEFERS ("will verify
+later" / "deferred to §10 because not-yet-deployed") is NOT evidence — the
+verification must actually run, here, after the deploy completes.
 
 **Primary mechanism: `mcp__minsky__deployment_wait-for-latest`.**
 
@@ -385,9 +398,24 @@ candidates: Vercel, Cloudflare Pages, etc.). See
 on the failed deployment ID, inspect the failure, and either fix-forward
 in a new PR or surface to the user with the logs attached.
 
-This step does NOT change the task's DONE status — that's still owned by
-the at-merge handler. Post-merge deploy verification is a quality gate on
-the deploy itself, not the task lifecycle.
+**Three rules this step enforces (the mt#2345 incident violated all three):**
+
+1. **"Applied" is the ACTION, not the OUTCOME.** `pulumi up` exit-0, a 200 from a
+   config API, or an apply call returning success means the change was
+   _submitted_ — NOT that the service is healthy. A deploy-touching task is not
+   done until `deployment_wait-for-latest` returns SUCCESS AND the runtime shows
+   the service started (a `/health` 200 or `deployment_logs(..., type: "deploy")`
+   showing the boot). Verify outcomes, not actions.
+2. **A deploy-verification-tool flake is a BLOCKER, not a license to defer.** If
+   `deployment_wait-for-latest` errors on auth / an MCP transport flake (e.g.
+   Railway `Unauthorized`), reconnect (`/mcp`) and retry — do NOT downgrade to an
+   "observational" / "will-watch-future-merges" completion claim. That exact
+   downgrade left mt#2345's reviewer service crash-looping for ~30 min while the
+   task was reported DONE.
+3. **DONE being set ≠ deploy healthy.** The at-merge handler sets DONE atomically
+   at merge, BEFORE the deploy completes, so this step does NOT change DONE status.
+   DONE is necessary-but-not-sufficient; the deploy-health check above is the real
+   completion signal for a deploy-touching task.
 
 ## Constraints
 
