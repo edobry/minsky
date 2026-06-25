@@ -202,4 +202,15 @@ describe("trailing prose-punctuation robustness (mt#2549)", () => {
     expect(parseMinskyUri("minsky://task/)")).toBeNull();
     expect(parseMinskyUri("minsky://task/]")).toBeNull();
   });
+
+  test("strips percent-encoded trailing punctuation (%29 %2E %5D %3B)", () => {
+    expect(minskyUriToPath(`${TASK_URI}%29`)).toBe(TASK_PATH); // %29 = )
+    expect(minskyUriToPath(`${TASK_URI}%2E`)).toBe(TASK_PATH); // %2E = .
+    expect(minskyUriToPath(`${TASK_URI}%5D`)).toBe(TASK_PATH); // %5D = ]
+    expect(minskyUriToPath(`${TASK_URI}%3B`)).toBe(TASK_PATH); // %3B = ;
+  });
+
+  test("an id that is ALL percent-encoded punctuation → null", () => {
+    expect(parseMinskyUri("minsky://task/%29")).toBeNull();
+  });
 });

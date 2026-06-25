@@ -101,6 +101,13 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
     return null;
   }
 
+  // Belt-and-suspenders: also strip trailing prose-punctuation that arrived
+  // PERCENT-ENCODED (e.g. `%29` → `)`, `%2E` → `.`, `%5D` → `]`, `%3B` → `;`),
+  // which the pre-decode strip above cannot see. Re-check empty in case the id
+  // was entirely (encoded) punctuation. No valid id ends in these chars.
+  id = id.replace(/[.,);\]]+$/, "");
+  if (!id) return null;
+
   return { type: rawType as RoutableEntityType, id };
 }
 
