@@ -241,6 +241,25 @@ describe("ChangesetDetailPage — error state", () => {
       expect(el).toBeDefined();
     });
   });
+
+  // R1 fix (mt#2535): non-numeric ids get a 400 from the server, which the
+  // client fetcher throws as an Error — so the ERROR state fires, not not-found.
+  test("renders ERROR state (not not-found) when server returns 400 for non-numeric id", async () => {
+    // The client encodes the id in the URL; the mock matches on the encoded path.
+    const nonNumericId = "abc";
+    mockChangesetFetch(nonNumericId, {
+      status: 400,
+      body: { error: "Invalid changeset id: expected a PR number" },
+    });
+    renderChangesetPage(nonNumericId);
+    await waitFor(() => {
+      // Must show the ERROR branch, not the not-found branch.
+      expect(screen.getByText(/failed to load changeset/i)).toBeDefined();
+    });
+    // Confirm the not-found text is NOT rendered.
+    const notFound = screen.queryByText(/changeset not found/i);
+    expect(notFound).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1238,6 +1238,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     }
     const changesetId = decodeURIComponent(rawId);
 
+    // Canonical changeset id is a PR number (positive integer string).
+    // Reject non-numeric ids immediately with 400 so the client ERROR branch
+    // fires (not the not-found branch). matchEntityRoute is permissive and
+    // accepts any path segment as :id — the server is the authoritative gate.
+    if (!/^[0-9]+$/.test(changesetId)) {
+      res.status(400).json({ error: "Invalid changeset id: expected a PR number" });
+      return;
+    }
+
     try {
       const provider = await getServerSessionProvider();
       if (!provider) {
@@ -1247,15 +1256,16 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
 
-      // Resolve changeset id to a session: list all sessions and find the one
-      // whose pullRequest.number matches. Local-scale approach; no external
-      // changeset adapter dependency.
+      // Resolve changeset id to a session: scan all sessions and find the one
+      // whose pullRequest.number matches. O(N) over sessions — deliberate
+      // local-scale assumption (cockpit is single-operator; session counts
+      // are typically <100). A PR-number→session index would be the
+      // optimization if this ever needs to scale.
       const prNumber = parseInt(changesetId, 10);
       const allSessions = await provider.listSessions();
-      const record = allSessions.find((s) => {
-        if (!Number.isNaN(prNumber) && s.pullRequest?.number === prNumber) return true;
-        return false;
-      });
+      // prNumber is guaranteed a valid integer here — the regex guard above
+      // ensures changesetId is all digits, so parseInt is infallible.
+      const record = allSessions.find((s) => s.pullRequest?.number === prNumber);
 
       if (!record) {
         res.status(404).json({

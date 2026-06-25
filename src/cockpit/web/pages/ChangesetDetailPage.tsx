@@ -51,8 +51,8 @@ export function ChangesetDetailPage() {
         className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3"
         aria-label="Breadcrumb"
       >
-        <Link to="/sessions" className="hover:text-foreground transition-colors">
-          Sessions
+        <Link to="/changesets" className="hover:text-foreground transition-colors">
+          Changesets
         </Link>
         <span aria-hidden="true">/</span>
         <span className="font-mono text-foreground" title={changesetId}>
