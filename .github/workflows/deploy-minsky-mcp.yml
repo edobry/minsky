@@ -156,6 +156,12 @@ jobs:
           # 'minsky-persistence-postgres-url'), stored here as a repo secret.
           # mt#2439: the bundle reads MINSKY_PERSISTENCE_POSTGRES_URL — NOT
           # MINSKY_POSTGRES_URL/DATABASE_URL — or it silently targets the wrong DB.
+          #
+          # Secret handling (PR #1737 R2 non-blocking): GitHub auto-masks
+          # `secrets.*` in all step logs, and the value is forwarded into the
+          # container BY NAME (`-e MINSKY_PERSISTENCE_POSTGRES_URL` below, no
+          # value on the command line) and never echoed — so it cannot reach the
+          # logs even with ACTIONS_STEP_DEBUG enabled. No `::add-mask::` needed.
           MINSKY_PERSISTENCE_POSTGRES_URL: ${{ secrets.MINSKY_PERSISTENCE_POSTGRES_URL }}
         run: |
           set -euo pipefail
