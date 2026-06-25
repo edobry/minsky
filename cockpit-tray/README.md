@@ -52,7 +52,24 @@ crates). Subsequent builds are incremental (~20s).
 
 ## Install (local, single-principal)
 
-Copy the bundle into `/Applications`:
+**For deep-link / URL-scheme verification, use the lean installer.** It builds
+APP-ONLY (`tauri build --bundles app` — no DMG, so no macOS installer-window
+popup), installs into `/Applications`, registers with Launch Services, and clears
+quarantine:
+
+```bash
+cockpit-tray/scripts/install-local.sh                # full install
+cockpit-tray/scripts/install-local.sh --binary-only  # fast iterative re-install (swap inner binary only)
+```
+
+> `tauri dev` (`bun run dev`) is the normal loop for ALL tray work EXCEPT
+> deep-link testing — the `minsky://` scheme only registers for a bundled app
+> installed in `/Applications` (a macOS Launch-Services constraint, not a Tauri
+> one), so deep links can't be exercised under `tauri dev`. See the Deep-link
+> section below.
+
+To install a bundle you built by hand instead (note that a full `bun run build`
+also emits a `.dmg` you don't need for local install):
 
 ```bash
 cp -r "src-tauri/target/release/bundle/macos/Minsky Cockpit.app" /Applications/
@@ -241,13 +258,18 @@ to that entity's page. If the tray app is closed, macOS Launch Services
   (auto-generated from `tauri.conf.json` → `plugins.deep-link.desktop.schemes`).
   Windows/Linux scheme registration differs and is a follow-up.
 - **Cannot be tested in `tauri dev`** (no `.app` bundle → the scheme is
-  unregistered). Verify on a real build + install:
+  unregistered; macOS registers schemes from `Info.plist` at INSTALL time, not at
+  runtime). Verify on a real build + install — use the lean installer (app-only
+  build, no DMG popup):
 
   ```bash
-  # build + install the .app (see Build / Install above), then with cockpit open:
-  open 'minsky://task/mt%232370'     # cockpit focuses → /tasks/mt%232370
+  cockpit-tray/scripts/install-local.sh        # app-only build + install + register
+  open "/Applications/Minsky Cockpit.app"      # launch the tray (spawns the daemon)
+  open 'minsky://task/mt%232370'               # cockpit focuses → /tasks/mt%232370
   # quit the tray app, then:
-  open 'minsky://memory/<uuid>'      # app launches → /memory/<uuid>
+  open 'minsky://memory/<uuid>'                # app launches → /memory/<uuid>
+  # or run the automated hot-start check:
+  cockpit-tray/scripts/verify-deeplink-hotstart.sh
   ```
 
 ## Testing (mt#2226)
