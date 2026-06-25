@@ -171,3 +171,46 @@ export function buildPrRef(record: SessionRecord): SessionPrRef | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Changeset recency ordering (mt#1920 R1)
+// ---------------------------------------------------------------------------
+
+/** Minimal recency-bearing shape — the fields the recency proxy reads. */
+export type ChangesetRecencyFields = Pick<SessionDetailMeta, "lastActivityAt" | "createdAt">;
+
+/**
+ * Recency proxy (epoch ms) for ordering changesets newest-first (mt#1920 R1).
+ *
+ * The session-record path that feeds `GET /api/changesets` does NOT carry
+ * PR-specific timestamps (PR opened / last-pushed / updated). Those arrive with
+ * the richer changeset consumption tracked in mt#2076 / mt#2435. Until then the
+ * session's `lastActivityAt` is the best available proxy for PR recency — it
+ * advances on every commit/push to the session branch, which is exactly what
+ * drives PR activity. Falls back to `createdAt` when `lastActivityAt` is null
+ * (a session with no recorded activity since creation), and to 0 when neither
+ * is present or parseable (such rows sort last).
+ *
+ * NOTE: the `ChangesetRow` "age" column mirrors this field selection
+ * (`lastActivityAt ?? createdAt`) so the displayed age matches the sort key —
+ * keep the two in sync.
+ */
+export function changesetRecencyTimestamp(session: ChangesetRecencyFields): number {
+  const raw = session.lastActivityAt ?? session.createdAt;
+  if (!raw) return 0;
+  const ms = new Date(raw).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/**
+ * Newest-first comparator for changesets, keyed by {@link changesetRecencyTimestamp}.
+ * Pure + side-effect-free so it can be unit-tested directly (mt#1920 R1). Accepts
+ * any `{ session }` carrier (the endpoint's `{ pr, session }` item structurally
+ * satisfies it).
+ */
+export function compareChangesetsByRecency(
+  a: { session: ChangesetRecencyFields },
+  b: { session: ChangesetRecencyFields }
+): number {
+  return changesetRecencyTimestamp(b.session) - changesetRecencyTimestamp(a.session);
+}

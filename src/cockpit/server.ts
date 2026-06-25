@@ -1360,7 +1360,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         res.status(503).json({ error: "Session service unavailable" });
         return;
       }
-      const { buildSessionMeta, buildPrRef } = await import("./session-detail");
+      const { buildSessionMeta, buildPrRef, compareChangesetsByRecency } = await import(
+        "./session-detail"
+      );
       const allSessions = await provider.listSessions();
       const active = allSessions.filter((s) => {
         const pr = buildPrRef(s);
@@ -1390,11 +1392,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         settled.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<ChangesetItem>[]
       )
         .map((r) => r.value)
-        .sort((a, b) => {
-          const aT = a.session.createdAt ? new Date(a.session.createdAt).getTime() : 0;
-          const bT = b.session.createdAt ? new Date(b.session.createdAt).getTime() : 0;
-          return bT - aT;
-        });
+        // Newest-first by PR-recency proxy (lastActivityAt ?? createdAt), NOT by
+        // session.createdAt — see compareChangesetsByRecency JSDoc (mt#1920 R1).
+        .sort(compareChangesetsByRecency);
       res.json({ changesets });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

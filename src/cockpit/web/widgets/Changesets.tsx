@@ -59,7 +59,11 @@ interface ChangesetRowProps {
 export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
   const { pr, session } = item;
   const chip = prStateChip(pr.state);
-  const age = session.createdAt ? relativeTime(session.createdAt) : "—";
+  // Age reflects the same recency proxy the /api/changesets sort uses
+  // (compareChangesetsByRecency in session-detail.ts): lastActivityAt, falling
+  // back to createdAt. Keep this selection in sync with that comparator. mt#1920 R1.
+  const recencyIso = session.lastActivityAt ?? session.createdAt;
+  const age = recencyIso ? relativeTime(recencyIso) : "—";
   const prNumber = pr.number != null ? `#${pr.number}` : "—";
   const title = pr.title ?? session.taskTitle ?? session.taskId ?? pr.headBranch ?? "—";
   const taskId = session.taskId;
