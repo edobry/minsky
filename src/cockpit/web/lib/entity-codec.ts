@@ -77,7 +77,15 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   if (slashIdx === -1) return null;
 
   const rawType = withoutScheme.slice(0, slashIdx);
-  const rawId = withoutScheme.slice(slashIdx + 1);
+  // Strip trailing prose-punctuation (`.` `,` `)` `]` `;`) that a terminal's URL
+  // auto-detection commonly captures from a markdown link like
+  // `[mt#2370](minsky://task/mt%232370)` — without this the trailing `)` decodes
+  // INTO the id (`mt#2370)`) and the entity lookup fails ("Task mt#2370) not found",
+  // mt#2549). The in-cockpit transcript linkifier (entity-linkifier.tsx) already
+  // excludes these chars at match time; this mirrors that discipline for the
+  // EXTERNAL deep-link path (mt#2528), which receives raw OS-delivered URLs. No
+  // valid task/ask/session/memory id ends in these characters, so the strip is safe.
+  const rawId = withoutScheme.slice(slashIdx + 1).replace(/[.,);\]]+$/, "");
 
   // Validate type
   const validTypes: RoutableEntityType[] = ["task", "ask", "session", "memory"];
@@ -92,6 +100,13 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   } catch {
     return null;
   }
+
+  // Belt-and-suspenders: also strip trailing prose-punctuation that arrived
+  // PERCENT-ENCODED (e.g. `%29` → `)`, `%2E` → `.`, `%5D` → `]`, `%3B` → `;`),
+  // which the pre-decode strip above cannot see. Re-check empty in case the id
+  // was entirely (encoded) punctuation. No valid id ends in these chars.
+  id = id.replace(/[.,);\]]+$/, "");
+  if (!id) return null;
 
   return { type: rawType as RoutableEntityType, id };
 }

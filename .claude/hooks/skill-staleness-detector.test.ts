@@ -398,7 +398,7 @@ describe("buildWarning", () => {
     ]);
     expect(text).toContain("1 skill/agent/rule file changed");
     expect(text).toContain(".claude/skills/x/SKILL.md (modified)");
-    expect(text).toContain("/restart");
+    expect(text).toContain("fresh session");
     expect(text.startsWith("<system-reminder>")).toBe(true);
     expect(text.endsWith("</system-reminder>")).toBe(true);
   });
