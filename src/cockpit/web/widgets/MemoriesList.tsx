@@ -229,6 +229,7 @@ function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesList
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-muted-foreground max-w-[220px] hidden sm:table-cell">
+                    {/* Plain text (not <Prose>): truncated single-line row — block Markdown breaks layout. mt#2556 */}
                     <span className="truncate block" title={rec.description}>
                       {rec.description}
                     </span>

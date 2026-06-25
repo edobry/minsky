@@ -274,6 +274,7 @@ function SessionDetailBody({
                     {c.shortHash}
                   </span>
                 )}
+                {/* Plain text (not <Prose>): truncated single-line commit subject — block Markdown breaks layout. mt#2556 */}
                 <span className="truncate">{c.subject}</span>
               </li>
             ))}
