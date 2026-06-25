@@ -56,6 +56,9 @@ const TaskDetailPage = lazy(() =>
 );
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
 const AskPage = lazy(() => import("./pages/AskPage").then((m) => ({ default: m.AskPage })));
+const ChangesetDetailPage = lazy(() =>
+  import("./pages/ChangesetDetailPage").then((m) => ({ default: m.ChangesetDetailPage }))
+);
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
 );
@@ -452,6 +455,16 @@ export function App() {
             element={
               <ErrorBoundary id="ask-page">
                 <AskPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Changeset entity route (mt#2535): URL-addressable changeset/PR detail tab.
+              Id is the changeset id — keyed to PR number (github-pr adapter). */}
+          <Route
+            path="/changeset/:id"
+            element={
+              <ErrorBoundary id="changeset-page">
+                <ChangesetDetailPage />
               </ErrorBoundary>
             }
           />

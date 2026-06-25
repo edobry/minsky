@@ -29,7 +29,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { shortenId } from "./format";
 
-export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory";
+export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory" | "changeset";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -101,6 +101,17 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
     };
   }
 
+  const changeset = pathname.match(/^\/changeset\/([^/]+)$/);
+  if (changeset?.[1]) {
+    const id = decodeURIComponent(changeset[1]);
+    return {
+      kind: "changeset",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
+    };
+  }
+
   const task = pathname.match(/^\/tasks\/([^/]+)$/);
   if (task?.[1] && task[1] !== "graph") {
     const id = decodeURIComponent(task[1]);
@@ -125,6 +136,21 @@ interface TabsContextValue {
 
 const TabsContext = createContext<TabsContextValue | null>(null);
 
+/**
+ * Predicate for the set of entity tab kinds accepted by the persistence
+ * loader. Exported for test-time verification without mocking localStorage.
+ */
+export function isAcceptedTabKind(kind: unknown): kind is EntityTabKind {
+  return (
+    kind === "task" ||
+    kind === "session" ||
+    kind === "agent" ||
+    kind === "ask" ||
+    kind === "memory" ||
+    kind === "changeset"
+  );
+}
+
 function loadTabs(): EntityTab[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -137,11 +163,7 @@ function loadTabs(): EntityTab[] {
         t !== null &&
         typeof (t as EntityTab).path === "string" &&
         typeof (t as EntityTab).label === "string" &&
-        ((t as EntityTab).kind === "task" ||
-          (t as EntityTab).kind === "session" ||
-          (t as EntityTab).kind === "agent" ||
-          (t as EntityTab).kind === "ask" ||
-          (t as EntityTab).kind === "memory")
+        isAcceptedTabKind((t as EntityTab).kind)
     );
   } catch {
     return [];
