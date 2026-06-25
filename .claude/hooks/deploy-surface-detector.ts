@@ -36,8 +36,9 @@ export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
   /^services\/[^/]+\/railway\.json$/,
   /^services\/[^/]+\/deploy\.config\.ts$/,
   /^services\/[^/]+\/railway\.config\.ts$/,
-  // Deploy workflows — config-as-code that drives the deploy itself
-  /^\.github\/workflows\/deploy-[^/]+\.ya?ml$/,
+  // Deploy workflows — config-as-code that drives the deploy itself.
+  // Matches both `deploy.yml` (single-pipeline repos) and `deploy-<svc>.yml`.
+  /^\.github\/workflows\/deploy(?:-[^/]+)?\.ya?ml$/,
 ];
 
 /** Normalise a path for matching: backslashes → `/`, strip a leading `./`. */

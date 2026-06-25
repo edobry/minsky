@@ -14,6 +14,7 @@ import type { PrFile } from "./require-execution-evidence-before-merge";
 const INFRA_INDEX = "infra/index.ts";
 const REVIEWER_RAILWAY_JSON = "services/reviewer/railway.json";
 const SECTION_HEADING = "## Deploy verification:";
+const DEPLOY_CHANGE_TITLE = "feat: deploy change";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
 const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
 const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("services/reviewer/src/server.ts")];
@@ -45,6 +46,37 @@ describe("hasDeployVerification (mt#2353)", () => {
   test("false when there is no marker at all", () => {
     expect(hasDeployVerification("## Summary\njust a normal PR body")).toBe(false);
   });
+
+  // Deferral-text-is-not-evidence (mt#2353 Recurrence 3).
+  test("false for a deferral-only section ('deferred to §10 post-merge')", () => {
+    expect(
+      hasDeployVerification(
+        `${SECTION_HEADING}\nDeferred to §10 post-merge; target not deployed yet.`
+      )
+    ).toBe(false);
+  });
+
+  test("false for 'will verify later' / 'to be verified' deferrals", () => {
+    expect(hasDeployVerification("Deploy verification: will verify it later once deployed")).toBe(
+      false
+    );
+    expect(hasDeployVerification(`${SECTION_HEADING}\nTo be verified after the deploy.`)).toBe(
+      false
+    );
+    expect(
+      hasDeployVerification(`${SECTION_HEADING}\nNot yet deployed — pending deployment.`)
+    ).toBe(false);
+  });
+
+  test("true for a concrete post-merge COMMITMENT that names the action (not a punt)", () => {
+    const body = `${SECTION_HEADING}\nWill run deployment_wait-for-latest after merge and confirm SUCCESS + runtime started.`;
+    expect(hasDeployVerification(body)).toBe(true);
+  });
+
+  test("falls through to a later genuine section when an earlier one is a deferral", () => {
+    const body = `${SECTION_HEADING}\ndeferred for now\n\n${SECTION_HEADING}\nRan deployment_wait-for-latest -> SUCCESS; /health 200.`;
+    expect(hasDeployVerification(body)).toBe(true);
+  });
 });
 
 describe("hasNoDeployImpactTag (mt#2353)", () => {
@@ -65,11 +97,7 @@ describe("checkDeployVerification (mt#2353)", () => {
   });
 
   test("BLOCKS a deploy-surface PR with no Deploy verification: section", () => {
-    const r = checkDeployVerification(
-      DEPLOY_FILES,
-      "feat: deploy change",
-      "## Summary\nno section"
-    );
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, "## Summary\nno section");
     expect(r.blocked).toBe(true);
     expect(r.deploySurfaceFiles).toEqual([INFRA_INDEX, REVIEWER_RAILWAY_JSON]);
     expect(r.reason).toContain("Deploy verification:");
@@ -78,8 +106,14 @@ describe("checkDeployVerification (mt#2353)", () => {
 
   test("allows a deploy-surface PR that has the Deploy verification: section", () => {
     const body = `${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS.`;
-    const r = checkDeployVerification(DEPLOY_FILES, "feat: deploy change", body);
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, body);
     expect(r.blocked).toBe(false);
+  });
+
+  test("BLOCKS a deploy-surface PR whose section only DEFERS (deferral-is-not-evidence)", () => {
+    const body = `${SECTION_HEADING}\nDeferred to §10 post-merge; not yet deployed.`;
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, body);
+    expect(r.blocked).toBe(true);
   });
 
   test("allows (with warning) under the [no-deploy-impact] title bypass", () => {

@@ -37,6 +37,7 @@ import type { ToolHookInput, HookOutput } from "./types";
 import { deriveRepoFromGit, makeProdPrDeps } from "./require-execution-evidence-before-merge";
 import type { PrFile } from "./require-execution-evidence-before-merge";
 import { findDeploySurfaceFiles } from "./deploy-surface-detector";
+import { isOverrideSet, OVERRIDE_ENV_VAR } from "./require-deploy-verification-before-merge";
 
 /** The MCP tool this hook reacts to. */
 const TARGET_TOOL_NAME = "mcp__minsky__session_pr_merge";
@@ -163,6 +164,18 @@ async function main(): Promise<void> {
     input = await readInput<ToolHookInput>();
   } catch {
     process.exit(0); // malformed stdin — never block
+  }
+
+  // Honor the gate's operator override: if the pre-merge deploy-verification gate
+  // was intentionally bypassed (MINSKY_SKIP_DEPLOY_VERIFY), suppress the post-merge
+  // reminder too so the operator doesn't get a contradictory signal. Audit-logged
+  // to stdout (non-JSON — matches the sibling override convention).
+  if (isOverrideSet()) {
+    process.stdout.write(
+      `[deploy-verification-reminder] suppressed: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} ` +
+        `at ${new Date().toISOString()}\n`
+    );
+    process.exit(0);
   }
 
   const deps: PostMergeDeps = {

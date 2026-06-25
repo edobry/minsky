@@ -69,6 +69,20 @@ const DEPLOY_VERIFICATION_MARKER = /^(#{0,6}\s*)(deploy verification:\s*)(.*)$/i
 const NO_DEPLOY_IMPACT_TAG = /\[no-deploy-impact\]/i;
 
 /**
+ * Deferral-language patterns (mt#2353 Recurrence 3): a `Deploy verification:`
+ * section whose content is a DEFERRAL — "deferred to §10", "will verify later",
+ * "not yet deployed", "to be verified" — is NOT evidence. The post-merge
+ * verification must be committed to / run, not punted; "deferred to §10 because
+ * not-yet-deployed" is exactly the loophole the spec disallows. A section whose
+ * content matches this pattern does NOT satisfy the gate. Note: this runs ONLY
+ * against the matched section's own text, never the rest of the PR body, so a
+ * concrete commitment ("Will run `deployment_wait-for-latest` after merge and
+ * confirm SUCCESS") passes — it names the action, not a punt.
+ */
+const DEFERRAL_PATTERN =
+  /\b(?:defer(?:red|ring|s)?|will\s+verify(?:\s+it)?\s+later|verify(?:\s+it)?\s+later|not[\s-]?yet[\s-]?deployed|to\s+be\s+verified|pending\s+deploy(?:ment)?|verify\s+post-?merge)\b/i;
+
+/**
  * True when the PR body contains a `Deploy verification:` block with non-empty
  * content following the marker. Mirrors the mt#1459 `hasExecutionEvidence`
  * discipline: HTML comments stripped first; a `No Deploy verification:` negation
@@ -88,15 +102,26 @@ export function hasDeployVerification(prBody: string): boolean {
     const beforeMarker = line.slice(0, line.toLowerCase().indexOf("deploy")).toLowerCase();
     if (/\bno\b/.test(beforeMarker)) continue;
 
+    // Collect this section's content: inline (heading line) + following lines
+    // until the next heading or EOF.
+    const parts: string[] = [];
     const inlineContent = (match[3] ?? "").trim();
-    if (inlineContent.length > 0) return true;
-
+    if (inlineContent.length > 0) parts.push(inlineContent);
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
       if (/^#{1,6}\s/.test(nextLine)) break; // next heading — stop
-      if (nextLine.trim().length > 0) return true; // found content
+      if (nextLine.trim().length > 0) parts.push(nextLine.trim());
     }
+    const content = parts.join(" ").trim();
+    if (content.length === 0) continue; // empty section — keep looking
+
+    // Deferral-text-is-not-evidence (mt#2353 Recurrence 3): a deferral-only
+    // section does NOT satisfy the gate. Keep scanning in case a later, genuine
+    // section exists.
+    if (DEFERRAL_PATTERN.test(content)) continue;
+
+    return true;
   }
   return false;
 }

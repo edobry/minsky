@@ -24,7 +24,9 @@ describe("isDeploySurfaceFile (mt#2353)", () => {
     expect(isDeploySurfaceFile("services/minsky-mcp/railway.config.ts")).toBe(true);
   });
 
-  test("matches deploy-* workflows (both .yml and .yaml)", () => {
+  test("matches deploy workflows: deploy.yml AND deploy-*.yml/.yaml", () => {
+    expect(isDeploySurfaceFile(".github/workflows/deploy.yml")).toBe(true); // single-pipeline repos
+    expect(isDeploySurfaceFile(".github/workflows/deploy.yaml")).toBe(true);
     expect(isDeploySurfaceFile(".github/workflows/deploy-minsky-mcp.yml")).toBe(true);
     expect(isDeploySurfaceFile(".github/workflows/deploy-reviewer.yaml")).toBe(true);
   });
