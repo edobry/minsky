@@ -11,7 +11,13 @@
  */
 import { describe, test, expect } from "bun:test";
 import type { ReactElement } from "react";
-import { buildEntityIndex, linkifyText } from "./entity-linkifier";
+import type { Root, Element } from "hast";
+import {
+  buildEntityIndex,
+  linkifyText,
+  tokenizeEntities,
+  rehypeEntityLinks,
+} from "./entity-linkifier";
 
 // ---------------------------------------------------------------------------
 // Helpers for inspecting ReactNode[] without rendering
@@ -671,5 +677,130 @@ describe("useEntityIndex / cache key separation (Finding 2 regression)", () => {
     const linkNode = nodes.find(isLinkNode);
     expect(linkNode).toBeDefined();
     expect(linkTo(linkNode)).toBe(TASK_PATH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tokenizeEntities — the structured token core (mt#2550)
+// ---------------------------------------------------------------------------
+
+describe("tokenizeEntities (mt#2550)", () => {
+  test("plain text with no refs → single text token", () => {
+    const index = makeIndex();
+    expect(tokenizeEntities("no refs here", index)).toEqual([
+      { kind: "text", value: "no refs here" },
+    ]);
+  });
+
+  test("task id splits into text + link + text tokens", () => {
+    const index = makeIndex();
+    expect(tokenizeEntities(`see ${TASK_ID} now`, index)).toEqual([
+      { kind: "text", value: "see " },
+      { kind: "link", text: TASK_ID, to: TASK_PATH, mono: true },
+      { kind: "text", value: " now" },
+    ]);
+  });
+
+  test("minsky:// URI → non-mono link token", () => {
+    const index = makeIndex();
+    const tokens = tokenizeEntities("see minsky://task/mt%232370 ok", index);
+    const link = tokens.find((t) => t.kind === "link");
+    expect(link).toEqual({
+      kind: "link",
+      text: "minsky://task/mt%232370",
+      to: TASK_PATH,
+      mono: false,
+    });
+  });
+
+  test("unresolved mt# produces no link tokens", () => {
+    const index = makeIndex(); // has mt#2370, not mt#9999
+    const tokens = tokenizeEntities("see mt#9999 done", index);
+    expect(tokens.some((t) => t.kind === "link")).toBe(false);
+    expect(tokens.map((t) => (t.kind === "text" ? t.value : "")).join("")).toBe("see mt#9999 done");
+  });
+
+  test("https:// URL is a text token (never a link)", () => {
+    const index = makeIndex();
+    const tokens = tokenizeEntities("at https://example.com end", index);
+    expect(tokens.every((t) => t.kind === "text")).toBe(true);
+    expect(tokens.map((t) => (t.kind === "text" ? t.value : "")).join("")).toContain(
+      "https://example.com"
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rehypeEntityLinks — entity-linkify inside a Markdown (hast) tree (mt#2550)
+// ---------------------------------------------------------------------------
+
+describe("rehypeEntityLinks (mt#2550)", () => {
+  function textNode(value: string) {
+    return { type: "text" as const, value };
+  }
+  function element(tagName: string, children: Element["children"]): Element {
+    return { type: "element", tagName, properties: {}, children };
+  }
+
+  test("splits a paragraph text node into text + anchor + text", () => {
+    const index = makeIndex();
+    const tree: Root = {
+      type: "root",
+      children: [element("p", [textNode(`see ${TASK_ID} now`)])],
+    };
+    rehypeEntityLinks({ index })(tree);
+
+    const p = tree.children[0] as Element;
+    expect(p.children).toHaveLength(3);
+    expect(p.children[0]).toEqual({ type: "text", value: "see " });
+    const anchor = p.children[1] as Element;
+    expect(anchor.type).toBe("element");
+    expect(anchor.tagName).toBe("a");
+    expect(anchor.properties?.href).toBe(TASK_PATH);
+    expect(anchor.children[0]).toEqual({ type: "text", value: TASK_ID });
+    expect(p.children[2]).toEqual({ type: "text", value: " now" });
+  });
+
+  test("does NOT linkify inside a code element (code spans/blocks skipped)", () => {
+    const index = makeIndex();
+    const tree: Root = {
+      type: "root",
+      children: [element("code", [textNode(TASK_ID)])],
+    };
+    rehypeEntityLinks({ index })(tree);
+
+    const code = tree.children[0] as Element;
+    expect(code.children).toHaveLength(1);
+    expect(code.children[0]).toEqual({ type: "text", value: TASK_ID });
+  });
+
+  test("does NOT linkify inside an existing anchor", () => {
+    const index = makeIndex();
+    const tree: Root = {
+      type: "root",
+      children: [element("a", [textNode(TASK_ID)])],
+    };
+    rehypeEntityLinks({ index })(tree);
+
+    const anchor = tree.children[0] as Element;
+    expect(anchor.children).toHaveLength(1);
+    expect(anchor.children[0]).toEqual({ type: "text", value: TASK_ID });
+  });
+
+  test("empty index → tree untouched (no-op)", () => {
+    const emptyIndex = buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+    });
+    const tree: Root = {
+      type: "root",
+      children: [element("p", [textNode(`see ${TASK_ID}`)])],
+    };
+    rehypeEntityLinks({ index: emptyIndex })(tree);
+    const p = tree.children[0] as Element;
+    expect(p.children).toHaveLength(1);
+    expect(p.children[0]).toEqual({ type: "text", value: `see ${TASK_ID}` });
   });
 });
