@@ -35,10 +35,16 @@ import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";
 // density — so we hand-roll a tight set of element styles instead).
 const COMPONENTS: Components = {
   a: ({ href, children, className }) => {
+    // Defensive: an anchor with no destination (shouldn't occur for
+    // react-markdown-generated links) renders as plain inline text, not a
+    // dangling <a href={undefined}>.
+    if (!href) {
+      return <span className={cn("text-primary", className)}>{children}</span>;
+    }
     // Entity links and internal markdown links resolve to SPA routes (href
     // starts with "/", always produced by entityToPath); render as react-router
     // <Link>. Everything else is an external link → open in a new tab.
-    if (href && href.startsWith("/")) {
+    if (href.startsWith("/")) {
       return (
         <Link
           to={href}
