@@ -1713,8 +1713,11 @@ fn ensure_cockpit_window_visible(app: &AppHandle) {
 
 /// Handle a `minsky://` deep-link URL (mt#2528, ADR-023).
 ///
-/// Called from the `on_open_url` handler registered in `setup`. Shows + focuses
-/// the cockpit window, then forwards the URL to the SPA via eval.
+/// Called from the `on_open_url` handler registered in `setup`. Brings up the
+/// cockpit window — showing/focusing an existing one synchronously, or CREATING a
+/// missing one deferred onto the main run loop (mt#2546; `WebviewWindowBuilder::build()`
+/// deadlocks if called directly from the synchronous `on_open_url` callback, which
+/// holds the run loop) — then forwards the URL to the SPA via eval.
 ///
 /// **Navigation strategy (ADR-023, cold-start handling):**
 /// A single eval script runs on each retry attempt. It always sets
@@ -1732,10 +1735,14 @@ fn ensure_cockpit_window_visible(app: &AppHandle) {
 /// interpolated into the eval script -- never raw string-interpolated. This prevents
 /// a crafted `minsky://` URL from breaking out of the JS string context.
 fn handle_deep_link(app: &AppHandle, url: String) {
-    // Step 1: show + focus the cockpit window (create if needed).
-    // We use a variant that does NOT reload the page on an existing window, so
-    // a hot-start navigation doesn't discard the user's current cockpit view.
-    ensure_cockpit_window_visible(app);
+    // If a cockpit window ALREADY exists, show + focus it synchronously. Unlike
+    // window CREATION (`build()`), `show()`/`set_focus()` don't block on the run
+    // loop, so they're safe to call directly from the `on_open_url` callback. A
+    // MISSING window is created later, deferred onto the run loop (see below).
+    if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 
     // JSON-encode the URL once so all retry attempts can reuse it.
     // serde_json::to_string on a &str produces a valid JSON string literal
@@ -1767,11 +1774,32 @@ fn handle_deep_link(app: &AppHandle, url: String) {
             }})()"
         );
 
+        // Create a MISSING window from this background thread, DEFERRED onto the
+        // main run loop (mt#2546): scheduling via `run_on_main_thread` lands on the
+        // next run-loop tick (after the synchronous `on_open_url` callback returned),
+        // so `build()` can complete instead of deadlocking. Schedule it ONCE —
+        // re-scheduling could race a mid-flight `build()` into a second window — but
+        // retry the SCHEDULING if `run_on_main_thread` itself returns Err, so a
+        // transient failure doesn't leave the deep link with no window.
+        let mut create_scheduled = false;
         for attempt in 0..DEEP_LINK_RETRY_MAX {
             std::thread::sleep(Duration::from_millis(DEEP_LINK_RETRY_INTERVAL_MS));
 
             let Some(window) = app_clone.get_webview_window(COCKPIT_WINDOW_LABEL) else {
-                // Window not yet created -- keep retrying.
+                // No window yet — schedule creation once; retry the scheduling on Err.
+                if !create_scheduled {
+                    let app_for_window = app_clone.clone();
+                    match app_clone.run_on_main_thread(move || {
+                        ensure_cockpit_window_visible(&app_for_window);
+                    }) {
+                        Ok(()) => create_scheduled = true,
+                        Err(e) => {
+                            if attempt == 0 {
+                                eprintln!("[cockpit-tray] deep-link: run_on_main_thread (window create) failed, will retry: {e}");
+                            }
+                        }
+                    }
+                }
                 continue;
             };
 
