@@ -5,6 +5,7 @@ import {
   fetchFileContentAtRef,
   findOverlappingFiles,
   formatBlockMessage,
+  formatRecentlyMergedAdvisory,
   runParallelWorkChecks,
   parseGitHubRemoteUrl,
   isOwnBranch,
@@ -263,18 +264,19 @@ describe("formatBlockMessage", () => {
     expect(msg).toContain(FIXTURE_ASK_TS);
   });
 
-  it("includes commit sha and message for recently-merged collision", () => {
-    const collisions: ParallelWorkCollision[] = [
-      {
-        type: "recently-merged",
-        commitSha: "abc1234",
-        commitMessage: "feat: landed ask domain refactor",
-        overlappingFiles: [FIXTURE_ASK_TS],
-      },
-    ];
-    const msg = formatBlockMessage("mt#1362", collisions);
-    expect(msg).toContain("abc1234");
-    expect(msg).toContain("feat: landed ask domain refactor");
+  it("formatRecentlyMergedAdvisory names the commit sha, message, and overlapping files (mt#2337)", () => {
+    // Recently-merged overlaps are advisory now (not blocking), so they are
+    // formatted by formatRecentlyMergedAdvisory, NOT formatBlockMessage.
+    const advisory = formatRecentlyMergedAdvisory({
+      type: "recently-merged",
+      commitSha: "abc1234",
+      commitMessage: "feat: landed ask domain refactor",
+      overlappingFiles: [FIXTURE_ASK_TS],
+    });
+    expect(advisory).toContain("abc1234");
+    expect(advisory).toContain("feat: landed ask domain refactor");
+    expect(advisory).toContain(FIXTURE_ASK_TS);
+    expect(advisory).toContain("Recently-merged");
   });
 
   it("includes override instructions", () => {

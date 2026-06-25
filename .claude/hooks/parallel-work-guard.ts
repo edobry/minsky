@@ -1248,18 +1248,15 @@ export function formatBlockMessage(taskId: string, collisions: ParallelWorkColli
   ];
 
   for (const col of collisions) {
-    if (col.type === "open-pr") {
-      lines.push(
-        `  OPEN PR #${col.prNumber}: "${col.prTitle}"`,
-        `    Overlapping files: ${col.overlappingFiles.join(", ")}`
-      );
-    } else {
-      lines.push(
-        `  RECENTLY MERGED (${col.commitSha}): "${col.commitMessage}"`,
-        `    Overlapping files: ${col.overlappingFiles.join(", ")}`
-      );
-    }
-    lines.push("");
+    // Only open-PR collisions are blocking and reach this message. Recently-merged
+    // overlaps are advisory warnings (mt#2337) and are never placed in `collisions`,
+    // so a non-open-pr entry here would be a contract violation — skip defensively.
+    if (col.type !== "open-pr") continue;
+    lines.push(
+      `  OPEN PR #${col.prNumber}: "${col.prTitle}"`,
+      `    Overlapping files: ${col.overlappingFiles.join(", ")}`,
+      ""
+    );
   }
 
   lines.push("Recommended actions:");
