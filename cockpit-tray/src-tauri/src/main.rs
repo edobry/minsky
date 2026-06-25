@@ -16,6 +16,7 @@ use std::io;
 use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -1777,23 +1778,47 @@ fn handle_deep_link(app: &AppHandle, url: String) {
         // Create a MISSING window from this background thread, DEFERRED onto the
         // main run loop (mt#2546): scheduling via `run_on_main_thread` lands on the
         // next run-loop tick (after the synchronous `on_open_url` callback returned),
-        // so `build()` can complete instead of deadlocking. Schedule it ONCE —
-        // re-scheduling could race a mid-flight `build()` into a second window — but
-        // retry the SCHEDULING if `run_on_main_thread` itself returns Err, so a
-        // transient failure doesn't leave the deep link with no window.
-        let mut create_scheduled = false;
+        // so `build()` can complete instead of deadlocking.
+        //
+        // `create_in_flight` (mt#2551) makes the deferred create resilient WITHOUT a
+        // double-create race. `run_on_main_thread` returning Ok means the create
+        // closure was ENQUEUED, not that `open_cockpit_window`'s `build()` succeeded.
+        // The flag is set BEFORE enqueueing and cleared only INSIDE the closure (once
+        // `ensure_cockpit_window_visible` has returned and the window therefore either
+        // exists or has definitively failed to build). So:
+        //   - while a create is queued OR mid-flight, no second create is scheduled —
+        //     even on a slow/back-pressured machine where `build()` outlasts any fixed
+        //     grace window (the race flagged on PR #1741);
+        //   - if the deferred create FAILS, the flag clears with the window still
+        //     absent, and the next tick re-schedules — so a one-off transient failure
+        //     doesn't spin out the whole retry budget with no window.
+        // On `run_on_main_thread` Err the closure never runs, so the flag is cleared
+        // here to allow a retry on the next tick.
+        let create_in_flight = Arc::new(AtomicBool::new(false));
+        let mut schedule_count: u32 = 0;
         for attempt in 0..DEEP_LINK_RETRY_MAX {
             std::thread::sleep(Duration::from_millis(DEEP_LINK_RETRY_INTERVAL_MS));
 
             let Some(window) = app_clone.get_webview_window(COCKPIT_WINDOW_LABEL) else {
-                // No window yet — schedule creation once; retry the scheduling on Err.
-                if !create_scheduled {
+                // No window yet — schedule creation unless one is already in flight.
+                if !create_in_flight.swap(true, Ordering::AcqRel) {
                     let app_for_window = app_clone.clone();
+                    let flag = create_in_flight.clone();
                     match app_clone.run_on_main_thread(move || {
                         ensure_cockpit_window_visible(&app_for_window);
+                        flag.store(false, Ordering::Release);
                     }) {
-                        Ok(()) => create_scheduled = true,
+                        Ok(()) => {
+                            schedule_count += 1;
+                            // Log once, on the first RE-schedule (a prior deferred
+                            // create produced no window) — a useful field signal
+                            // without spamming the happy path.
+                            if schedule_count == 2 {
+                                eprintln!("[cockpit-tray] deep-link: re-scheduling window creation (prior deferred create produced no window) for {url:?}");
+                            }
+                        }
                         Err(e) => {
+                            create_in_flight.store(false, Ordering::Release);
                             if attempt == 0 {
                                 eprintln!("[cockpit-tray] deep-link: run_on_main_thread (window create) failed, will retry: {e}");
                             }
