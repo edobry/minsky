@@ -7,21 +7,21 @@
  *   3. Surface A emit helper (mt#2519) — produces minsky:// URIs for agent-emitted refs
  *   4. Tray scheme handler's frontend nav (mt#2528) — resolves minsky:// to cockpit path
  *
- * Route conventions (mt#2398 / mt#2410):
- *   task    → /tasks/:id    (id is percent-encoded; # → %23)
- *   ask     → /ask/:id
- *   memory  → /memory/:id
- *   session → /agents/:id   (NOTE: /agents/, not /session/)
- *
- * PR/changeset references are NOT linkified (no detail route yet — mt#2410).
+ * Route conventions (mt#2398 / mt#2536):
+ *   task      → /tasks/:id       (id is percent-encoded; # → %23)
+ *   ask       → /ask/:id
+ *   memory    → /memory/:id
+ *   session   → /agents/:id      (NOTE: /agents/, not /session/)
+ *   changeset → /changeset/:id   (changeset id == PR number; mt#2535 added the route)
  *
  * @see tabs.tsx `matchEntityRoute` — the reverse codec (path → entity)
  * @see mt#2517 — parent umbrella
  * @see mt#2518 — this task
+ * @see mt#2536 — PR/changeset linkification (this task)
  */
 
 /** Entity types that have a routable cockpit detail page. */
-export type RoutableEntityType = "task" | "ask" | "session" | "memory";
+export type RoutableEntityType = "task" | "ask" | "session" | "memory" | "changeset";
 
 /**
  * Convert a `(type, id)` pair to the cockpit SPA path.
@@ -43,6 +43,8 @@ export function entityToPath(type: RoutableEntityType, id: string): string {
       return `/memory/${encoded}`;
     case "session":
       return `/agents/${encoded}`;
+    case "changeset":
+      return `/changeset/${encoded}`;
   }
 }
 
@@ -63,7 +65,7 @@ export function entityToMinskyUri(type: RoutableEntityType, id: string): string 
  * Parse a `minsky://` URI back to `{type, id}`.
  *
  * Returns `null` when the input is not a valid `minsky://` URI or the type
- * is not one of the four routable entity types.
+ * is not one of the five routable entity types.
  *
  * Example: `parseMinskyUri("minsky://task/mt%232370")` → `{type: "task", id: "mt#2370"}`
  */
@@ -88,7 +90,7 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   const rawId = withoutScheme.slice(slashIdx + 1).replace(/[.,);\]]+$/, "");
 
   // Validate type
-  const validTypes: RoutableEntityType[] = ["task", "ask", "session", "memory"];
+  const validTypes: RoutableEntityType[] = ["task", "ask", "session", "memory", "changeset"];
   if (!(validTypes as string[]).includes(rawType)) return null;
 
   // Id must not be empty
@@ -107,6 +109,12 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   // was entirely (encoded) punctuation. No valid id ends in these chars.
   id = id.replace(/[.,);\]]+$/, "");
   if (!id) return null;
+
+  // `changeset` ids are PR numbers — enforce digits-only so a malformed
+  // `minsky://changeset/abc` does not parse and route to a nonexistent
+  // `/changeset/abc`. The rule/docs pin `changeset id == PR number` (positive
+  // integer); other entity types keep their free-form id shape. (mt#2536 R1)
+  if (rawType === "changeset" && !/^\d+$/.test(id)) return null;
 
   return { type: rawType as RoutableEntityType, id };
 }

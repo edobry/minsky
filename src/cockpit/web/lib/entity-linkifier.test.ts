@@ -323,6 +323,123 @@ describe("linkifyText — bare UUIDs", () => {
 });
 
 // ---------------------------------------------------------------------------
+// PR/changeset ref tests (mt#2536)
+// ---------------------------------------------------------------------------
+
+describe("linkifyText — PR/changeset refs (mt#2536)", () => {
+  const PR_NUMBER = "1234";
+  const CHANGESET_PATH = `/changeset/${PR_NUMBER}`;
+
+  function makeIndexWithChangeset() {
+    return buildEntityIndex({
+      taskIds: [TASK_ID],
+      sessionIds: [SESSION_ID],
+      askIds: [ASK_ID],
+      memoryIds: [MEMORY_ID],
+      changesetIds: [PR_NUMBER],
+    });
+  }
+
+  test("'PR #1234' where 1234 is in changeset id-set → link to /changeset/1234", () => {
+    const index = makeIndexWithChangeset();
+    const text = "See PR #1234 for details";
+    const nodes = linkifyText(text, index);
+
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkTo(linkNode)).toBe(CHANGESET_PATH);
+    expect(linkText(linkNode)).toBe("PR #1234");
+  });
+
+  test("'PR#1234' without space → link to /changeset/1234", () => {
+    const index = makeIndexWithChangeset();
+    const text = "see PR#1234 done";
+    const nodes = linkifyText(text, index);
+
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkTo(linkNode)).toBe(CHANGESET_PATH);
+  });
+
+  test("'PR #9999' not in changeset id-set → plain text (gated)", () => {
+    const index = makeIndexWithChangeset(); // has "1234", not "9999"
+    const text = "see PR #9999 done";
+    const nodes = linkifyText(text, index);
+
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain("PR #9999");
+  });
+
+  test("bare '#1234' without PR prefix → plain text (never matched)", () => {
+    const index = makeIndexWithChangeset();
+    const text = "fixed in #1234";
+    const nodes = linkifyText(text, index);
+
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    expect(nodes.join("")).toBe("fixed in #1234");
+  });
+
+  test("'PR #1234' with empty changeset id-set → plain text", () => {
+    const emptyIndex = buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+      changesetIds: [],
+    });
+    const text = "See PR #1234 for context";
+    const nodes = linkifyText(text, emptyIndex);
+
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain("PR #1234");
+  });
+
+  test("explicit minsky://changeset/1234 URI → link even with empty changeset id-set", () => {
+    // minsky:// URIs resolve via type in URI, not the id-set
+    const emptyIndex = buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+    });
+    const text = "see minsky://changeset/1234 for details";
+    const nodes = linkifyText(text, emptyIndex);
+
+    const linkNode = nodes.find(isLinkNode);
+    expect(linkNode).toBeDefined();
+    expect(linkTo(linkNode)).toBe(CHANGESET_PATH);
+  });
+
+  test("URL containing 'PR#1234' is consumed whole as a URL, NOT a changeset link (mt#2536 R1)", () => {
+    // Reviewer R1: prove the httpsUrl group (ordered before prRef) wins so a
+    // `PR#1234` that is part of an https URL is never split into /changeset/1234 —
+    // even when 1234 IS a known changeset.
+    const index = makeIndexWithChangeset(); // changeset id-set has "1234"
+    const text = "see https://example.com/PR#1234 for the diff";
+    const nodes = linkifyText(text, index);
+
+    // No link node — https:// is always plain text and the PR pattern did not fire.
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain("https://example.com/PR#1234");
+  });
+
+  test("a standalone 'PR #1234' adjacent to a URL still links (URL consumed whole) (mt#2536 R1)", () => {
+    // The URL is consumed whole; the standalone 'PR #1234' after it still resolves.
+    const index = makeIndexWithChangeset();
+    const text = "https://example.com/x then PR #1234";
+    const nodes = linkifyText(text, index);
+
+    const linkNodes = nodes.filter(isLinkNode);
+    expect(linkNodes.length).toBe(1);
+    expect(linkTo(linkNodes[0])).toBe(CHANGESET_PATH);
+    expect(linkText(linkNodes[0])).toBe("PR #1234");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unique-prefix match tests
 // ---------------------------------------------------------------------------
 
@@ -449,6 +566,30 @@ describe("buildEntityIndex", () => {
       memoryIds: [MEMORY_ID],
     });
     expect(index.get(MEMORY_ID)).toBe("memory");
+  });
+
+  test("maps changeset ids (PR numbers as strings) to 'changeset' type", () => {
+    const index = buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+      changesetIds: ["1234", "5678"],
+    });
+    expect(index.get("1234")).toBe("changeset");
+    expect(index.get("5678")).toBe("changeset");
+  });
+
+  test("omitting changesetIds produces no changeset entries (optional field)", () => {
+    const index = buildEntityIndex({
+      taskIds: [],
+      sessionIds: [],
+      askIds: [],
+      memoryIds: [],
+      // changesetIds not provided
+    });
+    // Should not crash and should have size 0
+    expect(index.size).toBe(0);
   });
 });
 

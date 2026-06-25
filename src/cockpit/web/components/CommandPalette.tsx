@@ -9,8 +9,8 @@
  * recents-as-default; the former Recent group and its lib/recent-items
  * substrate were retired by mt#2399).
  *
- * PRs join as a source when a PR detail surface exists — mt#2410's spec
- * defers "/pr/:n" until then.
+ * PRs join as a search source (mt#2536 wired changeset linkification;
+ * the /changeset/:n detail route is mt#2535).
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";

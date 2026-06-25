@@ -26,6 +26,7 @@ import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { buildEntityIndex, type EntityIndex } from "./entity-linkifier";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
+import type { ChangesetsListResponse } from "../widgets/Changesets";
 
 /**
  * Fetch ALL task ids from the uncapped /api/tasks/ids endpoint (mt#2518 R5).
@@ -67,11 +68,32 @@ function extractMemoryIds(data: WidgetData | undefined): string[] {
 }
 
 /**
+ * Fetch open/draft changeset PR numbers for linkification gating.
+ * Returns PR numbers as strings (since EntityIndex uses string keys).
+ * Returns [] on error — fail-open so a changeset-endpoint hiccup doesn't
+ * break transcript linkification for every other entity type.
+ */
+async function fetchChangesetIds(): Promise<string[]> {
+  try {
+    const res = await fetch("/api/changesets");
+    if (!res.ok) return [];
+    const data = (await res.json()) as ChangesetsListResponse;
+    if (!Array.isArray(data?.changesets)) return [];
+    return data.changesets
+      .map((c) => c.pr.number)
+      .filter((n): n is number => n != null)
+      .map(String);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Build the entity index from data fetched for linkification purposes.
  * Returns an always-present EntityIndex (may be empty on load or error).
  */
 export function useEntityIndex(): EntityIndex {
-  const [tasksQ, agentsQ, attentionQ, memoriesQ] = useQueries({
+  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ] = useQueries({
     queries: [
       {
         // Distinct key from CommandPalette's "command-palette-tasks" — different shape
@@ -97,6 +119,14 @@ export function useEntityIndex(): EntityIndex {
         queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
         staleTime: 30_000,
       },
+      {
+        // Distinct key from ChangesetsPage's ["changesets"] — different shape
+        // (string[] here via extracting PR numbers vs ChangesetsListResponse there;
+        // sharing the key would corrupt the cache). Fail-open (returns [] on error).
+        queryKey: ["entity-index", "changesets"],
+        queryFn: fetchChangesetIds,
+        staleTime: 30_000,
+      },
     ],
   });
 
@@ -107,7 +137,8 @@ export function useEntityIndex(): EntityIndex {
         sessionIds: extractAgentSessionIds(agentsQ.data as WidgetData | undefined),
         askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
         memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),
+        changesetIds: (changesetsQ.data as string[] | undefined) ?? [],
       }),
-    [tasksQ.data, agentsQ.data, attentionQ.data, memoriesQ.data]
+    [tasksQ.data, agentsQ.data, attentionQ.data, memoriesQ.data, changesetsQ.data]
   );
 }

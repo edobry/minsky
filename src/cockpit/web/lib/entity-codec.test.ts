@@ -37,6 +37,10 @@ describe("entityToPath", () => {
       "/agents/4d44d12b-58f0-433e-95b3-8b914693fa39"
     );
   });
+
+  test("changeset id produces /changeset/:id", () => {
+    expect(entityToPath("changeset", "1234")).toBe("/changeset/1234");
+  });
 });
 
 describe("entityToPath + matchEntityRoute round-trip", () => {
@@ -95,6 +99,10 @@ describe("entityToMinskyUri", () => {
       "minsky://session/4d44d12b-58f0-433e-95b3-8b914693fa39"
     );
   });
+
+  test("changeset id", () => {
+    expect(entityToMinskyUri("changeset", "1234")).toBe("minsky://changeset/1234");
+  });
 });
 
 describe("parseMinskyUri", () => {
@@ -129,15 +137,23 @@ describe("parseMinskyUri", () => {
     expect(parsed?.id).toBe(id);
   });
 
+  test("round-trips changeset URI", () => {
+    const uri = entityToMinskyUri("changeset", "1234");
+    const parsed = parseMinskyUri(uri);
+    expect(parsed?.type).toBe("changeset");
+    expect(parsed?.id).toBe("1234");
+  });
+
   test("rejects non-minsky URIs", () => {
     expect(parseMinskyUri("https://example.com")).toBeNull();
     expect(parseMinskyUri("http://localhost:3000/tasks/mt%232370")).toBeNull();
   });
 
   test("rejects unknown types", () => {
+    // "pr" is not a routable type (use "changeset" for PR-number refs)
     expect(parseMinskyUri("minsky://pr/123")).toBeNull();
+    // "agent" is not a routable type (use "session" for workspace session ids)
     expect(parseMinskyUri("minsky://agent/abc")).toBeNull();
-    expect(parseMinskyUri("minsky://changeset/abc")).toBeNull();
   });
 
   test("rejects missing id", () => {
@@ -212,5 +228,31 @@ describe("trailing prose-punctuation robustness (mt#2549)", () => {
 
   test("an id that is ALL percent-encoded punctuation → null", () => {
     expect(parseMinskyUri("minsky://task/%29")).toBeNull();
+  });
+});
+
+describe("changeset id numeric enforcement (mt#2536 R1)", () => {
+  // The rule/docs pin `changeset id == PR number` (positive integer). A non-numeric
+  // changeset id must NOT parse — it would otherwise route to a nonexistent
+  // /changeset/<junk>. Enforcement applies ONLY to the changeset type.
+  test("accepts a numeric changeset id", () => {
+    expect(parseMinskyUri("minsky://changeset/1234")).toEqual({ type: "changeset", id: "1234" });
+  });
+
+  test("rejects a non-numeric changeset id", () => {
+    expect(parseMinskyUri("minsky://changeset/abc")).toBeNull();
+    expect(parseMinskyUri("minsky://changeset/12ab")).toBeNull();
+    expect(parseMinskyUri("minsky://changeset/mt%232370")).toBeNull();
+  });
+
+  test("numeric enforcement is changeset-only (other types keep free-form ids)", () => {
+    expect(parseMinskyUri("minsky://task/mt%232370")?.id).toBe("mt#2370");
+    expect(parseMinskyUri(`minsky://ask/${ASK_ID}`)?.id).toBe(ASK_ID);
+  });
+
+  test("trailing-punct strip still yields a valid numeric changeset id", () => {
+    // `[PR #1234](minsky://changeset/1234)` → terminal captures the trailing )
+    expect(parseMinskyUri("minsky://changeset/1234)")).toEqual({ type: "changeset", id: "1234" });
+    expect(minskyUriToPath("minsky://changeset/1234)")).toBe("/changeset/1234");
   });
 });

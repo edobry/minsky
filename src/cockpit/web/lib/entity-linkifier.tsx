@@ -16,14 +16,15 @@
  *     `https://` URLs → plain text
  *   - Short/prefix forms (e.g. `bd38be2c`) resolve by unique-prefix match against
  *     the id-set; ambiguous / no-match → plain text
- *   - PR/changeset refs are NOT linkified (no detail route yet — mt#2410)
+ *   - PR/changeset refs (`PR #N`) are linkified when N is in the known changeset
+ *     id-set (mt#2536); bare `#N` (no `PR` prefix) stays plain text.
  *
  * The tokenizer is a pure `string → ReactNode[]` function — no remark/rehype,
  * no markdown, just regex-based tokenization of the plain text.
  *
  * @see entity-codec.ts — the (type, id) ↔ minsky:// URI ↔ path codec
  * @see mt#2518 — this task
- * @see mt#2410 — PR/changeset linkification (future)
+ * @see mt#2536 — PR/changeset linkification
  */
 import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
@@ -51,12 +52,15 @@ export function buildEntityIndex(opts: {
   sessionIds: string[];
   askIds: string[];
   memoryIds: string[];
+  /** PR numbers (as strings) for open/draft changesets. Gates `PR #N` linkification. */
+  changesetIds?: string[];
 }): EntityIndex {
   const index: EntityIndex = new Map();
   for (const id of opts.taskIds) index.set(id, "task");
   for (const id of opts.sessionIds) index.set(id, "session");
   for (const id of opts.askIds) index.set(id, "ask");
   for (const id of opts.memoryIds) index.set(id, "memory");
+  for (const id of opts.changesetIds ?? []) index.set(id, "changeset");
   return index;
 }
 
@@ -118,6 +122,10 @@ function resolveEntityId(
  *         not a word char but IS immediately before the hex string — however `(?<!\w)`
  *         allows `#` (not a word char). We therefore also exclude when preceded by `#`.
  *   4. Non-minsky https?:// URLs — same trailing-punct discipline as minsky://.
+ *   5. PR/changeset refs — `PR #N` (with optional space) where N is one or more digits.
+ *      Bounded: `(?<!\w)` before PR so "AAPR#1" is not matched; `\b` after digits.
+ *      Bare `#N` (no PR prefix) is NEVER matched. Linkified only when N is in the
+ *      changeset id-set (id-set gated, zero false positives). (mt#2536)
  *
  * TRAILING PUNCTUATION STRIPPING (minsky:// and https?://):
  *   The character class `[^\s<>",).\];]` matches valid URI chars excluding prose-punct.
@@ -126,25 +134,33 @@ function resolveEntityId(
  *     `(?:[^\s<>",).\];]|[.,)\];](?=[^\s<>",).\];]))`
  *   which in greedy mode stops before any trailing sequence of `.`, `,`, `)`, `]`, `;`.
  *
- * Groups:
- *   [1] minsky:// URI (trailing prose punctuation excluded)
- *   [2] mt# task id
- *   [3] UUID / 8-char-hex-prefix candidate (bounded; no CSS colors, no word-embedded hex)
- *   [4] https?:// URL (always plain text; trailing prose punctuation excluded)
+ * Named groups (accessed via `match.groups`, NOT positional indices — mt#2536 R1):
+ *   minskyUri — minsky:// URI (trailing prose punctuation excluded)
+ *   taskId    — mt# task id
+ *   uuid      — UUID / 8-char-hex-prefix candidate (bounded; no CSS colors, no word-embedded hex)
+ *   httpsUrl  — https?:// URL (always plain text; trailing prose punctuation excluded).
+ *               Ordered BEFORE prRef so a URL containing `PR#N` is consumed whole.
+ *   prRef     — PR/changeset ref full match (e.g. "PR #1234")
+ *   prNumber  — the digit string nested inside prRef (e.g. "1234")
  */
 const _URL_BODY = '(?:[^\\s<>",.);\\]]|[,.);\\]](?=[^\\s<>",.);\\]]))';
 const TOKEN_RE = new RegExp(
-  // Group 1: minsky:// URI (trailing-punct stripped)
-  `(minsky:\\/\\/${_URL_BODY}+)` +
-    // Group 2: mt# task id (bounded — no leading word char, no trailing word char)
-    `|((?<![a-zA-Z0-9_])mt#\\d+\\b)` +
-    // Group 3: full UUID first (takes priority via order), then bounded 8-char hex prefix
+  // NAMED groups (accessed via match.groups — positional indices are NOT relied on).
+  // minskyUri: minsky:// URI (trailing-punct stripped)
+  `(?<minskyUri>minsky:\\/\\/${_URL_BODY}+)` +
+    // taskId: mt# task id (bounded — no leading word char, no trailing word char)
+    `|(?<taskId>(?<![a-zA-Z0-9_])mt#\\d+\\b)` +
+    // uuid: full UUID first (takes priority via order), then bounded 8-char hex prefix.
     // The 8-char prefix is excluded when immediately preceded by '#' (CSS color) or any
     // word char. `(?<![\\w#])` covers both.
-    `|(\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b` +
+    `|(?<uuid>\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b` +
     `|(?<![\\w#])[0-9a-f]{8}(?!\\w))` +
-    // Group 4: https?:// URL (trailing-punct stripped, always plain text)
-    `|(https?:\\/\\/${_URL_BODY}+)`,
+    // httpsUrl: https?:// URL (trailing-punct stripped, always plain text). Declared
+    // BEFORE prRef so a URL containing `PR#N` (e.g. https://x.tld/PR#1234) is consumed
+    // whole as a URL and never mis-split into a changeset ref (mt#2536 R1).
+    `|(?<httpsUrl>https?:\\/\\/${_URL_BODY}+)` +
+    // prRef: PR/changeset ref — "PR #N" or "PR#N"; bounded. prNumber: the nested digits.
+    `|(?<prRef>(?<!\\w)PR\\s*#(?<prNumber>\\d+)\\b)`,
   "gi"
 );
 
@@ -193,7 +209,11 @@ export function tokenizeEntities(text: string, index: EntityIndex): EntityToken[
   };
 
   while ((match = TOKEN_RE.exec(text)) !== null) {
-    const [fullMatch, minskyUri, taskId, uuidCandidate, httpsUrl] = match;
+    // Named-group access (NOT positional indices) — robust to future group
+    // reordering and self-documenting (mt#2536 R1: reviewer flagged positional
+    // brittleness in the prior `match[0..6]` destructuring).
+    const fullMatch = match[0];
+    const { minskyUri, taskId, uuid: uuidCandidate, httpsUrl, prRef, prNumber } = match.groups ?? {};
     const matchStart = match.index;
 
     if (matchStart > lastIndex) pushText(text.slice(lastIndex, matchStart));
@@ -239,6 +259,21 @@ export function tokenizeEntities(text: string, index: EntityIndex): EntityToken[
     // --- https:// URL (always plain text) ---
     if (httpsUrl) {
       pushText(httpsUrl);
+      continue;
+    }
+
+    // --- (e) PR/changeset ref: "PR #N" — id-set GATED (zero false positives) ---
+    // prRef is the full match (e.g. "PR #1234"), prNumber is the digit string ("1234").
+    if (prRef && prNumber) {
+      const resolved = resolveEntityId(prNumber, index);
+      if (resolved && resolved.type === "changeset") {
+        tokens.push({
+          kind: "link",
+          text: prRef,
+          to: entityToPath("changeset", resolved.id),
+          mono: true,
+        });
+      } else pushText(prRef); // PR number not in changeset id-set → plain text
       continue;
     }
 
