@@ -14,10 +14,12 @@ import { matchEntityRoute } from "./tabs";
 // Shared fixture ids
 const ASK_ID = "0a1b2c3d-0000-0000-0000-000000000000";
 const SESSION_ID = "4d44d12b-58f0-433e-95b3-8b914693fa39";
+const TASK_URI = "minsky://task/mt%232370";
+const TASK_PATH = "/tasks/mt%232370";
 
 describe("entityToPath", () => {
   test("task id with # is percent-encoded", () => {
-    expect(entityToPath("task", "mt#2370")).toBe("/tasks/mt%232370");
+    expect(entityToPath("task", "mt#2370")).toBe(TASK_PATH);
   });
 
   test("ask id produces /ask/:id", () => {
@@ -156,7 +158,7 @@ describe("parseMinskyUri", () => {
 
 describe("minskyUriToPath", () => {
   test("converts task URI to cockpit path", () => {
-    expect(minskyUriToPath("minsky://task/mt%232370")).toBe("/tasks/mt%232370");
+    expect(minskyUriToPath(TASK_URI)).toBe(TASK_PATH);
   });
 
   test("converts session URI to /agents/ path", () => {
@@ -167,5 +169,37 @@ describe("minskyUriToPath", () => {
   test("returns null for invalid URI", () => {
     expect(minskyUriToPath("https://example.com")).toBeNull();
     expect(minskyUriToPath("minsky://pr/123")).toBeNull();
+  });
+});
+
+describe("trailing prose-punctuation robustness (mt#2549)", () => {
+  // A terminal's URL auto-detection captures the closing ) of a markdown link
+  // `[mt#2370](minsky://task/mt%232370)`, so `open` delivers the URI WITH a trailing
+  // `)`. Without stripping, the `)` decodes into the id → "Task mt#2370) not found".
+  test("strips a trailing ) captured by terminal URL detection", () => {
+    expect(parseMinskyUri(`${TASK_URI})`)).toEqual({ type: "task", id: "mt#2370" });
+    expect(minskyUriToPath(`${TASK_URI})`)).toBe(TASK_PATH);
+  });
+
+  test("strips trailing . , ] ; and runs of them", () => {
+    expect(minskyUriToPath(`${TASK_URI}.`)).toBe(TASK_PATH);
+    expect(minskyUriToPath(`${TASK_URI},`)).toBe(TASK_PATH);
+    expect(minskyUriToPath(`${TASK_URI}]`)).toBe(TASK_PATH);
+    expect(minskyUriToPath(`${TASK_URI};`)).toBe(TASK_PATH);
+    expect(minskyUriToPath(`${TASK_URI}).`)).toBe(TASK_PATH);
+  });
+
+  test("clean URIs are unchanged", () => {
+    expect(minskyUriToPath(TASK_URI)).toBe(TASK_PATH);
+    expect(parseMinskyUri(TASK_URI)).toEqual({ type: "task", id: "mt#2370" });
+  });
+
+  test("strips trailing punct on UUID ids too (session → /agents/)", () => {
+    expect(minskyUriToPath(`minsky://session/${SESSION_ID})`)).toBe(`/agents/${SESSION_ID}`);
+  });
+
+  test("an id that is ALL trailing punctuation → null", () => {
+    expect(parseMinskyUri("minsky://task/)")).toBeNull();
+    expect(parseMinskyUri("minsky://task/]")).toBeNull();
   });
 });
