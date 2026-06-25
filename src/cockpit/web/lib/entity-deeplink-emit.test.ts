@@ -61,6 +61,10 @@ describe("Surface A deeplink emit format", () => {
       `[push-not-pull](minsky://memory/${MEMORY_ID})`
     );
   });
+
+  test("changeset ref uses PR number as id", () => {
+    expect(deeplink("PR #1234", "changeset", "1234")).toBe("[PR #1234](minsky://changeset/1234)");
+  });
 });
 
 describe("emitted link target round-trips through the codec", () => {
@@ -69,6 +73,7 @@ describe("emitted link target round-trips through the codec", () => {
     { type: "ask", id: ASK_ID },
     { type: "session", id: SESSION_ID },
     { type: "memory", id: MEMORY_ID },
+    { type: "changeset", id: "1234" },
   ];
 
   for (const { type, id } of cases) {
@@ -88,6 +93,7 @@ describe("no host/port in emitted links", () => {
     { type: "ask", id: ASK_ID },
     { type: "session", id: SESSION_ID },
     { type: "memory", id: MEMORY_ID },
+    { type: "changeset", id: "1234" },
   ];
 
   for (const { type, id } of cases) {
@@ -101,18 +107,24 @@ describe("no host/port in emitted links", () => {
   }
 });
 
-describe("PR/changeset refs are inert (excluded until mt#2410)", () => {
-  // The rule instructs the agent NOT to wrap PR/changeset refs (no cockpit route
-  // yet). `RoutableEntityType` does not include "pr" or "changeset", so the typed
-  // emit helper cannot produce one. As a belt-and-suspenders guard, even a hand-
-  // written minsky://pr/... URI is inert — it does not parse to a routable entity,
-  // so a stray emit can never resolve to a (wrong) cockpit page.
-  test("a hand-written PR URI does not parse to a routable entity", () => {
-    expect(parseMinskyUri("minsky://pr/1234")).toBeNull();
+describe("changeset (PR) refs are routable (mt#2536)", () => {
+  // As of mt#2536, the "changeset" entity type IS part of RoutableEntityType.
+  // minsky://changeset/<prNumber> is a valid emittable URI that navigates to
+  // /changeset/<prNumber> in the cockpit (the route added in mt#2535).
+  test("changeset link form is canonical [PR #N](minsky://changeset/N)", () => {
+    expect(deeplink("PR #1234", "changeset", "1234")).toBe("[PR #1234](minsky://changeset/1234)");
   });
 
-  test("a hand-written changeset URI does not parse to a routable entity", () => {
-    expect(parseMinskyUri("minsky://changeset/abc-123")).toBeNull();
+  test("changeset URI parses to {type:'changeset', id:'1234'}", () => {
+    expect(parseMinskyUri("minsky://changeset/1234")).toEqual({
+      type: "changeset",
+      id: "1234",
+    });
+  });
+
+  test("minsky://pr/... (wrong type) still does not parse to a routable entity", () => {
+    // The canonical URI type is "changeset", not "pr"
+    expect(parseMinskyUri("minsky://pr/1234")).toBeNull();
   });
 });
 
@@ -122,6 +134,7 @@ describe("emit form is markdown-safe (label + URL closing)", () => {
     { type: "ask", id: ASK_ID },
     { type: "session", id: SESSION_ID },
     { type: "memory", id: MEMORY_ID },
+    { type: "changeset", id: "1234" },
   ];
 
   for (const { type, id } of cases) {

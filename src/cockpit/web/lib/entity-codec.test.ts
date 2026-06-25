@@ -37,6 +37,10 @@ describe("entityToPath", () => {
       "/agents/4d44d12b-58f0-433e-95b3-8b914693fa39"
     );
   });
+
+  test("changeset id produces /changeset/:id", () => {
+    expect(entityToPath("changeset", "1234")).toBe("/changeset/1234");
+  });
 });
 
 describe("entityToPath + matchEntityRoute round-trip", () => {
@@ -95,6 +99,10 @@ describe("entityToMinskyUri", () => {
       "minsky://session/4d44d12b-58f0-433e-95b3-8b914693fa39"
     );
   });
+
+  test("changeset id", () => {
+    expect(entityToMinskyUri("changeset", "1234")).toBe("minsky://changeset/1234");
+  });
 });
 
 describe("parseMinskyUri", () => {
@@ -129,15 +137,23 @@ describe("parseMinskyUri", () => {
     expect(parsed?.id).toBe(id);
   });
 
+  test("round-trips changeset URI", () => {
+    const uri = entityToMinskyUri("changeset", "1234");
+    const parsed = parseMinskyUri(uri);
+    expect(parsed?.type).toBe("changeset");
+    expect(parsed?.id).toBe("1234");
+  });
+
   test("rejects non-minsky URIs", () => {
     expect(parseMinskyUri("https://example.com")).toBeNull();
     expect(parseMinskyUri("http://localhost:3000/tasks/mt%232370")).toBeNull();
   });
 
   test("rejects unknown types", () => {
+    // "pr" is not a routable type (use "changeset" for PR-number refs)
     expect(parseMinskyUri("minsky://pr/123")).toBeNull();
+    // "agent" is not a routable type (use "session" for workspace session ids)
     expect(parseMinskyUri("minsky://agent/abc")).toBeNull();
-    expect(parseMinskyUri("minsky://changeset/abc")).toBeNull();
   });
 
   test("rejects missing id", () => {

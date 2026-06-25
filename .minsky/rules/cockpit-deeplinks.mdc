@@ -1,6 +1,6 @@
 ---
 name: cockpit-deeplinks
-description: Emit clickable markdown deeplinks [label](minsky://type/id) when referencing Minsky entities (tasks/asks/sessions/memories) in terminal output, so the principal can click through to the cockpit.
+description: Emit clickable markdown deeplinks [label](minsky://type/id) when referencing Minsky entities (tasks/asks/sessions/memories/changesets) in terminal output, so the principal can click through to the cockpit.
 alwaysApply: true
 tags:
   - cockpit
@@ -9,7 +9,7 @@ tags:
 ---
 # Cockpit Deeplinks in Terminal Output
 
-When you reference a Minsky entity — a **task**, **ask**, **session**, or **memory** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
+When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset (PR)** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
 
 ```
 [<clean label>](minsky://<type>/<id>)
@@ -21,16 +21,17 @@ Claude Code's renderer turns `[label](minsky://...)` into an OSC-8 terminal hype
 
 This is Surface A (the terminal). There is no harness hook that rewrites assistant output, so this linking is **agent discipline** — you emit the markdown by hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via mt#2518.)
 
-## The four entity types
+## The five entity types
 
-| Entity  | URI form                | Example                              | Note |
-| ------- | ----------------------- | ------------------------------------ | ---- |
-| task    | `minsky://task/<id>`    | `minsky://task/mt%232370`            | the `#` in a task id MUST be percent-encoded as `%23` |
-| ask     | `minsky://ask/<uuid>`   | `minsky://ask/38b1c0de-…`            | uuid is URL-safe; no encoding |
-| session | `minsky://session/<uuid>` | `minsky://session/2154425b-…`      | URI type is `session` (NOT `agent`), even though the cockpit page is `/agents/<id>` |
-| memory  | `minsky://memory/<uuid>` | `minsky://memory/bd38be2c-…`        | uuid is URL-safe; no encoding |
+| Entity    | URI form                       | Example                              | Note |
+| --------- | ------------------------------ | ------------------------------------ | ---- |
+| task      | `minsky://task/<id>`           | `minsky://task/mt%232370`            | the `#` in a task id MUST be percent-encoded as `%23` |
+| ask       | `minsky://ask/<uuid>`          | `minsky://ask/38b1c0de-…`            | uuid is URL-safe; no encoding |
+| session   | `minsky://session/<uuid>`      | `minsky://session/2154425b-…`        | URI type is `session` (NOT `agent`), even though the cockpit page is `/agents/<id>` |
+| memory    | `minsky://memory/<uuid>`       | `minsky://memory/bd38be2c-…`         | uuid is URL-safe; no encoding |
+| changeset | `minsky://changeset/<pr-num>`  | `minsky://changeset/1234`            | id == PR number (positive integer); cockpit route is `/changeset/<id>` (mt#2535) |
 
-Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe.
+Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe. PR numbers contain only digits and need no encoding.
 
 ## Format rules
 
@@ -39,12 +40,13 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 - **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
 - **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
 - **Don't over-link.** Link a meaningful reference (typically the first mention), not every repetition in a long report. One clickable ref per entity per message is plenty; blanket linking is noise.
-- **PR / changeset references are NOT linked** — there is no cockpit detail route yet (deferred to mt#2410). Leave PR `#1234` and changeset refs as plain text.
+- **PR / changeset references use the `changeset` type.** Emit `[PR #<n>](minsky://changeset/<n>)` when referencing a PR by number. The label should be the human-readable form (`PR #1234`); the id in the URI is the plain PR number (`1234`). Bare `#1234` without the `PR` prefix stays plain text.
 
 ## Examples
 
 - `Implemented [mt#2519](minsky://task/mt%232519); the failing case is in [mt#2518](minsky://task/mt%232518).`
 - `Routed the decision to ask [38b1c0de](minsky://ask/38b1c0de-0000-0000-0000-000000000000).`
+- `Merged [PR #1234](minsky://changeset/1234) — reviewer-bot approved.`
 - On a non-OSC-8 terminal the first renders as `Implemented mt#2519; the failing case is in mt#2518.` — still readable.
 
 ## Terminal caveats
@@ -58,5 +60,6 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 - mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — this rule (Surface A / terminal).
 - mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.
 - mt#2528 — the `minsky://` OS scheme handler in the cockpit-tray app (required for a terminal click to actually open the cockpit).
-- mt#2410 — PR/changeset routes (until then, PR/changeset refs stay plain text).
+- mt#2535 — `/changeset/:id` cockpit detail route (ships the page the changeset URI navigates to).
+- mt#2536 — PR/changeset linkification (adds `changeset` to RoutableEntityType + linkifier PR #N recognition).
 - `src/cockpit/web/lib/entity-codec.ts` — `entityToMinskyUri(type, id)` / `parseMinskyUri(uri)`; the format documented here matches the codec's output exactly.
