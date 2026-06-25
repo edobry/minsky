@@ -1217,6 +1217,130 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   });
 
   /**
+   * GET /api/changeset/:id — PR/changeset detail for the drill-down page (mt#2535).
+   *
+   * The changeset id is the VCS-agnostic abstraction keyed to a PR number
+   * (github-pr adapter). This endpoint resolves the id to a Minsky session record
+   * whose pullRequest.number matches, then returns pr + session + commits.
+   *
+   * Returns: { pr: SessionPrRef, session: SessionDetailMeta, commits: SessionCommitRef[] }
+   * Every enrichment degrades independently — only a wholly unresolvable id is a 404.
+   *
+   * IMPORTANT: changeset_list / changeset_get (github-pr changeset adapter) is NOT
+   * configured in all environments. This endpoint uses the session-record path
+   * (list sessions, match on pullRequest.number) to avoid that dependency.
+   */
+  app.get("/api/changeset/:id", async (req, res) => {
+    const rawId = req.params.id;
+    if (!rawId) {
+      res.status(400).json({ error: "Changeset ID required" });
+      return;
+    }
+    const changesetId = decodeURIComponent(rawId);
+
+    try {
+      const provider = await getServerSessionProvider();
+      if (!provider) {
+        res.status(503).json({
+          error: "Session service unavailable — persistence provider not ready",
+        });
+        return;
+      }
+
+      // Resolve changeset id to a session: list all sessions and find the one
+      // whose pullRequest.number matches. Local-scale approach; no external
+      // changeset adapter dependency.
+      const prNumber = parseInt(changesetId, 10);
+      const allSessions = await provider.listSessions();
+      const record = allSessions.find((s) => {
+        if (!Number.isNaN(prNumber) && s.pullRequest?.number === prNumber) return true;
+        return false;
+      });
+
+      if (!record) {
+        res.status(404).json({
+          error: `No session found for changeset ${changesetId}`,
+        });
+        return;
+      }
+
+      const { buildSessionMeta, buildPrRef, githubRepoWebBase, parseGitLog, GIT_LOG_FORMAT } =
+        await import("./session-detail");
+
+      // Workspace dir: record fields first, provider lookup as fallback.
+      let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
+      if (!workdir) {
+        try {
+          workdir = await provider.getSessionWorkdir(record.sessionId);
+        } catch {
+          workdir = null;
+        }
+      }
+
+      const repoWebBase = githubRepoWebBase(record.repoUrl);
+
+      // Enrichments degrade independently per the agents endpoint pattern.
+      const commitsPromise: Promise<ReturnType<typeof parseGitLog>> = (async () => {
+        if (!workdir) return [];
+        const { existsSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        if (!existsSync(workdir) || !existsSync(join(workdir, ".git"))) {
+          log.debug(`[changeset] commits enrichment skipped — no git workspace at ${workdir}`);
+          return [];
+        }
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execFileAsync = promisify(execFile);
+        try {
+          const { stdout } = await execFileAsync(
+            "git",
+            ["-C", workdir, "log", `--format=${GIT_LOG_FORMAT}`, "-n", "10"],
+            { timeout: 5_000, maxBuffer: 256 * 1024 }
+          );
+          return parseGitLog(stdout, repoWebBase);
+        } catch (gitErr) {
+          const msg = gitErr instanceof Error ? gitErr.message : String(gitErr);
+          log.debug(`[changeset] commits enrichment degraded — git log failed: ${msg}`);
+          return [];
+        }
+      })();
+
+      const taskTitlePromise: Promise<string | null> = (async () => {
+        if (!record.taskId) return null;
+        try {
+          const taskService = await getServerTaskService();
+          if (!taskService) return null;
+          const task = await taskService.getTask(record.taskId);
+          return task?.title ?? null;
+        } catch (titleErr) {
+          const msg = titleErr instanceof Error ? titleErr.message : String(titleErr);
+          log.debug(`[changeset] task-title enrichment degraded: ${msg}`);
+          return null;
+        }
+      })();
+
+      const [commits, taskTitle] = await Promise.all([commitsPromise, taskTitlePromise]);
+
+      const pr = buildPrRef(record);
+      if (!pr) {
+        // Session matched on PR number but buildPrRef returned null — degenerate record.
+        res.status(404).json({ error: `No PR data for changeset ${changesetId}` });
+        return;
+      }
+
+      res.json({
+        pr,
+        session: buildSessionMeta(record, taskTitle),
+        commits,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[changeset] GET /api/changeset/:id — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while fetching the changeset." });
+    }
+  });
+
+  /**
    * GET /api/tasks — lightweight task list for the command palette (mt#1917).
    *
    * Returns: { tasks: { id, title, status }[] }

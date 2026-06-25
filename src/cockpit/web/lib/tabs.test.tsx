@@ -1,8 +1,8 @@
 /**
- * Tests for the entity-tab route matcher (mt#2398, extended mt#1919).
+ * Tests for the entity-tab route matcher (mt#2398, extended mt#1919, mt#2535).
  */
 import { describe, test, expect } from "bun:test";
-import { matchEntityRoute } from "./tabs";
+import { matchEntityRoute, isAcceptedTabKind } from "./tabs";
 
 describe("matchEntityRoute", () => {
   test("matches /session/:id as kind session (harness agentSessionId)", () => {
@@ -49,6 +49,22 @@ describe("matchEntityRoute", () => {
     expect(tab?.label).toBe("d4e5f6a7…");
   });
 
+  test("matches /changeset/:id as kind changeset (mt#2535)", () => {
+    const tab = matchEntityRoute("/changeset/42");
+    expect(tab?.kind).toBe("changeset");
+    expect(tab?.entityId).toBe("42");
+    expect(tab?.label).toBe("42");
+  });
+
+  test("URL-encoded changeset id is decoded", () => {
+    const tab = matchEntityRoute("/changeset/pr%2342");
+    expect(tab?.entityId).toBe("pr#42");
+  });
+
+  test("changeset list route does not create a tab", () => {
+    expect(matchEntityRoute("/changesets")).toBeNull();
+  });
+
   test("list routes do not create tabs", () => {
     expect(matchEntityRoute("/agents")).toBeNull();
     expect(matchEntityRoute("/sessions")).toBeNull();
@@ -64,5 +80,39 @@ describe("matchEntityRoute", () => {
   test("nested paths under an entity do not match", () => {
     expect(matchEntityRoute("/agents/abc/def")).toBeNull();
     expect(matchEntityRoute("/session/abc/def")).toBeNull();
+  });
+});
+
+describe("isAcceptedTabKind (loadTabs kind filter)", () => {
+  test("accepts all defined entity tab kinds including changeset", () => {
+    expect(isAcceptedTabKind("task")).toBe(true);
+    expect(isAcceptedTabKind("session")).toBe(true);
+    expect(isAcceptedTabKind("agent")).toBe(true);
+    expect(isAcceptedTabKind("ask")).toBe(true);
+    expect(isAcceptedTabKind("memory")).toBe(true);
+    expect(isAcceptedTabKind("changeset")).toBe(true);
+  });
+
+  test("rejects unknown kinds so stale tabs are dropped", () => {
+    expect(isAcceptedTabKind("unknown")).toBe(false);
+    expect(isAcceptedTabKind("pr")).toBe(false);
+    expect(isAcceptedTabKind(null)).toBe(false);
+    expect(isAcceptedTabKind(undefined)).toBe(false);
+    expect(isAcceptedTabKind(42)).toBe(false);
+  });
+
+  test("persisted changeset tab shape passes the kind filter", () => {
+    const persistedTab = {
+      kind: "changeset",
+      entityId: "42",
+      path: "/changeset/42",
+      label: "42",
+    };
+    // Verify the kind is accepted (the filter that loadTabs applies)
+    expect(isAcceptedTabKind(persistedTab.kind)).toBe(true);
+    // Verify the full shape round-trips through matchEntityRoute
+    const matched = matchEntityRoute(persistedTab.path);
+    expect(matched?.kind).toBe("changeset");
+    expect(matched?.entityId).toBe("42");
   });
 });
