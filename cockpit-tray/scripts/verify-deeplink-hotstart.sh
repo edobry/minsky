@@ -39,7 +39,7 @@ SHOT="${TMPDIR:-/tmp}/mt2546-verify.png"
 
 # ── Preconditions: skip gracefully (exit 0) when the harness can't run ──
 [[ "$(uname)" == "Darwin" ]] || { echo "SKIP: macOS only (uname=$(uname))"; exit 0; }
-[[ -x "$BIN" ]] || { echo "SKIP: '$APP' not installed — build (cd cockpit-tray && bun run build) and copy to /Applications first."; exit 0; }
+[[ -x "$BIN" ]] || { echo "SKIP: '$APP' not installed — run cockpit-tray/scripts/install-local.sh (app-only build + install + register; no DMG popup) first."; exit 0; }
 curl -s -o /dev/null --max-time 3 "http://localhost:${PORT}/api/health" \
   || { echo "SKIP: no cockpit daemon on :${PORT} (start one: minsky cockpit start --port ${PORT})"; exit 0; }
 
