@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { changesetRecencyTime } from "../lib/format";
 import {
   Changesets,
   type ChangesetItem,
@@ -87,19 +88,19 @@ export function ChangesetsPage() {
       const mult = dir === "asc" ? 1 : -1;
       switch (key) {
         case "age": {
-          const aTime = a.session.createdAt ? new Date(a.session.createdAt).getTime() : 0;
-          const bTime = b.session.createdAt ? new Date(b.session.createdAt).getTime() : 0;
-          return (aTime - bTime) * mult;
+          // Recency proxy (lastActivityAt ?? createdAt), NOT createdAt alone —
+          // must match the server sort (compareChangesetsByRecency) and the row
+          // "Age" column so the client default order doesn't override the
+          // server's newest-by-activity order. mt#1920 R2.
+          return (changesetRecencyTime(a.session) - changesetRecencyTime(b.session)) * mult;
         }
         case "attention": {
           // Attention-required order: pending review (not approved, not null) first.
-          // Among ties, newest first.
+          // Among ties, most-recently-active first (same recency proxy as "age").
           const aNeeds = a.pr.approved === false ? 0 : 1;
           const bNeeds = b.pr.approved === false ? 0 : 1;
           if (aNeeds !== bNeeds) return (aNeeds - bNeeds) * mult;
-          const aTime = a.session.createdAt ? new Date(a.session.createdAt).getTime() : 0;
-          const bTime = b.session.createdAt ? new Date(b.session.createdAt).getTime() : 0;
-          return (bTime - aTime) * mult;
+          return (changesetRecencyTime(b.session) - changesetRecencyTime(a.session)) * mult;
         }
         default:
           return 0;

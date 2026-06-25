@@ -12,7 +12,7 @@
  */
 import { ExternalLink } from "lucide-react";
 import { cn } from "../lib/utils";
-import { relativeTime } from "../lib/format";
+import { relativeTime, changesetRecencyIso } from "../lib/format";
 import type { SessionPrRef, SessionDetailMeta } from "../../session-detail";
 
 // ---------------------------------------------------------------------------
@@ -59,10 +59,10 @@ interface ChangesetRowProps {
 export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
   const { pr, session } = item;
   const chip = prStateChip(pr.state);
-  // Age reflects the same recency proxy the /api/changesets sort uses
-  // (compareChangesetsByRecency in session-detail.ts): lastActivityAt, falling
-  // back to createdAt. Keep this selection in sync with that comparator. mt#1920 R1.
-  const recencyIso = session.lastActivityAt ?? session.createdAt;
+  // Age reflects the same recency proxy the /api/changesets sort + the page's
+  // client-side sort use (changesetRecencyIso → lastActivityAt ?? createdAt).
+  // mt#1920 R1/R2.
+  const recencyIso = changesetRecencyIso(session);
   const age = recencyIso ? relativeTime(recencyIso) : "—";
   const prNumber = pr.number != null ? `#${pr.number}` : "—";
   const title = pr.title ?? session.taskTitle ?? session.taskId ?? pr.headBranch ?? "—";
