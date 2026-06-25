@@ -126,7 +126,7 @@
     "strip-ansi": "^7.0.1"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.0.2",
+    "@ai-sdk/anthropic": "^3.0.78",
     "@ai-sdk/google": "^1.0.2",
     "@ai-sdk/openai": "^1.0.2",
     "@clack/prompts": "^0.11.0",
