@@ -123,7 +123,13 @@ function formatTime(iso: string): string {
 
 // ── Element renderers ──────────────────────────────────────────────────────────
 
-function ThinkingBlock({ thinking }: { thinking: string }) {
+export function ThinkingBlock({
+  thinking,
+  entityIndex,
+}: {
+  thinking: string;
+  entityIndex: EntityIndex;
+}) {
   // Render the (potentially very large) body only while expanded — collapsed
   // thinking blocks otherwise pay full serialization/reconciliation cost for
   // text nobody is looking at (PR #1667 R1 non-blocking).
@@ -140,9 +146,15 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         </span>
       </summary>
       {open && (
-        <pre className="whitespace-pre-wrap break-words px-2 pb-2 pt-1 text-xs text-muted-foreground">
+        // Thinking is agent reasoning prose — render as Markdown via the shared
+        // <Prose> (same as assistant text), entity-aware. mt#2556 (mt#2550 follow-up).
+        // Newline semantics intentionally match assistant text (Markdown soft
+        // newlines): model reasoning is paragraph-structured. remark-breaks is NOT
+        // enabled globally — it would regress spec/memory rendering on <Prose>'s
+        // other callers (PR #1746 reviewer note).
+        <Prose entityIndex={entityIndex} className="px-2 pb-2 pt-1 text-xs text-muted-foreground">
           {thinking}
-        </pre>
+        </Prose>
       )}
     </details>
   );
@@ -236,7 +248,7 @@ function ElementView({
       ) : null;
     case "thinking":
       return element.thinking.trim().length > 0 ? (
-        <ThinkingBlock thinking={element.thinking} />
+        <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
       ) : null;
     case "tool-call":
       return <ToolCall element={element} entityIndex={entityIndex} />;

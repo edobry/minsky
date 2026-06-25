@@ -339,6 +339,7 @@ export function AskDetail({
                         {letter})
                       </span>
                       <div>
+                        {/* Plain text (not <Prose>): short inline option label/description — block Markdown breaks layout. mt#2556 */}
                         <span className="text-foreground font-medium">{opt.label}</span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">
