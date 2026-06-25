@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- server.ts is a growing monolith; split tracked separately */
 /**
  * Cockpit Express server factory (mt#1144)
  *
@@ -1347,6 +1348,58 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[changeset] GET /api/changeset/:id — internal error: ${message}`);
       res.status(500).json({ error: "An internal error occurred while fetching the changeset." });
+    }
+  });
+
+  /** GET /api/changesets — active (open/draft) PRs across sessions (mt#1920).
+   * Session-record path only — changeset_list adapter unavailable in all envs. */
+  app.get("/api/changesets", async (_req, res) => {
+    try {
+      const provider = await getServerSessionProvider();
+      if (!provider) {
+        res.status(503).json({ error: "Session service unavailable" });
+        return;
+      }
+      const { buildSessionMeta, buildPrRef, compareChangesetsByRecency } = await import(
+        "./session-detail"
+      );
+      const allSessions = await provider.listSessions();
+      const active = allSessions.filter((s) => {
+        const pr = buildPrRef(s);
+        return pr !== null && (pr.state === "open" || pr.state === "draft");
+      });
+      const taskService = await getServerTaskService().catch(() => null);
+      type ChangesetItem = {
+        pr: NonNullable<ReturnType<typeof buildPrRef>>;
+        session: ReturnType<typeof buildSessionMeta>;
+      };
+      const settled = await Promise.allSettled(
+        active.map(async (record): Promise<ChangesetItem> => {
+          let taskTitle: string | null = null;
+          if (record.taskId && taskService) {
+            try {
+              taskTitle = (await taskService.getTask(record.taskId))?.title ?? null;
+            } catch {
+              /* degrade */
+            }
+          }
+          const pr = buildPrRef(record);
+          if (!pr) throw new Error(`No PR ref for session ${record.sessionId}`);
+          return { pr, session: buildSessionMeta(record, taskTitle) };
+        })
+      );
+      const changesets = (
+        settled.filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<ChangesetItem>[]
+      )
+        .map((r) => r.value)
+        // Newest-first by PR-recency proxy (lastActivityAt ?? createdAt), NOT by
+        // session.createdAt — see compareChangesetsByRecency JSDoc (mt#1920 R1).
+        .sort(compareChangesetsByRecency);
+      res.json({ changesets });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[changesets] GET /api/changesets — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while fetching changesets." });
     }
   });
 

@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   GitBranch,
+  GitPullRequest,
   Network,
   Bot,
   FileSearch,
@@ -45,6 +46,7 @@ const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitB
 /** Flat entity entry points below the spine. */
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
+  { to: "/changesets", label: "Changesets", icon: GitPullRequest },
   { to: "/sessions", label: "Conversations", icon: MessagesSquare },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/context", label: "Context", icon: FileSearch },

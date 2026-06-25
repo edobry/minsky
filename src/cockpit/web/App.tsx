@@ -59,6 +59,9 @@ const AskPage = lazy(() => import("./pages/AskPage").then((m) => ({ default: m.A
 const ChangesetDetailPage = lazy(() =>
   import("./pages/ChangesetDetailPage").then((m) => ({ default: m.ChangesetDetailPage }))
 );
+const ChangesetsPage = lazy(() =>
+  import("./pages/ChangesetsPage").then((m) => ({ default: m.ChangesetsPage }))
+);
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
 );
@@ -465,6 +468,15 @@ export function App() {
             element={
               <ErrorBoundary id="changeset-page">
                 <ChangesetDetailPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Changesets list route (mt#1920): active PRs across sessions. */}
+          <Route
+            path="/changesets"
+            element={
+              <ErrorBoundary id="changesets-page">
+                <ChangesetsPage />
               </ErrorBoundary>
             }
           />
