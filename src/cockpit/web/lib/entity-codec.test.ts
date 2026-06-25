@@ -230,3 +230,29 @@ describe("trailing prose-punctuation robustness (mt#2549)", () => {
     expect(parseMinskyUri("minsky://task/%29")).toBeNull();
   });
 });
+
+describe("changeset id numeric enforcement (mt#2536 R1)", () => {
+  // The rule/docs pin `changeset id == PR number` (positive integer). A non-numeric
+  // changeset id must NOT parse — it would otherwise route to a nonexistent
+  // /changeset/<junk>. Enforcement applies ONLY to the changeset type.
+  test("accepts a numeric changeset id", () => {
+    expect(parseMinskyUri("minsky://changeset/1234")).toEqual({ type: "changeset", id: "1234" });
+  });
+
+  test("rejects a non-numeric changeset id", () => {
+    expect(parseMinskyUri("minsky://changeset/abc")).toBeNull();
+    expect(parseMinskyUri("minsky://changeset/12ab")).toBeNull();
+    expect(parseMinskyUri("minsky://changeset/mt%232370")).toBeNull();
+  });
+
+  test("numeric enforcement is changeset-only (other types keep free-form ids)", () => {
+    expect(parseMinskyUri("minsky://task/mt%232370")?.id).toBe("mt#2370");
+    expect(parseMinskyUri(`minsky://ask/${ASK_ID}`)?.id).toBe(ASK_ID);
+  });
+
+  test("trailing-punct strip still yields a valid numeric changeset id", () => {
+    // `[PR #1234](minsky://changeset/1234)` → terminal captures the trailing )
+    expect(parseMinskyUri("minsky://changeset/1234)")).toEqual({ type: "changeset", id: "1234" });
+    expect(minskyUriToPath("minsky://changeset/1234)")).toBe("/changeset/1234");
+  });
+});

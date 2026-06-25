@@ -110,6 +110,12 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   id = id.replace(/[.,);\]]+$/, "");
   if (!id) return null;
 
+  // `changeset` ids are PR numbers — enforce digits-only so a malformed
+  // `minsky://changeset/abc` does not parse and route to a nonexistent
+  // `/changeset/abc`. The rule/docs pin `changeset id == PR number` (positive
+  // integer); other entity types keep their free-form id shape. (mt#2536 R1)
+  if (rawType === "changeset" && !/^\d+$/.test(id)) return null;
+
   return { type: rawType as RoutableEntityType, id };
 }
 

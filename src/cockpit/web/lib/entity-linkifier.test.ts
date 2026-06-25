@@ -411,6 +411,32 @@ describe("linkifyText — PR/changeset refs (mt#2536)", () => {
     expect(linkNode).toBeDefined();
     expect(linkTo(linkNode)).toBe(CHANGESET_PATH);
   });
+
+  test("URL containing 'PR#1234' is consumed whole as a URL, NOT a changeset link (mt#2536 R1)", () => {
+    // Reviewer R1: prove the httpsUrl group (ordered before prRef) wins so a
+    // `PR#1234` that is part of an https URL is never split into /changeset/1234 —
+    // even when 1234 IS a known changeset.
+    const index = makeIndexWithChangeset(); // changeset id-set has "1234"
+    const text = "see https://example.com/PR#1234 for the diff";
+    const nodes = linkifyText(text, index);
+
+    // No link node — https:// is always plain text and the PR pattern did not fire.
+    expect(nodes.filter(isLinkNode).length).toBe(0);
+    const plain = nodes.filter((n) => typeof n === "string").join("");
+    expect(plain).toContain("https://example.com/PR#1234");
+  });
+
+  test("a standalone 'PR #1234' adjacent to a URL still links (URL consumed whole) (mt#2536 R1)", () => {
+    // The URL is consumed whole; the standalone 'PR #1234' after it still resolves.
+    const index = makeIndexWithChangeset();
+    const text = "https://example.com/x then PR #1234";
+    const nodes = linkifyText(text, index);
+
+    const linkNodes = nodes.filter(isLinkNode);
+    expect(linkNodes.length).toBe(1);
+    expect(linkTo(linkNodes[0])).toBe(CHANGESET_PATH);
+    expect(linkText(linkNodes[0])).toBe("PR #1234");
+  });
 });
 
 // ---------------------------------------------------------------------------

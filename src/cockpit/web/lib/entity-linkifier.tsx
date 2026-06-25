@@ -134,28 +134,33 @@ function resolveEntityId(
  *     `(?:[^\s<>",).\];]|[.,)\];](?=[^\s<>",).\];]))`
  *   which in greedy mode stops before any trailing sequence of `.`, `,`, `)`, `]`, `;`.
  *
- * Groups:
- *   [1] minsky:// URI (trailing prose punctuation excluded)
- *   [2] mt# task id
- *   [3] UUID / 8-char-hex-prefix candidate (bounded; no CSS colors, no word-embedded hex)
- *   [4] https?:// URL (always plain text; trailing prose punctuation excluded)
- *   [5] PR/changeset ref full match (e.g. "PR #1234"); extract number via /\d+$/.exec()
+ * Named groups (accessed via `match.groups`, NOT positional indices — mt#2536 R1):
+ *   minskyUri — minsky:// URI (trailing prose punctuation excluded)
+ *   taskId    — mt# task id
+ *   uuid      — UUID / 8-char-hex-prefix candidate (bounded; no CSS colors, no word-embedded hex)
+ *   httpsUrl  — https?:// URL (always plain text; trailing prose punctuation excluded).
+ *               Ordered BEFORE prRef so a URL containing `PR#N` is consumed whole.
+ *   prRef     — PR/changeset ref full match (e.g. "PR #1234")
+ *   prNumber  — the digit string nested inside prRef (e.g. "1234")
  */
 const _URL_BODY = '(?:[^\\s<>",.);\\]]|[,.);\\]](?=[^\\s<>",.);\\]]))';
 const TOKEN_RE = new RegExp(
-  // Group 1: minsky:// URI (trailing-punct stripped)
-  `(minsky:\\/\\/${_URL_BODY}+)` +
-    // Group 2: mt# task id (bounded — no leading word char, no trailing word char)
-    `|((?<![a-zA-Z0-9_])mt#\\d+\\b)` +
-    // Group 3: full UUID first (takes priority via order), then bounded 8-char hex prefix
+  // NAMED groups (accessed via match.groups — positional indices are NOT relied on).
+  // minskyUri: minsky:// URI (trailing-punct stripped)
+  `(?<minskyUri>minsky:\\/\\/${_URL_BODY}+)` +
+    // taskId: mt# task id (bounded — no leading word char, no trailing word char)
+    `|(?<taskId>(?<![a-zA-Z0-9_])mt#\\d+\\b)` +
+    // uuid: full UUID first (takes priority via order), then bounded 8-char hex prefix.
     // The 8-char prefix is excluded when immediately preceded by '#' (CSS color) or any
     // word char. `(?<![\\w#])` covers both.
-    `|(\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b` +
+    `|(?<uuid>\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b` +
     `|(?<![\\w#])[0-9a-f]{8}(?!\\w))` +
-    // Group 4: https?:// URL (trailing-punct stripped, always plain text)
-    `|(https?:\\/\\/${_URL_BODY}+)` +
-    // Group 5: PR/changeset ref — "PR #N" or "PR#N"; bounded, digits-only number
-    `|((?<!\\w)PR\\s*#(\\d+)\\b)`,
+    // httpsUrl: https?:// URL (trailing-punct stripped, always plain text). Declared
+    // BEFORE prRef so a URL containing `PR#N` (e.g. https://x.tld/PR#1234) is consumed
+    // whole as a URL and never mis-split into a changeset ref (mt#2536 R1).
+    `|(?<httpsUrl>https?:\\/\\/${_URL_BODY}+)` +
+    // prRef: PR/changeset ref — "PR #N" or "PR#N"; bounded. prNumber: the nested digits.
+    `|(?<prRef>(?<!\\w)PR\\s*#(?<prNumber>\\d+)\\b)`,
   "gi"
 );
 
@@ -204,7 +209,11 @@ export function tokenizeEntities(text: string, index: EntityIndex): EntityToken[
   };
 
   while ((match = TOKEN_RE.exec(text)) !== null) {
-    const [fullMatch, minskyUri, taskId, uuidCandidate, httpsUrl, prRef, prNumber] = match;
+    // Named-group access (NOT positional indices) — robust to future group
+    // reordering and self-documenting (mt#2536 R1: reviewer flagged positional
+    // brittleness in the prior `match[0..6]` destructuring).
+    const fullMatch = match[0];
+    const { minskyUri, taskId, uuid: uuidCandidate, httpsUrl, prRef, prNumber } = match.groups ?? {};
     const matchStart = match.index;
 
     if (matchStart > lastIndex) pushText(text.slice(lastIndex, matchStart));
