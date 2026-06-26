@@ -27,9 +27,16 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Reviewer service health endpoint (same host as webhook receiver). */
+/**
+ * Reviewer service health endpoint. The Railway service is named
+ * `minsky-reviewer-webhook` (see infra/index.ts), so its generated public
+ * domain is `minsky-reviewer-webhook-production.up.railway.app` — verified 200
+ * (the bare `minsky-reviewer.up.railway.app` host does not exist). Override in
+ * prod via MINSKY_REVIEWER_HEALTH_URL once cockpit env-var IaC lands (mt#2407).
+ */
 export const REVIEWER_HEALTH_URL =
-  process.env.MINSKY_REVIEWER_HEALTH_URL ?? "https://minsky-reviewer.up.railway.app/health";
+  process.env.MINSKY_REVIEWER_HEALTH_URL ??
+  "https://minsky-reviewer-webhook-production.up.railway.app/health";
 
 /** Probe request timeout. */
 const PROBE_TIMEOUT_MS = 5_000;
