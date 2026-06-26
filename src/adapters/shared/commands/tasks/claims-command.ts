@@ -11,7 +11,11 @@
 import { z } from "zod";
 import { defineCommand, CommandCategory } from "../../command-registry";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
-import { buildPresenceClaimRepository, PRESENCE_CLAIM_TTL_MS } from "@minsky/domain/presence/index";
+import {
+  buildPresenceClaimRepository,
+  normalizeTaskSubjectId,
+  PRESENCE_CLAIM_TTL_MS,
+} from "@minsky/domain/presence/index";
 import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
@@ -58,7 +62,12 @@ export function createTasksClaimsListCommand(getPersistenceProvider: () => unkno
     async execute(params) {
       const { taskId, staleThresholdMs = PRESENCE_CLAIM_TTL_MS, includeStale = false } = params;
 
-      const subjectId = taskId.trim();
+      // Canonicalize to the SAME key the write path stores (PR #1755 R1) so
+      // `mt#2562`, `2562`, and `MT-2562` all resolve the same claim set.
+      const subjectId = normalizeTaskSubjectId(taskId);
+      if (!subjectId) {
+        return { claims: [], taskId: subjectId };
+      }
 
       try {
         const provider = getPersistenceProvider() as SqlCapablePersistenceProvider | undefined;

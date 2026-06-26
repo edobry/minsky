@@ -34,7 +34,10 @@ import {
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
 import type { InitController } from "./init-retry";
-import type { PresenceClaimRepository } from "@minsky/domain/presence/repository";
+import {
+  type PresenceClaimRepository,
+  normalizeTaskSubjectId,
+} from "@minsky/domain/presence/index";
 
 /**
  * Transport type for MCP server
@@ -1378,6 +1381,12 @@ export class MinskyMCPServer {
 
     if (!taskId) return;
 
+    // Canonicalize the task id so the write path and the read path
+    // (tasks.claims.list) key on the SAME subject_id — `mt#2562`, `2562`, and
+    // `MT-2562` must not fragment into distinct rows (PR #1755 R1).
+    const subjectId = normalizeTaskSubjectId(taskId);
+    if (!subjectId) return;
+
     // Resolve project scope (best-effort; fail silently on error)
     let projectId: string | undefined;
     try {
@@ -1415,7 +1424,7 @@ export class MinskyMCPServer {
 
     await this.presenceClaimRepo.upsertClaim({
       subjectKind: "task",
-      subjectId: taskId,
+      subjectId,
       actorId,
       ccConversationId,
       projectId,

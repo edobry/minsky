@@ -13,7 +13,7 @@
  * Models: packages/domain/src/ask/repository.ts
  */
 
-import { and, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { presenceClaimsTable } from "../storage/schemas/presence-claims-schema";
@@ -153,7 +153,7 @@ export class DrizzlePresenceClaimRepository implements PresenceClaimRepository {
           eq(presenceClaimsTable.subjectId, subjectId)
         )
       )
-      .orderBy(presenceClaimsTable.lastRefreshedAt);
+      .orderBy(desc(presenceClaimsTable.lastRefreshedAt));
 
     const staleThreshold = new Date(Date.now() - staleThresholdMs);
 

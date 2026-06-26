@@ -18,3 +18,5 @@ export {
   buildPresenceClaimRepository,
   toPresenceClaim,
 } from "./repository";
+
+export { normalizeTaskSubjectId } from "./normalize";

@@ -1719,6 +1719,27 @@
               "takesValue": true
             }
           ]
+        },
+        {
+          "name": "claims",
+          "description": "claims commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List active presence claims for a task — who is actively working on it right now.",
+              "options": [
+                {
+                  "flags": ["--stale-threshold-ms"],
+                  "description": "Age in milliseconds past which a claim is considered stale (default: 900000 = 15 min)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--include-stale"],
+                  "description": "Include stale claims in the result (default: false)"
+                }
+              ]
+            }
+          ]
         }
       ]
     },

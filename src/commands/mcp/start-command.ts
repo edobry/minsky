@@ -1333,7 +1333,7 @@ export function createStartCommand(
           (async () => {
             try {
               const { buildPresenceClaimRepository } = await import(
-                "@minsky/domain/presence/repository"
+                "@minsky/domain/presence/index"
               );
               const provider = container.has("persistence")
                 ? (container.get("persistence") as {
