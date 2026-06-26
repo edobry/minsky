@@ -2,9 +2,10 @@
 
 ## Status
 
-Proposed (principal sign-off reserved — affects the cockpit product surface; adjacent to the
-principal-reserved lifecycle decisions in the mt#2230 harness-host program). Accepted only on
-merge + principal sign-off.
+Accepted (principal sign-off 2026-06-26 — keep the daemon-side PTY + WebSocket transport; the
+Rung 3 cloud-cockpit direction is confirmed live, which is the portability reason for that
+choice). Originally Proposed pending principal sign-off on the cockpit product surface, adjacent
+to the principal-reserved lifecycle decisions in the mt#2230 harness-host program.
 
 ## Context
 
