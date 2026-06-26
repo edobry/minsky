@@ -312,14 +312,16 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
        WHERE acquired_at <= $1`,
       [staleThresholdIso]
     ),
-    // Rate-limit hits: retry_outcomes array containing 'rate_limited' strings
+    // Rate-limit hits: count 'rate_limited' entries across all rows'
+    // retry_outcomes (text[]) in the window. A lateral unnest cross-join is the
+    // valid form — the prior `SELECT unnest(...) WHERE unnest = ...` was invalid
+    // SQL (can't reference the set-returning fn output by name in WHERE), which
+    // rejected the query and zeroed the field. retry_outcomes is NOT NULL
+    // DEFAULT '{}', so an empty array contributes 0 rows (correctly 0 hits).
     queryRows(
-      `SELECT SUM(array_length(
-           ARRAY(SELECT unnest(retry_outcomes) WHERE unnest = 'rate_limited'),
-           1
-         )) AS count
-       FROM review_timing
-       WHERE created_at >= $1`,
+      `SELECT COUNT(*) AS count
+       FROM review_timing rt, unnest(rt.retry_outcomes) AS ro
+       WHERE rt.created_at >= $1 AND ro = 'rate_limited'`,
       [window24hIso]
     ),
     // Last webhook received
