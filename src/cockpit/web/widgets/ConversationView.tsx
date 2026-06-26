@@ -34,18 +34,32 @@ import {
   type ConversationElement,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
-import type { SessionContextSnapshot } from "@minsky/domain/context/types";
-import type { ConversationId } from "@minsky/domain/ids";
+import type { SessionContextSnapshot, SessionContextSnapshotBlock } from "@minsky/domain/context/types";
+import type { ConversationId, WorkspaceId } from "@minsky/domain/ids";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { Prose } from "../components/Prose";
 import { ToolPayload } from "../components/ToolPayload";
+import { useLiveTail } from "../hooks/useLiveTail";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 type ConversationViewProps =
-  | { sessionId: ConversationId; snapshot?: undefined; className?: string }
-  | { snapshot: SessionContextSnapshot; sessionId?: undefined; className?: string };
+  | {
+      sessionId: ConversationId;
+      snapshot?: undefined;
+      className?: string;
+      /**
+       * Minsky workspace sessionId (WorkspaceId). When provided, `ConversationFetcher`
+       * opens the `GET /api/agents/:id/live-tail` SSE channel and appends new turns
+       * in real time alongside the DB snapshot. The id-spaces are distinct — this must
+       * NOT be the same string as `sessionId` (which is the harness agentSessionId).
+       *
+       * This is the pluggable live stream-source seam (mt#2232 Rung 1).
+       */
+      workspaceSessionId?: WorkspaceId;
+    }
+  | { snapshot: SessionContextSnapshot; sessionId?: undefined; workspaceSessionId?: never; className?: string };
 
 // ── Snapshot fetch (mirrors ContextInspector's endpoint usage) ─────────────────
 
@@ -333,9 +347,17 @@ const OLDER_CHUNK = 100;
 
 function ConversationThread({
   snapshot,
+  extraBlocks,
   className,
 }: {
   snapshot: SessionContextSnapshot;
+  /**
+   * Live-tail blocks to append after the snapshot's historical blocks (mt#2232).
+   * When non-empty, they are merged into the block list before turn conversion.
+   * Block ids in `extraBlocks` must NOT collide with snapshot block ids — live
+   * blocks use the `<agentSessionId>:live:<N>` scheme to guarantee this.
+   */
+  extraBlocks?: SessionContextSnapshotBlock[];
   className?: string;
 }) {
   // Build the entity index for transcript linkification. Fetches the same
@@ -343,7 +365,14 @@ function ConversationThread({
   // query keys to avoid cache-shape collisions — see useEntityIndex for details).
   const entityIndex = useEntityIndex();
 
-  const turns = useMemo(() => snapshotBlocksToConversation(snapshot.blocks), [snapshot.blocks]);
+  // Merge snapshot blocks with any live-tail appends.
+  const allBlocks = useMemo(
+    () =>
+      extraBlocks && extraBlocks.length > 0 ? [...snapshot.blocks, ...extraBlocks] : snapshot.blocks,
+    [snapshot.blocks, extraBlocks]
+  );
+
+  const turns = useMemo(() => snapshotBlocksToConversation(allBlocks), [allBlocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
   // Computed over ALL turns (not the window): a windowed tool-result may answer
@@ -414,6 +443,17 @@ function ConversationThread({
     }
   }, [windowedTurns.length, hiddenCount]);
 
+  // Live-tail auto-scroll: when new turns arrive from the SSE stream (mt#2232),
+  // scroll to the bottom so the operator sees them immediately. Only fires
+  // when extraBlocks grows — not on the initial snapshot render (which has the
+  // one-shot gate above). Keyed on extraBlocks.length so it fires once per new
+  // live turn, not on every render.
+  const extraBlocksLen = extraBlocks?.length ?? 0;
+  useLayoutEffect(() => {
+    if (extraBlocksLen === 0) return;
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [extraBlocksLen]);
+
   if (visibleTurns.length === 0) {
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
@@ -459,9 +499,16 @@ function ConversationThread({
 
 function ConversationFetcher({
   sessionId,
+  workspaceSessionId,
   className,
 }: {
   sessionId: ConversationId;
+  /**
+   * When provided, opens a live-tail SSE connection and appends new turns to
+   * the static snapshot in real-time (mt#2232 Rung 1). Must be the Minsky
+   * workspace sessionId (WorkspaceId) — NOT the same string as `sessionId`.
+   */
+  workspaceSessionId?: WorkspaceId;
   className?: string;
 }) {
   const query = useQuery<SessionContextSnapshot, Error>({
@@ -469,6 +516,9 @@ function ConversationFetcher({
     queryFn: () => fetchSnapshot(sessionId),
     staleTime: 30_000,
   });
+
+  // Live-tail seam (mt#2232): accumulate SSE appends when workspaceSessionId is set.
+  const { liveBlocks } = useLiveTail(workspaceSessionId);
 
   if (query.isError) {
     const snapErr = query.error instanceof SnapshotError ? query.error : null;
@@ -518,7 +568,13 @@ function ConversationFetcher({
   if (query.isLoading || !query.data) {
     return <p className={cn("text-sm text-muted-foreground", className)}>Loading conversation…</p>;
   }
-  return <ConversationThread snapshot={query.data} className={className} />;
+  return (
+    <ConversationThread
+      snapshot={query.data}
+      extraBlocks={liveBlocks.length > 0 ? liveBlocks : undefined}
+      className={className}
+    />
+  );
 }
 
 // ── Public component ────────────────────────────────────────────────────────────
@@ -527,10 +583,21 @@ function ConversationFetcher({
  * Renders a session's conversation as a chronological chat thread. Layout-agnostic:
  * the host supplies the chrome. Pass either `sessionId` (self-fetch) or `snapshot`
  * (pre-fetched).
+ *
+ * Live-tail seam (mt#2232): pass `workspaceSessionId` alongside `sessionId` to
+ * enable real-time appends from the SSE stream. The two id-spaces are distinct —
+ * `sessionId` is the harness ConversationId; `workspaceSessionId` is the Minsky
+ * workspace WorkspaceId.
  */
 export function ConversationView(props: ConversationViewProps) {
   if (props.snapshot !== undefined) {
     return <ConversationThread snapshot={props.snapshot} className={props.className} />;
   }
-  return <ConversationFetcher sessionId={props.sessionId} className={props.className} />;
+  return (
+    <ConversationFetcher
+      sessionId={props.sessionId}
+      workspaceSessionId={props.workspaceSessionId}
+      className={props.className}
+    />
+  );
 }
