@@ -1324,11 +1324,12 @@ export function createStartCommand(
             });
         }
 
-        // mt#2562: wire the PresenceClaimRepository so the server's writeTaskClaim
-        // fire-and-forget path can stamp task-grain presence claims on every tool
-        // call that carries args.task / args.taskId. Best-effort: when the DB is
-        // unavailable the server's presenceClaimRepo stays undefined and the write
-        // path is a no-op (graceful degradation).
+        // mt#2562/mt#2567: Pre-warm the PresenceClaimRepository so writeTaskClaim's
+        // first call skips the per-call DB connection build (fast-path optimization).
+        // This is now a WARM-UP ONLY — writeTaskClaim has its own per-call fallback
+        // that builds the repo from the container on every call when this hasn't fired.
+        // So if this async block doesn't complete before the first tool call (e.g.
+        // on a proxy/staleness-respawned server), the write path still works.
         if (container) {
           (async () => {
             try {
@@ -1345,11 +1346,11 @@ export function createStartCommand(
                 const repo = buildPresenceClaimRepository(db);
                 if (repo) {
                   server.setPresenceClaimRepository(repo);
-                  log.debug("[mt#2562] PresenceClaimRepository wired");
+                  log.debug("[mt#2562] PresenceClaimRepository pre-warmed");
                 }
               }
             } catch (err) {
-              log.debug("[mt#2562] PresenceClaimRepository unavailable", {
+              log.debug("[mt#2562] PresenceClaimRepository pre-warm unavailable", {
                 error: getErrorMessage(err),
               });
             }

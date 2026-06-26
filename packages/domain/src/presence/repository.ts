@@ -181,11 +181,11 @@ export class DrizzlePresenceClaimRepository implements PresenceClaimRepository {
 
 /**
  * Build a DrizzlePresenceClaimRepository from a raw database connection.
- * Returns null if the db is absent or not a PostgresJsDatabase.
+ * Returns null if db is absent; constructs unconditionally otherwise
+ * (mirrors buildAskRepository — no duck-type guard needed since
+ * getDatabaseConnection() returns a PostgresJsDatabase). mt#2567.
  */
 export function buildPresenceClaimRepository(db: unknown): DrizzlePresenceClaimRepository | null {
   if (!db) return null;
-  // Duck-type check: PostgresJsDatabase has a `select` method
-  if (typeof (db as Record<string, unknown>).select !== "function") return null;
   return new DrizzlePresenceClaimRepository(db as PostgresJsDatabase);
 }

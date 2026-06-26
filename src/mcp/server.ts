@@ -1371,9 +1371,34 @@ export class MinskyMCPServer {
    *
    * Runs fire-and-forget (caller catches errors). Failures are logged at debug
    * level and never surface to the MCP caller — presence tracking is best-effort.
+   *
+   * mt#2567: builds the presence repo per-call from the container when the
+   * one-shot setPresenceClaimRepository() fast-path was not fired (e.g. on
+   * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
    */
   private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
-    if (!this.presenceClaimRepo) return;
+    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
+    // or build per-call from the container (resilient fallback — mirrors
+    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
+    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
+    // servers, leaving presenceClaimRepo unset and making every call a no-op.
+    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
+    if (!repo) {
+      if (!this.container?.has("persistence")) return;
+      try {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (!persistence.getDatabaseConnection) return;
+        const db = await persistence.getDatabaseConnection();
+        if (!db) return;
+        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+        repo = buildPresenceClaimRepository(db);
+        if (!repo) return;
+      } catch {
+        return; // fail silently — presence tracking is best-effort
+      }
+    }
 
     const taskId =
       (typeof args.task === "string" ? args.task : undefined) ||
@@ -1422,7 +1447,7 @@ export class MinskyMCPServer {
         ? process.env.CC_CONVERSATION_ID
         : undefined;
 
-    await this.presenceClaimRepo.upsertClaim({
+    await repo.upsertClaim({
       subjectKind: "task",
       subjectId,
       actorId,
