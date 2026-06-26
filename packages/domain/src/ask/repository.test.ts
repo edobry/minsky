@@ -24,6 +24,7 @@ import { FakeAskRepository, toAsk } from "./repository";
 import type { CreateAskInput } from "./repository";
 import type { AskRecord } from "../storage/schemas/ask-schema";
 import { InvalidAskTransitionError } from "./state-machine";
+import { ALL_PROJECTS } from "../project/scope";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -348,6 +349,47 @@ describe("listByState", () => {
     await repo.create(makeInput());
     const results = await repo.listByState("expired");
     expect(results).toHaveLength(0);
+  });
+});
+
+describe("listByState — project scope filter (ADR-021, mt#2563)", () => {
+  const PROJECT_A = "11111111-1111-1111-1111-111111111111";
+  const PROJECT_B = "22222222-2222-2222-2222-222222222222";
+
+  it("create round-trips projectId", async () => {
+    const created = await repo.create(makeInput({ projectId: PROJECT_A }));
+    expect(created.projectId).toBe(PROJECT_A);
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.projectId).toBe(PROJECT_A);
+  });
+
+  it("a uuid scope returns only that project's Asks and excludes others", async () => {
+    await repo.create(makeInput({ projectId: PROJECT_A }));
+    await repo.create(makeInput({ projectId: PROJECT_A }));
+    await repo.create(makeInput({ projectId: PROJECT_B }));
+    await repo.create(makeInput()); // unscoped (projectId undefined)
+
+    const aOnly = await repo.listByState("detected", PROJECT_A);
+    expect(aOnly).toHaveLength(2);
+    expect(aOnly.every((a) => a.projectId === PROJECT_A)).toBe(true);
+
+    const bOnly = await repo.listByState("detected", PROJECT_B);
+    expect(bOnly).toHaveLength(1);
+    expect(bOnly[0]?.projectId).toBe(PROJECT_B);
+    // The cross-project exclusion the bug was about: project B never sees A's Asks.
+    expect(bOnly.some((a) => a.projectId === PROJECT_A)).toBe(false);
+  });
+
+  it("ALL_PROJECTS and an omitted scope return cross-project rows (incl. unscoped)", async () => {
+    await repo.create(makeInput({ projectId: PROJECT_A }));
+    await repo.create(makeInput({ projectId: PROJECT_B }));
+    await repo.create(makeInput()); // unscoped
+
+    const viaSentinel = await repo.listByState("detected", ALL_PROJECTS);
+    expect(viaSentinel).toHaveLength(3);
+
+    const viaOmit = await repo.listByState("detected");
+    expect(viaOmit).toHaveLength(3);
   });
 });
 
