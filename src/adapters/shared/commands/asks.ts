@@ -743,7 +743,8 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
  * unscoped read/write, never a throw.
  */
 async function resolveCurrentProjectScope(
-  container?: AppContainerInterface
+  container: AppContainerInterface | undefined,
+  caller: string
 ): Promise<string | undefined> {
   if (!container?.has("persistence")) return undefined;
   try {
@@ -762,7 +763,7 @@ async function resolveCurrentProjectScope(
     );
     return isAllProjects(scope) ? undefined : scope;
   } catch (err: unknown) {
-    log.debug("[asks] Project scope resolution failed; defaulting to unscoped", {
+    log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
       error: err instanceof Error ? err.message : String(err),
     });
     return undefined;
@@ -801,7 +802,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // project's asks by default. When allProjects=true, skip resolution.
         // Shares resolveCurrentProjectScope with asks.create (mt#2563) so the
         // read filter and the write stamp agree on the same project_id.
-        const projectScope = allProjects ? undefined : await resolveCurrentProjectScope(container);
+        const projectScope = allProjects
+          ? undefined
+          : await resolveCurrentProjectScope(container, "asks.list");
 
         const asks = await gatherAsks(repo, state, kind, projectScope);
         return {
@@ -930,7 +933,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // the Phase-1.3b write-stamping deferred by mt#2416. Shares
         // resolveCurrentProjectScope with asks.list, so create and the default
         // read filter agree on the same project_id (create/list scope parity).
-        const resolvedProjectId = await resolveCurrentProjectScope(container);
+        const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
 
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch
