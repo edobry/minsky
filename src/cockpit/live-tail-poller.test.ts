@@ -12,7 +12,12 @@
 import { describe, test, expect } from "bun:test";
 
 import type { ResolveJsonlFsMod, TailerLike } from "./live-tail-poller";
-import { jsonlLineToLiveBlock, resolveJsonlPath, startLiveTail } from "./live-tail-poller";
+import {
+  cwdDescendantLikePatterns,
+  jsonlLineToLiveBlock,
+  resolveJsonlPath,
+  startLiveTail,
+} from "./live-tail-poller";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -334,5 +339,106 @@ describe("startLiveTail", () => {
     stop();
 
     expect(tailer.forgotPath).toBe(JSONL_PATH);
+  });
+
+  test("does NOT leak historical content when the file is absent at connect, then appears (R1)", async () => {
+    // statFn throws (file absent) until the 2nd call, when the file "appears".
+    let statCalls = 0;
+    const statFn = async (_path: string) => {
+      statCalls++;
+      if (statCalls < 2) throw new Error("ENOENT: no such file or directory");
+      return { size: 5000 };
+    };
+
+    // Tailer that only yields lines queued AFTER the offset is seeded — models
+    // "read from byte offset": content present before the seed is below the
+    // offset and must never be returned.
+    class SeedAwareTailer implements TailerLike {
+      private appends: unknown[] = [];
+      private isSeeded = false;
+      public lastSetOffset: number | null = null;
+      public forgotPath: string | null = null;
+      queueAppendAfterSeed(...lines: unknown[]): void {
+        this.appends.push(...lines);
+      }
+      setOffset(_path: string, offset: number): void {
+        this.lastSetOffset = offset;
+        this.isSeeded = true;
+      }
+      forget(path: string): void {
+        this.forgotPath = path;
+      }
+      async readNew<T = unknown>(_path: string): Promise<{ lines: T[] }> {
+        if (!this.isSeeded) return { lines: [] as T[] };
+        return { lines: this.appends.splice(0) as T[] };
+      }
+    }
+
+    const tailer = new SeedAwareTailer();
+    const received: unknown[] = [];
+    const stop = await startLiveTail(JSONL_PATH, SESSION_ID, (b) => received.push(b), {
+      pollMs: 15,
+      tailer,
+      statFn,
+    });
+
+    // A genuine append arrives only after the file appears and is seeded.
+    setTimeout(() => tailer.queueAppendAfterSeed(ASSISTANT_LINE), 45);
+    await new Promise<void>((resolve) => setTimeout(resolve, 140));
+    stop();
+
+    // Seeded LATE, to the size-at-appearance (no offset-0 history leak).
+    expect(tailer.lastSetOffset).toBe(5000);
+    // Only the post-seed append is delivered.
+    expect(received.length).toBe(1);
+    expect((received[0] as { rawJsonlType: string }).rawJsonlType).toBe("assistant");
+  });
+
+  test("does not overlap polls when readNew is slower than pollMs (reentrancy guard, R1)", async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    const slowTailer: TailerLike = {
+      setOffset() {},
+      forget() {},
+      async readNew<T = unknown>(): Promise<{ lines: T[] }> {
+        concurrent++;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await new Promise<void>((resolve) => setTimeout(resolve, 40));
+        concurrent--;
+        return { lines: [] as T[] };
+      },
+    };
+    const statFn = async (_path: string) => ({ size: 0 });
+
+    const stop = await startLiveTail(JSONL_PATH, SESSION_ID, () => {}, {
+      pollMs: 5,
+      tailer: slowTailer,
+      statFn,
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 130));
+    stop();
+
+    // The in-flight guard must prevent two reads running at once despite
+    // pollMs (5) being far shorter than the read duration (40).
+    expect(maxConcurrent).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cwdDescendantLikePatterns
+// ---------------------------------------------------------------------------
+
+describe("cwdDescendantLikePatterns", () => {
+  test("emits POSIX and Windows descendant patterns for a plain workdir", () => {
+    const { posix, windows } = cwdDescendantLikePatterns("/home/u/proj");
+    expect(posix).toBe("/home/u/proj/%");
+    // Windows pattern: a literal backslash separator before the % wildcard.
+    expect(windows).toBe("/home/u/proj\\\\%");
+  });
+
+  test("escapes LIKE wildcards (% and _) and backslashes in the workdir literal", () => {
+    const { posix } = cwdDescendantLikePatterns("/a_b/c%d/e\\f");
+    // _ -> \_, % -> \%, \ -> \\ — each special char prefixed with the escape char.
+    expect(posix).toBe("/a\\_b/c\\%d/e\\\\f/%");
   });
 });

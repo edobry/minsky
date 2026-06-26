@@ -129,6 +129,28 @@ export async function resolveJsonlPath(
 }
 
 // ---------------------------------------------------------------------------
+// Workspace-cwd descendant LIKE matching — shared by the /api/agents/:id and
+// /api/agents/:id/live-tail transcript-resolution routes so the backslash
+// escape level is defined exactly ONCE and cannot drift (mt#2232 R1).
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the Postgres LIKE patterns matching `workdir` and all its descendants
+ * under either path separator (POSIX "/" and Windows "\\"). LIKE wildcards in
+ * the literal path are escaped (Postgres' default escape char is backslash);
+ * the Windows pattern emits a literal "\\" before "%" so a backslash separator
+ * is matched rather than treated as an escape. Callers OR these two patterns
+ * together with an exact-equality match on the workdir itself.
+ */
+export function cwdDescendantLikePatterns(workdir: string): {
+  posix: string;
+  windows: string;
+} {
+  const escaped = workdir.replace(/([\\%_])/g, "\\$1");
+  return { posix: `${escaped}/%`, windows: `${escaped}\\\\%` };
+}
+
+// ---------------------------------------------------------------------------
 // JSONL line → SessionContextSnapshotBlock conversion for live-tail
 // ---------------------------------------------------------------------------
 
@@ -200,23 +222,48 @@ export async function startLiveTail(
   const tailer: TailerLike = opts.tailer ?? new JsonlTailer();
   const statFn = opts.statFn ?? prodStatFn;
 
-  // Seed to current EOF so we only stream future appends.
-  try {
-    const st = await statFn(jsonlPath);
-    tailer.setOffset(jsonlPath, st.size);
-  } catch {
-    // File may not exist yet (session just started) — tailer starts at 0
+  let seeded = false;
+
+  // Seed the tailer to the file's CURRENT size so only FUTURE appends are
+  // surfaced (historical content already in the DB snapshot is excluded). If
+  // the file does not exist yet (session just started), seeding is DEFERRED to
+  // the poll loop and retried until the file appears — otherwise the first
+  // successful read would start at offset 0 and stream the whole history (R1).
+  async function trySeed(): Promise<void> {
+    if (seeded) return;
+    try {
+      const st = await statFn(jsonlPath);
+      tailer.setOffset(jsonlPath, st.size);
+      seeded = true;
+    } catch {
+      // File may not exist yet — leave unseeded and retry on the next poll.
+    }
   }
+
+  await trySeed();
 
   let liveCounter = 0;
   let stopped = false;
+  let inFlight = false;
 
   const interval = setInterval(async () => {
     if (stopped) {
       clearInterval(interval);
       return;
     }
+    // Reentrancy guard: if a poll is still running when the next tick fires
+    // (slow or large read), skip this tick rather than overlapping. Overlapping
+    // polls would interleave reads and produce non-monotonic live ids (R1).
+    if (inFlight) return;
+    inFlight = true;
     try {
+      if (!seeded) {
+        // File was absent at connect; seed to its size the moment it appears
+        // (so pre-existing/historical content is NOT streamed), then begin
+        // reading appends on the next tick.
+        await trySeed();
+        return;
+      }
       const result = await tailer.readNew(jsonlPath);
       for (const line of result.lines) {
         if (stopped) break;
@@ -226,7 +273,9 @@ export async function startLiveTail(
         }
       }
     } catch {
-      // File not yet created, or transient FS error — keep polling
+      // File not yet created, or transient FS error — keep polling.
+    } finally {
+      inFlight = false;
     }
   }, pollMs);
 

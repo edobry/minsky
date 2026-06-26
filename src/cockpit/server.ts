@@ -1173,18 +1173,19 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
             "@minsky/domain/storage/schemas/agent-transcripts-schema"
           );
           const { eq, like, or, desc, sql } = await import("drizzle-orm");
-          // Escape LIKE wildcards in the literal path (Postgres default escape
-          // char is backslash), then match descendants under either separator —
-          // POSIX "/" and Windows "\" (stored as an escaped "\\" in the pattern).
-          const escaped = workdir.replace(/([\\%_])/g, "\\$1");
+          // Match workdir + descendants (POSIX "/" and Windows "\") via the
+          // shared escape helper so the two transcript-resolution routes cannot
+          // drift on the backslash-escape level (mt#2232 R1).
+          const { cwdDescendantLikePatterns } = await import("./live-tail-poller");
+          const { posix: cwdPosix, windows: cwdWindows } = cwdDescendantLikePatterns(workdir);
           const rows = await db
             .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
             .from(agentTranscriptsTable)
             .where(
               or(
                 eq(agentTranscriptsTable.cwd, workdir),
-                like(agentTranscriptsTable.cwd, `${escaped}/%`),
-                like(agentTranscriptsTable.cwd, `${escaped}\\\\%`)
+                like(agentTranscriptsTable.cwd, cwdPosix),
+                like(agentTranscriptsTable.cwd, cwdWindows)
               )
             )
             .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
@@ -1293,7 +1294,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         "@minsky/domain/storage/schemas/agent-transcripts-schema"
       );
       const { eq, like, or, desc, sql } = await import("drizzle-orm");
-      const escaped = workdir.replace(/([\\%_])/g, "\\$1");
+      const { cwdDescendantLikePatterns } = await import("./live-tail-poller");
+      const { posix: cwdPosix, windows: cwdWindows } = cwdDescendantLikePatterns(workdir);
       const rows = await db
         .select({
           agentSessionId: agentTranscriptsTable.agentSessionId,
@@ -1303,8 +1305,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         .where(
           or(
             eq(agentTranscriptsTable.cwd, workdir),
-            like(agentTranscriptsTable.cwd, `${escaped}/%`),
-            like(agentTranscriptsTable.cwd, `${escaped}\\\\%`)
+            like(agentTranscriptsTable.cwd, cwdPosix),
+            like(agentTranscriptsTable.cwd, cwdWindows)
           )
         )
         .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
