@@ -110,16 +110,20 @@ Harder / committed:
   timing must be handled — the webview fires its load event before the SPA router is mounted, so the
   Rust side queues the target and the SPA global consumes the queued value on mount, rather than
   relying on the webview load event alone.
-- **Implication for mt#2237 (Rung 2 PTY) — a separate decision this ADR does not make, but
-  constrains.** Driving a session means hosting a PTY around the genuine `claude` binary and
-  streaming it to a terminal view. mt#2237's current scope names `portable-pty` (a Rust crate) +
+- **Implication for mt#2237 (Rung 2 PTY) — this ADR now decides the transport family; mt#2237 owns
+  the implementation.** Driving a session means hosting a PTY around the genuine `claude` binary and
+  streaming it to a terminal view. mt#2237's earlier scope named `portable-pty` (a Rust crate) +
   xterm.js, which leans toward a Tauri-native terminal (Rust PTY ↔ SPA over Tauri IPC) — which would
   require trusting the frontend (contradicting this ADR) and would have to be rebuilt at Rung 3,
   where the cloud UI and the PTY are on different machines and the transport must be a network
   protocol. The standard browser-terminal architecture (server-side PTY + WebSocket: VS Code Server,
-  code-server, ttyd) already matches the daemon-as-seam model. **mt#2237 must decide its PTY
-  hosting/transport against this ADR in its own planning**; this ADR flags the conflict and is wired
-  as a dependency, but does not pre-decide it.
+  code-server, ttyd) already matches the daemon-as-seam model. With the 2026-06-26 principal sign-off
+  (Status above) confirming Rung 3 as a live direction, **this ADR decides the transport family:
+  daemon-side PTY streamed over WebSocket, not a Tauri-native PTY over IPC.** mt#2237 still owns the
+  implementation specifics — the PTY library, the WebSocket protocol/framing, auth, and the
+  `stream-json` delta layer — and must still run its `/plan-task` gate (l) (community-practice check
+  against ttyd / code-server / VS Code Server); the daemon-side-over-WebSocket family is no longer
+  open.
 - The daemon is currently network-reachable and unauthenticated (mt#2538). This ADR's "daemon as the
   integration seam" framing raises the stakes on that gap; mt#2538 owns the bind/auth fix, and the
   deep-link `eval` seam additionally argues for a CSP on the SPA's HTML responses (also mt#2538).
