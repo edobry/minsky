@@ -51,6 +51,7 @@ export function toAsk(row: AskRecord): Ask {
     routingTarget: row.routingTarget ?? undefined,
     parentTaskId: row.parentTaskId ?? undefined,
     parentSessionId: row.parentSessionId ?? undefined,
+    projectId: row.projectId ?? undefined,
     title: row.title,
     question: row.question,
     options: row.options ?? undefined,
@@ -80,11 +81,12 @@ export function toAsk(row: AskRecord): Ask {
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
 function toInsert(input: CreateAskInput): AskInsert {
-  // ADR-021 / mt#2416: project_id write-stamping deferred to Phase-1.3b.
-  // The Ask domain type (CreateAskInput / Ask) does not yet carry a projectId
-  // field; adding it here requires a domain-type / contract change to AskInsert
-  // and the asksTable schema, which is scoped to Phase-1.3b.
-  // Read-scoping via listByState(state, projectScope) IS wired (mt#2416).
+  // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
+  // deferral from mt#2416). The resolved project uuid is threaded in via
+  // CreateAskInput.projectId (resolved at the asks.create execute callsite,
+  // mirroring how asks.list resolves the read-side scope). NULL when the
+  // project is unidentified (hosted server / cockpit daemon, no single-repo
+  // cwd) — an unscoped Ask, consistent with read-side fail-open.
   return {
     kind: input.kind,
     classifierVersion: input.classifierVersion,
@@ -93,6 +95,7 @@ function toInsert(input: CreateAskInput): AskInsert {
     routingTarget: input.routingTarget ?? null,
     parentTaskId: input.parentTaskId ?? null,
     parentSessionId: input.parentSessionId ?? null,
+    projectId: input.projectId ?? null,
     title: input.title,
     question: input.question,
     options: input.options ?? null,
@@ -120,6 +123,13 @@ export interface CreateAskInput {
   routingTarget?: Ask["routingTarget"];
   parentTaskId?: string;
   parentSessionId?: string;
+  /**
+   * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). Omitted
+   * when the project is unidentified — the Ask is then unscoped (NULL). Resolved
+   * at the `asks.create` execute callsite via the same path `asks.list` uses for
+   * read-side scoping.
+   */
+  projectId?: string;
   title: string;
   question: string;
   options?: Ask["options"];
@@ -803,6 +813,7 @@ export class FakeAskRepository implements AskRepository {
       routingTarget: input.routingTarget,
       parentTaskId: input.parentTaskId,
       parentSessionId: input.parentSessionId,
+      projectId: input.projectId,
       title: input.title,
       question: input.question,
       options: input.options,
@@ -835,10 +846,14 @@ export class FakeAskRepository implements AskRepository {
   }
 
   async listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]> {
-    // In-memory fake: no projectId on Ask domain objects yet; scope filtering is a no-op
-    // unless the Ask type grows a projectId field (ADR-021, mt#2416 follow-up).
-    void projectScope;
-    return this.all.filter((a) => a.state === state).map((a) => ({ ...a }));
+    // Project-scope filter (ADR-021, mt#2563) — faithful to the Drizzle backend:
+    // when projectScope is a uuid (not ALL_PROJECTS / undefined), restrict to
+    // Asks stamped with that project_id. Unscoped Asks (projectId undefined) are
+    // excluded from a uuid-scoped read, matching the SQL `project_id = scope`.
+    const scoped = projectScope !== undefined && !isAllProjects(projectScope);
+    return this.all
+      .filter((a) => a.state === state && (!scoped || a.projectId === projectScope))
+      .map((a) => ({ ...a }));
   }
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {

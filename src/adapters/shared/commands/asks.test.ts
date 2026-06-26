@@ -157,6 +157,29 @@ describe("createAsk", () => {
     expect(routed.transport.kind).toBe("mesh");
   });
 
+  test("threads projectId param into the persisted Ask (mt#2563)", async () => {
+    const repo = new FakeAskRepository();
+    const PROJECT_ID = "33333333-3333-3333-3333-333333333333";
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_COORDINATION_NOTIFY,
+        title: "Heads up",
+        question: "Sibling agent should know",
+        projectId: PROJECT_ID,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    // Production-wiring assertion (memory dcc77564 — "static helper completeness
+    // != production wiring"): verify the resolved project actually reached
+    // persistence through createAsk -> CreateAskInput -> repo.create, not just
+    // that the field exists on the input type.
+    expect(repo.all).toHaveLength(1);
+    expect(repo.all[0]?.projectId).toBe(PROJECT_ID);
+  });
+
   test("defaults classifierVersion to v1.0.0 when omitted", async () => {
     const repo = new FakeAskRepository();
 
