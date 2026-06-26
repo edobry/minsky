@@ -54,11 +54,12 @@ function unreachableProbe(): Promise<ReviewerHealthProbeResult> {
   });
 }
 
-type QueryRows = (sql: string) => Promise<Record<string, unknown>[]>;
+type QueryRows = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
 
 /**
  * Create a QueryRowsFn that returns stub data based on the SQL statement.
- * Uses simple substring matching for routing.
+ * Uses simple substring matching for routing. The `params` argument is accepted
+ * but ignored in stubs — routing is done entirely by SQL text.
  */
 function makeQueryRows(overrides: {
   throughputCount?: number;
@@ -83,7 +84,7 @@ function makeQueryRows(overrides: {
     lastWebhookAt = "2026-06-04T11:55:00Z",
   } = overrides;
 
-  return async (sql: string): Promise<Record<string, unknown>[]> => {
+  return async (sql: string, _params?: unknown[]): Promise<Record<string, unknown>[]> => {
     // Throughput query
     if (sql.includes("review_submitted") && sql.includes("COUNT")) {
       return [{ count: throughputCount }];
@@ -333,12 +334,15 @@ describe("createReviewerBotStatusWidget — A4 latency regression", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. DB failure degrades to null without crashing
+// 6. DB failure degrades gracefully without crashing
 // ---------------------------------------------------------------------------
 
 describe("createReviewerBotStatusWidget — DB failure degrades gracefully", () => {
-  test("db is null when queryRows throws, state is still ok", async () => {
-    const throwingQueryRows: QueryRows = async (_sql: string) => {
+  test("db has empty/null defaults when all queryRows calls reject, state is still ok", async () => {
+    // With Promise.allSettled, individual query rejections produce empty rows ([])
+    // for each query. fetchDbStats still returns a valid ReviewerDbStats with zero/null defaults
+    // rather than null — this is the intended behavior (db is non-null, fields are empty).
+    const throwingQueryRows: QueryRows = async (_sql: string, _params?: unknown[]) => {
       throw new Error("connection refused");
     };
 
@@ -351,8 +355,17 @@ describe("createReviewerBotStatusWidget — DB failure degrades gracefully", () 
     const data = await widget.fetch(fakeCtx());
     expect(data.state).toBe("ok");
     const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
-    expect(payload.db).toBeNull();
-    // Anomalies that require DB data must be false
+    // db is non-null — Promise.allSettled handles per-query failures gracefully.
+    // All fields default to 0 / null / [] when every query rejects.
+    expect(payload.db).not.toBeNull();
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.reviewCount24h).toBe(0);
+    expect(payload.db.failureCount24h).toBe(0);
+    expect(payload.db.recentTaskIds).toEqual([]);
+    expect(payload.db.avgLatencyMs).toBeNull();
+    expect(payload.db.p95LatencyMs).toBeNull();
+    expect(payload.db.staleInflightCount).toBe(0);
+    // Anomalies that require DB data must be false when all queries produce empty results
     expect(payload.anomalies.a2StaleInflight).toBe(false);
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
@@ -360,7 +373,54 @@ describe("createReviewerBotStatusWidget — DB failure degrades gracefully", () 
 });
 
 // ---------------------------------------------------------------------------
-// 7. extractTaskIdFromBranch unit tests
+// 7. Promise.allSettled — partial query failure degrades only affected field
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — partial DB failure degrades gracefully", () => {
+  test("db is non-null when only the latency query rejects (PERCENTILE_CONT unsupported)", async () => {
+    // Latency query throws (simulates a PG variant that doesn't support PERCENTILE_CONT);
+    // all other queries succeed. db should still be non-null with latency fields as null.
+    const partialFailQueryRows: QueryRows = async (
+      sql: string,
+      _params?: unknown[]
+    ): Promise<Record<string, unknown>[]> => {
+      if (sql.includes("PERCENTILE_CONT")) {
+        throw new Error("function percentile_cont(double precision) does not exist");
+      }
+      // All other queries succeed via the standard stub
+      return makeQueryRows({})(sql, _params);
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: partialFailQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    expect(data.state).toBe("ok");
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+
+    // db must be non-null (not the whole batch failed)
+    expect(payload.db).not.toBeNull();
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    // Latency fields are null (that query failed)
+    expect(payload.db.avgLatencyMs).toBeNull();
+    expect(payload.db.p95LatencyMs).toBeNull();
+
+    // Other fields succeeded
+    expect(payload.db.reviewCount24h).toBe(10);
+    expect(payload.db.failureCount24h).toBe(0);
+    expect(payload.db.staleInflightCount).toBe(0);
+
+    // A4 must not fire when p95LatencyMs is null
+    expect(payload.anomalies.a4LatencyRegression).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. extractTaskIdFromBranch unit tests
 // ---------------------------------------------------------------------------
 
 describe("extractTaskIdFromBranch", () => {
@@ -386,5 +446,15 @@ describe("extractTaskIdFromBranch", () => {
     expect(extractTaskIdFromBranch("hotfix/mt-123")).toBeNull();
     expect(extractTaskIdFromBranch("task/mt-")).toBeNull();
     expect(extractTaskIdFromBranch("")).toBeNull();
+  });
+
+  test("case-insensitive: Task/MT-123 parses the same as task/mt-123", () => {
+    expect(extractTaskIdFromBranch("Task/MT-123")).toBe("mt#123");
+    expect(extractTaskIdFromBranch("TASK/MT-456")).toBe("mt#456");
+  });
+
+  test("returns null for null and undefined inputs", () => {
+    expect(extractTaskIdFromBranch(null)).toBeNull();
+    expect(extractTaskIdFromBranch(undefined)).toBeNull();
   });
 });

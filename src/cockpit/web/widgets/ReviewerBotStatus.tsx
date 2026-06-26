@@ -166,13 +166,21 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
 
       {/* Field rows — 14 v1 fields */}
       <dl>
-        {/* Field 1: Health check */}
+        {/* Field 1: Health check (with probe recency) */}
         <Row label="Health check">
-          {health.ok ? (
-            <span className="text-emerald-500">200 OK</span>
-          ) : (
-            <span className="text-destructive">{health.statusCode ?? "no response"}</span>
-          )}
+          <span className="flex flex-col items-end gap-0.5">
+            {health.ok ? (
+              <span className="text-emerald-500">200 OK</span>
+            ) : (
+              <span className="text-destructive">{health.statusCode ?? "no response"}</span>
+            )}
+            <span
+              className="text-xs text-muted-foreground"
+              title={health.lastProbeAt}
+            >
+              probed {formatRelative(health.lastProbeAt)}
+            </span>
+          </span>
         </Row>
 
         {/* Field 2: In-flight count (from /health) */}

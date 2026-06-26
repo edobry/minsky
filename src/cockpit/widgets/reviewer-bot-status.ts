@@ -66,11 +66,14 @@ const RECENT_TASKS_LIMIT = 5;
 // Regex for extracting Minsky task IDs from branch names.
 // Replicates extractTaskIdFromBranch from services/reviewer/src/server.ts:127
 // (cockpit is a separate module graph — the function is trivially replicated).
+// Case-insensitive so `Task/MT-123` and `task/mt-123` both parse.
 // ---------------------------------------------------------------------------
-const BRANCH_TASK_ID_RE = /^task\/mt-(\d+)(?:[-/_.].*)?$/;
+const BRANCH_TASK_ID_RE = /^task\/mt-(\d+)(?:[-/_.].*)?$/i;
 
-/** Extract a Minsky task ID from a PR head branch name, or return null. */
-export function extractTaskIdFromBranch(headRef: string): string | null {
+/** Extract a Minsky task ID from a PR head branch name, or return null.
+ * Empty-string headRef is treated the same as null (returns null). */
+export function extractTaskIdFromBranch(headRef: string | null | undefined): string | null {
+  if (!headRef) return null;
   const match = BRANCH_TASK_ID_RE.exec(headRef);
   return match ? `mt#${match[1]}` : null;
 }
@@ -148,11 +151,17 @@ export interface ReviewerBotStatusPayload {
 export type ProbeHealthFn = () => Promise<ReviewerHealthProbeResult>;
 
 /**
- * Seam: execute a raw SQL query string against the shared DB and return rows.
+ * Seam: execute a parameterized SQL query against the shared DB and return rows.
  * The cockpit reads reviewer tables directly (shared Postgres, separate schema).
  * Must resolve (never reject) — returns [] on any error.
+ *
+ * The `params` array contains positional bind values corresponding to $1, $2, ...
+ * placeholders in the SQL string. All values in queries here are
+ * internally-generated (ISO timestamps + integer constants), so SQL injection is
+ * not a live risk — but we parameterize anyway as a hardening measure and to
+ * match pg best practices (future-proofing if user-supplied values are added).
  */
-export type QueryRowsFn = (sql: string) => Promise<Record<string, unknown>[]>;
+export type QueryRowsFn = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
 
 export interface ReviewerBotStatusDeps {
   probeHealth: ProbeHealthFn;
@@ -234,57 +243,59 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
 
 /**
  * Compute the ISO timestamp for `windowMs` milliseconds ago.
- * Returns a literal SQL-safe ISO string for embedding in query strings.
+ * Returns a literal SQL-safe ISO string for use as a query parameter.
  */
 function windowStartIso(nowMs: number, windowMs: number): string {
   return new Date(nowMs - windowMs).toISOString();
 }
 
 /**
- * Fetch all DB-backed reviewer stats in parallel.
- * Any individual query failure is isolated — all others still complete.
+ * Fetch all DB-backed reviewer stats. Each query runs independently via
+ * Promise.allSettled so one failing query (e.g. PERCENTILE_CONT unsupported
+ * on some PG variant) degrades only THAT field — db is still non-null when
+ * only some queries fail.
+ *
+ * Note on parameterization: all bind values ($1, $2) are internally-generated
+ * ISO timestamps and integer constants — not user-supplied input. We
+ * parameterize anyway per pg best practices and for future-proofing.
  */
 async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<ReviewerDbStats> {
   const window24hIso = windowStartIso(nowMs, WINDOW_24H_MS);
   const staleThresholdIso = windowStartIso(nowMs, A2_STALE_INFLIGHT_TTL_MS);
 
-  const [
-    throughputRows,
-    failureRows,
-    lastErrorRows,
-    recentTaskRows,
-    latencyRows,
-    staleInflightRows,
-    rateLimitRows,
-    lastWebhookRows,
-  ] = await Promise.all([
+  const results = await Promise.allSettled([
     // Throughput: count of review_submitted outcomes in the last 24h
     queryRows(
       `SELECT COUNT(*) AS count FROM reviewer_webhook_events
-       WHERE outcome = 'review_submitted' AND received_at >= '${window24hIso}'`
+       WHERE outcome = 'review_submitted' AND received_at >= $1`,
+      [window24hIso]
     ),
     // Failure count: any failed_at_* outcomes in the last 24h
     queryRows(
       `SELECT COUNT(*) AS count FROM reviewer_webhook_events
-       WHERE outcome LIKE 'failed_at_%' AND received_at >= '${window24hIso}'`
+       WHERE outcome LIKE 'failed_at_%' AND received_at >= $1`,
+      [window24hIso]
     ),
     // Last error: most recent failed event details
     queryRows(
       `SELECT error_details, received_at FROM reviewer_webhook_events
-       WHERE outcome LIKE 'failed_at_%' AND received_at >= '${window24hIso}'
-       ORDER BY received_at DESC LIMIT 1`
+       WHERE outcome LIKE 'failed_at_%' AND received_at >= $1
+       ORDER BY received_at DESC LIMIT 1`,
+      [window24hIso]
     ),
-    // Recent mt# tasks: head_ref from convergence metrics (new column, may be NULL on old rows)
+    // Recent mt# tasks: head_ref from convergence metrics (new column, may be NULL on old rows).
+    // Empty-string head_ref is excluded by the != '' filter at the DB level.
     // Use subquery form so we can ORDER BY the aggregate without DISTINCT conflict.
     queryRows(
       `SELECT head_ref FROM (
          SELECT head_ref, MAX(created_at) AS last_seen
          FROM reviewer_convergence_metrics
-         WHERE head_ref IS NOT NULL AND head_ref LIKE 'task/mt-%'
+         WHERE head_ref IS NOT NULL AND head_ref != '' AND head_ref LIKE 'task/mt-%'
          GROUP BY head_ref
          ORDER BY last_seen DESC
-         LIMIT ${RECENT_TASKS_LIMIT}
-       ) subq`
+         LIMIT $1
+       ) subq`,
+      [RECENT_TASKS_LIMIT]
     ),
     // Latency: avg + percentile over last 24h
     queryRows(
@@ -292,12 +303,14 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
          AVG(total_wall_clock_ms)::integer AS avg_ms,
          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_wall_clock_ms)::integer AS p95_ms
        FROM review_timing
-       WHERE created_at >= '${window24hIso}'`
+       WHERE created_at >= $1`,
+      [window24hIso]
     ),
     // Stale in-flight: markers acquired more than A2_STALE_INFLIGHT_TTL_MS ago
     queryRows(
       `SELECT COUNT(*) AS count FROM reviewer_inflight_reviews
-       WHERE acquired_at <= '${staleThresholdIso}'`
+       WHERE acquired_at <= $1`,
+      [staleThresholdIso]
     ),
     // Rate-limit hits: retry_outcomes array containing 'rate_limited' strings
     queryRows(
@@ -306,7 +319,8 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
            1
          )) AS count
        FROM review_timing
-       WHERE created_at >= '${window24hIso}'`
+       WHERE created_at >= $1`,
+      [window24hIso]
     ),
     // Last webhook received
     queryRows(
@@ -314,6 +328,19 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
        ORDER BY received_at DESC LIMIT 1`
     ),
   ]);
+
+  // Extract rows from each settled result — rejected results fall back to [].
+  const settled = results.map((r): Record<string, unknown>[] =>
+    r.status === "fulfilled" ? r.value : []
+  );
+  const throughputRows = settled[0] ?? [];
+  const failureRows = settled[1] ?? [];
+  const lastErrorRows = settled[2] ?? [];
+  const recentTaskRows = settled[3] ?? [];
+  const latencyRows = settled[4] ?? [];
+  const staleInflightRows = settled[5] ?? [];
+  const rateLimitRows = settled[6] ?? [];
+  const lastWebhookRows = settled[7] ?? [];
 
   const reviewCount24h = Number(throughputRows[0]?.["count"] ?? 0);
   const failureCount24h = Number(failureRows[0]?.["count"] ?? 0);
@@ -335,7 +362,8 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     }
   }
 
-  // Recent task IDs: extract mt# from head_ref values
+  // Recent task IDs: extract mt# from head_ref values.
+  // extractTaskIdFromBranch already handles empty strings (returns null).
   const recentTaskIds = (recentTaskRows ?? [])
     .map((row) => {
       const ref = row["head_ref"];
@@ -440,12 +468,15 @@ async function buildQueryRows(): Promise<QueryRowsFn> {
       typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
     ) {
       const sqlProvider = provider as {
-        getRawSqlConnection: () => Promise<(query: string) => Promise<{ rows: unknown[] }>>;
+        getRawSqlConnection: () => Promise<
+          (query: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
+        >;
       };
       const rawSql = await sqlProvider.getRawSqlConnection();
-      return async (query: string): Promise<Record<string, unknown>[]> => {
+      // postgres-js supports parameterized queries via sql.unsafe(query, params)
+      return async (query: string, params?: unknown[]): Promise<Record<string, unknown>[]> => {
         try {
-          const result = await rawSql(query);
+          const result = await rawSql(query, params);
           return (result.rows ?? []) as Record<string, unknown>[];
         } catch {
           return [];
@@ -459,13 +490,14 @@ async function buildQueryRows(): Promise<QueryRowsFn> {
     ) {
       const dbProvider = provider as {
         getDatabaseConnection: () => Promise<{
-          execute: (query: string) => Promise<{ rows: unknown[] }>;
+          execute: (query: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
         }>;
       };
       const db = await dbProvider.getDatabaseConnection();
-      return async (query: string): Promise<Record<string, unknown>[]> => {
+      // drizzle's execute() accepts an optional params array for parameterized queries
+      return async (query: string, params?: unknown[]): Promise<Record<string, unknown>[]> => {
         try {
-          const result = await db.execute(query);
+          const result = await db.execute(query, params);
           return (result.rows ?? []) as Record<string, unknown>[];
         } catch {
           return [];
@@ -474,9 +506,9 @@ async function buildQueryRows(): Promise<QueryRowsFn> {
     }
 
     // No SQL provider available — return empty results for all queries.
-    return async (_query: string) => [];
+    return async (_query: string, _params?: unknown[]) => [];
   } catch {
-    return async (_query: string) => [];
+    return async (_query: string, _params?: unknown[]) => [];
   }
 }
 
@@ -499,9 +531,9 @@ async function getQueryRows(): Promise<QueryRowsFn> {
 
 export const reviewerBotStatusWidget: WidgetModule = createReviewerBotStatusWidget({
   probeHealth: probeReviewerHealth,
-  queryRows: async (sql: string) => {
+  queryRows: async (sql: string, params?: unknown[]) => {
     const queryFn = await getQueryRows();
-    return queryFn(sql);
+    return queryFn(sql, params);
   },
   now: () => Date.now(),
 });
