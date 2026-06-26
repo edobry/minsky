@@ -50,7 +50,7 @@ declare global {
 function navigateToUri(uri: string, navigate: ReturnType<typeof useNavigate>): string | null {
   const path = minskyUriToPath(uri);
   if (!path) {
-    // Unrouted entity type (e.g. pr, agent) or malformed URI — no-op.
+    // Unknown/unrecognized entity type (e.g. pr, agent) or malformed URI — no-op.
     // (changeset became routable in mt#2536; task/ask/session/memory always route.)
     return null;
   }
