@@ -1324,6 +1324,38 @@ export function createStartCommand(
             });
         }
 
+        // mt#2562: wire the PresenceClaimRepository so the server's writeTaskClaim
+        // fire-and-forget path can stamp task-grain presence claims on every tool
+        // call that carries args.task / args.taskId. Best-effort: when the DB is
+        // unavailable the server's presenceClaimRepo stays undefined and the write
+        // path is a no-op (graceful degradation).
+        if (container) {
+          (async () => {
+            try {
+              const { buildPresenceClaimRepository } = await import(
+                "@minsky/domain/presence/repository"
+              );
+              const provider = container.has("persistence")
+                ? (container.get("persistence") as {
+                    getDatabaseConnection?: () => Promise<unknown>;
+                  })
+                : undefined;
+              if (provider?.getDatabaseConnection) {
+                const db = await provider.getDatabaseConnection();
+                const repo = buildPresenceClaimRepository(db);
+                if (repo) {
+                  server.setPresenceClaimRepository(repo);
+                  log.debug("[mt#2562] PresenceClaimRepository wired");
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#2562] PresenceClaimRepository unavailable", {
+                error: getErrorMessage(err),
+              });
+            }
+          })();
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
         profileCheckpoint("knowledge_resources_registered");

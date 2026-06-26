@@ -34,6 +34,7 @@ import {
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
 import type { InitController } from "./init-retry";
+import type { PresenceClaimRepository } from "@minsky/domain/presence/repository";
 
 /**
  * Transport type for MCP server
@@ -285,6 +286,14 @@ export class MinskyMCPServer {
    * (symmetric mutual exclusivity).
    */
   private initController: InitController | null = null;
+
+  /**
+   * mt#2562: PresenceClaimRepository for task-grain agent presence.
+   * When set, every tool call with args.task/args.taskId fires a
+   * session-independent upsertClaim (fire-and-forget). When absent, the
+   * write path is a no-op (graceful degradation).
+   */
+  private presenceClaimRepo: PresenceClaimRepository | undefined;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -1002,6 +1011,15 @@ export class MinskyMCPServer {
             });
           });
 
+          // mt#2562: Write task-grain presence claim (fire-and-forget, session-independent).
+          // Fires whenever args.task or args.taskId is present — no Minsky session required.
+          this.writeTaskClaim(request.params.arguments || {}, agentId).catch((err) => {
+            log.debug("presence claim write failed (non-blocking)", {
+              error: getErrorMessage(err),
+              tool: request.params.name,
+            });
+          });
+
           // Convert result to proper MCP tool response format
           let responseText: string;
 
@@ -1333,6 +1351,77 @@ export class MinskyMCPServer {
     ) as import("@minsky/domain/session/types").SessionProviderInterface;
     await sessionProvider.updateSession(sessionName, { agentId });
     log.debug("agentId written to session record", { session: sessionName, agentId });
+  }
+
+  /**
+   * mt#2562: Set the presence claim repository. Called from the MCP start command
+   * after the persistence provider resolves. When unset, `writeTaskClaim` is a no-op.
+   */
+  setPresenceClaimRepository(repo: PresenceClaimRepository): void {
+    this.presenceClaimRepo = repo;
+  }
+
+  /**
+   * mt#2562: Write a task-grain presence claim for the current actor.
+   * Session-independent: fires whenever args.task or args.taskId is present,
+   * regardless of whether a Minsky workspace session exists.
+   *
+   * Runs fire-and-forget (caller catches errors). Failures are logged at debug
+   * level and never surface to the MCP caller — presence tracking is best-effort.
+   */
+  private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
+    if (!this.presenceClaimRepo) return;
+
+    const taskId =
+      (typeof args.task === "string" ? args.task : undefined) ||
+      (typeof args.taskId === "string" ? args.taskId : undefined);
+
+    if (!taskId) return;
+
+    // Resolve project scope (best-effort; fail silently on error)
+    let projectId: string | undefined;
+    try {
+      const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+      const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+      if (identity.kind === "resolved" && this.container?.has("persistence")) {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (persistence.getDatabaseConnection) {
+          const rawDb = await persistence.getDatabaseConnection();
+          if (rawDb) {
+            const scope = await resolveProjectScope(
+              identity,
+              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+            );
+            const { isAllProjects } = await import("@minsky/domain/project/scope");
+            // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
+            if (!isAllProjects(scope)) {
+              projectId = scope;
+            }
+          }
+        }
+      }
+    } catch {
+      // Fail silently — project scope is informational for presence
+    }
+
+    // Capture the caller's CC conversation id (best-effort from environment)
+    const ccConversationId =
+      typeof process.env.CC_CONVERSATION_ID === "string"
+        ? process.env.CC_CONVERSATION_ID
+        : undefined;
+
+    await this.presenceClaimRepo.upsertClaim({
+      subjectKind: "task",
+      subjectId: taskId,
+      actorId,
+      ccConversationId,
+      projectId,
+    });
+
+    log.debug("presence claim written", { taskId, actorId });
   }
 
   /**

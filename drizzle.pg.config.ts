@@ -68,6 +68,7 @@ export default {
     "./packages/domain/src/storage/schemas/wake-pending-schema.ts",
     "./packages/domain/src/storage/schemas/system-events-schema.ts",
     "./packages/domain/src/detectors/dismissal-store.ts",
+    "./packages/domain/src/storage/schemas/presence-claims-schema.ts",
   ],
   out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",
