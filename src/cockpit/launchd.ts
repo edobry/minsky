@@ -58,9 +58,13 @@ export function generatePlist(options: PlistOptions): string {
   // Use bun to run the repo's CLI entry point directly. WorkingDirectory
   // is set to repoPath so src/cli.ts resolves correctly. This avoids
   // relying on a globally installed `minsky` binary.
+  // "--watch" is a dev affordance (source-file hot-reload) and must NOT be
+  // used in a long-running supervised daemon. KeepAlive is the supervisor here;
+  // --watch + KeepAlive is the crash-loop amplifier that caused the 49,650-run
+  // incident (gh#1761). The tray's run_supervisor() also no longer uses --watch
+  // for the same reason.
   const programArgs: string[] = [
     bunBin,
-    "--watch",
     "run",
     "src/cli.ts",
     "cockpit",
@@ -125,7 +129,7 @@ ${envXml}
   <string>${escapeXml(options.repoPath)}</string>
 
   <key>ThrottleInterval</key>
-  <integer>5</integer>
+  <integer>60</integer>
 </dict>
 </plist>
 `;

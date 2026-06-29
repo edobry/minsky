@@ -38,6 +38,9 @@ import { log } from "@minsky/shared/logger";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 import { execSync } from "child_process";
+// gh#1761: read-only DB status for /api/health. Safe to import statically —
+// getDbStatus() just reads a module-level variable; it does NOT trigger DB init.
+import { getDbStatus } from "./shared-persistence";
 
 // Lazy + memoized: this module loads during CLI command registration (e.g. on
 // `--help`), so a module-level spawn would run `git rev-parse` — and leak
@@ -861,6 +864,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       version,
       commit: getGitCommit(),
       uptimeSec,
+      // gh#1761: last-known DB connection status. "ok" after a successful init;
+      // "degraded" when a circuit-breaker or auth error has been received and
+      // the retry loop is running; "unreachable" before any init attempt.
+      // Read-only: does NOT probe the DB on every health poll.
+      db: getDbStatus(),
       transcriptWatcher: {
         ...watcherTracker.getSummary(),
         activeSessions: watcherTracker.getActiveSessions(),

@@ -59,6 +59,33 @@ defined in `src/cockpit/web/index.css` and documented in
 [`docs/brand-system.md`](brand-system.md) §2. They follow the brand system's
 semantic-token discipline — no raw hex on the surface.
 
+## Operator endpoints
+
+### `GET /api/health`
+
+The cockpit daemon exposes a lightweight health endpoint at
+`GET http://localhost:3737/api/health`. Useful for scripts, uptime monitors, and
+the tray app's health poll:
+
+```json
+{
+  "status": "ok",
+  "db": "ok"
+}
+```
+
+The `db` field tracks the persistence-layer state (gh#1761):
+
+| Value           | Meaning                                                                                                                                                                                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"ok"`          | DB connection is healthy; all persistence-backed widgets and endpoints work.                                                                                                                                                                                                                          |
+| `"degraded"`    | At least one DB init attempt failed (circuit breaker tripped, connection timeout, etc.). The daemon stays up and serves the UI; widgets that need DB fall back gracefully. A background retry loop is running — see `docs/persistence-configuration.md §Cockpit daemon: circuit-breaker degradation`. |
+| `"unreachable"` | No connection attempt has been made yet (initial state at boot, or after a singleton reset).                                                                                                                                                                                                          |
+
+When `db` is `"degraded"` the daemon **does not restart** — it continues serving the
+UI and re-attempts the DB connection every 30 s in the background. The tray app's
+health indicator reflects the `db` field in addition to overall HTTP reachability.
+
 ## Cross-references
 
 - mt#2375 — Plant Board design (the living plant; four timescales; honest-motion law)

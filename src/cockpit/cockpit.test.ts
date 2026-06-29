@@ -91,6 +91,9 @@ describe("Cockpit server", () => {
     expect(typeof body.uptimeSec).toBe("number");
     expect(typeof body.version).toBe("string");
     expect(body.uptime).toBeUndefined();
+    // gh#1761: DB status field — one of ok | degraded | unreachable.
+    // In test context no DB is initialized, so "unreachable" is expected.
+    expect(["ok", "degraded", "unreachable"]).toContain(body.db);
   });
 
   // 2. GET /api/widgets → array containing both enabled widgets

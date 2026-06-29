@@ -17,6 +17,10 @@ import {
   DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS,
   resolveDefaultInitTimeoutMs,
   __resetSharedPersistenceForTests,
+  getDbStatus,
+  markDbDegraded,
+  startDbRetryBackoff,
+  DEFAULT_DB_RETRY_INTERVAL_MS,
   type PersistenceServiceFactory,
 } from "./shared-persistence";
 
@@ -118,6 +122,178 @@ describe("resolveDefaultInitTimeoutMs env override (mt#2244)", () => {
       process.env[ENV_KEY] = bad;
       expect(resolveDefaultInitTimeoutMs()).toBe(DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS);
     }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// gh#1761: DB status + graceful-degradation tests
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("getDbStatus (gh#1761)", () => {
+  test("initial status is 'unreachable' (no init attempt yet)", () => {
+    expect(getDbStatus()).toBe("unreachable");
+  });
+
+  test("status becomes 'ok' after a successful init", async () => {
+    const factory: PersistenceServiceFactory = async () => makeService(() => Promise.resolve());
+
+    await getSharedPersistenceService(500, factory);
+    expect(getDbStatus()).toBe("ok");
+  });
+
+  test("status becomes 'degraded' after a failed init", async () => {
+    const factory: PersistenceServiceFactory = async () =>
+      makeService(() => Promise.reject(new Error("auth failure")));
+
+    await expect(getSharedPersistenceService(500, factory)).rejects.toThrow();
+    expect(getDbStatus()).toBe("degraded");
+  });
+
+  test("status becomes 'degraded' after an init timeout", async () => {
+    const factory: PersistenceServiceFactory = async () => makeService(hangForever);
+
+    await expect(getSharedPersistenceService(30, factory)).rejects.toBeInstanceOf(
+      PersistenceInitTimeoutError
+    );
+    expect(getDbStatus()).toBe("degraded");
+  });
+});
+
+describe("markDbDegraded (gh#1761)", () => {
+  test("sets status to 'degraded' and resets the singleton", async () => {
+    // First succeed so status is 'ok'.
+    const factory: PersistenceServiceFactory = async () => makeService(() => Promise.resolve());
+    await getSharedPersistenceService(500, factory);
+    expect(getDbStatus()).toBe("ok");
+
+    // Now degrade.
+    markDbDegraded();
+    expect(getDbStatus()).toBe("degraded");
+
+    // The singleton is cleared — the next caller gets a fresh init.
+    let initCalls = 0;
+    const factory2: PersistenceServiceFactory = async () => {
+      initCalls += 1;
+      return makeService(() => Promise.resolve());
+    };
+    await getSharedPersistenceService(500, factory2);
+    expect(initCalls).toBe(1);
+    expect(getDbStatus()).toBe("ok");
+  });
+});
+
+describe("startDbRetryBackoff (gh#1761)", () => {
+  test("exported constant DEFAULT_DB_RETRY_INTERVAL_MS is 30_000", () => {
+    expect(DEFAULT_DB_RETRY_INTERVAL_MS).toBe(30_000);
+  });
+
+  test("retries after failure and eventually succeeds, setting status to ok", async () => {
+    let initAttempts = 0;
+    const factory: PersistenceServiceFactory = async () => {
+      initAttempts += 1;
+      // Fail on first two attempts, succeed on third.
+      if (initAttempts <= 2) {
+        return makeService(() => Promise.reject(new Error("circuit open")));
+      }
+      return makeService(() => Promise.resolve());
+    };
+
+    // Prime: first caller fails and sets status to degraded.
+    await expect(getSharedPersistenceService(500, factory)).rejects.toThrow();
+    expect(getDbStatus()).toBe("degraded");
+
+    // Start retry backoff with a very short interval so the test finishes fast.
+    const stop = startDbRetryBackoff(10, factory);
+
+    // Poll until status is ok (up to ~2s: 20ms × 100 iterations).
+    for (let i = 0; i < 100 && getDbStatus() !== "ok"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    stop();
+
+    expect(getDbStatus()).toBe("ok");
+    // At least 3 init calls: 1 from getSharedPersistenceService + 2 failures + 1 success from retry.
+    expect(initAttempts).toBeGreaterThanOrEqual(3);
+  });
+
+  test("stop() prevents further retries", async () => {
+    // Arrange: put status in degraded.
+    const factory: PersistenceServiceFactory = async () =>
+      makeService(() => Promise.reject(new Error("always down")));
+    await expect(getSharedPersistenceService(500, factory)).rejects.toThrow();
+    expect(getDbStatus()).toBe("degraded");
+
+    let callsAfterStop = 0;
+    let stopped = false;
+    const factory2: PersistenceServiceFactory = async () => {
+      if (stopped) callsAfterStop += 1;
+      return makeService(() => Promise.reject(new Error("still down")));
+    };
+
+    const stop = startDbRetryBackoff(20, factory2);
+    // Stop before the first retry fires.
+    stopped = true;
+    stop();
+
+    // Wait one retry interval to confirm no calls happen after stop().
+    await new Promise((r) => setTimeout(r, 50));
+    expect(callsAfterStop).toBe(0);
+  });
+
+  test("does not start retry when status is already ok", async () => {
+    // Ensure status is ok first.
+    const factory: PersistenceServiceFactory = async () => makeService(() => Promise.resolve());
+    await getSharedPersistenceService(500, factory);
+    expect(getDbStatus()).toBe("ok");
+
+    let initCalls = 0;
+    const factory2: PersistenceServiceFactory = async () => {
+      initCalls += 1;
+      return makeService(() => Promise.resolve());
+    };
+
+    const stop = startDbRetryBackoff(10, factory2);
+    await new Promise((r) => setTimeout(r, 50));
+    stop();
+
+    // No retry should have fired because status was already ok.
+    expect(initCalls).toBe(0);
+  });
+  test("clears pending retry timer on success (gh#1761 R1)", async () => {
+    // Arrange: prime the status to degraded.
+    const alwaysFailFactory: PersistenceServiceFactory = async () =>
+      makeService(() => Promise.reject(new Error("down")));
+    await expect(getSharedPersistenceService(500, alwaysFailFactory)).rejects.toThrow();
+    expect(getDbStatus()).toBe("degraded");
+
+    // Factory succeeds on its first attempt (within the retry loop).
+    let initCallsAfterSuccess = 0;
+    let hasSucceeded = false;
+    const onceSucceedFactory: PersistenceServiceFactory = async () => {
+      if (!hasSucceeded) {
+        hasSucceeded = true;
+        return makeService(() => Promise.resolve());
+      }
+      // Any call after the first success is unexpected.
+      initCallsAfterSuccess += 1;
+      return makeService(() => Promise.resolve());
+    };
+
+    const stop = startDbRetryBackoff(10, onceSucceedFactory);
+
+    // Wait for status to become ok.
+    for (let i = 0; i < 100 && getDbStatus() !== "ok"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(getDbStatus()).toBe("ok");
+
+    // Wait an extra interval to confirm no further retry calls happen.
+    await new Promise((r) => setTimeout(r, 50));
+    stop();
+
+    // The pending timer must have been cleared — no calls after the success.
+    expect(initCallsAfterSuccess).toBe(0);
   });
 });
 
