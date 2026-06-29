@@ -73,6 +73,8 @@ virtual-*.test.ts
 .tmp/
 .mcp.json
 supabase/
+# Exception: scripts/supabase/ contains helper scripts (not the local Supabase dev dir)
+!scripts/supabase/
 
 # temporary PR-body drafts (passed inline to session_pr_create, not committed)
 /pr-body.md
