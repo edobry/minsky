@@ -62,6 +62,7 @@
 import { readFile } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+import { parse as parseYaml } from "yaml";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -84,7 +85,16 @@ const args = process.argv.slice(2);
 const execute = args.includes("--execute");
 const refArg = (() => {
   const idx = args.indexOf("--ref");
-  return idx !== -1 ? args[idx + 1] : undefined;
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  if (!value || value.startsWith("-")) {
+    console.error(
+      "ERROR: --ref requires a project ref value (e.g. --ref yvkkrpyjhoiilmizlnac).\n" +
+        "Refusing to silently fall back to the default project for a destructive operation."
+    );
+    process.exit(1);
+  }
+  return value;
 })();
 const helpRequested = args.includes("--help") || args.includes("-h");
 
@@ -136,14 +146,15 @@ async function resolveToken(): Promise<string | null> {
   const configPath = join(homedir(), ".config", "minsky", "config.yaml");
   try {
     const raw = await readFile(configPath, "utf-8");
-    // Parse YAML using a minimal regex approach to avoid a dependency on js-yaml
-    // in a standalone script. Only handles simple key: value at the supabase block.
-    const match = raw.match(/^supabase:\s*\n\s+accessToken:\s*["']?([^"'\n]+)["']?\s*$/m);
-    if (match?.[1]) {
-      return match[1].trim();
+    // Parse with the real YAML parser so additional supabase.* keys, comments,
+    // and varying indentation don't defeat token resolution (mt#2574 R1).
+    const parsed = parseYaml(raw) as { supabase?: { accessToken?: unknown } } | null;
+    const token = parsed?.supabase?.accessToken;
+    if (typeof token === "string" && token.trim()) {
+      return token.trim();
     }
   } catch {
-    // Config file not found or unreadable — try next source
+    // Config file not found, unreadable, or not valid YAML — try next source
   }
 
   return null;
@@ -172,10 +183,17 @@ async function triggerProjectRestart(
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(20_000),
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`Network error calling Management API: ${msg}`);
+    const isTimeout =
+      error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    throw new Error(
+      isTimeout
+        ? `Timed out after 20s calling the Management API restart endpoint (check token/region/connectivity): ${msg}`
+        : `Network error calling Management API: ${msg}`
+    );
   }
 
   const bodyText = await response.text().catch(() => "(unreadable body)");
@@ -192,10 +210,18 @@ async function verifyTokenAndProject(
     response = await fetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return { ok: false, detail: `Network error: ${msg}` };
+    const isTimeout =
+      error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return {
+      ok: false,
+      detail: isTimeout
+        ? `Timed out after 10s contacting the Management API (check token/region/connectivity): ${msg}`
+        : `Network error: ${msg}`,
+    };
   }
 
   if (response.status === 401) {
