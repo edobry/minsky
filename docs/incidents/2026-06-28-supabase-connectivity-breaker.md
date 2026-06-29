@@ -155,12 +155,34 @@ notably the correct model (breaker-from-storm) was already stated in the sibling
   staleness marker — must NOT be read as current activity); Railway deploy logs have ~24h retention; the
   dashboard "hundreds of GB" number was NOT reproducible afterward (treat as a misread, not evidence).
 
+## Self-serve restart path (mt#2574)
+
+`scripts/supabase/restart-project.ts` is the agent-invokable restart helper produced by this
+incident's Retro 7. It wraps `POST /v1/projects/{ref}/restart` and is guarded as a destructive
+op (dry-run by default; `--execute` to actually restart):
+
+```
+# Preview (safe):
+bun scripts/supabase/restart-project.ts
+
+# Execute (DESTRUCTIVE — drops active connections, ~1-3 min downtime):
+bun scripts/supabase/restart-project.ts --execute
+```
+
+Token resolution: `SUPABASE_ACCESS_TOKEN` env var → `MINSKY_SUPABASE_ACCESS_TOKEN` env var →
+`supabase.accessToken` in `~/.config/minsky/config.yaml`.
+
+**KEY REMINDER:** A _fast database reboot_ (`database/restart`) only restarts Postgres — it does
+NOT reset the Supavisor circuit breaker. Only this full project restart (or a pause→resume cycle)
+clears the ECIRCUITBREAKER state. Do not waste time on the fast reboot if the breaker is tripped.
+
 ## Cross-references
 
 - gh#1762 — this incident (premise corrected from "runaway disk" to "Supavisor auth-failure breaker").
 - gh#1761 — split-ownership eviction + daemon graceful-degradation + auto-migrate-on-boot.
 - gh#1760 — out-of-band cockpit-health watchdog / the surfacing gap.
 - mt#2571, mt#2572, mt#2574 — process/tooling fixes surfaced by the incident retros.
+- `scripts/supabase/restart-project.ts` — the self-serve restart helper (mt#2574).
 - ADR-014 (`docs/architecture/adr-014-cockpit-daemon-lifecycle-ownership.md`) — the tray-as-supervisor
   decision whose incomplete cutover (no legacy-agent eviction) is contributing factor 2.
 - Memories: `a436cdba` (Supabase incident diagnostics), `c0446133` (github task-backend bug), `ec5a1eca`
