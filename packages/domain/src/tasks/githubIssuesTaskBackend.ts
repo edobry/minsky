@@ -69,27 +69,29 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
     statusLabels: Record<string, string>
   ) => Promise<void>;
 
-  /** Labels to use for task status mapping */
-  statusLabels?: {
-    TODO: string;
-    "IN-PROGRESS": string;
-    "IN-REVIEW": string;
-    DONE: string;
-    BLOCKED: string;
-    CLOSED: string;
-  };
+  /** Labels to use for task status mapping (overrides DEFAULT_STATUS_LABELS entries) */
+  statusLabels?: Record<string, string>;
 }
 
 /**
- * Default status labels for GitHub issues
+ * Default status labels for GitHub issues.
+ *
+ * PLANNING, READY, and COMPLETED were missing, causing those statuses to fall
+ * back to the `minsky:todo` label via `getLabelsForTaskStatus`'s
+ * `statusLabels[status] || statusLabels["TODO"]` logic. Setting status PLANNING
+ * on an issue silently set the label to `minsky:todo`, while returning
+ * `{changed:true, newStatus:"PLANNING"}` — a false-success (mt#2572 Bug 3).
  */
 const DEFAULT_STATUS_LABELS = {
   TODO: "minsky:todo",
+  PLANNING: "minsky:planning",
+  READY: "minsky:ready",
   "IN-PROGRESS": "minsky:in-progress",
   "IN-REVIEW": "minsky:in-review",
   DONE: "minsky:done",
   BLOCKED: "minsky:blocked",
   CLOSED: "minsky:closed",
+  COMPLETED: "minsky:completed",
 } as const;
 
 /**
