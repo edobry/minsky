@@ -244,6 +244,14 @@ export function startDbRetryBackoff(
       await getSharedPersistenceService(PERSISTENCE_INIT_TIMEOUT_MS, createService);
       // Success — _dbStatus is now "ok" (set inside getSharedPersistenceService).
       log.info("[shared-persistence] DB reconnected successfully via retry backoff");
+      // gh#1761: cancel any pending retry timer and stop the loop; a stale
+      // setTimeout callback scheduled before this success resolved must not
+      // trigger another (unnecessary) attempt.
+      if (retryHandle !== undefined) {
+        clearTimeout(retryHandle);
+        retryHandle = undefined;
+      }
+      stopped = true;
     } catch (err) {
       // Still down — schedule next attempt.
       const msg = err instanceof Error ? err.message : String(err);

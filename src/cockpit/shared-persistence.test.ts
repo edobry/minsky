@@ -260,6 +260,41 @@ describe("startDbRetryBackoff (gh#1761)", () => {
     // No retry should have fired because status was already ok.
     expect(initCalls).toBe(0);
   });
+  test("clears pending retry timer on success (gh#1761 R1)", async () => {
+    // Arrange: prime the status to degraded.
+    const alwaysFailFactory: PersistenceServiceFactory = async () =>
+      makeService(() => Promise.reject(new Error("down")));
+    await expect(getSharedPersistenceService(500, alwaysFailFactory)).rejects.toThrow();
+    expect(getDbStatus()).toBe("degraded");
+
+    // Factory succeeds on its first attempt (within the retry loop).
+    let initCallsAfterSuccess = 0;
+    let hasSucceeded = false;
+    const onceSucceedFactory: PersistenceServiceFactory = async () => {
+      if (!hasSucceeded) {
+        hasSucceeded = true;
+        return makeService(() => Promise.resolve());
+      }
+      // Any call after the first success is unexpected.
+      initCallsAfterSuccess += 1;
+      return makeService(() => Promise.resolve());
+    };
+
+    const stop = startDbRetryBackoff(10, onceSucceedFactory);
+
+    // Wait for status to become ok.
+    for (let i = 0; i < 100 && getDbStatus() !== "ok"; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(getDbStatus()).toBe("ok");
+
+    // Wait an extra interval to confirm no further retry calls happen.
+    await new Promise((r) => setTimeout(r, 50));
+    stop();
+
+    // The pending timer must have been cleared — no calls after the success.
+    expect(initCallsAfterSuccess).toBe(0);
+  });
 });
 
 describe("getSharedPersistenceService orphan teardown on timeout (mt#2248)", () => {
