@@ -598,8 +598,38 @@ fn run_supervisor(
                 }
             },
             DaemonAction::Conflict => {
-                set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
-                clear_uptime(&app, &mut sup);
+                // gh#1761: before showing "conflict" to the operator, check if
+                // the port holder is the legacy `com.minsky.cockpit` launchd
+                // agent (installed by `minsky cockpit install`). If so, evict
+                // it (bootout + disable) and retry — ADR-014 single-ownership.
+                if try_evict_legacy_launchd() {
+                    // Give the OS ~1 s to release the port, then re-check.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
+                        DaemonAction::Adopt => match adopt_decision(&path) {
+                            AdoptDecision::Stale => {
+                                do_stop(&mut sup, &spawned, &path, true);
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                do_spawn(&app, &mut sup, &spawned, &path);
+                            }
+                            AdoptDecision::Fresh { started, source_mtime } => {
+                                sup.daemon_started_at = started;
+                                sup.daemon_source_mtime = source_mtime;
+                                set_status(&app, &mut sup, LABEL_RUNNING);
+                                refresh_uptime(&app, &mut sup);
+                            }
+                        },
+                        DaemonAction::Conflict => {
+                            // Still blocked even after eviction — show label.
+                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                            clear_uptime(&app, &mut sup);
+                        }
+                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                    }
+                } else {
+                    set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                    clear_uptime(&app, &mut sup);
+                }
             }
             DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
         }
@@ -623,8 +653,33 @@ fn run_supervisor(
                                 }
                             },
                             DaemonAction::Conflict => {
-                                set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
-                                clear_uptime(&app, &mut sup);
+                                // gh#1761: same eviction path as the boot-time Conflict arm.
+                                if try_evict_legacy_launchd() {
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
+                                    match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
+                                        DaemonAction::Adopt => match adopt_decision(&path) {
+                                            AdoptDecision::Stale => {
+                                                do_stop(&mut sup, &spawned, &path, true);
+                                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                                do_spawn(&app, &mut sup, &spawned, &path);
+                                            }
+                                            AdoptDecision::Fresh { started, source_mtime } => {
+                                                sup.daemon_started_at = started;
+                                                sup.daemon_source_mtime = source_mtime;
+                                                set_status(&app, &mut sup, LABEL_RUNNING);
+                                                refresh_uptime(&app, &mut sup);
+                                            }
+                                        },
+                                        DaemonAction::Conflict => {
+                                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                            clear_uptime(&app, &mut sup);
+                                        }
+                                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                                    }
+                                } else {
+                                    set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                    clear_uptime(&app, &mut sup);
+                                }
                             }
                             DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
                         }
@@ -1275,6 +1330,78 @@ fn conflict_label_for(pid: Option<u32>) -> String {
         Some(p) => format!("Cockpit: :3737 held by pid {p} (not started by tray)"),
         None => LABEL_CONFLICT.to_string(),
     }
+}
+
+/// The launchd label for the legacy daemon agent (gh#1761).
+/// This is the plist Label that was generated by `minsky cockpit install` before
+/// ADR-014 made the tray the canonical supervisor.  If still loaded it races the
+/// tray — whichever wins keeps the port, leaving the loser in Conflict state.
+const LEGACY_LAUNCHD_LABEL: &str = "com.minsky.cockpit";
+
+/// Try to evict the legacy `com.minsky.cockpit` launchd agent if it is the
+/// process holding :3737 (gh#1761, ADR-014 single-ownership enforcement).
+///
+/// Algorithm:
+/// 1. `launchctl list com.minsky.cockpit` — exit 0 means the agent is loaded.
+///    If absent (exit 1 / non-zero), return false immediately (not the cause).
+/// 2. `launchctl bootout gui/<uid> com.minsky.cockpit` — unloads and stops it.
+/// 3. `launchctl disable gui/<uid>/com.minsky.cockpit` — prevents re-load on
+///    next login so the race does not recur.
+///
+/// Returns `true` if the agent was found and successfully evicted, `false`
+/// otherwise (not found, uid unavailable, or either launchctl call failed).
+/// On return `true` the caller should wait briefly for the port to free, then
+/// retry `decide_action`.
+///
+/// # Safety
+///
+/// Both launchctl calls are non-destructive to data (they only manage the
+/// launchd job, not the repo or any cockpit state).  The disable step means the
+/// operator's `minsky cockpit install` intent is overridden; they can re-enable
+/// via `launchctl enable gui/<uid>/com.minsky.cockpit` if needed.
+fn try_evict_legacy_launchd() -> bool {
+    // Step 1: probe whether the agent is loaded.
+    let probe = Command::new("launchctl")
+        .args(["list", LEGACY_LAUNCHD_LABEL])
+        .output();
+    match probe {
+        Ok(out) if out.status.success() => {} // agent is loaded — continue
+        _ => return false,                    // not found or launchctl unavailable
+    }
+
+    // Step 2: derive the user id for the GUI domain.
+    let uid = {
+        let id_out = Command::new("id").arg("-u").output();
+        match id_out {
+            Ok(o) if o.status.success() => {
+                String::from_utf8_lossy(&o.stdout).trim().to_string()
+            }
+            _ => return false,
+        }
+    };
+
+    let domain = format!("gui/{uid}");
+
+    // Step 3: bootout (unload + stop).
+    let bootout = Command::new("launchctl")
+        .args(["bootout", &domain, LEGACY_LAUNCHD_LABEL])
+        .status();
+    if !matches!(bootout, Ok(s) if s.success()) {
+        // bootout failed — log but still attempt disable
+        eprintln!("[tray] launchctl bootout {LEGACY_LAUNCHD_LABEL} failed");
+        return false;
+    }
+
+    // Step 4: disable to prevent re-load on next login.
+    let target = format!("{domain}/{LEGACY_LAUNCHD_LABEL}");
+    let _ = Command::new("launchctl")
+        .args(["disable", &target])
+        .status();
+    // disable failure is non-fatal: bootout already stopped the agent for this
+    // session; the tray is running and will respawn the daemon itself.
+
+    eprintln!("[tray] evicted legacy launchd agent {LEGACY_LAUNCHD_LABEL} (gh#1761)");
+    true
 }
 
 /// Extract the last non-empty line from a byte buffer, trimmed and capped for a
@@ -2269,5 +2396,37 @@ mod tests {
             "Cockpit: :3737 held by pid 4242 (not started by tray)"
         );
         assert_eq!(conflict_label_for(None), LABEL_CONFLICT);
+    }
+
+    /// Verify the constant value that launchctl queries / bootouts.
+    #[test]
+    fn legacy_launchd_label_constant() {
+        assert_eq!(LEGACY_LAUNCHD_LABEL, "com.minsky.cockpit");
+    }
+
+    /// On a clean dev machine (no legacy agent loaded) the probe returns false.
+    /// This is the common case after ADR-014 adoption.
+    /// If the legacy agent IS loaded (old install), the function would attempt
+    /// bootout and return true — that path requires a native smoke test.
+    #[test]
+    fn try_evict_returns_false_when_agent_absent() {
+        // launchctl list com.minsky.cockpit exits non-zero if the agent is absent.
+        // The test skips if the agent IS loaded to avoid clobbering a real install.
+        let probe = std::process::Command::new("launchctl")
+            .args(["list", LEGACY_LAUNCHD_LABEL])
+            .output();
+        match probe {
+            Ok(out) if out.status.success() => {
+                // Agent is loaded — skip rather than evict a real install.
+                eprintln!("[test] legacy agent is loaded; skipping try_evict no-op assertion");
+            }
+            _ => {
+                // Agent absent — function must return false (no bootout attempted).
+                assert!(
+                    !try_evict_legacy_launchd(),
+                    "should return false when the legacy launchd agent is absent"
+                );
+            }
+        }
     }
 }
