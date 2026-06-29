@@ -417,3 +417,57 @@ validates this resolver end-to-end on every PR: it builds the bundle, runs
 via `psql` that the `tasks` table was created AND that a follow-up dry-run reports 0 pending
 migrations. A successful run conclusively proves the bundled binary resolves its migrations
 from an arbitrary working directory.
+
+## Cockpit daemon: circuit-breaker degradation mode (gh#1761)
+
+When the cockpit daemon's postgres-js connection trips the Supavisor circuit breaker
+(or any other DB-layer error occurs — `ECIRCUITBREAKER`, `EDBHANDLEREXITED`,
+`CONNECTION_CLOSED`, `CONNECTION_DESTROYED`, or a `PersistenceInitTimeoutError`),
+the daemon's `unhandledRejection` handler catches the error and degrades gracefully
+instead of crashing.
+
+### What happens on a DB error
+
+1. `isDbDegradationError(reason)` classifies the rejection as DB-specific.
+2. `markDbDegraded()` resets the shared-persistence singleton so the next
+   `getSharedPersistenceService()` call retries from scratch.
+3. `startDbRetryBackoff()` starts a background loop that retries
+   `getSharedPersistenceService()` every 30 s (default;
+   `DEFAULT_DB_RETRY_INTERVAL_MS`). On success the loop cancels its pending timer
+   and stops — no further retries.
+4. The `/api/health` endpoint returns `db: "degraded"` until the retry succeeds,
+   at which point it returns `db: "ok"`.
+
+The daemon **does not call `process.exit(1)`** for DB errors. Only errors that are
+not classified as DB-specific (programming errors, unrelated library bugs, etc.)
+still trigger the exit path.
+
+### Why this matters
+
+Before gh#1761 the handler called `process.exit(1)` for all unhandled rejections,
+including DB circuit-breaker events. Combined with `KeepAlive` in the launchd plist,
+this produced the 49,650-restart incident: the daemon crashed on every circuit-breaker
+trip, launchd restarted it immediately (ThrottleInterval: 5), the new process
+re-triggered the circuit breaker, and the loop continued until launchd's throttle
+threshold was hit (~9 s later).
+
+### Configuration
+
+| Name                                         | Default   | Description                                                 |
+| -------------------------------------------- | --------- | ----------------------------------------------------------- |
+| `DEFAULT_DB_RETRY_INTERVAL_MS`               | 30,000 ms | Gap between DB reconnect attempts                           |
+| `MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS` | 30,000 ms | Deadline for each `PersistenceService.initialize()` attempt |
+
+### Observability
+
+- `WARN [shared-persistence] DB retry failed (...); next attempt in 30000ms` — each failed retry
+- `INFO [shared-persistence] DB reconnected successfully via retry backoff` — on success
+- `GET /api/health` returns `{ "db": "degraded" }` while retrying, `{ "db": "ok" }` after
+
+### Related files
+
+| File                                    | Role                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `src/cockpit/shared-persistence.ts`     | `startDbRetryBackoff`, `markDbDegraded`, `getDbStatus`, `PersistenceInitTimeoutError` |
+| `src/commands/cockpit/start-command.ts` | `isDbDegradationError`, `unhandledRejection` handler                                  |
+| `src/cockpit/server.ts`                 | `/api/health` endpoint (`db: getDbStatus()`)                                          |
