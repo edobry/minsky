@@ -67,8 +67,55 @@ const defaultServiceFactory: PersistenceServiceFactory = async () => {
   return new PersistenceService();
 };
 
+/**
+ * DB connection status for the cockpit daemon (gh#1761).
+ *
+ * - "unreachable": no successful connection has ever been established, OR the
+ *   connection was never attempted (initial state before the first caller).
+ * - "degraded": at least one init attempt was made but failed (circuit breaker,
+ *   auth error, timeout, etc.). The daemon stays up and retries on backoff.
+ * - "ok": the PersistenceService was successfully initialized and `_instance` is set.
+ *
+ * Exposed via `getDbStatus()` so the `/api/health` endpoint can report DB state
+ * without probing the DB on every health poll.
+ */
+export type DbStatus = "ok" | "degraded" | "unreachable";
+
+let _dbStatus: DbStatus = "unreachable";
+
+/**
+ * Returns the last-known DB connection status. Read-only; does not trigger a
+ * new init attempt. Safe to call from a health endpoint on every request.
+ */
+export function getDbStatus(): DbStatus {
+  return _dbStatus;
+}
+
+/**
+ * Mark the DB as degraded and reset the singleton so future callers retry.
+ *
+ * Called from the `unhandledRejection` handler in start-command.ts when a
+ * postgres-js circuit-breaker error (`ECIRCUITBREAKER` / `EDBHANDLEREXITED`)
+ * reaches the process-level handler. Resets `_instance` so the next
+ * `getSharedPersistenceService()` call starts a fresh init sequence.
+ *
+ * @internal Not for use from application code other than the error handler.
+ */
+export function markDbDegraded(): void {
+  _dbStatus = "degraded";
+  _instance = null;
+  _initPromise = null;
+  log.warn("[shared-persistence] DB marked degraded; singleton reset for retry");
+}
+
 let _instance: PersistenceService | null = null;
 let _initPromise: Promise<PersistenceService> | null = null;
+
+/**
+ * Default retry interval for `startDbRetryBackoff()` (gh#1761).
+ * Conservative: 30 s avoids hammering a down Supavisor circuit breaker.
+ */
+export const DEFAULT_DB_RETRY_INTERVAL_MS = 30_000;
 
 /**
  * Returns the shared PersistenceService, initializing it once and coalescing
@@ -120,12 +167,14 @@ export async function getSharedPersistenceService(
     try {
       const svc = await Promise.race([init, timeout]);
       _instance = svc;
+      _dbStatus = "ok"; // gh#1761: mark DB healthy on successful init
       return svc;
     } catch (err) {
       // Clear the cached promise so the NEXT caller retries with fresh state,
       // whether init rejected OR timed out. Without the timeout+reset a hang
       // would wedge every subsequent caller forever (mt#2244).
       _initPromise = null;
+      _dbStatus = "degraded"; // gh#1761: mark DB degraded on any init failure
       if (err instanceof PersistenceInitTimeoutError) {
         log.warn(
           `[shared-persistence] PersistenceService init timed out after ` +
@@ -166,6 +215,55 @@ export async function getSharedProvider(): Promise<PersistenceProvider> {
 }
 
 /**
+ * Start a background DB retry loop that keeps attempting `getSharedPersistenceService()`
+ * on a fixed interval until the connection is restored (gh#1761).
+ *
+ * Intended use cases:
+ * 1. Called from the `unhandledRejection` handler in start-command.ts after a
+ *    circuit-breaker error marks the DB degraded — it drives the reconnect so
+ *    the daemon eventually recovers without operator intervention.
+ * 2. Optionally called at startup to warm the DB connection proactively.
+ *
+ * The loop stops automatically when `getSharedPersistenceService()` returns
+ * successfully (`_dbStatus === "ok"`), or when the returned stop function is called.
+ *
+ * @param intervalMs  Gap between retry attempts (default: DEFAULT_DB_RETRY_INTERVAL_MS).
+ * @param createService  Injectable factory for testing (mirrors getSharedPersistenceService's seam).
+ * @returns  A stop function that cancels any pending retry.
+ */
+export function startDbRetryBackoff(
+  intervalMs: number = DEFAULT_DB_RETRY_INTERVAL_MS,
+  createService: PersistenceServiceFactory = defaultServiceFactory
+): () => void {
+  let stopped = false;
+  let retryHandle: ReturnType<typeof setTimeout> | undefined;
+
+  const attempt = async (): Promise<void> => {
+    if (stopped || _dbStatus === "ok") return;
+    try {
+      await getSharedPersistenceService(PERSISTENCE_INIT_TIMEOUT_MS, createService);
+      // Success — _dbStatus is now "ok" (set inside getSharedPersistenceService).
+      log.info("[shared-persistence] DB reconnected successfully via retry backoff");
+    } catch (err) {
+      // Still down — schedule next attempt.
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`[shared-persistence] DB retry failed (${msg}); next attempt in ${intervalMs}ms`);
+      if (!stopped) {
+        retryHandle = setTimeout(() => void attempt(), intervalMs);
+      }
+    }
+  };
+
+  // Start the first attempt immediately (so degraded state is detected fast).
+  void attempt();
+
+  return () => {
+    stopped = true;
+    if (retryHandle !== undefined) clearTimeout(retryHandle);
+  };
+}
+
+/**
  * Reset the cached singleton + init promise so each test starts from a clean
  * slate. Exported because the singleton state is module-level and bun shares
  * module state across test files in one process (the same hazard noted in
@@ -178,4 +276,5 @@ export async function getSharedProvider(): Promise<PersistenceProvider> {
 export function __resetSharedPersistenceForTests(): void {
   _instance = null;
   _initPromise = null;
+  _dbStatus = "unreachable"; // gh#1761: reset status so degraded-path tests start clean
 }

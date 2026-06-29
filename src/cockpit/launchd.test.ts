@@ -46,10 +46,12 @@ describe("launchd plist generation", () => {
     expect(plist).toContain("<key>StandardErrorPath</key>");
   });
 
-  test("includes ThrottleInterval", () => {
+  test("ThrottleInterval is 60 seconds (not 5) to avoid crash-loop amplification", () => {
     const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain("<key>ThrottleInterval</key>");
-    expect(plist).toContain("<integer>5</integer>");
+    expect(plist).toContain("<integer>60</integer>");
+    // Guard: 5 was the old too-aggressive value that amplified crash-loops (gh#1761).
+    expect(plist).not.toContain("<integer>5</integer>");
   });
 
   test("includes PATH and HOME in EnvironmentVariables", () => {
@@ -58,9 +60,11 @@ describe("launchd plist generation", () => {
     expect(plist).toContain("<key>HOME</key>");
   });
 
-  test("includes --watch flag for auto-restart on source changes", () => {
+  test("generated daemon plist does NOT contain --watch (watch is a dev affordance, not for supervised daemons)", () => {
+    // Guard: --watch + KeepAlive is the crash-loop amplifier that caused 49,650
+    // restarts in the gh#1761 incident. This assertion prevents regressions.
     const plist = generatePlist({ repoPath: TEST_REPO });
-    expect(plist).toContain("--watch");
+    expect(plist).not.toContain("--watch");
   });
 
   test("escapes XML special characters in paths", () => {
