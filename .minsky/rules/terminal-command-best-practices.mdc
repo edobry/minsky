@@ -117,7 +117,7 @@ specific to iteration:
 
    **✅ Preferred (tally + log, results readable):**
    ```bash
-   ok=0; fail=0
+   ok=0; fail=0; : >/tmp/close.err   # pre-create the log so the final cat never errors on a clean run
    for id in ${(f)ids}; do
      if gh issue close "$id" 2>>/tmp/close.err; then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $id" >>/tmp/close.err; fi
    done
