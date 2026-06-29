@@ -602,7 +602,7 @@ fn run_supervisor(
                 // the port holder is the legacy `com.minsky.cockpit` launchd
                 // agent (installed by `minsky cockpit install`). If so, evict
                 // it (bootout + disable) and retry — ADR-014 single-ownership.
-                if try_evict_legacy_launchd() {
+                if try_evict_legacy_launchd(pid_on_port(DAEMON_PORT, &path)) {
                     // Give the OS ~1 s to release the port, then re-check.
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
@@ -654,7 +654,7 @@ fn run_supervisor(
                             },
                             DaemonAction::Conflict => {
                                 // gh#1761: same eviction path as the boot-time Conflict arm.
-                                if try_evict_legacy_launchd() {
+                                if try_evict_legacy_launchd(pid_on_port(DAEMON_PORT, &path)) {
                                     tokio::time::sleep(Duration::from_secs(1)).await;
                                     match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
                                         DaemonAction::Adopt => match adopt_decision(&path) {
@@ -1338,18 +1338,56 @@ fn conflict_label_for(pid: Option<u32>) -> String {
 /// tray — whichever wins keeps the port, leaving the loser in Conflict state.
 const LEGACY_LAUNCHD_LABEL: &str = "com.minsky.cockpit";
 
+/// Parse the PID from `launchctl list <label>` output (gh#1761 R1).
+///
+/// Returns `Some(pid)` when the service is running (has a "PID" field), `None`
+/// when it is loaded-but-stopped (no "PID" field) or the output is malformed.
+///
+/// The output format is a plist-style text stream, one key/value per line:
+/// ```text
+/// {
+///     "PID" = 12345;
+///     "Label" = "com.minsky.cockpit";
+///     ...
+/// };
+/// ```
+fn parse_launchctl_pid(output: &str) -> Option<u32> {
+    for line in output.lines() {
+        let line = line.trim();
+        // Match lines of the form: "PID" = <digits>;
+        if let Some(rest) = line.strip_prefix("\"PID\"") {
+            let rest = rest.trim();
+            if let Some(val) = rest.strip_prefix('=') {
+                let num = val.trim().trim_end_matches(';').trim();
+                if let Ok(pid) = num.parse::<u32>() {
+                    return Some(pid);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Try to evict the legacy `com.minsky.cockpit` launchd agent if it is the
 /// process holding :3737 (gh#1761, ADR-014 single-ownership enforcement).
 ///
+/// `port_holder` is the PID currently listening on DAEMON_PORT (from `lsof`).
+/// If `None`, this function returns `false` immediately — without knowing who
+/// holds the port we must NOT disable an agent that may not be the cause.
+///
 /// Algorithm:
-/// 1. `launchctl list com.minsky.cockpit` — exit 0 means the agent is loaded.
+/// 1. Early-exit when `port_holder` is `None` (port-holder unknown — safe to skip).
+/// 2. `launchctl list com.minsky.cockpit` — exit 0 means the agent is loaded.
 ///    If absent (exit 1 / non-zero), return false immediately (not the cause).
-/// 2. `launchctl bootout gui/<uid> com.minsky.cockpit` — unloads and stops it.
-/// 3. `launchctl disable gui/<uid>/com.minsky.cockpit` — prevents re-load on
+/// 3. Parse the "PID" field from the launchctl output.  If absent (agent loaded
+///    but not running) or the PID does not match `port_holder`, return false —
+///    some other process holds the port and we must NOT evict the launchd agent.
+/// 4. `launchctl bootout gui/<uid> com.minsky.cockpit` — unloads and stops it.
+/// 5. `launchctl disable gui/<uid>/com.minsky.cockpit` — prevents re-load on
 ///    next login so the race does not recur.
 ///
-/// Returns `true` if the agent was found and successfully evicted, `false`
-/// otherwise (not found, uid unavailable, or either launchctl call failed).
+/// Returns `true` if the agent was found, confirmed as the port holder, and
+/// successfully evicted, `false` otherwise.
 /// On return `true` the caller should wait briefly for the port to free, then
 /// retry `decide_action`.
 ///
@@ -1359,17 +1397,35 @@ const LEGACY_LAUNCHD_LABEL: &str = "com.minsky.cockpit";
 /// launchd job, not the repo or any cockpit state).  The disable step means the
 /// operator's `minsky cockpit install` intent is overridden; they can re-enable
 /// via `launchctl enable gui/<uid>/com.minsky.cockpit` if needed.
-fn try_evict_legacy_launchd() -> bool {
-    // Step 1: probe whether the agent is loaded.
+fn try_evict_legacy_launchd(port_holder: Option<u32>) -> bool {
+    // Step 1: refuse to evict when the port holder is unknown.
+    // Without this guard we might disable a legitimately-configured launchd agent
+    // that is NOT the cause of the conflict (gh#1761 R1, ADR-014 safety gate).
+    let Some(holder_pid) = port_holder else { return false; };
+
+    // Step 2: probe whether the agent is loaded.
     let probe = Command::new("launchctl")
         .args(["list", LEGACY_LAUNCHD_LABEL])
         .output();
-    match probe {
-        Ok(out) if out.status.success() => {} // agent is loaded — continue
-        _ => return false,                    // not found or launchctl unavailable
+    let probe_out = match probe {
+        Ok(out) if out.status.success() => out, // agent is loaded — continue
+        _ => return false,                       // not found or launchctl unavailable
+    };
+
+    // Step 3: verify the launchd agent is the actual port holder.
+    // `launchctl list` includes a "PID" = <n>; line only when the service is
+    // running.  No "PID" field → agent loaded-but-stopped → cannot hold the port.
+    // Mismatching PID → a different process holds :3737 → do NOT evict.
+    let launchd_pid = parse_launchctl_pid(&String::from_utf8_lossy(&probe_out.stdout));
+    if launchd_pid != Some(holder_pid) {
+        eprintln!(
+            "[tray] legacy agent present (pid {:?}) but port holder is pid {holder_pid} — skipping eviction",
+            launchd_pid
+        );
+        return false;
     }
 
-    // Step 2: derive the user id for the GUI domain.
+    // Step 4: derive the user id for the GUI domain.
     let uid = {
         let id_out = Command::new("id").arg("-u").output();
         match id_out {
@@ -1382,7 +1438,7 @@ fn try_evict_legacy_launchd() -> bool {
 
     let domain = format!("gui/{uid}");
 
-    // Step 3: bootout (unload + stop).
+    // Step 5: bootout (unload + stop).
     let bootout = Command::new("launchctl")
         .args(["bootout", &domain, LEGACY_LAUNCHD_LABEL])
         .status();
@@ -1392,7 +1448,7 @@ fn try_evict_legacy_launchd() -> bool {
         return false;
     }
 
-    // Step 4: disable to prevent re-load on next login.
+    // Step 6: disable to prevent re-load on next login.
     let target = format!("{domain}/{LEGACY_LAUNCHD_LABEL}");
     let _ = Command::new("launchctl")
         .args(["disable", &target])
@@ -2398,6 +2454,41 @@ mod tests {
         assert_eq!(conflict_label_for(None), LABEL_CONFLICT);
     }
 
+    /// parse_launchctl_pid: running agent output contains PID line.
+    #[test]
+    fn parse_launchctl_pid_running_agent() {
+        // Simulates `launchctl list com.minsky.cockpit` output when agent is running.
+        let output = r#"{
+	"LimitLoadToSessionType" = "Aqua";
+	"Label" = "com.minsky.cockpit";
+	"OnDemand" = true;
+	"LastExitStatus" = 0;
+	"PID" = 12345;
+	"Program" = "/usr/local/bin/minsky";
+};"#;
+        assert_eq!(parse_launchctl_pid(output), Some(12345));
+    }
+
+    /// parse_launchctl_pid: stopped/loaded agent output has no PID line.
+    #[test]
+    fn parse_launchctl_pid_stopped_agent() {
+        // Simulates output when agent is loaded but not running (stopped).
+        let output = r#"{
+	"LimitLoadToSessionType" = "Aqua";
+	"Label" = "com.minsky.cockpit";
+	"OnDemand" = true;
+	"LastExitStatus" = 0;
+	"Program" = "/usr/local/bin/minsky";
+};"#;
+        assert_eq!(parse_launchctl_pid(output), None);
+    }
+
+    /// parse_launchctl_pid: empty string yields None.
+    #[test]
+    fn parse_launchctl_pid_empty() {
+        assert_eq!(parse_launchctl_pid(""), None);
+    }
+
     /// Verify the constant value that launchctl queries / bootouts.
     #[test]
     fn legacy_launchd_label_constant() {
@@ -2423,7 +2514,7 @@ mod tests {
             _ => {
                 // Agent absent — function must return false (no bootout attempted).
                 assert!(
-                    !try_evict_legacy_launchd(),
+                    !try_evict_legacy_launchd(None),
                     "should return false when the legacy launchd agent is absent"
                 );
             }
