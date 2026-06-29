@@ -75,6 +75,22 @@ export async function createConfiguredTaskService(options: {
   if (options.backend) {
     switch (options.backend) {
       case TaskBackend.GITHUB: {
+        // Check if the github-issues backend is enabled via config flag (default: false)
+        let githubBackendEnabledExplicit = false;
+        try {
+          const { getConfiguration } = await import("../configuration");
+          const appConfig = getConfiguration();
+          githubBackendEnabledExplicit = appConfig.tasks.githubBackend.enabled;
+        } catch (error) {
+          log.debug("Could not read configuration for github backend flag", {
+            error: getErrorMessage(error),
+          });
+        }
+        if (!githubBackendEnabledExplicit) {
+          throw new Error(
+            "GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it."
+          );
+        }
         const config = getGitHubBackendConfig(options.workspacePath, { logErrors: true });
         if (!config || !config.githubToken || !config.owner || !config.repo) {
           throw new Error(
@@ -138,21 +154,38 @@ export async function createConfiguredTaskService(options: {
       const persistenceProvider = options.persistenceProvider;
       log.debug("Using injected persistence provider for multi-backend mode");
 
-      // Add GitHub backend (gh# prefix) - requires GitHub configuration
+      // Add GitHub backend (gh# prefix) - requires both the config flag AND GitHub credentials
       try {
-        const config = getGitHubBackendConfig(options.workspacePath, { logErrors: false });
-        if (config && config.githubToken && config.owner && config.repo) {
-          const githubBackend = createGitHubIssuesTaskBackend({
-            name: TaskBackend.GITHUB,
-            workspacePath: options.workspacePath,
-            githubToken: config.githubToken,
-            owner: config.owner,
-            repo: config.repo,
-            statusLabels: config.statusLabels,
+        // Check the config flag first (default: false — github backend is disabled by default)
+        let githubBackendEnabled = false;
+        try {
+          const { getConfiguration } = await import("../configuration");
+          const appConfig = getConfiguration();
+          githubBackendEnabled = appConfig.tasks.githubBackend.enabled;
+        } catch (error) {
+          log.debug("Could not read configuration for github backend flag", {
+            error: getErrorMessage(error),
           });
-          githubBackend.prefix = "gh";
-          service.registerBackend(githubBackend);
-          log.debug("GitHub backend registered successfully");
+        }
+        if (!githubBackendEnabled) {
+          log.info(
+            "GitHub-issues task backend disabled by configuration (tasks.githubBackend.enabled=false). Skipping registration."
+          );
+        } else {
+          const config = getGitHubBackendConfig(options.workspacePath, { logErrors: false });
+          if (config && config.githubToken && config.owner && config.repo) {
+            const githubBackend = createGitHubIssuesTaskBackend({
+              name: TaskBackend.GITHUB,
+              workspacePath: options.workspacePath,
+              githubToken: config.githubToken,
+              owner: config.owner,
+              repo: config.repo,
+              statusLabels: config.statusLabels,
+            });
+            githubBackend.prefix = "gh";
+            service.registerBackend(githubBackend);
+            log.debug("GitHub backend registered successfully");
+          }
         }
       } catch (error) {
         log.debug("GitHub backend not available", { error: getErrorMessage(error) });
