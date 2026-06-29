@@ -11,6 +11,7 @@ import {
   startProdStateRefreshSweeper,
   startTranscriptSweepBackstop,
 } from "../../cockpit/server";
+import { markDbDegraded, startDbRetryBackoff } from "../../cockpit/shared-persistence";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
@@ -261,7 +262,36 @@ export function createStartCommand(): Command {
         console.error(`Cockpit: uncaught exception: ${e.message}`);
         process.exit(1);
       });
+      // gh#1761: postgres-js ECIRCUITBREAKER / EDBHANDLEREXITED reach this
+      // handler when the Supavisor circuit breaker trips (e.g. after a burst of
+      // auth failures). Calling process.exit(1) here crashes the daemon and
+      // causes KeepAlive to respawn it, which re-trips the circuit breaker in a
+      // tight loop — exactly the 49,650-restart incident.
+      //
+      // The fix: detect DB-specific errors by their postgres-js error codes,
+      // mark the singleton degraded (so /api/health reports db:"degraded"), and
+      // start a background retry loop.  Non-DB errors still exit(1).
+      const DB_ERROR_CODES = new Set([
+        "ECIRCUITBREAKER",
+        "EDBHANDLEREXITED",
+        "CONNECTION_CLOSED",
+        "CONNECTION_DESTROYED",
+      ]);
+      let stopDbRetry: (() => void) | null = null;
+
       proc.on("unhandledRejection", (reason: unknown) => {
+        const code =
+          reason != null && typeof reason === "object" && "code" in reason
+            ? String((reason as { code: unknown }).code)
+            : null;
+        if (code !== null && DB_ERROR_CODES.has(code)) {
+          const r = reason instanceof Error ? reason.message : String(reason);
+          console.error(`Cockpit: DB circuit-breaker error — degrading gracefully: ${r}`);
+          markDbDegraded();
+          if (stopDbRetry !== null) stopDbRetry();
+          stopDbRetry = startDbRetryBackoff();
+          return; // do NOT exit — daemon stays up
+        }
         cleanupSync();
         const r = reason instanceof Error ? reason.message : String(reason);
         console.error(`Cockpit: unhandled rejection: ${r}`);
