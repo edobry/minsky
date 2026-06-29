@@ -11,7 +11,11 @@ import {
   startProdStateRefreshSweeper,
   startTranscriptSweepBackstop,
 } from "../../cockpit/server";
-import { markDbDegraded, startDbRetryBackoff } from "../../cockpit/shared-persistence";
+import {
+  markDbDegraded,
+  startDbRetryBackoff,
+  PersistenceInitTimeoutError,
+} from "../../cockpit/shared-persistence";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
@@ -51,6 +55,38 @@ async function attemptListen(app: express.Express, port: number): Promise<Listen
       }
     });
   });
+}
+
+// gh#1761: postgres-js error codes that indicate a DB-layer issue (circuit
+// breaker, connection recycling). Exported for unit testing.
+const DB_ERROR_CODES = new Set([
+  "ECIRCUITBREAKER",
+  "EDBHANDLEREXITED",
+  "CONNECTION_CLOSED",
+  "CONNECTION_DESTROYED",
+]);
+
+/**
+ * Returns true when `reason` is a DB-layer error that should cause the cockpit
+ * daemon to degrade gracefully (stay up, retry) rather than crash (exit 1).
+ *
+ * Covers:
+ *   - postgres-js circuit-breaker / connection-recycling errors (by `code`
+ *     property matching `DB_ERROR_CODES`)
+ *   - `PersistenceInitTimeoutError` thrown by `getSharedPersistenceService`
+ *     when the init deadline is exceeded
+ *
+ * Everything else — unrelated application bugs, programming errors, etc. —
+ * must NOT be swallowed; callers should exit(1) for those.
+ *
+ * @internal Exported for unit testing only.
+ */
+export function isDbDegradationError(reason: unknown): boolean {
+  if (reason instanceof PersistenceInitTimeoutError) return true;
+  if (reason != null && typeof reason === "object" && "code" in reason) {
+    return DB_ERROR_CODES.has(String((reason as { code: unknown }).code));
+  }
+  return false;
 }
 
 /**
@@ -271,20 +307,10 @@ export function createStartCommand(): Command {
       // The fix: detect DB-specific errors by their postgres-js error codes,
       // mark the singleton degraded (so /api/health reports db:"degraded"), and
       // start a background retry loop.  Non-DB errors still exit(1).
-      const DB_ERROR_CODES = new Set([
-        "ECIRCUITBREAKER",
-        "EDBHANDLEREXITED",
-        "CONNECTION_CLOSED",
-        "CONNECTION_DESTROYED",
-      ]);
       let stopDbRetry: (() => void) | null = null;
 
       proc.on("unhandledRejection", (reason: unknown) => {
-        const code =
-          reason != null && typeof reason === "object" && "code" in reason
-            ? String((reason as { code: unknown }).code)
-            : null;
-        if (code !== null && DB_ERROR_CODES.has(code)) {
+        if (isDbDegradationError(reason)) {
           const r = reason instanceof Error ? reason.message : String(reason);
           console.error(`Cockpit: DB circuit-breaker error — degrading gracefully: ${r}`);
           markDbDegraded();
