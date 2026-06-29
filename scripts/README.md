@@ -23,3 +23,11 @@ Shared utilities used by scripts above.
 | Module             | Description                         |
 | ------------------ | ----------------------------------- |
 | `lib/pem-utils.ts` | PEM key parsing/formatting helpers. |
+
+## supabase/
+
+Supabase Management API helpers.
+
+| Script                        | Description                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `supabase/restart-project.ts` | Self-serve Supabase project restart via Management API (`POST /v1/projects/{ref}/restart`). Dry-run by default; pass `--execute` to actually restart. Required to reset the Supavisor auth-failure circuit breaker — a fast DB reboot alone is NOT sufficient. See mt#2574 and `docs/incidents/2026-06-28-supabase-connectivity-breaker.md`. |
