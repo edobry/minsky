@@ -2,7 +2,14 @@
 
 ## Overview
 
-The Minsky multi-backend task system allows you to work with tasks from multiple backends (Minsky database, GitHub Issues) simultaneously. This guide covers everything you need to know about using the system.
+The Minsky multi-backend task system allows you to work with tasks from multiple backends
+(Minsky database, GitHub Issues) simultaneously. This guide covers everything you need
+to know about using the system.
+
+> **Note:** The GitHub Issues backend is **disabled by default** (`tasks.githubBackend.enabled=false`).
+> The Minsky DB (`mt#`) backend is the operational default. To enable the github-issues
+> backend, set `tasks.githubBackend.enabled: true` in your config — see
+> [GitHub Issues Backend Guide](./github-issues-backend-guide.md).
 
 ## Task ID Formats
 
@@ -96,6 +103,14 @@ minsky session pr create --title "Implement feature X" --type feat
 
 ### 2. Working with GitHub Issues
 
+> **Prerequisite:** The GitHub Issues backend must be explicitly enabled. Add
+> `tasks.githubBackend.enabled: true` to `~/.config/minsky/config.yaml` first.
+> Attempting to use the github backend without enabling it returns:
+>
+> ```
+> GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+> ```
+
 ```bash
 # List GitHub issues
 minsky tasks list --backend gh
@@ -163,8 +178,15 @@ minsky session list  # Shows all sessions with qualified names
 #### Backend Not Available
 
 ```bash
-# Error: Backend 'gh' not configured
-# Solution: Configure GitHub backend first
+# Error: GitHub-issues task backend is disabled.
+# Solution: Enable the github backend in your config
+#   tasks:
+#     githubBackend:
+#       enabled: true
+# Then retry the command.
+
+# Error: Backend 'gh' not configured (after enabling)
+# Solution: Configure GitHub credentials (GITHUB_TOKEN, owner, repo)
 minsky init --github-repo owner/repo
 ```
 
