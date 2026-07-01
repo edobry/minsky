@@ -754,6 +754,16 @@ export const sessionPrWaitForReviewCommandParams = {
       "(e.g., wait only for reviews newer than a known stale one).",
     required: false,
   },
+  requireCurrentHead: {
+    schema: z.boolean(),
+    description:
+      "When true (default), only a review whose commit SHA matches the PR's current HEAD " +
+      "counts as a match, so a stale review of a superseded commit no longer resolves a " +
+      "re-review wait (mt#2586). Set false to accept any review regardless of commit " +
+      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support.",
+    required: false,
+    defaultValue: true,
+  },
 };
 
 /**
