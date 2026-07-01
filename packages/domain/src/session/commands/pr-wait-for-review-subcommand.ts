@@ -523,15 +523,18 @@ export async function sessionPrWaitForReview(
 
     const sinceIso = new Date(since).toISOString();
 
-    // Resolve the PR's current HEAD sha (mt#2586). When present, only reviews
-    // submitted against this commit satisfy the wait, so a stale review of a
-    // superseded commit no longer resolves a re-review wait. Skipped when the
-    // caller opts out (requireCurrentHead === false) or the backend does not
-    // implement getPullRequestHeadSha — in which case the `since` filter governs.
+    // The PR's current HEAD sha (mt#2586), REFRESHED on every poll below — not
+    // resolved once — so that if HEAD advances during the wait (a quick
+    // re-push in a re-review cycle) a review of the PRIOR head keeps being
+    // rejected until a review of the NEW head lands. Declared here so
+    // `buildTimeoutResult`'s closure always reflects the latest poll's value.
+    // Stays undefined (no HEAD filter, `since`-only) when the caller opts out
+    // (requireCurrentHead === false) or the backend lacks getPullRequestHeadSha.
     let headSha: string | undefined;
-    if (params.requireCurrentHead !== false && backend.review.getPullRequestHeadSha) {
-      headSha = await backend.review.getPullRequestHeadSha(prNumber);
-    }
+    // Capture the HEAD-sha resolver (or undefined) so the poll loop can call it
+    // without a non-null assertion; requireCurrentHead === false disables it.
+    const getHeadSha =
+      params.requireCurrentHead !== false ? backend.review.getPullRequestHeadSha : undefined;
 
     const deadline = start + timeoutMs;
     let pollCount = 0;
@@ -558,6 +561,13 @@ export async function sessionPrWaitForReview(
       }
 
       pollCount += 1;
+
+      // mt#2586: refresh HEAD each poll so a mid-wait HEAD advance keeps
+      // rejecting reviews of the prior head (getHeadSha captured once above).
+      if (getHeadSha) {
+        headSha = await getHeadSha(prNumber);
+      }
+
       const reviews = await backend.review.listReviews(prNumber);
       lastReviews = reviews;
       const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
