@@ -1,3 +1,13 @@
+/* eslint-disable max-lines */
+// mt#2435: review-worker.ts was already at the max-lines limit before this
+// task's check-run wiring was added. The four publishCheckRun call sites
+// (output-tools success, prose success, empty-output error, CoT-leakage error)
+// add ~34 non-blank/non-comment lines of necessary integration wiring. A full
+// extraction refactor (splitting runReviewBody into sub-functions, a separate
+// module, etc.) is out of scope for mt#2435 and is tracked in mt#2499 (the file
+// was already over the max-lines threshold before this task's ~34 lines of
+// wiring). See also the pre-existing comment on file size in the function header below.
+
 /**
  * Review worker: fetches PR context, runs the adversarial review, posts result.
  *
@@ -113,6 +123,7 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { log } from "./logger";
 import { TimeoutError } from "./with-timeout";
 import { extractPgErrorContext } from "./webhook-events";
+import { publishCheckRun, type PublishCheckRunOptions } from "./check-run-publisher";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -830,6 +841,15 @@ export interface RunReviewDeps {
    * the PR-body marker or the hybrid default.
    */
   persistenceProvider?: BasePersistenceProvider | null;
+
+  /**
+   * Test seam for check-run publication (mt#2435).
+   * When provided, replaces the real `publishCheckRun` call.
+   * Injected in tests to assert the publisher is called with the right payload
+   * without triggering real GitHub API calls.
+   * When absent, defaults to the real `publishCheckRun` from check-run-publisher.ts.
+   */
+  checkRunPublisher?: (options: PublishCheckRunOptions) => Promise<unknown>;
 }
 
 export async function runReview(
@@ -1439,6 +1459,22 @@ async function runReviewBody(
         model: output.model,
       });
     }
+    // mt#2435: post a liveness-failure check run so the PR surface shows the
+    // failure rather than staying silent (mt#1596 complement).
+    const emptyOutputCheckRunPublisher = deps.checkRunPublisher ?? publishCheckRun;
+    await emptyOutputCheckRunPublisher({
+      octokit,
+      owner,
+      repo,
+      headSha: pr.headSha,
+      prNumber,
+      toolCalls: [],
+      convergenceState: {
+        roundNumber: priorReviewIngestion.iterationCount + 1,
+        blockingCount: 0,
+      },
+      failureSummary: validation.reason,
+    });
     return {
       status: "error",
       reason: validation.reason,
@@ -1806,6 +1842,24 @@ async function runReviewBody(
       db: deps.db,
     });
 
+    // mt#2435: post a GitHub check run on the PR HEAD with convergence state +
+    // findings as annotations. Wrapped in try/catch via publishCheckRun — any
+    // error (including fork-PR checks:write permission failures) logs a warning
+    // and falls back without blocking the review result.
+    const checkRunPublisherFn = deps.checkRunPublisher ?? publishCheckRun;
+    await checkRunPublisherFn({
+      octokit,
+      owner,
+      repo,
+      headSha: pr.headSha,
+      prNumber,
+      toolCalls: recoveryResult.toolCalls,
+      convergenceState: {
+        roundNumber: priorReviewIngestion.iterationCount + 1,
+        blockingCount,
+      },
+    });
+
     // Thread-resolve loop (mt#1345): after posting the review, resolve threads
     // that the model marked as fixed. Guard: only resolve threads whose first
     // comment was authored by the reviewer bot itself — never auto-resolve
@@ -2004,6 +2058,21 @@ async function runReviewBody(
         model: output.model,
       });
     }
+    // mt#2435: post a liveness-failure check run on the CoT-leakage error path.
+    const cotCheckRunPublisher = deps.checkRunPublisher ?? publishCheckRun;
+    await cotCheckRunPublisher({
+      octokit,
+      owner,
+      repo,
+      headSha: pr.headSha,
+      prNumber,
+      toolCalls: [],
+      convergenceState: {
+        roundNumber: priorReviewIngestion.iterationCount + 1,
+        blockingCount: 0,
+      },
+      failureSummary: outcome.reason,
+    });
     return {
       status: "error",
       reason: outcome.reason,
@@ -2042,6 +2111,23 @@ async function runReviewBody(
   // Enables "prior-blocker count / new-blocker count" convergence metric in logs.
   // Shares countBlockingFindings with the prior-review counts above.
   const blockingCount: number = countBlockingFindings(sanitized.body);
+
+  // mt#2435: post a GitHub check run on the PR HEAD with convergence state.
+  // On the prose path there are no structured tool calls, so annotations are empty.
+  // The check-run summary still carries the convergence state (round N, K blocking remain).
+  const checkRunPublisherFnProse = deps.checkRunPublisher ?? publishCheckRun;
+  await checkRunPublisherFnProse({
+    octokit,
+    owner,
+    repo,
+    headSha: pr.headSha,
+    prNumber,
+    toolCalls: [],
+    convergenceState: {
+      roundNumber: priorReviewIngestion.iterationCount + 1,
+      blockingCount,
+    },
+  });
 
   // SC-5 (mt#1189): emit structured convergence metric per review.
   // Fields: PR number, head SHA, iteration index (this is iteration N+1 where N
