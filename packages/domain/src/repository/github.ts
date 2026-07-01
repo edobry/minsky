@@ -56,6 +56,7 @@ import {
 import {
   listReviews as listReviewsImpl,
   getPullRequestCreatedAt as getPullRequestCreatedAtImpl,
+  getPullRequestHeadSha as getPullRequestHeadShaImpl,
 } from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
 import {
@@ -787,6 +788,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
       getPullRequestCreatedAt: async (prIdentifier: string | number): Promise<string> => {
         const gh = this.requireGitHubContext();
         return getPullRequestCreatedAtImpl(gh, prIdentifier);
+      },
+
+      getPullRequestHeadSha: async (prIdentifier: string | number): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        return getPullRequestHeadShaImpl(gh, prIdentifier);
       },
 
       resolveReviewThread: async (threadId: string): Promise<void> => {

@@ -749,6 +749,103 @@ describe("explainReviewRejection (mt#2043)", () => {
   });
 });
 
+// ============================================================================
+// mt#2586 — HEAD-freshness: reject reviews of a superseded commit
+// ============================================================================
+
+describe("explainReviewRejection — HEAD-freshness (mt#2586)", () => {
+  const since = Date.parse("2026-05-21T18:32:55Z");
+  const HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const OLD = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const CR_STATE = "CHANGES_REQUESTED" as const;
+
+  test("rejects a review submitted against a superseded commit", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT, HEAD);
+    expect(reason).toMatch(/^stale-head:/);
+    expect(reason).toContain(OLD);
+    expect(reason).toContain(HEAD);
+  });
+
+  test("matches a review submitted against the current HEAD", () => {
+    const r: ReviewListEntry = {
+      reviewId: 2,
+      state: "APPROVED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: HEAD,
+    };
+    expect(explainReviewRejection(r, since, REVIEWER_BOT, HEAD)).toBeNull();
+  });
+
+  test("reports <none> when the stale review carries no commitId", () => {
+    const r: ReviewListEntry = {
+      reviewId: 3,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT, HEAD);
+    expect(reason).toMatch(/^stale-head:/);
+    expect(reason).toContain("<none>");
+  });
+
+  test("skips the HEAD check entirely when headSha is undefined (fallback path)", () => {
+    const r: ReviewListEntry = {
+      reviewId: 4,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    // No headSha => no HEAD filter => matches (pre-mt#2586 behavior preserved).
+    expect(explainReviewRejection(r, since, REVIEWER_BOT, undefined)).toBeNull();
+  });
+
+  test("findMatchingReview skips the stale-head review and returns the fresh one", () => {
+    const stale: ReviewListEntry = {
+      reviewId: 10,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    const fresh: ReviewListEntry = {
+      reviewId: 11,
+      state: "APPROVED",
+      submittedAt: "2026-05-21T18:40:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: HEAD,
+    };
+    const match = findMatchingReview([stale, fresh], since, REVIEWER_BOT, HEAD);
+    expect(match?.reviewId).toBe(11);
+  });
+
+  test("findMatchingReview returns undefined when only a stale-head review exists (the mt#2586 stall)", () => {
+    const stale: ReviewListEntry = {
+      reviewId: 12,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    expect(findMatchingReview([stale], since, REVIEWER_BOT, HEAD)).toBeUndefined();
+  });
+});
+
 describe("annotateReviewRejections (mt#2043)", () => {
   const since = Date.parse("2026-05-21T18:32:55Z");
 

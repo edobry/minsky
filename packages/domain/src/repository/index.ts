@@ -410,6 +410,17 @@ export interface ReviewOperations {
   getPullRequestCreatedAt?(prIdentifier: string | number): Promise<string>;
 
   /**
+   * Return the PR's current HEAD commit SHA (the tip of the PR branch).
+   *
+   * Introduced for mt#2586: `session_pr_wait_for_review` uses this to match
+   * only reviews submitted against the current HEAD, so a stale review of a
+   * superseded commit no longer satisfies a re-review wait. Non-GitHub
+   * backends may not implement this; callers treat `undefined` as
+   * "HEAD-sha lookup not supported" and fall back to the `since`-based filter.
+   */
+  getPullRequestHeadSha?(prIdentifier: string | number): Promise<string>;
+
+  /**
    * Mark a GitHub PR review thread as resolved.
    *
    * Requires a GraphQL `resolveReviewThread` mutation — no REST equivalent.
@@ -478,6 +489,13 @@ export interface ReviewListEntry {
   body: string;
   /** Web URL of the review, if the forge exposes one. */
   htmlUrl?: string;
+  /**
+   * The commit SHA the review was submitted against (GitHub's `commit_id`).
+   * Undefined when the forge does not expose it. Used by
+   * `session_pr_wait_for_review` to distinguish a review of the current HEAD
+   * from a stale review of a superseded commit (mt#2586).
+   */
+  commitId?: string;
 }
 
 // Completely rewritten repository backend interface with flexible types
