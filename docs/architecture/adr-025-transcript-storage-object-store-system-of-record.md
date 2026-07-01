@@ -53,25 +53,6 @@ past session from **our own durable storage**, and must **never** depend on the 
 at runtime — after parse it is throw-away. The open question was _where_ the full-fidelity original
 should live so Postgres can shed the blob without losing answerability.
 
-**Alternatives considered:**
-
-- **Status quo** — keep the redundant blob. Rejected: ~40% of the DB is a growing duplicate.
-- **(D) Capture everything losslessly into Postgres, drop the blob.** Rejected: re-materializes the same
-  multi-hundred-MB tool-result mass inside Postgres (little net reclaim), commits us to a lossless-parse
-  contract forever, and forecloses re-deriving new structure later — you can only query what you thought
-  to capture at parse time.
-- **(A) Externalize the parsed jsonb blob to object storage.** Archives a re-serialized intermediate
-  rather than the true original, and keeps the "blob" abstraction alive. The chosen decision is A refined
-  to archive the _raw file_ and parse from it.
-- **`pg_largeobject` (blob stays in Postgres).** Keeps full transactional guarantees and the identical
-  backup story (an upload can't partially succeed; a delete rolls back on abort). Rejected as primary:
-  blobs still consume the Postgres backup set (the bloat we are removing), get no independent
-  HTTP-accessible URL (wanted for future cockpit direct-streaming), and cannot carry a separate
-  retention/lifecycle policy (delete a session's raw without a PG migration). For a cold, immutable,
-  large-object workload these three tip to object storage.
-- **(C) Accept lossy reconstruction from per-turn rows, fall back to JSONL.** Rejected: spike fact (1) —
-  no JSONL fallback for most rows; spike fact (2) — the rows are lossy.
-
 ## Decision
 
 We will make **the raw transcript file, stored in object storage (Supabase Storage), the immutable
@@ -103,11 +84,30 @@ system of record**, and treat **Postgres as a rebuildable derived index** over i
 explicitly** (rather than claiming the bar doesn't apply): (a) a cold, immutable, multi-hundred-MB-and-
 growing blob is a workload Postgres serves poorly — it is 40% of the DB and unbounded; (b) the evidence is
 quantified from the 2026-06-30 spike; (c) this ADR is the required amendment naming Supabase Storage and
-why `pg_largeobject` was not preferred (above); (d) operational ownership is the existing Supabase vendor
+why `pg_largeobject` was not preferred (below); (d) operational ownership is the existing Supabase vendor
 relationship — no new on-call, and archive objects are covered by the Supabase project backup. Postgres
 remains the single source of truth for all structured **product** state; the archive is a raw landing zone
 that the disposable index is built from — the data-lake shape, consistent with "the search index is
 derived data" (memory `70b595dc`, ADR-013/ADR-018).
+
+## Alternatives considered
+
+- **Status quo** — keep the redundant blob. Rejected: ~40% of the DB is a growing duplicate.
+- **(D) Capture everything losslessly into Postgres, drop the blob.** Rejected: re-materializes the same
+  multi-hundred-MB tool-result mass inside Postgres (little net reclaim), commits us to a lossless-parse
+  contract forever, and forecloses re-deriving new structure later — you can only query what you thought
+  to capture at parse time.
+- **(A) Externalize the parsed jsonb blob to object storage.** Archives a re-serialized intermediate
+  rather than the true original, and keeps the "blob" abstraction alive. The chosen decision is A refined
+  to archive the _raw file_ and parse from it.
+- **`pg_largeobject` (blob stays in Postgres).** Keeps full transactional guarantees and the identical
+  backup story (an upload can't partially succeed; a delete rolls back on abort). Rejected as primary:
+  blobs still consume the Postgres backup set (the bloat we are removing), get no independent
+  HTTP-accessible URL (wanted for future cockpit direct-streaming), and cannot carry a separate
+  retention/lifecycle policy (delete a session's raw without a PG migration). For a cold, immutable,
+  large-object workload these three tip to object storage.
+- **(C) Accept lossy reconstruction from per-turn rows, fall back to JSONL.** Rejected: spike fact (1) —
+  no JSONL fallback for most rows; spike fact (2) — the rows are lossy.
 
 ## Consequences
 
