@@ -49,6 +49,33 @@ const UPTIME_MENU_ID: &str = "uptime";
 /// burst of backend edits into a single restart.
 const RESTART_DEBOUNCE: Duration = Duration::from_secs(2);
 
+// ---------------------------------------------------------------------------
+// Self-health watchdog constants (mt#2578).
+//
+// Calibrated per CLAUDE.md §MCP disconnect cadence: the session threshold is
+// >1 eligible disconnect per MCP connection, daily >3 in 24h.  The watchdog
+// intentionally uses a tighter window / lower count because the 2026-06-27
+// incident hit 49,650 launchd restarts before any alert fired — early warning
+// is the explicit design goal.
+// ---------------------------------------------------------------------------
+
+/// Rolling window for daemon restart-storm detection.
+const RESTART_STORM_WINDOW: Duration = Duration::from_secs(600); // 10 min
+/// Daemon-crash restarts within RESTART_STORM_WINDOW that trigger a principal alert.
+const RESTART_STORM_THRESHOLD: usize = 3;
+/// Consecutive /api/health polls with db != "ok" before a principal alert fires.
+/// At POLL_INTERVAL = 5s → 24 polls ≈ 2 min (spec requirement: "DB degraded > 2 min").
+const DB_DEGRADED_POLL_THRESHOLD: u32 = 24;
+/// Consecutive /api/health polls returning HTTP failure while the daemon child is
+/// alive (or an adopted daemon is expected) but the endpoint is unresponsive. This
+/// targets the unhealthy-but-not-exiting case (slow start, persistent hang, adopted
+/// daemon silently stopped) — distinct from the restart-storm path which handles
+/// the crash-and-exit case. At 5s/poll → 12 polls ≈ 1 min.
+const HTTP_FAILURE_POLL_THRESHOLD: u32 = 12;
+/// Minimum gap between repeated toasts for the SAME ACTIVE condition.
+/// Resets when the condition clears so the NEXT episode re-alerts immediately.
+const ALERT_COOLDOWN: Duration = Duration::from_secs(900); // 15 min
+
 // Deep-link retry constants (mt#2528, ADR-023 cold-start handling).
 // After a minsky:// URL is opened we retry window.eval(...) until the webview
 // FIRST accepts the script. Each successful eval sets window.__minskyPendingDeepLink
@@ -433,6 +460,34 @@ struct Sup {
     daemon_source_mtime: Option<SystemTime>,
     /// Last value pushed to the uptime menu line (mt#2299), for dedupe.
     last_uptime_label: Option<String>,
+
+    // --- Self-health watchdog state (mt#2578) ---
+
+    /// Ring buffer of daemon-crash restart timestamps (child-exited or
+    /// processStartedAtMs changed) within RESTART_STORM_WINDOW.
+    /// Pruned every poll to evict entries older than the window.
+    restart_timestamps: Vec<Instant>,
+    /// Number of consecutive POLL_INTERVAL polls where db != "ok".
+    /// Reset to 0 on the first "ok" poll.
+    consecutive_db_degraded: u32,
+    /// Instant of the last restart-storm alert toast; `None` when the condition
+    /// is clear (cooldown reset so the next episode fires immediately).
+    last_restart_alert: Option<Instant>,
+    /// Instant of the last DB-degraded alert toast; reset to `None` when
+    /// condition clears.
+    last_db_alert: Option<Instant>,
+    /// `processStartedAtMs` from the daemon's most recent successful health
+    /// response; `None` before the first successful poll.  A change between
+    /// polls means the daemon restarted (for adopted-daemon restart detection).
+    last_process_started_at_ms: Option<u64>,
+    /// Consecutive polls where http_ok = false while the daemon child is alive
+    /// or an adopted daemon is expected (the unhealthy-but-not-exiting case).
+    /// Reset to 0 on the first successful health poll; also reset in the
+    /// crash-exit arm (that path's alerting is owned by restart_timestamps).
+    consecutive_http_failed: u32,
+    /// Last time a sustained-HTTP-failure alert was fired; reset when health
+    /// returns (condition cleared → next episode re-alerts immediately).
+    last_http_alert: Option<Instant>,
 }
 
 /// Update the visible status label (dropdown line + tray tooltip), skipping
@@ -576,6 +631,14 @@ fn run_supervisor(
             daemon_started_at: None,
             daemon_source_mtime: None,
             last_uptime_label: None,
+            // Watchdog state (mt#2578).
+            restart_timestamps: Vec::new(),
+            consecutive_db_degraded: 0,
+            last_restart_alert: None,
+            last_db_alert: None,
+            last_process_started_at_ms: None,
+            consecutive_http_failed: 0,
+            last_http_alert: None,
         };
 
         // Initial adoption-or-spawn.
@@ -732,21 +795,131 @@ fn run_supervisor(
                     }
                 },
                 _ = tokio::time::sleep(POLL_INTERVAL) => {
-                    if health_ok(&client).await {
-                        set_status(&app, &mut sup, LABEL_RUNNING);
-                        // mt#2299: keep the uptime line ticking while healthy.
-                        refresh_uptime(&app, &mut sup);
-                        continue;
+                    // mt#2578: use poll_health_detail so we get DB status + restart
+                    // signal, not just a bool. health_ok() is still used for the
+                    // shutdown path (adopt_ok check) where we only need the bool.
+                    let health = poll_health_detail(&client).await;
+                    let poll_now = Instant::now();
+
+                    // --- Watchdog: restart-storm detection ---
+                    // Prune timestamps older than the rolling window.
+                    sup.restart_timestamps.retain(|t| poll_now.duration_since(*t) < RESTART_STORM_WINDOW);
+
+                    if sup.restart_timestamps.len() > RESTART_STORM_THRESHOLD {
+                        let cooldown_elapsed = sup.last_restart_alert
+                            .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                            .unwrap_or(true);
+                        if cooldown_elapsed {
+                            let reason = format!(
+                                "{} daemon restarts in the last {}m — possible crash-loop. \
+                                 Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
+                                sup.restart_timestamps.len(),
+                                RESTART_STORM_WINDOW.as_secs() / 60
+                            );
+                            notify_daemon_unhealthy(&app, &reason);
+                            sup.last_restart_alert = Some(poll_now);
+                            eprintln!("[watchdog] restart-storm alert: {}", reason);
+                        }
+                    } else {
+                        // Condition cleared — next episode re-alerts immediately.
+                        sup.last_restart_alert = None;
                     }
+
+                    if health.http_ok {
+                        // HTTP health restored — reset failure counter + cooldown.
+                        if sup.consecutive_http_failed > 0 {
+                            eprintln!(
+                                "[watchdog] HTTP health restored after {} failed polls",
+                                sup.consecutive_http_failed
+                            );
+                        }
+                        sup.consecutive_http_failed = 0;
+                        sup.last_http_alert = None;
+
+                        // Detect adopted-daemon restarts via processStartedAtMs change.
+                        if let (Some(prev), Some(curr)) = (sup.last_process_started_at_ms, health.process_started_at_ms) {
+                            if curr != prev {
+                                sup.restart_timestamps.push(poll_now);
+                                eprintln!("[watchdog] adopted-daemon restart detected via processStartedAtMs: {prev} → {curr}");
+                            }
+                        }
+                        if health.process_started_at_ms.is_some() {
+                            sup.last_process_started_at_ms = health.process_started_at_ms;
+                        }
+
+                        // --- Watchdog: DB-degraded detection ---
+                        match health.db {
+                            DbStatus::Ok => {
+                                if sup.consecutive_db_degraded > 0 {
+                                    eprintln!(
+                                        "[watchdog] DB recovered after {} degraded polls",
+                                        sup.consecutive_db_degraded
+                                    );
+                                }
+                                sup.consecutive_db_degraded = 0;
+                                // Condition cleared — next episode re-alerts immediately.
+                                sup.last_db_alert = None;
+                                set_status(&app, &mut sup, LABEL_RUNNING);
+                                // mt#2299: keep the uptime line ticking while healthy.
+                                refresh_uptime(&app, &mut sup);
+                                continue;
+                            }
+                            db_state => {
+                                sup.consecutive_db_degraded += 1;
+                                if sup.consecutive_db_degraded > DB_DEGRADED_POLL_THRESHOLD {
+                                    let cooldown_elapsed = sup.last_db_alert
+                                        .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                                        .unwrap_or(true);
+                                    if cooldown_elapsed {
+                                        let sustained_secs = sup.consecutive_db_degraded as u64
+                                            * POLL_INTERVAL.as_secs();
+                                        let reason = format!(
+                                            "Cockpit DB has been {db_state:?} for {sustained_secs}s — \
+                                             circuit-breaker may be active. Check Supabase connectivity \
+                                             and ~/.local/state/minsky/logs/cockpit-stderr.log",
+                                        );
+                                        notify_daemon_unhealthy(&app, &reason);
+                                        sup.last_db_alert = Some(poll_now);
+                                        eprintln!("[watchdog] DB-degraded alert: {}", reason);
+                                    }
+                                }
+                                // Daemon HTTP is up but DB is degraded — still show running
+                                // (the daemon serves UI requests; only DB writes fail).
+                                set_status(&app, &mut sup, LABEL_RUNNING);
+                                refresh_uptime(&app, &mut sup);
+                                continue;
+                            }
+                        }
+                    }
+
+                    // HTTP health poll failed — daemon is down or unresponsive.
+                    // Increment the sustained-HTTP-failure counter BEFORE branching;
+                    // the crash-exit arm will reset it (that path is owned by restart-storm).
+                    sup.consecutive_http_failed += 1;
+
                     // Health is down. Only a daemon WE spawned is respawned.
                     match sup.child.as_mut().map(|c| c.try_wait()) {
                         Some(Ok(Some(_status))) => {
-                            // Our child exited — respawn (throttled).
+                            // Our child exited — record crash for storm detection, respawn (throttled).
+                            // The crash-exit path (restart-storm) owns the alerting for this case;
+                            // reset the HTTP-failure counter so the two paths don't double-alert.
+                            sup.consecutive_http_failed = 0;
+                            sup.last_http_alert = None;
                             sup.child = None;
                             if let Ok(mut g) = spawned.lock() {
                                 *g = None;
                             }
                             clear_uptime(&app, &mut sup);
+                            // Record this crash; the next poll will prune + check the threshold.
+                            sup.restart_timestamps.push(poll_now);
+                            // Clear last_process_started_at_ms so the first successful health
+                            // poll after respawn does NOT double-count a restart via the
+                            // adopted-daemon change-detection path above.
+                            sup.last_process_started_at_ms = None;
+                            eprintln!(
+                                "[watchdog] child crash: {} restarts in window",
+                                sup.restart_timestamps.len()
+                            );
                             if throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
                                 do_spawn(&app, &mut sup, &spawned, &path);
                             } else {
@@ -762,12 +935,49 @@ fn run_supervisor(
                             }
                         }
                         Some(Ok(None)) => {
-                            // Child alive but not yet serving — still booting.
+                            // Child alive but not yet serving — still booting or hung.
+                            // This is the primary "unhealthy-but-not-exiting" path: the
+                            // daemon is running but not accepting health requests.
+                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+                                let cooldown_elapsed = sup.last_http_alert
+                                    .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                                    .unwrap_or(true);
+                                if cooldown_elapsed {
+                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                        * POLL_INTERVAL.as_secs();
+                                    let reason = format!(
+                                        "Cockpit daemon has been unresponsive for {sustained_secs}s \
+                                         while its process is still alive — possible hang. \
+                                         Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
+                                    );
+                                    notify_daemon_unhealthy(&app, &reason);
+                                    sup.last_http_alert = Some(poll_now);
+                                    eprintln!("[watchdog] sustained HTTP-failure (child alive) alert: {}", reason);
+                                }
+                            }
                             set_status(&app, &mut sup, LABEL_STARTING);
                         }
                         Some(Err(_)) | None => {
-                            // No child of ours (adopted daemon down, or never
-                            // spawned). Don't auto-spawn over an adopted daemon.
+                            // No child of ours (adopted daemon down, or never spawned).
+                            // Don't auto-spawn over an adopted daemon. Apply the same
+                            // sustained-HTTP-failure alert here: an expected adopted daemon
+                            // that stops responding is an alert-worthy condition.
+                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+                                let cooldown_elapsed = sup.last_http_alert
+                                    .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                                    .unwrap_or(true);
+                                if cooldown_elapsed {
+                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                        * POLL_INTERVAL.as_secs();
+                                    let reason = format!(
+                                        "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
+                                         daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
+                                    );
+                                    notify_daemon_unhealthy(&app, &reason);
+                                    sup.last_http_alert = Some(poll_now);
+                                    eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
+                                }
+                            }
                             set_status(&app, &mut sup, LABEL_STOPPED);
                             clear_uptime(&app, &mut sup);
                         }
@@ -1076,6 +1286,87 @@ fn set_build_status(app: &AppHandle, sup: &mut Sup, label: String) {
     }
     sup.last_build_label = Some(label.clone());
     let _ = update_build_status(app, &label);
+}
+
+// ---------------------------------------------------------------------------
+// Self-health watchdog types + helpers (mt#2578).
+// ---------------------------------------------------------------------------
+
+/// DB health state as reported by the /api/health `db` field (gh#1761 / PR #1770).
+/// `Unknown` covers parse failures and pre-gh#1761 daemons that don't emit the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DbStatus {
+    Ok,
+    Degraded,
+    Unreachable,
+    /// Field absent or unparseable — treated as degraded for alert purposes.
+    Unknown,
+}
+
+/// Watchdog-relevant fields extracted from a single /api/health response.
+struct HealthDetail {
+    /// True when the HTTP GET succeeded with a 2xx status.
+    http_ok: bool,
+    /// DB health from the `db` field; `Unknown` when the field is absent/unparseable.
+    db: DbStatus,
+    /// `processStartedAtMs` from the response body (mt#2578 TS slice).
+    /// `None` for daemons that predate the field (backward-compat).
+    process_started_at_ms: Option<u64>,
+}
+
+/// Poll /api/health and return watchdog-relevant fields. Never panics; on any
+/// network or parse failure the caller receives `http_ok: false` / `db: Unknown` /
+/// `process_started_at_ms: None`.
+async fn poll_health_detail(client: &reqwest::Client) -> HealthDetail {
+    let resp = match client.get(HEALTH_URL).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => {
+            return HealthDetail {
+                http_ok: false,
+                db: DbStatus::Unknown,
+                process_started_at_ms: None,
+            };
+        }
+    };
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(_) => {
+            return HealthDetail {
+                http_ok: true,
+                db: DbStatus::Unknown,
+                process_started_at_ms: None,
+            };
+        }
+    };
+    let json: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => {
+            return HealthDetail {
+                http_ok: true,
+                db: DbStatus::Unknown,
+                process_started_at_ms: None,
+            };
+        }
+    };
+    let db = match json.get("db").and_then(|v| v.as_str()) {
+        Some("ok") => DbStatus::Ok,
+        Some("degraded") => DbStatus::Degraded,
+        Some("unreachable") => DbStatus::Unreachable,
+        _ => DbStatus::Unknown,
+    };
+    let process_started_at_ms = json.get("processStartedAtMs").and_then(|v| v.as_u64());
+    HealthDetail { http_ok: true, db, process_started_at_ms }
+}
+
+/// Fire a best-effort OS-toast when the daemon is self-reporting unhealthy (mt#2578).
+/// Mirrors `notify_build_failure`; ignored if notification permission is unavailable.
+fn notify_daemon_unhealthy(app: &AppHandle, reason: &str) {
+    let _ = app
+        .notification()
+        .builder()
+        .title("Cockpit daemon unhealthy")
+        .body(reason)
+        .show();
 }
 
 /// Fire a best-effort OS-toast on build failure (mt#2306). Additive to the
