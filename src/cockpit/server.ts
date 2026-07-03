@@ -123,6 +123,16 @@ export interface CockpitServerOptions {
 const serverStartTime = Date.now();
 
 /**
+ * Consecutive DB-degraded poll counter (mt#2578 watchdog TS slice).
+ *
+ * Incremented on each /api/health call when db !== "ok"; reset to 0 when db === "ok".
+ * The tray watchdog reads this (alongside db field) to distinguish a transient failure
+ * from a sustained DB outage without needing to track poll history on its own.
+ * Module-level (not per-request) — intentional: the counter persists across health polls.
+ */
+let consecutiveDegradedCount = 0;
+
+/**
  * Build and return an Express app serving the cockpit shell.
  *
  * Call `app.listen(port)` on the returned app to start the server.
@@ -859,6 +869,16 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // (redaction policy — same as the watcher tracker above, per reviewer R1 on
     // mt#2320).
     const sweepTracker = TranscriptSweepTracker.getInstance();
+
+    // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
+    // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
+    const dbStatus = getDbStatus();
+    if (dbStatus === "ok") {
+      consecutiveDegradedCount = 0;
+    } else {
+      consecutiveDegradedCount++;
+    }
+
     res.json({
       status: "ok",
       version,
@@ -868,7 +888,14 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       // "degraded" when a circuit-breaker or auth error has been received and
       // the retry loop is running; "unreachable" before any init attempt.
       // Read-only: does NOT probe the DB on every health poll.
-      db: getDbStatus(),
+      db: dbStatus,
+      // mt#2578 watchdog fields — consumed by the tray's self-health watchdog.
+      // processStartedAtMs: monotonic epoch-ms of when THIS process started.
+      // A change between successive polls means the daemon restarted.
+      processStartedAtMs: serverStartTime,
+      // consecutiveDegraded: how many consecutive /api/health calls have seen
+      // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
+      consecutiveDegraded: consecutiveDegradedCount,
       transcriptWatcher: {
         ...watcherTracker.getSummary(),
         activeSessions: watcherTracker.getActiveSessions(),
