@@ -108,6 +108,8 @@ describe("formatProdState", () => {
     expect(out).toMatch(/SEVERELY STALE/);
     expect(out).toMatch(/ESCALATE/);
     expect(out).toMatch(/asks_create/);
+    expect(out).toMatch(/MCP tools are unavailable/);
+    expect(out).toMatch(/directly in your response/);
     expect(out).not.toMatch(/re-verify/i);
   });
 

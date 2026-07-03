@@ -187,6 +187,19 @@ text is emitted to the daemon log surface, not the API). Adding a field here
 that could leak a path or internal detail re-opens that disclosure — keep the
 redaction when extending it.
 
+**Watchdog fields (mt#2578).** The tray-app supervisor's self-health watchdog
+(ADR-014 lifecycle extension) reads two additional top-level fields from
+`/api/health` to detect daemon restarts and sustained DB degradation:
+
+| Field                 | Type                   | Semantics                                                                                                                                                                                                                       |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `processStartedAtMs`  | `number` (epoch-ms)    | Timestamp when this daemon process started. The tray supervisor compares it across polls; a value change means the daemon restarted (used to detect adopted-daemon restarts not caused by a supervised child exit).             |
+| `consecutiveDegraded` | `number` (integer ≥ 0) | Number of consecutive health polls where the DB status was not `"ok"`. The tray uses this as a cross-check; it also maintains its own DB-degraded counter for alert gating. Reset to `0` on the first poll where `db === "ok"`. |
+
+**Redaction note:** both fields are non-sensitive — `processStartedAtMs` is an
+epoch-ms integer with no path or identity information; `consecutiveDegraded` is
+a small counter. Neither violates the endpoint's unauthenticated-access posture.
+
 ## Transcript sweep backstop (mt#2321)
 
 The cockpit daemon also runs the **transcript sweep backstop** — the recovery

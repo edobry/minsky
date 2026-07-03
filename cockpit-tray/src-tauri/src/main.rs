@@ -66,6 +66,12 @@ const RESTART_STORM_THRESHOLD: usize = 3;
 /// Consecutive /api/health polls with db != "ok" before a principal alert fires.
 /// At POLL_INTERVAL = 5s → 24 polls ≈ 2 min (spec requirement: "DB degraded > 2 min").
 const DB_DEGRADED_POLL_THRESHOLD: u32 = 24;
+/// Consecutive /api/health polls returning HTTP failure while the daemon child is
+/// alive (or an adopted daemon is expected) but the endpoint is unresponsive. This
+/// targets the unhealthy-but-not-exiting case (slow start, persistent hang, adopted
+/// daemon silently stopped) — distinct from the restart-storm path which handles
+/// the crash-and-exit case. At 5s/poll → 12 polls ≈ 1 min.
+const HTTP_FAILURE_POLL_THRESHOLD: u32 = 12;
 /// Minimum gap between repeated toasts for the SAME ACTIVE condition.
 /// Resets when the condition clears so the NEXT episode re-alerts immediately.
 const ALERT_COOLDOWN: Duration = Duration::from_secs(900); // 15 min
@@ -474,6 +480,14 @@ struct Sup {
     /// response; `None` before the first successful poll.  A change between
     /// polls means the daemon restarted (for adopted-daemon restart detection).
     last_process_started_at_ms: Option<u64>,
+    /// Consecutive polls where http_ok = false while the daemon child is alive
+    /// or an adopted daemon is expected (the unhealthy-but-not-exiting case).
+    /// Reset to 0 on the first successful health poll; also reset in the
+    /// crash-exit arm (that path's alerting is owned by restart_timestamps).
+    consecutive_http_failed: u32,
+    /// Last time a sustained-HTTP-failure alert was fired; reset when health
+    /// returns (condition cleared → next episode re-alerts immediately).
+    last_http_alert: Option<Instant>,
 }
 
 /// Update the visible status label (dropdown line + tray tooltip), skipping
@@ -623,6 +637,8 @@ fn run_supervisor(
             last_restart_alert: None,
             last_db_alert: None,
             last_process_started_at_ms: None,
+            consecutive_http_failed: 0,
+            last_http_alert: None,
         };
 
         // Initial adoption-or-spawn.
@@ -810,6 +826,16 @@ fn run_supervisor(
                     }
 
                     if health.http_ok {
+                        // HTTP health restored — reset failure counter + cooldown.
+                        if sup.consecutive_http_failed > 0 {
+                            eprintln!(
+                                "[watchdog] HTTP health restored after {} failed polls",
+                                sup.consecutive_http_failed
+                            );
+                        }
+                        sup.consecutive_http_failed = 0;
+                        sup.last_http_alert = None;
+
                         // Detect adopted-daemon restarts via processStartedAtMs change.
                         if let (Some(prev), Some(curr)) = (sup.last_process_started_at_ms, health.process_started_at_ms) {
                             if curr != prev {
@@ -866,11 +892,19 @@ fn run_supervisor(
                         }
                     }
 
-                    // HTTP health poll failed — daemon is down.
+                    // HTTP health poll failed — daemon is down or unresponsive.
+                    // Increment the sustained-HTTP-failure counter BEFORE branching;
+                    // the crash-exit arm will reset it (that path is owned by restart-storm).
+                    sup.consecutive_http_failed += 1;
+
                     // Health is down. Only a daemon WE spawned is respawned.
                     match sup.child.as_mut().map(|c| c.try_wait()) {
                         Some(Ok(Some(_status))) => {
                             // Our child exited — record crash for storm detection, respawn (throttled).
+                            // The crash-exit path (restart-storm) owns the alerting for this case;
+                            // reset the HTTP-failure counter so the two paths don't double-alert.
+                            sup.consecutive_http_failed = 0;
+                            sup.last_http_alert = None;
                             sup.child = None;
                             if let Ok(mut g) = spawned.lock() {
                                 *g = None;
@@ -901,12 +935,49 @@ fn run_supervisor(
                             }
                         }
                         Some(Ok(None)) => {
-                            // Child alive but not yet serving — still booting.
+                            // Child alive but not yet serving — still booting or hung.
+                            // This is the primary "unhealthy-but-not-exiting" path: the
+                            // daemon is running but not accepting health requests.
+                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+                                let cooldown_elapsed = sup.last_http_alert
+                                    .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                                    .unwrap_or(true);
+                                if cooldown_elapsed {
+                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                        * POLL_INTERVAL.as_secs();
+                                    let reason = format!(
+                                        "Cockpit daemon has been unresponsive for {sustained_secs}s \
+                                         while its process is still alive — possible hang. \
+                                         Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
+                                    );
+                                    notify_daemon_unhealthy(&app, &reason);
+                                    sup.last_http_alert = Some(poll_now);
+                                    eprintln!("[watchdog] sustained HTTP-failure (child alive) alert: {}", reason);
+                                }
+                            }
                             set_status(&app, &mut sup, LABEL_STARTING);
                         }
                         Some(Err(_)) | None => {
-                            // No child of ours (adopted daemon down, or never
-                            // spawned). Don't auto-spawn over an adopted daemon.
+                            // No child of ours (adopted daemon down, or never spawned).
+                            // Don't auto-spawn over an adopted daemon. Apply the same
+                            // sustained-HTTP-failure alert here: an expected adopted daemon
+                            // that stops responding is an alert-worthy condition.
+                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+                                let cooldown_elapsed = sup.last_http_alert
+                                    .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                                    .unwrap_or(true);
+                                if cooldown_elapsed {
+                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                        * POLL_INTERVAL.as_secs();
+                                    let reason = format!(
+                                        "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
+                                         daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
+                                    );
+                                    notify_daemon_unhealthy(&app, &reason);
+                                    sup.last_http_alert = Some(poll_now);
+                                    eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
+                                }
+                            }
                             set_status(&app, &mut sup, LABEL_STOPPED);
                             clear_uptime(&app, &mut sup);
                         }

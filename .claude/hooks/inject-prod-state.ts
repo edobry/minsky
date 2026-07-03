@@ -155,8 +155,9 @@ export function formatProdState(record: ProdStateCacheRecord | null, nowMs: numb
       `Current prod state snapshot is SEVERELY STALE (last-checked ${record.checkedAt}, ` +
       `${ageStr} ago). ESCALATE: the prod-state cadence sweep has been stopped for 2+ hours ` +
       "— this requires principal attention. File an Ask via " +
-      "mcp__minsky__asks_create (kind: direction.decide) or surface this to the principal " +
-      "immediately. Do NOT assert prod state from memory."
+      "mcp__minsky__asks_create (kind: direction.decide), or, if MCP tools are unavailable, " +
+      "surface the escalation to the principal directly in your response. " +
+      "Do NOT assert prod state from memory."
     );
   }
 
