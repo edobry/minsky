@@ -42,6 +42,20 @@ export const PROD_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_PROD_STATE_INJECTI
  */
 export const PROD_STATE_STALENESS_MS = 30 * 60 * 1000;
 
+/**
+ * Cache age beyond which staleness becomes a PRINCIPAL-ESCALATION signal (mt#2578).
+ * A cadence-sweep stopped for 2+ hours is alert-worthy — the watchdog that drives
+ * the sweep may itself be degraded, so the agent must escalate rather than silently
+ * emit a "re-verify" boilerplate. Calibrated per CLAUDE.md §MCP disconnect cadence
+ * (daily threshold >3 eligible disconnects in 24h at Minsky's ~hourly cadence → 2h
+ * covers the same "clearly stopped" window without over-alerting).
+ *
+ * NOTE: This threshold is independent of the tray watchdog (mt#2578 Rust slice). The
+ * tray fires a native OS toast on its own cadence; this hook escalates the INJECTED
+ * context available to the AI agent.
+ */
+export const PROD_STATE_ESCALATION_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 // Cache location — MUST match `src/cockpit/prod-state-cache.ts` (PROD_STATE_CACHE_FILENAME
 // + getStateDir). That module lives in a separate module graph and cannot be imported here,
 // so the path resolution is duplicated; keep the two in sync.
@@ -113,8 +127,9 @@ export function formatAge(ms: number): string {
 }
 
 /**
- * Format the prod-state snapshot into the additionalContext payload. Three shapes:
+ * Format the prod-state snapshot into the additionalContext payload. Four shapes:
  *   - null cache → UNKNOWN: tell the agent not to assert prod state from memory.
+ *   - escalation (age > PROD_STATE_ESCALATION_MS) → ESCALATE: file an ask / surface to principal.
  *   - stale (age > PROD_STATE_STALENESS_MS) → STALE: re-verify before asserting.
  *   - fresh → ground-truth snapshot the agent can trust this turn.
  *
@@ -132,6 +147,18 @@ export function formatProdState(record: ProdStateCacheRecord | null, nowMs: numb
   const checkedMs = Date.parse(record.checkedAt);
   const ageMs = Number.isNaN(checkedMs) ? Number.POSITIVE_INFINITY : nowMs - checkedMs;
   const ageStr = formatAge(ageMs);
+
+  if (ageMs > PROD_STATE_ESCALATION_MS) {
+    // Cadence sweep stopped for 2+ hours is an alert-worthy condition (mt#2578).
+    // Do NOT emit boilerplate — escalate to the principal directly.
+    return (
+      `Current prod state snapshot is SEVERELY STALE (last-checked ${record.checkedAt}, ` +
+      `${ageStr} ago). ESCALATE: the prod-state cadence sweep has been stopped for 2+ hours ` +
+      "— this requires principal attention. File an Ask via " +
+      "mcp__minsky__asks_create (kind: direction.decide) or surface this to the principal " +
+      "immediately. Do NOT assert prod state from memory."
+    );
+  }
 
   if (ageMs > PROD_STATE_STALENESS_MS) {
     return (

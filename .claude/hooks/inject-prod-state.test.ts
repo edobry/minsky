@@ -4,6 +4,7 @@ import {
   formatAge,
   formatProdState,
   PROD_STATE_STALENESS_MS,
+  PROD_STATE_ESCALATION_MS,
   type ProdStateCacheRecord,
 } from "./inject-prod-state";
 
@@ -93,17 +94,34 @@ describe("formatProdState", () => {
     expect(out).not.toMatch(/latest applied/);
   });
 
-  test("stale cache (age > threshold) -> STALE, instructs re-verify", () => {
-    const out = formatProdState(recordAt(PROD_STATE_STALENESS_MS + 60000), NOW);
+  test("stale cache (age > STALENESS but < ESCALATION) -> STALE, instructs re-verify", () => {
+    const ageMs = PROD_STATE_STALENESS_MS + 60000; // just over 30 min
+    const out = formatProdState(recordAt(ageMs), NOW);
     expect(out).toMatch(/STALE/);
     expect(out).toMatch(/re-verify/i);
+    expect(out).not.toMatch(/ESCALATE/);
+    expect(out).not.toMatch(/SEVERELY STALE/);
   });
 
-  test("unparseable checkedAt is treated as infinitely stale", () => {
+  test("severely stale cache (age > ESCALATION) -> SEVERELY STALE, escalate to principal", () => {
+    const out = formatProdState(recordAt(PROD_STATE_ESCALATION_MS + 60000), NOW);
+    expect(out).toMatch(/SEVERELY STALE/);
+    expect(out).toMatch(/ESCALATE/);
+    expect(out).toMatch(/asks_create/);
+    expect(out).not.toMatch(/re-verify/i);
+  });
+
+  test("ESCALATION_MS is larger than STALENESS_MS", () => {
+    expect(PROD_STATE_ESCALATION_MS).toBeGreaterThan(PROD_STATE_STALENESS_MS);
+  });
+
+  test("unparseable checkedAt is treated as infinitely stale and escalates", () => {
     const out = formatProdState(
       { ledgerRows: 1, latestAppliedAtMs: null, checkedAt: "not-a-date" },
       NOW
     );
-    expect(out).toMatch(/STALE/);
+    // Infinitely stale → escalation branch (> ESCALATION_MS)
+    expect(out).toMatch(/ESCALATE/);
+    expect(out).toMatch(/SEVERELY STALE/);
   });
 });
