@@ -64,8 +64,13 @@ const DECLARATION_FILE_SUFFIX = ".d.ts";
  * `.ts` too, so a bare `.endsWith(".ts")` check would wrongly count them as
  * hooks (R1 review finding, mt#2602 PR #1786) — they carry no runtime
  * behavior and are never invoked by the harness as a hook.
+ *
+ * Exported so the impure directory lister in `topology-cache.ts` can filter
+ * with the exact same predicate at the I/O boundary (R2 review finding) —
+ * a single source of truth rather than two independently-maintained filters
+ * that could drift out of sync.
  */
-function isHookSourceFile(filename: string): boolean {
+export function isHookSourceFile(filename: string): boolean {
   return (
     filename.endsWith(TS_EXTENSION) &&
     !filename.endsWith(TEST_FILE_SUFFIX) &&

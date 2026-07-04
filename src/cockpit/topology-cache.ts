@@ -26,6 +26,7 @@ import {
   deriveHookRegistry,
   parseHookInstallLog,
   buildWeldEntries,
+  isHookSourceFile,
   HOOK_INSTALL_GIT_LOG_ARGS,
   type WeldEntry,
   type HookFileListing,
@@ -63,10 +64,16 @@ export function setTopologyCacheForTests(snapshot: TopologySnapshot | null): voi
 // Directory listing (bounded, fail-open to null)
 // ---------------------------------------------------------------------------
 
+/**
+ * List hook source files in a directory, filtered with the exact same
+ * `isHookSourceFile` predicate the pure derivation layer uses — so the I/O
+ * boundary's `HookFileListing` is already source-only (R2 review finding,
+ * mt#2602 PR #1786) rather than relying solely on downstream filtering.
+ */
 function listTsFiles(dir: string): string[] | null {
   try {
     if (!fs.existsSync(dir)) return null;
-    return fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
+    return fs.readdirSync(dir).filter((f) => isHookSourceFile(f));
   } catch {
     return null;
   }
