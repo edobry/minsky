@@ -9,6 +9,7 @@ import {
   initServerSseBroker,
   startAskAdvancementSweeper,
   startProdStateRefreshSweeper,
+  startTopologySweeper,
   startTranscriptSweepBackstop,
 } from "../../cockpit/server";
 import {
@@ -245,6 +246,11 @@ export function createStartCommand(): Command {
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
+      // Slow-clock topology sweep (mt#2602): periodically re-derive the
+      // guard-hook registry + weld history (git log + retrospective.fired
+      // correlation) so the plant board's S2 valve inventory and weld-history
+      // drill-down stay current without any per-request derivation.
+      const stopTopologySweeper = startTopologySweeper();
       // Transcript watcher (mt#2320): the PRIMARY transcript-capture path from
       // ADR-017 — FS-watch ~/.claude/projects and ingest-on-append so in-flight
       // sessions become searchable without an exit/manual ingest/reboot.
@@ -260,6 +266,7 @@ export function createStartCommand(): Command {
         shuttingDown = true;
         stopAskSweeper();
         stopProdStateSweeper();
+        stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
         removeCurrentCockpitState();

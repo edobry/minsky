@@ -153,6 +153,10 @@ interface PlantBoardFetchOverrides {
     payload?: Record<string, unknown>;
     createdAt: string;
   }>;
+  /** mt#2602 — the slow-topology widget's derived interlock count + entries. */
+  slowTopologyStatus?: "pending" | "ready";
+  slowTopologyInterlockCount?: number;
+  slowTopologyEntries?: Array<Record<string, unknown>>;
 }
 
 function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
@@ -226,6 +230,18 @@ function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
 
     if (pathname === "/api/widget/embeddings-health/data") {
       return json({ state: "ok", payload: { status: overrides.embeddingsStatus ?? "healthy" } });
+    }
+
+    if (pathname === "/api/widget/slow-topology/data") {
+      return json({
+        state: "ok",
+        payload: {
+          status: overrides.slowTopologyStatus ?? "ready",
+          computedAt: overrides.slowTopologyStatus === "pending" ? null : "2026-06-01T00:00:00Z",
+          interlockCount: overrides.slowTopologyInterlockCount ?? 0,
+          entries: overrides.slowTopologyEntries ?? [],
+        },
+      });
     }
 
     if (pathname === "/api/health") {
@@ -488,6 +504,37 @@ describe("PlantFlowPage", () => {
     expect(screen.getByTestId("you-badge").className).toContain("vsm-ask-pulse");
     expect(container.querySelectorAll(".vsm-ask-pulse").length).toBe(2);
     expect(screen.getByText("ask pending")).toBeDefined();
+  });
+
+  // ---- Slow-clock topology (mt#2602) ----
+
+  test("the DONE valve shows a derived interlock count badge once the sweep is ready", async () => {
+    mockPlantBoardFetch({ slowTopologyStatus: "ready", slowTopologyInterlockCount: 37 });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("s2-valve-interlock-count").textContent).toContain("37");
+    });
+  });
+
+  test("no interlock count badge renders while the sweep is pending (honest, not a fabricated zero)", async () => {
+    mockPlantBoardFetch({ slowTopologyStatus: "pending" });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("flow-node-valve-done")).toBeDefined();
+    });
+    expect(screen.queryByTestId("s2-valve-interlock-count")).toBeNull();
+  });
+
+  test("the learning-loop node exposes a weld-history drill-down link", () => {
+    mockPlantBoardFetch();
+    renderPlantFlow();
+    const link = screen.getByTestId("weld-history-link");
+    expect(link).toBeDefined();
+    // Clicking navigates via react-router's useNavigate — exercised here to
+    // confirm it doesn't throw; the destination page has its own test file.
+    expect(() => fireEvent.click(link)).not.toThrow();
   });
 
   // ---- Header health (mt#2590 — honest fallback) ----

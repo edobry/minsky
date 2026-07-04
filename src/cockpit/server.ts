@@ -208,6 +208,30 @@ async function getServerAskRepository(): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Shared sweeper timer helper (mt#2602 R1 review) — centralizes the
+// `.unref()` guard that was previously duplicated inline across every
+// periodic sweeper below, so a runtime whose `setInterval` return value
+// doesn't expose `.unref()` (or exposes it under a different shape) is
+// handled in one place instead of four near-identical inline checks.
+// ---------------------------------------------------------------------------
+
+/**
+ * Best-effort `.unref()` on a `setInterval` handle so a sweeper alone never
+ * holds the process open. Safe no-op when the handle has no callable
+ * `unref` (e.g. a non-Node/Bun runtime) rather than throwing.
+ */
+function unrefSweeperTimer(id: ReturnType<typeof setInterval>): void {
+  if (
+    typeof id === "object" &&
+    id !== null &&
+    "unref" in id &&
+    typeof (id as { unref?: unknown }).unref === "function"
+  ) {
+    (id as { unref: () => void }).unref();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Ask advancement sweeper (mt#2265)
 // ---------------------------------------------------------------------------
 
@@ -247,7 +271,7 @@ export function startAskAdvancementSweeper(intervalMs?: number): () => void {
   const resolvedInterval = intervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
   const id = setInterval(() => void tick(), resolvedInterval);
   // Never hold the process open on account of the sweeper.
-  if (typeof id === "object" && "unref" in id) id.unref();
+  unrefSweeperTimer(id);
   return () => clearInterval(id);
 }
 
@@ -308,7 +332,56 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
   void tick();
   const resolvedInterval = intervalMs ?? PROD_STATE_REFRESH_INTERVAL_MS;
   const id = setInterval(() => void tick(), resolvedInterval);
-  if (typeof id === "object" && "unref" in id) id.unref();
+  unrefSweeperTimer(id);
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
+// Slow-clock topology sweeper (mt#2602)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default refresh interval for the slow-clock topology cache: hourly-class,
+ * per the mt#2375 "SLOW — plant grows valves" timescale and mt#2602's
+ * "boot + hourly-class sweep, never per-request" constraint.
+ */
+const TOPOLOGY_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Start the periodic slow-clock topology refresh in this cockpit process
+ * (mt#2602). Recomputes the guard-hook registry + git-derived install dates +
+ * `retrospective.fired` correlation (see `topology-cache.ts` /
+ * `topology-derivation.ts`) once at boot, then every `intervalMs`. The
+ * `slow-topology` widget's `fetch()` only ever reads the resulting in-process
+ * cache — this sweeper is the sole place the bounded `git log` subprocess and
+ * the DB query run.
+ *
+ * Fail-open: a failed pass logs and waits for the next tick, leaving the
+ * last-good cache (if any) in place — never crashes the cockpit. Overlapping
+ * ticks are skipped.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startTopologySweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const { refreshTopologyCache } = await import("./topology-cache");
+      await refreshTopologyCache(new Date().toISOString());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: topology sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? TOPOLOGY_REFRESH_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  unrefSweeperTimer(id);
   return () => clearInterval(id);
 }
 
@@ -530,7 +603,7 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
   void tick();
   const id = setInterval(() => void tick(), resolvedInterval);
   // Never hold the process open on account of the sweeper.
-  if (typeof id === "object" && "unref" in id) id.unref();
+  unrefSweeperTimer(id);
   return () => clearInterval(id);
 }
 
