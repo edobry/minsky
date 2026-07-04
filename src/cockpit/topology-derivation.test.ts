@@ -74,6 +74,14 @@ describe("deriveHookRegistry", () => {
     });
     expect(registry.map((r) => r.name)).toEqual(["foo"]);
   });
+
+  test("*.d.ts declaration files are excluded (R1 review finding, PR #1786)", () => {
+    const registry = deriveHookRegistry({
+      claudeHooks: ["foo.ts", "types.d.ts"],
+      minskyHooks: ["bar.ts", "shared-types.d.ts"],
+    });
+    expect(registry.map((r) => r.name)).toEqual(["bar", "foo"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -138,6 +146,18 @@ describe("parseHookInstallLog", () => {
       FOO_HOOK_FILE_PATH,
       ".claude/hooks/foo.test.ts",
       "src/unrelated-file.ts",
+    ].join("\n");
+
+    const map = parseHookInstallLog(stdout);
+    expect(Array.from(map.keys())).toEqual(["foo"]);
+  });
+
+  test("ignores *.d.ts declaration-file adds (R1 review finding, PR #1786)", () => {
+    const stdout = [
+      "COMMIT\t1111111111111111111111111111111111111a\t2026-01-01T00:00:00Z\tfeat(mt#1): add hook + shared types",
+      FOO_HOOK_FILE_PATH,
+      ".claude/hooks/types.d.ts",
+      ".minsky/hooks/shared-types.d.ts",
     ].join("\n");
 
     const map = parseHookInstallLog(stdout);

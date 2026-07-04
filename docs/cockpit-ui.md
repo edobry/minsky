@@ -20,6 +20,8 @@ structure, watch it breathe, and build an intuitive model of its rhythms over ti
 - **S1 · Operations** — the process line: TASKS → READY → SESSIONS → AGENTS → PR →
   REVIEW → DONE, with the CHANGES_REQUESTED recirculation arc.
 - **S2 · Coordination** — interlock valves (◇) on the S1 pipe (the hook/guard fleet).
+  The fleet's derived count is a badge on the DONE valve — see
+  [Slow-clock topology + weld history](#slow-clock-topology--weld-history-mt2602) below.
 - **S3 · Management + 3★** — instrument gauges, each drawn with its real alarm setpoint.
 - **S4 · Future** — backlog feed tank + deploy loop.
 - **S5 · Identity** — rules/decision-defaults canopy and the operator node.
@@ -51,6 +53,32 @@ clearly-marked placeholder (`—`).
 - **v2** (mt#2377) wires the fast-clock dot-motion from the `system_events` log
   (extends mt#2092) so entities visibly move on real transitions.
 - **v3** (mt#2378) adds the time-scrubber and the phone vital-signs form factor.
+
+### Slow-clock topology + weld history (mt#2602)
+
+The board's SLOW timescale ("plant grows valves") is real: the S2 valve
+inventory and the Learning Loop's interlock count are derived from the live
+guard-hook registry (`.claude/hooks/` / `.minsky/hooks/`), not a hardcoded
+constant.
+
+- **S2 valve count badge** — the plant keeps its 4 fixed positional valves
+  (one per hook would be unreadable at the real hook count, currently
+  ~48); the DONE valve instead shows a small **`N interlocks`** badge with
+  the derived total. Before the first slow-clock sweep completes, the badge
+  is honestly absent rather than showing a fabricated zero.
+- **Weld history** (`/plant/weld-history`, reached via the Learning Loop
+  node's "weld history →" link) — a table of every derived interlock with:
+  its **install date** (from `git log`, oldest add-commit per hook file),
+  a **commit link** to GitHub, and — where derivable — the **originating
+  `retrospective.fired` event** (mt#2537) that produced it. Retrospective
+  correlation is two-tier: an exact match on the task ref parsed from the
+  install commit's subject (`type(mt#N): ...`), falling back to the nearest
+  preceding retrospective within a 14-day window. Neither match renders
+  "unknown" — never a guessed link.
+- **Cadence** — derivation (a bounded `git log` read + a DB query) runs
+  server-side at cockpit boot and on an hourly-class sweep; the widget never
+  spawns git or queries the DB per request. A new hook merged to main
+  appears on the board within one such refresh.
 
 ### Tokens
 
@@ -90,5 +118,6 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
 
 - mt#2375 — Plant Board design (the living plant; four timescales; honest-motion law)
 - mt#2376 — v1 slice (this surface) · mt#2377 — v2 motion · mt#2378 — v3 scrubber/phone
+- mt#2602 — slow-clock topology auto-derivation + weld history
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`

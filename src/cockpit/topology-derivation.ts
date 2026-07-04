@@ -56,9 +56,21 @@ export interface HookRegistryEntry {
 
 const TS_EXTENSION = ".ts";
 const TEST_FILE_SUFFIX = ".test.ts";
+const DECLARATION_FILE_SUFFIX = ".d.ts";
 
+/**
+ * A hook source is a `.ts` file that is neither a test file (`*.test.ts`)
+ * nor a TypeScript declaration file (`*.d.ts`). Declaration files end in
+ * `.ts` too, so a bare `.endsWith(".ts")` check would wrongly count them as
+ * hooks (R1 review finding, mt#2602 PR #1786) — they carry no runtime
+ * behavior and are never invoked by the harness as a hook.
+ */
 function isHookSourceFile(filename: string): boolean {
-  return filename.endsWith(TS_EXTENSION) && !filename.endsWith(TEST_FILE_SUFFIX);
+  return (
+    filename.endsWith(TS_EXTENSION) &&
+    !filename.endsWith(TEST_FILE_SUFFIX) &&
+    !filename.endsWith(DECLARATION_FILE_SUFFIX)
+  );
 }
 
 function stripTsExtension(filename: string): string {
@@ -177,6 +189,7 @@ export function parseHookInstallLog(stdout: string): Map<string, HookInstallInfo
     if (!match?.[1]) continue;
     const name = match[1];
     if (name.endsWith(".test")) continue; // test-file adds aren't hook installs
+    if (name.endsWith(".d")) continue; // declaration-file adds (*.d.ts) aren't hook installs
     if (result.has(name)) continue; // keep the first (oldest, --reverse) occurrence
 
     result.set(name, {
