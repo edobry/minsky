@@ -23,6 +23,7 @@ import type { SessionRecord } from "./types";
 import { assertSessionMutable } from "./session-mutability";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
 import { ProvenanceService, computePreliminaryTier } from "../provenance/provenance-service";
+import { emitSystemEventFromProvider } from "../events/emit-best-effort";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -489,6 +490,23 @@ Please provide a title for your pull request:
         );
       }
     }
+
+    // Emit changeset.created system event (best-effort, informational — mt#2537).
+    // Mirrors the pr.merged emit in session-merge-operations.ts (mt#2487) via
+    // the shared `emitSystemEventFromProvider` helper. This is the mt#2537
+    // "item 0" fold-in of the DB-resident type mt#2489 descoped mid-flight (no
+    // clean command-layer provider seam existed there — this seam already
+    // holds `deps.persistenceProvider` for the provenance record above).
+    await emitSystemEventFromProvider(deps.persistenceProvider, {
+      eventType: "changeset.created",
+      payload: {
+        prNumber: prInfo.number,
+        taskId: sessionRecord?.taskId ?? undefined,
+        title: titleToUse,
+      },
+      relatedTaskId: sessionRecord?.taskId ?? undefined,
+      relatedSessionId: sessionId,
+    });
 
     // Apply the IN-REVIEW transition and capture a verifiable receipt for
     // every code path so callers can detect skipped or failed transitions
