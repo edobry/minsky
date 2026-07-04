@@ -77,6 +77,9 @@ const MemoryPage = lazy(() =>
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
 );
+const WeldHistoryPage = lazy(() =>
+  import("./pages/WeldHistoryPage").then((m) => ({ default: m.WeldHistoryPage }))
+);
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
@@ -101,6 +104,15 @@ export const plantRoutes = (
     />
     <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
     <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
+    {/* Weld-history drill-down (mt#2602): interlock provenance timeline. */}
+    <Route
+      path="/plant/weld-history"
+      element={
+        <ErrorBoundary id="weld-history-page">
+          <WeldHistoryPage />
+        </ErrorBoundary>
+      }
+    />
   </>
 );
 

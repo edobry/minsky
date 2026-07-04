@@ -68,6 +68,8 @@ import { useOpenAskCount } from "../hooks/useOpenAskCount";
 import { useTaskBacklogCounts } from "../hooks/useTaskBacklogCounts";
 import { useS3Gauges, gaugeFraction, GAUGE_SETPOINT_FRACTION } from "../hooks/useS3Gauges";
 import { useSystemHealth, type ServiceHealth } from "../hooks/useSystemHealth";
+import { useSlowTopology } from "../hooks/useSlowTopology";
+import { useNavigate } from "react-router-dom";
 import { GestureEdge } from "../components/GestureEdge";
 import { ScrubberBar } from "../components/ScrubberBar";
 import {
@@ -852,8 +854,15 @@ function AttentionSeamNode(props: NodeProps<Node<AttentionSeamNodeData>>) {
 // Learning loop node
 // ---------------------------------------------------------------------------
 
-function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface LearningLoopNodeData extends OrganNodeData {
+  /** Derived interlock count (mt#2602) — null while the slow-clock sweep is still pending. */
+  interlockCount?: number | null;
+}
+
+function LearningLoopNode(props: NodeProps<Node<LearningLoopNodeData>>) {
   const accentVar = ORGAN_ACCENTS.learn;
+  const navigate = useNavigate();
+  const { interlockCount } = props.data as LearningLoopNodeData;
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -878,8 +887,20 @@ function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
           <span className="text-muted-foreground/40">▸</span>
           <span>rule</span>
           <span className="text-muted-foreground/40">▸</span>
-          <span style={{ color: `oklch(${accentVar} / 0.7)` }}>⟂ interlock</span>
+          <span style={{ color: `oklch(${accentVar} / 0.7)` }}>
+            ⟂ interlock{typeof interlockCount === "number" ? ` (${interlockCount})` : ""}
+          </span>
         </div>
+        {/* Weld-history drill-down entry point (mt#2602 acceptance test 2/3). */}
+        <button
+          type="button"
+          onClick={() => navigate("/plant/weld-history")}
+          className="self-start text-[8px] font-mono text-muted-foreground hover:text-foreground transition-colors underline decoration-dotted"
+          data-testid="weld-history-link"
+          aria-label="View weld history — interlock provenance timeline"
+        >
+          weld history →
+        </button>
         {/* Memory reservoir — the SVG board's tank instrument (mt#2466 item 4) */}
         <div
           className="flex items-center gap-2"
@@ -1001,11 +1022,19 @@ interface S2ValveNodeData {
   valveKey: string;
   /** when true, exposes a bottom target handle (the learning-loop interlock weld) */
   interlockTarget?: boolean;
+  /**
+   * Derived total interlock count (mt#2602). Only rendered on the
+   * `interlockTarget` valve (DONE) — the plant has 4 fixed positional valves
+   * regardless of the real hook count (which may be ~30+); the derived
+   * inventory surfaces here as a count badge rather than one valve per hook,
+   * with the full inventory available in the weld-history drill-down.
+   */
+  interlockCount?: number | null;
   [key: string]: unknown;
 }
 
 function S2ValveNode(props: NodeProps<Node<S2ValveNodeData>>) {
-  const { valveKey, interlockTarget } = props.data as S2ValveNodeData;
+  const { valveKey, interlockTarget, interlockCount } = props.data as S2ValveNodeData;
   return (
     <div
       className="relative"
@@ -1024,6 +1053,15 @@ function S2ValveNode(props: NodeProps<Node<S2ValveNodeData>>) {
         }}
         aria-hidden="true"
       />
+      {interlockTarget && typeof interlockCount === "number" && (
+        <span
+          className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap text-[7px] font-mono text-muted-foreground"
+          data-testid="s2-valve-interlock-count"
+          title={`${interlockCount} derived interlocks (guard hooks)`}
+        >
+          {interlockCount} interlocks
+        </span>
+      )}
       {interlockTarget && (
         <Handle
           type="target"
@@ -1644,6 +1682,7 @@ function PlantFlowCanvas() {
   } = useTaskBacklogCounts();
   const { data: s3Gauges } = useS3Gauges();
   const { data: systemHealth } = useSystemHealth();
+  const { data: slowTopology } = useSlowTopology();
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
 
@@ -1823,6 +1862,7 @@ function PlantFlowCanvas() {
     backlogCounts,
     s3Gauges,
     systemHealth,
+    slowTopology,
   ]);
 
   // Propagate live instrument data into each node without resetting layout
@@ -1883,6 +1923,17 @@ function PlantFlowCanvas() {
           },
         };
       }
+      // Derived interlock count (mt#2602): propagated into both the
+      // learning-loop node's inline readout and the DONE valve's count badge.
+      if (node.id === "learning-loop" || node.id === "s2-valve-done") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            interlockCount: slowTopology?.status === "ready" ? slowTopology.interlockCount : null,
+          },
+        };
+      }
       const pulse = activeGestures.nodePulses[node.id];
       if (pulse && pulse.until > Date.now()) {
         out = {
@@ -1908,6 +1959,7 @@ function PlantFlowCanvas() {
     backlogError,
     s3Gauges,
     systemHealth,
+    slowTopology,
     activeGestures,
   ]);
 

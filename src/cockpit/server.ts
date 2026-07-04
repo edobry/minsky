@@ -313,6 +313,55 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// Slow-clock topology sweeper (mt#2602)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default refresh interval for the slow-clock topology cache: hourly-class,
+ * per the mt#2375 "SLOW — plant grows valves" timescale and mt#2602's
+ * "boot + hourly-class sweep, never per-request" constraint.
+ */
+const TOPOLOGY_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * Start the periodic slow-clock topology refresh in this cockpit process
+ * (mt#2602). Recomputes the guard-hook registry + git-derived install dates +
+ * `retrospective.fired` correlation (see `topology-cache.ts` /
+ * `topology-derivation.ts`) once at boot, then every `intervalMs`. The
+ * `slow-topology` widget's `fetch()` only ever reads the resulting in-process
+ * cache — this sweeper is the sole place the bounded `git log` subprocess and
+ * the DB query run.
+ *
+ * Fail-open: a failed pass logs and waits for the next tick, leaving the
+ * last-good cache (if any) in place — never crashes the cockpit. Overlapping
+ * ticks are skipped.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startTopologySweeper(intervalMs?: number): () => void {
+  let running = false;
+  const tick = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      const { refreshTopologyCache } = await import("./topology-cache");
+      await refreshTopologyCache(new Date().toISOString());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("cockpit: topology sweep failed", { message });
+    } finally {
+      running = false;
+    }
+  };
+
+  void tick();
+  const resolvedInterval = intervalMs ?? TOPOLOGY_REFRESH_INTERVAL_MS;
+  const id = setInterval(() => void tick(), resolvedInterval);
+  if (typeof id === "object" && "unref" in id) id.unref();
+  return () => clearInterval(id);
+}
+
+// ---------------------------------------------------------------------------
 // Transcript sweep backstop (mt#2321)
 // ---------------------------------------------------------------------------
 
