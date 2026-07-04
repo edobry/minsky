@@ -20,6 +20,7 @@ import {
 import "@minsky/domain/deployment";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "@minsky/shared/logger";
+import { emitSystemEventBestEffort } from "./system-event-emit";
 
 // ---------------------------------------------------------------------------
 // Parameter schemas
@@ -75,6 +76,36 @@ const deploymentLogsParams = {
 };
 
 // ---------------------------------------------------------------------------
+// deploy.live / deploy.fail event mapping (mt#2537)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a terminal `DeploymentRecord` to the `deploy.live` / `deploy.fail`
+ * system-event shape. Pure function — extracted from the `wait-for-latest`
+ * execute handler for direct unit testing.
+ *
+ * v1 scope: only the terminal record is observed (no per-phase build/smoke
+ * callback exists on the platform-neutral wrapper), so `deploy.build` /
+ * `deploy.smoke` are not emitted from this seam — see the payload-shape doc
+ * block in `system-events-schema.ts`. SUCCESS → `deploy.live`; every other
+ * terminal status (FAILED, CANCELLED, CRASHED) → `deploy.fail`.
+ */
+export function mapDeploymentRecordToEvent(
+  result: DeploymentRecord,
+  service: string | undefined
+): {
+  eventType: "deploy.live" | "deploy.fail";
+  payload: { phase: "live" | "fail"; service: string | undefined; status: string };
+} {
+  const isLive = result.status === "SUCCESS";
+  const phase = isLive ? ("live" as const) : ("fail" as const);
+  return {
+    eventType: isLive ? "deploy.live" : "deploy.fail",
+    payload: { phase, service, status: result.status },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -90,7 +121,7 @@ export function registerDeploymentCommands(): void {
         "Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
       requiresSetup: false,
       parameters: deploymentWaitParams,
-      execute: async (params): Promise<DeploymentRecord> => {
+      execute: async (params, ctx): Promise<DeploymentRecord> => {
         const { service, config } = await resolveDeploymentConfig(
           params.service as string | undefined
         );
@@ -108,6 +139,12 @@ export function registerDeploymentCommands(): void {
           deploymentId: result.id,
           status: result.status,
         });
+
+        // Emit deploy.live / deploy.fail system event (best-effort, informational
+        // — mt#2537) from this observation seam.
+        const event = mapDeploymentRecordToEvent(result, service);
+        await emitSystemEventBestEffort(ctx?.container, event);
+
         return result;
       },
     })
