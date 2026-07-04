@@ -64,6 +64,10 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useReadyCount } from "../hooks/useReadyCount";
 import { useSystemEvents } from "../hooks/useSystemEvents";
+import { useOpenAskCount } from "../hooks/useOpenAskCount";
+import { useTaskBacklogCounts } from "../hooks/useTaskBacklogCounts";
+import { useS3Gauges, gaugeFraction, GAUGE_SETPOINT_FRACTION } from "../hooks/useS3Gauges";
+import { useSystemHealth, type ServiceHealth } from "../hooks/useSystemHealth";
 import { GestureEdge } from "../components/GestureEdge";
 import {
   GESTURE_MS,
@@ -129,11 +133,14 @@ function MiniGaugeArc({
   sublabel,
   needleFraction,
   setpointFraction,
+  valueLabel,
 }: {
   label: string;
   sublabel: string;
   needleFraction: number;
   setpointFraction: number;
+  /** Real reading behind the needle, or "—" for an honest gap (mt#2590). */
+  valueLabel?: string;
 }) {
   const size = 64;
   const cx = size / 2;
@@ -201,6 +208,14 @@ function MiniGaugeArc({
         <div className="text-[8px] font-mono text-muted-foreground leading-tight truncate max-w-[64px]">
           {sublabel}
         </div>
+        {valueLabel !== undefined && (
+          <div
+            className="text-[8px] font-mono text-foreground/70 leading-tight"
+            data-testid={`gauge-value-${label}`}
+          >
+            {valueLabel}
+          </div>
+        )}
       </figcaption>
     </figure>
   );
@@ -353,8 +368,14 @@ function OrganNodeShell({
 // S5 Identity node — policy canopy at the top
 // ---------------------------------------------------------------------------
 
-function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface S5IdentityNodeData extends OrganNodeData {
+  openAskCount?: number | null;
+}
+
+function S5IdentityNode(props: NodeProps<Node<S5IdentityNodeData>>) {
   const accentVar = ORGAN_ACCENTS.s5;
+  const { openAskCount } = props.data as S5IdentityNodeData;
+  const hasPendingAsk = (openAskCount ?? 0) > 0;
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -367,16 +388,25 @@ function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
       ]}
     >
       <div className="flex items-center gap-4 flex-wrap">
+        {/* STABLE-tier identity labeling (policy corpus presence), not a live
+            telemetry claim — no numeric/measured value is asserted here, so
+            it is not in scope for mt#2590's fake-live-data fix. */}
         <div className="text-[9px] font-mono text-muted-foreground">rules: active</div>
         <div className="text-[9px] font-mono text-muted-foreground">decision-defaults: active</div>
         <div
-          className="ml-auto flex items-center justify-center w-6 h-6 rounded-full border vsm-ask-pulse text-[8px] font-mono font-bold"
+          className={[
+            "ml-auto flex items-center justify-center w-6 h-6 rounded-full border text-[8px] font-mono font-bold",
+            hasPendingAsk ? "vsm-ask-pulse" : undefined,
+          ]
+            .filter(Boolean)
+            .join(" ")}
           style={{
             borderColor: `oklch(var(--vsm-seam) / 0.9)`,
             color: `oklch(var(--vsm-seam) / 1)`,
             background: `oklch(var(--vsm-seam) / 0.12)`,
           }}
           aria-label="YOU — operator terminus"
+          data-testid="you-badge"
         >
           YOU
         </div>
@@ -389,8 +419,49 @@ function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
 // S4 Future node — roadmap feed + deploy loop
 // ---------------------------------------------------------------------------
 
-function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
+/** Backlog tank display scale — TODO+PLANNING count at/above this reads as "full". */
+const BACKLOG_TANK_MAX = 30;
+
+interface S4FutureNodeData extends OrganNodeData {
+  todoCount?: number;
+  planningCount?: number;
+  backlogLoading?: boolean;
+  backlogError?: boolean;
+  deployStatus?: string | null;
+}
+
+function S4FutureNode(props: NodeProps<Node<S4FutureNodeData>>) {
   const accentVar = ORGAN_ACCENTS.s4;
+  const { todoCount, planningCount, backlogLoading, backlogError, deployStatus } =
+    props.data as S4FutureNodeData;
+
+  const backlogTotal =
+    todoCount !== undefined && planningCount !== undefined ? todoCount + planningCount : undefined;
+  const fill = backlogTotal !== undefined ? Math.min(1, backlogTotal / BACKLOG_TANK_MAX) : 0;
+  const fillPct = Math.round(fill * 100);
+
+  const planningLabel = backlogLoading ? "…" : backlogError || planningCount === undefined ? "—" : String(planningCount);
+  const todoLabel = backlogLoading ? "…" : backlogError || todoCount === undefined ? "—" : String(todoCount);
+
+  // Deploy chip: reuses the mcp-server-status widget's already-computed
+  // deploy.status (no new endpoint — mt#2590 constraint 2). null means the
+  // status is genuinely unreachable — render the honest placeholder rather
+  // than the permanently-green claim this chip used to make.
+  let deployNode: React.ReactNode;
+  if (deployStatus === "SUCCESS") {
+    deployNode = (
+      <>
+        build → smoke → <span style={{ color: "oklch(var(--liveness-healthy) / 1)" }}>live ✓</span>
+      </>
+    );
+  } else if (deployStatus) {
+    deployNode = (
+      <span style={{ color: "oklch(var(--warn-amber) / 1)" }}>deploy: {deployStatus}</span>
+    );
+  } else {
+    deployNode = <span className="text-muted-foreground">deploy: —</span>;
+  }
+
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -408,12 +479,13 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
             className="w-4 rounded border overflow-hidden flex-none"
             style={{ height: "40px", borderColor: `oklch(${accentVar} / 0.6)` }}
             aria-label="Backlog feed tank"
+            data-testid="backlog-feed-tank"
           >
             <div
-              className="w-full vsm-breath"
+              className="w-full"
               style={{
-                height: "40%",
-                marginTop: "60%",
+                height: `${fillPct}%`,
+                marginTop: `${100 - fillPct}%`,
                 background: `oklch(${accentVar} / 0.35)`,
               }}
               aria-hidden="true"
@@ -422,7 +494,7 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
           <div className="flex flex-col gap-0.5">
             <span className="text-[9px] font-mono text-muted-foreground">backlog feed</span>
             <span className="text-[8px] font-mono text-muted-foreground/70">
-              PLANNING — · TODO —
+              PLANNING {planningLabel} · TODO {todoLabel}
             </span>
           </div>
         </div>
@@ -430,8 +502,9 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
         <div
           className="rounded px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground"
           style={{ border: `1px solid oklch(${accentVar} / 0.3)` }}
+          data-testid="s4-deploy-chip"
         >
-          build → smoke → <span style={{ color: "oklch(var(--liveness-healthy) / 1)" }}>live ✓</span>
+          {deployNode}
         </div>
       </div>
     </OrganNodeShell>
@@ -442,8 +515,21 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
 // S3 Management node — gauges with alarm setpoints
 // ---------------------------------------------------------------------------
 
-function S3ManagementNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface S3ManagementNodeData extends OrganNodeData {
+  mcpDisconnectCount?: number | null;
+  mcpDisconnectThreshold?: number;
+  dispatchCount?: number | null;
+  dispatchThreshold?: number;
+}
+
+function S3ManagementNode(props: NodeProps<Node<S3ManagementNodeData>>) {
   const accentVar = ORGAN_ACCENTS.s3;
+  const { mcpDisconnectCount, mcpDisconnectThreshold, dispatchCount, dispatchThreshold } =
+    props.data as S3ManagementNodeData;
+
+  const mcpThreshold = mcpDisconnectThreshold ?? 3;
+  const dispThreshold = dispatchThreshold ?? 2;
+
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -458,25 +544,46 @@ function S3ManagementNode(_props: NodeProps<Node<OrganNodeData>>) {
       <div className="flex items-start justify-around gap-1 py-1">
         <MiniGaugeArc
           label="mcp disc."
-          sublabel="alarm 3/24h"
-          needleFraction={0.15}
-          setpointFraction={0.75}
+          sublabel={`alarm ${mcpThreshold}/24h`}
+          needleFraction={gaugeFraction(mcpDisconnectCount ?? null, mcpThreshold)}
+          setpointFraction={GAUGE_SETPOINT_FRACTION}
+          valueLabel={mcpDisconnectCount === null || mcpDisconnectCount === undefined ? "—" : String(mcpDisconnectCount)}
         />
         <MiniGaugeArc
           label="dispatch"
-          sublabel="alarm 2/sess"
-          needleFraction={0.10}
-          setpointFraction={0.65}
+          sublabel={`alarm ${dispThreshold}/sess`}
+          needleFraction={gaugeFraction(dispatchCount ?? null, dispThreshold)}
+          setpointFraction={GAUGE_SETPOINT_FRACTION}
+          valueLabel={dispatchCount === null || dispatchCount === undefined ? "—" : String(dispatchCount)}
         />
+        {/* attention_report has no HTTP surface today (mt#2590 documented
+            gap) — honest flat placeholder rather than a faked reading. */}
         <MiniGaugeArc
           label="attention"
           sublabel="—"
-          needleFraction={0.35}
-          setpointFraction={0.55}
+          needleFraction={0}
+          setpointFraction={0}
+          valueLabel="—"
         />
       </div>
-      <div className="text-[8px] font-mono text-muted-foreground text-center">
-        3★ sweep → over S1
+      <div className="flex items-center justify-center gap-1.5">
+        <span className="text-[8px] font-mono text-muted-foreground">3★ sweep → over S1</span>
+        {/* The 3★ scan sweep — one of the two canon-allowed idle animations
+            (memory 8d3d4f06). CSS-driven (not SVG SMIL) so the global
+            prefers-reduced-motion rule in index.css gates it. */}
+        <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden="true" data-testid="vsm-scan-sweep">
+          <line
+            x1="1"
+            y1="4"
+            x2="27"
+            y2="4"
+            stroke={`oklch(${accentVar} / 0.7)`}
+            strokeWidth="2"
+            strokeDasharray="6 4"
+            strokeLinecap="round"
+            className="vsm-scan"
+          />
+        </svg>
       </div>
     </OrganNodeShell>
   );
@@ -650,8 +757,22 @@ function S1DoneNode(_props: NodeProps<Node<S1StageNodeData>>) {
 // Attention / Ask seam node
 // ---------------------------------------------------------------------------
 
-function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface AttentionSeamNodeData extends OrganNodeData {
+  openAskCount?: number | null;
+  openAskLoading?: boolean;
+  openAskError?: boolean;
+}
+
+function AttentionSeamNode(props: NodeProps<Node<AttentionSeamNodeData>>) {
   const accentVar = ORGAN_ACCENTS.seam;
+  const { openAskCount, openAskLoading, openAskError } = props.data as AttentionSeamNodeData;
+  const hasPendingAsk = (openAskCount ?? 0) > 0;
+  const asksOpenLabel = openAskLoading
+    ? "…"
+    : openAskError || openAskCount === undefined || openAskCount === null
+      ? "—"
+      : String(openAskCount);
+
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -670,18 +791,24 @@ function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
           <span
-            className="inline-flex items-center justify-center w-5 h-5 rounded-full vsm-ask-pulse text-[8px] font-mono font-bold"
+            className={[
+              "inline-flex items-center justify-center w-5 h-5 rounded-full text-[8px] font-mono font-bold",
+              hasPendingAsk ? "vsm-ask-pulse" : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ")}
             style={{
               background: `oklch(${accentVar} / 0.18)`,
               border: `1.5px solid oklch(${accentVar} / 0.7)`,
               color: `oklch(${accentVar} / 1)`,
             }}
             aria-label="Pending ask"
+            data-testid="seam-ask-badge"
           >
             ↑
           </span>
           <span className="text-[9px] font-mono" style={{ color: `oklch(${accentVar} / 0.9)` }}>
-            ask pending
+            {hasPendingAsk ? "ask pending" : "no ask pending"}
           </span>
         </div>
         <div
@@ -690,7 +817,9 @@ function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
         >
           decision ↓ unblocks
         </div>
-        <div className="text-[8px] font-mono text-muted-foreground">asks open: —</div>
+        <div className="text-[8px] font-mono text-muted-foreground" data-testid="asks-open-count">
+          asks open: {asksOpenLabel}
+        </div>
       </div>
     </OrganNodeShell>
   );
@@ -768,14 +897,45 @@ function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
 // Infra Supply node — supply band
 // ---------------------------------------------------------------------------
 
-function InfraSupplyNode(_props: NodeProps<Node<OrganNodeData>>) {
+/** Dot color per real service-health state — "unknown" is the honest placeholder. */
+function serviceDotColor(health: ServiceHealth | undefined): string {
+  switch (health) {
+    case "healthy":
+      return "oklch(var(--liveness-healthy) / 1)";
+    case "unhealthy":
+      return "oklch(var(--warn-amber) / 1)";
+    default:
+      return "oklch(var(--muted-foreground) / 0.5)";
+  }
+}
+
+interface InfraSupplyNodeData extends OrganNodeData {
+  mcpServerHealth?: ServiceHealth;
+  postgresHealth?: ServiceHealth;
+  credentialsHealth?: ServiceHealth;
+  embeddingsHealth?: ServiceHealth;
+  reviewerBotHealth?: ServiceHealth;
+}
+
+function InfraSupplyNode(props: NodeProps<Node<InfraSupplyNodeData>>) {
   const accentVar = ORGAN_ACCENTS.infra;
-  const services = [
-    { name: "MCP server", healthy: true },
-    { name: "Postgres", healthy: true },
-    { name: "credentials", healthy: false },
-    { name: "embeddings", healthy: false },
-    { name: "reviewer bot", healthy: false },
+  const {
+    mcpServerHealth,
+    postgresHealth,
+    credentialsHealth,
+    embeddingsHealth,
+    reviewerBotHealth,
+  } = props.data as InfraSupplyNodeData;
+
+  const services: Array<{ name: string; health: ServiceHealth | undefined }> = [
+    { name: "MCP server", health: mcpServerHealth },
+    { name: "Postgres", health: postgresHealth },
+    { name: "credentials", health: credentialsHealth },
+    { name: "embeddings", health: embeddingsHealth },
+    // No HTTP surface exists today for minsky-reviewer[bot] health from the
+    // cockpit server (mt#2590 documented gap) — always renders the honest
+    // "unknown" dot rather than a faked reading.
+    { name: "reviewer bot", health: reviewerBotHealth ?? "unknown" },
   ];
 
   return (
@@ -788,14 +948,15 @@ function InfraSupplyNode(_props: NodeProps<Node<OrganNodeData>>) {
     >
       <div className="flex items-center gap-3 flex-wrap">
         {services.map((s) => (
-          <div key={s.name} className="flex items-center gap-1.5">
+          <div key={s.name} className="flex items-center gap-1.5" data-testid={`infra-dot-${s.name}`}>
             <span
               className="w-1.5 h-1.5 rounded-full"
-              style={{
-                background: s.healthy
-                  ? "oklch(var(--liveness-healthy) / 1)"
-                  : "oklch(var(--muted-foreground) / 0.5)",
-              }}
+              style={{ backgroundColor: serviceDotColor(s.health) }}
+              data-testid={`infra-dot-status-${s.name}`}
+              // Plain attribute mirror of the health state driving the dot
+              // color, for test assertions — some CSS test environments
+              // don't reliably serialize oklch()-valued inline color styles.
+              data-health={s.health ?? "unknown"}
               aria-hidden="true"
             />
             <span className="text-[9px] font-mono text-muted-foreground">{s.name}</span>
@@ -1445,6 +1606,15 @@ function PlantLegend() {
 
 function PlantFlowCanvas() {
   const { data: readyCount, isLoading: readyLoading } = useReadyCount();
+  const { data: openAskCount, isLoading: openAskLoading, isError: openAskError } =
+    useOpenAskCount();
+  const {
+    data: backlogCounts,
+    isLoading: backlogLoading,
+    isError: backlogError,
+  } = useTaskBacklogCounts();
+  const { data: s3Gauges } = useS3Gauges();
+  const { data: systemHealth } = useSystemHealth();
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
 
@@ -1514,13 +1684,30 @@ function PlantFlowCanvas() {
   // before custom HTML node heights are known (bounds = bare positions), which
   // over-zooms and clips the bottom row (mt#2422 R1 defect). This effect refits
   // against real bounds so the whole plant is always inside the viewport.
+  //
+  // mt#2590: also re-fit whenever the live instrument queries settle. Real
+  // data (e.g. "asks open: 517" vs the placeholder "asks open: —", or
+  // 3-digit backlog counts vs "—") can be substantially WIDER than the
+  // placeholder content nodesInitialized measured at mount — without this,
+  // the one-shot fitView leaves later-widened nodes (S3, Infra Supply, the
+  // right end of the S1 spine) pushed outside the viewport once real data
+  // arrives a beat after first paint.
   useEffect(() => {
     if (nodesInitialized) {
-      void fitView({ padding: 0.04, maxZoom: 1.0 });
+      void fitView({ padding: 0.1, maxZoom: 1.0 });
     }
-  }, [nodesInitialized, fitView]);
+  }, [
+    nodesInitialized,
+    fitView,
+    readyCount,
+    openAskCount,
+    backlogCounts,
+    s3Gauges,
+    systemHealth,
+  ]);
 
-  // Propagate live readyCount into the READY node data without resetting layout.
+  // Propagate live instrument data into each node without resetting layout
+  // (mirrors the pre-existing s1-ready readyCount propagation, mt#2590).
   const updatedNodes = useMemo(() => {
     return nodes.map((node) => {
       let out = node;
@@ -1528,6 +1715,53 @@ function PlantFlowCanvas() {
         out = {
           ...out,
           data: { ...out.data, readyCount, readyLoading },
+        };
+      }
+      if (node.id === "s5-identity") {
+        out = { ...out, data: { ...out.data, openAskCount } };
+      }
+      if (node.id === "attention-seam") {
+        out = {
+          ...out,
+          data: { ...out.data, openAskCount, openAskLoading, openAskError },
+        };
+      }
+      if (node.id === "s4-future") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            todoCount: backlogCounts?.todo,
+            planningCount: backlogCounts?.planning,
+            backlogLoading,
+            backlogError,
+            deployStatus: systemHealth?.deployStatus ?? null,
+          },
+        };
+      }
+      if (node.id === "s3-management") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            mcpDisconnectCount: s3Gauges?.mcpDisconnects.eligibleCount24h,
+            mcpDisconnectThreshold: s3Gauges?.mcpDisconnects.threshold,
+            dispatchCount: s3Gauges?.subagentDispatches.partialUncommittedCount,
+            dispatchThreshold: s3Gauges?.subagentDispatches.threshold,
+          },
+        };
+      }
+      if (node.id === "infra-supply") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            mcpServerHealth: systemHealth?.infra.mcpServer,
+            postgresHealth: systemHealth?.infra.postgres,
+            credentialsHealth: systemHealth?.infra.credentials,
+            embeddingsHealth: systemHealth?.infra.embeddings,
+            reviewerBotHealth: systemHealth?.infra.reviewerBot,
+          },
         };
       }
       const pulse = activeGestures.nodePulses[node.id];
@@ -1543,7 +1777,20 @@ function PlantFlowCanvas() {
       }
       return out;
     });
-  }, [nodes, readyCount, readyLoading, activeGestures]);
+  }, [
+    nodes,
+    readyCount,
+    readyLoading,
+    openAskCount,
+    openAskLoading,
+    openAskError,
+    backlogCounts,
+    backlogLoading,
+    backlogError,
+    s3Gauges,
+    systemHealth,
+    activeGestures,
+  ]);
 
   // Apply edge gestures: traveling-dot data on the spine's gesture edges,
   // flash class on governance edges.
@@ -1577,7 +1824,7 @@ function PlantFlowCanvas() {
       onNodesChange={onNodesChangeCallback}
       onEdgesChange={onEdgesChangeCallback}
       fitView
-      fitViewOptions={{ padding: 0.04, maxZoom: 1.0 }}
+      fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
       minZoom={0.25}
       maxZoom={2}
       defaultEdgeOptions={{
@@ -1612,7 +1859,28 @@ function PlantFlowCanvas() {
 // Main: PlantFlowPage
 // ---------------------------------------------------------------------------
 
+/** Header banner text + color per real aggregated health state (mt#2590). */
+function headerStatusPresentation(health: "nominal" | "degraded" | "unknown" | undefined): {
+  label: string;
+  className: string;
+} {
+  switch (health) {
+    case "nominal":
+      return { label: "● system nominal", className: "text-liveness-healthy" };
+    case "degraded":
+      return { label: "● system degraded", className: "text-warn-amber" };
+    default:
+      // Fetch not yet resolved, or every constituent source failed — the
+      // honest-fallback rule requires a neutral/unknown state here, never a
+      // green claim the data doesn't support.
+      return { label: "● status unknown", className: "text-muted-foreground" };
+  }
+}
+
 export function PlantFlowPage() {
+  const { data: systemHealth } = useSystemHealth();
+  const headerStatus = headerStatusPresentation(systemHealth?.header);
+
   return (
     <div
       // The cockpit shell (Layout.tsx) renders a sticky h-14 AppHeader above
@@ -1631,7 +1899,9 @@ export function PlantFlowPage() {
           v2 · node-link canvas · READY tank live · event-driven motion · idle-honest
         </span>
         <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
-          <span className="text-liveness-healthy">● system nominal</span>
+          <span className={headerStatus.className} data-testid="header-status">
+            {headerStatus.label}
+          </span>
         </span>
       </header>
 

@@ -2657,6 +2657,10 @@
                   "flags": ["--since"],
                   "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--require-current-head"],
+                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
                 }
               ]
             },

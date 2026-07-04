@@ -124,6 +124,102 @@ function mockTasksFetch(tasks: Array<{ id: string; title: string; status: string
   }) as typeof globalThis.fetch;
 }
 
+/**
+ * Full-fidelity mock covering every endpoint the plant board's instrument
+ * hooks call (mt#2590): /api/tasks, /api/activity, the attention/s3-gauges/
+ * mcp-server-status/embeddings-health/basic-health widgets, /api/health, and
+ * /api/credentials. Each source is independently overridable; omitted sources
+ * fall back to a benign default so unrelated tests don't need to specify
+ * every field.
+ */
+interface PlantBoardFetchOverrides {
+  tasks?: Array<{ id: string; title: string; status: string }>;
+  totalPending?: number;
+  mcpDisconnectsEligibleCount24h?: number | null;
+  subagentPartialUncommittedCount?: number | null;
+  s3GaugesFails?: boolean;
+  basicHealthFails?: boolean;
+  mcpServerHealthy?: boolean;
+  deployStatus?: string | null;
+  embeddingsStatus?: "healthy" | "degraded" | "exhausted";
+  dbStatus?: "ok" | "degraded" | "unreachable";
+  credentials?: Array<{ provider: string; configured: boolean }>;
+}
+
+function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
+  const tasks = overrides.tasks ?? [];
+  const totalPending = overrides.totalPending ?? 0;
+  const credentials = overrides.credentials ?? [{ provider: "github", configured: true }];
+
+  globalThis.fetch = mock((url: string) => {
+    const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+    const json = (body: unknown, status = 200) =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    if (pathname === "/api/tasks") return json({ tasks });
+    if (pathname === "/api/activity") return json({ events: [], total: 0, limit: 50 });
+
+    if (pathname === "/api/widget/attention/data") {
+      return json({ state: "ok", payload: { activeWindow: null, cohort: [], totalPending } });
+    }
+
+    if (pathname === "/api/widget/s3-gauges/data") {
+      if (overrides.s3GaugesFails) return json({ error: "not found" }, 404);
+      return json({
+        state: "ok",
+        payload: {
+          mcpDisconnects: {
+            eligibleCount24h: overrides.mcpDisconnectsEligibleCount24h ?? 0,
+            threshold: 3,
+          },
+          subagentDispatches: {
+            partialUncommittedCount: overrides.subagentPartialUncommittedCount ?? 0,
+            threshold: 2,
+          },
+          attention: { value: null },
+        },
+      });
+    }
+
+    if (pathname === "/api/widget/basic-health/data") {
+      if (overrides.basicHealthFails) return json({ error: "not found" }, 404);
+      return json({ state: "ok", payload: { uptimeSec: 10, version: "test", loadedWidgetCount: 1 } });
+    }
+
+    if (pathname === "/api/widget/mcp-server-status/data") {
+      return json({
+        state: "ok",
+        payload: {
+          health: { ok: overrides.mcpServerHealthy ?? true },
+          deploy:
+            overrides.deployStatus !== undefined && overrides.deployStatus !== null
+              ? { status: overrides.deployStatus }
+              : null,
+        },
+      });
+    }
+
+    if (pathname === "/api/widget/embeddings-health/data") {
+      return json({ state: "ok", payload: { status: overrides.embeddingsStatus ?? "healthy" } });
+    }
+
+    if (pathname === "/api/health") {
+      return json({ status: "ok", db: overrides.dbStatus ?? "ok" });
+    }
+
+    if (pathname === "/api/credentials") {
+      return json({ credentials });
+    }
+
+    return Promise.resolve(new Response("Not found", { status: 404 }));
+  }) as typeof globalThis.fetch;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -324,6 +420,176 @@ describe("PlantFlowPage", () => {
     const { container } = renderPlantFlow();
     expect(container.querySelectorAll(".vsm-gesture-pulse").length).toBe(0);
     expect(container.querySelectorAll('[data-testid^="gesture-dot-"]').length).toBe(0);
+  });
+
+  // ---- 3★ scan sweep (mt#2590) ----
+
+  test("renders the 3★ scan sweep as the S3 idle animation", () => {
+    mockPlantBoardFetch();
+    const { container } = renderPlantFlow();
+    const sweep = screen.getByTestId("vsm-scan-sweep");
+    expect(sweep).toBeDefined();
+    expect(container.querySelector('[data-testid="vsm-scan-sweep"] .vsm-scan')).not.toBeNull();
+  });
+
+  // ---- Ask-pulse gating (mt#2590 — honest-motion law) ----
+
+  test("ask pulse is absent when 0 asks are open", async () => {
+    mockPlantBoardFetch({ totalPending: 0 });
+    const { container } = renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("asks-open-count").textContent).toContain("0");
+    });
+
+    expect(container.querySelectorAll(".vsm-ask-pulse").length).toBe(0);
+    expect(screen.getByText("no ask pending")).toBeDefined();
+  });
+
+  test("ask pulse is present when >= 1 ask is open, on both the seam badge and the S5 YOU badge", async () => {
+    mockPlantBoardFetch({ totalPending: 2 });
+    const { container } = renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("asks-open-count").textContent).toContain("2");
+    });
+
+    expect(screen.getByTestId("seam-ask-badge").className).toContain("vsm-ask-pulse");
+    expect(screen.getByTestId("you-badge").className).toContain("vsm-ask-pulse");
+    expect(container.querySelectorAll(".vsm-ask-pulse").length).toBe(2);
+    expect(screen.getByText("ask pending")).toBeDefined();
+  });
+
+  // ---- Header health (mt#2590 — honest fallback) ----
+
+  test("header reads nominal when every health source is healthy", async () => {
+    mockPlantBoardFetch({ mcpServerHealthy: true, embeddingsStatus: "healthy", dbStatus: "ok" });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("header-status").textContent).toMatch(/nominal/i);
+    });
+  });
+
+  test("header is not nominal when a health source reports degraded", async () => {
+    mockPlantBoardFetch({ mcpServerHealthy: false });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("header-status").textContent).not.toMatch(/nominal/i);
+      expect(screen.getByTestId("header-status").textContent).toMatch(/degraded/i);
+    });
+  });
+
+  test("header reads unknown (not nominal) when the reachability probe itself fails", async () => {
+    mockPlantBoardFetch({ basicHealthFails: true });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("header-status").textContent).toMatch(/unknown/i);
+      expect(screen.getByTestId("header-status").textContent).not.toMatch(/nominal/i);
+    });
+  });
+
+  // ---- Gauges (mt#2590 — real data + honest placeholder on fetch error) ----
+
+  test("gauges render a real value and move the needle when tracker values change", async () => {
+    mockPlantBoardFetch({ mcpDisconnectsEligibleCount24h: 5, subagentPartialUncommittedCount: 1 });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("gauge-value-mcp disc.").textContent).toBe("5");
+      expect(screen.getByTestId("gauge-value-dispatch").textContent).toBe("1");
+    });
+
+    // Setpoints match the CLAUDE.md-documented alarm thresholds named in the sublabels.
+    expect(screen.getByText("alarm 3/24h")).toBeDefined();
+    expect(screen.getByText("alarm 2/sess")).toBeDefined();
+  });
+
+  test("gauges render the honest placeholder when the s3-gauges fetch fails", async () => {
+    mockPlantBoardFetch({ s3GaugesFails: true });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("gauge-value-mcp disc.").textContent).toBe("—");
+      expect(screen.getByTestId("gauge-value-dispatch").textContent).toBe("—");
+    });
+  });
+
+  test("attention gauge always renders the honest placeholder (no HTTP surface exists)", async () => {
+    mockPlantBoardFetch();
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("gauge-value-attention").textContent).toBe("—");
+    });
+  });
+
+  // ---- Infra Supply (mt#2590 — real per-service health) ----
+
+  test("infra supply dot flips within one breath poll when a supply service degrades", async () => {
+    mockPlantBoardFetch({ mcpServerHealthy: true });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      const dot = screen.getByTestId("infra-dot-status-MCP server");
+      expect(dot.getAttribute("data-health")).toBe("healthy");
+    });
+
+    cleanup();
+    mockPlantBoardFetch({ mcpServerHealthy: false });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      const dot = screen.getByTestId("infra-dot-status-MCP server");
+      expect(dot.getAttribute("data-health")).toBe("unhealthy");
+    });
+  });
+
+  test("infra supply shows the honest unknown dot for reviewer bot (no HTTP surface exists)", async () => {
+    mockPlantBoardFetch();
+    renderPlantFlow();
+
+    await waitFor(() => {
+      const dot = screen.getByTestId("infra-dot-status-reviewer bot");
+      expect(dot.getAttribute("data-health")).toBe("unknown");
+    });
+  });
+
+  // ---- S4 backlog + deploy chip (mt#2590) ----
+
+  test("S4 backlog tank shows real TODO/PLANNING counts", async () => {
+    mockPlantBoardFetch({
+      tasks: [
+        { id: "mt-1", title: "a", status: "TODO" },
+        { id: "mt-2", title: "b", status: "TODO" },
+        { id: "mt-3", title: "c", status: "PLANNING" },
+      ],
+    });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByText("PLANNING 1 · TODO 2")).toBeDefined();
+    });
+  });
+
+  test("S4 deploy chip shows an honest placeholder when deploy status is unreachable", async () => {
+    mockPlantBoardFetch({ deployStatus: null });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("s4-deploy-chip").textContent).toContain("—");
+    });
+  });
+
+  test("S4 deploy chip shows live when deploy status is SUCCESS", async () => {
+    mockPlantBoardFetch({ deployStatus: "SUCCESS" });
+    renderPlantFlow();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("s4-deploy-chip").textContent).toContain("live");
+    });
   });
 });
 
