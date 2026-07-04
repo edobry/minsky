@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- tracked by mt#2598 */
 /**
  * PlantFlowPage — the "/plant" route: the cockpit's whole-system plant board.
  *
