@@ -6,7 +6,7 @@
  * is a fixed vocabulary — one event type maps to one gesture set; nothing
  * here invents motion.
  *
- * Two gesture kinds:
+ * Gesture kinds:
  *  - **edge dot** — a dot travels the spine edge (rendered by GestureEdge's
  *    SMIL animateMotion; reduced-motion swaps it for a static brighten).
  *  - **node pulse** — a one-shot glow on an organ node (CSS animation
