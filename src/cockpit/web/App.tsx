@@ -77,6 +77,9 @@ const MemoryPage = lazy(() =>
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
 );
+const VitalsPage = lazy(() =>
+  import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
+);
 
 /**
  * Plant board routes — the node-link whole-system view (ADR-020, converged
@@ -522,6 +525,15 @@ export function App() {
             }
           />
           {plantRoutes}
+          {/* Phone vital-signs view (mt#2601): compressed four-loop sibling of /plant. */}
+          <Route
+            path="/vitals"
+            element={
+              <ErrorBoundary id="vitals-page">
+                <VitalsPage />
+              </ErrorBoundary>
+            }
+          />
         </Routes>
       </Suspense>
     </Layout>
