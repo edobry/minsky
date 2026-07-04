@@ -672,6 +672,75 @@ export default [
       ],
     },
   },
+  // === FILE SIZE RULES — TSX/JSX parity (mt#2592) ===
+  // The two `max-lines` blocks above (warn @ 400, error @ 1500) scope only to
+  // `**/*.ts` / `**/*.js`, so React components had NO file-size guard at all
+  // (src/cockpit/web/pages/PlantFlowPage.tsx grew to 1646 lines invisibly).
+  // Mirror both tiers here, narrowly, as their own config objects — do NOT
+  // fold `.tsx`/`.jsx` into the big `**/*.ts`/`**/*.js` block above, which
+  // would pull 30+ unrelated rules (custom rules, unused-vars, etc.) into
+  // TSX/JSX scope as an unintended scope expansion (see mt#2592 spec,
+  // "Out of scope: non-size lint rules for .tsx"). Component files run
+  // longer than plain TS modules per unit of logic because JSX markup is
+  // more line-dense than typical TS syntax; the warn tier is pragmatically
+  // set higher than the .ts/.js tier (800 vs 400) so that today's largest
+  // properly-scoped cockpit widgets (e.g. Credentials.tsx at 688 lines)
+  // don't need individual disables, while still catching genuinely
+  // oversized components. The error tier stays at 1500, matching .ts/.js.
+  //
+  // NOTE on `skipComments`: unlike the `.ts`/`.js` tiers above, both `.tsx`
+  // tiers set `skipComments: false`. Two reasons: (1) the codebase's larger
+  // cockpit pages/widgets (e.g. PlantFlowPage.tsx) carry substantial
+  // architecture-rationale JSDoc headers — skipping comments would let a
+  // file's *code* bulk grow arbitrarily while its ESLint-counted size stayed
+  // artificially low, defeating the guard's purpose; (2) with
+  // `skipComments: true` mirrored exactly, PlantFlowPage.tsx's ESLint-counted
+  // line count (~1349, comments/blanks excluded) falls UNDER the 1500 error
+  // threshold despite a raw `wc -l` of 1646 — which would make the
+  // file-level `eslint-disable max-lines` comment below register as an
+  // "Unused eslint-disable directive" (itself a warning, failing the
+  // zero-warning `lint:strict` / pre-commit gate). `skipBlankLines: true` is
+  // kept since blank lines carry no content either way.
+  //
+  // NOTE on ESLint flat-config rule merging: because both tiers configure the
+  // SAME rule name (`max-lines`) with the SAME `files` glob, ESLint's flat
+  // config resolution has the LATER-declared block's rule settings entirely
+  // replace the earlier one for any file matching both — there is no
+  // independent coexistence of a "warn at 800" and "error at 1500" signal.
+  // In practice only the error tier below is ever active. This exactly
+  // mirrors the pre-existing (undocumented) behavior of the `.ts`/`.js`
+  // blocks above, where the warn-@-400 tier is likewise always superseded by
+  // the later error-@-1500 tier. Fixing that pre-existing two-tier-coexistence
+  // gap is out of scope for mt#2592 (which only extends coverage to
+  // `.tsx`/`.jsx`); the warn tier is kept here for documented intent/parity
+  // and in case a future change (e.g. a custom multi-severity rule) makes
+  // both tiers independently effective.
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    rules: {
+      "max-lines": [
+        "warn",
+        {
+          max: 800,
+          skipBlankLines: true,
+          skipComments: false,
+        },
+      ],
+    },
+  },
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    rules: {
+      "max-lines": [
+        "error",
+        {
+          max: 1500,
+          skipBlankLines: true,
+          skipComments: false,
+        },
+      ],
+    },
+  },
   // === SKIPPED TEST ENFORCEMENT (test files only) ===
   {
     files: ["**/*.test.ts", "**/*.spec.ts"],
