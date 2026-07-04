@@ -1683,11 +1683,27 @@ function PlantFlowCanvas() {
   // before custom HTML node heights are known (bounds = bare positions), which
   // over-zooms and clips the bottom row (mt#2422 R1 defect). This effect refits
   // against real bounds so the whole plant is always inside the viewport.
+  //
+  // mt#2590: also re-fit whenever the live instrument queries settle. Real
+  // data (e.g. "asks open: 517" vs the placeholder "asks open: —", or
+  // 3-digit backlog counts vs "—") can be substantially WIDER than the
+  // placeholder content nodesInitialized measured at mount — without this,
+  // the one-shot fitView leaves later-widened nodes (S3, Infra Supply, the
+  // right end of the S1 spine) pushed outside the viewport once real data
+  // arrives a beat after first paint.
   useEffect(() => {
     if (nodesInitialized) {
-      void fitView({ padding: 0.04, maxZoom: 1.0 });
+      void fitView({ padding: 0.1, maxZoom: 1.0 });
     }
-  }, [nodesInitialized, fitView]);
+  }, [
+    nodesInitialized,
+    fitView,
+    readyCount,
+    openAskCount,
+    backlogCounts,
+    s3Gauges,
+    systemHealth,
+  ]);
 
   // Propagate live instrument data into each node without resetting layout
   // (mirrors the pre-existing s1-ready readyCount propagation, mt#2590).
@@ -1807,7 +1823,7 @@ function PlantFlowCanvas() {
       onNodesChange={onNodesChangeCallback}
       onEdgesChange={onEdgesChangeCallback}
       fitView
-      fitViewOptions={{ padding: 0.04, maxZoom: 1.0 }}
+      fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
       minZoom={0.25}
       maxZoom={2}
       defaultEdgeOptions={{
