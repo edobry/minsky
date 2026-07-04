@@ -13,7 +13,7 @@
  * same row shape and endpoint as the live poller.
  */
 import { useQuery } from "@tanstack/react-query";
-import type { ReplayWindow } from "../lib/plant-replay";
+import { isValidReplayWindow, type ReplayWindow } from "../lib/plant-replay";
 
 export interface SystemEventRow {
   id: string;
@@ -75,14 +75,19 @@ async function fetchActivityWindow(window: ReplayWindow): Promise<SystemEventRow
 /**
  * One-shot fetch of a fixed `[since, until]` window for time-scrubber replay
  * (mt#2600). Disabled (no fetch) while `window` is null — the default state
- * before the operator commits a scrub selection. Does not poll: a replayed
- * window is a fixed historical slice, not a live tail.
+ * before the operator commits a scrub selection — OR while `window` is an
+ * inverted/zero-width range (`since >= until`). This is defense-in-depth on
+ * top of ScrubberBar's own enter-replay gate (mt#2600 R1 review): a future
+ * caller that constructs a `ReplayWindow` without going through the
+ * scrubber form still can't reach the server with a malformed range. Does
+ * not poll: a replayed window is a fixed historical slice, not a live tail.
  */
 export function useReplayEvents(window: ReplayWindow | null) {
+  const enabled = window !== null && isValidReplayWindow(window);
   return useQuery({
     queryKey: ["plant-board", "system-events-replay", window?.since, window?.until],
     queryFn: () => fetchActivityWindow(window as ReplayWindow),
-    enabled: window !== null,
+    enabled,
     refetchOnWindowFocus: false,
     retry: false,
   });

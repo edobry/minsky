@@ -90,6 +90,18 @@ export function computeReplayWindow(
   return { since: new Date(sinceMs).toISOString(), until: new Date(untilMs).toISOString() };
 }
 
+/**
+ * True when `since` is strictly before `until` — the only valid window
+ * shape. Shared by BOTH the UI (ScrubberBar's enter-replay enable/disable
+ * gate) and the fetch hook (`useReplayEvents`'s `enabled` condition) as
+ * defense-in-depth, so an inverted range can never reach the server even if
+ * a future caller constructs a `ReplayWindow` without going through the
+ * scrubber form (mt#2600 R1 review).
+ */
+export function isValidReplayWindow(window: ReplayWindow): boolean {
+  return Date.parse(window.since) < Date.parse(window.until);
+}
+
 // ---------------------------------------------------------------------------
 // Ordering + pacing (the replay "schedule")
 // ---------------------------------------------------------------------------

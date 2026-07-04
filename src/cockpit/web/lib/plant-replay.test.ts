@@ -8,6 +8,7 @@ import {
   buildReplaySchedule,
   dueSteps,
   isReplayComplete,
+  isValidReplayWindow,
   MIN_STEP_MS,
   MAX_STEP_MS,
   type ReplaySpeed,
@@ -47,6 +48,26 @@ describe("computeReplayWindow", () => {
     expect(Date.parse(w.until) - Date.parse(w.since)).toBe(1);
     const w2 = computeReplayWindow(NOW, 0, -500);
     expect(Date.parse(w2.until) - Date.parse(w2.since)).toBe(1);
+  });
+});
+
+describe("isValidReplayWindow", () => {
+  test("true when since is strictly before until", () => {
+    expect(
+      isValidReplayWindow({ since: "2026-07-03T23:24:00Z", until: "2026-07-03T23:34:00Z" })
+    ).toBe(true);
+  });
+
+  test("false when since equals until (zero-width)", () => {
+    expect(
+      isValidReplayWindow({ since: "2026-07-03T23:24:00Z", until: "2026-07-03T23:24:00Z" })
+    ).toBe(false);
+  });
+
+  test("false when since is after until (inverted range)", () => {
+    expect(
+      isValidReplayWindow({ since: "2026-07-03T23:34:00Z", until: "2026-07-03T23:24:00Z" })
+    ).toBe(false);
   });
 });
 

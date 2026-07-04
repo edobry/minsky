@@ -14,7 +14,13 @@
  * verification (mt#2600 acceptance test scrubs to a SPECIFIC known window).
  */
 import { useState } from "react";
-import { REPLAY_SPEEDS, type PlantMode, type ReplaySpeed, type ReplayWindow } from "../lib/plant-replay";
+import {
+  isValidReplayWindow,
+  REPLAY_SPEEDS,
+  type PlantMode,
+  type ReplaySpeed,
+  type ReplayWindow,
+} from "../lib/plant-replay";
 
 export interface ScrubberBarProps {
   mode: PlantMode;
@@ -54,7 +60,9 @@ export function ScrubberBar({
 
   const sinceIso = toIsoOrNull(sinceInput);
   const untilIso = toIsoOrNull(untilInput);
-  const canReplay = Boolean(sinceIso && untilIso && sinceIso < untilIso);
+  const canReplay = Boolean(
+    sinceIso && untilIso && isValidReplayWindow({ since: sinceIso, until: untilIso })
+  );
 
   const controlClass =
     "bg-transparent border border-border rounded px-1 text-foreground text-[9px] font-mono";
