@@ -144,6 +144,15 @@ interface PlantBoardFetchOverrides {
   embeddingsStatus?: "healthy" | "degraded" | "exhausted";
   dbStatus?: "ok" | "degraded" | "unreachable";
   credentials?: Array<{ provider: string; configured: boolean }>;
+  /** Rows returned for a REPLAY window fetch (a `/api/activity` request
+   *  carrying `since`/`until`) — distinct from the live poll's always-empty
+   *  default, so replay tests can assert on specific fired gestures. */
+  replayEvents?: Array<{
+    id: string;
+    eventType: string;
+    payload?: Record<string, unknown>;
+    createdAt: string;
+  }>;
 }
 
 function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
@@ -162,7 +171,18 @@ function mockPlantBoardFetch(overrides: PlantBoardFetchOverrides = {}) {
       );
 
     if (pathname === "/api/tasks") return json({ tasks });
-    if (pathname === "/api/activity") return json({ events: [], total: 0, limit: 50 });
+    if (pathname === "/api/activity") {
+      const search =
+        typeof url === "string"
+          ? new URL(url, "http://localhost").searchParams
+          : new URLSearchParams();
+      // A replay-window request carries since/until; the live poll never does.
+      if (search.has("since") || search.has("until")) {
+        const events = overrides.replayEvents ?? [];
+        return json({ events, total: events.length, limit: 500 });
+      }
+      return json({ events: [], total: 0, limit: 50 });
+    }
 
     if (pathname === "/api/widget/attention/data") {
       return json({ state: "ok", payload: { activeWindow: null, cohort: [], totalPending } });
@@ -612,6 +632,97 @@ describe("PlantFlowPage", () => {
     expect(mesh.textContent).toMatch(/mesh.*reserved/i);
     // No numeric/status content — an honestly-empty placeholder, not a stat.
     expect(mesh.textContent).not.toMatch(/\d/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Time-scrubber replay (mt#2600) — scrubber-untouched-changes-nothing is
+// covered implicitly by every `describe("PlantFlowPage", ...)` test above
+// (mode defaults to "live", ScrubberBar's own fetch stays disabled until a
+// window is committed); this block adds explicit coverage for that
+// invariant plus the replay-specific behavior itself.
+// ---------------------------------------------------------------------------
+
+describe("time-scrubber replay (mt#2600)", () => {
+  function fillReplayWindow(sinceLocal: string, untilLocal: string) {
+    fireEvent.change(screen.getByLabelText("Replay window start"), {
+      target: { value: sinceLocal },
+    });
+    fireEvent.change(screen.getByLabelText("Replay window end"), {
+      target: { value: untilLocal },
+    });
+  }
+
+  test("scrubber untouched: no replay banner/frame border, live controls unaffected", () => {
+    mockPlantBoardFetch();
+    renderPlantFlow();
+
+    expect(screen.getByTestId("scrubber-bar")).toBeDefined();
+    expect(screen.getByTestId("replay-frame")).toBeDefined();
+    expect(screen.queryByTestId("replay-banner")).toBeNull();
+    expect(screen.queryByTestId("replay-indicator")).toBeNull();
+    // The live-mode since/until inputs are shown; "Enter replay" is disabled
+    // until both are filled with a valid, ordered range.
+    expect(screen.getByLabelText("Replay window start")).toBeDefined();
+    expect(screen.getByLabelText("Replay window end")).toBeDefined();
+    expect((screen.getByLabelText("Enter replay") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("entering replay shows the honest-motion banner + border frame and replays the window's gestures", async () => {
+    mockPlantBoardFetch({
+      replayEvents: [
+        {
+          id: "e1",
+          eventType: "task.status_changed",
+          payload: { newStatus: "DONE" },
+          createdAt: "2026-07-03T23:25:00.000Z",
+        },
+        {
+          id: "e2",
+          eventType: "pr.merged",
+          payload: {},
+          createdAt: "2026-07-03T23:25:00.050Z",
+        },
+      ],
+    });
+    const { container } = renderPlantFlow();
+
+    fillReplayWindow("2026-07-03T20:00:00", "2026-07-03T20:10:00");
+    fireEvent.click(screen.getByLabelText("Enter replay"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("replay-banner")).toBeDefined();
+      expect(screen.getByTestId("replay-indicator")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Play replay"));
+
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll(".vsm-gesture-pulse").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  test("exiting replay clears the banner/frame and returns to the live scrubber controls", async () => {
+    mockPlantBoardFetch({ replayEvents: [] });
+    renderPlantFlow();
+
+    fillReplayWindow("2026-07-03T20:00:00", "2026-07-03T20:10:00");
+    fireEvent.click(screen.getByLabelText("Enter replay"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("replay-banner")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByLabelText("Exit replay"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("replay-banner")).toBeNull();
+      expect(screen.queryByTestId("replay-indicator")).toBeNull();
+      expect(screen.getByLabelText("Replay window start")).toBeDefined();
+    });
   });
 });
 
