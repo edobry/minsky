@@ -132,11 +132,14 @@ function MiniGaugeArc({
   sublabel,
   needleFraction,
   setpointFraction,
+  valueLabel,
 }: {
   label: string;
   sublabel: string;
   needleFraction: number;
   setpointFraction: number;
+  /** Real reading behind the needle, or "—" for an honest gap (mt#2590). */
+  valueLabel?: string;
 }) {
   const size = 64;
   const cx = size / 2;
@@ -204,6 +207,14 @@ function MiniGaugeArc({
         <div className="text-[8px] font-mono text-muted-foreground leading-tight truncate max-w-[64px]">
           {sublabel}
         </div>
+        {valueLabel !== undefined && (
+          <div
+            className="text-[8px] font-mono text-foreground/70 leading-tight"
+            data-testid={`gauge-value-${label}`}
+          >
+            {valueLabel}
+          </div>
+        )}
       </figcaption>
     </figure>
   );
@@ -535,16 +546,24 @@ function S3ManagementNode(props: NodeProps<Node<S3ManagementNodeData>>) {
           sublabel={`alarm ${mcpThreshold}/24h`}
           needleFraction={gaugeFraction(mcpDisconnectCount ?? null, mcpThreshold)}
           setpointFraction={GAUGE_SETPOINT_FRACTION}
+          valueLabel={mcpDisconnectCount === null || mcpDisconnectCount === undefined ? "—" : String(mcpDisconnectCount)}
         />
         <MiniGaugeArc
           label="dispatch"
           sublabel={`alarm ${dispThreshold}/sess`}
           needleFraction={gaugeFraction(dispatchCount ?? null, dispThreshold)}
           setpointFraction={GAUGE_SETPOINT_FRACTION}
+          valueLabel={dispatchCount === null || dispatchCount === undefined ? "—" : String(dispatchCount)}
         />
         {/* attention_report has no HTTP surface today (mt#2590 documented
             gap) — honest flat placeholder rather than a faked reading. */}
-        <MiniGaugeArc label="attention" sublabel="—" needleFraction={0} setpointFraction={0} />
+        <MiniGaugeArc
+          label="attention"
+          sublabel="—"
+          needleFraction={0}
+          setpointFraction={0}
+          valueLabel="—"
+        />
       </div>
       <div className="flex items-center justify-center gap-1.5">
         <span className="text-[8px] font-mono text-muted-foreground">3★ sweep → over S1</span>
@@ -931,7 +950,12 @@ function InfraSupplyNode(props: NodeProps<Node<InfraSupplyNodeData>>) {
           <div key={s.name} className="flex items-center gap-1.5" data-testid={`infra-dot-${s.name}`}>
             <span
               className="w-1.5 h-1.5 rounded-full"
-              style={{ background: serviceDotColor(s.health) }}
+              style={{ backgroundColor: serviceDotColor(s.health) }}
+              data-testid={`infra-dot-status-${s.name}`}
+              // Plain attribute mirror of the health state driving the dot
+              // color, for test assertions — some CSS test environments
+              // don't reliably serialize oklch()-valued inline color styles.
+              data-health={s.health ?? "unknown"}
               aria-hidden="true"
             />
             <span className="text-[9px] font-mono text-muted-foreground">{s.name}</span>
