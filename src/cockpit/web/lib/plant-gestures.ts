@@ -215,12 +215,19 @@ export function mapEventToGestures(event: SystemEventRow): GestureSet {
     case "retrospective.fired":
       // Learning-loop weld: the loop pulses and the "new interlock" edge into
       // the DONE valve flashes — a dictionary-level gesture standing in for
-      // the full topology-weld animation (mt#2602).
+      // the full topology-weld animation, which mt#2602 owns (mt#2490 spec
+      // amendment, PR #1784 review).
       return {
         edgeDots: [],
         edgeFlashes: [{ edgeId: "learn-to-s1", tone: "learn" }],
         nodePulses: [{ nodeId: "learning-loop", tone: "learn" }],
       };
+    // deploy.* -> S4 node pulse only, NOT a dedicated deploy-pipe edge dot
+    // (mt#2490 spec amendment, PR #1784 review): no edge in the current
+    // plant topology represents a deploy pipeline — the only edge touching
+    // s4-future ("s4-to-tasks") means "roadmap feeds task pool," an
+    // unrelated concept. A real deploy-pipe primitive (likely inside the
+    // S4 node's own "build -> smoke -> live" chip) is tracked by mt#2605.
     case "deploy.build":
     case "deploy.smoke":
       // In-flight deploy phases: no live producer yet (mt#2599 — the
