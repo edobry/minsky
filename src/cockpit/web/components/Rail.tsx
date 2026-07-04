@@ -30,6 +30,7 @@ import {
   Layers,
   Settings,
   Zap,
+  Activity,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { fetchWidgetData } from "../lib/widget-client";
@@ -55,6 +56,7 @@ const BROWSE: NavItem[] = [
   { to: "/embeddings", label: "Embeddings", icon: Cpu },
   { to: "/memories", label: "Memories", icon: Brain },
   { to: "/plant", label: "Plant", icon: Layers },
+  { to: "/vitals", label: "Vitals", icon: Activity },
 ];
 
 function isActive(pathname: string, to: string): boolean {
