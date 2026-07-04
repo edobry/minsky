@@ -506,6 +506,18 @@ function S4FutureNode(props: NodeProps<Node<S4FutureNodeData>>) {
         >
           {deployNode}
         </div>
+        {/* Mesh region — honestly-empty reserved placeholder (mt#2591; canon:
+            mt#2375 §S4 "mesh region reserved/honestly-empty"). No data source
+            exists for the mesh yet, so this carries NO numbers and NO
+            animation — a dashed border + muted label is the whole contract. */}
+        <div
+          className="rounded px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/60"
+          style={{ border: `1px dashed oklch(${accentVar} / 0.35)` }}
+          data-testid="s4-mesh-region"
+          aria-label="Mesh region — reserved, not yet wired"
+        >
+          mesh — reserved
+        </div>
       </div>
     </OrganNodeShell>
   );
@@ -1539,7 +1551,12 @@ const LEGEND_ORGANS: Array<{ colorVar: string; label: string }> = [
 ];
 
 function PlantLegend() {
-  const [open, setOpen] = useState(true);
+  // Collapsed by default (mt#2591): the expanded panel's bottom-right footprint
+  // crowded the S1 pipeline tail (REVIEW/DONE) and the Learning Loop label at
+  // narrower viewports. Collapse-by-default is the info-on-demand default the
+  // ISA-101 HMI discipline recommends (mt#2466 canon) and keeps the common view
+  // calm; the reading grammar stays one click away via the toggle below.
+  const [open, setOpen] = useState(false);
 
   return (
     <div
