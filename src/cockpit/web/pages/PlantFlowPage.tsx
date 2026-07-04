@@ -63,12 +63,13 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useReadyCount } from "../hooks/useReadyCount";
-import { useSystemEvents } from "../hooks/useSystemEvents";
+import { useSystemEvents, useReplayEvents, type SystemEventRow } from "../hooks/useSystemEvents";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
 import { useTaskBacklogCounts } from "../hooks/useTaskBacklogCounts";
 import { useS3Gauges, gaugeFraction, GAUGE_SETPOINT_FRACTION } from "../hooks/useS3Gauges";
 import { useSystemHealth, type ServiceHealth } from "../hooks/useSystemHealth";
 import { GestureEdge } from "../components/GestureEdge";
+import { ScrubberBar } from "../components/ScrubberBar";
 import {
   GESTURE_MS,
   GESTURE_TONE_VARS,
@@ -76,6 +77,16 @@ import {
   mapEventToGestures,
   takeNewEvents,
 } from "../lib/plant-gestures";
+import {
+  buildReplaySchedule,
+  dueSteps,
+  isReplayComplete,
+  DEFAULT_REPLAY_SPEED,
+  type PlantMode,
+  type ReplaySpeed,
+  type ReplayStep,
+  type ReplayWindow,
+} from "../lib/plant-replay";
 
 // ---------------------------------------------------------------------------
 // Node data types
@@ -1637,12 +1648,16 @@ function PlantFlowCanvas() {
   const nodesInitialized = useNodesInitialized();
 
   // -------------------------------------------------------------------------
-  // Fast-clock gesture engine (mt#2377 v2.0). Polls system_events; the FIRST
-  // poll only baselines (history is not motion); each subsequent poll fires
-  // the fixed gesture dictionary for genuinely-new rows. Expired gestures are
-  // pruned so the indefinite SMIL dots unmount.
+  // Fast-clock gesture engine (mt#2377 v2.0, replay added mt#2600). Live mode
+  // polls system_events; the FIRST poll only baselines (history is not
+  // motion); each subsequent poll fires the fixed gesture dictionary for
+  // genuinely-new rows. Replay mode feeds a fetched historical window through
+  // the SAME dictionary, paced by lib/plant-replay.ts's pure schedule — both
+  // paths converge on the one `fireGestures` callback below so there is no
+  // replay-only vocabulary (honest-motion law).
   // -------------------------------------------------------------------------
-  const { data: eventRows } = useSystemEvents();
+  const [mode, setMode] = useState<PlantMode>("live");
+  const { data: eventRows, refetch: refetchLiveEvents } = useSystemEvents(undefined, mode === "live");
   const engineRef = useRef(createGestureEngineState());
   const [activeGestures, setActiveGestures] = useState<{
     edgeDots: Record<string, { until: number; colorVar: string }>;
@@ -1650,10 +1665,20 @@ function PlantFlowCanvas() {
     nodePulses: Record<string, { until: number; colorVar: string }>;
   }>({ edgeDots: {}, edgeFlashes: {}, nodePulses: {} });
 
+  // Outstanding gesture-expiry timers, tracked so they can be cancelled on
+  // unmount (fireGestures is called imperatively from both the live-poll
+  // effect and the replay ticker, so no single useEffect owns its cleanup).
+  const gestureExpiryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   useEffect(() => {
-    if (!eventRows) return;
-    const fresh = takeNewEvents(engineRef.current, eventRows);
-    if (fresh.length === 0) return;
+    const timers = gestureExpiryTimersRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
+  const fireGestures = useCallback((events: SystemEventRow[]) => {
+    if (events.length === 0) return;
     const until = Date.now() + GESTURE_MS;
     setActiveGestures((prev) => {
       const next = {
@@ -1661,7 +1686,7 @@ function PlantFlowCanvas() {
         edgeFlashes: { ...prev.edgeFlashes },
         nodePulses: { ...prev.nodePulses },
       };
-      for (const ev of fresh) {
+      for (const ev of events) {
         const g = mapEventToGestures(ev);
         for (const d of g.edgeDots) {
           next.edgeDots[d.edgeId] = { until, colorVar: GESTURE_TONE_VARS[d.tone] };
@@ -1676,6 +1701,7 @@ function PlantFlowCanvas() {
       return next;
     });
     const timer = setTimeout(() => {
+      gestureExpiryTimersRef.current.delete(timer);
       const now = Date.now();
       setActiveGestures((prev) => ({
         edgeDots: Object.fromEntries(Object.entries(prev.edgeDots).filter(([, v]) => v.until > now)),
@@ -1687,8 +1713,83 @@ function PlantFlowCanvas() {
         ),
       }));
     }, GESTURE_MS + 200);
-    return () => clearTimeout(timer);
-  }, [eventRows]);
+    gestureExpiryTimersRef.current.add(timer);
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "live" || !eventRows) return;
+    const fresh = takeNewEvents(engineRef.current, eventRows);
+    fireGestures(fresh);
+  }, [mode, eventRows, fireGestures]);
+
+  // -------------------------------------------------------------------------
+  // Replay (mt#2600): a fixed historical window, ordered + paced by the pure
+  // lib/plant-replay.ts engine and stepped by a plain interval here.
+  // -------------------------------------------------------------------------
+  const [replayWindow, setReplayWindow] = useState<ReplayWindow | null>(null);
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(DEFAULT_REPLAY_SPEED);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replaySchedule, setReplaySchedule] = useState<ReplayStep[]>([]);
+  const [replayPlayheadIso, setReplayPlayheadIso] = useState<string | null>(null);
+  const replayEngineRef = useRef({ elapsedMs: 0, firedCount: 0, tickAnchor: null as number | null });
+
+  const { data: replayEventRows } = useReplayEvents(mode === "replay" ? replayWindow : null);
+
+  // A fresh window (or a speed change) rebuilds the schedule and resets
+  // playback progress. Speed changes mid-playback restart the window at the
+  // new speed rather than drift-correcting an in-flight schedule — an
+  // acceptable v1 simplification for a still/paused-by-default replay start.
+  useEffect(() => {
+    if (mode !== "replay" || !replayEventRows) return;
+    setReplaySchedule(buildReplaySchedule(replayEventRows, replaySpeed));
+    replayEngineRef.current = { elapsedMs: 0, firedCount: 0, tickAnchor: null };
+    setReplayPlayheadIso(null);
+  }, [mode, replayEventRows, replaySpeed]);
+
+  useEffect(() => {
+    if (mode !== "replay" || !replayPlaying || replaySchedule.length === 0) return;
+    const engine = replayEngineRef.current;
+    engine.tickAnchor = Date.now();
+    const id = setInterval(() => {
+      const now = Date.now();
+      const delta = now - (engine.tickAnchor ?? now);
+      engine.tickAnchor = now;
+      engine.elapsedMs += delta;
+      const { due, firedCount } = dueSteps(replaySchedule, engine.elapsedMs, engine.firedCount);
+      engine.firedCount = firedCount;
+      if (due.length > 0) {
+        fireGestures(due.map((s) => s.event));
+        setReplayPlayheadIso(due[due.length - 1]?.event.createdAt ?? null);
+      }
+      if (isReplayComplete(replaySchedule, firedCount)) {
+        setReplayPlaying(false);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [mode, replayPlaying, replaySchedule, fireGestures]);
+
+  const handleEnterReplay = useCallback((window: ReplayWindow) => {
+    setMode("replay");
+    setReplayWindow(window);
+    setReplayPlaying(false);
+  }, []);
+
+  const handleExitReplay = useCallback(() => {
+    setMode("live");
+    setReplayPlaying(false);
+    setReplayWindow(null);
+    setReplaySchedule([]);
+    replayEngineRef.current = { elapsedMs: 0, firedCount: 0, tickAnchor: null };
+    setReplayPlayheadIso(null);
+    // Re-baseline (mt#2600 acceptance test): a fresh engine state means the
+    // NEXT live poll's takeNewEvents() call treats every currently-existing
+    // row — including ones that happened while the live poller was paused
+    // during replay — as baseline, not motion. Clearing activeGestures too
+    // so no replay-fired gesture lingers past exit.
+    engineRef.current = createGestureEngineState();
+    setActiveGestures({ edgeDots: {}, edgeFlashes: {}, nodePulses: {} });
+    void refetchLiveEvents();
+  }, [refetchLiveEvents]);
 
   // Build the initial node layout with placeholder ready data.
   // Live readyCount is propagated into the READY node via `updatedNodes` below,
@@ -1833,43 +1934,83 @@ function PlantFlowCanvas() {
   const onNodesChangeCallback = useCallback(onNodesChange, [onNodesChange]);
   const onEdgesChangeCallback = useCallback(onEdgesChange, [onEdgesChange]);
 
+  // Honest-motion law extension (mt#2600): replay must never be mistakable
+  // for live — an inset border frame on the whole canvas is the "impossible
+  // to miss" signal, on top of the top-center banner + timestamp readout.
   return (
-    <ReactFlow
-      nodes={updatedNodes}
-      edges={renderedEdges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      onNodesChange={onNodesChangeCallback}
-      onEdgesChange={onEdgesChangeCallback}
-      fitView
-      fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
-      minZoom={0.25}
-      maxZoom={2}
-      defaultEdgeOptions={{
-        // Visible teal default for any edge without an explicit style
-        style: {
-          stroke: `oklch(var(--vsm-s1) / 0.60)`,
-          strokeWidth: 1.5,
-        },
-        labelBgStyle: EDGE_LABEL_BG_STYLE,
-        labelBgPadding: [4, 2] as [number, number],
-        labelBgBorderRadius: 3,
-        labelShowBg: true,
-      }}
-      proOptions={{ hideAttribution: true }}
-      style={{ background: "oklch(var(--background) / 1)" }}
-      aria-label="Minsky plant flow diagram — VSM organs as connected nodes"
+    <div
+      className="w-full h-full"
+      data-testid="replay-frame"
+      style={
+        mode === "replay"
+          ? { boxShadow: "inset 0 0 0 3px oklch(var(--warn-amber) / 0.85)" }
+          : undefined
+      }
     >
-      <Background
-        variant={BackgroundVariant.Dots}
-        gap={24}
-        size={1}
-        color="oklch(var(--border) / 0.5)"
-      />
-      <Panel position="bottom-right">
-        <PlantLegend />
-      </Panel>
-    </ReactFlow>
+      <ReactFlow
+        nodes={updatedNodes}
+        edges={renderedEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={onNodesChangeCallback}
+        onEdgesChange={onEdgesChangeCallback}
+        fitView
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
+        minZoom={0.25}
+        maxZoom={2}
+        defaultEdgeOptions={{
+          // Visible teal default for any edge without an explicit style
+          style: {
+            stroke: `oklch(var(--vsm-s1) / 0.60)`,
+            strokeWidth: 1.5,
+          },
+          labelBgStyle: EDGE_LABEL_BG_STYLE,
+          labelBgPadding: [4, 2] as [number, number],
+          labelBgBorderRadius: 3,
+          labelShowBg: true,
+        }}
+        proOptions={{ hideAttribution: true }}
+        style={{ background: "oklch(var(--background) / 1)" }}
+        aria-label="Minsky plant flow diagram — VSM organs as connected nodes"
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={24}
+          size={1}
+          color="oklch(var(--border) / 0.5)"
+        />
+        {mode === "replay" && (
+          <Panel position="top-center">
+            <div
+              className="rounded-md px-3 py-1 font-mono text-[10px] font-bold tracking-[0.12em] uppercase"
+              style={{
+                color: "oklch(var(--warn-amber) / 1)",
+                background: "oklch(var(--card) / 0.95)",
+                border: "1px solid oklch(var(--warn-amber) / 0.6)",
+              }}
+              data-testid="replay-banner"
+            >
+              ● REPLAY — {replayPlayheadIso ?? replayWindow?.since ?? "…"}
+            </div>
+          </Panel>
+        )}
+        <Panel position="bottom-center">
+          <ScrubberBar
+            mode={mode}
+            playing={replayPlaying}
+            speed={replaySpeed}
+            playheadIso={replayPlayheadIso}
+            onEnterReplay={handleEnterReplay}
+            onExitReplay={handleExitReplay}
+            onPlayPause={() => setReplayPlaying((p) => !p)}
+            onSpeedChange={setReplaySpeed}
+          />
+        </Panel>
+        <Panel position="bottom-right">
+          <PlantLegend />
+        </Panel>
+      </ReactFlow>
+    </div>
   );
 }
 
