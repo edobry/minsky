@@ -7,6 +7,14 @@
  * handles column count); this shell itself makes no width assumptions beyond
  * `w-full` + `min-w-0`, so it never forces horizontal scroll inside a narrow
  * flex/grid parent.
+ *
+ * Status line gets the FULL card width on its own row (not squeezed into the
+ * same narrow column as the sparkline) and wraps instead of truncating: an
+ * earlier version put ring+sparkline+status in one row and truncated the
+ * status text, which silently cut off the honest-gap citations (e.g.
+ * "...not yet tracked (mt#2537)") — the opposite of the truthfulness
+ * discipline this page exists to demonstrate. Caught during 390x844/1440x900
+ * visual verification (mt#2601).
  */
 import type { ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -45,11 +53,13 @@ export function LoopCardShell({
           {label}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex items-center gap-4">
-        <div className="shrink-0">{ring}</div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="min-w-0">{sparkline}</div>
-          <div className="truncate text-xs text-muted-foreground">{statusLine}</div>
+      <CardContent className="flex flex-col gap-2">
+        <div className="flex items-center gap-4">
+          <div className="shrink-0">{ring}</div>
+          <div className="min-w-0 flex-1">{sparkline}</div>
+        </div>
+        <div className="text-xs leading-snug text-muted-foreground break-words">
+          {statusLine}
         </div>
       </CardContent>
     </Card>
