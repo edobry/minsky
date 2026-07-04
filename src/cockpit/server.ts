@@ -1774,6 +1774,12 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    *                client drops it rather than sending a sentinel). An invalid
    *                value is a 400 (no `all` sentinel; strict at the boundary
    *                so a typo can't silently produce an empty `IN ()` filter).
+   *   - since:     ISO-8601 inclusive lower bound on `created_at`. Invalid
+   *                (unparseable) values are a 400 (mt#2600 — time-scrubber
+   *                replay window). The domain `listEvents` already supports
+   *                this filter; this route only adds boundary validation.
+   *   - until:     ISO-8601 inclusive upper bound on `created_at`. Same
+   *                validation as `since` (mt#2600).
    *   - limit:     max results (default 100, max 500)
    *
    * Returns: { events: SystemEvent[], total: number, limit: number }
@@ -1825,11 +1831,36 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         category = rawCategory as EventCategory;
       }
 
+      // since/until (mt#2600 — time-scrubber replay window). Validated at the
+      // boundary the same way eventType/category are: an unparseable value is
+      // a 400 rather than silently falling through to `new Date(NaN)`, which
+      // Drizzle would otherwise happily serialize as "Invalid Date" and the
+      // query would run with a nonsensical bound instead of failing loudly.
+      let since: string | undefined;
+      const rawSince = req.query["since"];
+      if (typeof rawSince === "string") {
+        if (isNaN(Date.parse(rawSince))) {
+          res.status(400).json({ error: `Invalid since '${rawSince}' — must be ISO-8601` });
+          return;
+        }
+        since = rawSince;
+      }
+
+      let until: string | undefined;
+      const rawUntil = req.query["until"];
+      if (typeof rawUntil === "string") {
+        if (isNaN(Date.parse(rawUntil))) {
+          res.status(400).json({ error: `Invalid until '${rawUntil}' — must be ISO-8601` });
+          return;
+        }
+        until = rawUntil;
+      }
+
       const limitParam =
         typeof req.query["limit"] === "string" ? parseInt(req.query["limit"], 10) : 100;
       const limit = isNaN(limitParam) ? 100 : Math.min(Math.max(limitParam, 1), 500);
 
-      const events = await listEvents(db, { eventType, category, limit });
+      const events = await listEvents(db, { eventType, category, since, until, limit });
 
       res.json({ events, total: events.length, limit });
     } catch (err: unknown) {
