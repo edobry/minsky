@@ -1537,7 +1537,8 @@ const INITIAL_EDGES: Edge[] = [
 // ---------------------------------------------------------------------------
 // Plant legend — the reading grammar (mt#2466 item 8), ported from the SVG
 // board's legend sidebar. Lives in a react-flow Panel in the bottom-right
-// (the board's open corner). Collapsible; expanded by default.
+// (the board's open corner). Collapsible; collapsed by default (mt#2591 —
+// info-on-demand default avoids crowding the S1 pipeline tail when open).
 // ---------------------------------------------------------------------------
 
 const LEGEND_ORGANS: Array<{ colorVar: string; label: string }> = [
