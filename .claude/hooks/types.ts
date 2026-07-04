@@ -84,6 +84,55 @@ export async function readInput<T = ClaudeHookInput>(): Promise<T> {
 // Write hook output to stdout
 export function writeOutput(output: HookOutput): void {
   process.stdout.write(JSON.stringify(output));
+  emitHookFiredOnDeny(output);
+}
+
+// ---------------------------------------------------------------------------
+// hook.fired system-event bridge (mt#2537)
+// ---------------------------------------------------------------------------
+//
+// Design (chosen over touching each individual guard hook, per mt#2537's
+// "prefer a design touching few/no individual guard hooks" preference):
+// `writeOutput` is the single common function every guard hook (54 call sites
+// as of mt#2537) already calls to emit its stdout decision. Intercepting HERE
+// gives `hook.fired` coverage across every hook with zero per-hook edits.
+//
+// Scope: only `decision: "blocked"` (a `permissionDecision: "deny"`) is
+// covered in v1. "overridden" decisions (MINSKY_FORCE_*/MINSKY_SKIP_* env-var
+// bypasses) are logged by each hook as its own free-text audit line to stdout
+// (e.g. "[parallel-work-guard] override active: ...") — there is no shared
+// choke point for those the way there is for `writeOutput`'s JSON contract,
+// and retrofitting every override call site would violate the
+// touch-few-hooks design preference. Deferred; see mt#2537 PR body.
+//
+// Invocation path: fire-and-forget, detached `minsky events emit hook.fired`
+// subprocess, `.unref()`'d immediately so the parent hook process's own exit
+// (and its <15s host-cap budget, see readHostCap above) is never blocked on
+// it. Any failure (spawn error, `minsky` not on PATH) is swallowed — this
+// must never affect the hook's actual permission decision, which has already
+// been written to stdout by the time this runs.
+export function emitHookFiredOnDeny(output: HookOutput): void {
+  if (output.hookSpecificOutput?.permissionDecision !== "deny") return;
+  try {
+    const scriptPath = process.argv[1] ?? "unknown";
+    const hookName = scriptPath.split(/[\\/]/).pop() || scriptPath;
+    const payload = JSON.stringify({ hook: hookName, decision: "blocked" as const });
+    // Same PATH-augmentation convention as execWithPath above (macOS/Linux
+    // homebrew + local-bin prefixes). Minsky's hook toolchain is macOS/Linux-
+    // only today (no Windows path-separator handling); if Windows support is
+    // ever added, both helpers need updating together.
+    const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
+    const proc = Bun.spawn(["minsky", "events", "emit", "hook.fired", "--payload", payload], {
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+      env: { ...process.env, PATH: pathPrefix },
+    });
+    proc.unref();
+  } catch {
+    // Best-effort — telemetry must never break (or delay) the hook's actual
+    // decision, which writeOutput has already flushed to stdout above.
+  }
 }
 
 // ---------------------------------------------------------------------------
