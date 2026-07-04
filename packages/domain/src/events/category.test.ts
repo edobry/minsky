@@ -38,6 +38,14 @@ describe("event category classification", () => {
         "session.started",
         "memory.created",
         "ask.answered",
+        "changeset.created",
+        "hook.fired",
+        "mcp.disconnect",
+        "retrospective.fired",
+        "deploy.build",
+        "deploy.smoke",
+        "deploy.live",
+        "deploy.fail",
       ].sort()
     );
   });

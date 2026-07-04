@@ -99,6 +99,14 @@ export function mapEventToGestures(event: SystemEventRow): GestureSet {
     case "task.status_changed":
       return statusGesture(typeof payload["newStatus"] === "string" ? payload["newStatus"] : "");
     case "task.auto_created":
+      // Deliberate orphan (mt#2591): this type is declared in the schema union
+      // (system-events-schema.ts) and mapped here, but has NO production emit
+      // call site today — no code path actually creates tasks.auto_created
+      // rows. Mapping it costs nothing (no rows -> no gestures, honest-motion
+      // law holds) and means the gesture activates for free the moment a real
+      // auto-creation emit site is wired. That wiring is event-producer work
+      // outside this render-side task; it belongs to the mt#2481 family
+      // (mt#2537 is the family's most recent shipped emit-wiring slice).
       return { ...EMPTY, nodePulses: [{ nodeId: "s1-tasks", tone: "flow" }] };
     case "session.started":
       return {

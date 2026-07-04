@@ -1511,6 +1511,22 @@ export function createStartCommand(
             });
           });
 
+        // Fire-and-forget background sweep bridging the disconnect-tracker's
+        // JSONL log into `system_events` as `mcp.disconnect` rows (mt#2537).
+        // HWM-gated internally so repeated boots (the MCP server restarts
+        // frequently — see CLAUDE.md's disconnect-cadence rule) only emit new
+        // disconnects since the last successful sweep.
+        import("../../mcp/disconnect-event-sweep")
+          .then(({ triggerMcpDisconnectEventSweep }) => {
+            if (!container) return;
+            return triggerMcpDisconnectEventSweep(container.get("persistence"));
+          })
+          .catch((err) => {
+            log.warn("mcp.disconnect event sweep failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start
         // path — never from `minsky --help` or any CLI-only code path.

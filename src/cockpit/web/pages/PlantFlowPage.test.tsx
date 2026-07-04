@@ -23,7 +23,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Suspense } from "react";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes } from "react-router-dom";
 import { PlantFlowPage } from "./PlantFlowPage";
@@ -398,10 +398,20 @@ describe("PlantFlowPage", () => {
     expect(screen.getByTestId("memory-reservoir")).toBeDefined();
   });
 
-  test("renders the legend with the S2 organ entry", () => {
+  test("legend is collapsed by default (mt#2591 — avoids occluding the S1 pipeline tail)", () => {
     mockTasksFetch([]);
     renderPlantFlow();
     expect(screen.getByTestId("plant-legend")).toBeDefined();
+    // Collapsed: the reading-grammar body is not in the DOM, and the toggle
+    // button reports its "closed" accessible state.
+    expect(screen.queryByText(/S2 valves/i)).toBeNull();
+    expect(screen.getByLabelText("Expand legend")).toBeDefined();
+  });
+
+  test("renders the legend with the S2 organ entry once expanded", () => {
+    mockTasksFetch([]);
+    renderPlantFlow();
+    fireEvent.click(screen.getByLabelText("Expand legend"));
     expect(screen.getByText(/S2 valves/i)).toBeDefined();
   });
 
@@ -590,6 +600,18 @@ describe("PlantFlowPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("s4-deploy-chip").textContent).toContain("live");
     });
+  });
+
+  // ---- S4 mesh region (mt#2591 — canon: mt#2375 §S4 "reserved/honestly-empty") ----
+
+  test("S4 renders an honestly-empty mesh region with no fake data", () => {
+    mockTasksFetch([]);
+    renderPlantFlow();
+    const mesh = screen.getByTestId("s4-mesh-region");
+    expect(mesh).toBeDefined();
+    expect(mesh.textContent).toMatch(/mesh.*reserved/i);
+    // No numeric/status content — an honestly-empty placeholder, not a stat.
+    expect(mesh.textContent).not.toMatch(/\d/);
   });
 });
 
