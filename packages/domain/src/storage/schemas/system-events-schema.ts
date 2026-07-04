@@ -99,7 +99,9 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       (`packages/domain/src/deployment/`); `deploy.build` / `deploy.smoke`
  *       have no clean v1 seam (the platform-neutral wrapper observes only the
  *       terminal deployment record, not per-phase build/smoke callbacks) and
- *       are deferred — see PR body.
+ *       are deferred to follow-up task mt#2599 (see the mt#2537 spec's
+ *       v1-scope amendment). Both enum values ship now so mt#2599 needs no
+ *       further migration.
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];

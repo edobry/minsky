@@ -117,6 +117,10 @@ export function emitHookFiredOnDeny(output: HookOutput): void {
     const scriptPath = process.argv[1] ?? "unknown";
     const hookName = scriptPath.split(/[\\/]/).pop() || scriptPath;
     const payload = JSON.stringify({ hook: hookName, decision: "blocked" as const });
+    // Same PATH-augmentation convention as execWithPath above (macOS/Linux
+    // homebrew + local-bin prefixes). Minsky's hook toolchain is macOS/Linux-
+    // only today (no Windows path-separator handling); if Windows support is
+    // ever added, both helpers need updating together.
     const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
     const proc = Bun.spawn(["minsky", "events", "emit", "hook.fired", "--payload", payload], {
       stdout: "ignore",

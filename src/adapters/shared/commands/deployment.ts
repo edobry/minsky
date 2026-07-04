@@ -87,8 +87,10 @@ const deploymentLogsParams = {
  * v1 scope: only the terminal record is observed (no per-phase build/smoke
  * callback exists on the platform-neutral wrapper), so `deploy.build` /
  * `deploy.smoke` are not emitted from this seam — see the payload-shape doc
- * block in `system-events-schema.ts`. SUCCESS → `deploy.live`; every other
- * terminal status (FAILED, CANCELLED, CRASHED) → `deploy.fail`.
+ * block in `system-events-schema.ts` and the mt#2537 spec's v1-scope
+ * amendment. Their bridge is tracked as follow-up task mt#2599. SUCCESS →
+ * `deploy.live`; every other terminal status (FAILED, CANCELLED, CRASHED) →
+ * `deploy.fail`.
  */
 export function mapDeploymentRecordToEvent(
   result: DeploymentRecord,

@@ -90,6 +90,15 @@ function writeHwm(timestamp: string, deps: DisconnectSweepFsDeps): void {
  * way `DisconnectTracker.loadFromDisk` does — malformed/bracket-residue
  * lines are skipped rather than failing the whole sweep. Pure function — no
  * filesystem access, so it needs no injected deps.
+ *
+ * HWM comparison (`candidate.timestamp <= hwm`) is a plain string comparison,
+ * which is only chronologically correct because `disconnect-tracker.ts`
+ * always writes `timestamp` via `new Date().toISOString()` — a fixed-width,
+ * always-UTC, millisecond-precision ISO-8601 string. Lexicographic and
+ * chronological ordering coincide for that exact format. If a producer ever
+ * writes a differently-formatted timestamp (different precision, a numeric
+ * offset instead of "Z", etc.) into this log, this comparison would silently
+ * misorder — there is no format validation here beyond `typeof === "string"`.
  */
 export function parseNewDisconnectEvents(raw: string, hwm: string | null): DisconnectLogLine[] {
   const events: DisconnectLogLine[] = [];
