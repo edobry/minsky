@@ -264,6 +264,139 @@ describe("VitalsPage — live data", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests: aggregate header — all three HeaderHealth branches
+//
+// mt#2601 review round 1: the reviewer flagged the header presentation's
+// degraded/unknown branches as untested (only "nominal" was covered above).
+// These three tests lock in the full state space so a future edit that
+// breaks the degraded/unknown mapping fails a test instead of shipping
+// silently. See VitalsPage.tsx's headerStatusPresentation doc comment for
+// why this mapping is a verified-identical duplicate of PlantFlowPage.tsx's
+// (that file is out of scope to edit — see file-surface note in the PR).
+// ---------------------------------------------------------------------------
+
+describe("VitalsPage — aggregate header health states", () => {
+  test("renders 'system nominal' (liveness-healthy) when every constituent source is healthy", async () => {
+    mockVitalsFetch();
+    renderVitalsPage();
+    const header = await screen.findByText(/system nominal/);
+    expect(header.className).toContain("text-liveness-healthy");
+  });
+
+  test("renders 'system degraded' (warn-amber) when a constituent source reports unhealthy", async () => {
+    mockVitalsFetch({
+      "/api/widget/embeddings-health/data": () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ state: "ok", payload: { status: "degraded" } }), {
+            status: 200,
+          })
+        ),
+    });
+    renderVitalsPage();
+    const header = await screen.findByText(/system degraded/);
+    expect(header.className).toContain("text-warn-amber");
+  });
+
+  test("renders 'status unknown' (muted-foreground) when the basic-health reachability probe itself fails", async () => {
+    mockVitalsFetch({
+      "/api/widget/basic-health/data": () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ state: "degraded", reason: "unreachable" }), {
+            status: 200,
+          })
+        ),
+    });
+    renderVitalsPage();
+    const header = await screen.findByText(/status unknown/);
+    expect(header.className).toContain("text-muted-foreground");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: deploy loop card — all DeploymentStatus branches
+//
+// Same class of gap as the header states above: only SUCCESS was covered.
+// Locks in the short-code + attention-highlight mapping for every status.
+// ---------------------------------------------------------------------------
+
+describe("VitalsPage — deploy loop status variants", () => {
+  function mockDeployStatus(status: string, deploy: Record<string, unknown> | null = {}) {
+    mockVitalsFetch({
+      "/api/widget/mcp-server-status/data": () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              state: "ok",
+              payload: {
+                ...MCP_SERVER_STATUS_PAYLOAD.payload,
+                deploy:
+                  deploy === null
+                    ? null
+                    : {
+                        commitHash: "abc1234",
+                        commitMessage: "x",
+                        lastDeployAt: new Date().toISOString(),
+                        status,
+                        ...deploy,
+                      },
+              },
+            }),
+            { status: 200 }
+          )
+        ),
+    });
+  }
+
+  test("FAILED status shows the 'FAIL' short code and highlights the card border", async () => {
+    mockDeployStatus("FAILED");
+    renderVitalsPage();
+    const card = await screen.findByTestId("loop-card-deploy");
+    await waitFor(() => expect(card.textContent).toContain("FAIL"));
+    expect(card.className).toContain("border-[oklch(var(--vsm-seam)/0.6)]");
+  });
+
+  test("CRASHED status shows the 'CRSH' short code and highlights the card border", async () => {
+    mockDeployStatus("CRASHED");
+    renderVitalsPage();
+    const card = await screen.findByTestId("loop-card-deploy");
+    await waitFor(() => expect(card.textContent).toContain("CRSH"));
+    expect(card.className).toContain("border-[oklch(var(--vsm-seam)/0.6)]");
+  });
+
+  test("BUILDING status shows the 'BLD' short code without highlighting the border", async () => {
+    mockDeployStatus("BUILDING");
+    renderVitalsPage();
+    const card = await screen.findByTestId("loop-card-deploy");
+    await waitFor(() => expect(card.textContent).toContain("BLD"));
+    expect(card.className).not.toContain("border-[oklch(var(--vsm-seam)/0.6)]");
+  });
+
+  test("DEPLOYING status shows the 'DPL' short code", async () => {
+    mockDeployStatus("DEPLOYING");
+    renderVitalsPage();
+    const card = await screen.findByTestId("loop-card-deploy");
+    await waitFor(() => expect(card.textContent).toContain("DPL"));
+  });
+
+  test("CANCELLED status shows the 'CNCL' short code", async () => {
+    mockDeployStatus("CANCELLED");
+    renderVitalsPage();
+    const card = await screen.findByTestId("loop-card-deploy");
+    await waitFor(() => expect(card.textContent).toContain("CNCL"));
+  });
+
+  test("no deploy recorded (null deploy field) shows the '?' short code and an honest status line", async () => {
+    mockDeployStatus("UNKNOWN", null);
+    renderVitalsPage();
+    const card = await screen.findByTestId("loop-card-deploy");
+    await waitFor(() => {
+      expect(card.textContent).toContain("?");
+      expect(card.textContent).toContain("No deploy recorded yet");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: placeholder-on-error state
 // ---------------------------------------------------------------------------
 

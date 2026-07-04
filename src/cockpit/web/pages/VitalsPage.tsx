@@ -22,23 +22,29 @@
  * aggregate line use `min-w-0` / `truncate` so long values never force
  * horizontal overflow.
  */
-import { useSystemHealth } from "../hooks/useSystemHealth";
+import { useSystemHealth, type HeaderHealth } from "../hooks/useSystemHealth";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
 import { WorkLoopCard } from "../components/vitals/WorkLoopCard";
 import { LearningLoopCard } from "../components/vitals/LearningLoopCard";
 import { AttentionLoopCard } from "../components/vitals/AttentionLoopCard";
 import { DeployLoopCard } from "../components/vitals/DeployLoopCard";
 
-type HeaderHealth = "nominal" | "degraded" | "unknown";
-
 /**
- * Header banner text + color per real aggregated health state. This mirrors
- * PlantFlowPage.tsx's private `headerStatusPresentation` (same three-state
- * shape, same wording) but is intentionally a separate, un-shared function —
- * PlantFlowPage.tsx is out of scope for this task (owned by sibling sessions
- * mt#2591/mt#2490), so this small presentation mapping is duplicated rather
- * than extracted. A future consolidation could hoist both into a shared
- * `lib/system-health-presentation.ts`.
+ * Header banner text + color per real aggregated health state.
+ *
+ * VERIFIED IDENTICAL (as of this PR, mt#2601) to PlantFlowPage.tsx's private
+ * `headerStatusPresentation`: same three `HeaderHealth` branches (imported
+ * from useSystemHealth.ts, not re-declared, so at least the INPUT type can't
+ * drift), same label strings, same className tokens. It is intentionally a
+ * separate, un-shared function rather than an extracted one:
+ * PlantFlowPage.tsx is explicitly out of this task's file surface (owned by
+ * sibling sessions mt#2591/mt#2490 per the coordinating agent's scope), so
+ * hoisting both call sites onto one shared `lib/system-health-presentation.ts`
+ * would require editing a file this PR is not permitted to touch. All three
+ * branches are covered by VitalsPage.test.tsx's "aggregate header" tests so
+ * at minimum THIS side of the duplication can't silently regress. If this
+ * mapping and PlantFlowPage's diverge in a future change, that is the
+ * trigger to file the consolidation this comment flags.
  */
 function headerStatusPresentation(health: HeaderHealth | undefined): {
   label: string;
