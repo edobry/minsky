@@ -26,7 +26,7 @@
  *   (flat needle, "—" sublabel) for this one instrument rather than fake it.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import * as fs from "fs";
+import { promises as fsPromises, existsSync } from "fs";
 import * as path from "path";
 import * as os from "os";
 import { getSharedPersistenceService } from "../shared-persistence";
@@ -69,15 +69,33 @@ const SERVER_INITIATED_CAUSES = new Set([
 ]);
 const SHORT_LIVED_THRESHOLD_MS = 5000;
 
-interface DisconnectLogEvent {
-  kind?: string;
+export interface DisconnectLogEvent {
+  kind: string;
   cause?: string;
-  timestamp?: string;
+  timestamp: string;
   uptimeMs?: number;
   processRole?: string;
 }
 
-function isEscalationEligible(event: DisconnectLogEvent): boolean {
+/**
+ * Runtime type guard for a parsed JSONL line. The log is written by a
+ * different process (the MCP server) under a documented but external
+ * contract (CLAUDE.md), so a parsed value is untrusted input — validate
+ * field presence/types before treating it as a `DisconnectLogEvent` rather
+ * than blindly casting.
+ */
+export function isDisconnectLogEvent(value: unknown): value is DisconnectLogEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.kind !== "string") return false;
+  if (typeof v.timestamp !== "string") return false;
+  if (v.cause !== undefined && typeof v.cause !== "string") return false;
+  if (v.uptimeMs !== undefined && typeof v.uptimeMs !== "number") return false;
+  if (v.processRole !== undefined && typeof v.processRole !== "string") return false;
+  return true;
+}
+
+export function isEscalationEligible(event: DisconnectLogEvent): boolean {
   if (event.kind !== "disconnect") return false;
   if (typeof event.cause === "string" && SERVER_INITIATED_CAUSES.has(event.cause)) return false;
   if (typeof event.uptimeMs === "number" && event.uptimeMs < SHORT_LIVED_THRESHOLD_MS) return false;
@@ -87,30 +105,74 @@ function isEscalationEligible(event: DisconnectLogEvent): boolean {
 }
 
 /**
+ * Bound on how many trailing lines of the (unbounded, append-only) JSONL log
+ * are parsed per poll. The log is never truncated on disk (CLAUDE.md:
+ * "append-only JSONL"), so a long-lived server can accumulate a large file
+ * over weeks/months even though the in-process tracker only keeps the last
+ * 500 events in memory. Only the trailing window can possibly fall inside
+ * the 24h lookback this widget cares about, so parsing is capped at this
+ * many trailing lines regardless of total file size — bounding CPU work per
+ * poll independent of how large the on-disk log has grown.
+ */
+const MAX_LOG_LINES_SCANNED = 2000;
+
+/** Default on-disk location of the MCP disconnect JSONL log (CLAUDE.md). */
+export function defaultDisconnectLogPath(): string {
+  return path.join(os.homedir(), ".local", "state", "minsky", "mcp-disconnect-log.json");
+}
+
+/**
+ * Injectable filesystem seam for readMcpDisconnectEligibleCount24h — tests
+ * pass an in-memory fake (e.g. via `createMockFilesystem`) instead of
+ * touching a real file, per the project's dependency-injection convention
+ * for filesystem access in tests (`custom/no-real-fs-in-tests`).
+ */
+export interface DisconnectLogReaderDeps {
+  exists: (path: string) => boolean;
+  /** Reads the whole file as a UTF-8 string. */
+  readFile: (path: string) => Promise<string>;
+}
+
+const defaultDisconnectLogReaderDeps: DisconnectLogReaderDeps = {
+  exists: existsSync,
+  readFile: async (p) => (await fsPromises.readFile(p, { encoding: "utf-8" })) as string,
+};
+
+/**
  * Read the MCP disconnect JSONL log and count escalation-eligible disconnects
  * in the last 24h. Returns null if the log is missing or unreadable — this is
- * a genuine "no data" state, not a zero.
+ * a genuine "no data" state, not a zero. Async (non-blocking) file read, and
+ * bounded to the trailing MAX_LOG_LINES_SCANNED lines so a long-lived,
+ * ever-growing append-only log can't make this poll slow.
+ *
+ * @param logPathOverride Test seam — defaults to the real CLAUDE.md-documented path.
+ * @param deps Test seam — defaults to the real filesystem.
  */
-function readMcpDisconnectEligibleCount24h(): number | null {
+export async function readMcpDisconnectEligibleCount24h(
+  logPathOverride?: string,
+  deps: DisconnectLogReaderDeps = defaultDisconnectLogReaderDeps
+): Promise<number | null> {
   try {
-    const logPath = path.join(os.homedir(), ".local", "state", "minsky", "mcp-disconnect-log.json");
-    if (!fs.existsSync(logPath)) return null;
-    const raw = fs.readFileSync(logPath, { encoding: "utf-8" }) as string;
+    const logPath = logPathOverride ?? defaultDisconnectLogPath();
+    if (!deps.exists(logPath)) return null;
+    const raw = await deps.readFile(logPath);
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const allLines = raw.split(/\r?\n/);
+    const lines = allLines.slice(-MAX_LOG_LINES_SCANNED);
     let count = 0;
-    for (const line of raw.split("\n")) {
+    for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("[") || trimmed.startsWith("]")) continue;
-      let event: DisconnectLogEvent;
+      let parsed: unknown;
       try {
-        event = JSON.parse(trimmed) as DisconnectLogEvent;
+        parsed = JSON.parse(trimmed);
       } catch {
         continue;
       }
-      if (!event.timestamp) continue;
-      const ts = new Date(event.timestamp).getTime();
+      if (!isDisconnectLogEvent(parsed)) continue;
+      const ts = new Date(parsed.timestamp).getTime();
       if (Number.isNaN(ts) || ts < cutoff) continue;
-      if (isEscalationEligible(event)) count++;
+      if (isEscalationEligible(parsed)) count++;
     }
     return count;
   } catch {
@@ -158,7 +220,7 @@ export const s3GaugesWidget: WidgetModule = {
   async fetch(_ctx: WidgetContext): Promise<WidgetData> {
     try {
       const [eligibleCount24h, partialUncommittedCount] = await Promise.all([
-        Promise.resolve(readMcpDisconnectEligibleCount24h()),
+        readMcpDisconnectEligibleCount24h(),
         readSubagentPartialUncommittedCount(),
       ]);
 
