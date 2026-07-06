@@ -38,7 +38,16 @@
 // Override: MINSKY_SKIP_CALIBRATION_CADENCE=1|true|yes skips the hook with an
 // audit-log line to stdout.
 //
-// @see mt#2619 — this hook (Track-1 item of the mt#2607 tech-debt burndown)
+// @see mt#2619 — this hook (Track-1 item of the mt#2607 tech-debt burndown).
+//      The mt#2619 task spec documents two constraints discovered during
+//      implementation: the mt#2304 hooks-compile-pipeline PR collision
+//      (blocks detector .ts edits — INJECTION_ENABLED flips/pattern tuning
+//      are recorded as dispositions, not code changes, in this PR) and the
+//      live-registry chicken-and-egg (a newly-registered log's watermark
+//      can't be `--ack`'d until the live MCP server has this PR's code).
+// @see ask 483dbcb0-788a-4159-9d8a-ba718ba1f2b0 — the FP-classification +
+//      flip/tune/retire disposition recommendations for the four
+//      past-threshold logs found by this task's review pass.
 // @see .claude/hooks/skill-staleness-detector.ts — architectural template
 //      (re-warning suppression, per-turn UserPromptSubmit injection)
 // @see .claude/hooks/inject-prod-state.ts — sibling cache-staleness framing
