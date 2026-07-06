@@ -8,7 +8,7 @@
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerGitCommands } from "./git";
 import { registerRepoCommands } from "./repo";
-import { registerTasksCommands } from "./tasks";
+import { registerTasksCommands } from "./tasks-modular";
 import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
