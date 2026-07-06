@@ -1202,10 +1202,12 @@ export class PreCommitHook {
 
     try {
       await execAsync(
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain",
+        // mt#2608: packages/domain (336 test files, the mt#2108 extraction
+        // target) had zero pre-commit coverage until this line added it.
+        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain ./packages/domain",
         {
           cwd: this.projectRoot,
-          timeout: 60000, // Allow more time for full test suite
+          timeout: 120000, // mt#2608: packages/domain adds ~40s; bump budget accordingly
           env: { ...process.env, AGENT: "1" },
         }
       );

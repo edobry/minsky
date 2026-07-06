@@ -632,8 +632,17 @@ describe("buildPresenceClaimRepository", () => {
     expect(buildPresenceClaimRepository(undefined)).toBeNull();
   });
 
-  test("returns null when db lacks a select method (not a drizzle db)", () => {
-    expect(buildPresenceClaimRepository({ insert: () => {} })).toBeNull();
+  test("constructs unconditionally for any truthy db (no duck-type guard, mirrors buildAskRepository)", () => {
+    // buildPresenceClaimRepository's doc comment (repository.ts) explicitly
+    // documents this as a deliberate mt#2567 design decision: no duck-type
+    // guard is needed since getDatabaseConnection() always returns a real
+    // PostgresJsDatabase. The prior version of this test asserted a stricter
+    // "lacks select method -> null" contract that was never implemented and
+    // contradicts that documented decision (mt#2608) — verified against the
+    // sibling buildAskRepository, which likewise constructs unconditionally.
+    expect(buildPresenceClaimRepository({ insert: () => {} })).toBeInstanceOf(
+      DrizzlePresenceClaimRepository
+    );
   });
 
   test("returns a DrizzlePresenceClaimRepository when given a duck-typed db", () => {
