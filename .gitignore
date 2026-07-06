@@ -115,3 +115,6 @@ supabase/
 /scripts/results/
 /scripts/.import-reports/
 .specstory/
+# mt#2609: the literal `~/` directory tracked via an unquoted tilde-expansion
+# bug in some historical command (reviewer-bot suggestion, PR #1787 R1).
+/~/
