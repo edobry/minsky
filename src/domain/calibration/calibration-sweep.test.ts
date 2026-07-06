@@ -26,6 +26,7 @@ const CAUSAL_PATH = ".minsky/causal-premise-calibration.jsonl";
 const RETRO_KIND = "retrospective-trigger";
 const DEFERRAL_KIND = "ask-routing-deferral";
 const DEFERRAL_CLASS = "principal-reserved";
+const CODE_MECHANISM_KIND = "code-mechanism-assertion";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -75,8 +76,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has three entries (causal-premise, retrospective-trigger, ask-routing-deferral)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(3);
+  test("has six entries (mt#2619 — cadence closeout adds three more logs)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(6);
   });
 
   test("first entry is causal-premise", () => {
@@ -95,6 +96,26 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[2]?.path).toBe(
       ".minsky/ask-routing-deferral-calibration.jsonl"
     );
+  });
+
+  test("fourth entry is code-mechanism-assertion (mt#2619)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[3]?.kind).toBe(CODE_MECHANISM_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[3]?.name).toBe(CODE_MECHANISM_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[3]?.path).toBe(
+      ".minsky/code-mechanism-assertion-calibration.jsonl"
+    );
+  });
+
+  test("fifth entry is pre-narration (mt#2619)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[4]?.kind).toBe("pre-narration");
+    expect(CALIBRATION_LOG_REGISTRY[4]?.name).toBe("pre-narration");
+    expect(CALIBRATION_LOG_REGISTRY[4]?.path).toBe(".minsky/pre-narration-calibration.jsonl");
+  });
+
+  test("sixth entry is policy-coverage (mt#2619)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[5]?.kind).toBe("policy-coverage");
+    expect(CALIBRATION_LOG_REGISTRY[5]?.name).toBe("policy-coverage");
+    expect(CALIBRATION_LOG_REGISTRY[5]?.path).toBe(".minsky/policy-coverage-calibration.jsonl");
   });
 });
 
@@ -150,6 +171,63 @@ describe("parseCalibrationRecord", () => {
     if (!result || !("matches" in result)) throw new Error("wrong type");
     // `class` is read into the `family` field; `phrase` is preserved.
     expect(result.matches).toEqual([{ family: DEFERRAL_CLASS, phrase: "needs your call" }]);
+  });
+
+  test("parses a pre-narration record (category-keyed matches, mt#2619)", () => {
+    // The hook writes { matches: [{category, phrase, expectedTool, hadMatchingTool}] }.
+    const line = JSON.stringify({
+      timestamp: "2026-06-01T00:00:00Z",
+      session_id: "test-session",
+      matches: [
+        {
+          category: "merged",
+          phrase: "PR #123 merged",
+          expectedTool: "session_pr_merge",
+          hadMatchingTool: false,
+        },
+      ],
+    });
+    const result = parseCalibrationRecord(line, "pre-narration");
+    expect(result).not.toBeNull();
+    if (!result || !("matches" in result)) throw new Error("wrong type");
+    expect(result.matches).toEqual([{ family: "merged", phrase: "PR #123 merged" }]);
+  });
+
+  test("parses a code-mechanism-assertion record (mt#2486, registered mt#2619)", () => {
+    const line = JSON.stringify({
+      timestamp: "2026-06-01T00:00:00Z",
+      session_id: "test-session",
+      claims: [{ symbol: "executeCommand", predicate: "clamps" }],
+      hadSameTurnRead: false,
+    });
+    const result = parseCalibrationRecord(line, CODE_MECHANISM_KIND);
+    expect(result).not.toBeNull();
+    if (!result || !("claims" in result)) throw new Error("wrong type");
+    expect(result.claims).toEqual([{ symbol: "executeCommand", predicate: "clamps" }]);
+    expect(result.hadSameTurnRead).toBe(false);
+  });
+
+  test("parses a policy-coverage record (mt#1575, registered mt#2619)", () => {
+    const line = JSON.stringify({
+      timestamp: "2026-06-01T00:00:00Z",
+      sessionId: "test-session",
+      toolName: "Edit",
+      reason: "new-file",
+      filePath: "/tmp/foo.ts",
+      outcome: "covered",
+      evidence: [{ policySource: "CLAUDE.md (project)", matchedCategory: "module" }],
+    });
+    const result = parseCalibrationRecord(line, "policy-coverage");
+    expect(result).not.toBeNull();
+    if (!result || !("reason" in result)) throw new Error("wrong type");
+    expect(result.reason).toBe("new-file");
+    expect(result.outcome).toBe("covered");
+    expect(result.session_id).toBe("test-session");
+  });
+
+  test("returns null for a policy-coverage record missing reason/outcome", () => {
+    const line = JSON.stringify({ timestamp: "2026-01-01", sessionId: "x" });
+    expect(parseCalibrationRecord(line, "policy-coverage")).toBeNull();
   });
 });
 
@@ -226,6 +304,40 @@ describe("extractDistinctPhrases", () => {
 
   test("returns empty set for empty records", () => {
     expect(extractDistinctPhrases([])).toEqual(new Set());
+  });
+
+  test("collects distinct symbol::predicate pairs from code-mechanism-assertion records", () => {
+    const records: CalibrationRecord[] = [
+      {
+        timestamp: "t",
+        claims: [
+          { symbol: "executeCommand", predicate: "clamps" },
+          { symbol: "maxBuffer", predicate: "defaults to" },
+        ],
+        hadSameTurnRead: false,
+      },
+      {
+        timestamp: "t",
+        claims: [{ symbol: "executeCommand", predicate: "clamps" }], // dup
+        hadSameTurnRead: true,
+      },
+    ];
+    const distinct = extractDistinctPhrases(records);
+    expect(distinct.size).toBe(2);
+    expect(distinct.has("executeCommand::clamps")).toBe(true);
+    expect(distinct.has("maxBuffer::defaults to")).toBe(true);
+  });
+
+  test("collects distinct `reason` values from policy-coverage records", () => {
+    const records: CalibrationRecord[] = [
+      { timestamp: "t", reason: "new-file", outcome: "covered" },
+      { timestamp: "t", reason: "new-dependency", outcome: "covered" },
+      { timestamp: "t", reason: "new-file", outcome: "covered" }, // dup reason
+    ];
+    const distinct = extractDistinctPhrases(records);
+    expect(distinct.size).toBe(2);
+    expect(distinct.has("new-file")).toBe(true);
+    expect(distinct.has("new-dependency")).toBe(true);
   });
 });
 
@@ -351,6 +463,44 @@ describe("computeLogResult — ask-routing-deferral kind (mt#2498)", () => {
     const result = computeLogResult(DEFERRAL_ENTRY, content, true, undefined);
     expect(result.totalFires).toBe(2);
     expect(result.distinctPhrases).toBe(3);
+  });
+});
+
+describe("computeLogResult — policy-coverage kind (mt#1575, registered mt#2619)", () => {
+  const POLICY_ENTRY: CalibrationLogEntry = {
+    path: ".minsky/policy-coverage-calibration.jsonl",
+    name: "policy-coverage",
+    kind: "policy-coverage",
+  };
+
+  function makePolicyRecord(reason: string, outcome = "covered"): string {
+    return JSON.stringify({
+      timestamp: "2026-06-01T00:00:00Z",
+      sessionId: "test-session",
+      toolName: "Edit",
+      reason,
+      outcome,
+    });
+  }
+
+  test("diversity is measured over distinct `reason` values, not phrases", () => {
+    const reasons = ["new-file", "new-dependency", "new-config-key"];
+    const count = FIRES_THRESHOLD;
+    const content = buildLines(count, (i) => makePolicyRecord(reasons[i % reasons.length] ?? ""));
+    const result = computeLogResult(POLICY_ENTRY, content, true, undefined);
+    expect(result.totalFires).toBe(count);
+    expect(result.distinctPhrases).toBe(3);
+    expect(result.pastThreshold).toBe(true);
+  });
+
+  test("lowDiversity when every record shares one `reason`", () => {
+    const count = FIRES_THRESHOLD;
+    const content = buildLines(count, () => makePolicyRecord("new-file"));
+    const result = computeLogResult(POLICY_ENTRY, content, true, undefined);
+    expect(result.atCountThreshold).toBe(true);
+    expect(result.distinctPhrases).toBe(1);
+    expect(result.lowDiversity).toBe(true);
+    expect(result.pastThreshold).toBe(false);
   });
 });
 
