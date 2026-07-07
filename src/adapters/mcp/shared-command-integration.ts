@@ -694,7 +694,8 @@ export function registerPersistenceCommandsWithMcp(
 }
 
 /**
- * Register changeset commands with MCP (repository changesets and session aliases)
+ * Register repository-scoped changeset commands with MCP (backend-agnostic
+ * `changeset.*` family: list/get/info/search).
  */
 export function registerChangesetCommandsWithMcp(
   commandMapper: CommandMapper,

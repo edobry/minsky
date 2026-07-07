@@ -45,10 +45,6 @@ export const HOSTED_SAFE_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   "session.pr.list", // GitHub API
   "session.pr.get", // GitHub API / DB
   "session.pr.checks", // GitHub API check-runs
-  "session.changeset.list", // DB / GitHub API
-  "session.changeset.get", // DB / GitHub API
-  "session.cs.list", // alias of changeset.list
-  "session.cs.get", // alias of changeset.get
 ]);
 
 /**
@@ -136,8 +132,8 @@ export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSy
  * Unsupported on hosted:
  *  - every `git.*` command (no `git` binary, no local repo on hosted), and
  *  - every `session.*` command NOT in `HOSTED_SAFE_SESSION_COMMANDS`
- *    (session creation, commit, update, exec, file edits, PR push, changeset
- *    branch ops, etc. — all need the local workspace / `git`).
+ *    (session creation, commit, update, exec, file edits, PR push, merge,
+ *    etc. — all need the local workspace / `git`).
  *
  * Commands outside the `git.*` / `session.*` namespaces are unaffected, as are
  * the DB/API-served session reads in the allowlist.

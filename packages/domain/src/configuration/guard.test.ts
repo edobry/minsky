@@ -145,8 +145,8 @@ describe("guardHostedCapability (mt#1601)", () => {
     "session.exec",
     "session.edit-file",
     "session.pr.create",
-    "session.changeset.create",
-    "session.cs.merge",
+    "session.pr.merge",
+    "session.pr.approve",
     "session.cleanup",
     "session.repair",
   ];

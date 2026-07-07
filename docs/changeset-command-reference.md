@@ -30,9 +30,7 @@ minsky repo changeset search "bug fix" --session my-session
 
 ### Session-Specific Operations
 
-Use `session pr` for current session workflow or `session changeset`/`session cs` aliases for consistent terminology:
-
-#### Primary Commands (Original)
+Use `session pr` for current session workflow (workspace-scoped):
 
 ```bash
 minsky session pr create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
@@ -43,27 +41,10 @@ minsky session pr approve [--review-comment "LGTM"]
 minsky session pr merge
 ```
 
-#### Changeset Aliases (Same Functionality)
-
-```bash
-minsky session changeset create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
-minsky session changeset edit --title "Updated title" [--body "..."]
-minsky session changeset list [--all]
-minsky session changeset get [id]
-minsky session changeset approve [--review-comment "LGTM"]
-minsky session changeset merge
-```
-
-#### Short Aliases
-
-```bash
-minsky session cs create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
-minsky session cs edit --title "Updated title" [--body "..."]
-minsky session cs list [--all]
-minsky session cs get [id]
-minsky session cs approve [--review-comment "LGTM"]
-minsky session cs merge
-```
+`session pr *` and repo-scoped `repo changeset *` are the canonical command
+families. Earlier `session changeset *` / `session cs *` aliases over the same
+functionality were retired (mt#2611) — migrate any remaining usages to
+`session pr *` above.
 
 ## Platform Support
 
@@ -130,14 +111,14 @@ minsky repo changeset get 42 --details
 minsky session start --task mt#123
 
 # Create changeset when ready
-minsky session cs create --title "Implement feature" --type feat
+minsky session pr create --title "Implement feature" --type feat
 
 # List current session's changesets
-minsky session cs list
+minsky session pr list
 
 # Approve and merge
-minsky session cs approve --review-comment "LGTM"
-minsky session cs merge
+minsky session pr approve --review-comment "LGTM"
+minsky session pr merge
 ```
 
 ### Platform Information
@@ -171,8 +152,7 @@ All existing `session pr` commands continue to work without changes. The new cha
 
 All changeset commands are also available via MCP tools for remote access and integration:
 
-- `changeset.list`, `changeset.search`, `changeset.get`, `changeset.info`
-- `session.changeset.create`, `session.changeset.approve`, etc.
-- `session.cs.create`, `session.cs.approve`, etc.
+- `changeset_list`, `changeset_search`, `changeset_get`, `changeset_info` (repo-scoped, backend-agnostic)
+- `session_pr_create`, `session_pr_approve`, `session_pr_merge`, etc. (workspace-scoped)
 
 This enables programmatic access to changeset operations for automation and integration scenarios.
