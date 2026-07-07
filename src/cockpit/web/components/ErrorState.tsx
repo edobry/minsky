@@ -30,6 +30,13 @@ export interface ErrorStateProps {
   prefix?: string;
   /** Call-site density; see LoadingState for the same convention. */
   variant?: "inline" | "page";
+  /**
+   * Ambient chrome (persistent nav badges, footers) that refetches on an
+   * interval must NOT re-announce every error transition to assistive tech —
+   * set ambient to render role="status" (polite) instead of role="alert"
+   * (PR #1802 review nit).
+   */
+  ambient?: boolean;
   className?: string;
 }
 
@@ -48,7 +55,14 @@ function toErrorMessage(error: unknown): string | undefined {
   }
 }
 
-export function ErrorState({ message, error, prefix, variant = "inline", className }: ErrorStateProps) {
+export function ErrorState({
+  message,
+  error,
+  prefix,
+  variant = "inline",
+  ambient = false,
+  className,
+}: ErrorStateProps) {
   const errorMessage = toErrorMessage(error);
   const text =
     message ??
@@ -58,7 +72,7 @@ export function ErrorState({ message, error, prefix, variant = "inline", classNa
 
   return (
     <p
-      role="alert"
+      role={ambient ? "status" : "alert"}
       className={cn("text-sm text-destructive", variant === "page" && "py-8 text-center", className)}
     >
       {text}

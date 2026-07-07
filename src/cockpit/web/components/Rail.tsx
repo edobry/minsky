@@ -121,7 +121,7 @@ function AttentionDigest({ pathname }: { pathname: string }) {
       {isLoading ? (
         <LoadingState message="…" className="text-xs" />
       ) : isError ? (
-        <ErrorState message="error" className="text-xs" />
+        <ErrorState message="error" ambient className="text-xs" />
       ) : count != null && count > 0 ? (
         <span className="rounded-full bg-warn-amber/20 px-1.5 text-xs font-medium text-warn-amber tabular-nums">
           {count}
@@ -222,7 +222,7 @@ export function Rail() {
         {commitQuery.isLoading ? (
           <LoadingState message="…" className="text-[10px]" />
         ) : commitQuery.isError ? (
-          <ErrorState message="commit unknown" className="text-[10px]" />
+          <ErrorState message="commit unknown" ambient className="text-[10px]" />
         ) : (
           commitQuery.data && (
             <span className="font-mono text-[10px] text-muted-foreground/50" title="Running commit">
