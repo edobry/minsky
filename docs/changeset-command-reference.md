@@ -2,7 +2,7 @@
 
 ## Overview
 
-Minsky provides unified changeset abstraction that works across different VCS platforms (GitHub PRs, GitLab MRs, local git, etc.) with consistent terminology and functionality.
+Minsky provides a unified changeset abstraction with consistent terminology and functionality. The abstraction is platform-shaped, but **GitHub PRs are the only implemented backend** (mt#2613 removed the speculative GitLab/Bitbucket adapters, which had zero callers).
 
 ## Command Architecture
 
@@ -20,7 +20,7 @@ minsky repo changeset search "authentication fix" [--status open] [--author user
 # Get detailed information about any changeset
 minsky repo changeset get 154 [--details]
 
-# Show platform capabilities (GitHub features, local git features, etc.)
+# Show platform capabilities
 minsky repo changeset info [--json]
 
 # Filter by specific session
@@ -48,46 +48,13 @@ functionality were retired (mt#2611) — migrate any remaining usages to
 
 ## Platform Support
 
-### GitHub
+**GitHub is the only implemented changeset backend.** `detectPlatform()` fails fast with a clear error for non-GitHub repositories (mt#2613).
 
 - ✅ Full PR support with reviews, comments, status checks
 - ✅ Draft PRs, branch protection, auto-merge
-- ✅ GitHub API integration for rich metadata
+- ✅ Rich metadata via the shared `repository/github-pr-*` layer (single Octokit construction path)
 
-### Local Git
-
-- ✅ Prepared merge commit workflow (existing)
-- ✅ pr/ branch management
-- ✅ Session integration with task references
-
-### GitLab (Future)
-
-- 🔄 Merge Requests (MRs) support
-- 🔄 GitLab API integration
-- 🔄 Pipeline status tracking
-
-### Bitbucket (Future)
-
-- 🔄 Pull Request support
-- 🔄 Bitbucket API integration
-
-### Other VCS (Future)
-
-- 🔄 Fossil changesets
-- 🔄 Jujutsu changes
-- 🔄 Mercurial commits
-
-## Feature Comparison
-
-| Feature           | GitHub | Local Git | GitLab\* | Bitbucket\* |
-| ----------------- | ------ | --------- | -------- | ----------- |
-| Approval Workflow | ✅     | ✅        | 🔄       | 🔄          |
-| Draft Changesets  | ✅     | ❌        | 🔄       | ❌          |
-| File Comments     | ✅     | ❌        | 🔄       | ✅          |
-| Status Checks     | ✅     | ❌        | 🔄       | ❌          |
-| Auto Merge        | ✅     | ✅        | 🔄       | ✅          |
-
-\*Future implementation
+The session-domain prepared-merge-commit workflow (pr/ branches for local git) exists in the session layer and is not a changeset adapter. Adding another platform (GitLab, Bitbucket, etc.) means implementing a new `ChangesetAdapter` and registering its factory; the `ChangesetPlatform` union deliberately retains the other platform identifiers as stable public API for that future.
 
 ## Usage Examples
 
