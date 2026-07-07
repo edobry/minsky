@@ -230,14 +230,14 @@ Source: `src/domain/session/types.ts`
 `SessionService` (`src/domain/session/session-service.ts`) is a class that holds injected
 `SessionDeps` and delegates each operation to a pure function in a sub-module:
 
-| Method         | Sub-module                        |
-| -------------- | --------------------------------- |
-| `get` / `list` | `session-lifecycle-operations.ts` |
-| `start`        | `start-session-operations.ts`     |
-| `update`       | `session-update-operations.ts`    |
-| `review`       | `session-review-operations.ts`    |
-| `approve`      | `session-approval-operations.ts`  |
-| `delete`       | `session-lifecycle-operations.ts` |
+| Method         | Sub-module                          |
+| -------------- | ----------------------------------- |
+| `get` / `list` | `session-lifecycle-operations.ts`   |
+| `start`        | `start-session-operations.ts`       |
+| `update`       | `session-update-operations.ts`      |
+| `review`       | `session-review-operations.ts`      |
+| `approve`      | `session-pr-approval-operations.ts` |
+| `delete`       | `session-lifecycle-operations.ts`   |
 
 Session records are stored in PostgreSQL via `SessionProviderInterface`.
 
