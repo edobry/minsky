@@ -2710,6 +2710,88 @@
               ]
             },
             {
+              "name": "drive",
+              "description": "Drive an in-review session PR through the convergence tail (review-wait -> checks-wait), returning a terminal state (READY_TO_MERGE / CHANGES_REQUESTED / COMMENT / CHECKS_FAILED / CHECKS_TIMEOUT / REVIEW_TIMEOUT). Never merges — call session.pr.merge yourself on READY_TO_MERGE so every merge-gate hook still fires. Pass postMerge: true to instead run the post-merge deploy-watch mode (call this AFTER your own merge succeeds).",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--post-merge"],
+                  "description": "When true, switch to the post-merge deploy-watch mode: run deployment_wait-for-latest for every deploy service the merged PR's changed files affect (or an explicit `services` override), and report results. Call this AFTER your own session.pr.merge call succeeds — it does not merge anything. When false (default), run the review-wait + checks-wait convergence-tail mode."
+                },
+                {
+                  "flags": ["--reviewer"],
+                  "description": "Only match reviews from this reviewer. Accepts a TokenRole identifier (\"reviewer\" or \"implementer\") or a literal GitHub login (e.g. minsky-reviewer[bot]). See session.pr.wait-for-review's `reviewer` param for full precedence rules. Defaults to any reviewer. Ignored in postMerge mode.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--since"],
+                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches. Pass the previous terminal result's review.submittedAt when re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT. Defaults to the PR's created_at timestamp. Ignored in postMerge mode.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--require-current-head"],
+                  "description": "When true (default), only a review of the PR's current HEAD commit counts as a match (mt#2586). Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--review-timeout-seconds"],
+                  "description": "Maximum seconds to wait for a matching review (default 600, max 1800).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--review-interval-seconds"],
+                  "description": "Review polling interval in seconds (default 15, min 5, max 60).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--checks-timeout-seconds"],
+                  "description": "Maximum seconds to wait for CI checks to complete (default 600).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--checks-interval-seconds"],
+                  "description": "Checks polling interval in seconds (default 30).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--skip-checks"],
+                  "description": "Skip the checks-wait step entirely (e.g. the repo has no CI configured). An APPROVED review alone resolves to READY_TO_MERGE. Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--services"],
+                  "description": "postMerge mode only: explicit list of deploy services to watch, overriding auto-detection from the merged PR's changed files. Pass `[]` to explicitly watch nothing. When omitted, services are auto-detected via the deploy-surface pattern list against the services that declare a deploy.config.ts.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--deploy-timeout-seconds"],
+                  "description": "postMerge mode only: maximum seconds to wait for each service's deployment (default 600).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--deploy-interval-seconds"],
+                  "description": "postMerge mode only: poll cadence for each deployment wait (default 10).",
+                  "takesValue": true
+                }
+              ]
+            },
+            {
               "name": "review_context",
               "description": "Get all PR review data in a single call: metadata, CI checks, diff (raw + parsedDiff with structured hunks for line-anchored comment selection), and task spec",
               "options": [
