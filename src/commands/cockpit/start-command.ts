@@ -4,14 +4,14 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
+import { createCockpitServer } from "../../cockpit/server";
+import { initServerSseBroker } from "../../cockpit/routes/events";
 import {
-  createCockpitServer,
-  initServerSseBroker,
   startAskAdvancementSweeper,
   startProdStateRefreshSweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
-} from "../../cockpit/server";
+} from "../../cockpit/sweepers";
 import {
   markDbDegraded,
   startDbRetryBackoff,

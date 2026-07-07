@@ -115,7 +115,7 @@ and must not be hardcoded into widget vocabularies.
 ## Ask advancement sweep (mt#2265)
 
 The cockpit daemon runs the **ask advancement sweep**: one pass at boot, then
-every 60s (`startAskAdvancementSweeper` in `src/cockpit/server.ts`, domain
+every 60s (`startAskAdvancementSweeper` in `src/cockpit/sweepers.ts`, domain
 logic in `packages/domain/src/ask/advancement.ts`). The sweep advances
 `detected` asks that nothing else routed — emission-callsite rows, rows from
 crashed processes — and expires stale ones (`detected` older than 7 days;
@@ -208,7 +208,7 @@ a small counter. Neither violates the endpoint's unauthenticated-access posture.
 The cockpit daemon also runs the **transcript sweep backstop** — the recovery
 layer behind the watcher (mt#2320), per ADR-017's watcher-primary +
 sweep-backstop design. On a configurable cadence (`startTranscriptSweepBackstop`
-in `src/cockpit/server.ts`) it runs a full-discovery `ingestAll()` (idempotent /
+in `src/cockpit/sweepers.ts`) it runs a full-discovery `ingestAll()` (idempotent /
 HWM-gated) followed by the vector-only semantic-embedding backfill
 (`index-embeddings`), run off the critical path and fail-open — a missing or
 failing embedding provider does not crash the sweep. It recovers what the watcher
@@ -243,7 +243,7 @@ disclosure constraint).
 ## Slow-clock topology sweeper (mt#2602)
 
 The cockpit daemon runs the **slow-clock topology sweeper**
-(`startTopologySweeper` in `src/cockpit/server.ts`): one pass at boot, then
+(`startTopologySweeper` in `src/cockpit/sweepers.ts`): one pass at boot, then
 hourly, mirroring `startProdStateRefreshSweeper`'s producer/consumer split
 (mt#2506). Each pass:
 

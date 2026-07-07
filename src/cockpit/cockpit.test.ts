@@ -1196,6 +1196,135 @@ describe("Cockpit server", () => {
     expect(updated?.state).toBe("closed");
   });
 
+  // 12f-2. Resolve endpoint — attentionCost is ALWAYS server-computed (mt#2615).
+  // A client-supplied attentionCost (however it got there — buggy UI, replay,
+  // tampering) must never be persisted; the server's fixed inbox/inbox value
+  // wins regardless of what the request body carries.
+  test("POST /api/asks/:id/resolve ignores client-supplied attentionCost and always uses the server-computed value", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-attention-cost-guard",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Resolve me",
+        question: "Pick one",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    ]);
+    const url = await server({
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/ask-attention-cost-guard/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        responder: "operator",
+        payload: { chosen: "yes" },
+        // Bogus client-supplied attentionCost — must be ignored entirely.
+        attentionCost: { transport: "elicitation", resolvedIn: "policy", tokenCost: 999999 },
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    const updated = await repo.getById("ask-attention-cost-guard");
+    expect(updated?.state).toBe("closed");
+    expect(updated?.response?.attentionCost?.transport).toBe("inbox");
+    expect(updated?.response?.attentionCost?.resolvedIn).toBe("inbox");
+    expect(updated?.response?.attentionCost?.tokenCost).toBeUndefined();
+  });
+
+  // 12f-3. Resolve endpoint — suspended-state validation (mt#2615): resolving
+  // an already-closed Ask must return 409, not silently "succeed" or 500.
+  test("POST /api/asks/:id/resolve returns 409 when Ask is not in suspended state", async () => {
+    const askId = "ask-already-closed";
+    const repo = makeFakeRepo([
+      {
+        id: askId,
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Already closed",
+        question: "Pick one",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    ]);
+    // Walk it to closed via the state machine before the endpoint ever sees it.
+    await repo.transition(askId, "responded");
+    await repo.transition(askId, "closed");
+
+    const url = await server({
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/${askId}/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: { chosen: "yes" } }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/only "suspended" Asks can be responded to/);
+  });
+
+  // 12f-4. Resolve endpoint — concurrent-transition race (mt#2615 R1 review):
+  // a concurrent actor transitions the Ask between the route's own
+  // routingTarget gate check and respondAndCloseAsk's atomic write. The
+  // ConcurrentTransitionError thrown by the FakeAskRepository must be
+  // normalized to the SAME "only suspended Asks..." message shape and mapped
+  // to 409 — not fall through to 500.
+  test("POST /api/asks/:id/resolve returns 409 on a concurrent-transition race", async () => {
+    const askId = "ask-race";
+    const repo = makeFakeRepo([
+      {
+        id: askId,
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Race me",
+        question: "Pick one",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    ]);
+
+    // Call 1 is the route's own routingTarget gate check (must observe
+    // "suspended" untouched). Call 2 is respondAndCloseAsk's internal
+    // precondition check — race the underlying row to "cancelled" right
+    // after it reads (but before) respondAndClose's own atomic read.
+    let getByIdCalls = 0;
+    const originalGetById = repo.getById.bind(repo);
+    repo.getById = async (id: string) => {
+      getByIdCalls++;
+      const result = await originalGetById(id);
+      if (getByIdCalls === 2 && result?.state === "suspended") {
+        repo._seedAtState({ ...result, state: "cancelled" });
+      }
+      return result;
+    };
+
+    const url = await server({
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/${askId}/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: { chosen: "yes" } }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/only "suspended" Asks can be responded to/);
+    expect(body.error).toMatch(/cancelled/);
+
+    const persisted = await originalGetById(askId);
+    expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
+  });
+
   // 12g. Resolve endpoint — 404 for unknown ask id
   test("POST /api/asks/:id/resolve returns 404 for unknown ask", async () => {
     const repo = makeFakeRepo([]);

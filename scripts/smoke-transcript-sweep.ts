@@ -26,7 +26,7 @@
  */
 import "reflect-metadata";
 import { TranscriptSweepTracker } from "../src/cockpit/transcript-sweep-tracker";
-import type { TranscriptSweepDeps } from "../src/cockpit/server";
+import type { TranscriptSweepDeps } from "../src/cockpit/sweepers";
 
 const connectionString = process.env.DATABASE_URL ?? process.env.MINSKY_POSTGRES_CONNECTION_STRING;
 
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
   console.log("Running one sweep tick against live DB...");
 
   // Import the sweep function and run one tick synchronously via deps injection.
-  const { startTranscriptSweepBackstop } = await import("../src/cockpit/server");
+  const { startTranscriptSweepBackstop } = await import("../src/cockpit/sweepers");
 
   // The boot tick fires immediately (void tick()); set a very long interval so
   // only one tick runs during the smoke. We wait for the tracker to record it.

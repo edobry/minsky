@@ -10,15 +10,15 @@
  *     the ingest counters from being recorded (fail-open)
  *   - idempotency is delegated to ingestAll (HWM-gated) — just assert it's called
  *
- * @see src/cockpit/server.ts — startTranscriptSweepBackstop
+ * @see src/cockpit/sweepers.ts — startTranscriptSweepBackstop (mt#2615 — moved from server.ts)
  * @see src/cockpit/transcript-sweep-tracker.ts — TranscriptSweepTracker
  * @see mt#2321 — cockpit-daemon transcript sweep backstop
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./server";
+import { resolveSweepIntervalMs, startTranscriptSweepBackstop } from "./sweepers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
-import type { TranscriptSweepDeps } from "./server";
+import type { TranscriptSweepDeps } from "./sweepers";
 
 // Helper: wait for an async condition to become true (polls at 5ms intervals).
 async function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {

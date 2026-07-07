@@ -26,7 +26,7 @@ import {
   type AskRepository,
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
-import { ConcurrentTransitionError } from "@minsky/domain/ask/repository";
+import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
 import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
 import {
@@ -303,66 +303,31 @@ export async function respondToAsk(
 ): Promise<RespondToAskResult> {
   validateRespondParams(params);
 
-  const persisted = await repo.getById(params.id);
-  if (!persisted) {
-    throw new Error(`asks.respond: Ask not found: ${params.id}`);
-  }
-
-  if (persisted.state !== "suspended") {
-    throw new Error(
-      `asks.respond: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
-        `(detected/classified/routed: no transport has dispatched yet; ` +
-        `closed/cancelled/expired: terminal.)`
-    );
-  }
-
   // Trim before constructing the payload so direct programmatic callers
   // see the same normalized message that CLI/MCP callers do (the schema
   // applies trim() at the surface).
   const message = params.message.trim();
-  const responder = params.responder?.trim() || "operator";
 
-  // Two-stage response payload, matching the Ask.response contract in
-  // types.ts: `attentionCost` is filled on close only. The respond stage
-  // gets responder + payload; the close stage adds attentionCost.
-  const respondPayload = {
-    responder,
-    payload: { message },
-  };
-  const closePayload = {
-    responder,
+  // Delegates the suspended-state precondition check, responder trimming,
+  // and ConcurrentTransitionError handling to the shared domain function
+  // (mt#2615) — this surface's only job is to shape the plain-message
+  // payload and the fixed inbox/CLI attentionCost.
+  const { ask } = await respondAndCloseAsk(repo, {
+    id: params.id,
+    responder: params.responder,
     payload: { message },
     attentionCost: {
       // The operator responded via the inbox/CLI surface. The original
       // transport is preserved on the Ask record; the attentionCost.transport
       // here records the surface that *resolved* it.
-      transport: "inbox" as const,
-      resolvedIn: "inbox" as const,
+      transport: "inbox",
+      resolvedIn: "inbox",
       // operatorCost is intentionally absent at v1 — deferred to mt#454-impl
       // along with claim/release semantics.
     },
-  };
+  });
 
-  // Atomic walk suspended → closed via the repository's combined operation.
-  // Catch ConcurrentTransitionError and re-throw with the same friendly
-  // not-suspended message the pre-check uses, so callers see ONE error shape
-  // for "Ask is not in suspended state" regardless of cause.
-  try {
-    const closed = await repo.respondAndClose(
-      params.id,
-      { response: respondPayload },
-      { response: closePayload }
-    );
-    return { ask: closed };
-  } catch (err) {
-    if (err instanceof ConcurrentTransitionError) {
-      throw new Error(
-        `asks.respond: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
-          `(Concurrent actor transitioned the Ask between read and write.)`
-      );
-    }
-    throw err;
-  }
+  return { ask };
 }
 
 // ---------------------------------------------------------------------------

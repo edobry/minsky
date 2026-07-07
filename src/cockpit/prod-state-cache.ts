@@ -17,7 +17,7 @@
  * (mt#2275)'s "last-fetched" tradeoff:
  *
  *   - PRODUCER (this module): a periodic refresh (driven by the cockpit cadence sweep,
- *     `startProdStateRefreshSweeper` in server.ts) queries the prod migration ledger and
+ *     `startProdStateRefreshSweeper` in sweepers.ts) queries the prod migration ledger and
  *     writes a small local cache file.
  *   - CONSUMER (`.claude/hooks/inject-prod-state.ts`): a UserPromptSubmit hook reads ONLY
  *     the local cache (cheap, no network) and injects the snapshot — labelled with its
