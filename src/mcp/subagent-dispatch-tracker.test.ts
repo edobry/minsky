@@ -489,6 +489,14 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
 // Test helpers
 // ---------------------------------------------------------------------------
 
+// Fixed reference "now" for this suite. All getCadence()/getEscalation()
+// calls below pass this explicitly as the injected clock (mt#2654) — the
+// tracker's 24h-window cutoffs are computed relative to whatever `now` is
+// passed in, so pinning it here makes every assertion independent of the
+// real wall clock. Without this, a hardcoded BASE_DATE compared against
+// `new Date()` (real time) inside the tracker silently drifts out of the
+// "last 24h" window as real time advances past BASE_DATE + 24h, producing
+// date-dependent test failures unrelated to any code change.
 const BASE_DATE = new Date("2026-05-11T12:00:00.000Z");
 
 function hoursAgo(n: number): Date {
@@ -736,7 +744,7 @@ describe("SubagentDispatchTracker", () => {
 
   describe("getCadence - total and lastDispatch", () => {
     test("returns total=0 and lastDispatch=null for empty table", async () => {
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(cadence.total).toBe(0);
       expect(cadence.lastDispatch).toBeNull();
     });
@@ -745,7 +753,7 @@ describe("SubagentDispatchTracker", () => {
       await tracker.recordSubagentInvocation(makeInput({ startedAt: hoursAgo(2) }));
       await tracker.recordSubagentInvocation(makeInput({ startedAt: hoursAgo(1) }));
       await tracker.recordSubagentInvocation(makeInput({ startedAt: BASE_DATE }));
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(cadence.total).toBe(3);
     });
 
@@ -754,7 +762,7 @@ describe("SubagentDispatchTracker", () => {
       const newer = hoursAgo(1);
       await tracker.recordSubagentInvocation(makeInput({ startedAt: older }));
       await tracker.recordSubagentInvocation(makeInput({ startedAt: newer }));
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(cadence.lastDispatch).toBe(newer.toISOString());
     });
   });
@@ -765,7 +773,7 @@ describe("SubagentDispatchTracker", () => {
 
   describe("getCadence - byOutcome", () => {
     test("all 6 outcome classes present with zero counts for empty table", async () => {
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       for (const outcome of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
         expect(cadence.byOutcome[outcome]).toBe(0);
       }
@@ -787,7 +795,7 @@ describe("SubagentDispatchTracker", () => {
         }
       }
       expect(store.size).toBe(20);
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(cadence.byOutcome[OUTCOME_COMPLETED_WITH_PR]).toBe(5);
       expect(cadence.byOutcome[OUTCOME_COMMITTED_NO_PR]).toBe(4);
       expect(cadence.byOutcome[OUTCOME_PARTIAL_COMMITTED_HANDOFF]).toBe(3);
@@ -808,14 +816,14 @@ describe("SubagentDispatchTracker", () => {
       await tracker.recordSubagentInvocation(makeInput({ agentType: "auditor" }));
       await tracker.recordSubagentInvocation(makeInput({ agentType: "general-purpose" }));
 
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(cadence.byAgentType["refactorer"]).toBe(2);
       expect(cadence.byAgentType["auditor"]).toBe(1);
       expect(cadence.byAgentType["general-purpose"]).toBe(1);
     });
 
     test("byAgentType is empty for empty table", async () => {
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(Object.keys(cadence.byAgentType)).toHaveLength(0);
     });
   });
@@ -835,7 +843,7 @@ describe("SubagentDispatchTracker", () => {
       }
       await tracker.recordSubagentInvocation(makeInput({ startedAt: hoursAgo(5) }));
 
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       expect(cadence.byHourLast24h.length).toBeGreaterThanOrEqual(1);
 
       // Find bucket for BASE_DATE's hour
@@ -854,7 +862,7 @@ describe("SubagentDispatchTracker", () => {
       await tracker.recordSubagentInvocation(makeInput({ startedAt: hoursAgo(25) }));
       await tracker.recordSubagentInvocation(makeInput({ startedAt: BASE_DATE }));
 
-      const cadence = await tracker.getCadence();
+      const cadence = await tracker.getCadence(BASE_DATE);
       // Total should be 2 (all-time, no time window)
       expect(cadence.total).toBe(2);
       // byHourLast24h should only include the current-hour bucket (1 row)
@@ -869,7 +877,7 @@ describe("SubagentDispatchTracker", () => {
 
   describe("getEscalation", () => {
     test('returns "none" when table is empty', async () => {
-      expect(await tracker.getEscalation()).toBe("none");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("none");
     });
 
     test('returns "none" below all thresholds (AT session threshold, not above)', async () => {
@@ -884,7 +892,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("none");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("none");
     });
 
     test('returns "session" when partial-uncommitted exceeds session threshold', async () => {
@@ -898,7 +906,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("session");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("session");
     });
 
     test('threshold: exactly 3 partial-uncommitted in one session → "session" (SESSION_THRESHOLD=2)', async () => {
@@ -913,7 +921,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("session");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("session");
     });
 
     test('returns "daily" when partial-uncommitted-no-handoff exceeds daily threshold in last 24h', async () => {
@@ -928,7 +936,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("daily");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("daily");
     });
 
     test('threshold: 6 partial-uncommitted in last 24h → "daily" (DAILY_THRESHOLD=5)', async () => {
@@ -942,7 +950,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("daily");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("daily");
     });
 
     test('returns "daily" when rate-limited exceeds daily threshold in last 24h', async () => {
@@ -955,7 +963,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("daily");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("daily");
     });
 
     test('threshold: 4 rate-limited in last 24h → "daily" (RATE_LIMITED_THRESHOLD=3)', async () => {
@@ -968,7 +976,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("daily");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("daily");
     });
 
     test("rows older than 24h do not count toward daily threshold", async () => {
@@ -981,7 +989,7 @@ describe("SubagentDispatchTracker", () => {
           })
         );
       }
-      expect(await tracker.getEscalation()).toBe("none");
+      expect(await tracker.getEscalation(BASE_DATE)).toBe("none");
     });
 
     test("session check only considers the most recent parentSessionId", async () => {
@@ -1013,7 +1021,7 @@ describe("SubagentDispatchTracker", () => {
       // Most recent parentSessionId is "session-new" (most recent startedAt)
       // Session check: "session-new" count = SESSION_THRESHOLD (AT, not above) → no session escalation
       // Daily check: only "session-new" rows are within 24h → 2 rows < DAILY_THRESHOLD(5) → no daily
-      const result = await tracker.getEscalation();
+      const result = await tracker.getEscalation(BASE_DATE);
       expect(result).toBe("none");
     });
   });
