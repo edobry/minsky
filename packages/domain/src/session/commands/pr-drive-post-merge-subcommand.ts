@@ -102,7 +102,10 @@ export async function sessionPrDrivePostMerge(
     let services: string[];
     let matchedFiles: string[] = [];
 
-    if (params.services && params.services.length > 0) {
+    if (params.services !== undefined) {
+      // An explicit override wins outright — including an explicitly EMPTY
+      // array, which means "nothing to watch" and must NOT silently fall
+      // through to auto-detection.
       services = [...new Set(params.services)].sort();
     } else {
       const { sessionDB } = deps;
