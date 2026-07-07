@@ -1,11 +1,16 @@
 /**
  * useSlowTopology — shared hook for the plant board's slow-clock topology
- * (mt#2602): the S2 valve-inventory count badge and the weld-history
- * drill-down page both read this one hook.
+ * (mt#2602): the S2 valve-inventory count badge and the interlock-history
+ * drill-down page (`/plant/interlock-history`, renamed from
+ * `/plant/weld-history` by mt#2626) both read this one hook.
  *
  * Data source: GET /api/widget/slow-topology/data — see
  * src/cockpit/widgets/slow-topology.ts for the payload shape and
  * src/cockpit/topology-derivation.ts for the derivation logic behind it.
+ *
+ * Naming note (mt#2626): `WeldEntryPayload` below is kept as-is — an internal
+ * type with no user-visible surface. See `WeldHistoryPage.tsx`'s naming note
+ * for the full rationale.
  *
  * Query key: ["plant-board", "slow-topology"]
  * staleTime: 60s, refetchInterval: 5m (the server recomputes hourly; a

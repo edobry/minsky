@@ -891,15 +891,19 @@ function LearningLoopNode(props: NodeProps<Node<LearningLoopNodeData>>) {
             ⟂ interlock{typeof interlockCount === "number" ? ` (${interlockCount})` : ""}
           </span>
         </div>
-        {/* Weld-history drill-down entry point (mt#2602 acceptance test 2/3). */}
+        {/*
+         * Interlock-history drill-down entry point (mt#2602 acceptance test 2/3).
+         * Route renamed from /plant/weld-history (mt#2626, guard vocabulary
+         * alignment); the `weld-history-link` test id is kept stable.
+         */}
         <button
           type="button"
-          onClick={() => navigate("/plant/weld-history")}
+          onClick={() => navigate("/plant/interlock-history")}
           className="self-start text-[8px] font-mono text-muted-foreground hover:text-foreground transition-colors underline decoration-dotted"
           data-testid="weld-history-link"
-          aria-label="View weld history — interlock provenance timeline"
+          aria-label="View interlock history — provenance timeline"
         >
-          weld history →
+          interlock history →
         </button>
         {/* Memory reservoir — the SVG board's tank instrument (mt#2466 item 4) */}
         <div
@@ -1027,7 +1031,7 @@ interface S2ValveNodeData {
    * `interlockTarget` valve (DONE) — the plant has 4 fixed positional valves
    * regardless of the real hook count (which may be ~30+); the derived
    * inventory surfaces here as a count badge rather than one valve per hook,
-   * with the full inventory available in the weld-history drill-down.
+   * with the full inventory available in the interlock-history drill-down.
    */
   interlockCount?: number | null;
   [key: string]: unknown;

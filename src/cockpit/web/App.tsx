@@ -104,11 +104,17 @@ export const plantRoutes = (
     />
     <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
     <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
-    {/* Weld-history drill-down (mt#2602): interlock provenance timeline. */}
+    {/*
+     * Interlock-history drill-down (mt#2602): interlock provenance timeline.
+     * Route renamed from `/plant/weld-history` (mt#2626, guard vocabulary
+     * alignment — "interlock" is the domain noun; "weld" survives only as a
+     * verb). Accepted as a breaking rename — local-only cockpit, no external
+     * consumers/bookmarks to preserve, so no redirect route was added.
+     */}
     <Route
-      path="/plant/weld-history"
+      path="/plant/interlock-history"
       element={
-        <ErrorBoundary id="weld-history-page">
+        <ErrorBoundary id="interlock-history-page">
           <WeldHistoryPage />
         </ErrorBoundary>
       }

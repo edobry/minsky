@@ -35,22 +35,22 @@ directory resolves to an ingested transcript's cwd, it links to the conversation
 
 ## Routes
 
-| Path                  | Page           | Purpose                                                                                                                    |
-| --------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`                   | Home           | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398) |
-| `/agents`             | Agents         | Workspace sessions in flight — rows open the workspace-session detail at `/agents/:id`                                     |
-| `/agents/:id`         | Session detail | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                |
-| `/session/:id`        | Session        | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)   |
-| `/context`            | Context        | Agent context inspector                                                                                                    |
-| `/workstreams`        | Workstreams    | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                          |
-| `/tasks`              | Tasks          | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                       |
-| `/asks`               | Asks           | Interactive ask management                                                                                                 |
-| `/activity`           | Activity       | Event stream                                                                                                               |
-| `/embeddings`         | Embeddings     | Provider health + index coverage                                                                                           |
-| `/memories`           | Memories       | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                         |
-| `/settings`           | Settings       | Cockpit configuration + credentials                                                                                        |
-| `/plant`              | Plant Board    | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                     |
-| `/plant/weld-history` | Weld history   | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602)                     |
+| Path                       | Page              | Purpose                                                                                                                                             |
+| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | Home              | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398)                          |
+| `/agents`                  | Agents            | Workspace sessions in flight — rows open the workspace-session detail at `/agents/:id`                                                              |
+| `/agents/:id`              | Session detail    | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                                         |
+| `/session/:id`             | Session           | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)                            |
+| `/context`                 | Context           | Agent context inspector                                                                                                                             |
+| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                   |
+| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                |
+| `/asks`                    | Asks              | Interactive ask management                                                                                                                          |
+| `/activity`                | Activity          | Event stream                                                                                                                                        |
+| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                    |
+| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                  |
+| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                 |
+| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                              |
+| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626) |
 
 ## Widgets
 
@@ -101,16 +101,16 @@ and must not be hardcoded into widget vocabularies.
 
 ### Widget catalog by route
 
-| Widget ID                                                                                      | Page                            | Surface                                                                                                                                                                           |
-| ---------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                             | Home System-Status card grid                                                                                                                                                      |
-| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages                 | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                      |
-| `memories-health`                                                                              | `/memories`                     | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                             |
-| `memories-stats`                                                                               | `/memories`                     | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                         |
-| `memories-list`                                                                                | `/memories`                     | Browseable record table with type + scope filters                                                                                                                                 |
-| `memories-search`                                                                              | `/memories`                     | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                   |
-| `memories-detail`                                                                              | `/memories` (modal)             | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                           |
-| `slow-topology`                                                                                | `/plant`, `/plant/weld-history` | Derived guard-hook registry + weld history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602) |
+| Widget ID                                                                                      | Page                                 | Surface                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                                  | Home System-Status card grid                                                                                                                                                           |
+| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages                      | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                           |
+| `memories-health`                                                                              | `/memories`                          | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                  |
+| `memories-stats`                                                                               | `/memories`                          | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                              |
+| `memories-list`                                                                                | `/memories`                          | Browseable record table with type + scope filters                                                                                                                                      |
+| `memories-search`                                                                              | `/memories`                          | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                        |
+| `memories-detail`                                                                              | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                |
+| `slow-topology`                                                                                | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602) |
 
 ## Ask advancement sweep (mt#2265)
 
@@ -306,3 +306,9 @@ When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-0
 - mt#2149 — embeddings-health overview card (DONE 2026-05-27)
 - mt#2150 — Memories page (this doc's `/memories` entry)
 - mt#2147 — `EmbeddingsHealthTracker` backend (DONE 2026-05-27)
+- mt#2626 — guard-vocabulary alignment: "hook" names the Claude Code
+  registration mechanics only; "interlock" is the domain noun used here and in
+  UI copy; "weld" survives only as a verb ("welding an interlock"). See
+  `src/cockpit/CLAUDE.md` §Vocabulary. The `/plant/weld-history` route was
+  renamed to `/plant/interlock-history` as part of this change (breaking,
+  local-only cockpit — no external consumers).

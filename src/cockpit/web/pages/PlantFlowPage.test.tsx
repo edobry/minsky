@@ -527,7 +527,7 @@ describe("PlantFlowPage", () => {
     expect(screen.queryByTestId("s2-valve-interlock-count")).toBeNull();
   });
 
-  test("the learning-loop node exposes a weld-history drill-down link", () => {
+  test("the learning-loop node exposes an interlock-history drill-down link", () => {
     mockPlantBoardFetch();
     renderPlantFlow();
     const link = screen.getByTestId("weld-history-link");
