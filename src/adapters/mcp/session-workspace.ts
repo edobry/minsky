@@ -719,12 +719,21 @@ export function registerSessionWorkspaceTools(
   // Session status tool
   const SessionStatusSchema = z.object({
     sessionId: z.string().describe("Session identifier (ID or task ID)"),
+    probe: z
+      .boolean()
+      .optional()
+      .describe(
+        "Dispatch-recovery probe (mt#2646): when true, additionally returns PR number + " +
+          "latest review state, commits-ahead-of-base, and handoff.md presence/content — the " +
+          "recovery-relevant state for a stalled/silent dispatch, in one call."
+      ),
   });
 
   commandMapper.addCommand({
     name: "session.status",
     description:
-      "Show git status for a session workspace. Returns modified, staged, and untracked files.",
+      "Show git status for a session workspace. Returns modified, staged, and untracked files. " +
+      "Pass probe=true for dispatch-recovery state (PR/review, commits-ahead-of-base, handoff.md).",
     parameters: SessionStatusSchema,
     handler: async (args): Promise<Record<string, unknown>> => {
       const typedArgs = args as z.infer<typeof SessionStatusSchema>;
@@ -778,14 +787,27 @@ export function registerSessionWorkspaceTools(
           untrackedCount: untracked.length,
         });
 
-        return createSuccessResponse({
+        const baseResponse = {
           session: typedArgs.sessionId,
           staged,
           unstaged,
           untracked,
           clean: staged.length === 0 && unstaged.length === 0 && untracked.length === 0,
           raw: output,
-        });
+        };
+
+        if (!typedArgs.probe) {
+          return createSuccessResponse(baseResponse);
+        }
+
+        const probe = await buildSessionDispatchRecoveryProbe(
+          typedArgs.sessionId,
+          sessionWorkspacePath,
+          { staged, unstaged, untracked },
+          container
+        );
+
+        return createSuccessResponse({ ...baseResponse, probe });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session status failed", {
@@ -803,4 +825,124 @@ export function registerSessionWorkspaceTools(
   });
 
   log.debug("Session file operation tools registered successfully");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch-recovery probe wiring (mt#2646)
+// ---------------------------------------------------------------------------
+
+/**
+ * Gather the raw pieces the dispatch-recovery probe needs (session record,
+ * commits-ahead-of-base, handoff.md content, best-effort live review state)
+ * and assemble them via the pure `buildDispatchRecoveryProbe` shape function.
+ *
+ * Best-effort throughout: a missing session record, an unreachable review
+ * backend, or a git failure degrades individual fields to null rather than
+ * failing the whole probe — the point of the probe is "return whatever
+ * recovery-relevant state IS available in one call," not "fail unless every
+ * signal is present."
+ */
+async function buildSessionDispatchRecoveryProbe(
+  sessionIdOrTaskId: string,
+  sessionWorkspacePath: string,
+  gitStatus: { staged: string[]; unstaged: string[]; untracked: string[] },
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
+): Promise<import("@minsky/domain/session/dispatch-recovery-probe").DispatchRecoveryProbeResult> {
+  const { buildDispatchRecoveryProbe, parseCommitsAheadOutput } = await import(
+    "@minsky/domain/session/dispatch-recovery-probe"
+  );
+  type SessionRecordType = import("@minsky/domain/session/types").SessionRecord;
+
+  const sessionProvider =
+    container?.has("sessionProvider") === true ? container.get("sessionProvider") : undefined;
+
+  let sessionRecord: SessionRecordType | null = null;
+  if (sessionProvider) {
+    try {
+      sessionRecord =
+        (await sessionProvider.getSession(sessionIdOrTaskId)) ??
+        (await sessionProvider.getSessionByTaskId(sessionIdOrTaskId)) ??
+        null;
+    } catch {
+      sessionRecord = null;
+    }
+  }
+
+  const resolvedSessionId = sessionRecord?.sessionId ?? sessionIdOrTaskId;
+  const baseBranch = sessionRecord?.pullRequest?.baseBranch ?? "main";
+
+  // Commits-ahead-of-base: local-ref comparison (no fetch — a per-call network
+  // fetch would defeat the "one cheap call" point of the probe; the comparison
+  // is against the last-fetched origin ref, same honesty tradeoff as
+  // inject-git-state.ts's "vs last-fetched origin/<X>" framing).
+  let commitsAheadOfBase: number | null = null;
+  try {
+    const proc = Bun.spawn(["git", "rev-list", "--count", `origin/${baseBranch}..HEAD`], {
+      cwd: sessionWorkspacePath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    commitsAheadOfBase = proc.exitCode === 0 ? parseCommitsAheadOutput(out) : null;
+  } catch {
+    commitsAheadOfBase = null;
+  }
+
+  // handoff.md — convention: .minsky/sessions/<sessionId>/handoff.md within the
+  // session's OWN workspace (see CLAUDE.md operating-envelope handoff convention).
+  let handoffFileContent: string | null = null;
+  try {
+    const handoffPath = `${sessionWorkspacePath}/.minsky/sessions/${resolvedSessionId}/handoff.md`;
+    const handoffBunFile = Bun.file(handoffPath);
+    handoffFileContent = (await handoffBunFile.exists()) ? await handoffBunFile.text() : null;
+  } catch {
+    handoffFileContent = null;
+  }
+
+  // PR + latest review state.
+  const prInfo = sessionRecord?.pullRequest;
+  let latestReview: {
+    state: string;
+    reviewerLogin: string | null;
+    submittedAt: string | null;
+  } | null = null;
+  let reviewFetchError: string | null = null;
+
+  if (sessionRecord && prInfo?.number && sessionProvider) {
+    try {
+      const { createRepositoryBackendFromSession } = await import(
+        "@minsky/domain/session/repository-backend-detection"
+      );
+      const backend = await createRepositoryBackendFromSession(sessionRecord, sessionProvider);
+      const reviews = await backend.review?.listReviews?.(prInfo.number);
+      if (reviews && reviews.length > 0) {
+        const last = reviews[reviews.length - 1];
+        if (last) {
+          latestReview = {
+            state: last.state,
+            reviewerLogin: last.reviewerLogin ?? null,
+            submittedAt: last.submittedAt ?? null,
+          };
+        }
+      }
+    } catch (err) {
+      reviewFetchError = getErrorMessage(err);
+    }
+  }
+
+  return buildDispatchRecoveryProbe({
+    session: resolvedSessionId,
+    gitStatus,
+    commitsAheadOfBase,
+    baseBranch: prInfo?.baseBranch ?? baseBranch,
+    pr: {
+      number: prInfo?.number ?? null,
+      url: prInfo?.url ?? null,
+      state: prInfo?.state ?? null,
+      latestReview,
+      reviewFetchError,
+    },
+    handoffFileContent,
+  });
 }
