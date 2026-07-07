@@ -39,13 +39,16 @@ export default {
   },
   create(context) {
     const filename = context.filename || context.getFilename();
+    // Normalize Windows backslash separators before matching (mirrors the convention
+    // in no-direct-service-construction.js) so this filter is OS-agnostic.
+    const normalizedFilename = filename.replace(/\\/g, "/");
     // Only apply to domain layer files. Matches both the legacy `src/domain/` location
     // and the post-mt#2108 `packages/domain/src/` location (domain code was extracted
     // into its own workspace package; the path SEGMENT ORDER flips from src/domain to
     // domain/src, so a plain `/src/domain/` substring check silently stopped matching
     // any post-extraction file — see ADR-026).
     const DOMAIN_PATH_PATTERN = /\/(src\/domain|packages\/domain\/src)\//;
-    if (!DOMAIN_PATH_PATTERN.test(filename)) return {};
+    if (!DOMAIN_PATH_PATTERN.test(normalizedFilename)) return {};
 
     const options = context.options[0] || {};
     const allowedClasses = new Set(options.allowedClasses || []);

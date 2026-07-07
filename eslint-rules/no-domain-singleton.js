@@ -39,11 +39,14 @@ export default {
   },
   create(context) {
     const filename = context.filename || context.getFilename();
+    // Normalize Windows backslash separators before matching (mirrors the convention
+    // in no-direct-service-construction.js) so this filter is OS-agnostic.
+    const normalizedFilename = filename.replace(/\\/g, "/");
     // Only apply to domain layer files. Matches both the legacy `src/domain/` location
     // and the post-mt#2108 `packages/domain/src/` location — see ADR-026 / the sibling
     // fix in require-injectable.js for the same path-filter staleness.
     const DOMAIN_PATH_PATTERN = /\/(src\/domain|packages\/domain\/src)\//;
-    if (!DOMAIN_PATH_PATTERN.test(filename)) return {};
+    if (!DOMAIN_PATH_PATTERN.test(normalizedFilename)) return {};
 
     const options = context.options[0] || {};
     const allowedNames = new Set(options.allowedNames || []);
