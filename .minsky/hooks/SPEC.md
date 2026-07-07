@@ -311,3 +311,9 @@ path is live-verified by `scripts/smoke-transcript-ingest-hook.ts`.
 - **hook-files.mdc repointing** — the rule-doc refresh (authoring location
   `.minsky/hooks/`, compiled-output framing) is the separate follow-up named in the
   mt#2304 spec §Scope; do not hand-edit the compiled `.claude/hooks/` outputs.
+- **mt#2653 hook hygiene fixes** — the four content-level defects flagged by PR #1812 R1
+  (check-prompt-watermark import.meta.main guard; post-merge-pull stale-lock every→some;
+  validate-task-spec PostToolUse-cannot-block tier decision; loop-preflight readHostCap
+  events filter). All four verified PRE-EXISTING on main and moved verbatim here — this
+  migration is byte-equivalent by design (acceptance criterion); content fixes land in the
+  .minsky/hooks sources via mt#2653 after this merges.
