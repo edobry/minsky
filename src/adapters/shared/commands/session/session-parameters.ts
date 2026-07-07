@@ -783,7 +783,7 @@ export const sessionPrDriveCommandParams = {
     schema: z.boolean(),
     description:
       "When true, switch to the post-merge deploy-watch mode: run " +
-      "deployment_wait-for-latest for every deploy service the merged PR's changed " +
+      "deployment.wait-for-latest for every deploy service the merged PR's changed " +
       "files affect (or an explicit `services` override), and report results. Call " +
       "this AFTER your own session.pr.merge call succeeds — it does not merge " +
       "anything. When false (default), run the review-wait + checks-wait " +

@@ -2734,7 +2734,7 @@
                 },
                 {
                   "flags": ["--post-merge"],
-                  "description": "When true, switch to the post-merge deploy-watch mode: run deployment_wait-for-latest for every deploy service the merged PR's changed files affect (or an explicit `services` override), and report results. Call this AFTER your own session.pr.merge call succeeds — it does not merge anything. When false (default), run the review-wait + checks-wait convergence-tail mode."
+                  "description": "When true, switch to the post-merge deploy-watch mode: run deployment.wait-for-latest for every deploy service the merged PR's changed files affect (or an explicit `services` override), and report results. Call this AFTER your own session.pr.merge call succeeds — it does not merge anything. When false (default), run the review-wait + checks-wait convergence-tail mode."
                 },
                 {
                   "flags": ["--reviewer"],
