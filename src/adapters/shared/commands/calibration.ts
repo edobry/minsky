@@ -114,6 +114,15 @@ function formatResult(results: CalibrationLogResult[]): string {
           lines.push(
             `    [${rec.timestamp}] phrases: ${rec.matchedPhrases.slice(0, 3).join(", ")}`
           );
+        } else if ("claims" in rec) {
+          lines.push(
+            `    [${rec.timestamp}] claims: ${rec.claims
+              .slice(0, 3)
+              .map((c) => `${c.symbol}:${c.predicate}`)
+              .join(", ")}`
+          );
+        } else if ("reason" in rec) {
+          lines.push(`    [${rec.timestamp}] outcome=${rec.outcome} reason=${rec.reason}`);
         } else {
           lines.push(
             `    [${rec.timestamp}] families: ${rec.matches
