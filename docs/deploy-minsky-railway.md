@@ -98,7 +98,7 @@ railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL=<your-supabase-postgres-
 
 After initial bootstrap, switch to Pulumi: run `pulumi preview --refresh` to verify the state matches production, then use `pulumi up --refresh` for all subsequent changes.
 
-> **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector, so the service silently falls back to its SQLite default and every schema-dependent MCP call fails with `no such table: ...`. See mt#1224.
+> **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector. Historically (pre-mt#2339) this silently fell back to a SQLite default with every schema-dependent MCP call failing with `no such table: ...` (mt#1224); since SQLite's removal, an unset/incorrect backend selector now surfaces as an explicit "PostgreSQL configuration required" error at boot instead of a silent fallback — set both vars regardless.
 >
 > **Legacy `MINSKY_SESSIONDB_*` env vars** (`_BACKEND`, `_POSTGRES_URL`, `_SQLITE_PATH`) are still accepted for back-compat with older deploys and user configs, but emit a deprecation warning on load. Prefer `MINSKY_PERSISTENCE_*` for new deployments.
 
@@ -474,7 +474,7 @@ The client and server both use the name `MINSKY_MCP_AUTH_TOKEN`.
 
 **Health endpoint returns but /mcp returns 500:** container is up but MCP initialization failed. Check `railway logs` for the real error (often a missing `MINSKY_PERSISTENCE_POSTGRES_URL` or unavailable Postgres).
 
-**MCP calls return `Tool execution failed: no such table: ...`:** the container is running against its SQLite default instead of Postgres. Confirm `MINSKY_PERSISTENCE_BACKEND=postgres` is set (not just the connection-string var). See mt#1224.
+**MCP calls return `Tool execution failed: no such table: ...`:** historically this meant the container had silently fallen back to a SQLite default instead of Postgres (mt#1224). SQLite has since been removed entirely (mt#2339) — `PersistenceProviderFactory` now has exactly one backend case (`postgres`) and throws a clear "PostgreSQL configuration required" error instead of silently falling back. If you see this exact error today, check `MINSKY_PERSISTENCE_BACKEND=postgres` is set and the connection string resolves to a schema that has had `persistence migrate --execute` run against it — the silent-fallback failure mode itself is no longer reachable.
 
 **Intermittent empty responses on tool calls:** session state issues with the Streamable HTTP transport. Check that the client is sending `mcp-session-id` correctly on follow-up requests after the initial session-establishment call.
 
