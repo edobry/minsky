@@ -208,7 +208,18 @@ export { createSessionPrCheckRunSubmitCommand } from "./pr-check-run-submit-comm
  */
 type HookKind = "commit-msg" | "pre-commit" | "unknown" | "none";
 
-function classifyHookFailure(err: unknown): {
+/**
+ * Exported (mt#2635 PR #1811 R2) so tests can exercise the REAL classifier
+ * directly against a REAL `execInRepositoryImpl`-wrapped `MinskyError` —
+ * rather than duplicating its logic in a test-local reimplementation (as
+ * `mcp-structured-errors.test.ts`'s pre-existing `classifyHookFailure` copy
+ * does, per its own mt#1524 comment) — closing the drift risk between a
+ * copy and the real thing, and giving genuine end-to-end coverage of the
+ * `.cause` fallback path. See
+ * `workflow-commands-payload.test.ts`'s "classifyHookFailure via .cause"
+ * describe block.
+ */
+export function classifyHookFailure(err: unknown): {
   isHookFailure: boolean;
   hookKind: HookKind;
   subprocessOutput: string;

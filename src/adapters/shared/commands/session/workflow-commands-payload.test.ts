@@ -11,10 +11,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildSubprocessFailurePayload,
+  classifyHookFailure,
   detectFailingStep,
   SUBPROCESS_OUTPUT_TRUNCATE_LIMIT,
 } from "./workflow-commands";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { execInRepositoryImpl } from "@minsky/domain/git/git-core-operations";
+import { MinskyError } from "@minsky/domain/errors/base-errors";
 
 const SUMMARY_CONTRACT_MAX = 120;
 
@@ -164,5 +167,68 @@ describe("detectFailingStep", () => {
   // pre-commit run (its success line stays in the captured stdout).
   test("does not false-positive on the variable-naming check's SUCCESS banner", () => {
     expect(detectFailingStep("✅ No variable naming issues found.")).toBeUndefined();
+  });
+});
+
+describe("classifyHookFailure via .cause (mt#2635 PR #1811 R2)", () => {
+  // R2 reviewer concern: "execInRepositoryImpl throws a new MinskyError with
+  // a presumed cause parameter; I could not verify MinskyError's constructor
+  // accepts this signature." VERIFIED (no code change needed):
+  // packages/domain/src/errors/base-errors.ts:17-29 —
+  //   export class MinskyError extends Error {
+  //     constructor(message: string, public readonly cause?: unknown) { ... }
+  //   }
+  // The two-arg call at git-core-operations.ts:249
+  // (`new MinskyError(\`Failed to execute...\`, error)`) matches this
+  // constructor exactly; `.cause` is a public readonly property carrying the
+  // original error object. This test proves the FULL chain end-to-end: a
+  // real execAsync-shaped subprocess failure -> the REAL execInRepositoryImpl
+  // -> the REAL MinskyError constructor (two-arg form) -> the REAL
+  // classifyHookFailure reading stdout/stderr back out through `.cause`.
+  test("classifyHookFailure reads stdout/stderr through execInRepositoryImpl's MinskyError.cause", async () => {
+    const warningCountLine = "Warnings: 10 (threshold: 0)";
+    // Simulate the shape Node's promisified child_process.exec throws on a
+    // non-zero exit: an Error with `.stdout`/`.stderr` attached. Mirrors
+    // pre-commit.ts's real behavior of writing its diagnostics (echo /
+    // log.cli) to stdout, not stderr.
+    const simulatedExecFailure = Object.assign(
+      new Error("Command failed: git -C /mock/workdir commit --allow-empty -m 'x'"),
+      {
+        stderr: "",
+        stdout: `🔍 Running pre-commit validation...\n⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️\n${warningCountLine}`,
+      }
+    );
+    const fakeExecAsync = async () => {
+      throw simulatedExecFailure;
+    };
+
+    let wrapped: unknown;
+    try {
+      await execInRepositoryImpl(
+        fakeExecAsync,
+        "/mock/workdir",
+        "git -C /mock/workdir commit --allow-empty -m 'x'"
+      );
+      throw new Error("expected execInRepositoryImpl to reject");
+    } catch (err) {
+      wrapped = err;
+    }
+
+    // The REAL constructor call (git-core-operations.ts:249) produced a
+    // MinskyError whose `.cause` is the ORIGINAL error object (identity
+    // check, not just a stringified copy).
+    expect(wrapped).toBeInstanceOf(MinskyError);
+    const minskyErr = wrapped as MinskyError;
+    expect(minskyErr.cause).toBe(simulatedExecFailure);
+    // The outer message has neither .stdout nor .stderr — only the cleaned
+    // one-line summary — so a classifier that ONLY checked the outer error
+    // (pre-mt#2635 behavior) could not have extracted anything below.
+    expect((minskyErr as unknown as Record<string, unknown>).stdout).toBeUndefined();
+
+    const { isHookFailure, hookKind, subprocessOutput } = classifyHookFailure(minskyErr);
+    expect(isHookFailure).toBe(true);
+    expect(hookKind).toBe("pre-commit");
+    expect(subprocessOutput).toContain("TOO MANY WARNINGS");
+    expect(subprocessOutput).toContain(warningCountLine);
   });
 });
