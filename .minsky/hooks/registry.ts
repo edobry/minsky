@@ -15,10 +15,12 @@
 //
 // @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1/D2
 // @see mt#2650 — this framework's tracking task (ADR-028 Phase 1)
+// @see mt#2652 — Phase 2a family migration (UserPromptSubmit guidance detectors)
 // @see .minsky/hooks/dispatcher.ts — the core dispatcher loop that consumes this registry
 // @see .minsky/hooks/dispatch-pretooluse.ts — the PreToolUse pilot entrypoint
+// @see .minsky/hooks/dispatch-userpromptsubmit.ts — the UserPromptSubmit Phase 2a entrypoint
 
-import type { ToolHookInput } from "./types";
+import type { ClaudeHookInput } from "./types";
 import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
 
@@ -126,18 +128,25 @@ export type GuardRunResult = GuardOutcome | null | undefined | void;
 /**
  * The pure-function contract every dispatcher-migrated guard module exports.
  *
- * Phase 1 scope note: `run`'s input type is `ToolHookInput` because the only
- * guards migrating in this task (and the guard families likely to migrate
- * next per the ADR's Migration Plan — the remaining `PreToolUse` blocks) are
- * all tool-scoped. Non-tool-event guards (the `UserPromptSubmit` detector
- * family, `SessionStart`/`Stop`/`SubagentStop`/`SessionEnd` hooks) migrated in
- * later phases carry no `tool_name`/`tool_input` — this interface will need
- * to generalize to a union (or a `ClaudeHookInput` base) when that phase
- * lands. Deferred rather than speculatively generalized now (Phase 1 has
- * exactly one migrated guard, and it is tool-scoped).
+ * Phase 2a generalization (mt#2652): `run`'s input parameter is typed as the
+ * BASE `ClaudeHookInput` — the fields every lifecycle event's payload
+ * carries (`session_id`, `transcript_path`, `cwd`, `hook_event_name`,
+ * `agent_id`). Tool-scoped guards (PreToolUse/PostToolUse) declare their own
+ * `run(input: ToolHookInput, ctx)` — a narrower parameter type than the
+ * interface's `ClaudeHookInput` — which is permitted because this member is
+ * declared with METHOD SHORTHAND syntax (`run(...)`, not `run: (...) => ...`
+ * as a property), and TypeScript checks method parameters bivariantly. That
+ * lets a single `GuardModule` contract cover both tool-scoped guards
+ * (`ToolHookInput`, a `ClaudeHookInput` subtype — e.g.
+ * `check-guessed-session-path.ts`) and non-tool-scoped guards
+ * (`ClaudeHookInput` exactly — e.g. the UserPromptSubmit guidance-detector
+ * family migrated in this phase) without a union type or per-event generic
+ * parameter. Phase 1's deferred-generalization note (superseded by this
+ * comment) predicted exactly this: "will need to generalize... when that
+ * phase lands."
  */
 export interface GuardModule {
-  run: (input: ToolHookInput, ctx: DispatchContext) => GuardRunResult | Promise<GuardRunResult>;
+  run(input: ClaudeHookInput, ctx: DispatchContext): GuardRunResult | Promise<GuardRunResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,11 +202,27 @@ export interface GuardRegistration {
 // ---------------------------------------------------------------------------
 
 /**
- * Declarative guard registry (D2). Phase 1 (mt#2650) ships exactly ONE
+ * Declarative guard registry (D2). Phase 1 (mt#2650) shipped exactly ONE
  * entry — `check-guessed-session-path`, the pilot migration — proving the
  * architecture end-to-end. Family migrations (Phase 2+) append entries here;
  * a straightforward guard migration needs no dispatcher/framework code
  * changes, only a new registration + the guard's own exported `run()`.
+ *
+ * Phase 2a (mt#2652) adds the six UserPromptSubmit guidance detectors
+ * (substrate-bypass, retrospective-trigger, pre-narration, causal-premise,
+ * code-mechanism-assertion, ask-routing-deferral). All six are
+ * `needsTranscript: true` (D6 resolves `ctx.transcriptLines` once for the
+ * whole family instead of each guard re-parsing the transcript itself) and
+ * `denyCapable: false` (informational — additionalContext / calibration
+ * only, never a permission denial). Order mirrors the pre-migration
+ * `.claude/settings.json` UserPromptSubmit block's relative order.
+ *
+ * NOT migrated in Phase 2a: `policy-coverage-detector`, despite being named
+ * as one of the "seven detectors" in mt#2652's spec — ground-truth check of
+ * `.claude/settings.json` found it registered on `PreToolUse` (matcher
+ * `Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|...`), not
+ * `UserPromptSubmit`. Left as an independent PreToolUse registration per the
+ * task's scope-precision instruction; recorded as a spec discrepancy.
  */
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
@@ -207,6 +232,59 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./check-guessed-session-path").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: true,
+  },
+  {
+    name: "substrate-bypass-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 15000,
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "retrospective-trigger-scanner",
+    event: "UserPromptSubmit",
+    module: () => import("./retrospective-trigger-scanner").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "retrospective-trigger",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "pre-narration-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "pre-narration",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "causal-premise-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "causal-premise",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "code-mechanism-assertion-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./code-mechanism-assertion-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "code-mechanism-assertion",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "ask-routing-deferral-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./ask-routing-deferral-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "ask-routing-deferral",
+    denyCapable: false,
+    needsTranscript: true,
   },
 ];
 
@@ -259,8 +337,20 @@ export interface DuplicateRegistration {
  * conservative, false-positive-tolerant heuristic — exact regex
  * intersection is undecidable in general, and today's matcher strings are
  * always simple `|`-joined tool-name alternatives, never true regex
- * features). A registration with no matcher is treated as "matches
- * everything" and overlaps any registration in the same event.
+ * features).
+ *
+ * A registration with no matcher is treated as "matches everything." When
+ * matched against a registration THAT HAS a matcher, this is a genuine
+ * overlap risk (the matcher-less guard fires on every tool the matchered
+ * guard's tokens name too) and is still flagged. When BOTH registrations in
+ * a pair lack a matcher, they are NOT flagged (Phase 2a, mt#2652) — for
+ * non-tool-scoped events (`UserPromptSubmit`, `SessionStart`, `Stop`,
+ * `SubagentStop`, `SessionEnd`) a matcher-less registration is the NORMAL,
+ * by-design shape (there is no tool name to match against), and multiple
+ * independent guards legitimately share it — e.g. the six UserPromptSubmit
+ * guidance detectors migrated in this phase. Flagging every such pair as a
+ * "duplicate" would make the D7(2) check impossible to satisfy for any
+ * non-tool-scoped family with more than one guard.
  */
 export function findDuplicateRegistrations(
   registrations: GuardRegistration[]
@@ -286,6 +376,12 @@ export function findDuplicateRegistrations(
 
       const aTokens = tokensOf(a.matcher);
       const bTokens = tokensOf(b.matcher);
+      if (aTokens === null && bTokens === null) {
+        // Both matcher-less at the same event: the normal shape for
+        // non-tool-scoped events with multiple independent guards — not a
+        // duplicate registration.
+        continue;
+      }
       if (aTokens === null || bTokens === null) {
         dupes.push({
           a: a.name,

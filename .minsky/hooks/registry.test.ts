@@ -99,13 +99,28 @@ describe("findDuplicateRegistrations", () => {
     expect(findDuplicateRegistrations(regs)).toEqual([]);
   });
 
-  test("a matcher-less registration overlaps any registration in the same event", () => {
+  test("two matcher-less registrations at the same event are NOT flagged (Phase 2a, mt#2652)", () => {
+    // Matcher-less-at-the-same-event is the NORMAL shape for non-tool-scoped
+    // events (UserPromptSubmit et al.) with multiple independent guards —
+    // e.g. the six UserPromptSubmit guidance detectors migrated in Phase 2a.
+    // Flagging every such pair would make the check impossible to satisfy.
     const regs = [
       makeReg({ name: "a", event: NON_TOOL_EVENT, matcher: undefined }),
       makeReg({ name: "b", event: NON_TOOL_EVENT, matcher: undefined }),
     ];
+    expect(findDuplicateRegistrations(regs)).toEqual([]);
+  });
+
+  test("a matcher-less registration still overlaps a registration WITH a matcher", () => {
+    // The genuine-overlap-risk case remains flagged: a matcher-less guard
+    // fires on every tool, including whatever the matchered guard names.
+    const regs = [
+      makeReg({ name: "a", event: "PreToolUse", matcher: undefined }),
+      makeReg({ name: "b", event: "PreToolUse", matcher: "Bash" }),
+    ];
     const dupes = findDuplicateRegistrations(regs);
     expect(dupes.length).toBe(1);
+    expect(dupes[0]?.sharedTokens).toContain("<matches everything>");
   });
 
   test("current GUARD_REGISTRY has no duplicate registrations (regression guard)", () => {
@@ -130,5 +145,29 @@ describe("GUARD_REGISTRY", () => {
       const mod = await reg.module();
       expect(typeof mod.run).toBe("function");
     }
+  });
+
+  test("Phase 2a UserPromptSubmit family (mt#2652) is registered, no duplicates, correct calibration wiring", () => {
+    const expectedCalibrationLogs: Record<string, string | undefined> = {
+      "substrate-bypass-detector": undefined,
+      "retrospective-trigger-scanner": "retrospective-trigger",
+      "pre-narration-detector": "pre-narration",
+      "causal-premise-detector": "causal-premise",
+      "code-mechanism-assertion-detector": "code-mechanism-assertion",
+      "ask-routing-deferral-detector": "ask-routing-deferral",
+    };
+    for (const [name, calibrationLog] of Object.entries(expectedCalibrationLogs)) {
+      const reg = GUARD_REGISTRY.find((r) => r.name === name);
+      expect(reg).toBeDefined();
+      expect(reg?.event).toBe("UserPromptSubmit");
+      expect(reg?.matcher).toBeUndefined();
+      expect(reg?.denyCapable).toBe(false);
+      expect(reg?.needsTranscript).toBe(true);
+      expect(reg?.calibrationLog).toBe(calibrationLog);
+    }
+    // policy-coverage-detector is NOT part of this family — it is registered
+    // on PreToolUse in .claude/settings.json (ground truth), not
+    // UserPromptSubmit. See the mt#2652 spec's recorded discrepancy.
+    expect(GUARD_REGISTRY.find((r) => r.name === "policy-coverage-detector")).toBeUndefined();
   });
 });
