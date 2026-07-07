@@ -815,4 +815,24 @@ describe("plant route convergence (App.tsx plantRoutes)", () => {
       expect(screen.getByTestId("plant-flow-page")).toBeDefined();
     });
   });
+
+  // mt#2626 R1 review: the shallow "doesn't throw" click test above doesn't
+  // prove navigation actually reaches the renamed route. This one exercises
+  // the real plantRoutes wiring end-to-end: click the Learning Loop node's
+  // drill-down link and confirm /plant/interlock-history's page renders.
+  test("clicking the interlock-history link navigates to /plant/interlock-history", async () => {
+    mockPlantBoardFetch();
+    renderPlantRoutesAt("/plant");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plant-flow-page")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByTestId("weld-history-link"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("weld-history-page")).toBeDefined();
+    });
+    expect(screen.getByText(/INTERLOCK HISTORY/)).toBeDefined();
+  });
 });
