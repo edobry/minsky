@@ -622,6 +622,19 @@ proves insufficient.
 2. PR body contains a `Deploy verification:` section — the commitment.
 3. `MINSKY_SKIP_DEPLOY_VERIFY=1` — operator override, audit-logged.
 
+**Marker acceptance (mt#2648):** both this hook's `Deploy verification:` marker and the
+sibling mt#1459 `Execution evidence:` marker (in
+`require-execution-evidence-before-merge.ts`) accept, case-insensitive: a plain label
+line WITH a required colon (`Deploy verification:`, `Execution evidence:`), OR a Markdown
+heading of ANY level (1-6) with an OPTIONAL trailing colon (`## Deploy verification`,
+`### Deploy verification:`, and the `Execution evidence` equivalents). The colon remains
+required for the non-heading form so bare prose mentions don't false-positive; heading
+level and trailing colon are both flexible because agents naturally write evidence as a
+Markdown section. Originating incident: PR #1798 (mt#2613, 2026-07-07) was blocked at
+merge despite a complete `## Execution evidence` section because it had no trailing
+colon — a diagnose-and-edit round-trip this broadened acceptance eliminates. Denial
+messages from both hooks now name the accepted forms explicitly.
+
 **Fail-open posture:** unresolvable repo/PR, fetch failure, or non-deploy-surface PR
 → silent allow (the gate never blocks on inability to check). The PostToolUse hook is
 informational and exits 0 on any failure.
@@ -642,6 +655,9 @@ tool-flake-is-blocker; DONE != deploy-healthy).
 - mt#2345 — originating incident (config-as-code deploy crash reported DONE on
   apply-exit-0); mt#2352 — its re-implementation
 - mt#1459 / `require-execution-evidence-before-merge.ts` — sibling gate (test-file surface)
+- mt#2648 — broadened marker acceptance (heading forms, optional trailing colon) applied
+  to both this hook's `Deploy verification:` marker and the mt#1459 sibling's
+  `Execution evidence:` marker
 - `drive-pr-to-convergence.ts` — architectural template (PostToolUse injection)
 - mt#1787 / bundle-boot-smoke — CI gate for the MCP bundle (does NOT cover Railway
   config-as-code build-resolution changes — this pair's class)

@@ -104,18 +104,21 @@ export function findNewTestFiles(files: PrFile[]): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true when the PR body contains an "Execution evidence:" block with
+ * Returns true when the PR body contains an "Execution evidence" block with
  * non-empty content following the marker.
  *
- * Acceptance criteria:
- *   - The marker must appear as a Markdown heading (## Execution evidence:)
- *     OR as a standalone label line (Execution evidence: <content>).
+ * Acceptance criteria (mt#2648 — accepted marker forms, case-insensitive):
+ *   - A Markdown heading, any level 1-6, with an OPTIONAL trailing colon
+ *     (e.g. `## Execution evidence`, `### Execution evidence:`).
+ *   - A standalone label line WITH a colon (`Execution evidence: <content>`) —
+ *     the colon is REQUIRED for the non-heading form so bare prose containing
+ *     the phrase doesn't false-positive.
  *   - Negation phrases like "No Execution evidence:" do NOT qualify.
- *   - The heading must be followed by non-whitespace content.
+ *   - The marker must be followed by non-whitespace content (inline or on a
+ *     subsequent line before the next heading).
  *
  * Detection strategy:
- *   1. Find a line that, after stripping leading # characters and whitespace,
- *      matches "Execution evidence:" (case-insensitive) — this is the heading.
+ *   1. Find a line that matches one of the two accepted marker forms above.
  *   2. Verify the heading line itself does NOT start with "No " (negation guard).
  *   3. Require that there is at least one non-empty line of content after the
  *      heading and before the next Markdown heading or end-of-string.
@@ -125,11 +128,16 @@ export function hasExecutionEvidence(prBody: string): boolean {
   // in rendered Markdown and must not count as evidence.
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
 
-  // Matches lines that are (optional) Markdown heading + "Execution evidence:"
-  // Anchored at start-of-line via the `m` flag.
-  // The heading prefix (###, ##, #) is optional; plain "Execution evidence:" also matches.
-  // Captures everything on the heading line before the marker for negation check.
-  const headingPattern = /^(#{0,6}\s*)(execution evidence:\s*)(.*)$/im;
+  // Matches lines in one of two forms (mt#2648):
+  //   A. Markdown heading (any level 1-6) + "execution evidence" with an
+  //      OPTIONAL trailing colon — e.g. "## Execution evidence",
+  //      "### Execution evidence:".
+  //   B. Plain label line — "execution evidence:" with a REQUIRED colon (no
+  //      heading marker). Keeping the colon required here preserves the
+  //      original true-negative behavior for bare prose mentions.
+  // Anchored at start-of-line via the `m` flag. Group 1 (heading hashes, form
+  // A only) is unused downstream; group 2 captures trailing inline content.
+  const headingPattern = /^(?:(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
 
   const lines = strippedBody.split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -140,15 +148,14 @@ export function hasExecutionEvidence(prBody: string): boolean {
 
     // Negation guard: skip lines like "No Execution evidence:" or
     // "## No Execution evidence:" where the word before the marker is "No".
-    // The text before "Execution" (captured in match[1]) should not end with
-    // a negating word. We check the full line up to "execution" for "no ".
+    // We check the full line up to "execution" for "no ".
     const beforeMarker = line.slice(0, line.toLowerCase().indexOf("execution")).toLowerCase();
     if (/\bno\b/.test(beforeMarker)) continue;
 
     // Also reject template placeholders where the heading line itself contains
     // the full text on the same line — allow only if there's content on the same
     // line OR content follows on subsequent lines.
-    const inlineContent = (match[3] ?? "").trim();
+    const inlineContent = (match[2] ?? "").trim();
     if (inlineContent.length > 0) {
       // Inline content on the heading line counts as evidence
       return true;
@@ -330,7 +337,10 @@ export function checkExecutionEvidence(
   const fileList = newTestFiles.map((f) => `  - ${f}`).join("\n");
   const reason =
     `Merge blocked: PR adds ${newTestFiles.length} new test file(s) but PR body has no ` +
-    `\`Execution evidence:\` block.\n\n` +
+    `execution-evidence block.\n\n` +
+    `Accepted marker forms (case-insensitive): \`Execution evidence:\` (plain label, colon ` +
+    `required) OR a Markdown heading of any level with an optional trailing colon ` +
+    `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
     `New test files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
     `  1. Run the new tests and paste output under an \`Execution evidence:\` heading in ` +

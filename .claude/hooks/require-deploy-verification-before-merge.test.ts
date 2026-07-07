@@ -77,6 +77,41 @@ describe("hasDeployVerification (mt#2353)", () => {
     const body = `${SECTION_HEADING}\ndeferred for now\n\n${SECTION_HEADING}\nRan deployment_wait-for-latest -> SUCCESS; /health 200.`;
     expect(hasDeployVerification(body)).toBe(true);
   });
+
+  // --- Heading-form marker acceptance, no colon required (mt#2648) ---
+
+  test("true for '## Deploy verification' heading with NO colon", () => {
+    const body = `## Summary\nfoo\n\n## Deploy verification\nRan deployment_wait-for-latest -> SUCCESS.\n`;
+    expect(hasDeployVerification(body)).toBe(true);
+  });
+
+  test("true for heading form at any level (h1-h6), colon optional", () => {
+    expect(hasDeployVerification("# Deploy verification\nRan deployment_wait-for-latest.")).toBe(
+      true
+    );
+    expect(
+      hasDeployVerification("###### Deploy verification\nRan deployment_wait-for-latest.")
+    ).toBe(true);
+  });
+
+  test("true for heading form case-insensitively with no colon", () => {
+    expect(hasDeployVerification("## deploy verification\nSUCCESS confirmed.")).toBe(true);
+  });
+
+  test("still requires a colon for the non-heading plain-label form (unchanged)", () => {
+    const body = `## Summary\nfoo\n\nDeploy verification\nRan it.\n`;
+    expect(hasDeployVerification(body)).toBe(false);
+  });
+
+  test("false for negation in heading-form-without-colon: '## No Deploy verification'", () => {
+    const body = `## Summary\nfoo\n\n## No Deploy verification\nNot needed for this change.\n`;
+    expect(hasDeployVerification(body)).toBe(false);
+  });
+
+  test("false for a deferral-only section in heading-form-without-colon", () => {
+    const body = `## Deploy verification\nDeferred to §10 post-merge; not yet deployed.`;
+    expect(hasDeployVerification(body)).toBe(false);
+  });
 });
 
 describe("hasNoDeployImpactTag (mt#2353)", () => {
@@ -104,8 +139,20 @@ describe("checkDeployVerification (mt#2353)", () => {
     expect(r.reason).toContain("deployment_wait-for-latest");
   });
 
+  test("error message names the accepted marker forms (mt#2648)", () => {
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, "## Summary\nno section");
+    expect(r.reason).toContain("Accepted marker forms");
+    expect(r.reason).toContain("## Deploy verification");
+  });
+
   test("allows a deploy-surface PR that has the Deploy verification: section", () => {
     const body = `${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS.`;
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, body);
+    expect(r.blocked).toBe(false);
+  });
+
+  test("allows a deploy-surface PR with heading-form section with no colon (mt#2648)", () => {
+    const body = `## Deploy verification\nRan deployment_wait-for-latest → SUCCESS.`;
     const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, body);
     expect(r.blocked).toBe(false);
   });
