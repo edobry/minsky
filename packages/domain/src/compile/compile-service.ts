@@ -17,6 +17,7 @@ import { checkStaleness } from "./staleness";
 import { claudeSkillsTarget } from "./targets/claude-skills";
 import { claudeAgentsTarget } from "./targets/claude-agents";
 import { cursorRulesTsTarget } from "./targets/cursor-rules-ts";
+import { claudeHooksTarget } from "./targets/claude-hooks";
 
 export interface MinskyCompileOptions extends MinskyTargetOptions {
   workspacePath: string;
@@ -128,5 +129,6 @@ export function createMinskyCompileService(): MinskyCompileService {
   service.registerTarget(claudeSkillsTarget);
   service.registerTarget(claudeAgentsTarget);
   service.registerTarget(cursorRulesTsTarget);
+  service.registerTarget(claudeHooksTarget);
   return service;
 }
