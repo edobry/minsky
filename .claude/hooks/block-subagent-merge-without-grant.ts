@@ -194,9 +194,11 @@ if (import.meta.main) {
   const agentId = input.agent_id as string;
 
   if (isOverrideActive()) {
-    console.error(
+    // Audit line to STDOUT per the sibling-hook convention (non-JSON, so
+    // Claude Code's hook-output parser ignores it) and this header's contract.
+    process.stdout.write(
       `[block-subagent-merge-without-grant] ${MERGE_GRANT_OVERRIDE_ENV} override active — ` +
-        `allowing subagent merge. agent_id=${agentId} timestamp=${new Date().toISOString()}`
+        `allowing subagent merge. agent_id=${agentId} timestamp=${new Date().toISOString()}\n`
     );
     process.exit(0);
   }
@@ -220,7 +222,8 @@ if (import.meta.main) {
   const decision = decideMergeGrant(taskId, agentId, storeResult.grants, Date.now());
 
   if (decision.decision === "allow") {
-    console.error(`[block-subagent-merge-without-grant] ${decision.reason} — allowing.`);
+    // Grant-backed allow is an audit event too — stdout, same convention.
+    process.stdout.write(`[block-subagent-merge-without-grant] ${decision.reason} — allowing.\n`);
     process.exit(0);
   }
 
