@@ -5,7 +5,10 @@
  *
  * A "protected" Dockerfile is one that runs `RUN bun install
  * --frozen-lockfile` against the root `bun.lock` — currently the root
- * `Dockerfile` and `services/reviewer/Dockerfile`. Each protected Dockerfile
+ * `Dockerfile`, `services/reviewer/Dockerfile`, and
+ * `services/cockpit/Dockerfile` (two-stage; both stages carry a generated
+ * block). Discovery is by trigger condition, so this list is illustrative,
+ * not load-bearing. Each protected Dockerfile
  * must COPY every workspace's `package.json` into the build context BEFORE
  * the frozen-lockfile install step, or bun aborts with
  * `error: lockfile had changes, but lockfile is frozen` (mt#1977, mt#1991).
