@@ -12,7 +12,7 @@ use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 
 use tauri::menu::MenuItem;
 use tauri::{AppHandle, Manager, Wry};
@@ -1276,6 +1276,7 @@ pub(crate) fn spawn(app: AppHandle, spawned: SpawnedPgid) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn status_label_maps_health_to_text() {

@@ -30,17 +30,20 @@ pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
 /// ABSOLUTE factor — so we track the current value here in order to step it.
 pub(crate) struct ZoomLevel(pub(crate) Mutex<f64>);
 
-/// Build the tray dropdown menu + macOS application menu and wire their event
-/// handlers. Registers `ZoomLevel`, `StatusMenuItem`, `BuildMenuItem`, and
-/// `UptimeMenuItem` as managed state so the supervisor loop (which runs on a
-/// separate OS thread, spawned afterward by `supervisor::spawn`) can push
-/// status text to them. Called once from `main()`'s setup closure.
-pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
-    // Register zoom state before any menu handler that can read it (mt#2334
-    // review): menu events fire post-setup, but managing it up front
-    // guarantees `try_state::<ZoomLevel>()` is always populated.
+/// Register zoom state (mt#2334 review). Called FIRST from `main()`'s setup
+/// closure, before deep-link registration or menu construction, so
+/// `try_state::<ZoomLevel>()` is always populated by the time any menu
+/// handler or deferred window-creation closure can read it.
+pub(crate) fn init_zoom_state(app: &tauri::App<Wry>) {
     app.manage(ZoomLevel(Mutex::new(1.0)));
+}
 
+/// Build the tray dropdown menu + macOS application menu and wire their event
+/// handlers. Registers `StatusMenuItem`, `BuildMenuItem`, and `UptimeMenuItem`
+/// as managed state so the supervisor loop (which runs on a separate OS
+/// thread, spawned afterward by `supervisor::spawn`) can push status text to
+/// them. Called once from `main()`'s setup closure, after `init_zoom_state`.
+pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
     let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
         .enabled(false)
         .build(app)?;
