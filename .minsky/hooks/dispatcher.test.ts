@@ -1,0 +1,533 @@
+import { describe, test, expect } from "bun:test";
+import {
+  checkOverride,
+  buildOverrideAuditLine,
+  calibrationLogPath,
+  logCalibrationRecord,
+  resolveDispatchContext,
+  runDispatcher,
+  HOOK_OVERRIDE_ENV_VAR,
+  type CalibrationWriteDeps,
+} from "./dispatcher";
+import type { GuardRegistration } from "./registry";
+import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
+import type { TranscriptLine } from "./transcript";
+
+/** The dispatcher's own compiled filename, used throughout as `hookFilename`. */
+const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
+
+// ---------------------------------------------------------------------------
+// checkOverride (D3)
+// ---------------------------------------------------------------------------
+
+describe("checkOverride", () => {
+  test("no env var set -> not overridden", () => {
+    expect(checkOverride("some-guard", {})).toEqual({ overridden: false });
+  });
+
+  test("env var names exactly this guard -> overridden", () => {
+    const result = checkOverride("some-guard", { [HOOK_OVERRIDE_ENV_VAR]: "some-guard" });
+    expect(result.overridden).toBe(true);
+    expect(result.raw).toBe("some-guard");
+  });
+
+  test("env var names a different guard -> not overridden", () => {
+    const result = checkOverride("some-guard", { [HOOK_OVERRIDE_ENV_VAR]: "other-guard" });
+    expect(result.overridden).toBe(false);
+  });
+
+  test("comma-separated list -> matches any listed guard", () => {
+    const result = checkOverride("b", { [HOOK_OVERRIDE_ENV_VAR]: "a,b,c" });
+    expect(result.overridden).toBe(true);
+  });
+
+  test("whitespace around list entries is tolerated", () => {
+    const result = checkOverride("b", { [HOOK_OVERRIDE_ENV_VAR]: " a , b , c " });
+    expect(result.overridden).toBe(true);
+  });
+
+  test("literal 'all' overrides any guard name", () => {
+    expect(checkOverride("anything", { [HOOK_OVERRIDE_ENV_VAR]: "all" }).overridden).toBe(true);
+    expect(checkOverride("other", { [HOOK_OVERRIDE_ENV_VAR]: "x,all" }).overridden).toBe(true);
+  });
+
+  test("empty string env var -> not overridden", () => {
+    expect(checkOverride("some-guard", { [HOOK_OVERRIDE_ENV_VAR]: "" }).overridden).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildOverrideAuditLine (D3)
+// ---------------------------------------------------------------------------
+
+describe("buildOverrideAuditLine", () => {
+  test("matches the documented format exactly", () => {
+    const line = buildOverrideAuditLine(
+      "PreToolUse",
+      "check-guessed-session-path",
+      "sess-123",
+      () => "2026-07-07T00:00:00.000Z"
+    );
+    expect(line).toBe(
+      "[dispatcher:PreToolUse] OVERRIDE: guard=check-guessed-session-path session=sess-123 ts=2026-07-07T00:00:00.000Z\n"
+    );
+  });
+
+  test("missing session id falls back to 'unknown'", () => {
+    const line = buildOverrideAuditLine("PreToolUse", "g", undefined, () => "TS");
+    expect(line).toContain("session=unknown");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calibrationLogPath / logCalibrationRecord (D4)
+// ---------------------------------------------------------------------------
+
+describe("calibrationLogPath", () => {
+  test("preserves the existing CALIBRATION_LOG_REGISTRY filename convention", () => {
+    expect(calibrationLogPath("causal-premise", "/repo")).toBe(
+      "/repo/.minsky/causal-premise-calibration.jsonl"
+    );
+  });
+});
+
+function makeFakeDeps(): CalibrationWriteDeps & {
+  files: Map<string, string>;
+  dirsCreated: string[];
+} {
+  const files = new Map<string, string>();
+  const dirsCreated: string[] = [];
+  return {
+    files,
+    dirsCreated,
+    existsSync: (p) => dirsCreated.includes(p),
+    mkdirSync: (p) => {
+      dirsCreated.push(p);
+    },
+    appendFileSync: (p, data) => {
+      files.set(p, (files.get(p) ?? "") + data);
+    },
+  };
+}
+
+describe("logCalibrationRecord", () => {
+  test("appends a JSONL line to the resolved path", () => {
+    const deps = makeFakeDeps();
+    logCalibrationRecord(
+      "causal-premise",
+      { timestamp: "T", matchedPhrases: ["x"] },
+      { projectDir: "/repo", deps }
+    );
+    const content = deps.files.get("/repo/.minsky/causal-premise-calibration.jsonl");
+    expect(content).toBeDefined();
+    expect(JSON.parse((content ?? "").trim())).toEqual({ timestamp: "T", matchedPhrases: ["x"] });
+  });
+
+  test("creates the parent dir when missing", () => {
+    const deps = makeFakeDeps();
+    logCalibrationRecord("x", { a: 1 }, { projectDir: "/repo", deps });
+    expect(deps.dirsCreated).toContain("/repo/.minsky");
+  });
+
+  test("does not recreate an already-existing dir", () => {
+    const deps = makeFakeDeps();
+    deps.dirsCreated.push("/repo/.minsky");
+    let mkdirCalls = 0;
+    const wrapped: CalibrationWriteDeps = {
+      ...deps,
+      mkdirSync: (p) => {
+        mkdirCalls++;
+        deps.mkdirSync(p);
+      },
+    };
+    logCalibrationRecord("x", { a: 1 }, { projectDir: "/repo", deps: wrapped });
+    expect(mkdirCalls).toBe(0);
+  });
+
+  test("swallows write failures (best-effort, never throws)", () => {
+    const deps = makeFakeDeps();
+    const throwing: CalibrationWriteDeps = {
+      ...deps,
+      appendFileSync: () => {
+        throw new Error("disk full");
+      },
+    };
+    expect(() =>
+      logCalibrationRecord("x", { a: 1 }, { projectDir: "/repo", deps: throwing })
+    ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDispatchContext (D6)
+// ---------------------------------------------------------------------------
+
+describe("resolveDispatchContext", () => {
+  const fakeHostCap: HostCapInfo = { hostCapSec: 20, source: "settings.json" };
+
+  test("no transcript_path -> empty candidates/lines, budgets still derived", () => {
+    const ctx = resolveDispatchContext(
+      "PreToolUse",
+      { transcript_path: undefined, agent_id: undefined },
+      {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        readHostCapFn: () => fakeHostCap,
+      }
+    );
+    expect(ctx.transcriptCandidates).toEqual([]);
+    expect(ctx.transcriptLines).toEqual([]);
+    expect(ctx.hostCapSec).toBe(20);
+    expect(ctx.budgets.overallBudgetMs).toBeGreaterThan(0);
+    expect(ctx.event).toBe("PreToolUse");
+  });
+
+  test("with transcript_path -> resolves candidates once and parses each", () => {
+    const resolvedCandidates = ["/t/a.jsonl", "/t/b.jsonl"];
+    const parsedByPath: Record<string, TranscriptLine[]> = {
+      "/t/a.jsonl": [{ type: "user" }],
+      "/t/b.jsonl": [{ type: "assistant" }],
+    };
+    let resolveCallCount = 0;
+    let parseCallCount = 0;
+    const ctx = resolveDispatchContext(
+      "PreToolUse",
+      { transcript_path: "/t/main.jsonl", agent_id: "agent-1" },
+      {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        readHostCapFn: () => fakeHostCap,
+        resolveTranscriptCandidatesFn: (path, agentId) => {
+          resolveCallCount++;
+          expect(path).toBe("/t/main.jsonl");
+          expect(agentId).toBe("agent-1");
+          return resolvedCandidates;
+        },
+        parseTranscriptFn: (p) => {
+          parseCallCount++;
+          return parsedByPath[p] ?? [];
+        },
+      }
+    );
+    expect(resolveCallCount).toBe(1);
+    expect(parseCallCount).toBe(2);
+    expect(ctx.transcriptCandidates).toEqual(resolvedCandidates);
+    expect(ctx.transcriptLines).toEqual([{ type: "user" }, { type: "assistant" }]);
+  });
+
+  test("passes hookFilename and events through to readHostCapFn", () => {
+    let seenFilename = "";
+    let seenEvents: readonly string[] | undefined;
+    resolveDispatchContext(
+      "PostToolUse",
+      {},
+      {
+        hookFilename: "dispatch-posttooluse.ts",
+        readHostCapFn: (filename, _dir, opts) => {
+          seenFilename = filename;
+          seenEvents = opts?.events;
+          return fakeHostCap;
+        },
+      }
+    );
+    expect(seenFilename).toBe("dispatch-posttooluse.ts");
+    expect(seenEvents).toEqual(["PostToolUse"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runDispatcher (D1 core loop)
+// ---------------------------------------------------------------------------
+
+function baseInput(overrides: Partial<ToolHookInput> = {}): ToolHookInput {
+  return {
+    session_id: "sess-1",
+    cwd: "/tmp",
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "ls" },
+    ...overrides,
+  };
+}
+
+function stubContext() {
+  return {
+    event: "PreToolUse" as const,
+    hostCapSec: 15,
+    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+    transcriptCandidates: [],
+    transcriptLines: [],
+  };
+}
+
+describe("runDispatcher", () => {
+  test("no guards match -> writeOutputFn never called, no stdout", async () => {
+    const written: HookOutput[] = [];
+    const stdout: string[] = [];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations: [
+        {
+          name: "g",
+          event: "PreToolUse",
+          matcher: "Edit",
+          module: () => Promise.resolve({ run: () => ({ deny: { reason: "x" } }) }),
+          timeoutMs: 1000,
+          denyCapable: true,
+        },
+      ],
+      readInputFn: () => Promise.resolve(baseInput({ tool_name: "Bash" })),
+      writeOutputFn: (o) => written.push(o),
+      stdoutWrite: (s) => stdout.push(s),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written).toEqual([]);
+    expect(stdout).toEqual([]);
+  });
+
+  test("deny-capable guard denies -> writeOutputFn called once, short-circuits later guards", async () => {
+    const written: HookOutput[] = [];
+    let secondGuardCalled = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "first",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+      {
+        name: "second",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              secondGuardCalled = true;
+              return null;
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written.length).toBe(1);
+    expect(written[0]?.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(written[0]?.hookSpecificOutput?.permissionDecisionReason).toBe("nope");
+    expect(secondGuardCalled).toBe(false);
+  });
+
+  test("multiple guards contribute additionalContext -> concatenated into one output", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "a",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "fragment A" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+      {
+        name: "b",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "fragment B" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written.length).toBe(1);
+    expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("fragment A\n\nfragment B");
+    expect(written[0]?.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+
+  test("override suppresses the guard entirely — run() never invoked, audit line emitted", async () => {
+    const written: HookOutput[] = [];
+    const stdout: string[] = [];
+    let guardInvoked = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "pilot",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              guardInvoked = true;
+              return { deny: { reason: "would have denied" } };
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      stdoutWrite: (s) => stdout.push(s),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    // Simulate the override by setting env for a second run — checkOverride
+    // reads process.env directly, so exercise it via a real env mutation
+    // scoped to this test.
+    process.env[HOOK_OVERRIDE_ENV_VAR] = "pilot";
+    try {
+      guardInvoked = false;
+      written.length = 0;
+      stdout.length = 0;
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations,
+        readInputFn: () => Promise.resolve(baseInput()),
+        writeOutputFn: (o) => written.push(o),
+        stdoutWrite: (s) => stdout.push(s),
+        resolveDispatchContextFn: () => stubContext(),
+      });
+      expect(guardInvoked).toBe(false);
+      expect(written).toEqual([]);
+      expect(stdout.length).toBe(1);
+      expect(stdout[0]).toContain("OVERRIDE: guard=pilot");
+    } finally {
+      delete process.env[HOOK_OVERRIDE_ENV_VAR];
+    }
+  });
+
+  test("a guard that throws is caught, logged to stderr, and does not disable other guards", async () => {
+    const written: HookOutput[] = [];
+    const stderr: string[] = [];
+    let secondGuardCalled = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "throws",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              throw new Error("boom");
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+      {
+        name: "second",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              secondGuardCalled = true;
+              return { additionalContext: "ok" };
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      stderrWrite: (s) => stderr.push(s),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(stderr.length).toBe(1);
+    expect(stderr[0]).toContain("guard=throws threw: boom");
+    expect(secondGuardCalled).toBe(true);
+    expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+  });
+
+  test("calibration outcome is logged via logCalibrationRecordFn when the registration declares calibrationLog", async () => {
+    const logged: Array<{ name: string; record: Record<string, unknown> }> = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "detector",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => ({ calibration: { matched: true } }),
+          }),
+        timeoutMs: 1000,
+        denyCapable: false,
+        calibrationLog: "detector-log",
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      logCalibrationRecordFn: (name, record) => logged.push({ name, record }),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(logged).toEqual([{ name: "detector-log", record: { matched: true } }]);
+  });
+
+  test("calibration outcome without a registered calibrationLog is not logged", async () => {
+    let called = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "detector",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ calibration: { matched: true } }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      logCalibrationRecordFn: () => {
+        called = true;
+      },
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(called).toBe(false);
+  });
+
+  test("guard-emitted auditLines are written to stdout verbatim", async () => {
+    const stdout: string[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "g",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({ run: () => ({ auditLines: ["[g] legacy override active\n"] }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      stdoutWrite: (s) => stdout.push(s),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(stdout).toEqual(["[g] legacy override active\n"]);
+  });
+});

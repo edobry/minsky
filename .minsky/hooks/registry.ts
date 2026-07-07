@@ -1,0 +1,294 @@
+// Declarative guard registry — ADR-028 D2.
+//
+// The registry is the single source of truth that today's copy-pasted
+// `.claude/settings.json` matcher strings approximate by hand. Each entry
+// maps a guard's pure-function module to the lifecycle event + tool-name
+// matcher it runs under, its budget, its calibration-log wiring, and
+// whether it participates in first-deny-wins short-circuiting.
+//
+// This module (and its sibling `dispatcher.ts`) is dependency-free — only
+// imports from `./types` and `./transcript`, matching the sibling shared-hook
+// module shape (`pr-context.ts`'s "no cross-imports from src/" convention).
+// It lives inside the hooks tree so it stays self-contained per
+// `.minsky/hooks/SPEC.md`'s invariant: hooks keep working even when the main
+// codebase has type errors.
+//
+// @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1/D2
+// @see mt#2650 — this framework's tracking task (ADR-028 Phase 1)
+// @see .minsky/hooks/dispatcher.ts — the core dispatcher loop that consumes this registry
+// @see .minsky/hooks/dispatch-pretooluse.ts — the PreToolUse pilot entrypoint
+
+import type { ToolHookInput } from "./types";
+import type { DerivedBudgets } from "./types";
+import type { TranscriptLine } from "./transcript";
+
+// ---------------------------------------------------------------------------
+// Lifecycle events
+// ---------------------------------------------------------------------------
+
+/** The seven Claude Code lifecycle events Minsky's guards currently hook. */
+export type LifecycleEvent =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "UserPromptSubmit"
+  | "SessionStart"
+  | "Stop"
+  | "SubagentStop"
+  | "SessionEnd";
+
+// ---------------------------------------------------------------------------
+// D6 — per-invocation dispatch context (resolved once, passed to every guard)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared context the dispatcher resolves ONCE per invocation (D6) and passes
+ * to every matched guard's `run()`. Guards never call `readHostCap`,
+ * `resolveTranscriptCandidates`, or `readInput` themselves — this closes the
+ * entire class of "guard written against `transcript_path` naively, breaks
+ * for background-dispatched subagents" bugs (mt#2637) at the framework
+ * boundary instead of per-guard.
+ */
+export interface DispatchContext {
+  event: LifecycleEvent;
+  /** Host-imposed timeout cap (seconds) for the dispatcher process itself. */
+  hostCapSec: number;
+  /** Derived sub-budgets (overall/fetch/git) from `hostCapSec` — see `deriveBudgets` in `./types`. */
+  budgets: DerivedBudgets;
+  /**
+   * Resolved transcript candidate paths (mt#2637 `resolveTranscriptCandidates`),
+   * in scan order. Empty when the invocation carried no `transcript_path`.
+   */
+  transcriptCandidates: string[];
+  /**
+   * Every candidate's parsed lines, concatenated in candidate order. Empty
+   * when there is no transcript_path. A guard that needs per-candidate
+   * short-circuit scanning (rather than a flat merged list) can still walk
+   * `transcriptCandidates` itself and re-parse — cheap, since `parseTranscript`
+   * is a pure read with no shared state.
+   */
+  transcriptLines: TranscriptLine[];
+}
+
+// ---------------------------------------------------------------------------
+// Guard module contract
+// ---------------------------------------------------------------------------
+
+/**
+ * A guard's outcome for a single dispatch. `null`/`undefined`/`void` means
+ * "no output" — the guard neither denies nor wants to contribute context
+ * (the historical "exit 0, write nothing" allow path every guard already
+ * implements).
+ */
+export interface GuardOutcome {
+  /**
+   * Set to deny the tool call. Only honored when the guard's registration
+   * has `denyCapable: true` — the dispatcher short-circuits the remaining
+   * guards on the first denial (D1's first-deny-wins ordering, now an
+   * explicit registry-order property instead of an implicit settings.json
+   * array-position accident).
+   */
+  deny?: { reason: string };
+  /**
+   * Set to contribute an `additionalContext` fragment. The dispatcher
+   * concatenates every matched guard's fragment (registry order, one
+   * paragraph per guard) into a single consolidated `HookOutput` (D1).
+   */
+  additionalContext?: string;
+  /**
+   * Raw non-JSON line(s) the guard wants written to stdout verbatim — e.g.
+   * its own legacy per-guard override audit line (the "legacy vars remain
+   * honored by the guards themselves" carve-out; deprecation-shim removal is
+   * Phase 7, not this task). Each string should include its own trailing
+   * newline.
+   */
+  auditLines?: string[];
+  /**
+   * Optional calibration record to log via `logCalibrationRecord` (D4).
+   * Requires the guard's registration to declare a `calibrationLog` name;
+   * silently ignored otherwise.
+   */
+  calibration?: Record<string, unknown>;
+}
+
+export type GuardRunResult = GuardOutcome | null | undefined | void;
+
+/**
+ * The pure-function contract every dispatcher-migrated guard module exports.
+ *
+ * Phase 1 scope note: `run`'s input type is `ToolHookInput` because the only
+ * guards migrating in this task (and the guard families likely to migrate
+ * next per the ADR's Migration Plan — the remaining `PreToolUse` blocks) are
+ * all tool-scoped. Non-tool-event guards (the `UserPromptSubmit` detector
+ * family, `SessionStart`/`Stop`/`SubagentStop`/`SessionEnd` hooks) migrated in
+ * later phases carry no `tool_name`/`tool_input` — this interface will need
+ * to generalize to a union (or a `ClaudeHookInput` base) when that phase
+ * lands. Deferred rather than speculatively generalized now (Phase 1 has
+ * exactly one migrated guard, and it is tool-scoped).
+ */
+export interface GuardModule {
+  run: (input: ToolHookInput, ctx: DispatchContext) => GuardRunResult | Promise<GuardRunResult>;
+}
+
+// ---------------------------------------------------------------------------
+// Registration schema (D2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Declarative registration for one guard (ADR-028 D2). The registry is the
+ * single source of truth for event, matcher, timeout, and calibration
+ * wiring — replacing the copy-pasted `.claude/settings.json` matcher strings
+ * (e.g. the literal string `"Edit|Write|NotebookEdit"` appearing verbatim in
+ * three separate `PreToolUse` blocks today).
+ */
+export interface GuardRegistration {
+  /** Guard name — also the `MINSKY_HOOK_OVERRIDE` key (D3) and the default calibration-log discriminator. */
+  name: string;
+  /** Which dispatcher loads this guard. */
+  event: LifecycleEvent;
+  /**
+   * Tool-name regex (PreToolUse/PostToolUse only), tested against
+   * `tool_name` via `new RegExp(matcher).test(...)`. Omit for
+   * non-tool-scoped events (`UserPromptSubmit`, `SessionStart`, `Stop`,
+   * `SubagentStop`, `SessionEnd`) — those always match once the event
+   * matches, mirroring today's `matcher`-less settings.json blocks.
+   */
+  matcher?: string;
+  /** Dynamic import of the guard's pure-function module — mirrors D2's `() => Promise<GuardModule>`. */
+  module: () => Promise<GuardModule>;
+  /** Per-guard budget (ms) within the dispatcher's overall process budget. */
+  timeoutMs: number;
+  /**
+   * Logical calibration-log name (D4) — e.g. `"causal-premise"` maps to
+   * `.minsky/causal-premise-calibration.jsonl`, preserving the exact
+   * filenames `CALIBRATION_LOG_REGISTRY`
+   * (`src/domain/calibration/calibration-sweep.ts`) already expects. Omit
+   * for guards that never log calibration records.
+   */
+  calibrationLog?: string;
+  /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
+  denyCapable: boolean;
+  /**
+   * Whether the dispatcher should resolve+parse transcripts before invoking
+   * this guard (D6). Guards that don't read transcripts should omit this —
+   * the dispatcher still resolves `hostCapSec`/`budgets` unconditionally for
+   * every matched guard, but transcript resolution is comparatively more
+   * expensive (fs reads across every candidate) and is worth gating.
+   */
+  needsTranscript?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Registry (Phase 1: one entry — the pilot migration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Declarative guard registry (D2). Phase 1 (mt#2650) ships exactly ONE
+ * entry — `check-guessed-session-path`, the pilot migration — proving the
+ * architecture end-to-end. Family migrations (Phase 2+) append entries here;
+ * a straightforward guard migration needs no dispatcher/framework code
+ * changes, only a new registration + the guard's own exported `run()`.
+ */
+export const GUARD_REGISTRY: GuardRegistration[] = [
+  {
+    name: "check-guessed-session-path",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./check-guessed-session-path").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Matcher filtering
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter `registrations` to guards matching `event` and (for tool-scoped
+ * registrations) `toolName`. A registration with no `matcher` always matches
+ * once its `event` matches. A registration WITH a `matcher` but no `toolName`
+ * supplied (the non-tool-event dispatch case) does not match — matchers are
+ * meaningless without a tool name to test. Malformed matcher regex is
+ * treated as non-matching (fail-open — a bad regex must never crash the
+ * dispatcher).
+ */
+export function getGuardsForEvent(
+  registrations: GuardRegistration[],
+  event: LifecycleEvent,
+  toolName?: string
+): GuardRegistration[] {
+  return registrations.filter((reg) => {
+    if (reg.event !== event) return false;
+    if (!reg.matcher) return true;
+    if (!toolName) return false;
+    try {
+      return new RegExp(reg.matcher).test(toolName);
+    } catch {
+      return false;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// D7(2) — duplicate-registration check (registry-completeness lint)
+// ---------------------------------------------------------------------------
+
+export interface DuplicateRegistration {
+  a: string;
+  b: string;
+  event: LifecycleEvent;
+  /** The matcher token(s) shared by both registrations. */
+  sharedTokens: string[];
+}
+
+/**
+ * Detect two registrations with the same event and an overlapping matcher —
+ * ADR-028 D7(2)'s "duplicate-registration check". Two matchers "overlap"
+ * when they share at least one literal `|`-delimited alternative token (a
+ * conservative, false-positive-tolerant heuristic — exact regex
+ * intersection is undecidable in general, and today's matcher strings are
+ * always simple `|`-joined tool-name alternatives, never true regex
+ * features). A registration with no matcher is treated as "matches
+ * everything" and overlaps any registration in the same event.
+ */
+export function findDuplicateRegistrations(
+  registrations: GuardRegistration[]
+): DuplicateRegistration[] {
+  const dupes: DuplicateRegistration[] = [];
+  const tokensOf = (matcher: string | undefined): Set<string> | null =>
+    matcher === undefined
+      ? null
+      : new Set(
+          matcher
+            .split("|")
+            .map((t) => t.trim())
+            .filter(Boolean)
+        );
+
+  for (let i = 0; i < registrations.length; i++) {
+    for (let j = i + 1; j < registrations.length; j++) {
+      const a = registrations[i];
+      const b = registrations[j];
+      if (!a || !b) continue;
+      if (a.event !== b.event) continue;
+      if (a.name === b.name) continue;
+
+      const aTokens = tokensOf(a.matcher);
+      const bTokens = tokensOf(b.matcher);
+      if (aTokens === null || bTokens === null) {
+        dupes.push({
+          a: a.name,
+          b: b.name,
+          event: a.event,
+          sharedTokens: ["<matches everything>"],
+        });
+        continue;
+      }
+      const shared = [...aTokens].filter((t) => bTokens.has(t));
+      if (shared.length > 0) {
+        dupes.push({ a: a.name, b: b.name, event: a.event, sharedTokens: shared });
+      }
+    }
+  }
+  return dupes;
+}

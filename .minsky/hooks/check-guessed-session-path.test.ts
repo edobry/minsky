@@ -5,7 +5,10 @@ import {
   buildDenialReason,
   findMissingInToolInput,
   OVERRIDE_ENV_VAR,
+  run,
 } from "./check-guessed-session-path";
+import type { DispatchContext } from "./registry";
+import type { ToolHookInput } from "./types";
 
 const SESSION_ID = "deadbeef-0000-0000-0000-000000000000";
 const NONEXISTENT = `/Users/x/.local/state/minsky/sessions/${SESSION_ID}`;
@@ -109,6 +112,52 @@ function makeInput(command: string): string {
     tool_input: { command },
   });
 }
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2650)
+// ---------------------------------------------------------------------------
+
+const STUB_CTX: DispatchContext = {
+  event: "PreToolUse",
+  hostCapSec: 15,
+  budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+  transcriptCandidates: [],
+  transcriptLines: [],
+};
+
+function makeToolInput(command: string): ToolHookInput {
+  return {
+    session_id: "sess-run-test",
+    cwd: "/tmp",
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+  };
+}
+
+describe("run() (dispatcher-compatible)", () => {
+  test("nonexistent session path -> denies with the standard reason", () => {
+    const outcome = run(makeToolInput(`cd ${NONEXISTENT}/src && ls`), STUB_CTX);
+    expect(outcome?.deny?.reason).toContain(NONEXISTENT);
+    expect(outcome?.deny?.reason).toContain(SESSION_ID);
+  });
+
+  test("non-session command -> null (silent allow)", () => {
+    expect(run(makeToolInput("ls -la /tmp"), STUB_CTX)).toBeNull();
+  });
+
+  test("legacy per-guard override env var suppresses the deny and returns an audit line", () => {
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(makeToolInput(`cd ${NONEXISTENT}`), STUB_CTX);
+      expect(outcome?.deny).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+      expect(outcome?.auditLines?.[0]).toContain("ack=1");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
+  });
+});
 
 describe("check-guessed-session-path E2E", () => {
   test("nonexistent session path → deny", async () => {
