@@ -460,6 +460,34 @@ export interface ReviewOperations {
     prIdentifier: string | number,
     options: import("./github-checks-run").SubmitCheckRunOptions
   ): Promise<import("./github-checks-run").SubmitCheckRunResult & { headSha: string }>;
+
+  /**
+   * List the files changed by a pull request (all pages).
+   *
+   * Introduced for mt#2647: `session.pr.drive`'s postMerge deploy-watch mode
+   * needs the PR's changed-file set to determine which deploy services are
+   * affected (via `@minsky/domain/deployment`'s `findAffectedServices`).
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "changed-file listing not supported on this backend" and
+   * require an explicit `services` override instead.
+   */
+  listChangedFiles?(prIdentifier: string | number): Promise<PrChangedFile[]>;
+}
+
+/**
+ * A single changed file on a pull request, as returned by
+ * `ReviewOperations.listChangedFiles`. Narrow projection of GitHub's
+ * `pulls.listFiles` response shape — enough for deploy-surface detection
+ * without leaking the full forge payload into domain code.
+ */
+export interface PrChangedFile {
+  /** Repo-relative path (the current path, post-rename for a "renamed" status). */
+  filename: string;
+  /** Change kind. */
+  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  /** Present for renamed/copied files — the path before the rename/copy. */
+  previousFilename?: string;
 }
 
 /**

@@ -19,41 +19,20 @@
 // @see mt#2345 — originating incident: infra/index.ts + services/reviewer/railway.json
 //   were merged + applied while the reviewer service crash-looped; reported DONE on
 //   `pulumi up` exit-0 (the action) rather than a verified-healthy deploy (the outcome).
+//
+// mt#2647: `DEPLOY_SURFACE_PATTERNS` / `isDeploySurfaceFile` moved to
+// `packages/domain/src/deployment/deploy-surface.ts` (the canonical source)
+// and are re-exported here so this hook and the `session.pr.drive` MCP
+// tool's postMerge deploy-watch mode share ONE pattern list — they can no
+// longer drift apart.
 
 import type { PrFile } from "./require-execution-evidence-before-merge";
+import {
+  DEPLOY_SURFACE_PATTERNS,
+  isDeploySurfaceFile,
+} from "../../packages/domain/src/deployment/deploy-surface";
 
-/**
- * Anchored path patterns that constitute a deploy surface. A change to any
- * matching file can alter the deployed artifact or its build/run config, so the
- * post-merge deploy must be verified to SUCCESS (and the runtime started) before
- * the task is considered done.
- *
- * Tested against the repo-relative POSIX path (normalised: backslashes → `/`,
- * leading `./` stripped).
- */
-export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
-  // Pulumi / infra-as-code tree (mt#2345 touched infra/index.ts here)
-  /^infra\//,
-  // Per-service deploy + build config
-  /^services\/[^/]+\/Dockerfile$/,
-  /^services\/[^/]+\/railway\.json$/,
-  /^services\/[^/]+\/deploy\.config\.ts$/,
-  /^services\/[^/]+\/railway\.config\.ts$/,
-  // Deploy workflows — config-as-code that drives the deploy itself.
-  // Matches both `deploy.yml` (single-pipeline repos) and `deploy-<svc>.yml`.
-  /^\.github\/workflows\/deploy(?:-[^/]+)?\.ya?ml$/,
-];
-
-/** Normalise a path for matching: backslashes → `/`, strip a leading `./`. */
-function normalisePath(filename: string): string {
-  return filename.replace(/\\/g, "/").replace(/^\.\//, "");
-}
-
-/** True when a single repo-relative path is a deploy surface. */
-export function isDeploySurfaceFile(filename: string): boolean {
-  const normalised = normalisePath(filename);
-  return DEPLOY_SURFACE_PATTERNS.some((re) => re.test(normalised));
-}
+export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile };
 
 /**
  * Filter a PR's changed files to the deploy-surface ones (by new path, OR by the

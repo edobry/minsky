@@ -767,6 +767,116 @@ export const sessionPrWaitForReviewCommandParams = {
 };
 
 /**
+ * Session PR Drive command parameters (mt#2647)
+ *
+ * Convergence-tail driver: composes wait-for-review + checks-wait (default
+ * mode), or the postMerge deploy-watch mode when `postMerge: true`. Does NOT
+ * merge — the caller makes the `session.pr.merge` call itself so every
+ * harness-side merge-gate hook still fires normally.
+ */
+export const sessionPrDriveCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  postMerge: {
+    schema: z.boolean(),
+    description:
+      "When true, switch to the post-merge deploy-watch mode: run " +
+      "deployment.wait-for-latest for every deploy service the merged PR's changed " +
+      "files affect (or an explicit `services` override), and report results. Call " +
+      "this AFTER your own session.pr.merge call succeeds — it does not merge " +
+      "anything. When false (default), run the review-wait + checks-wait " +
+      "convergence-tail mode.",
+    required: false,
+    defaultValue: false,
+  },
+  // --- convergence-tail mode params ---
+  reviewer: {
+    schema: z.string(),
+    description:
+      "Only match reviews from this reviewer. Accepts a TokenRole identifier " +
+      '("reviewer" or "implementer") or a literal GitHub login (e.g. ' +
+      "minsky-reviewer[bot]). See session.pr.wait-for-review's `reviewer` param " +
+      "for full precedence rules. Defaults to any reviewer. Ignored in postMerge mode.",
+    required: false,
+  },
+  since: {
+    schema: z.string(),
+    description:
+      "ISO-8601 timestamp; only reviews submitted at or after this time count as " +
+      "matches. Pass the previous terminal result's review.submittedAt when " +
+      "re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT. Defaults to " +
+      "the PR's created_at timestamp. Ignored in postMerge mode.",
+    required: false,
+  },
+  requireCurrentHead: {
+    schema: z.boolean(),
+    description:
+      "When true (default), only a review of the PR's current HEAD commit counts " +
+      "as a match (mt#2586). Ignored in postMerge mode.",
+    required: false,
+    defaultValue: true,
+  },
+  reviewTimeoutSeconds: {
+    schema: z.number().int().min(1).max(1800),
+    description: "Maximum seconds to wait for a matching review (default 600, max 1800).",
+    required: false,
+    defaultValue: 600,
+  },
+  reviewIntervalSeconds: {
+    schema: z.number().int().min(5).max(60),
+    description: "Review polling interval in seconds (default 15, min 5, max 60).",
+    required: false,
+    defaultValue: 15,
+  },
+  checksTimeoutSeconds: {
+    schema: z.number(),
+    description: "Maximum seconds to wait for CI checks to complete (default 600).",
+    required: false,
+    defaultValue: 600,
+  },
+  checksIntervalSeconds: {
+    schema: z.number(),
+    description: "Checks polling interval in seconds (default 30).",
+    required: false,
+    defaultValue: 30,
+  },
+  skipChecks: {
+    schema: z.boolean(),
+    description:
+      "Skip the checks-wait step entirely (e.g. the repo has no CI configured). " +
+      "An APPROVED review alone resolves to READY_TO_MERGE. Ignored in postMerge mode.",
+    required: false,
+    defaultValue: false,
+  },
+  // --- postMerge mode params ---
+  services: {
+    schema: z.array(z.string()),
+    description:
+      "postMerge mode only: explicit list of deploy services to watch, overriding " +
+      "auto-detection from the merged PR's changed files. Pass `[]` to explicitly " +
+      "watch nothing. When omitted, services are auto-detected via the deploy-surface " +
+      "pattern list against the services that declare a deploy.config.ts.",
+    required: false,
+  },
+  deployTimeoutSeconds: {
+    schema: z.number().int().positive(),
+    description:
+      "postMerge mode only: maximum seconds to wait for each service's deployment " +
+      "(default 600).",
+    required: false,
+    defaultValue: 600,
+  },
+  deployIntervalSeconds: {
+    schema: z.number().int().positive(),
+    description: "postMerge mode only: poll cadence for each deployment wait (default 10).",
+    required: false,
+    defaultValue: 10,
+  },
+};
+
+/**
  * Session PR Review Submit command parameters
  * Submits a GitHub PR review through Minsky using the bot identity
  */

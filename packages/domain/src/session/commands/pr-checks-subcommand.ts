@@ -15,11 +15,25 @@ import {
   getErrorMessage,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
-import type { ChecksResult } from "../../repository/index";
+import type { ChecksResult, RepositoryBackend } from "../../repository/index";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 
 export interface SessionPrChecksDependencies {
   sessionDB: SessionProviderInterface;
+  /**
+   * Test seam: override backend creation. Defaults to the session-derived
+   * backend. Mirrors `SessionPrWaitForReviewDependencies.createBackend` so
+   * composing callers (e.g. `session.pr.drive`, mt#2647) can inject a fake
+   * backend for both the review-wait and checks-wait steps.
+   */
+  createBackend?: (
+    sessionRecord: Parameters<typeof createRepositoryBackendFromSession>[0],
+    sessionDB: SessionProviderInterface
+  ) => Promise<RepositoryBackend>;
+  /** Test seam: override the clock. Defaults to Date.now. */
+  now?: () => number;
+  /** Test seam: override the delay between polls. Defaults to setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface SessionPrChecksParams {
@@ -42,6 +56,10 @@ export async function sessionPrChecks(
   deps: SessionPrChecksDependencies
 ): Promise<ChecksResult> {
   const { sessionDB } = deps;
+  const now = deps.now ?? (() => Date.now());
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const createBackend = deps.createBackend ?? createRepositoryBackendFromSession;
   const timeoutMs = (params.timeoutSeconds ?? 600) * 1000;
   const intervalMs = (params.intervalSeconds ?? 30) * 1000;
 
@@ -70,7 +88,7 @@ export async function sessionPrChecks(
     }
 
     // Create repository backend from session record
-    const backend = await createRepositoryBackendFromSession(sessionRecord, deps.sessionDB);
+    const backend = await createBackend(sessionRecord, deps.sessionDB);
 
     /**
      * Inner helper: fetch checks via the backend's CI sub-interface.
@@ -86,11 +104,11 @@ export async function sessionPrChecks(
     }
 
     // Wait mode: poll until all checks complete or timeout
-    const deadline = Date.now() + timeoutMs;
+    const deadline = now() + timeoutMs;
     let result = await fetchChecks();
 
-    while (!result.allPassed && result.summary.pending > 0 && Date.now() < deadline) {
-      const remaining = deadline - Date.now();
+    while (!result.allPassed && result.summary.pending > 0 && now() < deadline) {
+      const remaining = deadline - now();
       const sleepMs = Math.min(intervalMs, remaining);
       if (sleepMs <= 0) break;
 
@@ -99,7 +117,7 @@ export async function sessionPrChecks(
           `(${Math.round(remaining / 1000)}s remaining)`
       );
 
-      await new Promise<void>((resolve) => setTimeout(resolve, sleepMs));
+      await sleep(sleepMs);
       result = await fetchChecks();
     }
 
