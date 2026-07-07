@@ -342,10 +342,16 @@ export class SubagentDispatchTracker {
    *
    * All aggregations are performed in a single round of queries. Returns a
    * zero-filled cadence object when the table is empty or on DB error.
+   *
+   * @param now  Reference "now" for the 24h window cutoff used by
+   *   `byHourLast24h`. Defaults to the real wall clock. Callers normally omit
+   *   this — it exists as an injectable clock seam so tests can pin
+   *   time-window assertions to a fixed reference date instead of the real
+   *   wall clock (mt#2654).
    */
-  async getCadence(): Promise<SubagentDispatchCadence> {
+  async getCadence(now: Date = new Date()): Promise<SubagentDispatchCadence> {
     try {
-      return await this._queryCadence();
+      return await this._queryCadence(now);
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getCadence failed", {
         error: getErrorMessage(err),
@@ -368,10 +374,14 @@ export class SubagentDispatchTracker {
    *     recently seen `parentSessionId` value in the table).
    *
    * Returns "none" below both thresholds, or if a DB error occurs.
+   *
+   * @param now  Reference "now" for the 24h window cutoff used by the daily
+   *   checks. Defaults to the real wall clock. See `getCadence`'s `now` doc —
+   *   same injectable-clock seam (mt#2654).
    */
-  async getEscalation(): Promise<"none" | "session" | "daily"> {
+  async getEscalation(now: Date = new Date()): Promise<"none" | "session" | "daily"> {
     try {
-      return await this._queryEscalation();
+      return await this._queryEscalation(now);
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getEscalation failed", {
         error: getErrorMessage(err),
@@ -384,8 +394,7 @@ export class SubagentDispatchTracker {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private async _queryCadence(): Promise<SubagentDispatchCadence> {
-    const now = new Date();
+  private async _queryCadence(now: Date): Promise<SubagentDispatchCadence> {
     const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // ── 1. Total count + last dispatch ──────────────────────────────────────
@@ -467,8 +476,7 @@ export class SubagentDispatchTracker {
     };
   }
 
-  private async _queryEscalation(): Promise<"none" | "session" | "daily"> {
-    const now = new Date();
+  private async _queryEscalation(now: Date): Promise<"none" | "session" | "daily"> {
     const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // ── 1. Daily checks ──────────────────────────────────────────────────────
