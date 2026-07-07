@@ -12,25 +12,72 @@
 // @see src/mcp/subagent-dispatch-tracker.ts — DB write layer
 // @see src/domain/subagent/workspace-classifier.ts — workspace state
 // @see src/domain/subagent/transcript-metrics.ts — transcript metrics
+// @see mt#2649 — metrics read the wrong file for background-dispatched subagents
+// @see .claude/hooks/transcript.ts — resolveTranscriptCandidates (mt#2637 / PR #1806)
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
+import { resolveTranscriptCandidates } from "./transcript";
 
 // ---------------------------------------------------------------------------
 // Main entrypoint
 // ---------------------------------------------------------------------------
 
-const input = await readInput<StopHookInput>();
+if (import.meta.main) {
+  const input = await readInput<StopHookInput>();
 
-try {
-  await recordInvocation(input);
-} catch (err) {
-  process.stderr.write(
-    `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
-  );
+  try {
+    await recordInvocation(input);
+  } catch (err) {
+    process.stderr.write(
+      `[record-subagent-invocation] warn: unexpected top-level error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+
+  process.exit(0);
 }
 
-process.exit(0);
+// ---------------------------------------------------------------------------
+// Metrics-transcript resolution (mt#2649)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the transcript file to read metrics from for a given subagent.
+ *
+ * Background-Agent-dispatched subagents receive a `transcript_path` pointing
+ * at the PARENT session's top-level transcript (`<session-id>.jsonl`), while
+ * the subagent's own tool_use/usage lines live at
+ * `<session-dir>/subagents/agent-<agentId>.jsonl` (mt#2637 diagnosis). Passing
+ * the parent path straight to `readTranscriptMetrics` reads the wrong file and
+ * yields null/incorrect `toolUseCount` / `totalTokens` / `durationMs`.
+ *
+ * Reuses {@link resolveTranscriptCandidates} (mt#2637 / PR #1806) to derive the
+ * candidate set, then prefers the precise `agent-<agentId>.jsonl` file when it
+ * exists on disk. Falls back to the given `transcriptPath` when no such file
+ * exists (main-thread invocations, or a harness build where `transcript_path`
+ * is already per-agent-correct) — `readTranscriptMetrics` is fail-safe on a
+ * missing/unreadable file either way, and the caller still passes `agentId`
+ * through so the `agent_session_id` line-filter is preserved on whichever
+ * file is ultimately read.
+ *
+ * Exported for testing.
+ */
+export function resolveMetricsTranscriptPath(
+  transcriptPath: string | undefined,
+  agentId: string
+): string | undefined {
+  if (!transcriptPath) return transcriptPath;
+  const perAgentFile = `agent-${agentId}.jsonl`;
+  const candidates = resolveTranscriptCandidates(transcriptPath, agentId);
+  // Match the directory-qualified per-agent path (R1: stricter than a bare
+  // basename match, which could pair with a similarly-named candidate from an
+  // adjacent tree if the candidate set ever widens beyond this session).
+  const perAgentSuffix = join("subagents", perAgentFile);
+  const perAgentPath = candidates.find((candidate) => candidate.endsWith(perAgentSuffix));
+  return perAgentPath && existsSync(perAgentPath) ? perAgentPath : transcriptPath;
+}
 
 // ---------------------------------------------------------------------------
 // Core logic
@@ -71,7 +118,8 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   const { readTranscriptMetrics } = await import(
     "../../packages/domain/src/subagent/transcript-metrics"
   );
-  const metrics = await readTranscriptMetrics(transcriptPath, agentId);
+  const resolvedTranscriptPath = resolveMetricsTranscriptPath(transcriptPath, agentId);
+  const metrics = await readTranscriptMetrics(resolvedTranscriptPath, agentId);
 
   // 4. Open a DB connection and record the invocation.
   const { resolvePersistenceProvider } = await import(
