@@ -36,12 +36,8 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import {
-  deriveRepoFromGit,
-  resolvePrNumber,
-  makeProdPrDeps,
-} from "./require-execution-evidence-before-merge";
-import type { PrFile } from "./require-execution-evidence-before-merge";
+import { deriveRepoFromGit, fetchPrContext } from "./pr-context";
+import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles } from "./deploy-surface-detector";
 
 // ---------------------------------------------------------------------------
@@ -248,39 +244,25 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const { prNumber, warning: prResolutionWarning } = resolvePrNumber(repo, task, input.cwd);
-  if (!prNumber) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: `⚠️ ${prResolutionWarning ?? "[deploy-verification] PR number could not be resolved — check skipped."}`,
-      },
-    });
-    process.exit(0);
-  }
-
-  const deps = makeProdPrDeps(input.cwd);
-  const { files: prFiles, warning: prFilesWarning } = deps.fetchPrFiles(repo, prNumber);
-  const prMeta = deps.fetchPrMeta(repo, prNumber);
-
-  const topLevelWarnings: string[] = [];
-  if (prFilesWarning) topLevelWarnings.push(prFilesWarning);
+  // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
+  // instead of the previous resolvePrNumber (1-2 calls) + fetchPrMeta (1
+  // call) + fetchPrFiles (1 call) = up to 4 calls.
+  const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
 
   // Fail-open: can't fetch PR data → allow with a warning.
-  if (!prMeta) {
+  if (!context.ok) {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: [
-          ...topLevelWarnings.map((w) => `⚠️ ${w}`),
-          `⚠️ [deploy-verification] Could not fetch PR #${prNumber} metadata. Proceeding without check.`,
-        ].join("\n"),
+        additionalContext: `⚠️ [deploy-verification] ${context.warning}`,
       },
     });
     process.exit(0);
   }
 
-  const result = checkDeployVerification(prFiles, prMeta.title, prMeta.body);
+  const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
+
+  const result = checkDeployVerification(prFiles, prTitle, prBody);
   const allWarnings = [...topLevelWarnings, ...result.warnings];
 
   if (result.blocked) {
