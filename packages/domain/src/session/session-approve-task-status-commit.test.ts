@@ -15,7 +15,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 
 const GIT_ADD_TASKS_COMMAND = "git add process/tasks.md";
-import { approveSessionImpl } from "./session-approve-operations";
+import { approveSessionImpl } from "./session-approve-legacy-operations";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 import { FakeGitService } from "../git/fake-git-service";
 import { GIT_COMMANDS } from "../../../../src/utils/test-utils/test-constants";

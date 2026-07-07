@@ -28,7 +28,7 @@ import { getErrorMessage } from "../errors";
 import type { SessionRecord } from "./types";
 import { SessionStatus } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
-import { cleanupLocalBranches } from "./session-approve-operations";
+import { cleanupLocalBranches } from "./session-branch-cleanup";
 import { evaluateTaskCorrespondence } from "./task-correspondence";
 import { resolveRepository } from "../repository";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
