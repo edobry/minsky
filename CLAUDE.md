@@ -293,6 +293,19 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
 
+## Vocabulary (mt#2626)
+
+In this file, **"hook"** names the Claude Code registration mechanics only —
+the `PreToolUse`/`PostToolUse`/`UserPromptSubmit`/etc. files under
+`.claude/hooks/` and `.minsky/hooks/` that implement each mechanism below.
+The domain noun for the conceptual safety-check/enforcement mechanism a hook
+implements is **"interlock"** (used in docs and cockpit UI copy —
+`docs/architecture/cockpit.md`, `src/cockpit/CLAUDE.md` §Vocabulary); "weld"
+survives at most as a verb ("welding an interlock"). The "Guard" naming in
+the section headers below is left as-is pending mt#2620's broader corpus
+restructure — this note only disambiguates, it does not rename every
+section.
+
 ## Parallel-Work Guard
 
 A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
