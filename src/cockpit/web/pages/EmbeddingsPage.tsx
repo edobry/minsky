@@ -97,7 +97,7 @@ function statusColor(status: EmbeddingsHealthSummary["status"]): string {
     case "degraded":
       return "text-amber-400";
     case "exhausted":
-      return "text-red-400";
+      return "text-destructive";
   }
 }
 
@@ -108,7 +108,7 @@ function statusBg(status: EmbeddingsHealthSummary["status"]): string {
     case "degraded":
       return "bg-amber-400/10 border-amber-400/20";
     case "exhausted":
-      return "bg-red-400/10 border-red-400/20";
+      return "bg-destructive/10 border-destructive/20";
   }
 }
 

@@ -22,7 +22,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Frontend | React (`src/cockpit/web/{pages,widgets,components}/*.tsx` — see §Widget vocabulary below) |
 | Styling | Tailwind (`tailwind.config.ts`, scoped to `src/cockpit/web/**`) |
 | Component lib | shadcn/ui (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`, `components.json`) |
-| Data layer | TanStack Query (mt#1773 shipped — all pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data, mt#2616) |
+| Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data in pages/widgets per mt#2616, with two small `Rail.tsx` remnants tracked in mt#2641) |
 | Build | Vite (`vite.config.ts`) |
 | Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
 | Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) — backend contract only, see §Widget vocabulary |

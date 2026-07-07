@@ -20,8 +20,12 @@ import { cn } from "../lib/utils";
 export interface ErrorStateProps {
   /** Static message. Takes precedence over `prefix`/`error` when set. */
   message?: string;
-  /** Error whose `.message` is appended after `prefix`. */
-  error?: Error | string | null;
+  /**
+   * Error whose message is appended after `prefix`. Typed `unknown` because
+   * TanStack Query surfaces `query.error` loosely and non-Error throwables
+   * (strings, plain objects) must not silently lose their detail.
+   */
+  error?: unknown;
   /** Human-readable lead-in combined with `error` (e.g. "Failed to load activity"). */
   prefix?: string;
   /** Call-site density; see LoadingState for the same convention. */
@@ -29,8 +33,23 @@ export interface ErrorStateProps {
   className?: string;
 }
 
+function toErrorMessage(error: unknown): string | undefined {
+  if (error == null) return undefined;
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && "message" in error) {
+    const m = (error as { message?: unknown }).message;
+    if (typeof m === "string") return m;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 export function ErrorState({ message, error, prefix, variant = "inline", className }: ErrorStateProps) {
-  const errorMessage = typeof error === "string" ? error : (error?.message ?? undefined);
+  const errorMessage = toErrorMessage(error);
   const text =
     message ??
     (prefix
