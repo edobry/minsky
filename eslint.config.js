@@ -360,7 +360,12 @@ export default [
             "**/subcommands/*.ts",
             // Cockpit widget composition roots (wire DI providers for the cockpit server)
             "**/src/cockpit/widgets/agents.ts",
-            // Cockpit server (lazy-wires session/task/ask providers for its endpoints)
+            // Cockpit persistence-provider composition root (mt#2615 — lazy-wires
+            // session/task/ask providers consumed by every cockpit route module;
+            // this was server.ts's job pre-split; server.ts itself no longer
+            // needs this permission once the split lands, but is kept during
+            // the mt#2615 split's intermediate commits)
+            "**/src/cockpit/db-providers.ts",
             "**/src/cockpit/server.ts",
             // Scripts and one-off tools (composition roots by nature)
             "**/scripts/*.ts",
