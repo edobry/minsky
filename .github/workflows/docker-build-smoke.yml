@@ -1,0 +1,54 @@
+name: Docker Build Smoke
+
+# mt#2621 — real docker-build verification of the workspace-COPY invariant.
+#
+# The workspace-COPY pre-commit step (src/hooks/pre-commit.ts's
+# runDockerfileWorkspaceCopyRegen) generates each protected Dockerfile's
+# COPY block from root package.json's `workspaces` glob and auto-stages it,
+# so the block itself can no longer drift out of sync by hand. This
+# workflow is the deploy-time-fidelity complement: it actually runs `docker
+# build` against every protected Dockerfile on every PR, so a regression in
+# the GENERATOR itself (or any other build-context gap the generator
+# doesn't model) is caught by the real invariant — bun's frozen-lockfile
+# install succeeding inside the actual build context — rather than by a
+# static heuristic. mt#2607 (services/infra finding 12) named the guard's
+# prior detect-and-block shape as fragility worth removing; this workflow
+# is the genuine-verification replacement for what that heuristic used to
+# approximate.
+#
+# Each matrix entry builds ONE protected Dockerfile with the repo root as
+# build context (all three declare `source.rootDirectory: ""` on Railway —
+# see docs/deploy-minsky-railway.md and the reviewer/cockpit deploy
+# configs), stopping short of running the resulting image (that's
+# bundle-boot-smoke.yml's job, for the root MCP-server image specifically).
+# A build failure here means the committed Dockerfile cannot actually
+# produce an image from the current workspace topology — the same failure
+# class as mt#1977 / mt#1991, caught before merge instead of after deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  docker-build-smoke:
+    name: docker-build-smoke (${{ matrix.dockerfile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - Dockerfile
+          - services/reviewer/Dockerfile
+          - services/cockpit/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (no run) — ${{ matrix.dockerfile }}
+        run: |
+          docker build \
+            --file "${{ matrix.dockerfile }}" \
+            --tag docker-build-smoke:${{ strategy.job-index }} \
+            .
