@@ -121,4 +121,12 @@ describe("buildDenialReason", () => {
     expect(reason).toContain(SUCCESS_CRITERIA_HEADING);
     expect(reason).toContain(ACCEPTANCE_TESTS_HEADING);
   });
+
+  // mt#2653 R1: self-identifying prefix so the denial is attributable
+  // regardless of multi-hook-per-matcher ordering (shared matcher block with
+  // parallel-work-guard.ts's duplicate-child matcher).
+  test("is prefixed with [validate-task-spec] so the denial is self-identifying", () => {
+    const reason = buildDenialReason("My Task", [SUCCESS_CRITERIA_HEADING]);
+    expect(reason.startsWith("[validate-task-spec] ")).toBe(true);
+  });
 });

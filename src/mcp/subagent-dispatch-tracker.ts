@@ -217,11 +217,21 @@ export class SubagentDispatchTracker {
    * @param input  The invocation record to persist.
    */
   async recordSubagentInvocation(input: SubagentInvocationInput): Promise<void> {
+    // mt#2653 R1: events must carry the PERSISTED agentType, not necessarily
+    // `input.agentType` — when the UPDATE path omits the sentinel (see below),
+    // the row keeps its EXISTING (dispatch-time) value, which can differ from
+    // what this call's `input` carried. Defaults to `input.agentType` for the
+    // INSERT paths, where "persisted" and "input" are the same value by
+    // construction; reassigned below on the UPDATE path.
+    let resolvedAgentType: string = input.agentType;
     try {
       if (input.subagentSessionId != null) {
         // Upsert path: check for an existing row by subagentSessionId.
         const existing = await this.db
-          .select({ id: subagentInvocationsTable.id })
+          .select({
+            id: subagentInvocationsTable.id,
+            agentType: subagentInvocationsTable.agentType,
+          })
           .from(subagentInvocationsTable)
           .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId))
           .limit(1);
@@ -253,6 +263,16 @@ export class SubagentDispatchTracker {
           const updateFields: Partial<SubagentInvocationInput> =
             agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
 
+          // The value that will actually be PERSISTED after this UPDATE: the
+          // existing row's agentType when the sentinel is omitted, otherwise
+          // the new value being written. Events below must use this, not the
+          // raw `input.agentType`, or they'd report "unknown" even though the
+          // DB row (and thus every future read of it) preserves the real
+          // dispatch-time value — the exact DB-vs-telemetry divergence this
+          // fixes (mt#2653 R1).
+          resolvedAgentType =
+            agentType === UNKNOWN_AGENT_TYPE ? firstExisting.agentType : agentType;
+
           await this.db
             .update(subagentInvocationsTable)
             .set(updateFields)
@@ -277,7 +297,7 @@ export class SubagentDispatchTracker {
           eventType: "subagent.failed",
           payload: {
             taskId: input.taskId,
-            agentType: input.agentType,
+            agentType: resolvedAgentType,
             outcome: input.outcome,
             errorSummary: input.errorSummary,
           },
@@ -300,7 +320,7 @@ export class SubagentDispatchTracker {
           eventType: "subagent.completed",
           payload: {
             taskId: input.taskId,
-            agentType: input.agentType,
+            agentType: resolvedAgentType,
             outcome: input.outcome,
           },
           relatedTaskId: input.taskId ?? undefined,

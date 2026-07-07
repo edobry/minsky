@@ -72,10 +72,19 @@ export function extractSpecContent(toolInput: Record<string, unknown> | undefine
   );
 }
 
-/** Build the denial-reason message naming the missing headings. */
+/**
+ * Build the denial-reason message naming the missing headings.
+ *
+ * Prefixed with `[validate-task-spec]` (mt#2653 R1) so the denial is
+ * self-identifying regardless of matcher/hook ordering. This guard shares its
+ * `mcp__minsky__tasks_create` PreToolUse matcher block with
+ * parallel-work-guard.ts's duplicate-child matcher (mt#1435); Claude Code's
+ * multi-hook-per-matcher ordering is harness-defined, so a denial from either
+ * hook must be attributable on its own without relying on message position.
+ */
 export function buildDenialReason(title: string, missingHeadings: string[]): string {
   return [
-    `Task "${title}" spec is missing required sections: ${missingHeadings.join(", ")}`,
+    `[validate-task-spec] Task "${title}" spec is missing required sections: ${missingHeadings.join(", ")}`,
     "",
     `Task specs over ${MIN_SPEC_LENGTH_FOR_VALIDATION} chars must include:`,
     "  - ## Success Criteria — measurable criteria for task completion",

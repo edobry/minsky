@@ -1098,6 +1098,10 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
     tracker = new SubagentDispatchTracker(makeFakeDb(store), emitter);
   });
 
+  // Shared event-type literals (custom/no-magic-string-duplication).
+  const SUBAGENT_COMPLETED_EVENT = "subagent.completed";
+  const SUBAGENT_FAILED_EVENT = "subagent.failed";
+
   const SUCCESS_OUTCOMES: SubagentInvocationOutcome[] = [
     OUTCOME_COMPLETED_WITH_PR,
     OUTCOME_COMMITTED_NO_PR,
@@ -1113,7 +1117,7 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
       await tracker.recordSubagentInvocation(
         makeInput({ outcome, taskId: "mt#900", agentType: "refactorer", parentSessionId: "ps-1" })
       );
-      const completed = emitter.emitted.filter((e) => e.eventType === "subagent.completed");
+      const completed = emitter.emitted.filter((e) => e.eventType === SUBAGENT_COMPLETED_EVENT);
       expect(completed.length).toBe(1);
       expect(completed[0]?.payload).toEqual({
         taskId: "mt#900",
@@ -1123,15 +1127,15 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
       expect(completed[0]?.relatedTaskId).toBe("mt#900");
       expect(completed[0]?.relatedSessionId).toBe("ps-1");
       // Mutually exclusive with the failure branch.
-      expect(emitter.emitted.some((e) => e.eventType === "subagent.failed")).toBe(false);
+      expect(emitter.emitted.some((e) => e.eventType === SUBAGENT_FAILED_EVENT)).toBe(false);
     });
   }
 
   for (const outcome of FAILURE_OUTCOMES) {
     test(`emits subagent.failed (not completed) for failure outcome "${outcome}"`, async () => {
       await tracker.recordSubagentInvocation(makeInput({ outcome }));
-      expect(emitter.emitted.some((e) => e.eventType === "subagent.failed")).toBe(true);
-      expect(emitter.emitted.some((e) => e.eventType === "subagent.completed")).toBe(false);
+      expect(emitter.emitted.some((e) => e.eventType === SUBAGENT_FAILED_EVENT)).toBe(true);
+      expect(emitter.emitted.some((e) => e.eventType === SUBAGENT_COMPLETED_EVENT)).toBe(false);
     });
   }
 
@@ -1146,5 +1150,57 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
       makeInput({ outcome: OUTCOME_COMPLETED_WITH_PR })
     );
     expect(store.size).toBe(1);
+  });
+
+  // ─── mt#2653 R1 regression: the EMITTED event must carry the PERSISTED
+  // agentType, mirroring the DB-preservation test above at the event layer.
+  // Before this fix, the DB row correctly preserved the dispatch-time
+  // agentType (mt#2653), but the emitted event still read `input.agentType`
+  // directly — reporting "unknown" for the very same upsert that kept the
+  // DB row's real value, a DB-vs-telemetry divergence. ───
+  test("emitted subagent.completed event carries the dispatch-time agentType after a SubagentStop-style upsert", async () => {
+    // Dispatch-time INSERT with the real agentType (mirrors
+    // dispatch-command.ts's pending-row write). Outcome is a FAILURE class
+    // (the pessimistic dispatch-time default) so this call emits
+    // subagent.failed, not subagent.completed.
+    await tracker.recordSubagentInvocation(
+      makeInput({
+        subagentSessionId: "event-agent-type-preserve-test",
+        agentType: "refactorer",
+        outcome: OUTCOME_CRASHED,
+        taskId: "mt#901",
+        parentSessionId: "ps-2",
+      })
+    );
+
+    // SubagentStop-style upsert with the UNKNOWN_AGENT_TYPE sentinel (mirrors
+    // .claude/hooks/record-subagent-invocation.ts, which has no way to
+    // recover the real dispatch-time agentType). Outcome is a SUCCESS class,
+    // so this call emits subagent.completed.
+    await tracker.recordSubagentInvocation(
+      makeInput({
+        subagentSessionId: "event-agent-type-preserve-test",
+        agentType: UNKNOWN_AGENT_TYPE,
+        outcome: OUTCOME_COMPLETED_WITH_PR,
+        taskId: "mt#901",
+        parentSessionId: "ps-2",
+      })
+    );
+
+    const completed = emitter.emitted.filter((e) => e.eventType === SUBAGENT_COMPLETED_EVENT);
+    expect(completed.length).toBe(1);
+    expect(completed[0]?.payload).toEqual({
+      taskId: "mt#901",
+      // The persisted/dispatch-time value — NOT "unknown" — even though the
+      // second call's `input.agentType` was the sentinel.
+      agentType: "refactorer",
+      outcome: OUTCOME_COMPLETED_WITH_PR,
+    });
+
+    // The first call's failure-outcome event carries the real agentType too
+    // (it was the direct INSERT value, not routed through the sentinel path).
+    const failed = emitter.emitted.filter((e) => e.eventType === SUBAGENT_FAILED_EVENT);
+    expect(failed.length).toBe(1);
+    expect(failed[0]?.payload).toMatchObject({ agentType: "refactorer" });
   });
 });
