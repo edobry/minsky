@@ -19,20 +19,18 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
-import path from "path";
-import { fileURLToPath } from "url";
 import { createCockpitServer } from "./server";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Static JSON import (resolveJsonModule) — the checked-in golden fixture IS
+// the contract under test, so no fs access is needed (and the
+// custom/no-real-fs-in-tests rule stays satisfied without an exception).
+import healthShapeFixtureJson from "../../contract/cockpit-health-shape.json";
 
 interface HealthShapeFixture {
   fields: Record<string, string>;
 }
 
 function loadFixture(): HealthShapeFixture {
-  const fixturePath = path.join(__dirname, "..", "..", "contract", "cockpit-health-shape.json");
-  const raw = require("fs").readFileSync(fixturePath, "utf-8") as string;
-  return JSON.parse(raw) as HealthShapeFixture;
+  return healthShapeFixtureJson as unknown as HealthShapeFixture;
 }
 
 /** Map a JS runtime value to the coarse type vocabulary used by the fixture. */
@@ -99,11 +97,9 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     // Rust supervisor is documented to depend on must actually be declared
     // in `fields` — otherwise the cargo-side pin (see supervisor.rs) would be
     // checking a field this fixture doesn't even claim to emit.
-    const raw = require("fs").readFileSync(
-      path.join(__dirname, "..", "..", "contract", "cockpit-health-shape.json"),
-      "utf-8"
-    ) as string;
-    const parsed = JSON.parse(raw) as HealthShapeFixture & { rustConsumedFields: string[] };
+    const parsed = healthShapeFixtureJson as unknown as HealthShapeFixture & {
+      rustConsumedFields: string[];
+    };
     for (const field of parsed.rustConsumedFields) {
       expect(Object.keys(parsed.fields)).toContain(field);
     }
