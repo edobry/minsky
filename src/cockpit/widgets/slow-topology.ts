@@ -1,8 +1,9 @@
 /**
  * Slow topology widget (mt#2602)
  *
- * Feeds the plant board's S2 valve-inventory count badge and the weld-history
- * drill-down page. Unlike most widgets, this one does NO work in `fetch()` —
+ * Feeds the plant board's S2 valve-inventory count badge and the
+ * interlock-history drill-down page (renamed from weld-history, mt#2626).
+ * Unlike most widgets, this one does NO work in `fetch()` —
  * it only reads the in-process cache maintained by `startTopologySweeper`
  * (server.ts), which recomputes at cockpit boot and on an hourly-class
  * cadence via `topology-cache.ts`. A per-request derivation (directory walk +
@@ -28,7 +29,7 @@ export interface SlowTopologyPayload {
   computedAt: string | null;
   /** Count of derived interlocks (guard hooks) — the S2 valve badge's number. */
   interlockCount: number;
-  /** Full inventory, for the weld-history drill-down. */
+  /** Full inventory, for the interlock-history drill-down. */
   entries: WeldEntry[];
 }
 

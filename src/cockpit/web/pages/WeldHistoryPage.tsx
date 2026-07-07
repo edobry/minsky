@@ -1,5 +1,6 @@
 /**
- * WeldHistoryPage — the "/plant/weld-history" route (mt#2602).
+ * WeldHistoryPage — the "/plant/interlock-history" route (mt#2602; renamed
+ * from "/plant/weld-history" by mt#2626's guard-vocabulary alignment).
  *
  * The plant's browsable self-construction log: every derived guard-hook
  * interlock, its install date + commit link (git history), and — where
@@ -11,6 +12,12 @@
  * Honest-data discipline: an interlock with no derivable install date or
  * retrospective link renders "unknown" — never a guessed date or an invented
  * failure story (mt#2602 success criterion 4).
+ *
+ * Naming note (mt#2626): the component/file name, the `WeldEntryPayload`
+ * type, and the `weld-history-*` test ids are kept stable — internal
+ * identifiers with no user-visible surface, so renaming them would churn
+ * imports/tests without benefit. Only the route and the rendered copy use
+ * "interlock" (the domain noun); "weld" survives at most as a verb.
  */
 import { Link } from "react-router-dom";
 import { useSlowTopology, type WeldEntryPayload } from "../hooks/useSlowTopology";
@@ -73,12 +80,12 @@ export function WeldHistoryPage() {
           Plant
         </Link>
         <span aria-hidden="true">/</span>
-        <span className="text-foreground">Weld history</span>
+        <span className="text-foreground">Interlock history</span>
       </nav>
 
       <header className="mb-4">
         <h1 className="text-sm font-mono font-semibold tracking-[0.04em] m-0">
-          WELD HISTORY — interlock provenance timeline
+          INTERLOCK HISTORY — provenance timeline
         </h1>
         <p className="text-[11px] font-mono text-muted-foreground mt-1">
           Every guard-hook interlock derived from the live registry, with its install date
@@ -94,7 +101,7 @@ export function WeldHistoryPage() {
 
       {isError && (
         <p className="text-sm text-warn-amber" data-testid="weld-history-error">
-          Failed to load weld history.
+          Failed to load interlock history.
         </p>
       )}
 

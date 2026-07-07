@@ -1,9 +1,10 @@
 /**
  * WeldHistoryPage tests (mt#2602)
  *
- * Verifies the "/plant/weld-history" drill-down surface: pending vs ready
- * states, install-date + commit-link rendering, retrospective-link rendering,
- * and the honest "unknown" fallback for underivable fields.
+ * Verifies the "/plant/interlock-history" drill-down surface (renamed from
+ * "/plant/weld-history" by mt#2626): pending vs ready states, install-date +
+ * commit-link rendering, retrospective-link rendering, and the honest
+ * "unknown" fallback for underivable fields.
  *
  * Run via: bun test --preload ./tests/dom-setup.ts src/cockpit/web/pages/WeldHistoryPage.test.tsx
  */

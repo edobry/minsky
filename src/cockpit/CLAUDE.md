@@ -56,6 +56,10 @@ component to justify which side of the line it's on. If this directory keeps gro
 ambiguity recurs in review, revisit the split — but don't invent a second axis of
 categorization for a naming problem that a doc paragraph already resolves.
 
+### Guard/interlock vocabulary (mt#2626)
+
+"Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, the `/plant/interlock-history` page); "weld" survives at most as a verb ("welding an interlock").
+
 ## Design vocabulary
 
 **Product mode, not marketing mode.** Cockpit is a functional operator dashboard, not an editorial surface. Restrained, dense, useful. No decorative gradients, no oversized hero text, no marketing-mode typography. The aesthetic anchor is the Data-Dense Pro family (Sentry, PostHog, Grafana, Supabase, Linear) — every pixel serves operator workflow.
