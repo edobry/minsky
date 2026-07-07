@@ -41,6 +41,7 @@ import { execSync } from "child_process";
 // gh#1761: read-only DB status for /api/health. Safe to import statically —
 // getDbStatus() just reads a module-level variable; it does NOT trigger DB init.
 import { getDbStatus } from "./shared-persistence";
+import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 
 // Lazy + memoized: this module loads during CLI command registration (e.g. on
 // `--help`), so a module-level spawn would run `git rev-parse` — and leak
@@ -2071,15 +2072,22 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   /**
    * POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
    *
-   * Body: { responder: "operator", payload: unknown, attentionCost?: {...} }
+   * Body: { responder?: string, payload?: unknown }
    *
-   * Uses the AskRepository.respondAndClose() atomic operation to transition
-   * the Ask from "suspended" to "closed" in a single write.
+   * Routes through the shared `respondAndCloseAsk` domain function (mt#2615)
+   * — the same suspended-state precondition check, responder trimming, and
+   * `ConcurrentTransitionError` handling as the CLI/MCP `respondToAsk`
+   * surface. `attentionCost` is ALWAYS computed server-side as the fixed
+   * `{ transport: "inbox", resolvedIn: "inbox" }` value (matching what the
+   * real cockpit UI already sends and what `respondToAsk` computes for the
+   * same transport) — client-supplied `attentionCost` is never trusted or
+   * read from the request body.
    *
    * Returns 200 on success, 400 if askId is missing, 403 if Ask is not
    * operator-routed (algedonic selection — see mt#1147 PR #1125 R1), 404 if
-   * Ask not found, 409 on concurrent transition, 500 on unexpected errors,
-   * 503 if the Ask repository is unavailable.
+   * Ask not found, 409 if the Ask is not in "suspended" state (including a
+   * concurrent transition detected at the atomic update), 500 on unexpected
+   * errors, 503 if the Ask repository is unavailable.
    */
   app.post("/api/asks/:id/resolve", async (req, res) => {
     const askId = req.params.id;
@@ -2100,7 +2108,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       // Algedonic selection (mt#1147): only operator-routed asks may be resolved
       // via this endpoint. Asks resolved by policy / peers / reviewer subagents
       // must not be short-circuited through the operator's resolution surface.
-      // PR #1125 R1 BLOCKING finding.
+      // PR #1125 R1 BLOCKING finding. This is endpoint-specific defense-in-depth
+      // — NOT part of the shared respondAndCloseAsk domain contract (mt#2615);
+      // respondToAsk (asks.ts) has no equivalent gate.
       const existing = await repo.getById(askId);
       if (!existing) {
         res.status(404).json({ error: `Ask ${askId} not found` });
@@ -2113,25 +2123,21 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
 
+      // Trust-boundary guard: only `responder` and `payload` are read from the
+      // request body. `attentionCost` is deliberately NOT read here — it is
+      // always the fixed server-computed value below, closing the
+      // unvalidated-attentionCost-passthrough finding (mt#2607 audit #3).
       const body = req.body as {
         responder?: string;
         payload?: unknown;
-        attentionCost?: unknown;
       };
 
-      const responsePayload = {
-        responder: (body.responder ?? "operator") as "operator",
-        payload: (body.payload ?? {}) as Record<string, unknown>,
-        attentionCost: body.attentionCost as
-          | import("@minsky/domain/ask/types").AttentionCost
-          | undefined,
-      };
-
-      const ask = await repo.respondAndClose(
-        askId,
-        { response: responsePayload },
-        { response: responsePayload }
-      );
+      const { ask } = await respondAndCloseAsk(repo, {
+        id: askId,
+        responder: body.responder,
+        payload: body.payload ?? {},
+        attentionCost: { transport: "inbox", resolvedIn: "inbox" },
+      });
 
       res.json({ ok: true, id: ask.id, state: ask.state });
     } catch (err) {
@@ -2140,7 +2146,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         res.status(404).json({ error: message });
       } else if (
         message.includes("Concurrent transition") ||
-        message.includes("ConcurrentTransitionError")
+        message.includes("ConcurrentTransitionError") ||
+        message.includes('only "suspended" Asks can be responded to')
       ) {
         res.status(409).json({ error: message });
       } else {
