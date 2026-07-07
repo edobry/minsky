@@ -274,6 +274,14 @@ export default [
             "StorageErrorClassifier",
             "StorageErrorRecovery",
             "StorageErrorMonitor",
+            // Constructed directly via `new X(...)` in production code, never resolved
+            // through the tsyringe container — @injectable() would be dead weight.
+            // Surfaced by the ADR-026 path-filter fix (mt#2623), which restored this
+            // rule's enforcement on packages/domain/src/ post-mt#2108; matches the
+            // allowlist already established for the same classes in
+            // tests/architecture/di-enforcement.test.ts (mt#2608).
+            "AgentTranscriptIngestService",
+            "AgentTranscriptService",
           ],
         },
       ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)

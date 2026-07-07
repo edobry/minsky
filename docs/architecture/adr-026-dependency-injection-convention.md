@@ -108,6 +108,18 @@ mt#2108 landed. `eslint.config.js` applies these rules via a broad `files: ["**/
 invoked, because the internal path guard never matches. This is fixed in the same PR as
 this ADR (see "Enforcement" below); it is a two-line change per file, not a migration.
 
+**Prior art for the fix (mt#2608):** `tests/architecture/di-enforcement.test.ts` — a
+parallel, grep-based enforcement test for the same two invariants — was already
+re-pointed at `packages/domain/src` by mt#2608 (filed to wire the domain-core test estate
+into CI; a sibling mt#2607 child), independently of this ADR. That test's re-pointing
+surfaced the identical violations this ADR's lint-rule fix surfaces, and it resolved them
+by **allowlisting** `AgentTranscriptService` / `AgentTranscriptIngestService` (with the
+stated rationale: both are constructed directly via `new X(...)` in production code and
+never resolved through the tsyringe container, so `@injectable()` would be dead weight) —
+not by decorating them. This ADR's lint-rule fix follows that established precedent
+(allowlist, don't decorate) for consistency between the two enforcement mechanisms, rather
+than introducing a third, independent judgment call.
+
 A third rule, `eslint-rules/no-singleton-reach-in.js`, has a broader
 `allowedFiles`-glob-list that is similarly built against pre-mt#2108 `**/src/domain/...`
 paths. Its blast radius (fixing ~20 allowlist entries, `warn`-severity, not `error`) is

@@ -13,7 +13,6 @@
  * @see mt#1324 — agent_transcripts schema
  */
 
-import { injectable } from "tsyringe";
 import { eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -25,7 +24,6 @@ import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcr
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
 
-@injectable()
 export class AgentTranscriptIngestService {
   constructor(
     private readonly db: PostgresJsDatabase,
