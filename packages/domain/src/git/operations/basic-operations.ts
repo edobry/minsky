@@ -49,6 +49,8 @@ interface CommitParams extends BaseGitOperationParams {
   amend?: boolean;
   noStage?: boolean;
   files?: string[];
+  /** Pass `--allow-empty` through to `git commit` (mt#2635). */
+  allowEmpty?: boolean;
 }
 
 /**
@@ -176,7 +178,12 @@ export class CommitOperation extends BaseGitOperation<
     if (!gitService.commit) {
       throw new Error("Git service does not support commit operation");
     }
-    const commitHash = await gitService.commit(params.message, params.repo, params.amend);
+    const commitHash = await gitService.commit(
+      params.message,
+      params.repo,
+      params.amend,
+      params.allowEmpty
+    );
 
     return {
       commitHash,
