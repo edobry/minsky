@@ -5,7 +5,8 @@ import { log } from "../../../src/utils/logger";
 
 await setupConfiguration();
 
-const { createCockpitServer, initServerSseBroker } = await import("../../../src/cockpit/server");
+const { createCockpitServer } = await import("../../../src/cockpit/server");
+const { initServerSseBroker } = await import("../../../src/cockpit/routes/events");
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 

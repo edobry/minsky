@@ -1270,6 +1270,61 @@ describe("Cockpit server", () => {
     expect(body.error).toMatch(/only "suspended" Asks can be responded to/);
   });
 
+  // 12f-4. Resolve endpoint — concurrent-transition race (mt#2615 R1 review):
+  // a concurrent actor transitions the Ask between the route's own
+  // routingTarget gate check and respondAndCloseAsk's atomic write. The
+  // ConcurrentTransitionError thrown by the FakeAskRepository must be
+  // normalized to the SAME "only suspended Asks..." message shape and mapped
+  // to 409 — not fall through to 500.
+  test("POST /api/asks/:id/resolve returns 409 on a concurrent-transition race", async () => {
+    const askId = "ask-race";
+    const repo = makeFakeRepo([
+      {
+        id: askId,
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Race me",
+        question: "Pick one",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    ]);
+
+    // Call 1 is the route's own routingTarget gate check (must observe
+    // "suspended" untouched). Call 2 is respondAndCloseAsk's internal
+    // precondition check — race the underlying row to "cancelled" right
+    // after it reads (but before) respondAndClose's own atomic read.
+    let getByIdCalls = 0;
+    const originalGetById = repo.getById.bind(repo);
+    repo.getById = async (id: string) => {
+      getByIdCalls++;
+      const result = await originalGetById(id);
+      if (getByIdCalls === 2 && result?.state === "suspended") {
+        repo._seedAtState({ ...result, state: "cancelled" });
+      }
+      return result;
+    };
+
+    const url = await server({
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/${askId}/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: { chosen: "yes" } }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/only "suspended" Asks can be responded to/);
+    expect(body.error).toMatch(/cancelled/);
+
+    const persisted = await originalGetById(askId);
+    expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
+  });
+
   // 12g. Resolve endpoint — 404 for unknown ask id
   test("POST /api/asks/:id/resolve returns 404 for unknown ask", async () => {
     const repo = makeFakeRepo([]);
