@@ -74,95 +74,53 @@ FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ...
       // mt#1792: defer heavy runtime imports until first call.
       // These modules are loaded once and cached by the JS module system.
       const [
-        { writeFile, stat, mkdir },
-        { readTextFile },
-        { dirname },
-        { SessionPathResolver },
         { Buffer },
         { createSuccessResponse, createErrorResponse },
-        { applyEditPattern },
-        { hasExistingCodeMarkers },
         { generateUnifiedDiff, generateDiffSummary },
+        { applySessionFileEditOperation },
       ] = await Promise.all([
-        import("fs/promises"),
-        import("@minsky/shared/fs"),
-        import("path"),
-        import("@minsky/domain/session/session-path-resolver"),
         import("buffer"),
         import("@minsky/domain/schemas"),
-        import("@minsky/domain/ai/edit-pattern-service"),
-        import("@minsky/domain/ai/edit-pattern-utils"),
         import("../../utils/diff"),
+        import("@minsky/domain/session/session-file-edit-operation"),
       ]);
 
       // Lazy DI: defer sessionProvider lookup until dispatch time. Tool
       // registration runs before container.initialize() so a direct lookup here
       // would observe container.has("sessionProvider") === false (mt#1799).
-      const pathResolver = new SessionPathResolver(() =>
-        container?.has("sessionProvider") ? container.get("sessionProvider") : undefined
-      );
+      const sessionProvider = () =>
+        container?.has("sessionProvider") ? container.get("sessionProvider") : undefined;
 
       return async (rawArgs: Record<string, unknown>): Promise<Record<string, unknown>> => {
         const args = rawArgs as EditFileArgs;
         try {
-          const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
-
-          // Check if file exists
-          let fileExists = false;
-          let originalContent = "";
-
-          try {
-            await stat(resolvedPath);
-            fileExists = true;
-            originalContent = await readTextFile(resolvedPath);
-          } catch (_error) {
-            // File doesn't exist - that's ok for new files
-            fileExists = false;
-          }
-
-          const hasMarkers = hasExistingCodeMarkers(args.content);
-
-          // If file doesn't exist and we have existing code markers, that's an error
-          if (!fileExists && hasMarkers) {
-            throw new Error(
-              `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
-            );
-          }
-
-          // mt#2400 fail-closed guard: editing an EXISTING file with marker-less
-          // content routes to a direct full-file overwrite (the silent
-          // content-destruction family — R3, mt#2211). Refuse unless the caller
-          // explicitly opts into a full replacement via fullReplace.
-          if (fileExists && !hasMarkers && !args.fullReplace) {
-            throw new Error(
-              `Refusing to apply marker-less content to existing file "${args.path}": this would silently overwrite the entire file. ` +
-                `Add '// ... existing code ...' markers around the changed region for a partial edit, ` +
-                `or use session_write_file (or pass fullReplace=true) for an intentional full replacement.`
-            );
-          }
-
-          let finalContent: string;
-
-          if (fileExists && hasMarkers) {
-            // Apply the edit pattern using fast-apply providers, passing optional instruction
-            finalContent = await applyEditPattern(originalContent, args.content, args.instructions);
-          } else {
-            // Direct write for new files, or an explicit full replacement (fullReplace=true)
-            finalContent = args.content;
-          }
+          const result = await applySessionFileEditOperation({
+            sessionId: args.sessionId,
+            path: args.path,
+            content: args.content,
+            instructions: args.instructions,
+            dryRun: args.dryRun,
+            createDirs: args.createDirs,
+            fullReplace: args.fullReplace,
+            sessionProvider,
+          });
 
           // Handle dry-run mode
           if (args.dryRun) {
             // Generate diff for dry-run mode
-            const diff = generateUnifiedDiff(originalContent, finalContent, args.path);
-            const diffSummary = generateDiffSummary(originalContent, finalContent);
+            const diff = generateUnifiedDiff(
+              result.originalContent,
+              result.finalContent,
+              args.path
+            );
+            const diffSummary = generateDiffSummary(result.originalContent, result.finalContent);
 
             log.debug("Session file edit dry-run completed", {
               session: args.sessionId,
               path: args.path,
-              resolvedPath,
-              fileExisted: fileExists,
-              proposedContentLength: finalContent.length,
+              resolvedPath: result.resolvedPath,
+              fileExisted: result.fileExisted,
+              proposedContentLength: result.finalContent.length,
               diffSummary,
             });
 
@@ -170,39 +128,30 @@ FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ...
               timestamp: new Date().toISOString(),
               path: args.path,
               session: args.sessionId,
-              resolvedPath,
+              resolvedPath: result.resolvedPath,
               dryRun: true,
-              proposedContent: finalContent,
+              proposedContent: result.finalContent,
               diff,
               diffSummary,
-              edited: fileExists,
-              created: !fileExists,
+              edited: result.fileExisted,
+              created: !result.fileExisted,
             });
           }
-
-          // Create parent directories if needed
-          if (args.createDirs) {
-            const parentDir = dirname(resolvedPath);
-            await mkdir(parentDir, { recursive: true });
-          }
-
-          // Write the file
-          await writeFile(resolvedPath, finalContent, "utf8");
 
           log.debug("Session file edit successful", {
             session: args.sessionId,
             path: args.path,
-            resolvedPath,
-            fileExisted: fileExists,
-            contentLength: finalContent.length,
+            resolvedPath: result.resolvedPath,
+            fileExisted: result.fileExisted,
+            contentLength: result.finalContent.length,
           });
 
           return createSuccessResponse({
             path: args.path,
             session: args.sessionId,
             edited: true,
-            created: !fileExists,
-            bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
+            created: !result.fileExisted,
+            bytesWritten: Buffer.from(result.finalContent, "utf8").byteLength,
           });
         } catch (error) {
           const errorMessage = getErrorMessage(error);
