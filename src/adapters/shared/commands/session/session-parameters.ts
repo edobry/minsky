@@ -1035,7 +1035,11 @@ export const sessionRepairCommandParams = {
 
 /**
  * Session edit-file command parameters
- * CLI wrapper for session.edit_file MCP tool
+ *
+ * CLI wrapper for session.edit_file MCP tool (mt#2612): both entry points now
+ * delegate to the same canonical apply-model operation
+ * (`applySessionFileEditOperation`, `packages/domain/src/session/session-file-edit-operation.ts`),
+ * including the mt#2400 FAIL-CLOSED guard.
  */
 export const sessionEditFileCommandParams = {
   sessionId: commonSessionParams.sessionId,
@@ -1065,6 +1069,15 @@ export const sessionEditFileCommandParams = {
     description: "Create parent directories if they don't exist",
     required: false,
     defaultValue: true,
+  },
+  fullReplace: {
+    schema: z.boolean(),
+    description:
+      "Override the marker-less fail-closed guard (mt#2400). When false (default), editing " +
+      "an EXISTING file with marker-less content is REFUSED (it would silently overwrite the " +
+      "whole file). Set true to intentionally replace the entire file content.",
+    required: false,
+    defaultValue: false,
   },
   json: commonSessionParams.json,
   debug: commonSessionParams.debug,

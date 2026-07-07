@@ -27,7 +27,7 @@ import { updateSessionImpl } from "./session-update-operations";
 import type { SessionUpdateResult } from "./session-stash-restore";
 import { sessionReviewImpl } from "./session-review-operations";
 import type { SessionReviewParams, SessionReviewResult } from "./session-review-operations";
-import { approveSessionPr } from "./session-approval-operations";
+import { approveSessionPr } from "./session-pr-approval-operations";
 import type { ApprovalInfo } from "../repository/approval-types";
 import { sessionCommit } from "./session-commands";
 import { sessionPrImpl } from "./session-pr-operations";

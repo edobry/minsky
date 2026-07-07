@@ -8,7 +8,7 @@ import {
   type RepositoryBackend,
   type RepositoryBackendConfig,
 } from "../repository/index";
-import type { SessionProviderInterface } from "./types";
+import type { SessionProviderInterface, SessionRecord } from "./types";
 
 /**
  * Dependencies for repository backend detection, injectable for testing
@@ -191,6 +191,42 @@ export async function createRepositoryBackendFromSessionUrl(
         repo: githubInfo.repo,
       };
     }
+  }
+
+  return await createRepositoryBackend(config, sessionDB);
+}
+
+/**
+ * Create repository backend from a session record's stored configuration.
+ * Only GitHub is supported; all sessions use the GitHub backend.
+ *
+ * This is the single canonical implementation (mt#2614). Previously this same
+ * function body (doc-comment and all) was duplicated across
+ * session-pr-approval-operations.ts and session-pr-operations.ts, plus a
+ * reduced variant (missing the GitHub owner/repo parse) in
+ * session-approve-legacy-operations.ts. The reduced variant was behaviorally
+ * equivalent anyway: GitHubBackend's constructor (../repository/github.ts,
+ * the "Derive owner/repo from repoUrl when not explicitly provided" block)
+ * derives owner/repo from repoUrl whenever config.github is not supplied, so
+ * consolidating on this (superset) implementation changes nothing observable
+ * for any call path.
+ */
+export async function createRepositoryBackendFromSession(
+  sessionRecord: SessionRecord,
+  sessionDB: SessionProviderInterface
+): Promise<RepositoryBackend> {
+  const config: RepositoryBackendConfig = {
+    type: RepositoryBackendType.GITHUB,
+    repoUrl: sessionRecord.repoUrl,
+  };
+
+  // Parse GitHub owner/repo from URL
+  const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+  if (githubInfo) {
+    config.github = {
+      owner: githubInfo.owner,
+      repo: githubInfo.repo,
+    };
   }
 
   return await createRepositoryBackend(config, sessionDB);

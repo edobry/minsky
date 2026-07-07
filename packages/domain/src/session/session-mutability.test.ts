@@ -88,7 +88,7 @@ describe("approveSessionPr refuses on merged session", () => {
     const sessionDB = new FakeSessionProvider({
       initialSessions: [mergedRecord({ prBranch: "pr/test-session" })],
     });
-    const { approveSessionPr } = await import("./session-approval-operations");
+    const { approveSessionPr } = await import("./session-pr-approval-operations");
     await expect(approveSessionPr({ session: "test-session" }, { sessionDB })).rejects.toThrow(
       /merged sessions are frozen/
     );

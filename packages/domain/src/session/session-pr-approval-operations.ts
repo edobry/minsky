@@ -1,53 +1,28 @@
 /**
- * Session Approval Operations (Task #358)
+ * Session PR Review-Approval Operations (Task #358)
  *
- * This module implements session PR approval functionality,
- * enabling standard collaborative review workflows.
+ * This module implements session PR review-approval functionality
+ * (calling repositoryBackend.review.approve()), enabling standard
+ * collaborative review workflows. This is the implementation behind the
+ * `minsky session approve` command (see session-commands.ts pureSessionApprove
+ * and session-service.ts).
+ *
+ * Not to be confused with session-approve-legacy-operations.ts, which houses
+ * an unrelated legacy merge-and-approve implementation (mt#2614).
  */
 
 import { log } from "@minsky/shared/logger";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
 import { type SessionProviderInterface } from "./types";
-import { extractGitHubInfoFromUrl } from "./repository-backend-detection";
+import { createRepositoryBackendFromSession } from "./repository-backend-detection";
 
-import {
-  createRepositoryBackend,
-  RepositoryBackendType,
-  type RepositoryBackend,
-  type RepositoryBackendConfig,
-} from "../repository/index";
-import type { SessionRecord } from "./types";
+import { type RepositoryBackend } from "../repository/index";
 import { SessionStatus } from "./types";
 import { assertSessionMutable } from "./session-mutability";
 import type { ApprovalInfo } from "../repository/approval-types";
 import type { GitServiceInterface } from "../git/types";
 import type { TaskServiceInterface } from "../tasks/taskService";
 import type { WorkspaceUtilsInterface } from "../workspace";
-
-/**
- * Create repository backend from session record's stored configuration.
- * Only GitHub is supported; all sessions use the GitHub backend.
- */
-async function createRepositoryBackendFromSession(
-  sessionRecord: SessionRecord,
-  sessionDB: SessionProviderInterface
-): Promise<RepositoryBackend> {
-  const config: RepositoryBackendConfig = {
-    type: RepositoryBackendType.GITHUB,
-    repoUrl: sessionRecord.repoUrl,
-  };
-
-  // Parse GitHub owner/repo from URL
-  const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
-  if (githubInfo) {
-    config.github = {
-      owner: githubInfo.owner,
-      repo: githubInfo.repo,
-    };
-  }
-
-  return await createRepositoryBackend(config, sessionDB);
-}
 
 /**
  * Parameters for session approval operation

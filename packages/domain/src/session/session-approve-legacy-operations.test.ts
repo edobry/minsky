@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { approveSessionImpl } from "./session-approve-operations";
+import { approveSessionImpl } from "./session-approve-legacy-operations";
 import type { SessionRecord } from "./types";
 import type { RepositoryBackend } from "../repository/index";
 import { FakeSessionProvider } from "./fake-session-provider";
