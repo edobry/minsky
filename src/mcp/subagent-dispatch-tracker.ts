@@ -76,6 +76,17 @@ export const DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5;
  */
 export const DAILY_RATE_LIMITED_THRESHOLD = 3;
 
+/**
+ * Sentinel `agentType` value used by callers that don't have the real
+ * dispatch-time agent type available (e.g. the SubagentStop hook, which only
+ * observes the workspace at Stop time — see `.claude/hooks/record-subagent-invocation.ts`).
+ * `agent_type` is a NOT NULL column, so callers must supply SOME string; this
+ * sentinel marks "no real value known" so the UPDATE path (see
+ * `recordSubagentInvocation` below) can avoid clobbering the real value that
+ * was written at dispatch time (mt#2653).
+ */
+export const UNKNOWN_AGENT_TYPE = "unknown";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -227,7 +238,21 @@ export class SubagentDispatchTracker {
           // lifecycle (SubagentStop classifying the outcome) must not overwrite
           // the dispatch-time timestamp, which `lastDispatch` and `byHourLast24h`
           // depend on for chronology.
-          const { id: _id, startedAt: _startedAt, ...updateFields } = input;
+          const { id: _id, startedAt: _startedAt, agentType, ...restFields } = input;
+
+          // mt#2653: also preserve `agentType` when the caller only has the
+          // `UNKNOWN_AGENT_TYPE` sentinel. The SubagentStop hook writes this
+          // sentinel unconditionally (it has no way to recover the real
+          // dispatch-time agentType from the workspace alone), but the
+          // dispatch-time INSERT already wrote the real value
+          // (`promptResult.agentType`) — an unconditional `.set({ agentType })`
+          // on UPDATE would clobber it with "unknown" on every SubagentStop.
+          // Omitting the field here leaves the existing column value
+          // untouched; a caller that genuinely has a real (non-sentinel)
+          // agentType still updates it normally.
+          const updateFields: Partial<SubagentInvocationInput> =
+            agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
+
           await this.db
             .update(subagentInvocationsTable)
             .set(updateFields)

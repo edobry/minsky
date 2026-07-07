@@ -62,7 +62,11 @@ export function runHook(
       }
     }
 
-    const isStaleLock = STALE_LOCK_STDERR_MARKERS.every((marker) =>
+    // mt#2653: git emits ONE of these markers per failure, not both — e.g. a
+    // truncated/older-git-version message may show only "index.lock" without
+    // the "Another git process..." elaboration line. `.every()` required BOTH
+    // markers to be present, so stale-lock guidance never fired in practice.
+    const isStaleLock = STALE_LOCK_STDERR_MARKERS.some((marker) =>
       pullResult.stderr.includes(marker)
     );
 

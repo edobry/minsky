@@ -35,6 +35,7 @@ import {
   SESSION_PARTIAL_UNCOMMITTED_THRESHOLD,
   DAILY_PARTIAL_UNCOMMITTED_THRESHOLD,
   DAILY_RATE_LIMITED_THRESHOLD,
+  UNKNOWN_AGENT_TYPE,
   type SubagentInvocationInput,
 } from "./subagent-dispatch-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
@@ -615,6 +616,64 @@ describe("SubagentDispatchTracker", () => {
       // Other fields DID update.
       expect(row?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
       expect(row?.prUrl).toBe("https://example.com/pr/1");
+    });
+
+    // ─── mt#2653 regression: SubagentStop upsert must not clobber the real
+    // dispatch-time agentType with the "unknown" sentinel ───
+    test("upsert UPDATE preserves dispatch-time agentType when the caller sends the unknown sentinel", async () => {
+      // First call: dispatch-time INSERT with the real agentType (mirrors
+      // src/adapters/shared/commands/tasks/dispatch-command.ts's pending-row write).
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "agent-type-preserve-test",
+          agentType: "refactorer",
+          outcome: OUTCOME_CRASHED, // pessimistic dispatch-time default
+        })
+      );
+      expect(store.size).toBe(1);
+      expect(Array.from(store.values())[0]?.agentType).toBe("refactorer");
+
+      // Second call: SubagentStop-style upsert that only knows the "unknown"
+      // sentinel (mirrors .claude/hooks/record-subagent-invocation.ts, which
+      // has no way to recover the real dispatch-time agentType from the
+      // workspace alone). Before mt#2653 this unconditionally clobbered the
+      // real value with "unknown".
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "agent-type-preserve-test",
+          agentType: UNKNOWN_AGENT_TYPE,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          prUrl: "https://example.com/pr/2",
+        })
+      );
+
+      expect(store.size).toBe(1);
+      const row = Array.from(store.values())[0];
+      // The dispatch-time agentType MUST survive the upsert.
+      expect(row?.agentType).toBe("refactorer");
+      // Other fields DID update, proving this isn't a no-op UPDATE.
+      expect(row?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+      expect(row?.prUrl).toBe("https://example.com/pr/2");
+    });
+
+    test("upsert UPDATE still applies a real (non-sentinel) agentType", async () => {
+      // A caller that genuinely knows a corrected/refined agentType at
+      // update time (not the "unknown" sentinel) should still be able to
+      // update it — the fix only special-cases the sentinel value.
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "agent-type-real-update-test",
+          agentType: "general-purpose",
+        })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "agent-type-real-update-test",
+          agentType: "auditor",
+        })
+      );
+      expect(store.size).toBe(1);
+      expect(Array.from(store.values())[0]?.agentType).toBe("auditor");
     });
 
     // ─── PR #1046 R1 BLOCKING #3 regression: UPDATE targets selected id only ───
