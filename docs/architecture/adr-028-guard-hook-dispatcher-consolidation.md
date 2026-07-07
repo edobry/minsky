@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (2026-07-07 — reviewer-verified on PR #1809; flipped per the review's acceptance instruction)
 
 ## Context
 
