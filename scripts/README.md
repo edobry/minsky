@@ -4,6 +4,7 @@ Utility, verification, and one-off scripts for Minsky. These are not part of the
 application (`src/`, `packages/`) but support development, deployment, and live
 verification. Classification below checks each script against `package.json` `scripts`
 and `.github/workflows/*.yml` before calling it "wired" — see mt#2610.
+Index last audited: 2026-07-06 (mt#2610 dead-code sweep).
 
 ## Operator tools (invoked directly, part of the normal dev/build/deploy flow)
 
