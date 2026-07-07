@@ -70,6 +70,14 @@ const WIRE_MESSAGE_TAIL_LIMIT = 2000;
  * `detectFailingStep` in workflow-commands.ts), it is prefixed onto the
  * summary line so the failing check is named explicitly, not just implied
  * by the raw tail text.
+ *
+ * mt#2635 PR #1811 R1: guards against duplicating the headline text when
+ * the tail excerpt already contains it verbatim (e.g. a caller that sets
+ * `subprocessOutput` to the SAME string as `summary`, or a hook's own
+ * output happening to echo the summary phrasing) — in that case the
+ * headline is dropped and the tail (which already carries the same
+ * information) is returned alone, rather than reading as
+ * "X\n\n...X...".
  */
 function buildWireMessage(payload: McpErrorPayload): string {
   const detailsTail = payload.details?.tail;
@@ -85,6 +93,7 @@ function buildWireMessage(payload: McpErrorPayload): string {
       ? `${payload.summary} (${failingStep})`
       : payload.summary;
   if (!tail) return headline;
+  if (tail.includes(headline)) return tail;
   return `${headline}\n\n${tail}`;
 }
 

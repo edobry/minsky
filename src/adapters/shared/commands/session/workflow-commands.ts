@@ -47,6 +47,25 @@ export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 2000;
  * This deliberately does NOT change any hook's own check logic or output
  * (mt#2635 scope: "Out of scope: the pre-commit pipeline's checks
  * themselves") — it only reads text the checks already emit.
+ *
+ * COUPLING / SOURCE OF TRUTH (mt#2635 PR #1811 R1): every pattern below is
+ * copied verbatim from a `log.cli(...)` / `log.error(...)` call in
+ * `src/hooks/pre-commit.ts` or `src/hooks/commit-msg.ts`. If either hook's
+ * banner wording changes, the corresponding pattern here silently stops
+ * matching (safe degradation — `detectFailingStep` just returns
+ * `undefined`, see above) but SHOULD be updated to track the new text.
+ * `workflow-commands-payload.test.ts`'s "recognizes each known ... banner"
+ * test pins these exact strings so drift breaks loudly (test failure)
+ * rather than silently (a `failingStep` that quietly stops appearing).
+ *
+ * Each pattern is deliberately matched against the FAILURE-specific text,
+ * not just a bare topic phrase, to avoid false-positiving on that same
+ * check's SUCCESS banner. Concrete example this guards against: pre-commit.ts
+ * prints "✅ No variable naming issues found." on success and "❌ Variable
+ * naming issues found! Please fix them before committing." on failure — an
+ * earlier draft of this list matched the bare phrase "variable naming
+ * issues found", which matches BOTH banners; the pattern below requires the
+ * failure-only "! Please fix" suffix.
  */
 const KNOWN_FAILING_STEP_MARKERS: ReadonlyArray<{ pattern: RegExp; step: string }> = [
   { pattern: /too many warnings/i, step: "ESLint (warning threshold)" },
@@ -64,7 +83,12 @@ const KNOWN_FAILING_STEP_MARKERS: ReadonlyArray<{ pattern: RegExp; step: string 
     step: "immutable-migration guard",
   },
   { pattern: /deploy-domain ownership violation/i, step: "deploy-domain ownership guard" },
-  { pattern: /variable naming issues found/i, step: "variable-naming check" },
+  {
+    // Failure-only: "! Please fix" excludes the success banner "✅ No
+    // variable naming issues found." (see coupling note above).
+    pattern: /variable naming issues found! please fix/i,
+    step: "variable-naming check",
+  },
   { pattern: /commit message validation failed/i, step: "commit-msg format validation" },
 ];
 

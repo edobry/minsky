@@ -113,6 +113,13 @@ describe("buildSubprocessFailurePayload", () => {
 });
 
 describe("detectFailingStep", () => {
+  // mt#2635 PR #1811 R1: these strings are copied VERBATIM from the
+  // `log.cli(...)` / `log.error(...)` calls in src/hooks/pre-commit.ts and
+  // src/hooks/commit-msg.ts (source of truth — see the coupling note on
+  // KNOWN_FAILING_STEP_MARKERS in workflow-commands.ts). Pinning the real
+  // banner text here means a future edit to either hook's wording breaks
+  // this test loudly, instead of `failingStep` silently stopping to appear
+  // in production error messages.
   test("recognizes each known pre-commit.ts / commit-msg.ts failure banner", () => {
     expect(detectFailingStep("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️")).toBe(
       "ESLint (warning threshold)"
@@ -133,6 +140,12 @@ describe("detectFailingStep", () => {
       "TypeScript typecheck"
     );
     expect(
+      detectFailingStep("❌ Executable entry points missing execute permission! Commit blocked.")
+    ).toBe("hook-file permission check");
+    expect(
+      detectFailingStep("❌ Variable naming issues found! Please fix them before committing.")
+    ).toBe("variable-naming check");
+    expect(
       detectFailingStep("❌ Commit message validation failed:\n   • Invalid commit message format")
     ).toBe("commit-msg format validation");
   });
@@ -140,5 +153,16 @@ describe("detectFailingStep", () => {
   test("returns undefined for unrecognized output (safe degradation)", () => {
     expect(detectFailingStep("fatal: unable to write commit object")).toBeUndefined();
     expect(detectFailingStep("")).toBeUndefined();
+  });
+
+  // Regression: an earlier draft of KNOWN_FAILING_STEP_MARKERS matched the
+  // bare phrase "variable naming issues found", which also matches
+  // pre-commit.ts's SUCCESS banner for the same check ("✅ No variable
+  // naming issues found."). That false-positive would have mislabeled a
+  // DIFFERENT check's real failure as "variable-naming check" whenever the
+  // variable-naming check itself had already passed earlier in the same
+  // pre-commit run (its success line stays in the captured stdout).
+  test("does not false-positive on the variable-naming check's SUCCESS banner", () => {
+    expect(detectFailingStep("✅ No variable naming issues found.")).toBeUndefined();
   });
 });
