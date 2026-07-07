@@ -92,7 +92,7 @@ export async function pureSessionApprove(
 
   log.debug("Pure session approve command", { session: params.session });
 
-  const { approveSessionPr } = await import("./session-approval-operations.js");
+  const { approveSessionPr } = await import("./session-pr-approval-operations.js");
 
   try {
     const _result = await approveSessionPr(

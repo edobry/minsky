@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
-import { approveSessionPr } from "./session/session-approval-operations";
+import { approveSessionPr } from "./session/session-pr-approval-operations";
 import { ResourceNotFoundError } from "./errors/index";
 import { log } from "@minsky/shared/logger";
 import { FakeGitService } from "./git/fake-git-service";

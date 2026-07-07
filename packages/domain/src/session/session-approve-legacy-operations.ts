@@ -1,3 +1,17 @@
+/**
+ * Session Legacy Merge-Approve Operations (mt#2614)
+ *
+ * Renamed from session-approve-operations.ts to disambiguate it from
+ * session-pr-approval-operations.ts (formerly session-approval-operations.ts)
+ * by call path: approveSessionImpl() here performs a full merge-and-set-DONE
+ * operation, but is NOT wired to any live CLI/MCP command — it is exercised
+ * only by its own test suite (session-approve-legacy-operations.test.ts,
+ * session-approve-task-status-commit.test.ts). The live merge path is
+ * session-merge-operations.ts's mergeSessionPr(). cleanupLocalBranches(),
+ * which used to live in this same file and IS on the live merge call path,
+ * has moved to session-branch-cleanup.ts.
+ */
+
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -17,29 +31,10 @@ import type { SessionProviderInterface } from "../session";
 import type { SessionRecord } from "../session";
 import { updatePrStateOnMerge } from "./session-update-operations";
 import { assertSessionMutable } from "./session-mutability";
-import {
-  createRepositoryBackend,
-  RepositoryBackendType,
-  type RepositoryBackend,
-  type RepositoryBackendConfig,
-} from "../repository/index";
+import { createRepositoryBackendFromSession } from "./repository-backend-detection";
+import { cleanupLocalBranches } from "./session-branch-cleanup";
+import { type RepositoryBackend } from "../repository/index";
 import type { PersistenceProvider } from "../persistence/types";
-
-/**
- * Create repository backend from session record's stored configuration.
- * Only GitHub is supported; all sessions use the GitHub backend.
- */
-async function createRepositoryBackendFromSession(
-  sessionRecord: SessionRecord,
-  sessionDB: SessionProviderInterface
-): Promise<RepositoryBackend> {
-  const config: RepositoryBackendConfig = {
-    type: RepositoryBackendType.GITHUB,
-    repoUrl: sessionRecord.repoUrl,
-  };
-
-  return await createRepositoryBackend(config, sessionDB);
-}
 
 /**
  * Approves a session by merging its PR branch into the main branch
@@ -358,110 +353,5 @@ The task exists but has no associated session to approve.
     } else {
       throw new MinskyError(`Failed to approve session: ${getErrorMessage(error)}`);
     }
-  }
-}
-
-/**
- * Clean up local branches after successful merge
- * Handles failures gracefully to not break the overall approval process
- */
-export async function cleanupLocalBranches(
-  gitService: GitServiceInterface,
-  workingDirectory: string,
-  prBranch: string,
-  sessionId: string,
-  taskId?: string
-): Promise<void> {
-  // Clean up the PR branch (e.g., pr/task#265)
-  try {
-    await gitService.execInRepository(workingDirectory, `git branch -d ${prBranch}`);
-    log.debug(`Successfully deleted local PR branch: ${prBranch}`);
-  } catch (error) {
-    // Check if it's because branch is not fully merged
-    const errorMessage = getErrorMessage(error);
-    if (errorMessage.includes("not fully merged")) {
-      // Try force delete
-      try {
-        await gitService.execInRepository(workingDirectory, `git branch -D ${prBranch}`);
-        log.debug(`Successfully force-deleted local PR branch: ${prBranch}`);
-      } catch (forceError) {
-        log.debug(
-          `Failed to force-delete local PR branch ${prBranch}: ${getErrorMessage(forceError)}`
-        );
-      }
-    } else {
-      log.debug(`Failed to delete local PR branch ${prBranch}: ${errorMessage}`);
-    }
-  }
-
-  // For task branches, be smarter about which ones to try
-  // First, check what branches actually exist locally
-  try {
-    const allBranchesOutput = await gitService.execInRepository(
-      workingDirectory,
-      'git branch --format="%(refname:short)"'
-    );
-    const existingBranches: string[] = allBranchesOutput
-      .split("\n")
-      .map((b) => b.trim())
-      .filter((b) => b && b !== prBranch);
-
-    // Extract task ID from session ID if not provided and session follows task# pattern
-    const taskBranchName = taskId ? taskId.replace("#", "") : sessionId.replace("task#", "");
-
-    // Build list of possible task branch names
-    const possibleTaskBranches: string[] = [];
-
-    // Add sessionId if it looks like a task branch and exists
-    if (sessionId && sessionId !== prBranch && existingBranches.includes(sessionId)) {
-      possibleTaskBranches.push(sessionId);
-    }
-
-    // Add numeric version if it exists
-    if (
-      taskBranchName &&
-      taskBranchName !== sessionId &&
-      existingBranches.includes(taskBranchName)
-    ) {
-      possibleTaskBranches.push(taskBranchName);
-    }
-
-    // Add task prefix versions if they exist
-    if (taskBranchName) {
-      const taskVariants: string[] = [`task${taskBranchName}`, `task#${taskBranchName}`];
-      for (const variant of taskVariants) {
-        if (variant !== sessionId && existingBranches.includes(variant)) {
-          possibleTaskBranches.push(variant);
-        }
-      }
-    }
-
-    // Only try to delete branches that actually exist
-    for (const branch of possibleTaskBranches) {
-      try {
-        await gitService.execInRepository(workingDirectory, `git branch -d ${branch}`);
-        log.debug(`Successfully deleted local task branch: ${branch}`);
-        break; // Stop after first successful deletion
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        if (errorMessage.includes("not fully merged")) {
-          // Try force delete
-          try {
-            await gitService.execInRepository(workingDirectory, `git branch -D ${branch}`);
-            log.debug(`Successfully force-deleted local task branch: ${branch}`);
-            break; // Stop after successful force deletion
-          } catch (forceError) {
-            log.debug(
-              `Failed to force-delete local task branch ${branch}: ${getErrorMessage(forceError)}`
-            );
-          }
-        } else {
-          log.debug(`Failed to delete local task branch ${branch}: ${errorMessage}`);
-        }
-      }
-    }
-  } catch (listError) {
-    // If we can't list branches, fall back to trying common patterns (but only warn, don't error)
-    log.debug(`Could not list local branches for cleanup: ${getErrorMessage(listError)}`);
   }
 }
