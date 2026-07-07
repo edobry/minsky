@@ -354,3 +354,30 @@ describe("GitHubChangesetAdapter.merge (equivalence, mt#2613)", () => {
     expect(result.deletedBranch).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Availability probe (PR #1798 R2 regression)
+// ---------------------------------------------------------------------------
+
+describe("GitHubChangesetAdapter.isAvailable (sessionless factory path)", () => {
+  test("returns true without a sessionProvider when GitHub is reachable", async () => {
+    // Regression: isAvailable() briefly initialized the repository backend,
+    // which requires a sessionProvider — factory-constructed adapters (the
+    // production read path) have none, so availability collapsed to false and
+    // ChangesetService.getAdapter() threw for read-only list/get/search.
+    const octokit = makeFakeOctokit();
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { octokitOverride: octokit });
+
+    expect(await adapter.isAvailable()).toBe(true);
+  });
+
+  test("returns false when the reachability probe fails", async () => {
+    const octokit = makeFakeOctokit();
+    (octokit.rest.repos as { get: unknown }).get = async () => {
+      throw new Error("repo not reachable");
+    };
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {}, { octokitOverride: octokit });
+
+    expect(await adapter.isAvailable()).toBe(false);
+  });
+});

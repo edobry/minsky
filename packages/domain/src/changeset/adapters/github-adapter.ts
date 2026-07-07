@@ -80,22 +80,33 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
 
   /**
    * Ensure the repository backend is initialized for a session-dependent (mutation)
-   * operation, and return it. Surfaces the precise missing-sessionProvider error
-   * (which `isAvailable()` catches and downgrades to a `false` return), then a clear
-   * backend-unavailable error if GitHub access failed — so callers never dereference
-   * an undefined `repositoryBackend` and crash with an opaque TypeError (mt#1430 R1).
+   * operation, and return it. Owns backend construction outright (PR #1798 R2):
+   * `isAvailable()` is a pure reachability probe and must not construct the backend,
+   * because factory-created adapters on the read path have no sessionProvider. The
+   * precise missing-sessionProvider error surfaces first, so callers never
+   * dereference an undefined `repositoryBackend` and crash with an opaque
+   * TypeError (mt#1430 R1).
    */
   private async ensureRepositoryBackend(): Promise<RepositoryBackend> {
     if (!this.repositoryBackend) {
-      // Surface the precise "no sessionProvider" error first; isAvailable() swallows it.
-      await this.getSessionProvider();
-      const ok = await this.isAvailable();
-      if (!ok || !this.repositoryBackend) {
-        throw new MinskyError(
-          "GitHubChangesetAdapter: GitHub backend could not be initialized for this " +
-            "operation (check GitHub token and network access)."
-        );
+      // Mutation paths legitimately require a sessionProvider; throw its
+      // precise error before anything else.
+      const sessionProvider = await this.getSessionProvider();
+      if (!this.owner || !this.repo) {
+        throw new MinskyError("GitHub owner and repo must be configured");
       }
+      this.repositoryBackend = await createRepositoryBackend(
+        {
+          type: RepositoryBackendType.GITHUB,
+          repoUrl: this.repositoryUrl,
+          github: {
+            owner: this.owner,
+            repo: this.repo,
+            token: this.config?.token,
+          },
+        },
+        sessionProvider
+      );
     }
     return this.repositoryBackend;
   }
@@ -170,27 +181,16 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         return false;
       }
 
-      // Test GitHub API access
+      // Test GitHub API access. Availability is a REACHABILITY probe only —
+      // repository-backend initialization must NOT happen here: it requires a
+      // sessionProvider, which factory-constructed adapters (the production
+      // read path) don't have. Mutation methods initialize the backend lazily
+      // via ensureRepositoryBackend(). (PR #1798 R2 regression fix.)
       const octokit = await this.getOctokit();
       await octokit.rest.repos.get({
         owner: this.owner,
         repo: this.repo,
       });
-
-      // Initialize repository backend if not done
-      if (!this.repositoryBackend) {
-        const backendConfig = {
-          type: RepositoryBackendType.GITHUB,
-          repoUrl: this.repositoryUrl,
-          github: {
-            owner: this.owner,
-            repo: this.repo,
-            token: this.config?.token,
-          },
-        };
-        const sessionProvider = await this.getSessionProvider();
-        this.repositoryBackend = await createRepositoryBackend(backendConfig, sessionProvider);
-      }
 
       return true;
     } catch (error) {
