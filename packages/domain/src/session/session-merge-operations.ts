@@ -69,7 +69,12 @@ export {
 // Conflict-detection concern (pre-merge approval/blocker validation)
 // extracted to session-merge-conflict-detection.ts (mt#2614). Re-exported
 // here for backward compatibility with existing consumers.
-export { validateSessionApprovedForMerge } from "./session-merge-conflict-detection";
+export {
+  validateSessionApprovedForMerge,
+  checkGitHubMergeApprovalBlockers,
+  type MergeBlockerCheckParams,
+  type MergeBlockerCheckResult,
+} from "./session-merge-conflict-detection";
 
 /**
  * Parameters for session merge operation

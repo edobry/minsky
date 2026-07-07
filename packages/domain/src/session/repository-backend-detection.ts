@@ -205,9 +205,11 @@ export async function createRepositoryBackendFromSessionUrl(
  * session-pr-approval-operations.ts and session-pr-operations.ts, plus a
  * reduced variant (missing the GitHub owner/repo parse) in
  * session-approve-legacy-operations.ts. The reduced variant was behaviorally
- * equivalent anyway: GitHubBackend's constructor derives owner/repo from
- * repoUrl whenever config.github is not supplied, so consolidating on this
- * (superset) implementation changes nothing observable for any call path.
+ * equivalent anyway: GitHubBackend's constructor (../repository/github.ts,
+ * the "Derive owner/repo from repoUrl when not explicitly provided" block)
+ * derives owner/repo from repoUrl whenever config.github is not supplied, so
+ * consolidating on this (superset) implementation changes nothing observable
+ * for any call path.
  */
 export async function createRepositoryBackendFromSession(
   sessionRecord: SessionRecord,
