@@ -51,6 +51,17 @@ export type LifecycleEvent =
  * entire class of "guard written against `transcript_path` naively, breaks
  * for background-dispatched subagents" bugs (mt#2637) at the framework
  * boundary instead of per-guard.
+ *
+ * Forward-compat note (Phase 4, NOT this task): the `session_pr_merge`
+ * merge-gate stack shares a `pr-context.ts`-fetched `PrContextResult` today
+ * via each gate's own call. When that stack migrates onto the dispatcher
+ * (ADR-028 Phase 4, blocked on mt#2617), the natural extension is an
+ * optional `prContext?: PrContextResult` field here, resolved once by
+ * `resolveDispatchContext` behind a registration-level opt-in flag
+ * (mirroring `needsTranscript` below) — this interface is a plain object the
+ * framework owns, so that extension needs no structural change, only a new
+ * field and a new opt-in check. Not built now: doing so would start the
+ * Phase 4 migration this task explicitly excludes.
  */
 export interface DispatchContext {
   event: LifecycleEvent;
