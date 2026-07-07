@@ -296,18 +296,18 @@ quality gates in order from fastest to slowest:
    the compile-staleness checks below, this step auto-fixes and re-stages instead of
    blocking — the manifest is a mechanically derived structural artifact with no
    editorial content, so there is nothing for a contributor to manually remediate.
-3. **Console usage validation** — catches bare `console.log` in non-test code (~1s)
-4. **Variable naming check** — underscore prefix mismatch detection (~1s)
-5. **TypeScript type checking** — `tsgo --noEmit` (~1.5s)
-6. **ESLint** — full lint with zero-error gate (~5–10s)
-7. **Secret scanning** — gitleaks (~2–3s)
-8. **Unit tests** — full test suite (~15–30s)
-9. **ESLint rule tests** — tests for the custom lint rules
-10. **Rules compile staleness check** — runs `minsky rules compile --check` for each
-    opted-in target (AGENTS.md, CLAUDE.md, `.cursor/rules/`). If a compiled output is
-    out of date relative to the source rules, the commit is blocked with a message
-    naming the stale file. Remediation: run `bun run minsky rules compile --target <target>`
-    and re-stage the regenerated output.
+3. **Variable naming check** — underscore prefix mismatch detection (~1s)
+4. **TypeScript type checking** — `tsgo --noEmit` (~1.5s)
+5. **ESLint** — full lint with zero-error gate (~5–10s); console-usage rules
+   (`custom/no-raw-console`) are enforced here, not as a standalone pass
+6. **Secret scanning** — gitleaks (~2–3s)
+7. **Unit tests** — full test suite (~15–30s)
+8. **ESLint rule tests** — tests for the custom lint rules
+9. **Rules compile staleness check** — runs `minsky rules compile --check` for each
+   opted-in target (AGENTS.md, CLAUDE.md, `.cursor/rules/`). If a compiled output is
+   out of date relative to the source rules, the commit is blocked with a message
+   naming the stale file. Remediation: run `bun run minsky rules compile --target <target>`
+   and re-stage the regenerated output.
 
 The **commit-msg** hook validates commit message format (Conventional Commits style:
 `type(scope): description`).
