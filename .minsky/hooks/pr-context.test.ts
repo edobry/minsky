@@ -23,7 +23,9 @@ import {
   fetchPrBody,
   resolvePrBodyFromTask,
   fetchPrContext,
+  formatContextFailureWarnings,
   type ExecFn,
+  type PrContextFailure,
 } from "./pr-context";
 
 const REPO = "edobry/minsky";
@@ -420,6 +422,15 @@ describe("fetchPrContext", () => {
     }
   });
 
+  it("failure result always carries a `warnings` array (mt#2617 R1 BLOCKING #2) — never undefined", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "" });
+    const result = fetchPrContext(REPO, { task: TASK, cwd: CWD, exec });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(Array.isArray(result.warnings)).toBe(true);
+    }
+  });
+
   it("propagates a fetchPrFiles warning without failing the whole context", () => {
     const exec = makeExecFn([
       { match: "pr view", exitCode: 0, stdout: PR_META_JSON },
@@ -431,5 +442,58 @@ describe("fetchPrContext", () => {
       expect(result.files).toEqual([]);
       expect(result.warnings.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatContextFailureWarnings — mt#2617 R1 BLOCKING #2
+// ---------------------------------------------------------------------------
+//
+// Pre-mt#2617, execution-evidence and deploy-verification fetched files and
+// meta as two INDEPENDENT gh calls, so a fetchPrFiles warning could exist
+// alongside a meta-resolution failure — and the pre-refactor fail-open path
+// surfaced BOTH. The post-mt#2617 fail-open path (`context.warning` only)
+// silently dropped any accumulated `context.warnings`. This is the shared
+// fix every gate's fail-open branch consumes.
+
+const RESOLUTION_FAILURE_WARNING = "Could not resolve PR metadata.";
+
+describe("formatContextFailureWarnings (mt#2617 R1 BLOCKING #2)", () => {
+  it("includes the primary resolution warning", () => {
+    const failure: PrContextFailure = {
+      ok: false,
+      warning: RESOLUTION_FAILURE_WARNING,
+      warnings: [],
+      ghCallCount: 2,
+    };
+    expect(formatContextFailureWarnings(failure)).toContain(RESOLUTION_FAILURE_WARNING);
+  });
+
+  it("includes accumulated per-call warnings ahead of the primary resolution warning", () => {
+    const failure: PrContextFailure = {
+      ok: false,
+      warning: RESOLUTION_FAILURE_WARNING,
+      warnings: ["fetchPrFiles: gh api failed (exit 1) for PR #42 — test-file detection skipped."],
+      ghCallCount: 3,
+    };
+    const formatted = formatContextFailureWarnings(failure);
+    expect(formatted).toEqual([
+      "fetchPrFiles: gh api failed (exit 1) for PR #42 — test-file detection skipped.",
+      RESOLUTION_FAILURE_WARNING,
+    ]);
+  });
+
+  it("does not silently drop warnings when there are multiple accumulated entries", () => {
+    const failure: PrContextFailure = {
+      ok: false,
+      warning: "final failure reason",
+      warnings: ["first accumulated warning", "second accumulated warning"],
+      ghCallCount: 4,
+    };
+    expect(formatContextFailureWarnings(failure)).toEqual([
+      "first accumulated warning",
+      "second accumulated warning",
+      "final failure reason",
+    ]);
   });
 });

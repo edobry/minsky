@@ -406,6 +406,28 @@ export function buildDenialReason(prNumber: number | null, matches: PhraseMatch[
 }
 
 // ---------------------------------------------------------------------------
+// Repo-derivation failure warning (mt#2617 R1 BLOCKING #1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the stderr warning emitted when `deriveRepoFromGit` cannot resolve
+ * an owner/repo slug (misconfigured remote, missing `origin`, transient git
+ * failure). Pre-mt#2617, this hook never attempted repo derivation at all
+ * (it hardcoded `edobry/minsky`), so there was no equivalent failure path.
+ * Post-mt#2617, a silent `process.exit(0)` here would fail-open WITHOUT the
+ * audit signal every other fail-open path in this hook provides — this
+ * function is the fix: same "WARNING: ... — gate did not run" shape as the
+ * transport-error fail-open paths below, so the operator sees the gate
+ * skipped instead of assuming it ran and passed.
+ */
+export function buildRepoDerivationFailureWarning(cwd: string): string {
+  return (
+    `[block-out-of-band-merge] WARNING: could not derive owner/repo from git remote ` +
+    `(cwd: ${cwd}) — gate did not run.`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
 
@@ -418,7 +440,12 @@ if (import.meta.main) {
   // "edobry/minsky" (consistent with the other three merge gates — no gh
   // call was ever attempted before repo resolution, so this adds no calls).
   const repo = deriveRepoFromGit(input.cwd);
-  if (!repo) process.exit(0);
+  if (!repo) {
+    // mt#2617 R1 BLOCKING #1: fail-open WITH an audit signal, matching the
+    // transport-error fail-open paths below, instead of a silent exit.
+    console.error(buildRepoDerivationFailureWarning(input.cwd));
+    process.exit(0);
+  }
 
   // Single gh call per invocation (unchanged from PR #1020 R1 BLOCKING #1
   // fix — mt#2617 only moves the fetch into the shared ./pr-context module).

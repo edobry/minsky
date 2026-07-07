@@ -36,7 +36,7 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import { deriveRepoFromGit, fetchPrContext } from "./pr-context";
+import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles } from "./deploy-surface-detector";
 
@@ -249,12 +249,20 @@ if (import.meta.main) {
   // call) + fetchPrFiles (1 call) = up to 4 calls.
   const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
 
-  // Fail-open: can't fetch PR data → allow with a warning.
+  // Fail-open: can't fetch PR data → allow with a warning. mt#2617 R1
+  // BLOCKING #2: surface BOTH the primary resolution warning AND any
+  // accumulated per-call warnings (e.g. a fetchPrFiles warning that fired
+  // before meta resolution failed) — dropping the latter silently lost
+  // operator-visible signal the pre-refactor code always surfaced.
   if (!context.ok) {
+    const allFailureWarnings = formatContextFailureWarnings(context);
+    const lastIndex = allFailureWarnings.length - 1;
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: `⚠️ [deploy-verification] ${context.warning}`,
+        additionalContext: allFailureWarnings
+          .map((w, i) => (i === lastIndex ? `⚠️ [deploy-verification] ${w}` : `⚠️ ${w}`))
+          .join("\n"),
       },
     });
     process.exit(0);

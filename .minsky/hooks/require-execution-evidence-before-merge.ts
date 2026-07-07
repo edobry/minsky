@@ -27,6 +27,7 @@ import {
   resolvePrNumber as resolvePrNumberImpl,
   makeProdPrDeps as makeProdPrDepsImpl,
   fetchPrContext,
+  formatContextFailureWarnings,
 } from "./pr-context";
 import type {
   PrFile as PrFileImpl,
@@ -297,11 +298,19 @@ if (import.meta.main) {
   // call) + fetchPrFiles (1 call) = up to 4 calls.
   const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
 
+  // mt#2617 R1 BLOCKING #2 (class-not-instance fix — same pattern flagged in
+  // require-deploy-verification-before-merge.ts): surface BOTH the primary
+  // resolution warning AND any accumulated per-call warnings instead of only
+  // `context.warning`, so operator visibility matches the pre-refactor
+  // behavior where `topLevelWarnings` (e.g. a fetchPrFiles warning) preceded
+  // the terminal "could not fetch" message.
   if (!context.ok) {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: `⚠️ ${context.warning}`,
+        additionalContext: formatContextFailureWarnings(context)
+          .map((w) => `⚠️ ${w}`)
+          .join("\n"),
       },
     });
     process.exit(0);

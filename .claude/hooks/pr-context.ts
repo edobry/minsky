@@ -57,6 +57,13 @@
 // - `withCallCounter` wraps any `ExecFn` so callers (and tests) can count
 //   how many `gh` subprocesses a code path spawns — the round-trip
 //   instrumentation used for the mt#2617 before/after evidence.
+// - `fetchCheckRunsRaw` does NOT paginate beyond `per_page=100` (matches
+//   every caller it replaces — none paginated either); a consumer that
+//   enumerates the full run list, not just presence via `total_count`,
+//   must check `total_count` against the returned `check_runs.length` and
+//   fail closed on a mismatch — see that function's doc comment for the
+//   concrete guardrail (`evaluateRequiredChecksStatus`) that already does
+//   this.
 //
 // ## Back-compat
 //
@@ -544,6 +551,17 @@ export function resolvePrRefByBranch(
  * change to what gets parsed — replacing what was previously THREE separate
  * `gh api .../check-runs` calls with different query params in
  * require-review-before-merge.ts.
+ *
+ * **Does not paginate** (matches the pre-mt#2617 behavior of every caller
+ * this replaces — none of them paginated either). A commit with more than
+ * 100 check_runs will have its `check_runs[]` array truncated to the first
+ * page even though `total_count` still reports the true total. Consumers
+ * that enumerate the FULL run list (not just presence-via-`total_count`) —
+ * currently `evaluateRequiredChecksStatus` in require-review-before-merge.ts
+ * — MUST compare `total_count` against `check_runs.length` and fail closed
+ * on a mismatch rather than silently evaluating a truncated set; that gate
+ * already does this (its `allRuns.totalCount > allRuns.runs.length`
+ * pagination guardrail, mt#1938/PR #1167 R1).
  */
 export function fetchCheckRunsRaw(repo: string, headSha: string, opts: FetchOpts = {}): ExecResult {
   const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
@@ -682,6 +700,19 @@ export interface PrContextSuccess {
 export interface PrContextFailure {
   ok: false;
   warning: string;
+  /**
+   * Any non-fatal warnings accumulated BEFORE resolution failed (mt#2617 R1
+   * BLOCKING #2). Pre-mt#2617, execution-evidence and deploy-verification
+   * fetched files and meta as two INDEPENDENT calls, so a files-fetch
+   * warning could exist even when meta resolution ultimately failed — and
+   * the pre-refactor fail-open path surfaced both. `fetchPrContext` resolves
+   * meta FIRST and returns immediately on failure (files are never
+   * attempted), so this is currently always `[]` — kept as a field (rather
+   * than omitted) so callers always merge `warning` + `warnings` the same
+   * way regardless of `ok`, and so a future change to the resolution order
+   * can populate it without an API change.
+   */
+  warnings: string[];
   ghCallCount: number;
 }
 export type PrContextResult = PrContextSuccess | PrContextFailure;
@@ -725,6 +756,7 @@ export function fetchPrContext(repo: string, options: FetchPrContextOptions = {}
     return {
       ok: false,
       warning: resolutionWarning ?? "Could not resolve PR metadata.",
+      warnings: [],
       ghCallCount: counting.count(),
     };
   }
@@ -748,4 +780,19 @@ export function fetchPrContext(repo: string, options: FetchPrContextOptions = {}
     warnings,
     ghCallCount: counting.count(),
   };
+}
+
+/**
+ * Build the ordered list of warning strings a gate should surface when
+ * `fetchPrContext` fails (mt#2617 R1 BLOCKING #2). Accumulated per-call
+ * warnings (`failure.warnings` — currently always `[]`, see the field's doc
+ * comment) come first, matching the pre-mt#2617 ordering where
+ * `topLevelWarnings` (e.g. a `fetchPrFiles` warning) preceded the terminal
+ * "could not fetch PR metadata" message. The single resolution `warning`
+ * comes last. Shared here so every gate's fail-open path surfaces the same
+ * information the same way, instead of each gate re-deriving its own
+ * (potentially lossy) join.
+ */
+export function formatContextFailureWarnings(failure: PrContextFailure): string[] {
+  return [...failure.warnings, failure.warning];
 }

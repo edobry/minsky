@@ -44,10 +44,13 @@ export interface CheckRunsPresenceResult {
 // diagnosis.
 //
 // The response shape is GitHub's Checks API: { total_count, check_runs[] }.
-// We always trust total_count when present (canonical, pagination-safe). The
-// caller queries with ?per_page=1 to keep the call cheap; check_runs.length is
-// only a defensive fallback for unexpected response shapes — it is NOT a valid
-// substitute for total_count when pagination is in play.
+// We always trust total_count when present (canonical, pagination-safe and
+// unaffected by page size). As of mt#2617 the caller shares ONE
+// `check-runs?per_page=100` fetch across this presence check, the
+// bundle-boot-smoke check, and the required-checks check (previously a
+// separate `?per_page=1` query just for this check); check_runs.length is
+// only a defensive fallback for unexpected response shapes — it is NOT a
+// valid substitute for total_count when pagination is in play.
 export function parseCheckRunsResponse(result: {
   exitCode: number;
   stdout: string;
@@ -190,9 +193,15 @@ export interface BundleBootSmokeEvalResult {
   reason?: string;
 }
 
-// Parse a `gh api .../check-runs?check_name=bundle-boot-smoke` response.
+// Parse a `check-runs` response and filter it down to bundle-boot-smoke runs.
 // Distinguishes API/parse failure from "the workflow ran but conclusion is X"
-// so the gate can give an accurate, actionable diagnosis.
+// so the gate can give an accurate, actionable diagnosis. As of mt#2617 the
+// caller feeds this the SAME `check-runs?per_page=100` response shared with
+// the presence and required-checks checks (previously a dedicated
+// `?check_name=bundle-boot-smoke` server-side-filtered query) — this
+// function already filters `check_runs[]` by name client-side (see
+// `matchesBundleBootSmokeName` below), so the server-side filter was never
+// load-bearing for correctness, only for response size.
 export function parseBundleBootSmokeResponse(result: {
   exitCode: number;
   stdout: string;
@@ -1027,10 +1036,9 @@ if (import.meta.main) {
     }
   }
 
-  // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
-  // Skipped when headSha is unavailable (the gh pr list query above returned no row).
-  // mt#2617: ONE `check-runs?per_page=100` fetch replaces what were THREE
-  // separate queries (presence via per_page=1, bundle-boot-smoke via
+  // mt#2617: ONE `check-runs?per_page=100` fetch (skipped when headSha is
+  // unavailable — the PR-ref query above returned no row) replaces what were
+  // THREE separate queries (presence via per_page=1, bundle-boot-smoke via
   // check_name=, required-checks via per_page=100). All three parse
   // functions below operate on the SAME raw check-runs response shape and do
   // their own client-side filtering/sorting (parseBundleBootSmokeResponse and
@@ -1048,7 +1056,6 @@ if (import.meta.main) {
   }
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
-  // Skipped when headSha is unavailable (the PR-ref query above returned no row).
   if (headSha) {
     const parseResult = parseCheckRunsResponse(checkRunsResp);
     const checkRunsResult = evaluateCheckRunsPresence(parseResult, pr, headSha);
