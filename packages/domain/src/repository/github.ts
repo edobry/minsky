@@ -57,6 +57,7 @@ import {
   listReviews as listReviewsImpl,
   getPullRequestCreatedAt as getPullRequestCreatedAtImpl,
   getPullRequestHeadSha as getPullRequestHeadShaImpl,
+  listChangedFiles as listChangedFilesImpl,
 } from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
 import {
@@ -65,7 +66,7 @@ import {
   type SubmitCheckRunResult,
 } from "./github-checks-run";
 import { handleOctokitError } from "./github-error-handler";
-import type { ReviewListEntry } from "./index";
+import type { ReviewListEntry, PrChangedFile } from "./index";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 import {
   listWorkflowRuns as listWorkflowRunsImpl,
@@ -793,6 +794,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
       getPullRequestHeadSha: async (prIdentifier: string | number): Promise<string> => {
         const gh = this.requireGitHubContext();
         return getPullRequestHeadShaImpl(gh, prIdentifier);
+      },
+
+      listChangedFiles: async (prIdentifier: string | number): Promise<PrChangedFile[]> => {
+        const gh = this.requireGitHubContext();
+        return listChangedFilesImpl(gh, prIdentifier);
       },
 
       resolveReviewThread: async (threadId: string): Promise<void> => {
