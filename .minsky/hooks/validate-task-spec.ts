@@ -1,55 +1,125 @@
 #!/usr/bin/env bun
-// PostToolUse hook: Validate task spec structure after tasks_create
+// PreToolUse hook: Validate task spec structure before mcp__minsky__tasks_create.
 //
-// Blocks task creation if the spec content is missing required sections.
+// Denies task creation if the spec content is missing required sections.
 // Short specs (under 100 chars) pass through — not all tasks need full structure.
 //
 // Required sections: ## Success Criteria, ## Acceptance Tests
+//
+// Tier decision (mt#2653): this hook was previously registered as PostToolUse,
+// exiting 1 AFTER the task had already been created via `writeOutput` +
+// `process.exit(1)`. PostToolUse hooks have no `permissionDecision` surface —
+// their exit code is not fed back into Claude Code's permission system, so
+// this had ZERO blocking effect; the task was always created regardless of
+// the missing sections. Converted here to PreToolUse with
+// `permissionDecision: "deny"`, which actually prevents the malformed task
+// from being created. (The rejected alternative was documenting this as
+// advisory-only and leaving it PostToolUse with `exit 0` — see the mt#2653
+// PR body for the rationale.)
+//
+// Adjacent surface: parallel-work-guard.ts's duplicate-child matcher (mt#1435)
+// also fires PreToolUse on mcp__minsky__tasks_create, in the SAME settings.json
+// matcher block. That hook's concern (duplicate sibling task detection) is
+// orthogonal to this hook's concern (spec structural validation); both run
+// independently against the same tool call.
+//
+// Fail-open: any error (malformed stdin, missing fields) allows the call
+// (exit 0) rather than blocking a legitimate tasks_create.
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 
-const input = await readInput<ToolHookInput>();
+// ---------------------------------------------------------------------------
+// Pure validation (exported for testing)
+// ---------------------------------------------------------------------------
 
-// Get spec content from the tool input (spec or deprecated description alias)
-const specContent =
-  (input.tool_input.spec as string | undefined) ??
-  (input.tool_input.description as string | undefined) ??
-  "";
+/** Specs shorter than this pass through unconditionally — quick tasks don't need full structure. */
+export const MIN_SPEC_LENGTH_FOR_VALIDATION = 100;
 
-// Short specs pass through — quick tasks don't need full structure
-if (specContent.length < 100) {
-  process.exit(0);
+export const REQUIRED_HEADINGS: readonly string[] = ["## Success Criteria", "## Acceptance Tests"];
+
+export interface SpecValidationResult {
+  valid: boolean;
+  missingHeadings: string[];
 }
 
-// Check for required sections
-const missingHeadings: string[] = [];
+/**
+ * Validate a task spec's content for required section headings.
+ * Specs under `MIN_SPEC_LENGTH_FOR_VALIDATION` chars pass through
+ * unconditionally.
+ */
+export function validateSpecContent(specContent: string): SpecValidationResult {
+  if (specContent.length < MIN_SPEC_LENGTH_FOR_VALIDATION) {
+    return { valid: true, missingHeadings: [] };
+  }
 
-if (!/^## Success Criteria/m.test(specContent)) {
-  missingHeadings.push("## Success Criteria");
+  const missingHeadings: string[] = [];
+  if (!/^## Success Criteria/m.test(specContent)) {
+    missingHeadings.push("## Success Criteria");
+  }
+  if (!/^## Acceptance Tests/m.test(specContent)) {
+    missingHeadings.push("## Acceptance Tests");
+  }
+
+  return { valid: missingHeadings.length === 0, missingHeadings };
 }
 
-if (!/^## Acceptance Tests/m.test(specContent)) {
-  missingHeadings.push("## Acceptance Tests");
+/** Extract the spec content from a tasks_create tool_input (spec, or the deprecated description alias). */
+export function extractSpecContent(toolInput: Record<string, unknown> | undefined): string {
+  if (!toolInput) return "";
+  return (
+    (toolInput.spec as string | undefined) ?? (toolInput.description as string | undefined) ?? ""
+  );
 }
 
-if (missingHeadings.length > 0) {
-  const title = (input.tool_input.title as string) ?? "unknown";
-  writeOutput({
-    hookSpecificOutput: {
-      hookEventName: "PostToolUse",
-      additionalContext: [
-        `⚠️ Task "${title}" spec is missing required sections: ${missingHeadings.join(", ")}`,
-        "",
-        "Task specs over 100 chars must include:",
-        "  - ## Success Criteria — measurable criteria for task completion",
-        "  - ## Acceptance Tests — concrete tests to verify the work",
-        "",
-        "Please update the task spec with the missing sections using tasks_spec_edit.",
-      ].join("\n"),
-    },
-  });
-  process.exit(1);
+/**
+ * Build the denial-reason message naming the missing headings.
+ *
+ * Prefixed with `[validate-task-spec]` (mt#2653 R1) so the denial is
+ * self-identifying regardless of matcher/hook ordering. This guard shares its
+ * `mcp__minsky__tasks_create` PreToolUse matcher block with
+ * parallel-work-guard.ts's duplicate-child matcher (mt#1435); Claude Code's
+ * multi-hook-per-matcher ordering is harness-defined, so a denial from either
+ * hook must be attributable on its own without relying on message position.
+ */
+export function buildDenialReason(title: string, missingHeadings: string[]): string {
+  return [
+    `[validate-task-spec] Task "${title}" spec is missing required sections: ${missingHeadings.join(", ")}`,
+    "",
+    `Task specs over ${MIN_SPEC_LENGTH_FOR_VALIDATION} chars must include:`,
+    "  - ## Success Criteria — measurable criteria for task completion",
+    "  - ## Acceptance Tests — concrete tests to verify the work",
+    "",
+    "Add the missing sections to the spec content, then retry tasks_create.",
+  ].join("\n");
 }
 
-process.exit(0);
+// ---------------------------------------------------------------------------
+// Entry point (fail-open: any error allows the call)
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  try {
+    const input = await readInput<ToolHookInput>();
+    const specContent = extractSpecContent(input.tool_input);
+    const result = validateSpecContent(specContent);
+
+    if (!result.valid) {
+      const title = (input.tool_input?.title as string | undefined) ?? "unknown";
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: buildDenialReason(title, result.missingHeadings),
+        },
+      });
+    }
+
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write(
+      `[validate-task-spec] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    process.exit(0);
+  }
+}

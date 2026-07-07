@@ -76,6 +76,17 @@ export const DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5;
  */
 export const DAILY_RATE_LIMITED_THRESHOLD = 3;
 
+/**
+ * Sentinel `agentType` value used by callers that don't have the real
+ * dispatch-time agent type available (e.g. the SubagentStop hook, which only
+ * observes the workspace at Stop time — see `.claude/hooks/record-subagent-invocation.ts`).
+ * `agent_type` is a NOT NULL column, so callers must supply SOME string; this
+ * sentinel marks "no real value known" so the UPDATE path (see
+ * `recordSubagentInvocation` below) can avoid clobbering the real value that
+ * was written at dispatch time (mt#2653).
+ */
+export const UNKNOWN_AGENT_TYPE = "unknown";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -206,11 +217,21 @@ export class SubagentDispatchTracker {
    * @param input  The invocation record to persist.
    */
   async recordSubagentInvocation(input: SubagentInvocationInput): Promise<void> {
+    // mt#2653 R1: events must carry the PERSISTED agentType, not necessarily
+    // `input.agentType` — when the UPDATE path omits the sentinel (see below),
+    // the row keeps its EXISTING (dispatch-time) value, which can differ from
+    // what this call's `input` carried. Defaults to `input.agentType` for the
+    // INSERT paths, where "persisted" and "input" are the same value by
+    // construction; reassigned below on the UPDATE path.
+    let resolvedAgentType: string = input.agentType;
     try {
       if (input.subagentSessionId != null) {
         // Upsert path: check for an existing row by subagentSessionId.
         const existing = await this.db
-          .select({ id: subagentInvocationsTable.id })
+          .select({
+            id: subagentInvocationsTable.id,
+            agentType: subagentInvocationsTable.agentType,
+          })
           .from(subagentInvocationsTable)
           .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId))
           .limit(1);
@@ -227,7 +248,31 @@ export class SubagentDispatchTracker {
           // lifecycle (SubagentStop classifying the outcome) must not overwrite
           // the dispatch-time timestamp, which `lastDispatch` and `byHourLast24h`
           // depend on for chronology.
-          const { id: _id, startedAt: _startedAt, ...updateFields } = input;
+          const { id: _id, startedAt: _startedAt, agentType, ...restFields } = input;
+
+          // mt#2653: also preserve `agentType` when the caller only has the
+          // `UNKNOWN_AGENT_TYPE` sentinel. The SubagentStop hook writes this
+          // sentinel unconditionally (it has no way to recover the real
+          // dispatch-time agentType from the workspace alone), but the
+          // dispatch-time INSERT already wrote the real value
+          // (`promptResult.agentType`) — an unconditional `.set({ agentType })`
+          // on UPDATE would clobber it with "unknown" on every SubagentStop.
+          // Omitting the field here leaves the existing column value
+          // untouched; a caller that genuinely has a real (non-sentinel)
+          // agentType still updates it normally.
+          const updateFields: Partial<SubagentInvocationInput> =
+            agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
+
+          // The value that will actually be PERSISTED after this UPDATE: the
+          // existing row's agentType when the sentinel is omitted, otherwise
+          // the new value being written. Events below must use this, not the
+          // raw `input.agentType`, or they'd report "unknown" even though the
+          // DB row (and thus every future read of it) preserves the real
+          // dispatch-time value — the exact DB-vs-telemetry divergence this
+          // fixes (mt#2653 R1).
+          resolvedAgentType =
+            agentType === UNKNOWN_AGENT_TYPE ? firstExisting.agentType : agentType;
+
           await this.db
             .update(subagentInvocationsTable)
             .set(updateFields)
@@ -252,7 +297,7 @@ export class SubagentDispatchTracker {
           eventType: "subagent.failed",
           payload: {
             taskId: input.taskId,
-            agentType: input.agentType,
+            agentType: resolvedAgentType,
             outcome: input.outcome,
             errorSummary: input.errorSummary,
           },
@@ -275,7 +320,7 @@ export class SubagentDispatchTracker {
           eventType: "subagent.completed",
           payload: {
             taskId: input.taskId,
-            agentType: input.agentType,
+            agentType: resolvedAgentType,
             outcome: input.outcome,
           },
           relatedTaskId: input.taskId ?? undefined,

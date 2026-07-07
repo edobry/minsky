@@ -158,7 +158,9 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     return;
   }
 
-  const { SubagentDispatchTracker } = await import("../../src/mcp/subagent-dispatch-tracker");
+  const { SubagentDispatchTracker, UNKNOWN_AGENT_TYPE } = await import(
+    "../../src/mcp/subagent-dispatch-tracker"
+  );
   const tracker = new SubagentDispatchTracker(db);
 
   const now = new Date();
@@ -172,12 +174,13 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // The harness agent_id is stored separately as `agentSessionId` (joins
   // `agent_transcripts.agent_session_id` per mt#1313).
   //
-  // PR #1053 R1 BLOCKING #2: pre-query for the dispatch-time row. If it
-  // exists, omit `agentType` from our upsert payload so the tracker's
-  // update path leaves the dispatch-time value untouched. If it doesn't
-  // exist (orphan Stop without dispatch, dispatch-write failure), include
-  // a placeholder so the INSERT path satisfies the schema's NOT NULL
-  // constraint on `agent_type`.
+  // This hook does NOT know the real dispatch-time `agentType` — it only
+  // observes the workspace at Stop time. It always sends the
+  // `UNKNOWN_AGENT_TYPE` sentinel below; the tracker's `recordSubagentInvocation`
+  // (mt#2653) is responsible for NOT clobbering the real dispatch-time value
+  // on the UPDATE path when it sees that sentinel. On the INSERT path (orphan
+  // Stop without a matching dispatch row) the sentinel satisfies the schema's
+  // NOT NULL constraint on `agent_type`.
   const subagentSessionId = extractMinskySessionId(cwd);
 
   await tracker.recordSubagentInvocation({
@@ -193,10 +196,11 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     durationMs: metrics.durationMs ?? null,
     endedAt: now,
     startedAt: now, // tracker preserves startedAt on upsert (per mt#1736 R1 fix)
-    // agentType is required by SubagentInvocationInput (NOT NULL). For the
-    // UPDATE path this may clobber the dispatch-set value, but "unknown" is
-    // the fallback for hooks that lack the original dispatch context.
-    agentType: "unknown",
+    // agentType is required by SubagentInvocationInput (NOT NULL) but this
+    // hook has no way to recover the real dispatch-time value. The tracker's
+    // UPDATE path (mt#2653) treats this sentinel as "no real value known" and
+    // leaves the dispatch-set value untouched instead of clobbering it.
+    agentType: UNKNOWN_AGENT_TYPE,
   });
 
   try {

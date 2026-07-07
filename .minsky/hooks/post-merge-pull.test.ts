@@ -23,6 +23,10 @@ const SHA_B = "def9876543210";
 const DIRTY_STATUS = " M scripts/cli-entry.ts\n";
 const STASH_SAVED = "Saved working directory";
 
+/** Stale-lock recovery hint substrings asserted across multiple stale-lock tests. */
+const STALE_LOCK_HINT_PHRASE = "Stale `.git/index.lock`";
+const STALE_LOCK_RM_HINT = "rm .git/index.lock";
+
 // ---------------------------------------------------------------------------
 // Failure cases
 // ---------------------------------------------------------------------------
@@ -53,8 +57,68 @@ describe("runHook — stale-lock failure", () => {
 
     expect(exitCodes).toEqual([1]);
     const combinedStderr = stderrMessages.join("");
-    expect(combinedStderr).toContain("Stale `.git/index.lock`");
-    expect(combinedStderr).toContain("rm .git/index.lock");
+    expect(combinedStderr).toContain(STALE_LOCK_HINT_PHRASE);
+    expect(combinedStderr).toContain(STALE_LOCK_RM_HINT);
+  });
+});
+
+describe("runHook — stale-lock failure, single marker only (mt#2653)", () => {
+  it("exits 1 and writes stale-lock recovery hint when stderr contains ONLY 'index.lock'", () => {
+    // Realistic single-marker stderr: some git versions / truncated CI logs
+    // emit only the fatal line without the "Another git process..."
+    // elaboration paragraph. Before mt#2653, `.every()` required BOTH markers
+    // to be present, so this case never classified as stale-lock.
+    const singleMarkerStderr =
+      "fatal: Unable to create '/path/to/project/.git/index.lock': File exists.";
+
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
+      { exitCode: 1, stdout: "", stderr: singleMarkerStderr }, // git pull
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([1]);
+    const combinedStderr = stderrMessages.join("");
+    expect(combinedStderr).toContain(STALE_LOCK_HINT_PHRASE);
+    expect(combinedStderr).toContain(STALE_LOCK_RM_HINT);
+  });
+
+  it("exits 1 and writes stale-lock recovery hint when stderr contains ONLY 'Another git process'", () => {
+    // The other single-marker direction: only the elaboration text, without
+    // the literal "index.lock" substring (e.g. a wrapped/rephrased message).
+    const singleMarkerStderr =
+      "Another git process seems to be running in this repository, e.g. an editor.";
+
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
+      { exitCode: 1, stdout: "", stderr: singleMarkerStderr }, // git pull
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([1]);
+    const combinedStderr = stderrMessages.join("");
+    expect(combinedStderr).toContain(STALE_LOCK_HINT_PHRASE);
+    expect(combinedStderr).toContain(STALE_LOCK_RM_HINT);
   });
 });
 
@@ -104,7 +168,7 @@ describe("runHook — generic non-zero pull failure", () => {
 
     const combinedStderr = stderrMessages.join("");
     expect(combinedStderr).not.toContain("index.lock");
-    expect(combinedStderr).not.toContain("rm .git/index.lock");
+    expect(combinedStderr).not.toContain(STALE_LOCK_RM_HINT);
   });
 });
 

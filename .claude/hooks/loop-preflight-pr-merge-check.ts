@@ -37,7 +37,9 @@ import type { ToolHookInput } from "./types";
 // called at entrypoint time (inside `if (import.meta.main)`) so that importing
 // this module for tests has no fs/env side effects.
 function getDerivedTimeoutMs(): number {
-  const { hostCapSec } = readHostCap("loop-preflight-pr-merge-check.ts");
+  const { hostCapSec } = readHostCap("loop-preflight-pr-merge-check.ts", undefined, {
+    events: ["PreToolUse"],
+  });
   const { gitTimeoutMs } = deriveBudgets(hostCapSec);
   return gitTimeoutMs;
 }
