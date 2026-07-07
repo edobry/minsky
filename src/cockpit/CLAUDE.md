@@ -19,15 +19,42 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Runtime | Bun |
 | Language | TypeScript strict |
 | Server | Express (`src/cockpit/server.ts`) |
-| Frontend | React (`src/cockpit/web/widgets/*.tsx`) |
+| Frontend | React (`src/cockpit/web/{pages,widgets,components}/*.tsx` — see §Widget vocabulary below) |
 | Styling | Tailwind (`tailwind.config.ts`, scoped to `src/cockpit/web/**`) |
-| Component lib | shadcn/ui (when mt#1773 ships; bare Tailwind until then) |
-| Data layer | TanStack Query (when mt#1773 ships; bare fetch + useState until then) |
+| Component lib | shadcn/ui (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`, `components.json`) |
+| Data layer | TanStack Query (mt#1773 shipped — all pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data, mt#2616) |
 | Build | Vite (`vite.config.ts`) |
-| Tests | bun test (`src/cockpit/cockpit.test.ts`) |
-| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) |
+| Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
+| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) — backend contract only, see §Widget vocabulary |
 | Config | None per-widget — registry-gated; future cockpit config goes under a `cockpit` tree in `~/.config/minsky/config.yaml` (mt#2294) |
 | DI | None (standalone Express, no tsyringe) |
+
+### Widget vocabulary (mt#2616)
+
+"Widget" is overloaded across the codebase — two distinct meanings share the word:
+
+1. **Backend `WidgetModule`** (`src/cockpit/types.ts`, registered in `widget-registry.ts`): a
+   self-contained data module with an `id`, `updateMode`, and `fetch()`. Serves
+   `GET /api/widget/<id>/data`. This is the contract `docs/architecture/cockpit.md`'s
+   "Adding a new widget" guidance describes. ~15 of these exist (agents, attention,
+   basic-health, context-inspector, credentials, embeddings-health, task-graph, task-list,
+   workstreams, memories-health/-list/-search/-stats/-detail, mcp-server-status, slow-topology).
+2. **Frontend `web/widgets/*.tsx` directory**: a broader "chrome-agnostic render body"
+   convention (mt#2373's `WidgetShell` variant system — `card` / `compact` / `page-body` /
+   `rail-item`). Most files here render via a registered backend widget's data endpoint, but
+   several are page-detail bodies with their own bespoke REST endpoints and NO backend
+   registry entry: `SessionDetail`, `TaskDetail`, `AskDetail`, `ChangesetDetail`, `Changesets`,
+   `ConversationView`. They live in `web/widgets/` because they share the `WidgetShell`
+   composition contract, not because they implement `WidgetModule`.
+
+**Resolution (mt#2616):** kept the single `web/widgets/` directory rather than splitting into
+`web/widgets/` (registry-backed) + `web/panels/` (page-content bodies). The `WidgetShell`
+render-context contract (variant-driven chrome, not data source) is the thing these files
+actually have in common and is already the documented organizing principle (mt#2373); a
+directory split by *data source* would cut across that and force every future
+component to justify which side of the line it's on. If this directory keeps growing and the
+ambiguity recurs in review, revisit the split — but don't invent a second axis of
+categorization for a naming problem that a doc paragraph already resolves.
 
 ## Design vocabulary
 
@@ -45,13 +72,13 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 
 **Composition over configuration.** Compound components. Lifted state when shared. Explicit variant props (`<Button variant="destructive">`) over boolean explosions (`<Button isDanger>`). Pattern reference: `vercel-labs/composition-patterns`.
 
-**Server state via TanStack Query.** When mt#1773 ships, all server-state fetching goes through `useQuery`. Set sensible `staleTime` and `refetchInterval` per widget. Invalidate the query cache on mutations. Do not use bare `fetch` + `useState` for server data once TanStack Query is available — it doesn't compose with cache invalidation, error retry, or loading states.
+**Server state via TanStack Query.** All server-state fetching goes through `useQuery`/`useMutation` (mt#1773 shipped this stack; mt#2616 finished migrating the last raw-`fetch`+`useState` holdouts). Set sensible `staleTime` and `refetchInterval` per widget. Invalidate the query cache on mutations. Do not use bare `fetch` + `useState` for server data — it doesn't compose with cache invalidation, error retry, or loading states. Use the shared `LoadingState`/`ErrorState` components (`src/cockpit/web/components/`) for `isLoading`/`isError` branches instead of hand-rolled inline text.
 
-**Accessibility-first primitives.** Use shadcn/ui's Radix-backed primitives (Button, Card, Dialog, Tabs, Command) once mt#1773 ships. Every interactive element has a visible focus state. Every icon has an `aria-label`. Keyboard navigation works (Tab/Shift+Tab/Enter/Esc). Test with the browser DevTools accessibility audit.
+**Accessibility-first primitives.** Use shadcn/ui's Radix-backed primitives (Button, Card, Dialog, Tabs, Command — `src/cockpit/web/components/ui/`). Every interactive element has a visible focus state. Every icon has an `aria-label`. Keyboard navigation works (Tab/Shift+Tab/Enter/Esc). Test with the browser DevTools accessibility audit.
 
 **Avoid waterfalls.** Don't sequence client-side data fetches when they can run in parallel. Use `Promise.all` for parallel fetches. Use `useQueries` for parallel TanStack Query calls. Pattern reference: `vercel-labs/react-best-practices`.
 
-**Tailwind config: semantic tokens + `dark` class.** `tailwind.config.ts` defines CSS variables in `:root` and `.dark` for every semantic color. `darkMode: "class"`. The base layer (`src/cockpit/web/index.css` or equivalent) declares the CSS variable values. shadcn/ui's `components.json` will scaffold this when mt#1773 ships.
+**Tailwind config: semantic tokens + `dark` class.** `tailwind.config.ts` defines CSS variables in `:root` and `.dark` for every semantic color. `darkMode: "class"`. The base layer (`src/cockpit/web/index.css`) declares the CSS variable values, per shadcn/ui's `components.json` scaffold.
 
 ## Information architecture
 
@@ -63,7 +90,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 
 **Mental-model alignment to Minsky's domain.** Tasks, sessions, changesets, PRs, attention/asks ARE the organizing entities. Widgets respect their conventions: task IDs (`mt#X`) are universal anchors; session liveness is a first-class status; PR state maps cleanly to changeset state. Don't invent abstractions — surface the existing domain.
 
-**Drill-down navigation.** Dashboard → entity detail → action → back. Breadcrumbs when depth exceeds 2. Keyboard shortcuts for back/forward. Command palette (`Cmd+K`) for cross-entity jumps when navigation depth would otherwise be tedious. (Command palette ships when mt#1773 lands the `<Command>` primitive.)
+**Drill-down navigation.** Dashboard → entity detail → action → back. Breadcrumbs when depth exceeds 2. Keyboard shortcuts for back/forward. Command palette (`Cmd+K`, `src/cockpit/web/components/CommandPalette.tsx`) for cross-entity jumps when navigation depth would otherwise be tedious.
 
 ## Operator dev loop
 
