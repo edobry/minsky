@@ -61,6 +61,16 @@ export interface GitStatsResult {
   files: FileChurnStat[];
 }
 
+/**
+ * Sentinel byte prefixed onto every commit-hash line via the pretty format
+ * `%x00%H` (git emits a raw NUL byte for `%x00`, then the 40-char hash).
+ * NUL never appears in a numstat/name-only path line, so this framing
+ * disambiguates commit-boundary lines from file lines UNAMBIGUOUSLY —
+ * unlike a heuristic that treats any bare 40-hex-char line as a hash,
+ * which misclassifies a root-level file whose NAME happens to be a
+ * 40-char lowercase hex string (a valid filename) in `--name-only` mode.
+ */
+const COMMIT_LINE_PREFIX = "\0";
 const COMMIT_HASH_RE = /^[0-9a-f]{40}$/;
 
 interface FileAccumulator {
@@ -70,10 +80,13 @@ interface FileAccumulator {
 }
 
 /**
- * Parse the output of `git log --pretty=format:%H` combined with either
- * `--numstat` or `--name-only`. Both formats interleave a 40-char commit
- * hash line with per-file lines for that commit (separated by a blank
- * line, which this parser ignores). `--numstat` lines are tab-separated
+ * Parse the output of `git log --pretty=format:%x00%H` combined with either
+ * `--numstat` or `--name-only`. Both formats interleave a NUL-prefixed
+ * commit hash line with per-file lines for that commit (separated by a
+ * blank line, which this parser ignores). Only NUL-prefixed lines are
+ * treated as commit boundaries — this is the sole discriminator, so a
+ * bare 40-hex-char file path (in `--name-only` mode) is never
+ * misclassified as a hash. `--numstat` lines are tab-separated
  * `<insertions>\t<deletions>\t<path>` (or `-\t-\t<path>` for binary files);
  * `--name-only` lines are bare paths.
  */
@@ -86,14 +99,17 @@ function parseLogOutput(output: string): {
   let currentHash: string | null = null;
 
   for (const rawLine of output.split("\n")) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    if (!line.includes("\t") && COMMIT_HASH_RE.test(line)) {
-      currentHash = line;
-      seenCommits.add(line);
+    if (rawLine.startsWith(COMMIT_LINE_PREFIX)) {
+      const hash = rawLine.slice(COMMIT_LINE_PREFIX.length).trim();
+      if (COMMIT_HASH_RE.test(hash)) {
+        currentHash = hash;
+        seenCommits.add(hash);
+      }
       continue;
     }
+
+    const line = rawLine.trim();
+    if (!line) continue;
 
     if (!currentHash) continue;
 
@@ -110,7 +126,8 @@ function parseLogOutput(output: string): {
       insertions = insStr === "-" ? 0 : parseInt(insStr ?? "0", 10) || 0;
       deletions = delStr === "-" ? 0 : parseInt(delStr ?? "0", 10) || 0;
     } else {
-      // --name-only line: bare path
+      // --name-only line: bare path (may itself look like a 40-hex hash —
+      // that's fine, only the NUL-prefixed line above is a commit boundary)
       filePath = line;
     }
 
@@ -148,7 +165,11 @@ export async function gitStatsImpl(
 
   const args: string[] = ["git", "-C", qWorkdir, "log", "--no-renames"];
   args.push(nameOnly ? "--name-only" : "--numstat");
-  args.push("--pretty=format:%H");
+  // %x00 emits a raw NUL byte before the hash so parseLogOutput can treat
+  // ONLY NUL-prefixed lines as commit boundaries (mt#2624 R1) — this
+  // disambiguates from a --name-only path that happens to be a bare
+  // 40-hex-char filename.
+  args.push("--pretty=format:%x00%H");
 
   if (options.since) {
     args.push(`--since=${shellQuote(options.since)}`);

@@ -18,7 +18,7 @@ import { conflictsCommandParams } from "@minsky/domain/git/commands/subcommands/
 import { log } from "@minsky/shared/logger";
 import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
-import { execAsync } from "@minsky/shared/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
@@ -247,6 +247,65 @@ const logCommandParams = composeParams(
     },
   }
 ) satisfies CommandParameterMap;
+
+/**
+ * Build the argv-shaped `git log` command for the `git.log` command's
+ * execute handler. Every dynamic (caller-controlled) segment is wrapped
+ * with `safeShellQuote` before being joined into the shell command string
+ * passed to `execAsync` — repoPath, author, since, until, grep, ref, and
+ * path are all attacker/operator-controlled strings that may contain shell
+ * metacharacters or embedded spaces (mt#2624 R2). Exported for direct unit
+ * testing without mocking `execAsync`.
+ */
+export function buildGitLogArgs(params: {
+  repo?: string;
+  limit?: number;
+  author?: string;
+  since?: string;
+  until?: string;
+  path?: string;
+  grep?: string;
+  format?: "oneline" | "short" | "medium" | "full";
+  ref?: string;
+}): string[] {
+  const repoPath = params.repo || process.cwd();
+  const limit = params.limit ?? 20;
+  const format = params.format ?? "oneline";
+
+  const args: string[] = ["git", "-C", safeShellQuote(repoPath), "log"];
+
+  // Format flag
+  if (format === "oneline") {
+    args.push("--oneline");
+  } else {
+    args.push(`--format=${format}`);
+  }
+
+  // Limit
+  args.push(`-n`, String(limit));
+
+  // Optional filters
+  if (params.author) {
+    args.push(`--author=${safeShellQuote(params.author)}`);
+  }
+  if (params.since) {
+    args.push(`--since=${safeShellQuote(params.since)}`);
+  }
+  if (params.until) {
+    args.push(`--until=${safeShellQuote(params.until)}`);
+  }
+  if (params.grep) {
+    args.push(`--grep=${safeShellQuote(params.grep)}`);
+  }
+  if (params.ref) {
+    args.push(safeShellQuote(params.ref));
+  }
+  if (params.path) {
+    args.push("--", safeShellQuote(params.path));
+  }
+
+  return args;
+}
 
 /**
  * Parameters for the git search command
@@ -822,41 +881,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     execute: async (params, _context) => {
       log.debug("Executing git.log command", { params });
 
-      const repoPath = params.repo || process.cwd();
-      const limit = params.limit ?? 20;
-      const format = params.format ?? "oneline";
-
-      const args: string[] = ["git", "-C", repoPath, "log"];
-
-      // Format flag
-      if (format === "oneline") {
-        args.push("--oneline");
-      } else {
-        args.push(`--format=${format}`);
-      }
-
-      // Limit
-      args.push(`-n`, String(limit));
-
-      // Optional filters
-      if (params.author) {
-        args.push(`--author=${params.author}`);
-      }
-      if (params.since) {
-        args.push(`--since=${params.since}`);
-      }
-      if (params.until) {
-        args.push(`--until=${params.until}`);
-      }
-      if (params.grep) {
-        args.push(`--grep=${params.grep}`);
-      }
-      if (params.ref) {
-        args.push(params.ref);
-      }
-      if (params.path) {
-        args.push("--", params.path);
-      }
+      const args = buildGitLogArgs(params);
 
       try {
         const { stdout } = await execAsync(args.join(" "));
