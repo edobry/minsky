@@ -40,7 +40,7 @@ Editing an EXISTING file with content that has NO `// ... existing code ...` mar
 REFUSED by default, because it would silently overwrite the entire file. Use
 `// ... existing code ...` markers to make a partial edit, or pass `--full-replace` to
 intentionally replace the whole file's content. This is the same guard the
-`session_edit_file` MCP tool enforces — both entry points share one implementation
+`session.edit_file` MCP tool enforces — both entry points share one implementation
 (mt#2612).
 
 ## Input Methods
