@@ -1,0 +1,180 @@
+#!/usr/bin/env bun
+// UserPromptSubmit hook: inject the current date and time into every turn's
+// context (mt#2181).
+//
+// Why this exists. The agent has no reliable way to know "now" without running
+// `date` via a tool. The session-start system reminder anchors the date once,
+// but conversations can run for hours or days; the anchor goes stale silently.
+// Memory-tier discipline ("always run `date` before stating calendar facts")
+// failed within minutes in the originating session (R1 then R2 ~30 min apart on
+// 2026-05-30), because:
+//   - The memory-search hook injects memories matched against the USER'S prompt
+//   - "What's the status of this" has no calendar keywords → memory not surfaced
+//   - The agent doesn't recognize its own future-tense response as a date assertion
+//
+// This hook fires on every UserPromptSubmit and injects the current local time
+// (with day of week and timezone) plus UTC. Same architectural pattern as
+// memory-search.ts and skill-staleness-detector.ts — the additionalContext makes
+// the current time PRESENT in context whether the agent looks for it or not.
+//
+// Override: MINSKY_SKIP_TIME_INJECTION=1|true|yes skips injection with an
+// audit-log line to stdout. Use only when intentionally testing the agent's
+// stale-context handling.
+//
+// @see mt#2181 — this hook
+// @see memory 53086971 — bridge memory this hook retires
+// @see .claude/hooks/memory-search.ts — architectural template
+// @see .claude/hooks/skill-staleness-detector.ts — sibling discipline hook
+
+import { readInput, writeOutput } from "./types";
+import type { ClaudeHookInput, HookOutput } from "./types";
+
+export const TIME_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_TIME_INJECTION";
+
+export interface UserPromptSubmitInput extends ClaudeHookInput {
+  prompt: string;
+}
+
+/**
+ * Build the additionalContext string for a given Date. Pure function for
+ * testability; the entrypoint passes `new Date()` at runtime.
+ *
+ * @param now      — the moment to format
+ * @param timeZone — optional IANA timezone (e.g., "UTC", "America/New_York"). When
+ *                   omitted, the system's local timezone is used. Tests pass
+ *                   "UTC" to get deterministic output regardless of CI TZ.
+ *
+ * Format example:
+ *   "Current time: Saturday 2026-05-30 16:39:00 EDT-0400 (UTC: 2026-05-30T20:39:00Z)"
+ *
+ * Includes:
+ *   - Day of week (so the agent can answer "what day is it?" without computing)
+ *   - ISO local date (the canonical reference format)
+ *   - Local time with timezone abbreviation and numeric offset (both useful;
+ *     the numeric offset is unambiguous, the abbreviation is human-readable)
+ *   - UTC ISO timestamp (canonical for scheduling, logging, cross-region work)
+ *
+ * ICU note: timezone abbreviations and locale-specific date formats can vary
+ * across Bun/Node builds with minimal ICU data. `en-CA` is used for date
+ * because it canonically yields YYYY-MM-DD; `en-GB` for time because it yields
+ * 24h HH:MM:SS. If the runtime falls back to GMT±H instead of an abbreviation
+ * like EDT, the output is still well-formed and the agent can still read it.
+ */
+export function buildTimeContext(now: Date, timeZone?: string): string {
+  const localeOpts = (extra: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions =>
+    timeZone ? { ...extra, timeZone } : extra;
+
+  const dayName = now.toLocaleDateString("en-US", localeOpts({ weekday: "long" }));
+  const localDate = now.toLocaleDateString(
+    "en-CA",
+    localeOpts({ year: "numeric", month: "2-digit", day: "2-digit" })
+  );
+  const localTime = now.toLocaleTimeString(
+    "en-GB",
+    localeOpts({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+  );
+  // Timezone abbreviation (e.g., "EDT") and numeric offset (e.g., "-0400")
+  const tzAbbr =
+    new Intl.DateTimeFormat("en-US", localeOpts({ timeZoneName: "short" }))
+      .formatToParts(now)
+      .find((p) => p.type === "timeZoneName")?.value ?? "";
+  // When timeZone is given, compute its offset from UTC for the given instant.
+  // When not given, use the system's local offset (getTimezoneOffset).
+  const offsetMin = timeZone ? computeOffsetMinutesForZone(now, timeZone) : now.getTimezoneOffset();
+  const offsetSign = offsetMin <= 0 ? "+" : "-";
+  const offsetHours = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, "0");
+  const offsetMins = String(Math.abs(offsetMin) % 60).padStart(2, "0");
+  const offsetStr = `${offsetSign}${offsetHours}${offsetMins}`;
+  const utcIso = now.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+  return `Current time: ${dayName} ${localDate} ${localTime} ${tzAbbr}${offsetStr} (UTC: ${utcIso})`;
+}
+
+/**
+ * Compute the offset-from-UTC (in minutes, JS-convention: positive means BEHIND
+ * UTC, matching `Date.prototype.getTimezoneOffset()`) for a given instant in a
+ * given IANA timezone. Used when `buildTimeContext` is called with an explicit
+ * timeZone (e.g., from tests).
+ */
+function computeOffsetMinutesForZone(now: Date, timeZone: string): number {
+  // Format the instant as parts in the target zone, then reconstruct the
+  // equivalent UTC instant and diff. This avoids depending on Intl's offset
+  // parts (which aren't universally available).
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes): number => {
+    const v = parts.find((p) => p.type === type)?.value;
+    return v ? parseInt(v, 10) : 0;
+  };
+  const asUtcMs = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour") === 24 ? 0 : get("hour"),
+    get("minute"),
+    get("second")
+  );
+  // Round to nearest whole minute. `now.getTime()` includes sub-second
+  // precision; without rounding the offset becomes a fractional minute
+  // (e.g., 0.00541 for UTC), which formats as "0.00541" rather than "00".
+  return Math.round((now.getTime() - asUtcMs) / 60000);
+}
+
+/**
+ * Truthy values for the override env var. Matches the convention used by
+ * sibling hooks (parallel-work-guard, bundle-boot-smoke, etc.).
+ */
+function isOverrideTruthy(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+async function main(): Promise<void> {
+  // Override path: skip injection, emit audit line to stdout.
+  if (isOverrideTruthy(process.env[TIME_INJECTION_OVERRIDE_ENV])) {
+    const auditLine = `[inject-current-time] override active: ${TIME_INJECTION_OVERRIDE_ENV}=${process.env[TIME_INJECTION_OVERRIDE_ENV]} at ${new Date().toISOString()}`;
+    // Audit lines go to stdout; they are not valid HookOutput JSON, so Claude
+    // Code's hook-output parser logs them as "Ignoring non-JSON line on stdout".
+    // Mirrors the convention used by sibling hooks (parallel-work-guard.ts,
+    // check-branch-fresh.ts).
+    process.stdout.write(`${auditLine}\n`);
+    return;
+  }
+
+  // Read input. If parsing fails or the event isn't UserPromptSubmit, bail
+  // silently — garbage-in is no-op, matching the sibling-hook convention
+  // (memory-search.ts, skill-staleness-detector.ts). Don't inject context
+  // for unrelated tool events that might be misrouted to this script.
+  let input: UserPromptSubmitInput;
+  try {
+    input = await readInput<UserPromptSubmitInput>();
+  } catch {
+    return;
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") {
+    return;
+  }
+
+  const output: HookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: buildTimeContext(new Date()),
+    },
+  };
+  writeOutput(output);
+}
+
+// Entrypoint guard: only run main() when this file is invoked as a script.
+// Tests import the pure functions without triggering stdin reads.
+if (import.meta.main) {
+  await main();
+}

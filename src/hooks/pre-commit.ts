@@ -1606,7 +1606,7 @@ export class PreCommitHook {
    */
   private async runCompileCheck(): Promise<HookResult> {
     log.cli(
-      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents)..."
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
     );
 
     const fsp = await import("fs/promises");
@@ -1622,6 +1622,7 @@ export class PreCommitHook {
       skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
       rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
+      hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
     });
 
     if (targetsToCheck.length === 0) {
@@ -1633,7 +1634,7 @@ export class PreCommitHook {
       try {
         // `target` is from the locally-built `targetsToCheck` array which
         // contains only the hardcoded literals "claude-skills",
-        // "cursor-rules-ts", and "claude-agents". Bounded enum, no shell
+        // "cursor-rules-ts", "claude-agents", and "claude-hooks". Bounded enum, no shell
         // metacharacters — no safeShellQuote needed (mirrors
         // runRulesCompileCheck / mt#1829).
         await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
@@ -1735,11 +1736,13 @@ export function compileCheckTargets(present: {
   skills: boolean;
   rules: boolean;
   agents: boolean;
+  hooks: boolean;
 }): string[] {
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
   if (present.rules) targets.push("cursor-rules-ts");
   if (present.agents) targets.push("claude-agents");
+  if (present.hooks) targets.push("claude-hooks");
   return targets;
 }
 
