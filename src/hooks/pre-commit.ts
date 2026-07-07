@@ -646,6 +646,38 @@ export class PreCommitHook {
    * Throws on non-zero exit (gitlinks, deleted-then-modified edge cases,
    * etc.); callers handle via `Promise.allSettled`.
    */
+  /**
+   * Run a git subcommand via `Bun.spawn` argv (no shell) and return its
+   * decoded stdout, throwing on non-zero exit. Used by
+   * `runCompletionManifestRegen`'s diff/add calls instead of
+   * `execGitWithTimeout` to avoid embedding a path into an interpolated
+   * shell command string — the same argv-bypasses-shell rationale as
+   * {@link gitShowStagedBytes} (reviewer-bot BLOCKING finding, mt#2622 PR
+   * review round 1: an unquoted path containing spaces or shell
+   * metacharacters could break the command or enable argument injection,
+   * even though `manifestPath` is a hardcoded constant today).
+   */
+  private async runGitArgv(args: string[], timeoutMs = 5000): Promise<string> {
+    const proc = Bun.spawn(["git", "-C", this.projectRoot, ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), timeoutMs);
+    try {
+      const stdoutPromise = new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) {
+        const stderrText = await new Response(proc.stderr).text();
+        throw new Error(
+          `git ${args.join(" ")} exited ${exitCode}: ${stderrText.trim() || "no stderr"}`
+        );
+      }
+      return await stdoutPromise;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async gitShowStagedBytes(file: string): Promise<Buffer> {
     const TIMEOUT_MS = 5000;
     const proc = Bun.spawn(["git", "-C", this.projectRoot, "show", `:${file}`], {
@@ -1412,13 +1444,14 @@ export class PreCommitHook {
     // Compare the regenerated working-tree copy against the index. `git diff`
     // (no --quiet) always exits 0 and simply prints nothing when there is no
     // difference, so this never throws on the common "already up to date" path.
+    // Uses `runGitArgv` (Bun.spawn argv, no shell) rather than
+    // `execGitWithTimeout` — reviewer-bot BLOCKING finding, mt#2622 PR review
+    // round 1: embedding `manifestPath` into an interpolated shell command
+    // string is a bad precedent even though the path is a hardcoded constant.
     let changed = false;
     try {
-      const diffResult = await execGitWithTimeout("diff", `diff --name-only -- ${manifestPath}`, {
-        workdir: this.projectRoot,
-        timeout: 5000,
-      });
-      changed = manifestDiffIndicatesChange(diffResult.stdout);
+      const diffStdout = await this.runGitArgv(["diff", "--name-only", "--", manifestPath]);
+      changed = manifestDiffIndicatesChange(diffStdout);
     } catch (error) {
       // A failure here is a git-plumbing problem, not a generator problem —
       // fail closed rather than silently skip staging a possibly-changed file.
@@ -1437,10 +1470,7 @@ export class PreCommitHook {
     }
 
     try {
-      await execGitWithTimeout("add", `add -- ${manifestPath}`, {
-        workdir: this.projectRoot,
-        timeout: 5000,
-      });
+      await this.runGitArgv(["add", "--", manifestPath]);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       log.cli(`❌ Could not stage the regenerated completion manifest: ${errMsg}`);
