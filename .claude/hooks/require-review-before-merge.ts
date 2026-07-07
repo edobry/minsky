@@ -12,8 +12,15 @@
 // Ensures code review, spec verification, documentation impact assessment,
 // review freshness, CI presence, bundle-boot health, AND CI status before merging.
 
-import { readInput, writeOutput, execSync } from "./types";
+import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import {
+  deriveRepoFromGit,
+  resolvePrRefByBranch,
+  fetchReviewsRaw,
+  fetchCheckRunsRaw,
+  fetchBranchProtectionRaw,
+} from "./pr-context";
 
 // ---------------------------------------------------------------------------
 // CI check_runs presence — exported for tests
@@ -929,29 +936,25 @@ if (import.meta.main) {
   const task = (input.tool_input.task as string | undefined) ?? "";
   if (!task) process.exit(0);
 
+  // mt#2617 absorbed scope (mt#2653 item 5): derive owner/repo from the git
+  // remote instead of hardcoding "edobry/minsky" (was hardcoded in 6 places
+  // in this file). Silent exit on failure, matching this hook's established
+  // posture of no warning on PR-context resolution failure (below).
+  const repo = deriveRepoFromGit(input.cwd);
+  if (!repo) process.exit(0);
+
   const branch = `task/${task.replace("#", "-")}`;
 
-  // Get PR number and head SHA for this branch
-  const prResult = execSync([
-    "gh",
-    "pr",
-    "list",
-    "--repo",
-    "edobry/minsky",
-    "--head",
-    branch,
-    "--json",
-    "number,headRefOid",
-    "--jq",
-    ".[0] | [.number, .headRefOid] | @tsv",
-  ]);
-  const prParts = prResult.stdout.trim().split("\t");
-  const pr = prParts[0];
-  const headSha = prParts[1];
-  if (!pr) process.exit(0);
+  // mt#2617: ONE call resolves pr/headSha/baseBranch together (was a
+  // number+headRefOid-only TSV query). baseBranch resolves the PR's actual
+  // base branch dynamically instead of the prior hardcoded "main" (mt#2653
+  // item 5), used below by the branch-protection fetch.
+  const ref = resolvePrRefByBranch(repo, branch, { cwd: input.cwd });
+  if (!ref) process.exit(0);
+  const { pr, headSha, baseBranch } = ref;
 
   // Get all reviews (include user.login for reviewer identity enforcement)
-  const reviewsJson = execSync(["gh", "api", `repos/edobry/minsky/pulls/${pr}/reviews`]);
+  const reviewsJson = fetchReviewsRaw(repo, pr, { cwd: input.cwd });
   let reviews: Array<{
     body: string;
     commit_id: string;
@@ -1029,13 +1032,27 @@ if (import.meta.main) {
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
   // Skipped when headSha is unavailable (the gh pr list query above returned no row).
-  // ?per_page=1 keeps the response tiny — the gate only reads total_count, which
-  // is the canonical pagination-safe field on GitHub's Checks API.
+  // mt#2617: ONE `check-runs?per_page=100` fetch replaces what were THREE
+  // separate queries (presence via per_page=1, bundle-boot-smoke via
+  // check_name=, required-checks via per_page=100). All three parse
+  // functions below operate on the SAME raw check-runs response shape and do
+  // their own client-side filtering/sorting (parseBundleBootSmokeResponse and
+  // parseAllCheckRunsResponse both already filter `check_runs[]` themselves —
+  // neither depends on server-side filtering), and GitHub's `total_count` is
+  // the true total regardless of page size — so a single per_page=100 fetch
+  // satisfies all three without changing what gets parsed or denied.
+  let checkRunsResp: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } = {
+    exitCode: 1,
+    stdout: "",
+    stderr: "not fetched",
+  };
   if (headSha) {
-    const checkRunsResp = execSync(
-      ["gh", "api", `repos/edobry/minsky/commits/${headSha}/check-runs?per_page=1`],
-      { timeout: 10000 }
-    );
+    checkRunsResp = fetchCheckRunsRaw(repo, headSha, { cwd: input.cwd });
+  }
+
+  // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
+  // Skipped when headSha is unavailable (the PR-ref query above returned no row).
+  if (headSha) {
     const parseResult = parseCheckRunsResponse(checkRunsResp);
     const checkRunsResult = evaluateCheckRunsPresence(parseResult, pr, headSha);
     if (checkRunsResult.deny && checkRunsResult.reason) {
@@ -1061,15 +1078,7 @@ if (import.meta.main) {
         `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
     );
   } else if (headSha) {
-    const bundleSmokeResp = execSync(
-      [
-        "gh",
-        "api",
-        `repos/edobry/minsky/commits/${headSha}/check-runs?check_name=${BUNDLE_BOOT_SMOKE_CHECK_NAME}`,
-      ],
-      { timeout: 10000 }
-    );
-    const bundleParseResult = parseBundleBootSmokeResponse(bundleSmokeResp);
+    const bundleParseResult = parseBundleBootSmokeResponse(checkRunsResp);
     const bundleResult = evaluateBundleBootSmokePresence(bundleParseResult, pr, headSha);
     if (bundleResult.deny && bundleResult.reason) {
       writeOutput({
@@ -1096,21 +1105,13 @@ if (import.meta.main) {
         `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
     );
   } else if (headSha) {
-    const protectionResp = execSync(["gh", "api", "repos/edobry/minsky/branches/main/protection"], {
-      timeout: 10000,
-    });
+    // mt#2617 absorbed scope (mt#2653 item 5): target the PR's actual base
+    // branch (resolved above) instead of a hardcoded "main".
+    const protectionResp = fetchBranchProtectionRaw(repo, baseBranch, { cwd: input.cwd });
     const protectionParseResult = parseBranchProtectionResponse(protectionResp);
-    // The all-check-runs query uses per_page=100 to surface every run on
-    // this SHA. Pagination beyond 100 is unrealistic for a single commit
-    // (we have 2 required checks; bundle-boot adds a third). If GitHub's
-    // checks API drift ever produces >100 runs per commit, that's an
-    // observability concern worth its own task — for now the API+parser
-    // pair is the same shape as the mt#1309 presence floor.
-    const allRunsResp = execSync(
-      ["gh", "api", `repos/edobry/minsky/commits/${headSha}/check-runs?per_page=100`],
-      { timeout: 10000 }
-    );
-    const allRunsParseResult = parseAllCheckRunsResponse(allRunsResp);
+    // Reuses the SAME per_page=100 check-runs fetch from the mt#1309
+    // presence check above — see the mt#2617 comment there.
+    const allRunsParseResult = parseAllCheckRunsResponse(checkRunsResp);
     const requiredResult = evaluateRequiredChecksStatus(
       protectionParseResult,
       allRunsParseResult,
