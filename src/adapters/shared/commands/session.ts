@@ -1,8 +1,8 @@
 /**
  * Session Command Registration
  *
- * Constructs and registers all session commands (and changeset aliases)
- * in the shared command registry.
+ * Constructs and registers all session commands in the shared command
+ * registry.
  */
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
@@ -46,13 +46,11 @@ import { createSessionConflictsCommand } from "./session/conflicts-command";
 import { createSessionRepairCommand } from "./session/repair-command";
 import { createSessionEditFileCommand } from "./session/file-commands";
 import { createSessionGeneratePromptCommand } from "./session/prompt-command";
-import { registerSessionChangesetCommands } from "./session/changeset-aliases";
 import { createApplyPostMergeStateSyncCommand } from "./session/apply-post-merge-state-sync-command";
 import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
 /**
- * Register all session commands (including changeset aliases) in the shared
- * command registry.
+ * Register all session commands in the shared command registry.
  */
 export async function registerSessionCommands(
   _partialDeps?: Partial<SessionCommandDependencies>,
@@ -143,6 +141,4 @@ export async function registerSessionCommands(
   for (const cmd of commands) {
     sharedCommandRegistry.registerCommand(cmd);
   }
-
-  registerSessionChangesetCommands();
 }
