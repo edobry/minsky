@@ -40,6 +40,8 @@ import type { EntityIndex } from "../lib/entity-linkifier";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { Prose } from "../components/Prose";
 import { ToolPayload } from "../components/ToolPayload";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { useLiveTail } from "../hooks/useLiveTail";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -559,14 +561,10 @@ function ConversationFetcher({
         </div>
       );
     }
-    return (
-      <p className={cn("text-sm text-muted-foreground", className)}>
-        Failed to load conversation: {query.error.message}
-      </p>
-    );
+    return <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />;
   }
   if (query.isLoading || !query.data) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>Loading conversation…</p>;
+    return <LoadingState message="Loading conversation…" className={className} />;
   }
   return (
     <ConversationThread
