@@ -9,6 +9,7 @@
  *   - startProdStateRefreshSweeper (mt#2506)
  *   - startTopologySweeper         (mt#2602)
  *   - startTranscriptSweepBackstop (mt#2321)
+ *   - startDispatchWatchdogSweeper (mt#2646)
  *
  * All four previously duplicated an ~8-line skeleton (running-guard, boot
  * tick, setInterval, clearInterval) with NO protection against a single tick
@@ -252,6 +253,53 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: prod-state refresh sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch watchdog refresh sweeper (mt#2646)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default refresh interval for the dispatch-watchdog cache. Well below the
+ * default stale-detection window (`DISPATCH_WATCHDOG_STALE_MS` = 30m in
+ * dispatch-watchdog.ts) so a healthy sweep can flag a stalled dispatch
+ * within a few minutes of crossing the threshold rather than waiting a full
+ * refresh-interval extra.
+ */
+const DISPATCH_WATCHDOG_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Start the periodic dispatch-watchdog cache refresh in this cockpit process
+ * (mt#2646).
+ *
+ * The PRODUCER half of the hybrid cached-injection mechanism: queries
+ * in-flight `subagent_invocations` rows (dispatched, not yet Stop-classified)
+ * whose task is IN-PROGRESS/IN-REVIEW, checks each for activity (session-
+ * branch commits, related system events), and writes the flagged set to a
+ * small local cache that `.claude/hooks/inject-dispatch-watchdog.ts` injects
+ * each turn. Doing the DB/git reads here (once at boot, then every
+ * `intervalMs`) keeps the per-turn hook read cheap (local fs only).
+ *
+ * Fail-open: no DB / unreadable ledger / a failed pass logs and waits for the
+ * next tick — never crashes the cockpit, and leaves the last-good cache in
+ * place. Overlapping ticks skip.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startDispatchWatchdogSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "dispatch watchdog",
+    intervalMs: intervalMs ?? DISPATCH_WATCHDOG_REFRESH_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const { refreshDispatchWatchdogCache } = await import("./dispatch-watchdog");
+        await refreshDispatchWatchdogCache();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: dispatch watchdog sweep failed", { message });
       }
     },
   });

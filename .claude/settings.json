@@ -366,6 +366,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-dispatch-watchdog.ts",
+            "timeout": 5,
+            "statusMessage": "Checking dispatch watchdog..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/memory-search.ts",
             "timeout": 10,
             "statusMessage": "Searching memory for context..."
