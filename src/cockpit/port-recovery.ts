@@ -60,6 +60,16 @@ export function isProcessAlive(pid: number): boolean {
  * Find the process holding the given port. Returns null on Windows (no `lsof`)
  * or if `lsof` isn't available — port-recovery degrades to the standard
  * EADDRINUSE error in that case.
+ *
+ * Independent re-implementation of `pid_on_port` in
+ * `cockpit-tray/src-tauri/src/supervisor.rs` (mt#2629) — this side
+ * additionally resolves the holder's command line for zombie-recognition
+ * (see `classifyPortHolder` below) and uses `-i :<port>` instead of the
+ * Rust side's `-ti tcp:<port>`, but both filter to LISTEN-state sockets only
+ * and both treat "no matching PID" as "port free". Not unified: the Rust
+ * supervisor must keep working with no Minsky CLI/MCP process running at
+ * all. See `contract/README.md` §2 for the documented semantics both
+ * implementations share.
  */
 export function findPortHolder(port: number): PortHolder | null {
   if (process.platform === "win32") return null;

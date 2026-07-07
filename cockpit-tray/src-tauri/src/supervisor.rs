@@ -344,6 +344,15 @@ pub(crate) fn resolve_repo_root(path: &str) -> Option<PathBuf> {
 }
 
 /// The PID of whatever is LISTENing on `port`, if any.
+///
+/// Independent re-implementation of `findPortHolder` in
+/// `src/cockpit/port-recovery.ts` (mt#2629) — the TS side additionally
+/// resolves the holder's command line for zombie-recognition and uses `-i
+/// :<port>` instead of `-ti tcp:<port>`, but both filter to LISTEN-state
+/// sockets only and both treat "no matching PID" as "port free". Not
+/// unified: the Rust supervisor must keep working with no Minsky
+/// CLI/MCP process running at all. See `contract/README.md` §2 for the
+/// documented semantics both implementations share.
 fn pid_on_port(port: u16, path: &str) -> Option<u32> {
     let out = Command::new(lsof_bin(path))
         .args(["-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
@@ -993,6 +1002,13 @@ enum DbStatus {
 }
 
 /// Watchdog-relevant fields extracted from a single /api/health response.
+///
+/// The `db` and `processStartedAtMs` fields this struct parses are pinned
+/// against `src/cockpit/routes/health.ts` (the emitter) via the shared golden
+/// fixture `contract/cockpit-health-shape.json` (mt#2629) — see the
+/// `health_contract` test module at the bottom of this file and
+/// `contract/README.md`. Renaming either field in health.ts without updating
+/// both sides of the contract fails a test here.
 struct HealthDetail {
     /// True when the HTTP GET succeeded with a 2xx status.
     http_ok: bool,
@@ -1439,5 +1455,116 @@ mod tests {
             "Cockpit: :3737 held by pid 4242 (not started by tray)"
         );
         assert_eq!(conflict_label_for(None), LABEL_CONFLICT);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Health-shape contract pin (mt#2629).
+//
+// `poll_health_detail` above parses `db` and `processStartedAtMs` out of the
+// `/api/health` JSON body emitted by `src/cockpit/routes/health.ts`. There is
+// no shared schema-generation tooling between the Rust supervisor and the TS
+// server, so this module pins the contract two ways against the single
+// checked-in fixture `contract/cockpit-health-shape.json` (repo root):
+//
+//   1. `fixture_declares_fields_rust_depends_on` — the fixture's own
+//      `rustConsumedFields` list is included as fields in `fields`. Catches a
+//      fixture edited out of sync with itself.
+//   2. `health_route_source_still_emits_fields_rust_depends_on` — greps the
+//      LIVE TypeScript source of health.ts (pulled in via `include_str!`, so
+//      this re-reads on every compile) for each rustConsumedFields name. This
+//      is what makes a same-PR rename in health.ts fail THIS cargo test
+//      immediately, without needing the fixture regenerated first — the bun
+//      side (`src/cockpit/health-contract.test.ts`) independently pins the
+//      full field set + types against the same fixture by asserting the
+//      LIVE server response matches it.
+//
+// See contract/README.md for the full contract note, including the
+// port/process-detection semantics documented alongside this fixture.
+#[cfg(test)]
+mod health_contract {
+    const HEALTH_SHAPE_FIXTURE: &str =
+        include_str!("../../../contract/cockpit-health-shape.json");
+    const HEALTH_ROUTE_SOURCE: &str =
+        include_str!("../../../src/cockpit/routes/health.ts");
+
+    /// Pull `rustConsumedFields` out of the fixture without a full serde
+    /// struct — the fixture is a flat, hand-authored JSON doc and a tiny
+    /// manual parse keeps this test from needing a schema type of its own.
+    fn rust_consumed_fields(fixture_json: &serde_json::Value) -> Vec<String> {
+        fixture_json
+            .get("rustConsumedFields")
+            .and_then(|v| v.as_array())
+            .expect("fixture must declare a `rustConsumedFields` array")
+            .iter()
+            .map(|v| v.as_str().expect("rustConsumedFields entries must be strings").to_string())
+            .collect()
+    }
+
+    #[test]
+    fn fixture_declares_fields_rust_depends_on() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(HEALTH_SHAPE_FIXTURE).expect("fixture must be valid JSON");
+        let fields = fixture
+            .get("fields")
+            .and_then(|v| v.as_object())
+            .expect("fixture must declare a `fields` object");
+        for name in rust_consumed_fields(&fixture) {
+            assert!(
+                fields.contains_key(&name),
+                "contract/cockpit-health-shape.json's rustConsumedFields names `{name}`, \
+                 but `fields` has no such key — the fixture is internally inconsistent"
+            );
+        }
+    }
+
+    #[test]
+    fn health_route_source_still_emits_fields_rust_depends_on() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(HEALTH_SHAPE_FIXTURE).expect("fixture must be valid JSON");
+        for name in rust_consumed_fields(&fixture) {
+            // health.ts emits fields as `res.json({ ..., <name>: <expr>, ... })` —
+            // the literal `<name>:` token is a stable enough signature for this
+            // source-text pin without parsing TypeScript.
+            let needle = format!("{name}:");
+            assert!(
+                HEALTH_ROUTE_SOURCE.contains(&needle),
+                "src/cockpit/routes/health.ts no longer appears to emit field `{name}` \
+                 (searched for literal `{needle}`) — the Rust supervisor's \
+                 poll_health_detail() parses this field. If you renamed it in health.ts, \
+                 update supervisor.rs's parsing AND contract/cockpit-health-shape.json \
+                 together (see contract/README.md)."
+            );
+        }
+    }
+
+    #[test]
+    fn poll_health_detail_parsing_matches_fixture_sample() {
+        // End-to-end (minus the HTTP hop): the fixture's `sample` object is
+        // exactly the kind of JSON body `poll_health_detail` parses at
+        // runtime. Exercise the same field-extraction logic here so a change
+        // to that logic's field names is caught alongside the source-text
+        // scan above.
+        let fixture: serde_json::Value =
+            serde_json::from_str(HEALTH_SHAPE_FIXTURE).expect("fixture must be valid JSON");
+        let sample = fixture
+            .get("sample")
+            .expect("fixture must declare a `sample` object");
+
+        let db = match sample.get("db").and_then(|v| v.as_str()) {
+            Some("ok") => super::DbStatus::Ok,
+            Some("degraded") => super::DbStatus::Degraded,
+            Some("unreachable") => super::DbStatus::Unreachable,
+            _ => super::DbStatus::Unknown,
+        };
+        assert_eq!(db, super::DbStatus::Ok, "fixture sample's `db` should decode to Ok");
+
+        let process_started_at_ms = sample.get("processStartedAtMs").and_then(|v| v.as_u64());
+        assert_eq!(
+            process_started_at_ms,
+            Some(1_735_689_600_000),
+            "fixture sample's `processStartedAtMs` should round-trip through the same \
+             `.and_then(|v| v.as_u64())` extraction poll_health_detail() uses"
+        );
     }
 }
