@@ -11,6 +11,7 @@ import {
   startProdStateRefreshSweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
+  startDispatchWatchdogSweeper,
 } from "../../cockpit/sweepers";
 import {
   markDbDegraded,
@@ -260,6 +261,11 @@ export function createStartCommand(): Command {
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
       const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Dispatch watchdog refresh (mt#2646): periodically check in-flight
+      // subagent dispatches (IN-PROGRESS/IN-REVIEW tasks with no commit/PR-
+      // event/subagent_invocations progress) and write the flagged set to the
+      // local cache that inject-dispatch-watchdog.ts injects each turn.
+      const stopDispatchWatchdogSweeper = startDispatchWatchdogSweeper();
 
       let shuttingDown = false;
       const cleanupSync = () => {
@@ -270,6 +276,7 @@ export function createStartCommand(): Command {
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
+        stopDispatchWatchdogSweeper();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
