@@ -26,6 +26,8 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { isSessionsPayload } from "../lib/sessions-source";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 
 // ── Frontend mirror types — keep in sync with backend ─────────────────────────
 
@@ -242,16 +244,16 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
   });
 
   if (sessionsQuery.isError) {
-    return <p className="text-muted-foreground text-sm">Failed to load sessions: {sessionsQuery.error.message}</p>;
+    return <ErrorState prefix="Failed to load sessions" error={sessionsQuery.error} />;
   }
   if (sessionsQuery.isLoading || !sessionsQuery.data) {
-    return <p className="text-muted-foreground text-sm">Loading…</p>;
+    return <LoadingState />;
   }
   if (sessionsQuery.data.state === "degraded") {
     return <p className="text-muted-foreground text-sm">{sessionsQuery.data.reason}</p>;
   }
   if (!isSessionsPayload(sessionsQuery.data.payload)) {
-    return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
+    return <ErrorState message="Unexpected payload shape" />;
   }
 
   const sessions = sessionsQuery.data.payload.sessions;
@@ -323,11 +325,9 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
       {selectedSessionId === null ? (
         <p className="text-sm text-muted-foreground">Select a session to view its context.</p>
       ) : snapshotQuery.isError ? (
-        <p className="text-sm text-muted-foreground">
-          Failed to load snapshot: {snapshotQuery.error?.message ?? "unknown error"}
-        </p>
+        <ErrorState prefix="Failed to load snapshot" error={snapshotQuery.error} />
       ) : snapshotQuery.isLoading || !snapshotQuery.data ? (
-        <p className="text-sm text-muted-foreground">Loading snapshot…</p>
+        <LoadingState message="Loading snapshot…" />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {/* Block list */}

@@ -19,6 +19,8 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChangesetDetail, type ChangesetDetailPayload } from "../widgets/ChangesetDetail";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { shortenId } from "../lib/format";
 
 async function fetchChangeset(id: string): Promise<ChangesetDetailPayload | null> {
@@ -61,11 +63,9 @@ export function ChangesetDetailPage() {
       </nav>
 
       {query.isError ? (
-        <p className="text-sm text-destructive">
-          Failed to load changeset: {query.error.message}
-        </p>
+        <ErrorState prefix="Failed to load changeset" error={query.error} />
       ) : query.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading changeset…</p>
+        <LoadingState message="Loading changeset…" />
       ) : query.data ? (
         <ChangesetDetail changeset={query.data} />
       ) : (

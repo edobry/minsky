@@ -29,6 +29,8 @@ import {
   type AskItem,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { useState } from "react";
 import { shortenId } from "../lib/format";
 import { useTabs } from "../lib/tabs";
@@ -108,9 +110,9 @@ export function AskPage() {
       </nav>
 
       {query.isError ? (
-        <p className="text-sm text-destructive">Failed to load ask: {query.error.message}</p>
+        <ErrorState prefix="Failed to load ask" error={query.error} />
       ) : query.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading ask…</p>
+        <LoadingState message="Loading ask…" />
       ) : ask ? (
         <AskDetail
           ask={ask}
