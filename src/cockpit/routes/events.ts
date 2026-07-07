@@ -113,8 +113,14 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
   try {
     const provider = await getCachedPersistenceProvider();
 
-    // Require getListenCapableSqlConnection — only the Postgres provider has it
+    // Require getListenCapableSqlConnection — only the Postgres provider has
+    // it. Guard the `in` check with an object test first (R2 review): a
+    // non-object provider would otherwise throw here and be misclassified as
+    // "init failed" (503) by the outer catch, instead of degrading to the
+    // documented no-op-listener fallback below.
     if (
+      typeof provider !== "object" ||
+      provider === null ||
       !("getListenCapableSqlConnection" in provider) ||
       typeof (provider as { getListenCapableSqlConnection?: unknown })
         .getListenCapableSqlConnection !== "function"
