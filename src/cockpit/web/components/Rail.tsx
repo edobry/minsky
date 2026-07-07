@@ -14,7 +14,7 @@
  * different spine without touching the widgets it routes to (Layout-flexibility
  * mandate). The ⌘K hint here is served by the existing global CommandPalette.
  */
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import {
   GitBranch,
@@ -33,7 +33,9 @@ import {
   Activity,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { fetchWidgetData } from "../lib/widget-client";
+import { useOpenAskCount } from "../hooks/useOpenAskCount";
+import { LoadingState } from "./LoadingState";
+import { ErrorState } from "./ErrorState";
 
 interface NavItem {
   to: string;
@@ -86,41 +88,20 @@ function RailLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-/** Best-effort pending-attention count; tolerant of the widget payload shape. */
-function usePendingAttentionCount(): number | null {
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const data = await fetchWidgetData("attention");
-        if (cancelled || data.state !== "ok") return;
-        const p = data.payload as Record<string, unknown>;
-        const derived = Array.isArray(p?.asks)
-          ? (p.asks as unknown[]).length
-          : typeof p?.pendingCount === "number"
-            ? (p.pendingCount as number)
-            : typeof p?.count === "number"
-              ? (p.count as number)
-              : null;
-        setCount(derived);
-      } catch {
-        /* leave count null on any failure — the digest still links to /asks */
-      }
-    }
-    void load();
-    const id = setInterval(() => void load(), 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-  return count;
-}
-
-/** Pinned attention digest — the algedonic top slot, linking to the asks surface. */
+/**
+ * Pinned attention digest — the algedonic top slot, linking to the asks surface.
+ *
+ * Pending count via the shared `useOpenAskCount` hook (mt#2590's `attention`
+ * widget reader), migrated off a bespoke bare `fetch()`+`useState` poll
+ * (mt#2641). That prior implementation derived the count from `asks` /
+ * `pendingCount` / `count` payload fields that don't exist on the actual
+ * `AttentionPayload` shape (`{ activeWindow, cohort, totalPending }`) — so the
+ * badge silently rendered "…" forever in production. `useOpenAskCount` reads
+ * `totalPending` directly and shares its query cache with every other
+ * consumer of the same widget (VitalsPage, PlantFlowPage, AttentionLoopCard).
+ */
 function AttentionDigest({ pathname }: { pathname: string }) {
-  const count = usePendingAttentionCount();
+  const { data: count, isLoading, isError } = useOpenAskCount();
   const active = isActive(pathname, "/asks");
   return (
     <Link
@@ -137,31 +118,48 @@ function AttentionDigest({ pathname }: { pathname: string }) {
         <Zap aria-hidden className="h-4 w-4 text-warn-amber" />
         Attention
       </span>
-      {count != null && count > 0 ? (
+      {isLoading ? (
+        <LoadingState message="…" className="text-xs" />
+      ) : isError ? (
+        <ErrorState message="error" ambient className="text-xs" />
+      ) : count != null && count > 0 ? (
         <span className="rounded-full bg-warn-amber/20 px-1.5 text-xs font-medium text-warn-amber tabular-nums">
           {count}
         </span>
       ) : (
-        <span className="text-xs text-muted-foreground">{count === 0 ? "clear" : "…"}</span>
+        <span className="text-xs text-muted-foreground">clear</span>
       )}
     </Link>
   );
 }
 
+interface HealthResponse {
+  commit?: string;
+}
+
+/**
+ * Running-commit fetch for the footer (mt#2641). `/api/health` isn't a
+ * registry widget (no `fetchWidgetData` route), so this hits the endpoint
+ * directly, mirroring `useSystemHealth`'s `/api/health` call. Resolves to
+ * `null` (not an error) when the server can't determine a commit — e.g. a
+ * non-git checkout — since that's a valid degraded state, not a fetch failure.
+ */
+async function fetchRunningCommit(): Promise<string | null> {
+  const res = await fetch("/api/health");
+  if (!res.ok) {
+    throw new Error(`api/health: ${res.status}`);
+  }
+  const data = (await res.json()) as HealthResponse;
+  return typeof data.commit === "string" && data.commit !== "unknown" ? data.commit : null;
+}
+
 export function Rail() {
   const { pathname } = useLocation();
-  const [commit, setCommit] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((data: Record<string, unknown>) => {
-        if (typeof data.commit === "string" && data.commit !== "unknown") {
-          setCommit(data.commit as string);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const commitQuery = useQuery({
+    queryKey: ["rail", "running-commit"],
+    queryFn: fetchRunningCommit,
+    staleTime: 5 * 60_000,
+  });
 
   return (
     <aside
@@ -221,10 +219,16 @@ export function Rail() {
           <Settings aria-hidden className="h-4 w-4" />
           <span>Settings</span>
         </Link>
-        {commit && (
-          <span className="font-mono text-[10px] text-muted-foreground/50" title="Running commit">
-            {commit}
-          </span>
+        {commitQuery.isLoading ? (
+          <LoadingState message="…" className="text-[10px]" />
+        ) : commitQuery.isError ? (
+          <ErrorState message="commit unknown" ambient className="text-[10px]" />
+        ) : (
+          commitQuery.data && (
+            <span className="font-mono text-[10px] text-muted-foreground/50" title="Running commit">
+              {commitQuery.data}
+            </span>
+          )
         )}
       </div>
     </aside>
