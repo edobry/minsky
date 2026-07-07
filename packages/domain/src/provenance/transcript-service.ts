@@ -14,6 +14,7 @@
  * @see mt#1325 — Harness-agnostic ingestion (fixes agent_session_id keying)
  */
 
+import { injectable } from "tsyringe";
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { promises as fs } from "fs";
@@ -87,6 +88,7 @@ function countCorrections(messages: TranscriptMessage[]): number {
   return corrections;
 }
 
+@injectable()
 export class AgentTranscriptService {
   constructor(private readonly db: PostgresJsDatabase) {}
 

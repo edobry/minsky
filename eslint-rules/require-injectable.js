@@ -8,6 +8,9 @@
  *   export class MyService { ... }  // missing @injectable()
  *
  * @see mt#916 — DI enforcement: require @injectable() on domain service classes
+ * @see ADR-026 — DI convention decision; mt#2623 fixed this rule's path filter after
+ *      mt#2108's domain-package extraction (src/domain/ -> packages/domain/src/) silently
+ *      turned it into a no-op for all post-extraction domain code.
  */
 export default {
   meta: {
@@ -36,8 +39,13 @@ export default {
   },
   create(context) {
     const filename = context.filename || context.getFilename();
-    // Only apply to domain layer files
-    if (!filename.includes("/src/domain/")) return {};
+    // Only apply to domain layer files. Matches both the legacy `src/domain/` location
+    // and the post-mt#2108 `packages/domain/src/` location (domain code was extracted
+    // into its own workspace package; the path SEGMENT ORDER flips from src/domain to
+    // domain/src, so a plain `/src/domain/` substring check silently stopped matching
+    // any post-extraction file — see ADR-026).
+    const DOMAIN_PATH_PATTERN = /\/(src\/domain|packages\/domain\/src)\//;
+    if (!DOMAIN_PATH_PATTERN.test(filename)) return {};
 
     const options = context.options[0] || {};
     const allowedClasses = new Set(options.allowedClasses || []);

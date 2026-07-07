@@ -252,6 +252,12 @@ export default [
             "log",
             "EXEMPT_COMMANDS",
             "testConfigManager",
+            // Constant lookup tables (Set/Map), not stateful service singletons —
+            // surfaced by the ADR-026 path-filter fix (mt#2623), which restored
+            // this rule's enforcement on packages/domain/src/ post-mt#2108.
+            "HOSTED_SAFE_SESSION_COMMANDS",
+            "KNOWN_TOP_LEVEL_KEYS",
+            "HOOK_ONLY_ENV_VARS",
           ],
         },
       ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)

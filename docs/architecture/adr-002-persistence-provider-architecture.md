@@ -4,6 +4,14 @@
 
 **ACCEPTED** - Implemented 2025-01-10
 
+> **Addendum (2026-07-07, ADR-027):** the capability-detection axis described below
+> (`PostgresPersistenceProvider` vs `PostgresVectorPersistenceProvider`) is **intra-Postgres**
+> — both subclasses wrap the same PostgreSQL connection and differ only in whether `pgvector`
+> is installed. This ADR never specified a second storage engine. For the backend-count
+> decision (Postgres is the only supported backend; SQLite was removed), see
+> [ADR-018](adr-018-domain-persistence-pattern.md) §"SQLite consequence (explicit)" and
+> [ADR-027](adr-027-postgres-only-persistence-confirmed.md).
+
 ## Context
 
 ### System Characteristics
