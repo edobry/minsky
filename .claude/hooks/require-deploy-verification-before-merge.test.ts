@@ -98,6 +98,11 @@ describe("hasDeployVerification (mt#2353)", () => {
     expect(hasDeployVerification("## deploy verification\nSUCCESS confirmed.")).toBe(true);
   });
 
+  test("indented next heading is a section boundary (empty section still blocks)", () => {
+    const body = `## Deploy verification\n   ## Next Section\nprose\n`;
+    expect(hasDeployVerification(body)).toBe(false);
+  });
+
   test("true for heading form indented up to 3 spaces (CommonMark), false at 4+", () => {
     expect(hasDeployVerification("   ## Deploy verification\nRan it.")).toBe(true);
     // 4+ spaces is a CommonMark code block, not a heading

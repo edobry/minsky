@@ -168,7 +168,7 @@ export function hasExecutionEvidence(prBody: string): boolean {
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^#{1,6}\s/.test(nextLine)) break; // next heading — stop
+      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
       if (nextLine.trim().length > 0) return true; // found content
     }
     // Heading found but no content — keep looking in case there's another

@@ -312,6 +312,14 @@ describe("hasExecutionEvidence", () => {
     expect(hasExecutionEvidence("## Execution evidence bun test passed, 3/3")).toBe(true);
   });
 
+  it("treats an INDENTED next heading as a section boundary (empty section still blocks)", () => {
+    // R2: the end-boundary scan must mirror the start-marker's 3-space
+    // indent tolerance — an empty evidence section followed by an indented
+    // next heading must NOT count that heading line as content.
+    const body = `## Execution evidence\n   ## Next Section\nprose\n`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
   it("detects heading form indented up to 3 spaces (CommonMark), but not 4+", () => {
     expect(hasExecutionEvidence(" ## Execution evidence\nbun test passed")).toBe(true);
     expect(hasExecutionEvidence("   ## Execution evidence\nbun test passed")).toBe(true);
