@@ -33,12 +33,8 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import {
-  deriveRepoFromGit,
-  resolvePrNumber,
-  makeProdPrDeps,
-} from "./require-execution-evidence-before-merge";
-import type { PrFile } from "./require-execution-evidence-before-merge";
+import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
+import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles } from "./deploy-surface-detector";
 
 // ---------------------------------------------------------------------------
@@ -245,39 +241,33 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const { prNumber, warning: prResolutionWarning } = resolvePrNumber(repo, task, input.cwd);
-  if (!prNumber) {
+  // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
+  // instead of the previous resolvePrNumber (1-2 calls) + fetchPrMeta (1
+  // call) + fetchPrFiles (1 call) = up to 4 calls.
+  const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
+
+  // Fail-open: can't fetch PR data → allow with a warning. mt#2617 R1
+  // BLOCKING #2: surface BOTH the primary resolution warning AND any
+  // accumulated per-call warnings (e.g. a fetchPrFiles warning that fired
+  // before meta resolution failed) — dropping the latter silently lost
+  // operator-visible signal the pre-refactor code always surfaced.
+  if (!context.ok) {
+    const allFailureWarnings = formatContextFailureWarnings(context);
+    const lastIndex = allFailureWarnings.length - 1;
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: `⚠️ ${prResolutionWarning ?? "[deploy-verification] PR number could not be resolved — check skipped."}`,
+        additionalContext: allFailureWarnings
+          .map((w, i) => (i === lastIndex ? `⚠️ [deploy-verification] ${w}` : `⚠️ ${w}`))
+          .join("\n"),
       },
     });
     process.exit(0);
   }
 
-  const deps = makeProdPrDeps(input.cwd);
-  const { files: prFiles, warning: prFilesWarning } = deps.fetchPrFiles(repo, prNumber);
-  const prMeta = deps.fetchPrMeta(repo, prNumber);
+  const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
 
-  const topLevelWarnings: string[] = [];
-  if (prFilesWarning) topLevelWarnings.push(prFilesWarning);
-
-  // Fail-open: can't fetch PR data → allow with a warning.
-  if (!prMeta) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: [
-          ...topLevelWarnings.map((w) => `⚠️ ${w}`),
-          `⚠️ [deploy-verification] Could not fetch PR #${prNumber} metadata. Proceeding without check.`,
-        ].join("\n"),
-      },
-    });
-    process.exit(0);
-  }
-
-  const result = checkDeployVerification(prFiles, prMeta.title, prMeta.body);
+  const result = checkDeployVerification(prFiles, prTitle, prBody);
   const allWarnings = [...topLevelWarnings, ...result.warnings];
 
   if (result.blocked) {

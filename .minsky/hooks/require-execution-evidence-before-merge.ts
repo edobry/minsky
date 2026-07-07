@@ -19,25 +19,42 @@
 // @see mt#1460 — sibling /prepare-pr skill step (PR-creation-time guard)
 // @see feedback_behavior_detecting_artifacts_need_execution_evidence — four-incident history
 
-import { readInput, writeOutput, execWithPath } from "./types";
+import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-
-// NOTE: execWithPath is centralized in types.ts and imported above.
-// Both this hook and parallel-work-guard.ts consume it from there to keep
-// PATH-augmentation and timeout behavior consistent across hooks.
-// See NON-BLOCKING #5 from PR #909 round 1 review.
+import {
+  deriveRepoFromGit as deriveRepoFromGitImpl,
+  parseGitHubRemoteUrl as parseGitHubRemoteUrlImpl,
+  resolvePrNumber as resolvePrNumberImpl,
+  makeProdPrDeps as makeProdPrDepsImpl,
+  fetchPrContext,
+  formatContextFailureWarnings,
+} from "./pr-context";
+import type {
+  PrFile as PrFileImpl,
+  ExecFn as ExecFnImpl,
+  PrDeps as PrDepsImpl,
+  FetchPrFilesResult as FetchPrFilesResultImpl,
+} from "./pr-context";
 
 // ---------------------------------------------------------------------------
-// Types
+// mt#2617: PR-data fetch (repo derivation, PR-number resolution, files/meta
+// fetch) moved to the shared ./pr-context module — consumed by all four
+// session_pr_merge merge gates. Re-exported here VERBATIM so every existing
+// consumer (deploy-surface-detector.ts, deploy-verification-after-merge.ts,
+// require-deploy-verification-before-merge.ts, and this file's own test
+// suite) keeps importing from "./require-execution-evidence-before-merge"
+// unchanged. `resolvePrNumber`'s raw-stdout parsing contract is directly
+// unit-tested and is kept byte-identical in ./pr-context.
 // ---------------------------------------------------------------------------
 
-/** File entry from GitHub PR files API */
-export interface PrFile {
-  filename: string;
-  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
-  /** Present for renamed/copied files — the filename before the rename/copy */
-  previous_filename?: string;
-}
+export const deriveRepoFromGit = deriveRepoFromGitImpl;
+export const parseGitHubRemoteUrl = parseGitHubRemoteUrlImpl;
+export const resolvePrNumber = resolvePrNumberImpl;
+export const makeProdPrDeps = makeProdPrDepsImpl;
+export type PrFile = PrFileImpl;
+export type ExecFn = ExecFnImpl;
+export type PrDeps = PrDepsImpl;
+export type FetchPrFilesResult = FetchPrFilesResultImpl;
 
 /** Result of the execution-evidence check */
 export interface ExecutionEvidenceCheckResult {
@@ -198,109 +215,6 @@ export function hasBypassPrefix(prTitle: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// PR data fetching (injectable for tests)
-// ---------------------------------------------------------------------------
-
-/** Result of fetchPrFiles — files plus an optional warning if the API call failed */
-export interface FetchPrFilesResult {
-  files: PrFile[];
-  warning?: string;
-}
-
-export interface PrDeps {
-  fetchPrFiles: (repo: string, prNumber: number) => FetchPrFilesResult;
-  fetchPrMeta: (repo: string, prNumber: number) => { title: string; body: string } | null;
-}
-
-/**
- * Fetch PR files from GitHub API.
- * Returns { files: [], warning } on error (fail-open: if we can't check, allow merge)
- * so that callers can surface the warning in the audit trail.
- * Resolves BLOCKING #3 from PR #909 round 2 review.
- */
-export function makeProdPrDeps(cwd?: string): PrDeps {
-  return {
-    fetchPrFiles(repo: string, prNumber: number): FetchPrFilesResult {
-      // Use --paginate so PRs with more than 30 files (GitHub's default page
-      // size) are not silently truncated. --paginate accumulates all pages and
-      // outputs them as a JSON array of per-page arrays; --jq flattens them.
-      // Resolves BLOCKING #3 from PR #909 round 1 review.
-      const result = execWithPath(
-        [
-          "gh",
-          "api",
-          `repos/${repo}/pulls/${prNumber}/files`,
-          "--paginate",
-          "--jq",
-          "[.[] | {filename: .filename, status: .status, previous_filename: .previous_filename}]",
-        ],
-        { cwd, timeout: 15000 }
-      );
-      if (result.exitCode !== 0) {
-        return {
-          files: [],
-          warning: `fetchPrFiles: gh api failed (exit ${result.exitCode}) for PR #${prNumber} — test-file detection skipped.`,
-        };
-      }
-      try {
-        // When --paginate is used with --jq, each page outputs one JSON array.
-        // Multiple arrays may be concatenated in stdout. Merge them.
-        const raw = result.stdout.trim();
-        // Try direct parse first (single page — most common case)
-        if (raw.startsWith("[")) {
-          try {
-            const parsed = JSON.parse(raw);
-            // If it's an array of arrays (multi-page), flatten; else use as-is
-            if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
-              return { files: (parsed as PrFile[][]).flat() };
-            }
-            return { files: parsed as PrFile[] };
-          } catch {
-            // Fall through to line-by-line parse
-          }
-        }
-        // Multi-page: each line is a separate JSON array from --jq
-        const pages = raw
-          .split("\n")
-          .filter((l) => l.trim().startsWith("["))
-          .map((l) => {
-            try {
-              return JSON.parse(l) as PrFile[];
-            } catch {
-              return [] as PrFile[];
-            }
-          });
-        return { files: pages.flat() };
-      } catch {
-        return {
-          files: [],
-          warning: `fetchPrFiles: JSON parse failed for PR #${prNumber} — test-file detection skipped.`,
-        };
-      }
-    },
-
-    fetchPrMeta(repo: string, prNumber: number): { title: string; body: string } | null {
-      const result = execWithPath(
-        [
-          "gh",
-          "api",
-          `repos/${repo}/pulls/${prNumber}`,
-          "--jq",
-          '{title: .title, body: (.body // "")}',
-        ],
-        { cwd, timeout: 15000 }
-      );
-      if (result.exitCode !== 0) return null;
-      try {
-        return JSON.parse(result.stdout) as { title: string; body: string };
-      } catch {
-        return null;
-      }
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Core check logic (pure / injectable)
 // ---------------------------------------------------------------------------
 
@@ -356,126 +270,8 @@ export function checkExecutionEvidence(
 }
 
 // ---------------------------------------------------------------------------
-// Repo derivation (derives owner/repo from git remote — no hardcoded slugs)
-// ---------------------------------------------------------------------------
-
-/**
- * Parse an `owner/repo` slug out of a GitHub remote URL. Returns null if the
- * URL doesn't look like a GitHub remote.
- *
- * Supports SCP-style SSH, URL-style SSH, HTTPS with or without credentials.
- * Pure function — no I/O.
- */
-export function parseGitHubRemoteUrl(url: string): string | null {
-  const trimmed = url.trim();
-  // SCP-style SSH: git@github.com:owner/repo[.git]
-  const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
-  if (sshMatch) return sshMatch[1] ?? null;
-  // URL-style SSH (with optional port or git+ssh prefix)
-  const sshUrlMatch = trimmed.match(
-    /^(?:git\+)?ssh:\/\/(?:[^@]+@)?github\.com(?::\d+)?\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
-  );
-  if (sshUrlMatch) return sshUrlMatch[1] ?? null;
-  // HTTPS form (with optional embedded credentials)
-  const httpsMatch = trimmed.match(
-    /^https:\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
-  );
-  if (httpsMatch) return httpsMatch[1] ?? null;
-  return null;
-}
-
-/**
- * Derive the GitHub `owner/repo` slug from the `origin` remote of the given
- * git working directory. Returns null if the remote can't be read or doesn't
- * look like a GitHub URL — callers should fail-open with a warning.
- */
-export function deriveRepoFromGit(repoDir: string): string | null {
-  const result = execWithPath(["git", "remote", "get-url", "origin"], {
-    cwd: repoDir,
-    timeout: 5000,
-  });
-  if (result.exitCode !== 0 || !result.stdout.trim()) return null;
-  return parseGitHubRemoteUrl(result.stdout);
-}
-
-// ---------------------------------------------------------------------------
 // Top-level hook entry point
 // ---------------------------------------------------------------------------
-
-/** Minimal exec function type for dependency injection in resolvePrNumber */
-export type ExecFn = (
-  cmd: string[],
-  opts?: { cwd?: string; timeout?: number }
-) => { exitCode: number; stdout: string };
-
-/**
- * Resolve the PR number for the current context.
- *
- * Primary path: `gh pr view --json number --jq .number` (no args = current branch).
- * Handles fork PRs and non-standard branch names naturally.
- *
- * Fallback: `gh pr list --repo <repo> --head task/<id>` — the original approach.
- * Only used if the primary path fails or returns a non-numeric result.
- *
- * Returns null if neither path resolves, in which case the caller should emit a
- * warning and fail-open rather than silently exit(0).
- *
- * Resolves BLOCKING #2 from PR #909 round 2 review.
- *
- * @param exec - Optional exec function override (for testing). Defaults to execWithPath.
- */
-export function resolvePrNumber(
-  repo: string,
-  task: string,
-  cwd: string,
-  exec: ExecFn = execWithPath
-): { prNumber: number | null; warning?: string } {
-  // Primary: current-branch PR resolution (works for forks and non-standard names)
-  const viewResult = exec(
-    ["gh", "pr", "view", "--repo", repo, "--json", "number", "--jq", ".number"],
-    { cwd, timeout: 10000 }
-  );
-  if (viewResult.exitCode === 0) {
-    const parsed = parseInt(viewResult.stdout.trim(), 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      return { prNumber: parsed };
-    }
-  }
-
-  // Fallback: branch-name-based lookup
-  const branch = `task/${task.replace("#", "-")}`;
-  const listResult = exec(
-    [
-      "gh",
-      "pr",
-      "list",
-      "--repo",
-      repo,
-      "--head",
-      branch,
-      "--json",
-      "number",
-      "--jq",
-      ".[0].number",
-    ],
-    { cwd, timeout: 10000 }
-  );
-  if (listResult.exitCode === 0) {
-    const parsed = parseInt(listResult.stdout.trim(), 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      return { prNumber: parsed };
-    }
-  }
-
-  // Both failed — caller should warn, not silently exit
-  return {
-    prNumber: null,
-    warning:
-      `[execution-evidence] Could not resolve PR number via \`gh pr view\` or ` +
-      `\`gh pr list --head ${branch}\` — test-file check skipped. ` +
-      `Ensure the branch has an open PR and gh is authenticated.`,
-  };
-}
 
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
@@ -485,7 +281,6 @@ if (import.meta.main) {
 
   // Derive owner/repo from the git remote so the hook works on forks and
   // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.
-  // Resolves BLOCKING #2 from PR #909 round 1 review.
   const repo = deriveRepoFromGit(input.cwd);
   if (!repo) {
     writeOutput({
@@ -498,45 +293,32 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Resolve PR number robustly: prefer gh pr view (current branch), fall back
-  // to gh pr list --head task/<id>. Emit a warning if neither resolves.
-  // Resolves BLOCKING #2 from PR #909 round 2 review.
-  const { prNumber, warning: prResolutionWarning } = resolvePrNumber(repo, task, input.cwd);
-  if (!prNumber) {
+  // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
+  // instead of the previous resolvePrNumber (1-2 calls) + fetchPrMeta (1
+  // call) + fetchPrFiles (1 call) = up to 4 calls.
+  const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
+
+  // mt#2617 R1 BLOCKING #2 (class-not-instance fix — same pattern flagged in
+  // require-deploy-verification-before-merge.ts): surface BOTH the primary
+  // resolution warning AND any accumulated per-call warnings instead of only
+  // `context.warning`, so operator visibility matches the pre-refactor
+  // behavior where `topLevelWarnings` (e.g. a fetchPrFiles warning) preceded
+  // the terminal "could not fetch" message.
+  if (!context.ok) {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        additionalContext: `⚠️ ${prResolutionWarning ?? "PR number could not be resolved — test-file check skipped."}`,
+        additionalContext: formatContextFailureWarnings(context)
+          .map((w) => `⚠️ ${w}`)
+          .join("\n"),
       },
     });
     process.exit(0);
   }
 
-  const deps = makeProdPrDeps(input.cwd);
-  const { files: prFiles, warning: prFilesWarning } = deps.fetchPrFiles(repo, prNumber);
-  const prMeta = deps.fetchPrMeta(repo, prNumber);
+  const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
 
-  // Accumulate top-level warnings (from fetchPrFiles and other sources)
-  const topLevelWarnings: string[] = [];
-  if (prFilesWarning) topLevelWarnings.push(prFilesWarning);
-
-  // If we can't fetch PR data, fail-open (allow merge with a warning).
-  // Single writeOutput call — emitting multiple JSON objects to stdout would
-  // produce invalid JSON for consumers. Resolves BLOCKING #1 from PR #909 r1.
-  if (!prMeta) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: [
-          ...topLevelWarnings.map((w) => `⚠️ ${w}`),
-          `⚠️ Could not fetch PR #${prNumber} metadata to check execution evidence. Proceeding without check.`,
-        ].join("\n"),
-      },
-    });
-    process.exit(0);
-  }
-
-  const result = checkExecutionEvidence(prFiles, prMeta.title, prMeta.body);
+  const result = checkExecutionEvidence(prFiles, prTitle, prBody);
 
   // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
   const allWarnings = [...topLevelWarnings, ...result.warnings];

@@ -4,6 +4,7 @@ import {
   elideMarkdownNonProse,
   extractPrNumberFromGhApiCommand,
   buildDenialReason,
+  buildRepoDerivationFailureWarning,
   isOverrideSet,
   emitOverrideAuditLog,
   type PhraseMatch,
@@ -430,6 +431,26 @@ describe("buildDenialReason", () => {
     // Note: the trailing reference section still mentions "PR #1013" (the
     // originating incident), which is intentional — that's a documentation
     // reference, not a claim about the PR being merged.
+  });
+});
+
+describe("buildRepoDerivationFailureWarning (mt#2617 R1 BLOCKING #1)", () => {
+  const SESSION_CWD = "/tmp/session-dir";
+
+  it("names the hook so the operator can find the source of the warning", () => {
+    const warning = buildRepoDerivationFailureWarning(SESSION_CWD);
+    expect(warning).toContain("[block-out-of-band-merge]");
+  });
+
+  it("says WARNING and that the gate did not run — matches the transport-error fail-open shape", () => {
+    const warning = buildRepoDerivationFailureWarning(SESSION_CWD);
+    expect(warning).toContain("WARNING");
+    expect(warning).toContain("gate did not run");
+  });
+
+  it("includes the cwd that derivation was attempted against", () => {
+    const warning = buildRepoDerivationFailureWarning(SESSION_CWD);
+    expect(warning).toContain(SESSION_CWD);
   });
 });
 
