@@ -23,6 +23,148 @@ the section headers below is left as-is pending mt#2620's broader corpus
 restructure — this note only disambiguates, it does not rename every
 section.
 
+## Guard-Dispatcher Framework (ADR-028 Phase 1)
+
+A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` +
+per-event entrypoints like `.minsky/hooks/dispatch-pretooluse.ts`) that lets multiple guards
+share ONE spawned Bun process per lifecycle event instead of each guard being its own
+`settings.json` registration and OS process. This is the framework-primitives phase of
+ADR-028 (`docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md`) — it ships
+inert alongside every existing standalone hook file; only guards explicitly migrated (an
+entry in `GUARD_REGISTRY`) run through it. As of this section's authoring, exactly ONE
+guard has migrated (`check-guessed-session-path`, the pilot) — every other guard documented
+elsewhere in this file remains a standalone `settings.json` registration.
+
+**Why this exists.** ADR-028's measured baseline (2026-07-07): 48 `settings.json` hook
+registrations across 45 distinct files; a single `UserPromptSubmit` event spawns up to 14
+separate Bun processes; `mcp__minsky__session_pr_merge` spawns 4. Each process independently
+re-reads `.claude/settings.json` (`readHostCap`), independently parses the transcript
+(`resolveTranscriptCandidates`), and independently hand-rolls override-env-var truthy-parsing
+and calibration-log appending. `src/hooks/pre-commit.ts` (the husky pre-commit dispatcher) is
+the in-repo proof this "one process, many pure-function checks" shape already works in
+Minsky; this framework generalizes it to the Claude Code hook family.
+
+**Framework files (all under `.minsky/hooks/`, compiled to `.claude/hooks/` per mt#2304):**
+
+- **`registry.ts`** (D2) — the declarative schema. `GuardRegistration` names a guard's
+  `event`, tool-name `matcher` regex, dynamic `module()` import, `timeoutMs`, optional
+  `calibrationLog` name, and `denyCapable` flag. `GUARD_REGISTRY` is the single array every
+  dispatcher consults. `getGuardsForEvent(registrations, event, toolName)` filters by event
+  + matcher (a matcher-less registration always matches once its event matches — the
+  non-tool-event case). `findDuplicateRegistrations(registrations)` implements ADR-028
+  D7(2)'s registry-completeness lint: two registrations sharing an event and an overlapping
+  `|`-delimited matcher token are flagged — a mechanical query replacing the manual
+  `settings.json`-scanning that today hides duplication (e.g. the literal string
+  `"Edit|Write|NotebookEdit"` appearing verbatim in three separate blocks).
+- **`dispatcher.ts`** — the D1/D3/D4/D6 core services:
+  - `runDispatcher(event, options)` — the D1 loop: read stdin ONCE, resolve the D6 context
+    ONCE, filter `GUARD_REGISTRY` to guards matching `event` + `tool_name`, then for each
+    matched guard: check the D3 override (skip + audit-line if overridden), invoke the
+    guard's `run()` (catch-and-log-to-stderr on throw — one guard failing never disables the
+    rest), and either short-circuit on the first `deny` from a `denyCapable` guard
+    (first-deny-wins, now an explicit registry-order property) or accumulate
+    `additionalContext` fragments for a single consolidated `HookOutput` at the end. A
+    matched-but-silent guard produces no stdout at all, matching every existing guard's
+    "write nothing on allow" convention.
+  - `checkOverride(guardName, env?)` (D3) — the unified override predicate for
+    `MINSKY_HOOK_OVERRIDE=<guard-name>[,<guard-name>...]` (or the literal `all`).
+    `buildOverrideAuditLine(event, guardName, sessionId, now?)` emits the shared format
+    `[dispatcher:<event>] OVERRIDE: guard=<name> session=<id> ts=<iso>` — a non-JSON stdout
+    line Claude Code's hook-output parser ignores, matching the sibling-hook audit
+    convention. Migrated guards' OWN legacy override env vars (e.g.
+    `MINSKY_SKIP_SESSION_PATH_CHECK`) remain honored independently by the guard's `run()` —
+    the Phase 7 deprecation-shim lookup table (legacy-var-name -> guard-name) is explicitly
+    NOT built yet.
+  - `logCalibrationRecord(calibrationLogName, record, options?)` (D4) — appends one JSONL
+    line to `.minsky/<calibrationLogName>-calibration.jsonl`, preserving the EXACT filenames
+    `CALIBRATION_LOG_REGISTRY` (`src/domain/calibration/calibration-sweep.ts`) already
+    expects (e.g. `"causal-premise"` -> `.minsky/causal-premise-calibration.jsonl`) — no
+    changes needed to that registry when a detector guard migrates onto this service.
+    Best-effort (swallows fs failures) and fully fs-injectable for tests.
+  - `resolveDispatchContext(event, input, options)` (D6) — resolves `hostCapSec` +
+    `budgets` (via `readHostCap`/`deriveBudgets` from `./types`) and, when `transcript_path`
+    is present, `transcriptCandidates` + merged `transcriptLines` (via
+    `resolveTranscriptCandidates`/`parseTranscript` from `./transcript`) — ONCE per
+    invocation, before any guard runs. Guards receive this as their `ctx` parameter and
+    never call these primitives themselves — this closes the ENTIRE CLASS of "guard reads
+    `transcript_path` naively, breaks for background-dispatched subagents" bugs (mt#2637) at
+    the framework boundary instead of per-guard.
+- **`dispatch-pretooluse.ts`** — the PreToolUse entrypoint (`if (import.meta.main)` calling
+  `runDispatcher("PreToolUse", { hookFilename: "dispatch-pretooluse.ts" })`, fail-open on any
+  top-level error). The SOLE `settings.json` `PreToolUse` entry for every guard registered
+  with `event: "PreToolUse"` in `GUARD_REGISTRY`. Sibling entrypoints for the other six
+  lifecycle events (`dispatch-posttooluse.ts`, `dispatch-userpromptsubmit.ts`, etc.) are NOT
+  built yet — Phase 1 ships only what the pilot needs; later migration phases add them.
+
+**Guard-module contract (how a guard migrates).** A migrated guard exports a `run(input:
+ToolHookInput, ctx: DispatchContext): GuardOutcome | null` pure function alongside its
+existing `if (import.meta.main)` standalone entrypoint (kept for direct CLI invocation/
+debugging — ADR-028 explicitly defers removing it to Phase 6). `GuardOutcome` fields: `deny`
+(only honored when the guard's registration has `denyCapable: true`), `additionalContext`,
+`auditLines` (raw non-JSON stdout lines, e.g. the guard's own legacy-override audit line),
+and `calibration` (logged via `logCalibrationRecord` when the registration names a
+`calibrationLog`). Returning `null`/`undefined` means "no output" (silent allow). See
+`check-guessed-session-path.ts`'s `run()` export for the reference migration.
+
+**Settings.json convention going forward.** ONE dispatcher entry per migrated event+matcher
+pair — e.g. the pilot's entry is the `dispatch-pretooluse.ts` command inside the existing
+`PreToolUse` block with `matcher: "Bash|mcp__minsky__session_exec"`. **Ordering rule:** when
+a SINGLE guard migrates out of a `settings.json` block that has other, not-yet-migrated
+siblings, the dispatcher's `hooks[]` entry takes the migrated guard's ORIGINAL array
+position (same slot) so first-deny-wins execution order relative to those siblings is
+unchanged — a NEW trailing block would silently reorder the pilot after every sibling that
+happened to be declared first; when a WHOLE event's guards migrate as a group (a later
+phase), ordering moves out of `settings.json` array position entirely and into
+`GUARD_REGISTRY`'s array order (D1's explicit registry-order first-deny-wins semantics).
+Adding a guard to an ALREADY-migrated event+matcher pair means adding a `GUARD_REGISTRY`
+entry — no `settings.json` edit. Adding a guard to a NOT-yet-migrated event+matcher pair
+still means a new standalone `settings.json` block (today's convention), until that block's
+guards are migrated as a group in a later phase.
+
+**Pilot migration (mt#2650).** `check-guessed-session-path` (see its own section below) was
+migrated onto the dispatcher IN PLACE — its command entry within the `Bash|mcp__minsky__
+session_exec` `PreToolUse` block was replaced 1:1 with `dispatch-pretooluse.ts`, at the same
+array position, alongside its not-yet-migrated siblings (`block-subagent-bypass-merge`,
+`require-checks-on-bypass-merge`, `block-git-gh-cli`, `block-out-of-band-merge`) — per the
+ordering rule above. Its own section's "Hook file" / behavioral documentation is otherwise
+unchanged — the guard's pure-function logic (`findMissingInToolInput`, `buildDenialReason`)
+is identical; only the process-dispatch mechanism changed.
+
+**No override mechanism for the framework itself.** `checkOverride`/`runDispatcher` are
+tested library code, not a guard — there's nothing to bypass. `MINSKY_HOOK_OVERRIDE` is the
+override FOR migrated guards (see above), registered in `HOOK_ONLY_ENV_VARS`.
+
+**Env-var registration:** `MINSKY_HOOK_OVERRIDE` is registered in `HOOK_ONLY_ENV_VARS` at
+`packages/domain/src/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788).
+
+**Deferred to later ADR-028 phases (not this task):** family migrations (Phase 2 —
+`UserPromptSubmit` detectors; Phase 4 — the merge-gate stack, blocked on mt#2617; Phase 5 —
+remaining `PreToolUse` blocks; Phase 6 — `PostToolUse`/`Stop`/`SubagentStop`/`SessionStart`/
+`SessionEnd`); the legacy-override-var deprecation-shim lookup table; generating
+`settings.json`'s `hooks` block FROM the registry (today it is still hand-maintained, just
+with fewer entries per migrated guard); removing guards' standalone `if (import.meta.main)`
+CLI entrypoints.
+
+**Cross-references:**
+
+- `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md` — the full decision
+  record (D1–D7), migration plan, and community-practice research this framework implements
+- mt#2650 — this framework's tracking task (ADR-028 Phase 1)
+- mt#2618 — parent umbrella (ADR-028 acceptance)
+- mt#2304 — the `.minsky/hooks/` -> `.claude/hooks/` compile pipeline this framework's
+  source files depend on
+- mt#2637 — the transcript-resolution bug class D6 closes structurally
+- mt#2617 — shared PR-fetch layer (`pr-context.ts`) the merge-gate stack migration (Phase 4)
+  depends on
+- `src/hooks/pre-commit.ts` — the in-repo single-dispatcher precedent this framework
+  generalizes
+- `.minsky/hooks/types.ts` — `readInput`/`writeOutput`/`readHostCap`/`deriveBudgets`, reused
+  by `resolveDispatchContext`
+- `.minsky/hooks/transcript.ts` — `resolveTranscriptCandidates`/`parseTranscript`, reused by
+  `resolveDispatchContext`
+- Guessed-Session-Path Guard (below) — the pilot guard's own section
+
 ## Parallel-Work Guard
 
 A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
@@ -1792,7 +1934,15 @@ workspace path under it) before `session_start` has returned the real one, then
 references it in dependent `cd` / file commands that all fail with raw
 `cd: no such file or directory` errors after wasted turns.
 
-**Hook file:** `.claude/hooks/check-guessed-session-path.ts`
+**Hook file:** `.claude/hooks/check-guessed-session-path.ts` — as of mt#2650, this is the
+ADR-028 Phase 1 pilot guard: it runs through the guard-dispatcher framework (see "Guard-
+Dispatcher Framework (ADR-028 Phase 1)" above) rather than as its own standalone
+`settings.json` registration/process. The file exports both a `run(input, ctx)` pure
+function (the dispatcher-compatible entry point, registered in
+`.minsky/hooks/registry.ts`'s `GUARD_REGISTRY`) and its original standalone `if
+(import.meta.main)` block (kept for direct CLI invocation — unchanged). The behavioral
+contract below (detection logic, denial message, override) is identical either way; only the
+process that invokes it changed.
 
 **How it works:**
 

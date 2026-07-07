@@ -73,10 +73,11 @@
             "statusMessage": "Checking for git/gh CLI..."
           },
           {
+            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry (currently: check-guessed-session-path). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead.",
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-guessed-session-path.ts",
-            "timeout": 5,
-            "statusMessage": "Checking for guessed session-workspace paths..."
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 15,
+            "statusMessage": "Running guard dispatcher (PreToolUse)..."
           },
           {
             "type": "command",
