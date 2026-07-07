@@ -27,6 +27,7 @@
     "build": "bun run build:completion-manifest && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external src/cli.ts && bun run build:copy-migrations",
     "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
     "build:copy-migrations": "mkdir -p dist/storage/migrations && rm -rf dist/storage/migrations/pg && cp -r packages/domain/src/storage/migrations/pg dist/storage/migrations/pg",
+    "generate:dockerfile-workspace-copies": "bun run scripts/generate-dockerfile-workspace-copies.ts",
     "prepublishOnly": "bun run build",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings=0",

@@ -1,31 +1,33 @@
 /**
- * mt#1984 — tests for the workspace-COPY pre-commit detector.
+ * mt#1984 / mt#1992 / mt#2621 — tests for the Dockerfile workspace-COPY
+ * generator/resolver.
  *
- * Acceptance tests map to the spec's Success Criterion 5:
+ * mt#2621 replaced the original detect-and-block guard with a
+ * generate-and-restage mechanism. These tests cover:
  *
- * (a) all workspaces COPYed → checker passes (empty result);
- * (b) one workspace missing → checker flags exactly that workspace;
- * (c) multiple workspaces missing → all listed;
- * (d) workspaces glob matches a directory with NO package.json (e.g.
- *     `services/minsky-mcp/`) → not flagged (the resolver excludes it);
- * (e) Dockerfile has no `RUN bun install --frozen-lockfile` step →
- *     checker short-circuits with no-op pass.
- *
- * Plus the spec's Acceptance Test 1 mt#1977 reproduction: a Dockerfile
- * matching the pre-mt#1977 state (services/site missing) → checker
- * flags services/site/package.json with the literal COPY line.
+ * (a) block templating (`renderWorkspaceCopyBlock`,
+ *     `applyGeneratedWorkspaceCopyBlock`) — sorted output, marker
+ *     preservation, missing-marker error, no-op when already fresh;
+ * (b) the surviving discovery/resolution primitives
+ *     (`readWorkspacesField`, `resolveWorkspacePackageJsonPaths`,
+ *     `discoverProtectedDockerfiles`) — unchanged behavior from mt#1984/1992;
+ * (c) the end-to-end freshness computation
+ *     (`planDockerfileWorkspaceCopyRegeneration`) across multiple
+ *     protected Dockerfiles, mirroring the mt#1991 regression and the
+ *     "workspaces glob matches a directory with no package.json" case.
  */
 
 import { describe, test, expect } from "bun:test";
 
 import {
-  detectMissingWorkspaceCopies,
+  renderWorkspaceCopyBlock,
+  applyGeneratedWorkspaceCopyBlock,
   discoverProtectedDockerfiles,
   resolveWorkspacePackageJsonPaths,
   readWorkspacesField,
-  runWorkspaceCopyCheck,
-  isWorkspaceCopyOverrideTruthy,
-  WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
+  planDockerfileWorkspaceCopyRegeneration,
+  WORKSPACE_COPY_BLOCK_START,
+  WORKSPACE_COPY_BLOCK_END,
   type FsOps,
 } from "./workspace-copy-detector";
 
@@ -35,10 +37,9 @@ import {
  * files. `existsSync` and `statSync` use this set; `readdirSync` returns
  * the direct children of a given directory.
  *
- * For tests that need file CONTENTS (mt#1992 end-to-end tests of
- * runWorkspaceCopyCheck), use `fakeFsWithContents` instead — it accepts
- * a `path → content` map so `readTextFileSync` calls return the right
- * file body.
+ * For tests that need file CONTENTS, use `fakeFsWithContents` instead — it
+ * accepts a `path → content` map so `readTextFileSync` calls return the
+ * right file body.
  */
 function fakeFs(paths: readonly string[]): FsOps {
   const set = new Set(paths);
@@ -63,9 +64,6 @@ function fakeFs(paths: readonly string[]): FsOps {
       };
     },
     readTextFileSync(_path: string): string {
-      // Paths-only fakeFs doesn't know contents; callers that need
-      // contents should use fakeFsWithContents below. This impl exists
-      // only because the FsOps interface requires it.
       throw new Error(`fakeFs has no contents for ${_path} — use fakeFsWithContents`);
     },
   };
@@ -120,187 +118,113 @@ const FROZEN_INSTALL_LINE = "RUN bun install --frozen-lockfile --production --ig
 const FROM_BUN_BASE = "FROM oven/bun:1.2-slim";
 const FROM_NODE_BASE = "FROM node:20-alpine";
 const COPY_ROOT_MANIFESTS = "COPY package.json bun.lock ./";
-const COPY_SHARED_PKG = "COPY packages/shared/package.json ./packages/shared/package.json";
-const COPY_REVIEWER_PKG = "COPY services/reviewer/package.json ./services/reviewer/package.json";
-const COPY_SITE_PKG = "COPY services/site/package.json ./services/site/package.json";
 const COPY_SRC = "COPY src ./src";
 const WS_SHARED = "packages/shared";
 const WS_REVIEWER = "services/reviewer";
 const WS_SITE = "services/site";
-const ALL_WORKSPACE_GLOBS = ["packages/*", "services/*"];
 
-describe("workspace-copy-detector — mt#1984", () => {
-  describe("detectMissingWorkspaceCopies (pure)", () => {
-    test("acceptance (a): all workspaces COPYed → empty result", () => {
-      const dockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_SITE_PKG,
-        COPY_REVIEWER_PKG,
-        FROZEN_INSTALL_LINE,
-        COPY_SRC,
-      ].join("\n");
+function blockFor(workspaces: readonly string[]): string {
+  return renderWorkspaceCopyBlock(workspaces);
+}
 
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
-        dockerfileText: dockerfile,
-      });
-      expect(result).toEqual([]);
-    });
+function dockerfileWithBlock(workspaces: readonly string[], extraAfter: string[] = []): string {
+  return [
+    FROM_BUN_BASE,
+    "WORKDIR /app",
+    COPY_ROOT_MANIFESTS,
+    blockFor(workspaces),
+    FROZEN_INSTALL_LINE,
+    COPY_SRC,
+    ...extraAfter,
+  ].join("\n");
+}
 
-    test("acceptance (b): one workspace missing → flagged with the COPY line to add", () => {
-      const dockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_REVIEWER_PKG,
-        FROZEN_INSTALL_LINE,
-        COPY_SRC,
-      ].join("\n");
-
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
-        dockerfileText: dockerfile,
-      });
-      expect(result).toEqual([
-        {
-          workspacePath: WS_SITE,
-          packageJsonRelPath: "services/site/package.json",
-          copyLineToAdd: COPY_SITE_PKG,
-        },
+describe("workspace-copy-detector — mt#2621 generation", () => {
+  describe("renderWorkspaceCopyBlock", () => {
+    test("renders one COPY line per workspace, sorted", () => {
+      const block = renderWorkspaceCopyBlock([WS_SITE, WS_SHARED, WS_REVIEWER]);
+      const copyLines = block
+        .split("\n")
+        .filter((l) => l.startsWith("COPY "))
+        .map((l) => l.trim());
+      expect(copyLines).toEqual([
+        `COPY ${WS_SHARED}/package.json ./${WS_SHARED}/package.json`,
+        `COPY ${WS_REVIEWER}/package.json ./${WS_REVIEWER}/package.json`,
+        `COPY ${WS_SITE}/package.json ./${WS_SITE}/package.json`,
       ]);
     });
 
-    test("acceptance (c): multiple workspaces missing → all flagged in order", () => {
-      const dockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        FROZEN_INSTALL_LINE,
-        COPY_SRC,
-      ].join("\n");
-
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
-        dockerfileText: dockerfile,
-      });
-      expect(result.map((r) => r.workspacePath)).toEqual([WS_SITE, WS_REVIEWER]);
+    test("includes start and end markers", () => {
+      const block = renderWorkspaceCopyBlock([WS_SHARED]);
+      expect(block).toContain(WORKSPACE_COPY_BLOCK_START);
+      expect(block).toContain(WORKSPACE_COPY_BLOCK_END);
     });
 
-    test("acceptance (e): Dockerfile with no frozen-lockfile install → no-op pass", () => {
-      const dockerfile = [
-        FROM_NODE_BASE,
-        "WORKDIR /app",
-        "COPY package.json ./",
-        "RUN npm ci",
-        "COPY . .",
-      ].join("\n");
+    test("empty workspace list still renders markers with no COPY lines", () => {
+      const block = renderWorkspaceCopyBlock([]);
+      expect(block).toContain(WORKSPACE_COPY_BLOCK_START);
+      expect(block).toContain(WORKSPACE_COPY_BLOCK_END);
+      expect(block.split("\n").some((l) => l.startsWith("COPY "))).toBe(false);
+    });
+  });
 
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, "packages/missing"],
-        dockerfileText: dockerfile,
-      });
-      expect(result).toEqual([]);
+  describe("applyGeneratedWorkspaceCopyBlock", () => {
+    test("missing markers → error", () => {
+      const dockerfile = [FROM_BUN_BASE, COPY_ROOT_MANIFESTS, FROZEN_INSTALL_LINE].join("\n");
+      const result = applyGeneratedWorkspaceCopyBlock(dockerfile, [WS_SHARED]);
+      expect("error" in result).toBe(true);
+      if (!("error" in result)) throw new Error("expected error result");
+      expect(result.error).toContain("missing the generated workspace-COPY markers");
     });
 
-    test("COPY lines AFTER the frozen-install step do NOT satisfy the contract", () => {
-      // services/site is COPYed, but after the install — bun has already
-      // failed by then. The check must flag it as missing.
-      const dockerfile = [
-        FROM_BUN_BASE,
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        FROZEN_INSTALL_LINE,
-        COPY_SITE_PKG,
-      ].join("\n");
-
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, WS_SITE],
-        dockerfileText: dockerfile,
-      });
-      expect(result.map((r) => r.workspacePath)).toEqual([WS_SITE]);
+    test("end marker before start marker → error", () => {
+      const dockerfile = [WORKSPACE_COPY_BLOCK_END, WORKSPACE_COPY_BLOCK_START].join("\n");
+      const result = applyGeneratedWorkspaceCopyBlock(dockerfile, [WS_SHARED]);
+      expect("error" in result).toBe(true);
     });
 
-    test("COPY destination tolerated: absolute /app/... path also satisfies the check", () => {
-      const dockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        "COPY packages/shared/package.json /app/packages/shared/package.json",
-        FROZEN_INSTALL_LINE,
-      ].join("\n");
-
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED],
-        dockerfileText: dockerfile,
-      });
-      expect(result).toEqual([]);
+    test("already fresh → changed: false, text unchanged", () => {
+      const dockerfile = dockerfileWithBlock([WS_SHARED, WS_SITE]);
+      const result = applyGeneratedWorkspaceCopyBlock(dockerfile, [WS_SHARED, WS_SITE]);
+      expect("error" in result).toBe(false);
+      if ("error" in result) throw new Error("expected non-error result");
+      expect(result.changed).toBe(false);
+      expect(result.text).toBe(dockerfile);
     });
 
-    test("leading-whitespace tolerance: indented `RUN bun install --frozen-lockfile` still matched", () => {
-      // PR #1193 R1 B2: pre-fix, `/^RUN .../m` anchored to the start of
-      // the line with no leading-whitespace tolerance — an indented
-      // install line (valid Dockerfile syntax) would silently bypass the
-      // check by failing the boundary match and returning [].
-      //
-      // Negative-case verification: a Dockerfile with an indented
-      // frozen-lockfile install AND a missing workspace COPY must STILL
-      // flag the missing COPY, not return [].
-      const dockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        // Two-space indent in front of the install — valid Dockerfile,
-        // post-fix must match, pre-fix would NOT and silently bypass.
-        `  ${FROZEN_INSTALL_LINE}`,
-        COPY_SRC,
-      ].join("\n");
-
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, WS_SITE],
-        dockerfileText: dockerfile,
-      });
-      expect(result.map((r) => r.workspacePath)).toEqual([WS_SITE]);
-    });
-
-    test("mt#1977 reproduction: pre-fix Dockerfile + services/site workspace → flagged", () => {
-      // Simulates the Dockerfile state on commit 57c2e868 (the merge of
-      // PR #1186), which introduced services/site as a workspace but
-      // missed the COPY. This is the exact state the gate is designed
-      // to refuse.
-      const dockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_REVIEWER_PKG,
-        FROZEN_INSTALL_LINE,
-        COPY_SRC,
-      ].join("\n");
-
-      const result = detectMissingWorkspaceCopies({
-        workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
-        dockerfileText: dockerfile,
-      });
-      expect(result).toEqual([
-        {
-          workspacePath: WS_SITE,
-          packageJsonRelPath: "services/site/package.json",
-          copyLineToAdd: COPY_SITE_PKG,
-        },
+    test("stale block (mt#1977-shape drift) → changed: true, block replaced", () => {
+      // Dockerfile was generated for [shared, reviewer]; workspaces glob now
+      // resolves to [shared, reviewer, site] (a new workspace was added).
+      const dockerfile = dockerfileWithBlock([WS_SHARED, WS_REVIEWER]);
+      const result = applyGeneratedWorkspaceCopyBlock(dockerfile, [
+        WS_SHARED,
+        WS_REVIEWER,
+        WS_SITE,
       ]);
+      expect("error" in result).toBe(false);
+      if ("error" in result) throw new Error("expected non-error result");
+      expect(result.changed).toBe(true);
+      expect(result.text).toContain(`COPY ${WS_SITE}/package.json ./${WS_SITE}/package.json`);
+      // Surrounding content (outside the block) is preserved verbatim.
+      expect(result.text).toContain(FROZEN_INSTALL_LINE);
+      expect(result.text).toContain(COPY_SRC);
+    });
+
+    test("regenerating a workspace REMOVAL shrinks the block", () => {
+      const dockerfile = dockerfileWithBlock([WS_SHARED, WS_REVIEWER, WS_SITE]);
+      const result = applyGeneratedWorkspaceCopyBlock(dockerfile, [WS_SHARED]);
+      expect("error" in result).toBe(false);
+      if ("error" in result) throw new Error("expected non-error result");
+      expect(result.changed).toBe(true);
+      expect(result.text).not.toContain(WS_SITE);
+      expect(result.text).not.toContain(WS_REVIEWER);
     });
   });
 
   describe("resolveWorkspacePackageJsonPaths (fs)", () => {
     const REPO_ROOT = "/fake/repo";
 
-    test("acceptance (d): directory matched by glob but no package.json → excluded", () => {
+    test("directory matched by glob but no package.json → excluded", () => {
       // services/minsky-mcp/ is the mt#1977 instance of this: matches
       // the services/* glob but has no package.json, so bun's workspaces
       // glob skips it. Our resolver MUST also skip it.
@@ -359,7 +283,7 @@ describe("workspace-copy-detector — mt#1984", () => {
 
   describe("readWorkspacesField", () => {
     test("array form returns the array", () => {
-      expect(readWorkspacesField({ workspaces: ALL_WORKSPACE_GLOBS })).toEqual([
+      expect(readWorkspacesField({ workspaces: ["packages/*", "services/*"] })).toEqual([
         "packages/*",
         "services/*",
       ]);
@@ -385,30 +309,8 @@ describe("workspace-copy-detector — mt#1984", () => {
     });
   });
 
-  describe("isWorkspaceCopyOverrideTruthy", () => {
-    test("accepts canonical truthy values", () => {
-      expect(isWorkspaceCopyOverrideTruthy("1")).toBe(true);
-      expect(isWorkspaceCopyOverrideTruthy("true")).toBe(true);
-      expect(isWorkspaceCopyOverrideTruthy("yes")).toBe(true);
-      expect(isWorkspaceCopyOverrideTruthy("TRUE")).toBe(true);
-    });
-
-    test("rejects empty / non-canonical values", () => {
-      expect(isWorkspaceCopyOverrideTruthy(undefined)).toBe(false);
-      expect(isWorkspaceCopyOverrideTruthy("")).toBe(false);
-      expect(isWorkspaceCopyOverrideTruthy("0")).toBe(false);
-      expect(isWorkspaceCopyOverrideTruthy("false")).toBe(false);
-      expect(isWorkspaceCopyOverrideTruthy("no")).toBe(false);
-      expect(isWorkspaceCopyOverrideTruthy("on")).toBe(false); // not in the truthy set
-    });
-
-    test("env var name is the canonical constant", () => {
-      expect(WORKSPACE_COPY_CHECK_OVERRIDE_ENV).toBe("MINSKY_SKIP_WORKSPACE_COPY_CHECK");
-    });
-  });
-
   // ─────────────────────────────────────────────────────────────────────
-  // mt#1992 — generalized discovery + per-Dockerfile aggregation tests
+  // discoverProtectedDockerfiles (mt#1992) — unchanged behavior
   // ─────────────────────────────────────────────────────────────────────
 
   const REPO_ROOT = "/fake/repo";
@@ -425,16 +327,7 @@ describe("workspace-copy-detector — mt#1984", () => {
     workspaces: ["packages/*", "services/*"],
   });
 
-  const ROOT_DOCKERFILE_GOOD = [
-    FROM_BUN_BASE,
-    "WORKDIR /app",
-    COPY_ROOT_MANIFESTS,
-    COPY_SHARED_PKG,
-    COPY_SITE_PKG,
-    COPY_REVIEWER_PKG,
-    FROZEN_INSTALL_LINE,
-    COPY_SRC,
-  ].join("\n");
+  const ROOT_DOCKERFILE_GOOD = dockerfileWithBlock([WS_SHARED, WS_SITE, WS_REVIEWER]);
 
   describe("discoverProtectedDockerfiles (mt#1992) — fs-injected", () => {
     test("finds root Dockerfile when it contains the frozen-lockfile install step", () => {
@@ -445,14 +338,7 @@ describe("workspace-copy-detector — mt#1984", () => {
     });
 
     test("finds sub-project Dockerfile under services/ when it contains the install step", () => {
-      const reviewerDockerfile = [
-        FROM_BUN_BASE,
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_SITE_PKG,
-        COPY_REVIEWER_PKG,
-        FROZEN_INSTALL_LINE,
-      ].join("\n");
+      const reviewerDockerfile = dockerfileWithBlock([WS_SHARED, WS_SITE, WS_REVIEWER]);
       const fs = fakeFsWithContents({
         [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
         [REVIEWER_DOCKERFILE]: reviewerDockerfile,
@@ -478,21 +364,16 @@ describe("workspace-copy-detector — mt#1984", () => {
     });
   });
 
-  describe("runWorkspaceCopyCheck (mt#1992) — fs-injected end-to-end", () => {
-    test("mt#1991 regression: services/reviewer/Dockerfile missing services/site COPY is flagged", () => {
+  // ─────────────────────────────────────────────────────────────────────
+  // planDockerfileWorkspaceCopyRegeneration (mt#2621) — end-to-end
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe("planDockerfileWorkspaceCopyRegeneration — fs-injected end-to-end", () => {
+    test("mt#1991 regression: services/reviewer/Dockerfile missing services/site COPY is flagged stale", () => {
       // Pre-fix state of services/reviewer/Dockerfile from 2026-05-20
       // mt#1991: copies packages/shared + services/reviewer package.jsons
       // but missed services/site (which mt#1934 had added as a workspace).
-      // Eight consecutive Railway deploys failed over ~4 hours.
-      const reviewerDockerfile = [
-        FROM_BUN_BASE,
-        "WORKDIR /app",
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_REVIEWER_PKG, // services/site/package.json MISSING
-        FROZEN_INSTALL_LINE,
-        COPY_SRC,
-      ].join("\n");
+      const reviewerDockerfile = dockerfileWithBlock([WS_SHARED, WS_REVIEWER]);
 
       const fs = fakeFsWithContents({
         [ROOT_PKG]: ROOT_PKG_JSON,
@@ -503,25 +384,19 @@ describe("workspace-copy-detector — mt#1984", () => {
         [SHARED_PKG_FILE]: "{}",
       });
 
-      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
-      if (results === null) throw new Error("expected non-null results");
-      const failing = results.filter((r) => r.missing.length > 0);
-      expect(failing).toHaveLength(1);
-      const first = failing[0];
-      if (!first) throw new Error("expected at least one failing result");
+      const plans = planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs);
+      if (plans === null) throw new Error("expected non-null plans");
+      const stale = plans.filter((p) => !("error" in p.result) && p.result.changed);
+      expect(stale).toHaveLength(1);
+      const first = stale[0];
+      if (!first) throw new Error("expected at least one stale plan");
       expect(first.dockerfileRelPath).toBe(DF_REVIEWER_REL);
-      expect(first.missing.map((m) => m.workspacePath)).toEqual([WS_SITE]);
+      if ("error" in first.result) throw new Error("expected non-error result");
+      expect(first.result.text).toContain(`${WS_SITE}/package.json`);
     });
 
-    test("both root and sub-project Dockerfiles pass when all COPYs are present", () => {
-      const reviewerDockerfileGood = [
-        FROM_BUN_BASE,
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_SITE_PKG,
-        COPY_REVIEWER_PKG,
-        FROZEN_INSTALL_LINE,
-      ].join("\n");
+    test("both root and sub-project Dockerfiles pass when already fresh", () => {
+      const reviewerDockerfileGood = dockerfileWithBlock([WS_SHARED, WS_SITE, WS_REVIEWER]);
 
       const fs = fakeFsWithContents({
         [ROOT_PKG]: ROOT_PKG_JSON,
@@ -532,14 +407,11 @@ describe("workspace-copy-detector — mt#1984", () => {
         [SHARED_PKG_FILE]: "{}",
       });
 
-      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
-      if (results === null) throw new Error("expected non-null results");
-      const failing = results.filter((r) => r.missing.length > 0);
-      expect(failing).toEqual([]);
-      expect(results.map((r) => r.dockerfileRelPath).sort()).toEqual([
-        DF_ROOT_REL,
-        DF_REVIEWER_REL,
-      ]);
+      const plans = planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs);
+      if (plans === null) throw new Error("expected non-null plans");
+      const stale = plans.filter((p) => !("error" in p.result) && p.result.changed);
+      expect(stale).toEqual([]);
+      expect(plans.map((p) => p.dockerfileRelPath).sort()).toEqual([DF_ROOT_REL, DF_REVIEWER_REL]);
     });
 
     test("sub-project Dockerfile WITHOUT frozen-lockfile install is skipped (not protected)", () => {
@@ -560,16 +432,16 @@ describe("workspace-copy-detector — mt#1984", () => {
         [SHARED_PKG_FILE]: "{}",
       });
 
-      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
-      if (results === null) throw new Error("expected non-null results");
-      expect(results.map((r) => r.dockerfileRelPath)).toEqual([DF_ROOT_REL]);
+      const plans = planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs);
+      if (plans === null) throw new Error("expected non-null plans");
+      expect(plans.map((p) => p.dockerfileRelPath)).toEqual([DF_ROOT_REL]);
     });
 
     test("missing root package.json returns null (silent short-circuit)", () => {
       const fs = fakeFsWithContents({
         [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
       });
-      expect(runWorkspaceCopyCheck(REPO_ROOT, fs)).toBeNull();
+      expect(planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs)).toBeNull();
     });
 
     test("repo with no protected Dockerfiles returns empty array (silent pass)", () => {
@@ -577,17 +449,33 @@ describe("workspace-copy-detector — mt#1984", () => {
         [ROOT_PKG]: ROOT_PKG_JSON,
         [SHARED_PKG_FILE]: "{}",
       });
-      expect(runWorkspaceCopyCheck(REPO_ROOT, fs)).toEqual([]);
+      expect(planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs)).toEqual([]);
+    });
+
+    test("Dockerfile without generated-block markers surfaces an error, not a crash", () => {
+      const noMarkersDockerfile = [
+        FROM_BUN_BASE,
+        COPY_ROOT_MANIFESTS,
+        "COPY packages/shared/package.json ./packages/shared/package.json",
+        FROZEN_INSTALL_LINE,
+      ].join("\n");
+
+      const fs = fakeFsWithContents({
+        [ROOT_PKG]: ROOT_PKG_JSON,
+        [ROOT_DOCKERFILE]: noMarkersDockerfile,
+        [SHARED_PKG_FILE]: "{}",
+      });
+
+      const plans = planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs);
+      if (plans === null) throw new Error("expected non-null plans");
+      expect(plans).toHaveLength(1);
+      const plan = plans[0];
+      if (!plan) throw new Error("expected one plan");
+      expect("error" in plan.result).toBe(true);
     });
 
     test("violations across multiple Dockerfiles are reported per-file", () => {
-      const missingFromAny = [
-        FROM_BUN_BASE,
-        COPY_ROOT_MANIFESTS,
-        COPY_SHARED_PKG,
-        COPY_REVIEWER_PKG,
-        FROZEN_INSTALL_LINE,
-      ].join("\n");
+      const missingFromAny = dockerfileWithBlock([WS_SHARED, WS_REVIEWER]);
 
       const fs = fakeFsWithContents({
         [ROOT_PKG]: ROOT_PKG_JSON,
@@ -598,16 +486,14 @@ describe("workspace-copy-detector — mt#1984", () => {
         [SHARED_PKG_FILE]: "{}",
       });
 
-      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
-      if (results === null) throw new Error("expected non-null results");
-      const failing = results.filter((r) => r.missing.length > 0);
-      expect(failing).toHaveLength(2);
-      expect(failing.map((r) => r.dockerfileRelPath).sort()).toEqual([
-        DF_ROOT_REL,
-        DF_REVIEWER_REL,
-      ]);
-      for (const r of failing) {
-        expect(r.missing.map((m) => m.workspacePath)).toEqual([WS_SITE]);
+      const plans = planDockerfileWorkspaceCopyRegeneration(REPO_ROOT, fs);
+      if (plans === null) throw new Error("expected non-null plans");
+      const stale = plans.filter((p) => !("error" in p.result) && p.result.changed);
+      expect(stale).toHaveLength(2);
+      expect(stale.map((p) => p.dockerfileRelPath).sort()).toEqual([DF_ROOT_REL, DF_REVIEWER_REL]);
+      for (const p of stale) {
+        if ("error" in p.result) throw new Error("expected non-error result");
+        expect(p.result.text).toContain(`${WS_SITE}/package.json`);
       }
     });
   });

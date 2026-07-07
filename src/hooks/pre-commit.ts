@@ -19,11 +19,7 @@ import {
   isOverrideTruthy,
   NUL_BYTE_CHECK_OVERRIDE_ENV,
 } from "./nul-byte-detector";
-import {
-  runWorkspaceCopyCheck as runWorkspaceCopyDetector,
-  isWorkspaceCopyOverrideTruthy,
-  WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
-} from "./workspace-copy-detector";
+import { discoverProtectedDockerfiles } from "./workspace-copy-detector";
 import {
   detectMissingJournalEntries,
   MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV,
@@ -137,17 +133,20 @@ export class PreCommitHook {
         return nulByteResult;
       }
 
-      // Step 3c: Workspace-COPY check (mt#1984 + mt#1992). Verify every
-      // workspace declared by root `package.json`'s `workspaces` glob has
-      // a corresponding `COPY <ws>/package.json` line in EVERY Dockerfile
-      // that runs `bun install --frozen-lockfile` (root + sub-project
-      // Dockerfiles under services/* and packages/*), placed BEFORE the
-      // install step. Prevents recurrence of mt#1977 (75-minute root-
-      // Dockerfile outage) and mt#1991 (4-hour reviewer-Dockerfile outage
-      // after the root-only check missed services/reviewer/Dockerfile).
-      const workspaceCopyResult = await this.runWorkspaceCopyCheck();
-      if (!workspaceCopyResult.success) {
-        return workspaceCopyResult;
+      // Step 3c: Dockerfile workspace-COPY regeneration (mt#1984 + mt#1992
+      // + mt#2621). Regenerates the workspace package.json COPY block in
+      // every Dockerfile that runs `bun install --frozen-lockfile` (root +
+      // sub-project Dockerfiles under services/* and packages/*) from the
+      // same `workspaces` glob bun itself resolves, and re-stages any file
+      // that changed. Replaces the mt#1984/mt#1992 detect-and-block guard —
+      // instead of catching drift after the fact, the COPY block can no
+      // longer drift by hand at all (mirrors the mt#2622 completion-
+      // manifest auto-fix-and-restage pattern). Eliminates the drift class
+      // that caused mt#1977 (75-minute root-Dockerfile outage) and mt#1991
+      // (4-hour reviewer-Dockerfile outage).
+      const dockerfileWorkspaceCopyResult = await this.runDockerfileWorkspaceCopyRegen();
+      if (!dockerfileWorkspaceCopyResult.success) {
+        return dockerfileWorkspaceCopyResult;
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
@@ -807,126 +806,103 @@ export class PreCommitHook {
   }
 
   /**
-   * Run the workspace-COPY check (mt#1984). Verify that every workspace
-   * declared by root `package.json`'s `workspaces` glob AND containing a
-   * `package.json` has a corresponding `COPY <ws>/package.json` line in
-   * the root `Dockerfile` BEFORE the `RUN bun install --frozen-lockfile`
-   * step.
+   * Regenerate the workspace package.json COPY block in every protected
+   * Dockerfile and re-stage any that changed (mt#2621). Replaces the
+   * mt#1984/mt#1992 static missing-COPY detector — instead of DETECTING
+   * drift between the `workspaces` glob and the Dockerfile's hand-typed
+   * COPY list and blocking the commit, this step ELIMINATES the drift
+   * class by generating the COPY block from the same glob bun itself
+   * resolves, then auto-fixing and re-staging (the mt#2622 completion-
+   * manifest pattern) — the same auto-fix-and-restage shape as Step 1b's
+   * completion-manifest regen, not the detect-and-block shape the old
+   * guard used.
    *
-   * Originating incident: mt#1977 — PR #1186 (mt#1934, marketing-site
-   * rebuild) added `services/site/` as a workspace without updating the
-   * Dockerfile's selective-COPY list. Every Railway deploy from that
-   * point until the mt#1977 fix landed (~75 minutes later) failed with
-   *   `error: lockfile had changes, but lockfile is frozen`
+   * Originating incidents this eliminates the drift class for: mt#1977
+   * (75-minute root-Dockerfile outage) and mt#1991 (4-hour
+   * reviewer-Dockerfile outage) — both caused by the hand-maintained COPY
+   * list silently falling out of sync with the `workspaces` glob.
    *
-   * The local `bun install` SUCCEEDS because the full repo is mounted;
-   * the failure mode is Railway-specific (selective COPY produces an
-   * incomplete tree). This check is the commit-time complement to that
-   * deploy-time failure mode.
-   *
-   * Override: setting `MINSKY_SKIP_WORKSPACE_COPY_CHECK` to `1` / `true`
-   * / `yes` skips the check and emits a one-line audit message.
+   * Unconditional, like Step 1b — no override. A thrown error here means a
+   * protected Dockerfile is missing the generated-block markers (a
+   * one-time setup gap, not staleness); the operator adds the markers
+   * once (see Dockerfile / services/reviewer/Dockerfile /
+   * services/cockpit/Dockerfile for the block shape) and the generator
+   * handles the rest going forward.
    *
    * See `src/hooks/workspace-copy-detector.ts` for the pure-function
-   * detector this method wraps.
+   * discovery/templating primitives and
+   * `scripts/generate-dockerfile-workspace-copies.ts` for the script this
+   * step invokes.
    */
-  private async runWorkspaceCopyCheck(): Promise<HookResult> {
-    if (isWorkspaceCopyOverrideTruthy(process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV])) {
-      const ts = new Date().toISOString();
-      log.cli(
-        `[pre-commit:workspace-copy-check] override ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=${process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV]} ` +
-          `at ${ts} — workspace-COPY check skipped`
-      );
+  private async runDockerfileWorkspaceCopyRegen(): Promise<HookResult> {
+    const protectedDockerfiles = discoverProtectedDockerfiles(this.projectRoot);
+    if (protectedDockerfiles.length === 0) {
       return {
         success: true,
-        message: "Workspace-COPY check skipped via override",
+        message: "No protected Dockerfiles found",
         exitCode: 0,
       };
     }
 
     try {
-      const results = runWorkspaceCopyDetector(this.projectRoot);
-
-      // Silent on happy path (per spec): no preamble, no pass/skip
-      // confirmation. Only the failure case below emits stdout.
-      // - null = "this repo has no root package.json we recognize" —
-      //   short-circuit silently.
-      if (results === null) {
-        return {
-          success: true,
-          message: "Workspace-COPY check inapplicable (no root package.json)",
-          exitCode: 0,
-        };
-      }
-
-      // No protected Dockerfiles discovered (e.g., a repo without any
-      // `RUN bun install --frozen-lockfile` step). Silent pass.
-      if (results.length === 0) {
-        return {
-          success: true,
-          message: "Workspace-COPY check inapplicable (no protected Dockerfiles)",
-          exitCode: 0,
-        };
-      }
-
-      const failing = results.filter((r) => r.missing.length > 0);
-      if (failing.length === 0) {
-        return {
-          success: true,
-          message: `Workspace-COPY check passed (${results.length} Dockerfile(s) verified)`,
-          exitCode: 0,
-        };
-      }
-
-      const totalMissing = failing.reduce((sum, r) => sum + r.missing.length, 0);
-
-      log.cli("");
-      log.cli(
-        `${failing.length} Dockerfile(s) missing workspace package.json COPY line(s). Commit blocked.`
-      );
-      log.cli("");
-      for (const r of failing) {
-        log.cli(`${r.dockerfileRelPath}:`);
-        for (const m of r.missing) {
-          log.cli(`   ${m.workspacePath}/  — add to ${r.dockerfileRelPath}:`);
-          log.cli(`     ${m.copyLineToAdd}`);
-        }
-        log.cli("");
-      }
-      log.cli("Why this is blocked:");
-      log.cli(
-        "   - Tracking tasks:       mt#1984 (root Dockerfile), mt#1992 (sub-project Dockerfiles)"
-      );
-      log.cli(
-        "   - Originating incidents: mt#1977 (75-minute outage), mt#1991 (4-hour reviewer outage)"
-      );
-      log.cli("");
-      log.cli("Background: root `package.json` declares workspaces (`packages/*`,");
-      log.cli("   `services/*`). When a new workspace is added, `bun.lock` regenerates");
-      log.cli("   with its dependencies. EVERY Dockerfile in the repo that runs");
-      log.cli("   `RUN bun install --frozen-lockfile` against that lockfile must include");
-      log.cli("   each workspace's package.json BEFORE the install step — otherwise the");
-      log.cli("   build container sees a workspace topology that doesn't match the lockfile");
-      log.cli('   and aborts with "lockfile had changes, but lockfile is frozen".');
-      log.cli("");
-      log.cli(
-        `If a COPY is intentionally omitted (rare), set ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=1 to override.`
-      );
-      log.cli("   The skip is audit-logged to stdout.");
-      return {
-        success: false,
-        message: `Workspace-COPY check failed: ${totalMissing} missing COPY line(s) across ${failing.length} Dockerfile(s)`,
-        exitCode: 1,
-      };
+      await execAsync("bun run generate:dockerfile-workspace-copies", {
+        cwd: this.projectRoot,
+        timeout: 15000,
+      });
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error(`Workspace-COPY check failed: ${errorMsg}`);
+      const result = classifyDockerfileWorkspaceCopyRegenError(error);
+      for (const line of result.logLines) {
+        log.cli(line);
+      }
+      return { success: false, message: result.message, exitCode: 1 };
+    }
+
+    let diffStdout: string;
+    try {
+      diffStdout = await this.runGitArgv(["diff", "--name-only", "--", ...protectedDockerfiles]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not diff regenerated Dockerfile(s): ${errMsg}`);
       return {
         success: false,
-        message: `Workspace-COPY check failed: ${errorMsg}`,
+        message: `Could not diff regenerated Dockerfile(s): ${errMsg}`,
         exitCode: 1,
       };
     }
+
+    const changedFiles = diffStdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    if (changedFiles.length === 0) {
+      return {
+        success: true,
+        message: "Dockerfile workspace-COPY blocks up-to-date",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      await this.runGitArgv(["add", "--", ...changedFiles]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not stage regenerated Dockerfile(s): ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not stage regenerated Dockerfile(s): ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    log.cli(
+      `✅ Dockerfile workspace-COPY block(s) regenerated and staged (was out of date): ${changedFiles.join(", ")}`
+    );
+    return {
+      success: true,
+      message: "Dockerfile workspace-COPY blocks regenerated and staged",
+      exitCode: 0,
+    };
   }
 
   private async runMigrationJournalCheck(): Promise<HookResult> {
@@ -1715,6 +1691,37 @@ export function classifyCompletionManifestRegenError(error: unknown): {
   return {
     logLines,
     message: `Completion-manifest regeneration failed: ${errorDetail.split("\n")[0]}`,
+  };
+}
+
+/**
+ * Build the failure result for a Dockerfile workspace-COPY regeneration
+ * error (mt#2621). Mirrors {@link classifyCompletionManifestRegenError}:
+ * `runDockerfileWorkspaceCopyRegen` always regenerates (never blocks on
+ * ordinary drift), so any thrown error here means the generator script
+ * itself failed — most likely a protected Dockerfile is missing the
+ * generated-block markers (see `applyGeneratedWorkspaceCopyBlock`'s error
+ * message), which is a one-time setup gap rather than staleness. Pure +
+ * exported for unit testing.
+ */
+export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
+  logLines: string[];
+  message: string;
+} {
+  const execError = error as { stdout?: string; stderr?: string };
+  // `??`, not `||`-only: an EMPTY-string stderr must fall through to stdout
+  // (mirrors classifyCompletionManifestRegenError above).
+  const detail = (execError.stderr ?? "").trim() || (execError.stdout ?? "").trim();
+  const errorDetail = detail || (error instanceof Error ? error.message : String(error));
+  const logLines = [
+    "❌ Dockerfile workspace-COPY regeneration failed:",
+    ...errorDetail.split("\n").map((line) => `   ${line}`),
+    "💡 A protected Dockerfile is likely missing the generated-block markers — see " +
+      "Dockerfile / services/reviewer/Dockerfile for the expected shape.",
+  ];
+  return {
+    logLines,
+    message: `Dockerfile workspace-COPY regeneration failed: ${errorDetail.split("\n")[0]}`,
   };
 }
 
