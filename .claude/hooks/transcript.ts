@@ -23,7 +23,8 @@
 // @see mt#2255 — this task
 // @see .claude/hooks/types.ts — sibling cross-hook util home (readInput, readHostCap, deriveBudgets)
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Transcript JSONL types (minimal subset the detectors use)
@@ -68,6 +69,61 @@ export function parseTranscript(transcriptPath: string): TranscriptLine[] {
     }
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Transcript-candidate resolution (subagent-aware, mt#2637)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the ordered list of transcript files that may record the ACTIVE
+ * agent's tool calls, from the hook-input `transcript_path` and (for subagent
+ * calls) `agent_id`.
+ *
+ * Background-Agent-dispatched subagents receive a `transcript_path` pointing
+ * at the PARENT session's top-level `<session-id>.jsonl`, while their own
+ * tool_use lines are recorded at
+ * `<dir>/<session-id>/subagents/agent-<agentId>.jsonl` (mt#2637 — confirmed
+ * by natural experiment across the mt#2607 burndown waves). The upstream
+ * hooks reference documents `agent_id` ("present only when the hook fires
+ * inside a subagent call") but is silent on per-agent transcript_path
+ * semantics, so hooks must resolve the candidates themselves.
+ *
+ * Candidates, in scan order:
+ *   1. the given `transcript_path` — main-thread behavior, and also covers
+ *      the orchestrator-pre-read pattern (the PARENT surfaced the content);
+ *   2. when `agentId` is provided, the precise per-agent file;
+ *   3. every sibling `agent-*.jsonl` under the session's `subagents/` dir —
+ *      a fallback that does not depend on the (undocumented) correspondence
+ *      between the hook-input agent_id and the on-disk filename id. The
+ *      session is treated as one conversation TREE: content surfaced by the
+ *      parent or any dispatched agent counts for the whole tree.
+ *
+ * Nonexistent candidates are harmless — {@link parseTranscript} returns []
+ * on any read error. Never throws.
+ */
+export function resolveTranscriptCandidates(transcriptPath: string, agentId?: string): string[] {
+  const candidates: string[] = [transcriptPath];
+  if (!transcriptPath.endsWith(".jsonl")) return candidates;
+
+  const sessionDir = transcriptPath.slice(0, -".jsonl".length);
+  const subagentsDir = join(sessionDir, "subagents");
+
+  if (agentId) {
+    candidates.push(join(subagentsDir, `agent-${agentId}.jsonl`));
+  }
+
+  try {
+    for (const entry of readdirSync(subagentsDir)) {
+      if (!entry.startsWith("agent-") || !entry.endsWith(".jsonl")) continue;
+      const full = join(subagentsDir, entry);
+      if (!candidates.includes(full)) candidates.push(full);
+    }
+  } catch {
+    // no subagents dir — a session with no background dispatches
+  }
+
+  return candidates;
 }
 
 // ---------------------------------------------------------------------------

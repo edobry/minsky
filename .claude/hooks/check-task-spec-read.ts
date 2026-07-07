@@ -16,17 +16,31 @@
 // role=user tool_result turn-boundary hazard (mt#2255 / memory a3e60471: a turn
 // slice keyed on user-role lines silently drops earlier tool calls).
 //
+// Subagent-aware resolution (mt#2637): for a background-Agent-dispatched
+// subagent, the harness passes `transcript_path` pointing at the PARENT
+// session's top-level transcript while the subagent's own tool calls are
+// recorded under `<session-dir>/subagents/agent-<agentId>.jsonl` — so the scan
+// walks resolveTranscriptCandidates() (given path + per-agent file + sibling
+// agent files) instead of the single given file. A spec read anywhere in the
+// session's conversation tree counts; a tree with NO read still denies.
+//
 // Fail-open: any error — or a missing transcript — allows the call (exit 0).
 // Override: MINSKY_SKIP_SPEC_READ_CHECK=1.
 //
 // @see mt#2511 — parent (task-hijack guard); mt#2514 — Seam 2 (merge-time)
+// @see mt#2637 — subagent transcript_path false-positive fix
 // @see mt#979 — subsumed (this hook adds the spec-read detection mt#979 deemed "too brittle")
 // @see .claude/hooks/check-guessed-session-path.ts — PreToolUse deny-class template
-// @see .claude/hooks/transcript.ts — parseTranscript / findToolUseInputs
+// @see .claude/hooks/transcript.ts — parseTranscript / findToolUseInputs / resolveTranscriptCandidates
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
-import { parseTranscript, findToolUseInputs, type TranscriptLine } from "./transcript";
+import {
+  parseTranscript,
+  findToolUseInputs,
+  resolveTranscriptCandidates,
+  type TranscriptLine,
+} from "./transcript";
 
 // ---------------------------------------------------------------------------
 // Public API / constants
@@ -93,6 +107,25 @@ export function specWasSurfaced(lines: TranscriptLine[], targetId: string): bool
   return false;
 }
 
+/**
+ * True iff ANY transcript in the session's conversation tree — the given
+ * transcript_path, the dispatching agent's own per-agent file, or a sibling
+ * subagent file (see {@link resolveTranscriptCandidates}) — contains a
+ * spec-surfacing tool_use for `targetId`. Candidates are scanned in order and
+ * short-circuit on the first hit, so the extra files are only read on the
+ * would-deny path (mt#2637).
+ */
+export function specWasSurfacedInAnyTranscript(
+  transcriptPath: string,
+  agentId: string | undefined,
+  targetId: string
+): boolean {
+  for (const candidate of resolveTranscriptCandidates(transcriptPath, agentId)) {
+    if (specWasSurfaced(parseTranscript(candidate), targetId)) return true;
+  }
+  return false;
+}
+
 /** Build the denial-reason message naming the action, the task, and the fix. */
 export function buildDenialReason(toolName: string, rawTaskId: unknown): string {
   const id = typeof rawTaskId === "string" && rawTaskId.length > 0 ? rawTaskId : "<unknown>";
@@ -144,8 +177,9 @@ if (import.meta.main) {
     const transcriptPath = input.transcript_path;
     if (!transcriptPath) process.exit(0); // can't verify without a transcript — fail-open
 
-    const lines = parseTranscript(transcriptPath);
-    if (specWasSurfaced(lines, targetId)) process.exit(0);
+    if (specWasSurfacedInAnyTranscript(transcriptPath, input.agent_id, targetId)) {
+      process.exit(0);
+    }
 
     const rawTaskId =
       toolName === SESSION_START_TOOL
