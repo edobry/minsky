@@ -1759,7 +1759,10 @@ Seam 1 of the "task-hijack" guard (mt#2515, under parent mt#2511): bind / advanc
    subagent-originated tool calls, per the upstream hooks reference) — the
    dispatched agent's own per-agent file at
    `<session-dir>/subagents/agent-<agentId>.jsonl`, plus every sibling
-   `agent-*.jsonl` under that `subagents/` dir as a fallback. This exists
+   `agent-*.jsonl` under that `subagents/` dir as a fallback. When the given
+   path is itself a per-agent file, the PARENT session's top-level transcript
+   is added too (tree semantics in both directions), and all candidates are
+   deduped. This exists
    because the harness passes background-Agent-dispatched subagents the
    PARENT session's top-level transcript path, not their own file — which
    false-positive-blocked every dispatched implementer whose orchestrator had

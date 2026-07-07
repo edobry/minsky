@@ -133,7 +133,8 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
     toolName === SESSION_START_TOOL ? `binding a session to ${id}` : `advancing ${id} to READY`;
   return [
     `You are ${action}, but this session has never read ${id}'s spec`,
-    `(no tasks_spec_get / tasks_get includeSpec for it anywhere in the transcript). This is`,
+    `(no tasks_spec_get / tasks_get includeSpec for it anywhere in the session's conversation`,
+    `tree — parent and dispatched-agent transcripts). This is`,
     `the "task-hijack" bind/advance seam (mt#2511 / mt#2191): advancing or binding a task you`,
     `never engaged risks shipping unrelated work under its number and auto-completing it.`,
     "",

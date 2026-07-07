@@ -300,6 +300,23 @@ describe("resolveTranscriptCandidates", () => {
       "/nonexistent/thing.txt",
     ]);
   });
+
+  test("transcript_path already a per-agent file -> parent + siblings, no bogus nested derivation", () => {
+    const parentPath = buildTranscriptTree([userPrompt("hi")], {
+      abc123: [],
+      def456: [],
+    });
+    const sessionDir = parentPath.slice(0, -".jsonl".length);
+    const agentPath = join(sessionDir, "subagents", AGENT_ABC_FILE);
+    const candidates = resolveTranscriptCandidates(agentPath, "abc123");
+    expect(candidates[0]).toBe(agentPath);
+    expect(candidates[1]).toBe(parentPath); // parent session transcript (tree semantics)
+    expect(candidates).toContain(join(sessionDir, "subagents", "agent-def456.jsonl"));
+    // the given per-agent path is deduped against both the precise push and the sweep
+    expect(candidates.filter((c) => c.endsWith(AGENT_ABC_FILE))).toHaveLength(1);
+    // nothing derives a nested .../agent-abc123/subagents/... path
+    expect(candidates.some((c) => c.includes(join("agent-abc123", "subagents")))).toBe(false);
+  });
 });
 
 describe("specWasSurfacedInAnyTranscript (mt#2637 regression)", () => {
@@ -326,6 +343,15 @@ describe("specWasSurfacedInAnyTranscript (mt#2637 regression)", () => {
       abc123: [unrelated],
     });
     expect(specWasSurfacedInAnyTranscript(parentPath, "abc123", "mt2614")).toBe(true);
+  });
+
+  test("parent read found even when the hook receives the subagent's OWN path -> allowed", () => {
+    const parentPath = buildTranscriptTree([userPrompt("planning"), specRead], {
+      abc123: [unrelated],
+    });
+    const sessionDir = parentPath.slice(0, -".jsonl".length);
+    const agentPath = join(sessionDir, "subagents", AGENT_ABC_FILE);
+    expect(specWasSurfacedInAnyTranscript(agentPath, "abc123", "mt2614")).toBe(true);
   });
 
   test("NO read anywhere in the tree -> still denied (true-positive preserved)", () => {
