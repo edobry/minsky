@@ -204,11 +204,21 @@ describe("ChangesetService", () => {
   });
 
   test("throws error when no adapter factory is registered", () => {
-    const serviceWithoutAdapter = new ChangesetService("https://unknown-platform.com/repo.git");
+    const serviceWithoutAdapter = new ChangesetService("https://github.com/unknown/repo.git");
 
     expect(async () => {
       await serviceWithoutAdapter.list();
     }).toThrow(/No changeset adapter factory registered/);
+  });
+
+  test("throws a clear GitHub-only error for unsupported platforms (mt#2613)", () => {
+    const serviceForUnsupportedPlatform = new ChangesetService(
+      "https://unknown-platform.com/repo.git"
+    );
+
+    expect(async () => {
+      await serviceForUnsupportedPlatform.list();
+    }).toThrow(/Only GitHub repositories are currently supported/);
   });
 });
 

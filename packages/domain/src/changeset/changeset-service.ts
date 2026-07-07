@@ -80,21 +80,23 @@ export class ChangesetService {
   }
 
   /**
-   * Detect platform based on repository URL using existing detection logic
+   * Detect platform based on repository URL.
+   *
+   * Only GitHub is currently supported (mt#2613) — the GitLab/Bitbucket/Gerrit/
+   * local-git branches this used to have were structurally unreachable in
+   * production (no adapter was ever registered for them; every real Minsky
+   * repository is github.com). Any non-GitHub URL now fails fast with a clear
+   * error instead of silently returning a platform identifier with no backing
+   * adapter.
    */
   private detectPlatform(): ChangesetPlatform {
     if (this.repositoryUrl.includes("github.com")) {
       return "github-pr";
-    } else if (this.repositoryUrl.includes("gitlab.com")) {
-      return "gitlab-mr";
-    } else if (this.repositoryUrl.includes("bitbucket.org")) {
-      return "bitbucket-pr";
-    } else if (this.repositoryUrl.includes("gerrit")) {
-      return "gerrit-change";
-    } else {
-      // Local repository or unknown - use local git workflow
-      return "local-git";
     }
+    throw new MinskyError(
+      `Unsupported repository for changeset operations: ${this.repositoryUrl}. ` +
+        `Only GitHub repositories are currently supported.`
+    );
   }
 
   /**
@@ -252,27 +254,11 @@ export async function createChangesetService(
  * Register default adapter factories for supported platforms
  */
 async function registerDefaultAdapterFactories(service: ChangesetService): Promise<void> {
-  // Dynamic imports to avoid circular dependencies
-
+  // Dynamic import to avoid circular dependencies
   try {
     const { GitHubChangesetAdapterFactory } = await import("./adapters/github-adapter");
     service.registerAdapterFactory(new GitHubChangesetAdapterFactory());
   } catch (error) {
     log.debug("GitHub changeset adapter not available", { error });
-  }
-
-  // Future: GitLab, Bitbucket, Gerrit adapters
-  try {
-    const { GitLabChangesetAdapterFactory } = await import("./adapters/gitlab-adapter");
-    service.registerAdapterFactory(new GitLabChangesetAdapterFactory());
-  } catch (error) {
-    log.debug("GitLab changeset adapter not available (future implementation)", { error });
-  }
-
-  try {
-    const { BitbucketChangesetAdapterFactory } = await import("./adapters/bitbucket-adapter");
-    service.registerAdapterFactory(new BitbucketChangesetAdapterFactory());
-  } catch (error) {
-    log.debug("Bitbucket changeset adapter not available (future implementation)", { error });
   }
 }
