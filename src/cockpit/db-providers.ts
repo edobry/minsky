@@ -68,10 +68,16 @@ export async function getCachedPersistenceProvider() {
  *   the first success (matches the other callers' exact pre-split behavior).
  *   This is a real, intentional difference between the callers today; this
  *   option preserves it exactly rather than silently unifying it.
+ * @param options.getProvider Test seam: override the provider-fetching step.
+ *   Defaults to {@link getCachedPersistenceProvider}. Production callers never
+ *   set this — it exists so unit tests can exercise the caching behavior
+ *   above against a fake/failing provider without a real DB.
  */
 export function createCachedSqlDbGetter(options: {
   cacheNegative: boolean;
+  getProvider?: () => Promise<unknown>;
 }): () => Promise<PostgresJsDatabase | null> {
+  const getProvider = options.getProvider ?? getCachedPersistenceProvider;
   let cachedDb: PostgresJsDatabase | null = null;
   let probedAndFailed = false;
 
@@ -79,8 +85,10 @@ export function createCachedSqlDbGetter(options: {
     if (cachedDb) return cachedDb;
     if (options.cacheNegative && probedAndFailed) return null;
     try {
-      const provider = await getCachedPersistenceProvider();
+      const provider = await getProvider();
       if (
+        typeof provider !== "object" ||
+        provider === null ||
         !("getDatabaseConnection" in provider) ||
         typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
           "function"

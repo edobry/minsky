@@ -33,7 +33,7 @@
  *
  * @see mt#2320 — this task
  * @see docs/architecture/adr-017-transcript-capture-continuous-watch.md
- * @see src/cockpit/server.ts startAskAdvancementSweeper — daemon lifecycle convention
+ * @see src/cockpit/sweepers.ts startAskAdvancementSweeper — daemon lifecycle convention
  * @see scripts/smoke-transcript-watcher.ts — §7a end-to-end verification artifact
  */
 
