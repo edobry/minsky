@@ -331,6 +331,24 @@ export interface DuplicateRegistration {
 }
 
 /**
+ * Lifecycle events with NO tool-name concept — `matcher` is meaningless for
+ * these (mirrors `getGuardsForEvent`'s "a matcher-less registration always
+ * matches once its event matches" comment). Used by
+ * {@link findDuplicateRegistrations} to scope the matcher-less-pair
+ * exemption (R1 fix, mt#2652): the exemption is ONLY valid on these events.
+ * `PreToolUse` and `PostToolUse` are tool-scoped — two matcher-less
+ * registrations there genuinely both match every tool call, which IS a real
+ * overlap risk and must still be flagged.
+ */
+export const NON_TOOL_SCOPED_EVENTS: ReadonlySet<LifecycleEvent> = new Set([
+  "UserPromptSubmit",
+  "SessionStart",
+  "Stop",
+  "SubagentStop",
+  "SessionEnd",
+]);
+
+/**
  * Detect two registrations with the same event and an overlapping matcher —
  * ADR-028 D7(2)'s "duplicate-registration check". Two matchers "overlap"
  * when they share at least one literal `|`-delimited alternative token (a
@@ -342,15 +360,17 @@ export interface DuplicateRegistration {
  * A registration with no matcher is treated as "matches everything." When
  * matched against a registration THAT HAS a matcher, this is a genuine
  * overlap risk (the matcher-less guard fires on every tool the matchered
- * guard's tokens name too) and is still flagged. When BOTH registrations in
- * a pair lack a matcher, they are NOT flagged (Phase 2a, mt#2652) — for
- * non-tool-scoped events (`UserPromptSubmit`, `SessionStart`, `Stop`,
- * `SubagentStop`, `SessionEnd`) a matcher-less registration is the NORMAL,
- * by-design shape (there is no tool name to match against), and multiple
- * independent guards legitimately share it — e.g. the six UserPromptSubmit
- * guidance detectors migrated in this phase. Flagging every such pair as a
- * "duplicate" would make the D7(2) check impossible to satisfy for any
- * non-tool-scoped family with more than one guard.
+ * guard's tokens name too) and is still flagged — on EVERY event, tool-scoped
+ * or not. When BOTH registrations in a pair lack a matcher, the exemption is
+ * narrower: it applies ONLY on {@link NON_TOOL_SCOPED_EVENTS} (Phase 2a,
+ * mt#2652; scope-corrected R1) — there, a matcher-less registration is the
+ * NORMAL, by-design shape (there is no tool name to match against), and
+ * multiple independent guards legitimately share it — e.g. the six
+ * UserPromptSubmit guidance detectors migrated in this phase. On a
+ * TOOL-SCOPED event (`PreToolUse`/`PostToolUse`), two matcher-less
+ * registrations genuinely BOTH match every tool call — that is exactly the
+ * accidental-duplicate shape D7(2) exists to catch, so it is still flagged
+ * there.
  */
 export function findDuplicateRegistrations(
   registrations: GuardRegistration[]
@@ -376,13 +396,15 @@ export function findDuplicateRegistrations(
 
       const aTokens = tokensOf(a.matcher);
       const bTokens = tokensOf(b.matcher);
-      if (aTokens === null && bTokens === null) {
-        // Both matcher-less at the same event: the normal shape for
-        // non-tool-scoped events with multiple independent guards — not a
-        // duplicate registration.
+      if (aTokens === null && bTokens === null && NON_TOOL_SCOPED_EVENTS.has(a.event)) {
+        // Both matcher-less on a non-tool-scoped event: the normal shape
+        // for a family of independent guards — not a duplicate registration.
         continue;
       }
       if (aTokens === null || bTokens === null) {
+        // Either exactly one side is matcher-less (genuine overlap risk on
+        // any event), OR both sides are matcher-less on a TOOL-SCOPED event
+        // (both genuinely match every tool call — still a real duplicate).
         dupes.push({
           a: a.name,
           b: b.name,

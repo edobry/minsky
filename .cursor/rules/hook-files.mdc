@@ -146,6 +146,25 @@ entry — no `settings.json` edit. Adding a guard to a NOT-yet-migrated event+ma
 still means a new standalone `settings.json` block (today's convention), until that block's
 guards are migrated as a group in a later phase.
 
+**Dispatcher host-cap budget model (R1 fix, mt#2652).** A dispatcher's `settings.json`
+`timeout` is the HOST CAP for the whole process, and the dispatcher runs every matched guard
+SEQUENTIALLY within that one process — so the entry's timeout must cover the FAMILY'S
+worst-case SUM (every migrated guard's budget added together), not any single guard's budget.
+Getting this wrong silently caps the family at whichever value was copied from one guard,
+starving every guard after the first if the process runs long. Each guard's own
+`timeoutMs` field in its `GUARD_REGISTRY` entry documents that guard's individual budget
+(declarative today, not yet enforced as a per-guard wall-clock cutoff inside `runDispatcher` —
+see the Phase 2a section below); `readHostCap`/`deriveBudgets` (from `./types`, invoked once
+by D6's `resolveDispatchContext`) derive the SHARED overall/fetch/git budgets from the
+dispatcher entry's host-cap `timeout`, not from any individual guard's `timeoutMs`. When a
+family migrates as a group (Phase 2a's UserPromptSubmit six-guard case), size the dispatcher
+entry's `timeout` to at least the sum of the guards' PRE-MIGRATION individual timeouts (minus
+a modest process-spawn-overhead saving is defensible; guessing a single guard's old value is
+not). The Phase 1 PreToolUse pilot's `dispatch-pretooluse.ts` entry (`timeout: 15`) does not
+yet have this problem — exactly one guard (`check-guessed-session-path`, `timeoutMs: 5000`) is
+registered there today — but future `PreToolUse` family migrations (ADR-028 Phase 5) onto that
+SAME entry will need this same sum-sizing check applied before adding guards, not after.
+
 **Pilot migration (mt#2650).** `check-guessed-session-path` (see its own section below) was
 migrated onto the dispatcher IN PLACE — its command entry within the `Bash|mcp__minsky__
 session_exec` `PreToolUse` block was replaced 1:1 with `dispatch-pretooluse.ts`, at the same
@@ -184,6 +203,19 @@ equivalent "before transcript read" checkpoint left inside a per-guard `run()`.
 - **Process-count reduction:** the `UserPromptSubmit` event's `settings.json` command count
   dropped from 14 to 9 (6 individual detector processes collapsed into 1 dispatcher process) —
   measured directly by counting `hooks.UserPromptSubmit[].hooks[]` entries before/after.
+- **Dispatcher entry timeout (R1 fix):** the six pre-migration standalone entries summed to
+  65s (15+10+10+10+10+10); the dispatcher entry is `timeout: 60` — sized to the family-sum
+  model in "Dispatcher host-cap budget model" above, not copied from any single guard's old
+  value (an earlier draft of this migration shipped `timeout: 15`, which would have silently
+  capped the whole six-guard family at the largest single guard's old budget).
+- **`findDuplicateRegistrations`'s matcher-less-pair exemption is event-scoped (R1 fix):** the
+  exemption documented in `registry.ts` ("two matcher-less registrations at the same event are
+  not flagged") applies ONLY on `NON_TOOL_SCOPED_EVENTS` (`UserPromptSubmit`, `SessionStart`,
+  `Stop`, `SubagentStop`, `SessionEnd`). On a tool-scoped event (`PreToolUse`/`PostToolUse`),
+  two matcher-less registrations genuinely both match every tool call and are still flagged as
+  duplicates — an earlier draft exempted matcher-less pairs on ALL events, which would have
+  silently disabled the D7(2) check's core case for future `PreToolUse`/`PostToolUse` family
+  migrations.
 - **Calibration byte-compatibility:** `logCalibrationRecord` writes to the SAME
   `.minsky/<name>-calibration.jsonl` paths with the SAME record shapes the pre-migration
   hand-rolled `appendCalibrationRecord()` functions wrote — no watermark resets, no
