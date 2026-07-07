@@ -12,6 +12,8 @@
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { changesetRecencyTime } from "../lib/format";
 import {
@@ -117,9 +119,7 @@ export function ChangesetsPage() {
   if (query.isError) {
     return (
       <div className="p-4 max-w-5xl mx-auto w-full">
-        <p className="text-sm text-destructive">
-          Failed to load changesets: {query.error.message}
-        </p>
+        <ErrorState prefix="Failed to load changesets" error={query.error} />
       </div>
     );
   }
@@ -185,7 +185,7 @@ export function ChangesetsPage() {
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading changesets…</p>
+        <LoadingState message="Loading changesets…" variant="page" />
       ) : (
         <Changesets items={controls.pageItems} onRowClick={handleRowClick} />
       )}

@@ -1,7 +1,7 @@
 /**
  * Slow-clock topology cache (mt#2602) — the impure PRODUCER half of the
  * derivation. Mirrors the `prod-state-cache.ts` (mt#2506) hybrid pattern:
- * a periodic refresh (driven by `startTopologySweeper` in server.ts) does the
+ * a periodic refresh (driven by `startTopologySweeper` in sweepers.ts) does the
  * expensive I/O (directory listing, a bounded `git log` subprocess, a
  * `retrospective.fired` DB query) once per cadence tick and writes a small
  * in-process cache; the `slow-topology` widget's `fetch()` reads ONLY that

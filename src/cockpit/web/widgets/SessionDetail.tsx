@@ -15,6 +15,8 @@ import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { shortenId } from "../lib/format";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 
@@ -143,19 +145,11 @@ function SessionDetailBody({
   query: UseQueryResult<SessionDetailPayload, Error>;
 }) {
   if (query.isPending) {
-    return (
-      <p className="text-sm text-muted-foreground" aria-live="polite">
-        Loading session {sessionId}…
-      </p>
-    );
+    return <LoadingState message={`Loading session ${sessionId}…`} />;
   }
 
   if (query.isError) {
-    return (
-      <p className="text-sm text-red-400" role="alert">
-        {query.error.message}
-      </p>
-    );
+    return <ErrorState error={query.error} />;
   }
 
   const data = query.data;
