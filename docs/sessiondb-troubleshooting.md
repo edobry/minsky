@@ -1,6 +1,12 @@
 # SessionDB Troubleshooting Guide
 
-This guide provides solutions for common SessionDB issues across all backends (SQLite, PostgreSQL).
+> **Historical (2026-06-08).** SQLite support has been removed entirely (mt#2339, mt#2329) —
+> Postgres is the only supported backend (see [ADR-018](architecture/adr-018-domain-persistence-pattern.md)).
+> The SQLite-specific sections below (error codes, `sqlite3` recovery commands, `sessiondb.sqliteOptions`
+> config) are retained for historical reference only and do not apply to the current codebase.
+
+This guide provides solutions for common SessionDB issues. **Postgres is the only supported
+backend** (SQLite sections below are historical).
 
 ## Quick Diagnostics
 

@@ -127,11 +127,11 @@ version: 1
 # Task Backend Configuration
 backend: "github-issues"
 
-# Persistence Configuration
+# Persistence Configuration (Postgres is the only supported backend — mt#2339)
 persistence:
-  backend: "sqlite"
-  sqlite:
-    dbPath: "~/.local/state/minsky/sessions.db"
+  backend: "postgres"
+  postgres:
+    connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
 ```
 
 ### Step 4: Verify Setup
@@ -202,9 +202,9 @@ backendConfig:
       CLOSED: "minsky:closed"
 
 persistence:
-  backend: "sqlite"
-  sqlite:
-    dbPath: "~/.local/state/minsky/sessions.db"
+  backend: "postgres"
+  postgres:
+    connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
 ```
 
 ## Troubleshooting
