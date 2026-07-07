@@ -41,13 +41,27 @@ export interface CalibrationLogEntry {
   name: string;
   /**
    * Record kind — drives how matched phrases are extracted from each record.
-   * "causal-premise"        → record.matchedPhrases: string[]
-   * "retrospective-trigger" → record.matches: {family, phrase}[]
-   * "ask-routing-deferral"  → record.matches: {class, phrase}[] (mt#2498) —
+   * "causal-premise"          → record.matchedPhrases: string[]
+   * "retrospective-trigger"   → record.matches: {family, phrase}[]
+   * "ask-routing-deferral"    → record.matches: {class, phrase}[] (mt#2498) —
    *   same matches-shape as retrospective-trigger; the per-match label key is
    *   `class` not `family`. Both parse through the same branch.
+   * "code-mechanism-assertion" → record.claims: {symbol, predicate}[] (mt#2486).
+   * "pre-narration"            → record.matches: {category, phrase, ...}[] (mt#2197) —
+   *   same matches-shape family as retrospective-trigger/ask-routing-deferral;
+   *   the per-match label key is `category`.
+   * "policy-coverage"          → record.{reason, outcome, evidence?} (mt#1575) —
+   *   a per-tool-call coverage-decision audit record, NOT a matched-phrase
+   *   record. Diversity is measured over distinct `reason` values instead of
+   *   distinct phrases (see extractDistinctPhrases).
    */
-  kind: "causal-premise" | "retrospective-trigger" | "ask-routing-deferral";
+  kind:
+    | "causal-premise"
+    | "retrospective-trigger"
+    | "ask-routing-deferral"
+    | "code-mechanism-assertion"
+    | "pre-narration"
+    | "policy-coverage";
 }
 
 /**
@@ -57,6 +71,17 @@ export interface CalibrationLogEntry {
  *   - causal-premise-calibration.jsonl (mt#2216)
  *   - retrospective-trigger-calibration.jsonl (mt#2057)
  *   - ask-routing-deferral-calibration.jsonl (mt#2471, registered mt#2498)
+ *
+ * V2 entries (mt#2619 — calibration-review cadence closeout):
+ *   - code-mechanism-assertion-calibration.jsonl (mt#2486)
+ *   - pre-narration-calibration.jsonl (mt#2197)
+ *   - policy-coverage-calibration.jsonl (mt#1575) — NOTE: this log is NOT a
+ *     matched-phrase detector log like the other five. It is a per-tool-call
+ *     coverage-decision audit trail (every Edit/Write/NotebookEdit gets a
+ *     record, "covered" or "uncovered"), so its volume and semantics differ.
+ *     It is registered here so the standing cadence mechanism surfaces it —
+ *     see mt#2619 PR body for the disposition finding (100% "covered" outcome
+ *     across 1,457 fires with evidence spans that do not match the action).
  *
  * To add another log: append one CalibrationLogEntry here.
  */
@@ -75,6 +100,21 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/ask-routing-deferral-calibration.jsonl",
     name: "ask-routing-deferral",
     kind: "ask-routing-deferral",
+  },
+  {
+    path: ".minsky/code-mechanism-assertion-calibration.jsonl",
+    name: "code-mechanism-assertion",
+    kind: "code-mechanism-assertion",
+  },
+  {
+    path: ".minsky/pre-narration-calibration.jsonl",
+    name: "pre-narration",
+    kind: "pre-narration",
+  },
+  {
+    path: ".minsky/policy-coverage-calibration.jsonl",
+    name: "policy-coverage",
+    kind: "policy-coverage",
   },
 ];
 
@@ -146,8 +186,39 @@ export interface RetrospectiveTriggerRecord {
   transcript_excerpt?: string;
 }
 
+/** Parsed code-mechanism-assertion calibration record (mt#2486). */
+export interface CodeMechanismAssertionRecord {
+  timestamp: string;
+  session_id?: string;
+  claims: Array<{ symbol: string; predicate: string }>;
+  hadSameTurnRead: boolean;
+}
+
+/**
+ * Parsed policy-coverage calibration record (mt#1575).
+ *
+ * Unlike the other five logs, this is NOT a matched-phrase detector record —
+ * it is a per-tool-call coverage-decision audit line emitted on EVERY
+ * Edit/Write/NotebookEdit the detector evaluates (outcome: "covered" /
+ * "uncovered-logged" / "uncovered-blocked" / "dismissed"). `reason` is the
+ * action-filter trigger condition (e.g. "new-file", "new-dependency").
+ */
+export interface PolicyCoverageRecord {
+  timestamp: string;
+  session_id?: string;
+  toolName?: string;
+  reason: string;
+  filePath?: string;
+  outcome: string;
+  evidence?: Array<{ policySource: string; matchedCategory?: string; matchedAuthority?: string }>;
+}
+
 /** Union of all record types. */
-export type CalibrationRecord = CausalPremiseRecord | RetrospectiveTriggerRecord;
+export type CalibrationRecord =
+  | CausalPremiseRecord
+  | RetrospectiveTriggerRecord
+  | CodeMechanismAssertionRecord
+  | PolicyCoverageRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -206,29 +277,79 @@ export function parseCalibrationRecord(
         matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
         hadSameTurnVerification: Boolean(raw["hadSameTurnVerification"]),
       } satisfies CausalPremiseRecord;
-    } else {
-      // retrospective-trigger OR ask-routing-deferral (mt#2498) — same
-      // matches-shape. retrospective-trigger labels each match with `family`;
-      // ask-routing-deferral labels it with `class`. Read both so either kind
-      // parses; only `.phrase` is used downstream (diversity + fire-count).
-      // Shape: { timestamp, session_id?, matches: [{family|class, phrase}][], transcript_excerpt? }
-      const matches = Array.isArray(raw["matches"])
-        ? (raw["matches"] as unknown[]).map((m) => {
-            const obj = m as Record<string, unknown>;
+    }
+
+    if (kind === "code-mechanism-assertion") {
+      // Shape: { timestamp, session_id?, claims: [{symbol, predicate}][], hadSameTurnRead }
+      const claims = Array.isArray(raw["claims"])
+        ? (raw["claims"] as unknown[]).map((c) => {
+            const obj = c as Record<string, unknown>;
             return {
-              family: String(obj["family"] ?? obj["class"] ?? ""),
-              phrase: String(obj["phrase"] ?? ""),
+              symbol: String(obj["symbol"] ?? ""),
+              predicate: String(obj["predicate"] ?? ""),
             };
           })
         : [];
       return {
         timestamp: String(raw["timestamp"] ?? ""),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
-        matches,
-        transcript_excerpt:
-          raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
-      } satisfies RetrospectiveTriggerRecord;
+        claims,
+        hadSameTurnRead: Boolean(raw["hadSameTurnRead"]),
+      } satisfies CodeMechanismAssertionRecord;
     }
+
+    if (kind === "policy-coverage") {
+      // Shape: { timestamp, sessionId?, toolName?, reason, filePath?, outcome, evidence? }
+      // NOTE: this producer uses `sessionId` (camelCase), not `session_id` like
+      // the other five logs — mirrored here rather than normalised so the
+      // parser stays a faithful reflection of what the hook actually writes.
+      if (typeof raw["reason"] !== "string" || typeof raw["outcome"] !== "string") return null;
+      const evidence = Array.isArray(raw["evidence"])
+        ? (raw["evidence"] as unknown[]).map((e) => {
+            const obj = e as Record<string, unknown>;
+            return {
+              policySource: String(obj["policySource"] ?? ""),
+              matchedCategory:
+                obj["matchedCategory"] !== undefined ? String(obj["matchedCategory"]) : undefined,
+              matchedAuthority:
+                obj["matchedAuthority"] !== undefined ? String(obj["matchedAuthority"]) : undefined,
+            };
+          })
+        : undefined;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["sessionId"] !== undefined ? String(raw["sessionId"]) : undefined,
+        toolName: raw["toolName"] !== undefined ? String(raw["toolName"]) : undefined,
+        reason: raw["reason"],
+        filePath: raw["filePath"] !== undefined ? String(raw["filePath"]) : undefined,
+        outcome: raw["outcome"],
+        evidence,
+      } satisfies PolicyCoverageRecord;
+    }
+
+    // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
+    // (mt#2197) — same matches-shape family. retrospective-trigger labels each
+    // match with `family`; ask-routing-deferral labels it with `class`;
+    // pre-narration labels it with `category`. Read all three so any of the
+    // three kinds parses; only `.phrase` is used downstream (diversity +
+    // fire-count).
+    // Shape: { timestamp, session_id?, matches: [{family|class|category, phrase}][], transcript_excerpt? }
+    const matches = Array.isArray(raw["matches"])
+      ? (raw["matches"] as unknown[]).map((m) => {
+          const obj = m as Record<string, unknown>;
+          return {
+            family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
+            phrase: String(obj["phrase"] ?? ""),
+          };
+        })
+      : [];
+    return {
+      timestamp: String(raw["timestamp"] ?? ""),
+      session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+      matches,
+      transcript_excerpt:
+        raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
+    } satisfies RetrospectiveTriggerRecord;
   } catch {
     return null;
   }
@@ -257,7 +378,12 @@ export function parseCalibrationLines(
  * Extract the set of distinct matched phrases from a slice of records.
  *
  * For causal-premise records: each entry in `matchedPhrases` is a phrase.
- * For retrospective-trigger records: each entry in `matches[].phrase` is a phrase.
+ * For retrospective-trigger / ask-routing-deferral / pre-narration records:
+ * each entry in `matches[].phrase` is a phrase.
+ * For code-mechanism-assertion records: `${symbol}::${predicate}` per claim —
+ * the (symbol, predicate) pair is the analog of a "matched phrase" here.
+ * For policy-coverage records: `reason` (the action-filter trigger condition)
+ * is the diversity axis — there is no matched-phrase concept for this log.
  */
 export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string> {
   const phrases = new Set<string>();
@@ -266,6 +392,12 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       for (const p of rec.matchedPhrases) {
         phrases.add(p);
       }
+    } else if ("claims" in rec) {
+      for (const c of rec.claims) {
+        phrases.add(`${c.symbol}::${c.predicate}`);
+      }
+    } else if ("reason" in rec) {
+      phrases.add(rec.reason);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
