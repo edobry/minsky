@@ -26,10 +26,11 @@
  * inspection; the pre-commit hook keeps the committed Dockerfiles correct
  * automatically.
  *
- * Exit codes: 0 on success (whether or not anything changed), 1 if any
- * protected Dockerfile is missing the generated-block markers (a one-time
- * setup gap — see `applyGeneratedWorkspaceCopyBlock`'s error message for the
- * fix) or if root `package.json` can't be read/parsed.
+ * Exit codes: 0 on success (whether or not anything changed, including the
+ * no-`workspaces`-field no-op), 1 if any protected Dockerfile is missing the
+ * generated-block markers (a one-time setup gap — see
+ * `applyGeneratedWorkspaceCopyBlock`'s error message for the fix) or if root
+ * `package.json` can't be read at all.
  */
 
 import { writeFileSync } from "fs";
@@ -56,8 +57,12 @@ function main(): void {
 
   const plans = planDockerfileWorkspaceCopyRegeneration(repoRoot);
   if (plans === null) {
-    console.error(`Could not parse ${packageJsonPath} — no \`workspaces\` field to generate from.`);
-    process.exit(1);
+    // Class-by-trigger posture (PR #1801 review): a repo without a
+    // `workspaces` field has no workspace-COPY contract to generate — that is
+    // a silent no-op, not an error, matching the rule docs' short-circuit
+    // behavior for non-workspace repos. (An unreadable package.json is still
+    // a hard failure, handled above.)
+    console.log(`No \`workspaces\` field in ${packageJsonPath} — nothing to generate.`);
     return;
   }
 
