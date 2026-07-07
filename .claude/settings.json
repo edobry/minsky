@@ -73,22 +73,17 @@
             "statusMessage": "Checking for git/gh CLI..."
           },
           {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
-            "timeout": 15,
-            "statusMessage": "Checking for coupled out-of-band steps in PR body..."
-          }
-        ]
-      },
-      {
-        "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry (currently: check-guessed-session-path, moved out of the Bash|mcp__minsky__session_exec block above). One entry per migrated event+matcher pair — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead.",
-        "matcher": "Bash|mcp__minsky__session_exec",
-        "hooks": [
-          {
+            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry (currently: check-guessed-session-path). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
             "timeout": 15,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for coupled out-of-band steps in PR body..."
           }
         ]
       },

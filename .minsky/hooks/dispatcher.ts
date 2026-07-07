@@ -55,22 +55,64 @@ export interface OverrideResult {
   raw?: string;
 }
 
+export interface CheckOverrideOptions {
+  /**
+   * Every registered guard name, used to detect typo'd override tokens (a
+   * token that matches no guard and isn't `"all"` silently does nothing —
+   * without this check the operator gets no signal that their override was
+   * ineffective). Defaults to `GUARD_REGISTRY`'s names.
+   */
+  knownGuardNames?: readonly string[];
+  /** Injectable for tests — defaults to `process.stderr.write`. */
+  stderrWrite?: (s: string) => void;
+}
+
 /**
  * Check whether `guardName` is named in `MINSKY_HOOK_OVERRIDE` — one shared,
  * tested override predicate (D3), replacing each guard's bespoke inline
  * truthy-parsing.
+ *
+ * Matching is case-INSENSITIVE on both sides — `guardName` and every
+ * comma-delimited env token are lowercased before comparison. Registry names
+ * are canonical lowercase-hyphenated, but an operator typing
+ * `MINSKY_HOOK_OVERRIDE=Check-Guessed-Session-Path` (or `ALL`) should still
+ * suppress the guard rather than silently no-op. Whitespace around each
+ * comma-delimited token is still trimmed.
+ *
+ * Any token that is neither `"all"` nor a known guard name (per
+ * `options.knownGuardNames`, case-insensitively) triggers a stderr warning —
+ * the typo-detection signal ("did the operator mean a guard that doesn't
+ * exist?") without changing the override decision for THIS guard.
  */
 export function checkOverride(
   guardName: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  options?: CheckOverrideOptions
 ): OverrideResult {
   const raw = env[HOOK_OVERRIDE_ENV_VAR];
   if (!raw) return { overridden: false };
+
+  const knownGuardNames = options?.knownGuardNames ?? GUARD_REGISTRY.map((r) => r.name);
+  const stderrWrite = options?.stderrWrite ?? ((s: string) => process.stderr.write(s));
+  const knownLower = new Set(knownGuardNames.map((n) => n.toLowerCase()));
+
   const names = raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  const overridden = names.includes("all") || names.includes(guardName);
+
+  for (const name of names) {
+    const lower = name.toLowerCase();
+    if (lower !== "all" && !knownLower.has(lower)) {
+      stderrWrite(
+        `[dispatcher] MINSKY_HOOK_OVERRIDE token "${name}" does not match any registered guard name (or "all") — possible typo; it will not suppress any guard.\n`
+      );
+    }
+  }
+
+  const namesLower = names.map((n) => n.toLowerCase());
+  const guardNameLower = guardName.toLowerCase();
+  const overridden = namesLower.includes("all") || namesLower.includes(guardNameLower);
   return { overridden, raw };
 }
 
@@ -263,9 +305,10 @@ export async function runDispatcher(
 
   const ctx = resolveContext(event, input, { hookFilename: options.hookFilename });
 
+  const knownGuardNames = registrations.map((r) => r.name);
   const contextFragments: string[] = [];
   for (const reg of matched) {
-    const override = checkOverride(reg.name);
+    const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
       stdoutWrite(buildOverrideAuditLine(event, reg.name, input.session_id));
       continue;

@@ -108,18 +108,28 @@ and `calibration` (logged via `logCalibrationRecord` when the registration names
 `check-guessed-session-path.ts`'s `run()` export for the reference migration.
 
 **Settings.json convention going forward.** ONE dispatcher entry per migrated event+matcher
-pair — e.g. the pilot's entry is a `PreToolUse` block with `matcher:
-"Bash|mcp__minsky__session_exec"` and a single `hooks: [{ command: ".../dispatch-
-pretooluse.ts" }]`. Adding a guard to an ALREADY-migrated event+matcher pair means adding a
-`GUARD_REGISTRY` entry — no `settings.json` edit. Adding a guard to a NOT-yet-migrated
-event+matcher pair still means a new standalone `settings.json` block (today's convention),
-until that block's guards are migrated as a group in a later phase.
+pair — e.g. the pilot's entry is the `dispatch-pretooluse.ts` command inside the existing
+`PreToolUse` block with `matcher: "Bash|mcp__minsky__session_exec"`. **Ordering rule:** when
+a SINGLE guard migrates out of a `settings.json` block that has other, not-yet-migrated
+siblings, the dispatcher's `hooks[]` entry takes the migrated guard's ORIGINAL array
+position (same slot) so first-deny-wins execution order relative to those siblings is
+unchanged — a NEW trailing block would silently reorder the pilot after every sibling that
+happened to be declared first; when a WHOLE event's guards migrate as a group (a later
+phase), ordering moves out of `settings.json` array position entirely and into
+`GUARD_REGISTRY`'s array order (D1's explicit registry-order first-deny-wins semantics).
+Adding a guard to an ALREADY-migrated event+matcher pair means adding a `GUARD_REGISTRY`
+entry — no `settings.json` edit. Adding a guard to a NOT-yet-migrated event+matcher pair
+still means a new standalone `settings.json` block (today's convention), until that block's
+guards are migrated as a group in a later phase.
 
 **Pilot migration (mt#2650).** `check-guessed-session-path` (see its own section below) was
-moved out of its standalone `Bash|mcp__minsky__session_exec` `PreToolUse` block and onto the
-dispatcher. Its own section's "Hook file" / behavioral documentation is otherwise unchanged —
-the guard's pure-function logic (`findMissingInToolInput`, `buildDenialReason`) is identical;
-only the process-dispatch mechanism changed.
+migrated onto the dispatcher IN PLACE — its command entry within the `Bash|mcp__minsky__
+session_exec` `PreToolUse` block was replaced 1:1 with `dispatch-pretooluse.ts`, at the same
+array position, alongside its not-yet-migrated siblings (`block-subagent-bypass-merge`,
+`require-checks-on-bypass-merge`, `block-git-gh-cli`, `block-out-of-band-merge`) — per the
+ordering rule above. Its own section's "Hook file" / behavioral documentation is otherwise
+unchanged — the guard's pure-function logic (`findMissingInToolInput`, `buildDenialReason`)
+is identical; only the process-dispatch mechanism changed.
 
 **No override mechanism for the framework itself.** `checkOverride`/`runDispatcher` are
 tested library code, not a guard — there's nothing to bypass. `MINSKY_HOOK_OVERRIDE` is the

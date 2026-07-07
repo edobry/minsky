@@ -20,39 +20,160 @@ const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
 // checkOverride (D3)
 // ---------------------------------------------------------------------------
 
+/** Collects stderr writes for assertion without touching the real process.stderr. */
+function makeStderrSpy(): { writes: string[]; write: (s: string) => void } {
+  const writes: string[] = [];
+  return { writes, write: (s) => writes.push(s) };
+}
+
+/** Known-guard-name universe used by the checkOverride tests below — decoupled from the
+ * real (growing) GUARD_REGISTRY so these tests don't need updating as guards migrate. */
+const KNOWN_GUARDS = ["some-guard", "other-guard", "a", "b", "c"];
+
+/** The real pilot guard's canonical name — used where tests intentionally exercise the
+ * live GUARD_REGISTRY default rather than a synthetic KNOWN_GUARDS universe. */
+const PILOT_GUARD_NAME = "check-guessed-session-path";
+
 describe("checkOverride", () => {
   test("no env var set -> not overridden", () => {
     expect(checkOverride("some-guard", {})).toEqual({ overridden: false });
   });
 
   test("env var names exactly this guard -> overridden", () => {
-    const result = checkOverride("some-guard", { [HOOK_OVERRIDE_ENV_VAR]: "some-guard" });
+    const result = checkOverride(
+      "some-guard",
+      { [HOOK_OVERRIDE_ENV_VAR]: "some-guard" },
+      { knownGuardNames: KNOWN_GUARDS }
+    );
     expect(result.overridden).toBe(true);
     expect(result.raw).toBe("some-guard");
   });
 
   test("env var names a different guard -> not overridden", () => {
-    const result = checkOverride("some-guard", { [HOOK_OVERRIDE_ENV_VAR]: "other-guard" });
+    const result = checkOverride(
+      "some-guard",
+      { [HOOK_OVERRIDE_ENV_VAR]: "other-guard" },
+      { knownGuardNames: KNOWN_GUARDS }
+    );
     expect(result.overridden).toBe(false);
   });
 
   test("comma-separated list -> matches any listed guard", () => {
-    const result = checkOverride("b", { [HOOK_OVERRIDE_ENV_VAR]: "a,b,c" });
+    const result = checkOverride(
+      "b",
+      { [HOOK_OVERRIDE_ENV_VAR]: "a,b,c" },
+      { knownGuardNames: KNOWN_GUARDS }
+    );
     expect(result.overridden).toBe(true);
   });
 
   test("whitespace around list entries is tolerated", () => {
-    const result = checkOverride("b", { [HOOK_OVERRIDE_ENV_VAR]: " a , b , c " });
+    const result = checkOverride(
+      "b",
+      { [HOOK_OVERRIDE_ENV_VAR]: " a , b , c " },
+      { knownGuardNames: KNOWN_GUARDS }
+    );
     expect(result.overridden).toBe(true);
   });
 
   test("literal 'all' overrides any guard name", () => {
-    expect(checkOverride("anything", { [HOOK_OVERRIDE_ENV_VAR]: "all" }).overridden).toBe(true);
-    expect(checkOverride("other", { [HOOK_OVERRIDE_ENV_VAR]: "x,all" }).overridden).toBe(true);
+    expect(
+      checkOverride(
+        "anything",
+        { [HOOK_OVERRIDE_ENV_VAR]: "all" },
+        { knownGuardNames: KNOWN_GUARDS }
+      ).overridden
+    ).toBe(true);
+    expect(
+      checkOverride(
+        "other",
+        { [HOOK_OVERRIDE_ENV_VAR]: "x,all" },
+        { knownGuardNames: KNOWN_GUARDS, stderrWrite: () => {} }
+      ).overridden
+    ).toBe(true);
   });
 
   test("empty string env var -> not overridden", () => {
-    expect(checkOverride("some-guard", { [HOOK_OVERRIDE_ENV_VAR]: "" }).overridden).toBe(false);
+    expect(
+      checkOverride(
+        "some-guard",
+        { [HOOK_OVERRIDE_ENV_VAR]: "" },
+        { knownGuardNames: KNOWN_GUARDS }
+      ).overridden
+    ).toBe(false);
+  });
+
+  test("mixed-case env value matches a lowercase-canonical guard name", () => {
+    const result = checkOverride(
+      PILOT_GUARD_NAME,
+      { [HOOK_OVERRIDE_ENV_VAR]: "Check-Guessed-Session-Path" },
+      { knownGuardNames: [PILOT_GUARD_NAME] }
+    );
+    expect(result.overridden).toBe(true);
+  });
+
+  test("mixed-case guardName argument still matches a lowercase env token", () => {
+    const result = checkOverride(
+      "Some-Guard",
+      { [HOOK_OVERRIDE_ENV_VAR]: "some-guard" },
+      { knownGuardNames: KNOWN_GUARDS }
+    );
+    expect(result.overridden).toBe(true);
+  });
+
+  test("'ALL' (uppercase) overrides any guard name", () => {
+    const result = checkOverride(
+      "some-guard",
+      { [HOOK_OVERRIDE_ENV_VAR]: "ALL" },
+      { knownGuardNames: KNOWN_GUARDS }
+    );
+    expect(result.overridden).toBe(true);
+  });
+
+  test("unknown token warns to stderr and does NOT suppress any guard", () => {
+    const spy = makeStderrSpy();
+    const result = checkOverride(
+      "some-guard",
+      { [HOOK_OVERRIDE_ENV_VAR]: "some-gaurd" }, // typo
+      { knownGuardNames: KNOWN_GUARDS, stderrWrite: spy.write }
+    );
+    expect(result.overridden).toBe(false);
+    expect(spy.writes.length).toBe(1);
+    expect(spy.writes[0]).toContain("some-gaurd");
+    expect(spy.writes[0]).toContain("does not match any registered guard name");
+  });
+
+  test("known token alongside an unknown token: known one still overrides, unknown one still warns", () => {
+    const spy = makeStderrSpy();
+    const result = checkOverride(
+      "b",
+      { [HOOK_OVERRIDE_ENV_VAR]: "typo-name,b" },
+      { knownGuardNames: KNOWN_GUARDS, stderrWrite: spy.write }
+    );
+    expect(result.overridden).toBe(true);
+    expect(spy.writes.length).toBe(1);
+    expect(spy.writes[0]).toContain("typo-name");
+  });
+
+  test("'all' and known tokens never trigger the unknown-token warning", () => {
+    const spy = makeStderrSpy();
+    checkOverride(
+      "b",
+      { [HOOK_OVERRIDE_ENV_VAR]: "all,b" },
+      { knownGuardNames: KNOWN_GUARDS, stderrWrite: spy.write }
+    );
+    expect(spy.writes).toEqual([]);
+  });
+
+  test("defaults knownGuardNames to the live GUARD_REGISTRY when not supplied", () => {
+    const spy = makeStderrSpy();
+    const result = checkOverride(
+      PILOT_GUARD_NAME,
+      { [HOOK_OVERRIDE_ENV_VAR]: PILOT_GUARD_NAME },
+      { stderrWrite: spy.write }
+    );
+    expect(result.overridden).toBe(true);
+    expect(spy.writes).toEqual([]);
   });
 });
 
@@ -64,12 +185,12 @@ describe("buildOverrideAuditLine", () => {
   test("matches the documented format exactly", () => {
     const line = buildOverrideAuditLine(
       "PreToolUse",
-      "check-guessed-session-path",
+      PILOT_GUARD_NAME,
       "sess-123",
       () => "2026-07-07T00:00:00.000Z"
     );
     expect(line).toBe(
-      "[dispatcher:PreToolUse] OVERRIDE: guard=check-guessed-session-path session=sess-123 ts=2026-07-07T00:00:00.000Z\n"
+      `[dispatcher:PreToolUse] OVERRIDE: guard=${PILOT_GUARD_NAME} session=sess-123 ts=2026-07-07T00:00:00.000Z\n`
     );
   });
 
