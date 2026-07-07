@@ -1,9 +1,5 @@
+import { safeShellQuote } from "@minsky/shared/exec";
 import { validateProcess } from "../schemas/runtime";
-
-// POSIX shell single-quote escape
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}
 
 export interface GitStatsDependencies {
   execAsync: (
@@ -160,7 +156,7 @@ export async function gitStatsImpl(
   deps: GitStatsDependencies
 ): Promise<GitStatsResult> {
   const workdir = options.repoPath ?? validateProcess(process).cwd();
-  const qWorkdir = shellQuote(workdir);
+  const qWorkdir = safeShellQuote(workdir);
   const nameOnly = options.nameOnly ?? false;
 
   const args: string[] = ["git", "-C", qWorkdir, "log", "--no-renames"];
@@ -172,16 +168,16 @@ export async function gitStatsImpl(
   args.push("--pretty=format:%x00%H");
 
   if (options.since) {
-    args.push(`--since=${shellQuote(options.since)}`);
+    args.push(`--since=${safeShellQuote(options.since)}`);
   }
   if (options.until) {
-    args.push(`--until=${shellQuote(options.until)}`);
+    args.push(`--until=${safeShellQuote(options.until)}`);
   }
   if (options.author) {
-    args.push(`--author=${shellQuote(options.author)}`);
+    args.push(`--author=${safeShellQuote(options.author)}`);
   }
   if (options.path) {
-    args.push("--", shellQuote(options.path));
+    args.push("--", safeShellQuote(options.path));
   }
 
   const { stdout } = await deps.execAsync(args.join(" "));
