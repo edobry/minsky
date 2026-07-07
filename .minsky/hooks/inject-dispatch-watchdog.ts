@@ -1,0 +1,222 @@
+#!/usr/bin/env bun
+// UserPromptSubmit hook: inject a warning when the dispatch-watchdog cache
+// (mt#2646) has flagged an IN-PROGRESS/IN-REVIEW task whose subagent dispatch
+// has gone silent (no commit, no PR/system event, no subagent_invocations
+// progress) for the stale window — the CONSUMER side of the producer/
+// consumer cached-injection mechanism.
+//
+// Why this exists. During the mt#2607 burndown (~14 implementer dispatches,
+// 2026-07-06/07), 5 dispatches ended without a usable completion report — two
+// stalled silently mid-review-convergence for 6.5h, one died with
+// uncommitted work and no handoff, one died on an API error mid-convergence.
+// Every case required the orchestrator to manually notice the silence and
+// probe session state. This hook surfaces the same signal structurally,
+// every turn, instead of relying on the orchestrator remembering to check.
+//
+// Cost discipline (mirrors inject-prod-state.ts / memory 08606f7c): a per-turn
+// DB + git query fails the cheap/non-churny injection bar. So this hook reads
+// ONLY a local cache file — the PRODUCER (`src/cockpit/dispatch-watchdog.ts`,
+// driven by the cockpit cadence sweep `startDispatchWatchdogSweeper`) does the
+// periodic DB/git read and writes the cache.
+//
+// Override: MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1|true|yes skips
+// injection with an audit-log line to stdout.
+//
+// @see mt#2646 — this hook
+// @see src/cockpit/dispatch-watchdog.ts — the producer (refresh + cache write)
+// @see mt#2506 .minsky/hooks/inject-prod-state.ts — sibling producer/consumer pattern
+// @see memory 08606f7c — structural-injection rule this hook instantiates
+
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { readInput, writeOutput } from "./types";
+import type { ClaudeHookInput, HookOutput } from "./types";
+
+export const DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION";
+
+// Cache location — MUST match `src/cockpit/dispatch-watchdog.ts`
+// (DISPATCH_WATCHDOG_CACHE_FILENAME + getStateDir). That module lives in a
+// separate module graph and cannot be imported here, so the path resolution
+// is duplicated; keep the two in sync.
+const DISPATCH_WATCHDOG_CACHE_FILENAME = "dispatch-watchdog-cache.json";
+
+/** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
+function getStateDir(): string {
+  const override = process.env["MINSKY_STATE_DIR"];
+  if (override) return override;
+  const xdgStateHome =
+    process.env["XDG_STATE_HOME"] || path.join(process.env["HOME"] || os.homedir(), ".local/state");
+  return path.join(xdgStateHome, "minsky");
+}
+
+function getDispatchWatchdogCachePath(): string {
+  return path.join(getStateDir(), DISPATCH_WATCHDOG_CACHE_FILENAME);
+}
+
+export interface UserPromptSubmitInput extends ClaudeHookInput {
+  prompt: string;
+}
+
+/** One flagged dispatch (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogFlag). */
+export interface DispatchWatchdogFlagRecord {
+  taskId: string;
+  subagentSessionId: string | null;
+  agentType: string;
+  taskStatus: string;
+  startedAt: string;
+  lastActivityAt: string;
+  staleForMs: number;
+}
+
+/** The on-disk cache record (mirrors src/cockpit/dispatch-watchdog.ts DispatchWatchdogSnapshot). */
+export interface DispatchWatchdogCacheRecord {
+  checkedAt: string;
+  staleMs: number;
+  flags: DispatchWatchdogFlagRecord[];
+}
+
+/**
+ * Parse + validate the cache JSON. Returns null on malformed/invalid content so the hook
+ * fails open (treats it as "no signal" rather than crashing). Pure function for testability.
+ */
+export function parseDispatchWatchdogCache(raw: string): DispatchWatchdogCacheRecord | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object") return null;
+  const rec = obj as Record<string, unknown>;
+  if (typeof rec.checkedAt !== "string" || rec.checkedAt.length === 0) return null;
+  if (typeof rec.staleMs !== "number" || !Number.isFinite(rec.staleMs)) return null;
+  if (!Array.isArray(rec.flags)) return null;
+
+  const flags: DispatchWatchdogFlagRecord[] = [];
+  for (const raw of rec.flags) {
+    if (!raw || typeof raw !== "object") continue;
+    const f = raw as Record<string, unknown>;
+    if (typeof f.taskId !== "string") continue;
+    if (typeof f.agentType !== "string") continue;
+    if (typeof f.taskStatus !== "string") continue;
+    if (typeof f.startedAt !== "string") continue;
+    if (typeof f.lastActivityAt !== "string") continue;
+    if (typeof f.staleForMs !== "number" || !Number.isFinite(f.staleForMs)) continue;
+    const sid = f.subagentSessionId;
+    flags.push({
+      taskId: f.taskId,
+      subagentSessionId: typeof sid === "string" ? sid : null,
+      agentType: f.agentType,
+      taskStatus: f.taskStatus,
+      startedAt: f.startedAt,
+      lastActivityAt: f.lastActivityAt,
+      staleForMs: f.staleForMs,
+    });
+  }
+  return { checkedAt: rec.checkedAt, staleMs: rec.staleMs, flags };
+}
+
+/** Humanize a duration in ms to a compact "Nm" / "Nh" / "Nd" string (floored, min "0m"). */
+export function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "unknown";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * Format the dispatch-watchdog snapshot into the additionalContext payload.
+ * Three shapes:
+ *   - null cache (no snapshot yet) → silent (no known-flaggable state; the
+ *     producer may just not have ticked yet — this is NOT the same failure
+ *     class as inject-prod-state's UNKNOWN, since an empty watchdog is the
+ *     overwhelmingly common healthy case and warning on every turn before
+ *     the first sweep tick would be pure noise).
+ *   - empty flags → silent (nothing stalled).
+ *   - non-empty flags → a warning naming each flagged dispatch with a
+ *     recovery pointer (probe via session.status, resume protocol in
+ *     /orchestrate).
+ *
+ * Pure function for testability; the entrypoint feeds it the parsed cache.
+ */
+export function formatDispatchWatchdogState(
+  record: DispatchWatchdogCacheRecord | null
+): string | null {
+  if (record === null) return null;
+  if (record.flags.length === 0) return null;
+
+  const lines = record.flags.map((f) => {
+    const age = formatAge(f.staleForMs);
+    const sidStr = f.subagentSessionId ?? "(no session id)";
+    return `  - ${f.taskId} (${f.taskStatus}, agentType=${f.agentType}, session=${sidStr}): silent for ${age} (last activity ${f.lastActivityAt})`;
+  });
+
+  return (
+    `DISPATCH WATCHDOG: ${record.flags.length} in-flight subagent dispatch(es) appear stalled ` +
+    `(no commit / PR event / subagent_invocations activity past the stale window, last checked ` +
+    `${record.checkedAt}):\n${lines.join("\n")}\n` +
+    "Before assuming the dispatch is dead: probe recovery-relevant state in one call via the " +
+    "session.status MCP tool with probe=true (PR/review state, commits-ahead-of-base, dirty-file " +
+    "count, handoff.md presence) for the flagged session, THEN apply the resume protocol documented " +
+    "in the /orchestrate skill (Dispatch watchdog and resume protocol section): (a) uncommitted work " +
+    "present → checkpoint-commit first; (b) prefer SendMessage-resume of the SAME agent for fix " +
+    "rounds; (c) fresh dispatch into the EXISTING session only when the transcript is unusable."
+  );
+}
+
+function isOverrideTruthy(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** Read + parse the cache file. Returns null when absent/unreadable/invalid (fail-open). */
+function readCache(cachePath: string): DispatchWatchdogCacheRecord | null {
+  try {
+    if (!fs.existsSync(cachePath)) return null;
+    return parseDispatchWatchdogCache(fs.readFileSync(cachePath, { encoding: "utf8" }));
+  } catch {
+    return null;
+  }
+}
+
+async function main(): Promise<void> {
+  if (isOverrideTruthy(process.env[DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV])) {
+    const auditLine = `[inject-dispatch-watchdog] override active: ${DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV}=${process.env[DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV]} at ${new Date().toISOString()}`;
+    process.stdout.write(`${auditLine}\n`);
+    return;
+  }
+
+  let input: UserPromptSubmitInput;
+  try {
+    input = await readInput<UserPromptSubmitInput>();
+  } catch {
+    return;
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") return;
+
+  let record: DispatchWatchdogCacheRecord | null;
+  try {
+    record = readCache(getDispatchWatchdogCachePath());
+  } catch {
+    return;
+  }
+
+  const additionalContext = formatDispatchWatchdogState(record);
+  if (additionalContext === null) return; // nothing flagged — stay silent
+
+  const output: HookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext,
+    },
+  };
+  writeOutput(output);
+}
+
+if (import.meta.main) {
+  await main();
+}
