@@ -1,6 +1,9 @@
 # Session Edit File CLI Command
 
-The `minsky session edit-file` command provides a user-friendly CLI wrapper around the `session.edit_file` MCP tool, enabling easy file editing within session workspaces using AI-powered pattern application.
+The `minsky session edit-file` command provides a user-friendly CLI wrapper that shares its
+apply-model implementation with the `session.edit_file` MCP tool (both entry points delegate to
+the same canonical `applySessionFileEditOperation` domain function, mt#2612), enabling file
+editing within session workspaces using AI-powered pattern application.
 
 ## Overview
 
@@ -25,8 +28,20 @@ minsky session edit-file --path <file-path> [--instruction "<description>"] [opt
 - `--pattern-file <path>` or `-f <path>`: Path to file containing edit pattern
 - `--dry-run` or `-n`: Preview changes without writing to disk
 - `--create-dirs`: Create parent directories if they don't exist (default: true)
+- `--full-replace`: Override the marker-less fail-closed guard (mt#2400) to intentionally
+  replace an existing file's entire content. Without this flag, applying marker-less
+  content to an EXISTING file is refused (see FAIL-CLOSED below).
 - `--json`: Output in JSON format
 - `--debug`: Enable debug output
+
+## FAIL-CLOSED guard (mt#2400)
+
+Editing an EXISTING file with content that has NO `// ... existing code ...` marker is
+REFUSED by default, because it would silently overwrite the entire file. Use
+`// ... existing code ...` markers to make a partial edit, or pass `--full-replace` to
+intentionally replace the whole file's content. This is the same guard the
+`session_edit_file` MCP tool enforces — both entry points share one implementation
+(mt#2612).
 
 ## Input Methods
 
