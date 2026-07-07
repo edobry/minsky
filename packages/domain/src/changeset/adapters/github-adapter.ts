@@ -36,7 +36,7 @@ import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
-import { createTimeoutFetch } from "../../github/octokit-timeout";
+import { createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 /** Union of simplified and full PR types from Octokit responses */
@@ -100,13 +100,16 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     return this.repositoryBackend;
   }
 
-  /** Returns a cached Octokit instance, creating it on first call. */
+  /**
+   * Returns a cached Octokit instance, creating it on first call via the shared
+   * `createOctokit()` factory (mt#2613) — the same construction path used by the
+   * `repository/github-pr-*` layer, so there is exactly one Octokit-construction
+   * function for PR operations rather than two independent ones.
+   */
   private async getOctokit(): Promise<Octokit> {
     if (!this._octokit) {
       const token = await this.tokenProvider.getServiceToken();
-      // Bound every request so a hung GitHub call can't wedge a long-lived
-      // process (mt#2270 sweep; see octokit-timeout.ts).
-      this._octokit = new Octokit({ auth: token, request: { fetch: createTimeoutFetch() } });
+      this._octokit = createOctokit(token);
     }
     return this._octokit;
   }
@@ -114,7 +117,23 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   constructor(
     private repositoryUrl: string,
     private config?: { token?: string; workdir?: string },
-    deps?: { sessionProvider?: SessionProviderInterface; tokenProvider?: TokenProvider }
+    deps?: {
+      sessionProvider?: SessionProviderInterface;
+      tokenProvider?: TokenProvider;
+      /**
+       * Test-only DI seam (mirrors the `octokitOverride` convention used across
+       * `repository/github-pr-*.ts`) — lets characterization tests inject a fake
+       * Octokit instance instead of hitting the network or relying on
+       * `mock.module()` (forbidden by the `no-global-module-mocks` ESLint rule).
+       */
+      octokitOverride?: Octokit;
+      /**
+       * Test-only DI seam for the repository backend used by mutation operations
+       * (create/update/merge/approve/getDetails). Bypasses `isAvailable()`'s real
+       * GitHub-backend construction so those flows can be exercised against a fake.
+       */
+      repositoryBackendOverride?: RepositoryBackend;
+    }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
@@ -137,6 +156,11 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     } else {
       const token = config?.token || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
       this.tokenProvider = new FallbackTokenProvider(token);
+    }
+
+    this._octokit = deps?.octokitOverride;
+    if (deps?.repositoryBackendOverride) {
+      this.repositoryBackend = deps.repositoryBackendOverride;
     }
   }
 
