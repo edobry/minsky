@@ -16,7 +16,7 @@
 // @see .claude/hooks/transcript.ts — resolveTranscriptCandidates (mt#2637 / PR #1806)
 
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { join } from "node:path";
 import { readInput } from "./types";
 import type { StopHookInput } from "./types";
 import { resolveTranscriptCandidates } from "./transcript";
@@ -71,7 +71,11 @@ export function resolveMetricsTranscriptPath(
   if (!transcriptPath) return transcriptPath;
   const perAgentFile = `agent-${agentId}.jsonl`;
   const candidates = resolveTranscriptCandidates(transcriptPath, agentId);
-  const perAgentPath = candidates.find((candidate) => basename(candidate) === perAgentFile);
+  // Match the directory-qualified per-agent path (R1: stricter than a bare
+  // basename match, which could pair with a similarly-named candidate from an
+  // adjacent tree if the candidate set ever widens beyond this session).
+  const perAgentSuffix = join("subagents", perAgentFile);
+  const perAgentPath = candidates.find((candidate) => candidate.endsWith(perAgentSuffix));
   return perAgentPath && existsSync(perAgentPath) ? perAgentPath : transcriptPath;
 }
 
