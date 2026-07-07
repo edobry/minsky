@@ -832,6 +832,35 @@ export function registerSessionWorkspaceTools(
 // ---------------------------------------------------------------------------
 
 /**
+ * Detect the repo's actual default branch via `git symbolic-ref
+ * refs/remotes/origin/HEAD` (e.g. `refs/remotes/origin/main` -> `"main"`).
+ *
+ * R1 BLOCKING #2: `buildSessionDispatchRecoveryProbe` must never GUESS a base
+ * branch (hardcoding `"main"` silently mis-computes `commitsAheadOfBase` for
+ * any repo whose default branch differs — or errors comparing against a
+ * nonexistent ref). Returns null when the symbolic ref can't be resolved (no
+ * `origin` remote, detached ref, or any subprocess failure) — the caller
+ * treats that as "undeterminable" and skips the commits-ahead computation
+ * entirely rather than falling back to a guess. Exported for testing.
+ */
+export async function detectDefaultBranch(sessionWorkspacePath: string): Promise<string | null> {
+  const { parseDefaultBranchRef } = await import("@minsky/domain/session/dispatch-recovery-probe");
+  try {
+    const proc = Bun.spawn(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], {
+      cwd: sessionWorkspacePath,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    if (proc.exitCode !== 0) return null;
+    return parseDefaultBranchRef(out);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Gather the raw pieces the dispatch-recovery probe needs (session record,
  * commits-ahead-of-base, handoff.md content, best-effort live review state)
  * and assemble them via the pure `buildDispatchRecoveryProbe` shape function.
@@ -869,24 +898,38 @@ async function buildSessionDispatchRecoveryProbe(
   }
 
   const resolvedSessionId = sessionRecord?.sessionId ?? sessionIdOrTaskId;
-  const baseBranch = sessionRecord?.pullRequest?.baseBranch ?? "main";
+
+  // R1 BLOCKING #2: never GUESS a base branch. Prefer the PR's recorded base
+  // branch; when no PR/session base is known, DETECT the repo's actual
+  // default branch via `git symbolic-ref refs/remotes/origin/HEAD` rather
+  // than hardcoding "main" — a repo whose default is e.g. "master" would
+  // otherwise silently mis-compute commitsAheadOfBase against the wrong ref.
+  // When even detection fails, baseBranch stays null and the rev-list step
+  // below is skipped entirely rather than falling back to a guess.
+  const baseBranch =
+    sessionRecord?.pullRequest?.baseBranch ?? (await detectDefaultBranch(sessionWorkspacePath));
 
   // Commits-ahead-of-base: local-ref comparison (no fetch — a per-call network
   // fetch would defeat the "one cheap call" point of the probe; the comparison
   // is against the last-fetched origin ref, same honesty tradeoff as
-  // inject-git-state.ts's "vs last-fetched origin/<X>" framing).
+  // inject-git-state.ts's "vs last-fetched origin/<X>" framing). Skipped
+  // entirely when baseBranch is undeterminable (see above) — no ref to diff
+  // against, so the count degrades to null gracefully rather than erroring
+  // against a guessed/nonexistent ref.
   let commitsAheadOfBase: number | null = null;
-  try {
-    const proc = Bun.spawn(["git", "rev-list", "--count", `origin/${baseBranch}..HEAD`], {
-      cwd: sessionWorkspacePath,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
-    commitsAheadOfBase = proc.exitCode === 0 ? parseCommitsAheadOutput(out) : null;
-  } catch {
-    commitsAheadOfBase = null;
+  if (baseBranch) {
+    try {
+      const proc = Bun.spawn(["git", "rev-list", "--count", `origin/${baseBranch}..HEAD`], {
+        cwd: sessionWorkspacePath,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const out = await new Response(proc.stdout).text();
+      await proc.exited;
+      commitsAheadOfBase = proc.exitCode === 0 ? parseCommitsAheadOutput(out) : null;
+    } catch {
+      commitsAheadOfBase = null;
+    }
   }
 
   // handoff.md — convention: .minsky/sessions/<sessionId>/handoff.md within the

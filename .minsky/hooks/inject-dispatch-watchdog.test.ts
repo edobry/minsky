@@ -1,8 +1,16 @@
-import { describe, test, expect } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- test infrastructure: the readCache tests
+   exercise the REAL fs.existsSync/readFileSync pair readCache() calls, specifically to pin
+   the missing-vs-malformed distinction (R1 non-blocking #1); mocking fs would defeat the
+   point of testing that distinction against real filesystem semantics */
+import { describe, test, expect, afterEach } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   parseDispatchWatchdogCache,
   formatAge,
   formatDispatchWatchdogState,
+  readCache,
   type DispatchWatchdogCacheRecord,
 } from "./inject-dispatch-watchdog";
 
@@ -137,5 +145,53 @@ describe("formatDispatchWatchdogState", () => {
     expect(out).toMatch(/mt#1/);
     expect(out).toMatch(/mt#2/);
     expect(out).toMatch(/2 in-flight subagent dispatch/);
+  });
+});
+
+describe("readCache (R1 non-blocking #1: missing vs malformed distinction)", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function tempCachePath(): string {
+    const dir = mkdtempSync(join(tmpdir(), "mt2646-readcache-"));
+    tempDirs.push(dir);
+    return join(dir, "dispatch-watchdog-cache.json");
+  }
+
+  test("missing: a nonexistent cache path -> kind 'missing'", () => {
+    const result = readCache(tempCachePath()); // never written
+    expect(result.kind).toBe("missing");
+  });
+
+  test("ok: a well-formed cache file -> kind 'ok' with the parsed record", () => {
+    const path = tempCachePath();
+    const record = cacheAt([flag()]);
+    writeFileSync(path, JSON.stringify(record));
+
+    const result = readCache(path);
+    expect(result.kind).toBe("ok");
+    expect(result.kind === "ok" && result.record).toEqual(record);
+  });
+
+  test("malformed: a present-but-unparseable cache file -> kind 'malformed', distinct from 'missing'", () => {
+    const path = tempCachePath();
+    writeFileSync(path, "{not valid json");
+
+    const result = readCache(path);
+    expect(result.kind).toBe("malformed");
+  });
+
+  test("malformed: valid JSON that fails schema validation -> kind 'malformed'", () => {
+    const path = tempCachePath();
+    writeFileSync(path, JSON.stringify({ notTheRightShape: true }));
+
+    const result = readCache(path);
+    expect(result.kind).toBe("malformed");
   });
 });

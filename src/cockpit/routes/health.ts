@@ -22,6 +22,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { TranscriptWatcherTracker } from "../transcript-watcher-tracker";
 import { TranscriptSweepTracker } from "../transcript-sweep-tracker";
+import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { getDbStatus } from "../shared-persistence";
 import type { WidgetModule } from "../types";
 
@@ -91,6 +92,9 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
     // (redaction policy — same as the watcher tracker above, per reviewer R1 on
     // mt#2320).
     const sweepTracker = TranscriptSweepTracker.getInstance();
+    // Dispatch-watchdog sweep observability (mt#2646 R1 non-blocking #2):
+    // same in-process-singleton shape as the transcript sweep tracker above.
+    const dispatchWatchdogSweepTracker = DispatchWatchdogSweepTracker.getInstance();
 
     // mt#2578 watchdog TS slice: update the consecutive-degraded counter.
     // "ok" resets; anything else (degraded, unreachable, or unexpected) increments.
@@ -123,6 +127,7 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
         activeSessions: watcherTracker.getActiveSessions(),
       },
       transcriptSweep: sweepTracker.getSummary(),
+      dispatchWatchdogSweep: dispatchWatchdogSweepTracker.getSummary(),
     });
   });
 

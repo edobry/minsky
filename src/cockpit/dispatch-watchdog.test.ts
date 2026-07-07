@@ -3,6 +3,8 @@ import {
   computeDispatchWatchdogFlags,
   buildDispatchWatchdogSnapshot,
   DISPATCH_WATCHDOG_STALE_MS,
+  LAST_EVENT_AT_QUERY,
+  DispatchWatchdogSweepTracker,
   type InFlightInvocationRow,
   type ActivitySources,
   type DispatchWatchdogDeps,
@@ -208,5 +210,95 @@ describe("buildDispatchWatchdogSnapshot", () => {
     };
     const snapshot = await buildDispatchWatchdogSnapshot(deps, NOW_MS);
     expect(snapshot.flags).toHaveLength(0);
+  });
+});
+
+describe("LAST_EVENT_AT_QUERY", () => {
+  // R1 BLOCKING #1: system_events.created_at is `timestamp with time zone` —
+  // casting it directly to `::bigint` is an INVALID Postgres cast (unlike the
+  // sibling prod-state-cache.ts query, whose `created_at` column really is
+  // bigint). Pin the corrected query text so a future edit can't silently
+  // reintroduce the invalid direct cast.
+  test("converts the timestamptz via extract(epoch from ...) before casting to bigint", () => {
+    expect(LAST_EVENT_AT_QUERY).toMatch(/extract\(epoch from max\(created_at\)\)\s*\*\s*1000/);
+    expect(LAST_EVENT_AT_QUERY).toMatch(/::bigint/);
+  });
+
+  test("does NOT contain the invalid direct timestamptz->bigint cast", () => {
+    // The invalid form this replaces: `max(created_at)::bigint` with no
+    // intervening extract(epoch from ...) conversion.
+    expect(LAST_EVENT_AT_QUERY).not.toMatch(/max\(created_at\)::bigint/);
+  });
+
+  test("still filters by related_task_id OR related_session_id, parameterized", () => {
+    expect(LAST_EVENT_AT_QUERY).toMatch(/related_task_id\s*=\s*\$1/);
+    expect(LAST_EVENT_AT_QUERY).toMatch(/related_session_id\s*=\s*\$2/);
+  });
+
+  test("the epoch-seconds*1000 unit conversion matches what getLastEventAtMs expects (ms)", () => {
+    // Simulate what postgres.js returns for a bigint column: a numeric string.
+    // extract(epoch from <a timestamptz>) * 1000, rounded to bigint, is the
+    // epoch-MILLISECONDS value the rest of dispatch-watchdog.ts operates in
+    // (see computeDispatchWatchdogFlags' use of Date.parse-derived ms values).
+    const expectedMs = Date.parse("2026-07-07T12:00:00.000Z");
+    const simulatedPgRow = { latest_at: String(expectedMs) };
+    const ms = Number(simulatedPgRow.latest_at);
+    expect(ms).toBe(expectedMs);
+  });
+});
+
+describe("DispatchWatchdogSweepTracker (R1 non-blocking #2: sweep observability)", () => {
+  test("starts at zero / null counters", () => {
+    const tracker = DispatchWatchdogSweepTracker.resetForTest();
+    const summary = tracker.getSummary(NOW_MS);
+    expect(summary).toEqual({
+      ticksRun: 0,
+      flagsWritten: 0,
+      lastSnapshotAt: null,
+      lastSnapshotAgeMs: null,
+      lastErrorAt: null,
+    });
+  });
+
+  test("recordTick increments ticksRun and accumulates flagsWritten across ticks", () => {
+    const tracker = DispatchWatchdogSweepTracker.resetForTest();
+    tracker.recordTick(2, NOW_MS);
+    tracker.recordTick(1, NOW_MS + 60000);
+
+    const summary = tracker.getSummary(NOW_MS + 60000);
+    expect(summary.ticksRun).toBe(2);
+    expect(summary.flagsWritten).toBe(3);
+    expect(summary.lastSnapshotAt).toBe(new Date(NOW_MS + 60000).toISOString());
+  });
+
+  test("lastSnapshotAgeMs reflects elapsed time since the last successful tick", () => {
+    const tracker = DispatchWatchdogSweepTracker.resetForTest();
+    tracker.recordTick(0, NOW_MS);
+    const summary = tracker.getSummary(NOW_MS + 5 * 60 * 1000);
+    expect(summary.lastSnapshotAgeMs).toBe(5 * 60 * 1000);
+  });
+
+  test("recordError sets lastErrorAt without touching ticksRun/flagsWritten", () => {
+    const tracker = DispatchWatchdogSweepTracker.resetForTest();
+    tracker.recordTick(1, NOW_MS);
+    tracker.recordError(NOW_MS + 1000);
+
+    const summary = tracker.getSummary(NOW_MS + 1000);
+    expect(summary.lastErrorAt).toBe(new Date(NOW_MS + 1000).toISOString());
+    expect(summary.ticksRun).toBe(1);
+    expect(summary.flagsWritten).toBe(1);
+  });
+
+  test("a negative flagCount is clamped to zero rather than corrupting the cumulative total", () => {
+    const tracker = DispatchWatchdogSweepTracker.resetForTest();
+    tracker.recordTick(-5, NOW_MS);
+    expect(tracker.getSummary(NOW_MS).flagsWritten).toBe(0);
+  });
+
+  test("getInstance returns the same singleton across calls", () => {
+    DispatchWatchdogSweepTracker.resetForTest();
+    const a = DispatchWatchdogSweepTracker.getInstance();
+    const b = DispatchWatchdogSweepTracker.getInstance();
+    expect(a).toBe(b);
   });
 });

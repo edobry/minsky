@@ -327,12 +327,9 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
     },
     getLastCommitAtMs: getSessionLastCommitAtMs,
     getLastEventAtMs: async (taskId, subagentSessionId) => {
-      const rows = (await sql.unsafe(
-        `SELECT max(created_at)::bigint AS latest_at
-         FROM system_events
-         WHERE related_task_id = $1 OR ($2::text IS NOT NULL AND related_session_id = $2)`,
-        [taskId, subagentSessionId]
-      )) as Array<{ latest_at: string | number | null }>;
+      const rows = (await sql.unsafe(LAST_EVENT_AT_QUERY, [taskId, subagentSessionId])) as Array<{
+        latest_at: string | number | null;
+      }>;
       const raw = rows?.[0]?.latest_at;
       if (raw === null || raw === undefined) return null;
       const ms = Number(raw);
@@ -340,6 +337,22 @@ export async function buildRealDispatchWatchdogDeps(): Promise<DispatchWatchdogD
     },
   };
 }
+
+/**
+ * Query for the last related `system_events` row's timestamp, converted to
+ * epoch-milliseconds.
+ *
+ * `system_events.created_at` is `timestamp with time zone` — casting it
+ * directly to `::bigint` (as the sibling `prod-state-cache.ts` query does for
+ * `drizzle.__drizzle_migrations.created_at`, a genuinely bigint column there)
+ * is an INVALID Postgres cast and errors at query time. `extract(epoch from
+ * ...)` converts the timestamptz to a numeric epoch-SECONDS value first,
+ * which is then scaled to milliseconds (matching the ms unit every other
+ * activity-signal timestamp in this module uses) before the bigint cast.
+ */
+export const LAST_EVENT_AT_QUERY = `SELECT (extract(epoch from max(created_at)) * 1000)::bigint AS latest_at
+         FROM system_events
+         WHERE related_task_id = $1 OR ($2::text IS NOT NULL AND related_session_id = $2)`;
 
 /**
  * Refresh the dispatch-watchdog cache once. Fail-open: any error logs and
@@ -358,11 +371,89 @@ export async function refreshDispatchWatchdogCache(
       return false;
     }
     const snapshot = await buildDispatchWatchdogSnapshot(deps, nowMs, staleMs);
-    return writeDispatchWatchdogCache(snapshot, cachePath);
+    const wrote = writeDispatchWatchdogCache(snapshot, cachePath);
+    if (wrote) {
+      DispatchWatchdogSweepTracker.getInstance().recordTick(snapshot.flags.length, nowMs);
+    } else {
+      DispatchWatchdogSweepTracker.getInstance().recordError(nowMs);
+    }
+    return wrote;
   } catch (err) {
+    DispatchWatchdogSweepTracker.getInstance().recordError(nowMs);
     log.warn("dispatch-watchdog: refresh failed", {
       message: err instanceof Error ? err.message : String(err),
     });
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sweep observability tracker (R1 non-blocking #2) — mirrors
+// TranscriptSweepTracker's (src/cockpit/transcript-sweep-tracker.ts)
+// in-memory-singleton-with-counters shape, kept intentionally minimal: ticks
+// run, cumulative flags written across all ticks, and the last-snapshot
+// timestamp/age. Same redaction policy as its sibling — no raw error
+// messages stored (the log surface carries those); only counts + ISO
+// timestamps are exposed.
+// ---------------------------------------------------------------------------
+
+/** Snapshot of the dispatch-watchdog sweep's health counters. */
+export interface DispatchWatchdogSweepSummary {
+  /** Total number of completed (cache-written) sweep ticks. */
+  ticksRun: number;
+  /** Cumulative count of flagged dispatches written across all ticks (not deduplicated across ticks — a persistently-stalled dispatch counts once per tick). */
+  flagsWritten: number;
+  /** ISO timestamp of the last successfully-written snapshot, or null (no tick has succeeded yet). */
+  lastSnapshotAt: string | null;
+  /** Age of the last successful snapshot in ms at read time, or null. */
+  lastSnapshotAgeMs: number | null;
+  /** ISO timestamp of the last tick error (DB unavailable, write failure, unexpected throw), or null. */
+  lastErrorAt: string | null;
+}
+
+export class DispatchWatchdogSweepTracker {
+  private static _instance: DispatchWatchdogSweepTracker | null = null;
+
+  private ticksRun = 0;
+  private flagsWritten = 0;
+  private lastSnapshotAtMs: number | null = null;
+  private lastErrorAtMs: number | null = null;
+
+  /** Process-lifetime singleton (created on first access). */
+  static getInstance(): DispatchWatchdogSweepTracker {
+    if (!DispatchWatchdogSweepTracker._instance) {
+      DispatchWatchdogSweepTracker._instance = new DispatchWatchdogSweepTracker();
+    }
+    return DispatchWatchdogSweepTracker._instance;
+  }
+
+  /** Reset the singleton for tests. */
+  static resetForTest(): DispatchWatchdogSweepTracker {
+    DispatchWatchdogSweepTracker._instance = new DispatchWatchdogSweepTracker();
+    return DispatchWatchdogSweepTracker._instance;
+  }
+
+  /** Record a completed tick that successfully wrote a snapshot. */
+  recordTick(flagCount: number, nowMs: number = Date.now()): void {
+    this.ticksRun += 1;
+    this.flagsWritten += flagCount < 0 ? 0 : flagCount;
+    this.lastSnapshotAtMs = nowMs;
+  }
+
+  /** Record a tick-level error (no raw message — redaction policy). */
+  recordError(nowMs: number = Date.now()): void {
+    this.lastErrorAtMs = nowMs;
+  }
+
+  /** Snapshot the current counters for the cockpit `/api/health` surface. */
+  getSummary(nowMs: number = Date.now()): DispatchWatchdogSweepSummary {
+    return {
+      ticksRun: this.ticksRun,
+      flagsWritten: this.flagsWritten,
+      lastSnapshotAt:
+        this.lastSnapshotAtMs === null ? null : new Date(this.lastSnapshotAtMs).toISOString(),
+      lastSnapshotAgeMs: this.lastSnapshotAtMs === null ? null : nowMs - this.lastSnapshotAtMs,
+      lastErrorAt: this.lastErrorAtMs === null ? null : new Date(this.lastErrorAtMs).toISOString(),
+    };
   }
 }

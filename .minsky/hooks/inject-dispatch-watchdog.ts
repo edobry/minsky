@@ -173,14 +173,41 @@ function isOverrideTruthy(value: string | undefined): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
-/** Read + parse the cache file. Returns null when absent/unreadable/invalid (fail-open). */
-function readCache(cachePath: string): DispatchWatchdogCacheRecord | null {
+/**
+ * The three distinguishable read outcomes for the cache file. "missing" and
+ * "malformed" are both fail-open for the additionalContext path (neither
+ * blocks the prompt), but they are NOT the same failure class: "missing"
+ * is the routine pre-first-sweep-tick state (silent, expected); "malformed"
+ * means the file exists but the producer wrote something the consumer can't
+ * parse — a real signal worth an audit line (R1 non-blocking #1).
+ */
+export type CacheReadResult =
+  | { kind: "missing" }
+  | { kind: "malformed" }
+  | { kind: "ok"; record: DispatchWatchdogCacheRecord };
+
+/** Read + parse the cache file, distinguishing "absent" from "present but malformed". */
+export function readCache(cachePath: string): CacheReadResult {
+  let exists: boolean;
   try {
-    if (!fs.existsSync(cachePath)) return null;
-    return parseDispatchWatchdogCache(fs.readFileSync(cachePath, { encoding: "utf8" }));
+    exists = fs.existsSync(cachePath);
   } catch {
-    return null;
+    return { kind: "missing" };
   }
+  if (!exists) return { kind: "missing" };
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(cachePath, { encoding: "utf8" });
+  } catch {
+    // Existed at the existsSync check but became unreadable (permissions,
+    // TOCTOU race, transient FS error) — treat as malformed, not missing:
+    // the file IS there and something about it prevented a read.
+    return { kind: "malformed" };
+  }
+
+  const record = parseDispatchWatchdogCache(raw);
+  return record === null ? { kind: "malformed" } : { kind: "ok", record };
 }
 
 async function main(): Promise<void> {
@@ -198,13 +225,25 @@ async function main(): Promise<void> {
   }
   if (input.hook_event_name !== "UserPromptSubmit") return;
 
-  let record: DispatchWatchdogCacheRecord | null;
+  let cacheResult: CacheReadResult;
   try {
-    record = readCache(getDispatchWatchdogCachePath());
+    cacheResult = readCache(getDispatchWatchdogCachePath());
   } catch {
     return;
   }
 
+  // R1 non-blocking #1: a MALFORMED cache (file exists, content doesn't parse)
+  // is a distinct signal from a routine MISSING cache (pre-first-sweep-tick,
+  // silent/expected) — audit it once per invocation, non-JSON per the
+  // sibling-hook audit convention (Claude Code's parser ignores non-JSON
+  // stdout lines rather than treating them as a HookOutput envelope).
+  if (cacheResult.kind === "malformed") {
+    process.stdout.write(
+      `[inject-dispatch-watchdog] cache file present but malformed at ${getDispatchWatchdogCachePath()} — skipping injection at ${new Date().toISOString()}\n`
+    );
+  }
+
+  const record = cacheResult.kind === "ok" ? cacheResult.record : null;
   const additionalContext = formatDispatchWatchdogState(record);
   if (additionalContext === null) return; // nothing flagged — stay silent
 

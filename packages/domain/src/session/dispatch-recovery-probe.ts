@@ -124,3 +124,26 @@ export function parseCommitsAheadOutput(raw: string): number | null {
   const n = Number.parseInt(trimmed, 10);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Parse the output of `git symbolic-ref refs/remotes/origin/HEAD` (e.g.
+ * `refs/remotes/origin/main`) into the default branch name (`main`).
+ *
+ * R1 BLOCKING #2: the probe must never GUESS a base branch (hardcoding
+ * `"main"` silently mis-computes `commitsAheadOfBase` for any repo whose
+ * default branch differs). This is the parse half of the real
+ * default-branch detection — the git-subprocess half
+ * (`detectDefaultBranch`) lives in `src/adapters/mcp/session-workspace.ts`
+ * next to the other git-subprocess calls `session.status` already makes;
+ * this module stays I/O-free.
+ *
+ * Returns null on unparseable/empty output (no `origin` remote, detached
+ * symbolic ref, git error surfaced as empty stdout) — callers must treat
+ * that as "base branch undeterminable" and skip the commits-ahead
+ * computation entirely rather than falling back to a guess.
+ */
+export function parseDefaultBranchRef(raw: string): string | null {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^refs\/remotes\/origin\/(.+)$/);
+  return match?.[1] && match[1].length > 0 ? match[1] : null;
+}

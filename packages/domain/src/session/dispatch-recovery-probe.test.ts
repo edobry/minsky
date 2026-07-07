@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   buildDispatchRecoveryProbe,
   parseCommitsAheadOutput,
+  parseDefaultBranchRef,
   DISPATCH_RECOVERY_PROBE_HANDOFF_MAX_LINES,
   type DispatchRecoveryProbePr,
 } from "./dispatch-recovery-probe";
@@ -155,5 +156,32 @@ describe("buildDispatchRecoveryProbe", () => {
       handoffMaxLines: 2,
     });
     expect(result.handoff.firstLines).toEqual(["l1", "l2"]);
+  });
+});
+
+describe("parseDefaultBranchRef", () => {
+  // R1 BLOCKING #2: the probe must detect the ACTUAL default branch rather
+  // than hardcoding "main" — a repo whose default branch is e.g. "master" or
+  // "trunk" would otherwise silently mis-compute commitsAheadOfBase.
+
+  test("detected default: parses a standard 'refs/remotes/origin/HEAD' output", () => {
+    expect(parseDefaultBranchRef("refs/remotes/origin/main\n")).toBe("main");
+  });
+
+  test("detected default: parses a non-'main' default branch name", () => {
+    expect(parseDefaultBranchRef("refs/remotes/origin/master\n")).toBe("master");
+    expect(parseDefaultBranchRef("refs/remotes/origin/trunk")).toBe("trunk");
+  });
+
+  test("undetectable: empty output (no origin remote / git error) -> null", () => {
+    expect(parseDefaultBranchRef("")).toBeNull();
+    expect(parseDefaultBranchRef("   \n")).toBeNull();
+  });
+
+  test("undetectable: unparseable/unexpected ref shape -> null", () => {
+    expect(
+      parseDefaultBranchRef("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref")
+    ).toBeNull();
+    expect(parseDefaultBranchRef("refs/heads/main")).toBeNull(); // not an origin ref
   });
 });
