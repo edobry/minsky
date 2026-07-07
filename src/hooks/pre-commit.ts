@@ -95,6 +95,22 @@ export class PreCommitHook {
         return formatResult;
       }
 
+      // Step 1b: Completion-manifest regeneration (mt#2622). Unlike the
+      // "compile --check" family below (Step 9 / 9b), which BLOCK the commit
+      // and tell the operator to re-run a generator by hand, this step
+      // auto-regenerates the shell-completion manifest and re-stages it —
+      // the same auto-fix-and-restage shape as Step 1's lint-staged, not the
+      // detect-and-block shape. That distinction is deliberate: the manifest
+      // is a mechanically-derived structural artifact (Commander-tree walk +
+      // Zod enum extraction) with zero editorial content, so silently
+      // re-staging a corrected version carries none of the "don't want an
+      // unreviewed content rewrite auto-committed" risk that motivates the
+      // rules/skills compile checks blocking instead of auto-fixing.
+      const completionManifestResult = await this.runCompletionManifestRegen();
+      if (!completionManifestResult.success) {
+        return completionManifestResult;
+      }
+
       // Console-usage validation moved into ESLint as the `custom/no-raw-console`
       // rule (mt#1960). Step 2 ran the standalone regex-based `lint:console:strict`
       // script; that script and its package.json scripts were retired with mt#1960.
@@ -1359,6 +1375,91 @@ export class PreCommitHook {
   }
 
   /**
+   * Regenerate the shell-completion manifest and re-stage it if it changed
+   * (mt#2622). Unconditional — the generator is a pure function of the
+   * current CLI source tree (Commander tree walk + Zod enum extraction, no
+   * DB/network access) and completes in well under a second, so there is no
+   * benefit to gating on which files are staged: any narrower heuristic
+   * (e.g., "only run if src/adapters/shared/commands/** changed") risks
+   * silently missing a CLI-shape change made through a path it didn't
+   * anticipate, reintroducing exactly the staleness this step exists to
+   * prevent. This mirrors the "compile --check" family's unconditional,
+   * repo-wide scope (Step 9 / 9b) rather than lint-staged's staged-file
+   * scoping (Step 1) — but AUTO-FIXES and re-stages instead of blocking, per
+   * the Step 1b rationale above.
+   */
+  private async runCompletionManifestRegen(): Promise<HookResult> {
+    log.cli("🔧 Regenerating shell-completion manifest...");
+
+    const manifestPath = "src/generated/completion-manifest.json";
+
+    try {
+      // Reuses the same `build:completion-manifest` package.json script that
+      // `bun run build` invokes, so there is exactly one place that names the
+      // generator's invocation path.
+      await execAsync("bun run build:completion-manifest", {
+        cwd: this.projectRoot,
+        timeout: 15000,
+      });
+    } catch (error) {
+      const result = classifyCompletionManifestRegenError(error);
+      for (const line of result.logLines) {
+        log.cli(line);
+      }
+      return { success: false, message: result.message, exitCode: 1 };
+    }
+
+    // Compare the regenerated working-tree copy against the index. `git diff`
+    // (no --quiet) always exits 0 and simply prints nothing when there is no
+    // difference, so this never throws on the common "already up to date" path.
+    let changed = false;
+    try {
+      const diffResult = await execGitWithTimeout("diff", `diff --name-only -- ${manifestPath}`, {
+        workdir: this.projectRoot,
+        timeout: 5000,
+      });
+      changed = manifestDiffIndicatesChange(diffResult.stdout);
+    } catch (error) {
+      // A failure here is a git-plumbing problem, not a generator problem —
+      // fail closed rather than silently skip staging a possibly-changed file.
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not diff the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not diff the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    if (!changed) {
+      log.cli("✅ Completion manifest already up-to-date.");
+      return { success: true, message: "Completion manifest up-to-date", exitCode: 0 };
+    }
+
+    try {
+      await execGitWithTimeout("add", `add -- ${manifestPath}`, {
+        workdir: this.projectRoot,
+        timeout: 5000,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not stage the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not stage the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    log.cli("✅ Completion manifest regenerated and staged (was out of date).");
+    return {
+      success: true,
+      message: "Completion manifest regenerated and staged",
+      exitCode: 0,
+    };
+  }
+
+  /**
    * Run ESLint rule tooling tests
    */
   private async runESLintRuleTests(): Promise<HookResult> {
@@ -1524,6 +1625,46 @@ export class PreCommitHook {
     log.cli(`✅ All compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Compile check passed", exitCode: 0 };
   }
+}
+
+/**
+ * True iff `git diff --name-only -- <manifestPath>`'s stdout indicates the
+ * regenerated completion manifest differs from the index. `git diff` (no
+ * `--quiet`) always exits 0, so this is a pure string check rather than an
+ * exit-code check. Pure + exported for unit testing (mt#2622).
+ */
+export function manifestDiffIndicatesChange(diffStdout: string): boolean {
+  return diffStdout.trim().length > 0;
+}
+
+/**
+ * Build the failure result for a completion-manifest regeneration error.
+ * Unlike {@link classifyCompileCheckError}, there is no STALE-vs-broken
+ * distinction to make here: `runCompletionManifestRegen` always regenerates
+ * (never `--check`s), so ANY thrown error means the generator itself failed —
+ * re-running the commit will not help until the generator is fixed. Pure +
+ * exported for unit testing (mt#2622).
+ */
+export function classifyCompletionManifestRegenError(error: unknown): {
+  logLines: string[];
+  message: string;
+} {
+  const execError = error as { stdout?: string; stderr?: string };
+  // `||`, not `??`: an EMPTY-string stderr must fall through to stdout (mirrors
+  // classifyCompileCheckError's `stderr.trim() || stdout.trim()` below) — `??`
+  // would treat `""` as "present" and never reach stdout.
+  const detail = (execError.stderr ?? "").trim() || (execError.stdout ?? "").trim();
+  const errorDetail = detail || (error instanceof Error ? error.message : String(error));
+  const logLines = [
+    "❌ Completion-manifest regeneration failed:",
+    ...errorDetail.split("\n").map((line) => `   ${line}`),
+    "💡 Fix the error above and retry the commit. This is a generator bug, not staleness — " +
+      "re-running the commit will NOT help until the generator itself is fixed.",
+  ];
+  return {
+    logLines,
+    message: `Completion-manifest regeneration failed: ${errorDetail.split("\n")[0]}`,
+  };
 }
 
 /**
