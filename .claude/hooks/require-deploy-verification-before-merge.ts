@@ -59,11 +59,22 @@ export function isOverrideSet(): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Markdown marker for the deploy-verification commitment section. Optional
- * heading prefix; `m`+`i` flags. Captures the heading-line content for the
- * inline-content check.
+ * Markdown marker for the deploy-verification commitment section (mt#2648 —
+ * same accepted-forms class as the sibling `hasExecutionEvidence` marker in
+ * `require-execution-evidence-before-merge.ts`). Accepts, case-insensitive:
+ *   A. A Markdown heading (any level 1-6) + "deploy verification" with an
+ *      OPTIONAL trailing colon — e.g. "## Deploy verification",
+ *      "### Deploy verification:".
+ *   B. A plain label line — "deploy verification:" with a REQUIRED colon (no
+ *      heading marker) — keeping the colon required here preserves the
+ *      original true-negative behavior for bare prose mentions.
+ * `m`+`i` flags. Group 1 (heading hashes, form A only) is unused downstream;
+ * group 2 captures trailing inline content for the inline-content check.
  */
-const DEPLOY_VERIFICATION_MARKER = /^(#{0,6}\s*)(deploy verification:\s*)(.*)$/im;
+// Up to 3 leading spaces before a heading marker, per CommonMark (spaces
+// only — not \s, which would let the match skip across blank lines).
+const DEPLOY_VERIFICATION_MARKER =
+  /^(?: {0,3}(#{1,6})\s+deploy verification\s*:?|deploy verification\s*:)\s*(.*)$/im;
 
 /** Title bypass tag for false-positive deploy-surface matches. */
 const NO_DEPLOY_IMPACT_TAG = /\[no-deploy-impact\]/i;
@@ -105,12 +116,12 @@ export function hasDeployVerification(prBody: string): boolean {
     // Collect this section's content: inline (heading line) + following lines
     // until the next heading or EOF.
     const parts: string[] = [];
-    const inlineContent = (match[3] ?? "").trim();
+    const inlineContent = (match[2] ?? "").trim();
     if (inlineContent.length > 0) parts.push(inlineContent);
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
       if (nextLine === undefined) break;
-      if (/^#{1,6}\s/.test(nextLine)) break; // next heading — stop
+      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
       if (nextLine.trim().length > 0) parts.push(nextLine.trim());
     }
     const content = parts.join(" ").trim();
@@ -179,13 +190,16 @@ export function checkDeployVerification(
   const fileList = deploySurfaceFiles.map((f) => `  - ${f}`).join("\n");
   const reason =
     `Merge blocked: PR touches ${deploySurfaceFiles.length} deploy-surface file(s) but the ` +
-    `PR body has no \`Deploy verification:\` section.\n\n` +
+    `PR body has no deploy-verification section.\n\n` +
+    `Accepted marker forms (case-insensitive): \`Deploy verification:\` (plain label, colon ` +
+    `required) OR a Markdown heading of any level with an optional trailing colon ` +
+    `(e.g. \`## Deploy verification\`, \`### Deploy verification:\`).\n\n` +
     `Deploy-surface files:\n${fileList}\n\n` +
     `Deploy/infra changes can break the post-merge deploy (Dockerfile breakage, ` +
     `config-as-code resolution error, crash on start) in ways no pre-merge check catches ` +
     `(mt#2345). DONE is set AT merge, so you MUST verify the post-merge deploy yourself.\n\n` +
     `To unblock, choose one of:\n` +
-    `  1. Add a \`Deploy verification:\` section to the PR body committing to run ` +
+    `  1. Add a \`Deploy verification\` section (any accepted form above) to the PR body committing to run ` +
     `\`mcp__minsky__deployment_wait-for-latest\` → SUCCESS (and confirm the runtime started) ` +
     `AFTER merge. A tool/auth flake is a BLOCKER (reconnect /mcp and retry), NOT a license to ` +
     `defer; "applied" / "pulumi up exit-0" is the ACTION, not the OUTCOME. ` +

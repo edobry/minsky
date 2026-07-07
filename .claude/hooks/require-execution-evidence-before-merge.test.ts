@@ -287,6 +287,67 @@ describe("hasExecutionEvidence", () => {
     const body = `<!-- Execution evidence: fake -->\n## Execution evidence:\nbun test passed\n`;
     expect(hasExecutionEvidence(body)).toBe(true);
   });
+
+  // --- Heading-form marker acceptance, no colon required (mt#2648) ---
+
+  it("detects '## Execution evidence' heading with NO colon (mt#2648)", () => {
+    // Originating incident: PR #1798 (mt#2613) was blocked despite a complete
+    // markdown-heading evidence section because it had no trailing colon.
+    const body = `## Summary\nFoo.\n\n## Execution evidence\nbun test passed: 3 pass, 0 fail\n`;
+    expect(hasExecutionEvidence(body)).toBe(true);
+  });
+
+  it("detects heading form at any heading level (h1-h6), colon optional", () => {
+    expect(hasExecutionEvidence("# Execution evidence\nbun test passed")).toBe(true);
+    expect(hasExecutionEvidence("### Execution evidence\nbun test passed")).toBe(true);
+    expect(hasExecutionEvidence("###### Execution evidence\nbun test passed")).toBe(true);
+  });
+
+  it("detects heading form case-insensitively with no colon", () => {
+    expect(hasExecutionEvidence("## execution evidence\nall passed")).toBe(true);
+    expect(hasExecutionEvidence("## EXECUTION EVIDENCE\nall passed")).toBe(true);
+  });
+
+  it("detects heading form with inline content on the same line, no colon", () => {
+    expect(hasExecutionEvidence("## Execution evidence bun test passed, 3/3")).toBe(true);
+  });
+
+  it("treats an INDENTED next heading as a section boundary (empty section still blocks)", () => {
+    // R2: the end-boundary scan must mirror the start-marker's 3-space
+    // indent tolerance — an empty evidence section followed by an indented
+    // next heading must NOT count that heading line as content.
+    const body = `## Execution evidence\n   ## Next Section\nprose\n`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("detects heading form indented up to 3 spaces (CommonMark), but not 4+", () => {
+    expect(hasExecutionEvidence(" ## Execution evidence\nbun test passed")).toBe(true);
+    expect(hasExecutionEvidence("   ## Execution evidence\nbun test passed")).toBe(true);
+    // 4+ spaces is a CommonMark code block, not a heading
+    expect(hasExecutionEvidence("    ## Execution evidence\nbun test passed")).toBe(false);
+  });
+
+  it("still requires a colon for the non-heading plain-label form (unchanged)", () => {
+    // "Execution evidence" with no heading marker and no colon must NOT match —
+    // this preserves the true-negative behavior for bare prose.
+    const body = `## Summary\nFoo.\n\nExecution evidence\nbun test passed\n`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false for negation in heading-form-without-colon: '## No Execution evidence'", () => {
+    const body = `## Summary\nFoo.\n\n## No Execution evidence\nThis PR has no test output.\n`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when heading form (no colon) has no following content", () => {
+    const body = `## Summary\nFoo.\n\n## Execution evidence\n\n## Next Section\nContent`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
+
+  it("returns false when heading-form-without-colon marker is inside an HTML comment", () => {
+    const body = `## Summary\nFoo.\n\n<!-- ## Execution evidence\nbun test passed -->`;
+    expect(hasExecutionEvidence(body)).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -395,6 +456,13 @@ describe("checkExecutionEvidence — blocks on missing evidence", () => {
     expect(reason).toContain("mcp__minsky__session_pr_edit");
   });
 
+  it("error message names the accepted marker forms (mt#2648)", () => {
+    const result = checkExecutionEvidence([newTestFile], "Add tests", BODY_NO_EVIDENCE);
+    const reason = result.reason ?? "";
+    expect(reason).toContain("Accepted marker forms");
+    expect(reason).toContain("## Execution evidence");
+  });
+
   it("enumerates all new test files in error message", () => {
     const files: PrFile[] = [
       { filename: FIXTURE_A_TEST_TS, status: "added" },
@@ -441,6 +509,15 @@ describe("checkExecutionEvidence — allows when evidence block present", () => 
     const result = checkExecutionEvidence(files, "Add tests", body);
     expect(result.blocked).toBe(false);
     expect(result.newTestFiles).toHaveLength(2);
+  });
+
+  it("allows PR with heading-form evidence section with no colon (mt#2648)", () => {
+    // Reproduces the PR #1798 (mt#2613) incident shape: a complete markdown
+    // ## Execution evidence section with no trailing colon.
+    const files: PrFile[] = [{ filename: FIXTURE_FOO_TEST_TS, status: "added" }];
+    const body = `## Summary\nAdded tests.\n\n## Execution evidence\nbun test passed: 5 pass, 0 fail.\n`;
+    const result = checkExecutionEvidence(files, TITLE_PLAIN, body);
+    expect(result.blocked).toBe(false);
   });
 });
 
