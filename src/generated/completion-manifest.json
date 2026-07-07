@@ -643,6 +643,51 @@
               "values": ["true"]
             }
           ]
+        },
+        {
+          "name": "stats",
+          "description": "Compute per-path churn (commit count + insertions/deletions) over a window via `git log --numstat` — the sanctioned path for repo-analytics queries the block-git-gh-cli hook denies on Bash. Set nameOnly to list touched paths without computing insertion/deletion counts.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--since"],
+              "description": "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Show commits older than a specific date",
+              "takesValue": true
+            },
+            {
+              "flags": ["--path"],
+              "description": "Restrict the query to commits touching this path (file or directory)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--author"],
+              "description": "Filter commits by author name or email",
+              "takesValue": true
+            },
+            {
+              "flags": ["--name-only"],
+              "description": "List distinct paths touched in the window without computing insertion/deletion counts (lighter-weight than the default churn aggregation)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Cap the number of files returned, sorted by total churn (insertions + deletions) descending",
+              "takesValue": true
+            }
+          ]
         }
       ]
     },

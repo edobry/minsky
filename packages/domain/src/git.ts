@@ -89,6 +89,7 @@ export {
   stashDropFromParams,
   restoreFromParams,
   resetFromParams,
+  gitStatsFromParams,
 } from "./git/git-params-facade";
 
 /**

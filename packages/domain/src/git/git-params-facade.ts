@@ -28,6 +28,7 @@ import {
 } from "./stash-operations";
 import { restoreImpl, type RestoreResult } from "./restore-operations";
 import { resetImpl, type ResetResult } from "./reset-operations";
+import { gitStatsImpl, type GitStatsResult } from "./stats-operations";
 
 /**
  * Interface-agnostic function to create a pull request
@@ -254,6 +255,35 @@ export async function resetFromParams(params: {
       mode: params.mode,
       target: params.target,
       confirmHard: params.confirmHard,
+    },
+    defaultExecDeps
+  );
+}
+
+/**
+ * Compute per-path churn (commit count + insertions/deletions) over a
+ * window via `git log --numstat` (or `--name-only` when `nameOnly` is set).
+ * The sanctioned MCP path for repo-analytics queries the block-git-gh-cli
+ * hook denies on Bash (mt#2624).
+ */
+export async function gitStatsFromParams(params: {
+  repo?: string;
+  since?: string;
+  until?: string;
+  path?: string;
+  author?: string;
+  nameOnly?: boolean;
+  limit?: number;
+}): Promise<GitStatsResult> {
+  return gitStatsImpl(
+    {
+      repoPath: params.repo,
+      since: params.since,
+      until: params.until,
+      path: params.path,
+      author: params.author,
+      nameOnly: params.nameOnly,
+      limit: params.limit,
     },
     defaultExecDeps
   );
