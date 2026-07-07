@@ -10,7 +10,7 @@ Parent task: mt#1143. Bundle umbrella: mt#1768 (this CLAUDE.md is its phase-A de
 
 ## Invocation
 
-For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev` — the explicit invocation surface for focused Cockpit work. The agent currently ships with no preloaded skills (`skills: []`); mt#1774 will add the `cockpit-design` skill and mt#1777 will add the Tier-1 community skill bundle to its `skills:` list. This CLAUDE.md is the always-on floor (auto-loaded path-scoped via Claude Code's subdirectory CLAUDE.md mechanism); the agent is the explicit unit of focused work.
+For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev` — the explicit invocation surface for focused Cockpit work. The agent's `skills:` list (`.claude/agents/cockpit-dev.md` frontmatter) ships 13 preloaded skills: `cockpit-design` (mt#1774, encoding the deeper Minsky-domain patterns) plus the 12 vendored Tier-1 community skills (mt#1777) — `composition-patterns`, `frontend-design`, `impeccable`, `information-architecture`, `interface-design`, `plan-design-review`, `playwright-skill`, `react-best-practices`, `shadcn-ui`, `tailwind-v4-shadcn`, `tanstack-query`, `web-design-guidelines`. This CLAUDE.md is the always-on floor (auto-loaded path-scoped via Claude Code's subdirectory CLAUDE.md mechanism); the agent is the explicit unit of focused work.
 
 ## Stack
 
@@ -22,7 +22,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Frontend | React (`src/cockpit/web/{pages,widgets,components}/*.tsx` — see §Widget vocabulary below) |
 | Styling | Tailwind (`tailwind.config.ts`, scoped to `src/cockpit/web/**`) |
 | Component lib | shadcn/ui (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`, `components.json`) |
-| Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data in pages/widgets per mt#2616, with two small `Rail.tsx` remnants tracked in mt#2641) |
+| Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data anywhere in `web/**` per mt#2616 + mt#2641, which migrated the last two `Rail.tsx` holdouts) |
 | Build | Vite (`vite.config.ts`) |
 | Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
 | Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) — backend contract only, see §Widget vocabulary |
@@ -67,6 +67,8 @@ categorization for a naming problem that a doc paragraph already resolves.
 **Dark-mode-first, elevation via surface lightness.** Cockpit uses a dark color scheme as default. Higher-elevation surfaces are LIGHTER (not shadowed). The base surface is near-black; cards sit lighter; popovers and dialogs even lighter. Shadows are decorative, not structural — use them sparingly.
 
 **Semantic tokens only.** Every color, spacing, and typography choice goes through Tailwind's semantic layer: `bg-background`, `bg-card`, `bg-popover`, `text-foreground`, `text-muted-foreground`, `border-border`, `ring-ring`. Never raw hex. Never `bg-gray-900`. The semantic layer is what makes dark-mode-first work and what lets the design evolve without per-widget rewrites.
+
+**Status colors (healthy/warning) are a documented exception — raw Tailwind palette, never hex (mt#2641).** Every status widget that renders a healthy/warning indicator — `Changesets`, `McpServerStatus`, `MemoriesHealth`, `EmbeddingsPage`, and others — uses raw Tailwind palette classes for that purpose: `bg-emerald-500`/`text-emerald-500` and `bg-green-400`/`text-green-400` for healthy, `bg-amber-500`/`text-amber-500` and `bg-amber-400`/`text-amber-400` for warning. This is the BLESSED convention, not a violation of "semantic tokens only" above: that rule governs structural/surface colors (background, foreground, border) where a semantic layer is what makes dark-mode-first and per-theme evolution work. Per-status healthy/warning color is a narrower convention, already consistent across every widget that needs it, and introducing dedicated `success`/`warning` design tokens (a `tailwind.config.ts` extension plus a multi-file migration) is a bigger design-system change with no concrete driver today. Two things stay non-negotiable regardless: (a) **error states always use the semantic `destructive` token** — never a raw color like `text-red-400` (see `ErrorState`, `src/cockpit/web/components/ErrorState.tsx`); (b) **never raw hex or arbitrary values** (`bg-[#10b981]`) — only Tailwind's named palette. If the raw-color repetition ever becomes a real migration cost, or a widget needs a third distinct status, revisit as a `success`/`warning` token pair — `tailwind.config.ts` already carries adjacent prior art for that pattern (`warn.amber`, used by `Rail.tsx`'s attention badge, and the `liveness.*` scale used by session-liveness indicators).
 
 **Density as a feature.** Information density is rewarded. Tighter spacing than a marketing site. Tables with row-density toggles. Compact typography in data areas. Generous whitespace ONLY where it serves scanning or focus — not as default.
 
