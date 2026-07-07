@@ -71,8 +71,10 @@ export function isOverrideSet(): boolean {
  * `m`+`i` flags. Group 1 (heading hashes, form A only) is unused downstream;
  * group 2 captures trailing inline content for the inline-content check.
  */
+// Up to 3 leading spaces before a heading marker, per CommonMark (spaces
+// only — not \s, which would let the match skip across blank lines).
 const DEPLOY_VERIFICATION_MARKER =
-  /^(?:(#{1,6})\s+deploy verification\s*:?|deploy verification\s*:)\s*(.*)$/im;
+  /^(?: {0,3}(#{1,6})\s+deploy verification\s*:?|deploy verification\s*:)\s*(.*)$/im;
 
 /** Title bypass tag for false-positive deploy-surface matches. */
 const NO_DEPLOY_IMPACT_TAG = /\[no-deploy-impact\]/i;
@@ -197,7 +199,7 @@ export function checkDeployVerification(
     `config-as-code resolution error, crash on start) in ways no pre-merge check catches ` +
     `(mt#2345). DONE is set AT merge, so you MUST verify the post-merge deploy yourself.\n\n` +
     `To unblock, choose one of:\n` +
-    `  1. Add a \`Deploy verification:\` section to the PR body committing to run ` +
+    `  1. Add a \`Deploy verification\` section (any accepted form above) to the PR body committing to run ` +
     `\`mcp__minsky__deployment_wait-for-latest\` → SUCCESS (and confirm the runtime started) ` +
     `AFTER merge. A tool/auth flake is a BLOCKER (reconnect /mcp and retry), NOT a license to ` +
     `defer; "applied" / "pulumi up exit-0" is the ACTION, not the OUTCOME. ` +

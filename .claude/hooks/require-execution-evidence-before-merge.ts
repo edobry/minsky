@@ -137,7 +137,10 @@ export function hasExecutionEvidence(prBody: string): boolean {
   //      original true-negative behavior for bare prose mentions.
   // Anchored at start-of-line via the `m` flag. Group 1 (heading hashes, form
   // A only) is unused downstream; group 2 captures trailing inline content.
-  const headingPattern = /^(?:(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+  // Up to 3 leading spaces before a heading marker, per CommonMark (spaces
+  // only — not \s, which would let the match skip across blank lines).
+  const headingPattern =
+    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
 
   const lines = strippedBody.split("\n");
   for (let i = 0; i < lines.length; i++) {
@@ -343,7 +346,8 @@ export function checkExecutionEvidence(
     `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
     `New test files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
-    `  1. Run the new tests and paste output under an \`Execution evidence:\` heading in ` +
+    `  1. Run the new tests and paste output under an \`Execution evidence\` section ` +
+    `(any accepted form above) in ` +
     `the PR body (use mcp__minsky__session_pr_edit to update the body).\n` +
     `  2. Prefix the PR title with \`[unverified-tests]\` and file a follow-up ` +
     `verification task before re-attempting the merge.`;

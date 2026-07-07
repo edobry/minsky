@@ -312,6 +312,13 @@ describe("hasExecutionEvidence", () => {
     expect(hasExecutionEvidence("## Execution evidence bun test passed, 3/3")).toBe(true);
   });
 
+  it("detects heading form indented up to 3 spaces (CommonMark), but not 4+", () => {
+    expect(hasExecutionEvidence(" ## Execution evidence\nbun test passed")).toBe(true);
+    expect(hasExecutionEvidence("   ## Execution evidence\nbun test passed")).toBe(true);
+    // 4+ spaces is a CommonMark code block, not a heading
+    expect(hasExecutionEvidence("    ## Execution evidence\nbun test passed")).toBe(false);
+  });
+
   it("still requires a colon for the non-heading plain-label form (unchanged)", () => {
     // "Execution evidence" with no heading marker and no colon must NOT match —
     // this preserves the true-negative behavior for bare prose.

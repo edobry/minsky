@@ -98,6 +98,12 @@ describe("hasDeployVerification (mt#2353)", () => {
     expect(hasDeployVerification("## deploy verification\nSUCCESS confirmed.")).toBe(true);
   });
 
+  test("true for heading form indented up to 3 spaces (CommonMark), false at 4+", () => {
+    expect(hasDeployVerification("   ## Deploy verification\nRan it.")).toBe(true);
+    // 4+ spaces is a CommonMark code block, not a heading
+    expect(hasDeployVerification("    ## Deploy verification\nRan it.")).toBe(false);
+  });
+
   test("still requires a colon for the non-heading plain-label form (unchanged)", () => {
     const body = `## Summary\nfoo\n\nDeploy verification\nRan it.\n`;
     expect(hasDeployVerification(body)).toBe(false);
