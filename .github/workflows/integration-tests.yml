@@ -211,6 +211,13 @@ jobs:
 
   docker-suite:
     name: Integration (Docker/testcontainer — manual only)
+    # NOTE: `inputs.run_docker_suite == true` (boolean comparison) is correct
+    # here, NOT a bug. Since GitHub's June 2022 change, the `inputs` context
+    # (unlike the legacy `github.event.inputs` context, which stringifies
+    # everything) preserves the declared `type: boolean` as a real boolean —
+    # comparing against the string 'true' would be the actual mistake, since
+    # a real boolean never equals a string. See
+    # https://github.com/orgs/community/discussions/9343.
     if: github.event_name == 'workflow_dispatch' && inputs.run_docker_suite == true
     runs-on: ubuntu-latest
     # Cold image pull + documented Bun/testcontainers quirks (see the test
