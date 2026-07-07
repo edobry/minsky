@@ -27,6 +27,10 @@
 // @see .claude/hooks/substrate-bypass-detector.ts — sibling pattern (mt#2020)
 // @see .claude/hooks/retrospective-trigger-scanner.ts — sibling pattern (mt#2057)
 // @see .claude/hooks/transcript.ts — shared turn-boundary helper
+// @see mt#2652 — ADR-028 Phase 2a: this file's exported `run()` is the
+//      dispatcher-compatible entry point invoked in-process by
+//      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
+//      is unchanged.
 
 import { readInput, readHostCap, deriveBudgets } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
@@ -36,8 +40,10 @@ import {
   extractAssistantText,
   extractToolUseNames,
 } from "./transcript";
+import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -326,6 +332,80 @@ function buildInjectionReminder(matchedPhrases: string[]): string {
     "",
     "Memory: 3772c77d. Override: MINSKY_ACK_CAUSAL_PREMISE=1.",
   ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout/`process.exit`. Reuses
+ * `ctx.transcriptLines` (D6) instead of re-parsing the transcript itself and
+ * skips `main()`'s own `readHostCap`/`deriveBudgets`/deadline bookkeeping —
+ * the dispatcher's D6 shared context already resolves the host-cap budget
+ * ONCE per invocation (`ctx.budgets`) before any guard runs, so a per-guard
+ * pre-transcript-read deadline check has no equivalent point left to sit at
+ * (the transcript is already parsed by the time any guard's `run()` is
+ * called). Only calibration logging is gated (v1/calibration-first:
+ * `INJECTION_ENABLED = false`, so no `additionalContext` is ever returned
+ * until that flag flips).
+ */
+export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  const isOverride =
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes";
+
+  if (isOverride) {
+    return {
+      auditLines: [
+        `[causal-premise-detector] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  if (!input.transcript_path) return null;
+  const lines = ctx.transcriptLines;
+  if (lines.length === 0) return null;
+
+  let turnLines: TranscriptLine[];
+  try {
+    turnLines = extractLastAssistantTurn(lines);
+  } catch {
+    return null;
+  }
+  if (turnLines.length === 0) return null;
+
+  let result: CausalDetectionResult;
+  try {
+    const assistantText = extractAssistantText(turnLines);
+    const toolUseNames = extractToolUseNames(turnLines);
+    result = detectCausalPremise(assistantText, toolUseNames);
+  } catch (err) {
+    process.stderr.write(
+      `[causal-premise-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
+
+  if (!result.matched) return null;
+
+  const outcome: GuardOutcome = {
+    calibration: {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      matchedPhrases: result.matchedPhrases,
+      hadSameTurnVerification: result.hadSameTurnVerification,
+    },
+  };
+
+  if (INJECTION_ENABLED) {
+    outcome.additionalContext = buildInjectionReminder(result.matchedPhrases);
+  }
+
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------

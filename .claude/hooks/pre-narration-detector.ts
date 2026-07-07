@@ -38,6 +38,11 @@
 // tool_result blocks), so a turn spanning several tool round-trips is NOT split
 // — the minting tool in an earlier segment is in scope for a claim in a later
 // one (this fixed the 2026-06-01 end-of-work-summary false positive).
+//
+// @see mt#2652 — ADR-028 Phase 2a: this file's exported `run()` is the
+//      dispatcher-compatible entry point invoked in-process by
+//      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
+//      is unchanged.
 
 import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
@@ -50,6 +55,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -272,6 +278,66 @@ function buildReminder(matches: ClaimMatch[]): string {
     "turn. If the claim was legitimate (the tool ran in an earlier turn, or the",
     "phrase was a quote/example), set `MINSKY_ACK_PRE_NARRATION=1` to suppress.",
   ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout/`process.exit`. Reuses
+ * `ctx.transcriptLines` (D6) instead of re-parsing the transcript itself.
+ * Always injects `additionalContext` on a match (this detector is not
+ * calibration-gated, unlike causal-premise / code-mechanism-assertion /
+ * ask-routing-deferral) and always logs a calibration record too.
+ */
+export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  const isOverride =
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes";
+
+  if (isOverride) {
+    return {
+      auditLines: [
+        `[pre-narration-detector] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  if (!input.transcript_path) return null;
+  const lines = ctx.transcriptLines;
+  if (lines.length === 0) return null;
+
+  let matches: ClaimMatch[];
+  try {
+    const turnLines = extractLastAssistantTurn(lines);
+    if (turnLines.length === 0) return null;
+    matches = detectPreNarration(turnLines);
+  } catch (err) {
+    process.stderr.write(
+      `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
+
+  if (matches.length === 0) return null;
+
+  return {
+    calibration: {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      matches: matches.map((m) => ({
+        category: m.category,
+        phrase: m.matchedPhrase,
+        expectedTool: m.expectedTool,
+        hadMatchingTool: false,
+      })),
+    },
+    additionalContext: buildReminder(matches),
+  };
 }
 
 // ---------------------------------------------------------------------------

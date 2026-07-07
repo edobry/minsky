@@ -6,9 +6,13 @@ import {
   buildReminder,
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
+  OVERRIDE_ENV_VAR,
+  run,
   type DeferralMatch,
 } from "./ask-routing-deferral-detector";
 import type { TranscriptLine } from "./transcript";
+import type { ClaudeHookInput } from "./types";
+import type { DispatchContext } from "./registry";
 
 const PRINCIPAL_RESERVED = "principal-reserved" as const;
 const DEFERRAL_MENU = "deferral-menu" as const;
@@ -158,5 +162,106 @@ describe("reminder + calibration-first rollout", () => {
     const m: DeferralMatch[] = [{ cls: DEFERRAL_MENU, matchedPhrase: "what's your call?" }];
     const reminder = buildReminder(m);
     expect(reminder).toContain("classify-before-deferring");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652)
+//
+// No real fs needed: run() reads ctx.transcriptLines directly (resolved
+// once by the dispatcher's D6 shared context) rather than re-parsing a
+// transcript_path itself — so transcriptLines is built in-memory here.
+// ---------------------------------------------------------------------------
+
+function makeRunUserLine(text = "test user message"): TranscriptLine {
+  return { type: "user", message: { role: "user", content: text } } as TranscriptLine;
+}
+
+function makeRunAssistantLine(text: string): TranscriptLine {
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  } as TranscriptLine;
+}
+
+const RUN_HOOK_EVENT_NAME = "UserPromptSubmit";
+
+const RUN_HOOK_INPUT: ClaudeHookInput = {
+  session_id: "test-session",
+  transcript_path: "/mock/transcript.jsonl",
+  cwd: "/test",
+  hook_event_name: RUN_HOOK_EVENT_NAME,
+};
+
+function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
+  return {
+    event: RUN_HOOK_EVENT_NAME,
+    hostCapSec: 15,
+    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+    transcriptCandidates: ["/mock/transcript.jsonl"],
+    transcriptLines,
+  };
+}
+
+describe("run() (dispatcher-compatible)", () => {
+  test("deferral match -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(
+        "The rail-axis question needs your call before any lens model gets encoded."
+      ),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.additionalContext).toBeUndefined();
+    expect(INJECTION_ENABLED).toBe(false);
+    const cal = outcome?.calibration as { matches: Array<{ class: string; phrase: string }> };
+    expect(cal.matches.some((m) => m.class === PRINCIPAL_RESERVED)).toBe(true);
+  });
+
+  test("no match -> null (silent allow)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("I merged the PR and the task is DONE."),
+      makeRunUserLine(),
+    ];
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+  });
+
+  test("suppressed when the turn already routed via asks_create -> null", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine(),
+      makeRunAssistantLine("The rail-axis question needs your call."),
+      { type: "tool_use", name: ASKS_CREATE_TOOL } as unknown as TranscriptLine,
+      makeRunUserLine(),
+    ];
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+  });
+
+  test("no transcript_path -> null", () => {
+    const input: ClaudeHookInput = {
+      session_id: "test",
+      cwd: "/test",
+      hook_event_name: RUN_HOOK_EVENT_NAME,
+    };
+    const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
+    expect(run(input, ctx)).toBeNull();
+  });
+
+  test("legacy override env var suppresses detection and returns an audit line", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("What's your call?"),
+      makeRunUserLine(),
+    ];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      expect(outcome?.calibration).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });

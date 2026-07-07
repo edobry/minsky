@@ -8,9 +8,11 @@ import {
   elideMarkdownContexts,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
+  run,
 } from "./pre-narration-detector";
 import { parseTranscript, extractLastAssistantTurn } from "./transcript";
 import type { ClaudeHookInput } from "./types";
+import type { DispatchContext } from "./registry";
 
 const CREATED_PR_CLAIM = "Created PR #4242.";
 
@@ -270,5 +272,68 @@ describe("pre-narration-detector E2E", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain("OVERRIDE");
     expect(stdout).not.toContain("hookSpecificOutput");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652)
+// ---------------------------------------------------------------------------
+
+describe("run() (dispatcher-compatible)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "pn-run-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function makeCtx(transcriptPath: string): DispatchContext {
+    return {
+      event: "UserPromptSubmit",
+      hostCapSec: 15,
+      budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+      transcriptCandidates: [transcriptPath],
+      transcriptLines: parseTranscript(transcriptPath),
+    };
+  }
+
+  test("flagged claim -> additionalContext + calibration record", () => {
+    const p = join(dir, "claim.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine(CREATED_PR_CLAIM), makeUserLine()]),
+      "utf8"
+    );
+    const outcome = run(makeHookInput(p), makeCtx(p));
+    expect(outcome?.additionalContext).toContain("pre-narrated");
+    expect(outcome?.calibration).toBeDefined();
+  });
+
+  test("no match -> null (silent allow)", () => {
+    const p = join(dir, "noclaim.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine("Nothing here."), makeUserLine()]),
+      "utf8"
+    );
+    expect(run(makeHookInput(p), makeCtx(p))).toBeNull();
+  });
+
+  test("legacy override env var suppresses detection and returns an audit line", () => {
+    const p = join(dir, "claim.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine(CREATED_PR_CLAIM), makeUserLine()]),
+      "utf8"
+    );
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(makeHookInput(p), makeCtx(p));
+      expect(outcome?.additionalContext).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });

@@ -27,6 +27,10 @@
 // Originating memory: f6607043-be47-43e6-baec-47dbe40221c4
 // Corpus rule: decision-defaults.mdc §Build vs buy
 // @see mt#2020 — this task
+// @see mt#2652 — ADR-028 Phase 2a: this file's exported `run()` is the
+//      dispatcher-compatible entry point invoked in-process by
+//      `./dispatch-userpromptsubmit.ts`; the standalone `main()` /
+//      `if (import.meta.main)` CLI entrypoint below is unchanged.
 // @see .claude/hooks/memory-search.ts — sibling UserPromptSubmit hook (context injection)
 // @see .claude/hooks/skill-staleness-detector.ts — sibling UserPromptSubmit hook (staleness)
 // @see .claude/hooks/drive-pr-to-convergence.ts — sibling PostToolUse hook (additionalContext pattern)
@@ -40,6 +44,7 @@ import {
   extractToolUseNames,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants and detection result type
@@ -529,6 +534,117 @@ function buildReminder(surfaces: MatchedSurface[]): string {
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout/calling `process.exit` — the
+ * dispatcher owns stdout and aggregates every matched guard's output (D1).
+ * Reuses `ctx.transcriptLines` (resolved once by the dispatcher's D6 shared
+ * context, mt#2637-safe for background-dispatched subagents) instead of
+ * re-parsing `input.transcript_path` itself. This guard has no calibration
+ * log — additionalContext only, matching `main()`.
+ */
+export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  const isOverride =
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes";
+
+  if (isOverride) {
+    return {
+      auditLines: [
+        `[substrate-bypass-detector] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  if (!input.transcript_path) return null;
+  const lines = ctx.transcriptLines;
+  if (lines.length === 0) return null;
+
+  let turnLines: TranscriptLine[];
+  try {
+    turnLines = extractLastAssistantTurn(lines);
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] Failed to extract assistant turn: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
+  if (turnLines.length === 0) return null;
+
+  const matchedSurfaces: MatchedSurface[] = [];
+
+  try {
+    const verbalResult = detectVerbalCommitment(turnLines);
+    if (verbalResult.matched && verbalResult.matchedPhrase && verbalResult.canonicalSubstrate) {
+      matchedSurfaces.push({
+        surface: "verbal-commitment",
+        matchedPhrase: verbalResult.matchedPhrase,
+        canonicalSubstrate: verbalResult.canonicalSubstrate,
+      });
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] Verbal commitment detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+
+  try {
+    const skillResult = detectSkillBypass(turnLines);
+    if (skillResult.matched && skillResult.matchedPhrase && skillResult.canonicalSubstrate) {
+      matchedSurfaces.push({
+        surface: "skill-bypass",
+        matchedPhrase: skillResult.matchedPhrase,
+        canonicalSubstrate: skillResult.canonicalSubstrate,
+      });
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] Skill bypass detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+
+  try {
+    const dbResult = detectDbSubstrateBypass(turnLines);
+    if (dbResult.matched && dbResult.matchedPhrase && dbResult.canonicalSubstrate) {
+      matchedSurfaces.push({
+        surface: "db-substrate-bypass",
+        matchedPhrase: dbResult.matchedPhrase,
+        canonicalSubstrate: dbResult.canonicalSubstrate,
+      });
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] DB substrate bypass detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+
+  try {
+    const assistantText = extractAssistantText(turnLines);
+    const passiveResult = detectPassiveOutcomeAsMechanism(assistantText);
+    if (passiveResult.matched && passiveResult.matchedPhrase && passiveResult.canonicalSubstrate) {
+      matchedSurfaces.push({
+        surface: "passive-outcome-as-mechanism",
+        matchedPhrase: passiveResult.matchedPhrase,
+        canonicalSubstrate: passiveResult.canonicalSubstrate,
+      });
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] Passive outcome detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+
+  if (matchedSurfaces.length === 0) return null;
+
+  return { additionalContext: buildReminder(matchedSurfaces) };
 }
 
 // ---------------------------------------------------------------------------

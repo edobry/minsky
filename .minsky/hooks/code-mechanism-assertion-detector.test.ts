@@ -10,8 +10,13 @@ import {
   detectCodeMechanismAssertion,
   buildVerificationCorpus,
   elideBlocksAndQuotes,
+  OVERRIDE_ENV_VAR,
+  INJECTION_ENABLED,
+  run,
 } from "./code-mechanism-assertion-detector";
 import type { TranscriptLine } from "./transcript";
+import type { ClaudeHookInput } from "./types";
+import type { DispatchContext } from "./registry";
 
 // A realistic slice of exec.ts source — what a Read of the file would return.
 const EXEC_TS_SOURCE = `export async function executeCommand(command, options = {}) {
@@ -155,5 +160,93 @@ describe("elideBlocksAndQuotes", () => {
     expect(out).not.toContain("fenced executeCommand"); // fenced elided
     expect(out).not.toContain("quoted line"); // blockquote elided
     expect(out.length).toBe(text.length); // positions preserved
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652)
+//
+// No real fs needed: run() reads ctx.transcriptLines directly (resolved
+// once by the dispatcher's D6 shared context) rather than re-parsing a
+// transcript_path itself — so transcriptLines is built in-memory here.
+// ---------------------------------------------------------------------------
+
+function makeRunUserLine(text = "test user message"): TranscriptLine {
+  return { type: "user", message: { role: "user", content: text } };
+}
+
+function makeRunAssistantLine(text: string): TranscriptLine {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } };
+}
+
+const RUN_HOOK_EVENT_NAME = "UserPromptSubmit";
+
+const RUN_HOOK_INPUT: ClaudeHookInput = {
+  session_id: "test-session",
+  transcript_path: "/mock/transcript.jsonl",
+  cwd: "/test",
+  hook_event_name: RUN_HOOK_EVENT_NAME,
+};
+
+function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
+  return {
+    event: RUN_HOOK_EVENT_NAME,
+    hostCapSec: 15,
+    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+    transcriptCandidates: ["/mock/transcript.jsonl"],
+    transcriptLines,
+  };
+}
+
+describe("run() (dispatcher-compatible)", () => {
+  test("unread code-mechanism claim -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(
+        "The 1MB default `maxBuffer` is at its limit, and `executeCommand` clamps it."
+      ),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.additionalContext).toBeUndefined();
+    expect(INJECTION_ENABLED).toBe(false);
+    const cal = outcome?.calibration as { claims: Array<{ symbol: string; predicate: string }> };
+    expect(cal.claims.map((c) => c.symbol)).toContain("maxBuffer");
+  });
+
+  test("no match -> null (silent allow)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("The build passed and all tests are green."),
+      makeRunUserLine(),
+    ];
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+  });
+
+  test("no transcript_path -> null", () => {
+    const input: ClaudeHookInput = {
+      session_id: "test",
+      cwd: "/test",
+      hook_event_name: RUN_HOOK_EVENT_NAME,
+    };
+    const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
+    expect(run(input, ctx)).toBeNull();
+  });
+
+  test("legacy override env var suppresses detection and returns an audit line", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("`executeCommand` clamps `maxBuffer` to 10MB."),
+      makeRunUserLine(),
+    ];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      expect(outcome?.calibration).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });

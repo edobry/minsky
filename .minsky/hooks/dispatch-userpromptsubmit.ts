@@ -1,0 +1,43 @@
+#!/usr/bin/env bun
+// UserPromptSubmit dispatcher entrypoint — ADR-028 D1, Phase 2a (mt#2652).
+//
+// The SOLE `.claude/settings.json` UserPromptSubmit entry for every guard
+// migrated onto the dispatcher framework — the six UserPromptSubmit guidance
+// detectors (substrate-bypass, retrospective-trigger, pre-narration,
+// causal-premise, code-mechanism-assertion, ask-routing-deferral), registered
+// in `./registry.ts`. Reads stdin once, resolves shared context once (D6 —
+// including the mt#2637-safe transcript-candidate resolution every one of
+// these guards needs), and runs every matched guard's pure function in
+// process via `runDispatcher` — see `./dispatcher.ts` for the core loop.
+//
+// Guards NOT migrated (independent settings.json registrations + process
+// spawns): the non-detector UserPromptSubmit hooks (auto-session-title,
+// inject-current-time, inject-git-state, inject-prod-state, memory-search,
+// skill-staleness-detector, mcp-daemon-staleness-detector,
+// calibration-review-cadence-detector — Phase 2b, out of scope for mt#2652),
+// and `policy-coverage-detector` — despite being named as one of the "seven
+// detectors" in mt#2652's spec, ground-truth inspection of
+// `.claude/settings.json` found it registered on `PreToolUse`
+// (matcher `Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|...`),
+// not `UserPromptSubmit`. Recorded as a spec discrepancy; left untouched.
+//
+// @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1
+// @see mt#2650 — the framework's tracking task (ADR-028 Phase 1, pilot)
+// @see mt#2652 — this family migration (ADR-028 Phase 2a)
+// @see .minsky/hooks/dispatcher.ts — the core dispatcher loop
+// @see .minsky/hooks/registry.ts — the declarative guard registry
+// @see .minsky/hooks/dispatch-pretooluse.ts — the PreToolUse sibling entrypoint
+
+import { runDispatcher } from "./dispatcher";
+
+if (import.meta.main) {
+  try {
+    await runDispatcher("UserPromptSubmit", { hookFilename: "dispatch-userpromptsubmit.ts" });
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write(
+      `[dispatch-userpromptsubmit] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    process.exit(0);
+  }
+}

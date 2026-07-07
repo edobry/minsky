@@ -11,9 +11,11 @@ import {
   detectPassiveOutcomeAsMechanism,
   elideMarkdownContexts,
   OVERRIDE_ENV_VAR,
+  run,
 } from "./substrate-bypass-detector";
 import { parseTranscript, extractLastAssistantTurn } from "./transcript";
 import type { ClaudeHookInput } from "./types";
+import type { DispatchContext } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Transcript JSONL helpers
@@ -828,5 +830,70 @@ describe("main() end-to-end via Bun.spawn", () => {
     const { exitCode, stdout } = await invokeHook(input);
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652)
+// ---------------------------------------------------------------------------
+
+function makeCtx(transcriptPath: string): DispatchContext {
+  return {
+    event: "UserPromptSubmit",
+    hostCapSec: 15,
+    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+    transcriptCandidates: [transcriptPath],
+    transcriptLines: parseTranscript(transcriptPath),
+  };
+}
+
+describe("run() (dispatcher-compatible)", () => {
+  test("verbal-commitment match -> additionalContext, no calibration (this guard has none)", () => {
+    const transcriptPath = writeTranscript([
+      makeUserLine(),
+      makeAssistantLine("I'd update memory X to reflect this new finding."),
+      makeUserLine(),
+    ]);
+    const input: ClaudeHookInput = makeHookInput(transcriptPath);
+    const outcome = run(input, makeCtx(transcriptPath));
+    expect(outcome?.additionalContext).toContain("verbal-commitment");
+    expect(outcome?.calibration).toBeUndefined();
+  });
+
+  test("no match -> null (silent allow)", () => {
+    const transcriptPath = writeTranscript([
+      makeUserLine(),
+      makeAssistantLine("Nothing noteworthy here."),
+      makeUserLine(),
+    ]);
+    const input: ClaudeHookInput = makeHookInput(transcriptPath);
+    expect(run(input, makeCtx(transcriptPath))).toBeNull();
+  });
+
+  test("no transcript_path -> null", () => {
+    const input: ClaudeHookInput = {
+      session_id: "test",
+      cwd: "/test",
+      hook_event_name: "UserPromptSubmit",
+    };
+    const ctx = makeCtx("/nonexistent");
+    expect(run(input, ctx)).toBeNull();
+  });
+
+  test("legacy override env var suppresses detection and returns an audit line", () => {
+    const transcriptPath = writeTranscript([
+      makeUserLine(),
+      makeAssistantLine("I'd update memory X to reflect this."),
+      makeUserLine(),
+    ]);
+    const input: ClaudeHookInput = makeHookInput(transcriptPath);
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(input, makeCtx(transcriptPath));
+      expect(outcome?.additionalContext).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });

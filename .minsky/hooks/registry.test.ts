@@ -3,6 +3,7 @@ import {
   getGuardsForEvent,
   findDuplicateRegistrations,
   GUARD_REGISTRY,
+  NON_TOOL_SCOPED_EVENTS,
   type GuardRegistration,
   type LifecycleEvent,
 } from "./registry";
@@ -99,10 +100,58 @@ describe("findDuplicateRegistrations", () => {
     expect(findDuplicateRegistrations(regs)).toEqual([]);
   });
 
-  test("a matcher-less registration overlaps any registration in the same event", () => {
+  test("two matcher-less registrations on a NON-tool-scoped event are NOT flagged (Phase 2a, mt#2652)", () => {
+    // Matcher-less-at-the-same-event is the NORMAL shape for non-tool-scoped
+    // events (UserPromptSubmit et al.) with multiple independent guards —
+    // e.g. the six UserPromptSubmit guidance detectors migrated in Phase 2a.
+    // Flagging every such pair would make the check impossible to satisfy.
     const regs = [
       makeReg({ name: "a", event: NON_TOOL_EVENT, matcher: undefined }),
       makeReg({ name: "b", event: NON_TOOL_EVENT, matcher: undefined }),
+    ];
+    expect(findDuplicateRegistrations(regs)).toEqual([]);
+  });
+
+  test("two matcher-less registrations on a TOOL-SCOPED event (PreToolUse) ARE flagged (R1 fix, mt#2652)", () => {
+    // Unlike UserPromptSubmit, PreToolUse HAS a tool-name concept — two
+    // matcher-less registrations there genuinely both match every tool
+    // call, which is the real accidental-duplicate shape D7(2) exists to
+    // catch. The non-tool-scoped exemption above must NOT apply here.
+    const regs = [
+      makeReg({ name: "a", event: "PreToolUse", matcher: undefined }),
+      makeReg({ name: "b", event: "PreToolUse", matcher: undefined }),
+    ];
+    const dupes = findDuplicateRegistrations(regs);
+    expect(dupes.length).toBe(1);
+    expect(dupes[0]?.sharedTokens).toContain("<matches everything>");
+  });
+
+  test("two matcher-less registrations on PostToolUse (also tool-scoped) ARE flagged", () => {
+    const regs = [
+      makeReg({ name: "a", event: "PostToolUse", matcher: undefined }),
+      makeReg({ name: "b", event: "PostToolUse", matcher: undefined }),
+    ];
+    const dupes = findDuplicateRegistrations(regs);
+    expect(dupes.length).toBe(1);
+  });
+
+  test("a matcher-less registration still overlaps a registration WITH a matcher, on ANY event", () => {
+    // The genuine-overlap-risk case remains flagged regardless of tool-scope:
+    // a matcher-less guard fires on every tool, including whatever the
+    // matchered guard names.
+    const regs = [
+      makeReg({ name: "a", event: "PreToolUse", matcher: undefined }),
+      makeReg({ name: "b", event: "PreToolUse", matcher: "Bash" }),
+    ];
+    const dupes = findDuplicateRegistrations(regs);
+    expect(dupes.length).toBe(1);
+    expect(dupes[0]?.sharedTokens).toContain("<matches everything>");
+  });
+
+  test("a matcher-less registration overlaps a matchered registration on a non-tool-scoped event too", () => {
+    const regs = [
+      makeReg({ name: "a", event: NON_TOOL_EVENT, matcher: undefined }),
+      makeReg({ name: "b", event: NON_TOOL_EVENT, matcher: "Bash" }),
     ];
     const dupes = findDuplicateRegistrations(regs);
     expect(dupes.length).toBe(1);
@@ -110,6 +159,28 @@ describe("findDuplicateRegistrations", () => {
 
   test("current GUARD_REGISTRY has no duplicate registrations (regression guard)", () => {
     expect(findDuplicateRegistrations(GUARD_REGISTRY)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NON_TOOL_SCOPED_EVENTS
+// ---------------------------------------------------------------------------
+
+describe("NON_TOOL_SCOPED_EVENTS", () => {
+  test("contains exactly the five non-tool-scoped lifecycle events", () => {
+    const expected: LifecycleEvent[] = [
+      "SessionEnd",
+      "SessionStart",
+      "Stop",
+      "SubagentStop",
+      NON_TOOL_EVENT,
+    ];
+    expect([...NON_TOOL_SCOPED_EVENTS].sort()).toEqual(expected.sort());
+  });
+
+  test("does NOT contain the two tool-scoped events", () => {
+    expect(NON_TOOL_SCOPED_EVENTS.has("PreToolUse")).toBe(false);
+    expect(NON_TOOL_SCOPED_EVENTS.has("PostToolUse")).toBe(false);
   });
 });
 
@@ -130,5 +201,29 @@ describe("GUARD_REGISTRY", () => {
       const mod = await reg.module();
       expect(typeof mod.run).toBe("function");
     }
+  });
+
+  test("Phase 2a UserPromptSubmit family (mt#2652) is registered, no duplicates, correct calibration wiring", () => {
+    const expectedCalibrationLogs: Record<string, string | undefined> = {
+      "substrate-bypass-detector": undefined,
+      "retrospective-trigger-scanner": "retrospective-trigger",
+      "pre-narration-detector": "pre-narration",
+      "causal-premise-detector": "causal-premise",
+      "code-mechanism-assertion-detector": "code-mechanism-assertion",
+      "ask-routing-deferral-detector": "ask-routing-deferral",
+    };
+    for (const [name, calibrationLog] of Object.entries(expectedCalibrationLogs)) {
+      const reg = GUARD_REGISTRY.find((r) => r.name === name);
+      expect(reg).toBeDefined();
+      expect(reg?.event).toBe(NON_TOOL_EVENT);
+      expect(reg?.matcher).toBeUndefined();
+      expect(reg?.denyCapable).toBe(false);
+      expect(reg?.needsTranscript).toBe(true);
+      expect(reg?.calibrationLog).toBe(calibrationLog);
+    }
+    // policy-coverage-detector is NOT part of this family — it is registered
+    // on PreToolUse in .claude/settings.json (ground truth), not
+    // UserPromptSubmit. See the mt#2652 spec's recorded discrepancy.
+    expect(GUARD_REGISTRY.find((r) => r.name === "policy-coverage-detector")).toBeUndefined();
   });
 });
