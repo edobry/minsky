@@ -5,6 +5,16 @@
  *   GET /api/widgets          — metadata for every registered widget
  *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
  *                               404 only for ids absent from WIDGET_REGISTRY)
+ *
+ * The /api/health response shape is pinned against the Rust tray supervisor
+ * (`cockpit-tray/src-tauri/src/supervisor.rs`'s `health_ok` / `poll_health_detail`,
+ * which polls this endpoint from a process that may run with no Minsky
+ * CLI/MCP process alive at all) via the shared golden fixture
+ * `contract/cockpit-health-shape.json` (mt#2629). See
+ * `src/cockpit/health-contract.test.ts` and `contract/README.md`. Renaming,
+ * removing, or re-typing a field below without updating the fixture (and,
+ * for `db`/`processStartedAtMs`, the Rust parsing code) fails a test on
+ * both sides.
  */
 import type express from "express";
 import fs from "fs";
