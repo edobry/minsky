@@ -2487,7 +2487,8 @@ an unsound one did not exist).
    `check-task-spec-read.ts`), not expired
    (`now < Date.parse(issuedAt) + ttlMs`), and matching `agentScope`
    (`"any"` or the exact `agent_id`).
-5. Match found → allow (audit line to stderr naming the matched grant). No
+5. Match found → allow (audit line to stdout naming the matched grant — non-JSON,
+   so the hook-output parser ignores it, per the sibling-hook audit convention). No
    match → deny with a structured message naming the resolved task id and
    the issuance command to run instead.
 
