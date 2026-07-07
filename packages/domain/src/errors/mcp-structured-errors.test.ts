@@ -87,6 +87,57 @@ describe("StructuredMcpError", () => {
     });
     expect(err.message).toContain("hooks blocked commit");
   });
+
+  // mt#2635: two live incidents showed an operator seeing ONLY the terse
+  // `summary` ("pre-commit hook blocked the commit") — because whatever
+  // surfaced the error rendered `error.message` and not `error.data`. These
+  // tests pin that the tail excerpt (and, when present, the failing-step
+  // label) are folded into `.message` itself, not just left in `.data`.
+  test("folds details.tail into message when present", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.PRE_COMMIT_FAILED,
+      summary: PRE_COMMIT_SUMMARY,
+      subprocessOutput: "full untruncated output",
+      details: { tail: "ESLint: 10 warnings exceed the threshold", truncated: false },
+    });
+    expect(err.message).toContain(PRE_COMMIT_SUMMARY);
+    expect(err.message).toContain("ESLint: 10 warnings exceed the threshold");
+  });
+
+  test("folds details.failingStep into message when present", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.PRE_COMMIT_FAILED,
+      summary: PRE_COMMIT_SUMMARY,
+      details: {
+        tail: "⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️",
+        truncated: false,
+        failingStep: "ESLint (warning threshold)",
+      },
+    });
+    expect(err.message).toContain("ESLint (warning threshold)");
+    expect(err.message).toContain("TOO MANY WARNINGS");
+  });
+
+  test("falls back to a fresh tail-truncation of subprocessOutput when details.tail is absent", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.COMMIT_MSG_FAILED,
+      summary: "commit-msg hook blocked the commit",
+      subprocessOutput: "Subject line too long (87 > 72 chars)",
+    });
+    expect(err.message).toContain("Subject line too long (87 > 72 chars)");
+  });
+
+  test("message is just the summary when there is no subprocess output at all", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.CONFLICT,
+      summary: "merge conflict",
+    });
+    // McpError's own constructor prefixes "MCP error -<code>: " onto whatever
+    // message it's given, so this asserts the SUFFIX equals the bare
+    // summary (no tail/failingStep appended) rather than an exact `.toBe`.
+    expect(err.message.endsWith("merge conflict")).toBe(true);
+    expect(err.message).not.toContain("\n");
+  });
 });
 
 describe("mcpStructuredError factory", () => {

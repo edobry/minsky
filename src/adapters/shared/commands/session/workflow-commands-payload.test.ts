@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildSubprocessFailurePayload,
+  detectFailingStep,
   SUBPROCESS_OUTPUT_TRUNCATE_LIMIT,
 } from "./workflow-commands";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
@@ -85,5 +86,59 @@ describe("buildSubprocessFailurePayload", () => {
     expect(payload.details).toBeUndefined();
     expect(payload.summary).toBe("pre-commit hook blocked the commit");
     expect(payload.subprocessOutput).toBe("");
+  });
+
+  // mt#2635: the ESLint-warning-threshold failure is the real-world case
+  // that motivated bumping SUBPROCESS_OUTPUT_TRUNCATE_LIMIT (mt#2637 R1
+  // diagnosis: 10 warnings, discovered only by manually re-running
+  // pre-commit.ts because the MCP error carried no detail).
+  test("details.failingStep names the ESLint warning-threshold check", () => {
+    const hookOutput =
+      "🔍 Running ESLint with strict quality gates...\n" +
+      "⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️\n" +
+      "Warnings: 10 (threshold: 0)";
+    const payload = buildSubprocessFailurePayload("pre-commit", hookOutput);
+    expect(payload.details?.failingStep).toBe("ESLint (warning threshold)");
+    expect(payload.details?.tail).toContain("TOO MANY WARNINGS");
+  });
+
+  test("details.failingStep is absent (not just falsy) when no known banner matches", () => {
+    const payload = buildSubprocessFailurePayload(
+      "pre-commit",
+      "fatal: unable to write commit object"
+    );
+    expect(payload.details).toBeDefined();
+    expect(payload.details && "failingStep" in payload.details).toBe(false);
+  });
+});
+
+describe("detectFailingStep", () => {
+  test("recognizes each known pre-commit.ts / commit-msg.ts failure banner", () => {
+    expect(detectFailingStep("⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️")).toBe(
+      "ESLint (warning threshold)"
+    );
+    expect(detectFailingStep("❌ ❌ ❌ LINTER ERRORS DETECTED! COMMIT BLOCKED! ❌ ❌ ❌")).toBe(
+      "ESLint (errors)"
+    );
+    expect(
+      detectFailingStep("❌ 🚨 SECRETS DETECTED BY GITLEAKS! Commit blocked for security.")
+    ).toBe("gitleaks (secret scan)");
+    expect(detectFailingStep("❌ Node.js shims detected in staged files! Commit blocked.")).toBe(
+      "Node-shim guard"
+    );
+    expect(detectFailingStep("NUL byte(s) detected in staged text files. Commit blocked.")).toBe(
+      "NUL-byte guard"
+    );
+    expect(detectFailingStep("❌ TypeScript type errors found! Commit blocked.")).toBe(
+      "TypeScript typecheck"
+    );
+    expect(
+      detectFailingStep("❌ Commit message validation failed:\n   • Invalid commit message format")
+    ).toBe("commit-msg format validation");
+  });
+
+  test("returns undefined for unrecognized output (safe degradation)", () => {
+    expect(detectFailingStep("fatal: unable to write commit object")).toBeUndefined();
+    expect(detectFailingStep("")).toBeUndefined();
   });
 });
