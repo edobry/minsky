@@ -53,6 +53,8 @@ export async function commitChangesFromParams(params: {
   amend?: boolean;
   noStage?: boolean;
   files?: string[];
+  /** Pass `--allow-empty` through to `git commit` (mt#2635). */
+  allowEmpty?: boolean;
 }): Promise<{ commitHash: string; message: string }> {
   return await modularGitCommandsManager.commitChangesFromParams(params);
 }

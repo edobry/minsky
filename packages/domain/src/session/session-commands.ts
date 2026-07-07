@@ -266,44 +266,30 @@ export async function sessionCommit(
         // commit is created even without staged changes. This is the webhook-wake
         // mechanism: the push triggers pull_request.synchronize.
         const allowEmpty = params.noFiles === true && isCleanTree && !params.amend;
-        if (allowEmpty) {
-          const gitServiceForEmpty = createGitService();
-          // mt#1742: replace the prior `replace(/"/g, ...)` quote-escape with
-          // `safeShellQuote`. The old escape only handled `"` and left backticks /
-          // $VAR / other shell metacharacters interpreted by /bin/sh — which is
-          // the exact attack surface the originating incident exploited via
-          // backticks in markdown commit messages.
-          const rawHash = await gitServiceForEmpty.execInRepository(
-            workdir,
-            `git commit --allow-empty -m ${safeShellQuote(params.message)}`
-          );
-          const hash = rawHash.trim().match(/[0-9a-f]{40}/i)?.[0] ?? null;
-          // Fallback: read the latest commit hash if the output did not contain it directly
-          let finalHash = hash;
-          if (!finalHash) {
-            try {
-              const logOut = await gitServiceForEmpty.execInRepository(
-                workdir,
-                "git log -1 --pretty=format:%H"
-              );
-              finalHash = logOut.trim() || null;
-            } catch {
-              finalHash = null;
-            }
-          }
-          commitResult = {
-            commitHash: finalHash ?? "",
-            message: params.message,
-          };
-        } else {
-          commitResult = await commitChangesFromParams({
-            message: params.message,
-            repo: workdir,
-            all: params.all,
-            amend: params.amend,
-            noStage: params.noStage,
-          });
-        }
+        // mt#2635: route the empty-commit case through the SAME
+        // commitChangesFromParams -> commitImpl path used for real commits,
+        // instead of a bespoke `gitService.execInRepository(...)` call. The
+        // prior bespoke call went through `execInRepositoryImpl`, which
+        // catches any subprocess failure and re-throws a brand-new
+        // `MinskyError` carrying only a one-line "cleaned" summary — NOT the
+        // original error's `.stdout`/`.stderr`. That meant a hook failure on
+        // the allow-empty path could never be classified by
+        // `classifyHookFailure` (workflow-commands.ts), which requires
+        // `.stdout`/`.stderr` on the caught error, so the operator only ever
+        // saw an opaque one-liner with no diagnostic detail. `commitImpl`
+        // re-throws the ORIGINAL execAsync error unmodified on failure, so
+        // routing through it here restores full hook-output propagation for
+        // the allow-empty path — same as the real-commit path already had.
+        commitResult = await commitChangesFromParams({
+          message: params.message,
+          repo: workdir,
+          all: params.all,
+          amend: params.amend,
+          // A clean tree has nothing to stage; skip the staging step outright
+          // rather than let it run as a (harmless but pointless) no-op.
+          noStage: allowEmpty ? true : params.noStage,
+          allowEmpty,
+        });
       } catch (commitErr: unknown) {
         // Handle "nothing to commit" gracefully — not an error condition
         if (commitErr instanceof NothingToCommitError) {
