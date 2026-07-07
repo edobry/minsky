@@ -35,10 +35,8 @@ create, mutate, or run anything inside a local session workspace.
   `git_reset`, `git_conflicts`). Hosted has no `git` binary and no local repo.
 - Session creation / mutation / execution: `session_start`, `session_commit`,
   `session_update`, `session_exec`, `session_edit_file`, `session_pr_create`,
-  `session_cleanup`, `session_repair`, `session_review`, `session_conflicts`,
-  `session_apply_post_merge_state_sync`, and the changeset branch ops
-  (`session_changeset_create` / `_merge` / `_edit` and their `session_cs_*`
-  aliases).
+  `session_pr_merge`, `session_pr_edit`, `session_cleanup`, `session_repair`,
+  `session_review`, `session_conflicts`, `session_apply_post_merge_state_sync`.
 - Session **file** tools registered outside the shared-command registry
   (`session_read_file`, `session_write_file`, `session_search_replace`,
   `session_move_file`, etc.). On hosted these currently fail with a filesystem
@@ -51,7 +49,6 @@ create, mutate, or run anything inside a local session workspace.
 - `session_get`, `session_list`, `session_dir`, `session_search`,
   `session_inspect`
 - `session_pr_list`, `session_pr_get`, `session_pr_checks`
-- `session_changeset_list` / `_get` (and `session_cs_list` / `_get`)
 - All non-session, non-git metadata/config/task tools (`tasks_*`, `config_*`,
   `rules_*`, `memory_*`, etc.)
 
