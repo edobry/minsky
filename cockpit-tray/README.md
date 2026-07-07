@@ -296,6 +296,17 @@ Three tiers; standard Tauri WebDriver e2e does **not** apply (it is Windows/Linu
    cockpit-tray/scripts/smoke-status.sh   # exit 0 = matches, 1 = mismatch, 2 = skipped
    ```
 
+### Post-restructure operator smoke (mt#2628)
+
+The mt#2628 module split (`main.rs` → `menu`/`supervisor`/`watcher_web`/
+`watcher_backend`/`deeplink`/`launchd`) is tier-1/2 verified only — GUI smoke
+cannot run from a session workspace or CI. After the next
+`install-local.sh` rebuild+reinstall, the operator verifies once:
+
+- [ ] Menu renders and items function (status line, open cockpit, quit)
+- [ ] Clicking a `minsky://` link opens the cockpit window
+- [ ] Killing the daemon (`kill <pid>` of the `cockpit start` process) triggers supervisor respawn
+
 ## Architecture
 
 Tauri v2 app, tray-only by default (it can open an in-app cockpit window on demand,
