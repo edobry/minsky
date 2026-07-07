@@ -520,7 +520,11 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           if (cmd.includes("rev-parse HEAD")) {
             return { stdout: "original-hash", stderr: "" };
           }
-          if (cmd.includes("merge feature-branch")) {
+          // mt#1829 shell-quotes the branch arg (git-with-deps.ts), so the
+          // literal command is `merge 'feature-branch'`, not `merge
+          // feature-branch` — match on the two tokens independently so the
+          // mock doesn't silently stop firing when quoting changes (mt#2608).
+          if (cmd.includes("merge") && cmd.includes("feature-branch")) {
             throw new Error("Automatic merge failed; fix conflicts and then commit the result");
           }
           if (cmd.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
@@ -555,7 +559,9 @@ describe("GitService - Core Methods with Dependency Injection", () => {
             const hash = callCount === 1 ? "original-hash" : "new-merge-hash";
             return { stdout: hash, stderr: "" };
           }
-          if (cmd.includes("merge feature-branch")) {
+          // mt#1829 shell-quotes the branch arg — match tokens independently
+          // (mt#2608, see sibling comment in the conflict-detection test above).
+          if (cmd.includes("merge") && cmd.includes("feature-branch")) {
             return { stdout: "Merge made by the 'recursive' strategy.", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -577,7 +583,10 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
           const cmd = command as string;
-          expect(cmd.includes("git -C /test/repo add")).toBe(true);
+          // mt#1829 shell-quotes the workdir arg; match tokens independently
+          // of the quoting style (mt#2608).
+          expect(cmd.includes("git") && cmd.includes("-C") && cmd.includes("add")).toBe(true);
+          expect(cmd.includes("/test/repo")).toBe(true);
           return { stdout: "", stderr: "" };
         }),
       };
@@ -602,12 +611,14 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       // Test stageAll uses add -A
+      // mt#1829 shell-quotes the workdir arg (git-with-deps.ts safeShellQuote);
+      // update the exact-match expectation to the quoted form (mt#2608).
       await gitService.stageAllWithDependencies("/test/repo", mockDeps);
-      expect(capturedCommand).toBe("git -C /test/repo add -A");
+      expect(capturedCommand).toBe("git -C '/test/repo' add -A");
 
       // Test stageModified uses add .
       await gitService.stageModifiedWithDependencies("/test/repo", mockDeps);
-      expect(capturedCommand).toBe("git -C /test/repo add .");
+      expect(capturedCommand).toBe("git -C '/test/repo' add .");
     });
 
     test("should handle pullLatest with updates detected", async () => {

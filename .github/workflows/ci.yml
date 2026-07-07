@@ -80,6 +80,28 @@ jobs:
       - name: Test
         run: bun run test
 
+      # mt#2608: the guard system (.claude/hooks/*.test.ts, ~39 files) had no
+      # CI wiring at all before this step existed — hook regressions merged
+      # undetected. if: always() mirrors the other independent test gates
+      # above (services/reviewer, eslint-rules) so this always runs
+      # regardless of earlier-step outcome.
+      - name: Test (.claude/hooks)
+        if: ${{ always() }}
+        run: bun run test:hooks
+
+      # mt#2608: src/cockpit/web (33 files) is excluded from the default
+      # `bun run test` via bunfig.toml's pathIgnorePatterns and had no CI
+      # step invoking test:components. It needs its own step (not just
+      # folding into `test`) because it requires an EXTRA, separate
+      # `--preload ./tests/dom-setup.ts` (happy-dom globals for
+      # @testing-library/react) that must load before ./tests/setup.ts and
+      # is deliberately NOT part of the global bunfig.toml preload chain —
+      # see the `test:components` script (package.json) and the docblock
+      # atop tests/dom-setup.ts for why it stays isolated to this one path.
+      - name: Test (cockpit components)
+        if: ${{ always() }}
+        run: bun run test:components
+
       - name: Test (ESLint rules)
         if: ${{ always() }}
         run: bun run test:eslint-rules

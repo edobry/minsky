@@ -2,7 +2,7 @@
  * Tests for error message templates and utilities
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { setupTestMocks } from "../../../../src/utils/test-utils/mocking";
 import { mock } from "bun:test";
 import {
@@ -31,10 +31,23 @@ import { first, elementAt } from "@minsky/shared/array-safety";
 setupTestMocks();
 
 describe("Error Message Templates", () => {
+  // Real process.cwd, saved so it can be restored after every test. Bun's
+  // mock.restore() (wired via setupTestMocks()) only rewinds spies created
+  // via spyOn/mock.module — it does NOT undo a raw property reassignment
+  // like `process.cwd = mock(...)`. Without this restore, the mocked
+  // "/mock/projects/minsky" leaked into every subsequent test file in the
+  // same bun test process (discovered via mt#2608's packages/domain CI
+  // wiring: it broke session/repository-backend-config.test.ts, which calls
+  // the real process.cwd() and got the leaked fake path instead).
+  const realCwd = process.cwd;
+
   beforeEach(() => {
     // Mock process.cwd to return consistent mock directory
-
     (process as any).cwd = mock(() => "/mock/projects/minsky");
+  });
+
+  afterEach(() => {
+    (process as any).cwd = realCwd;
   });
 
   describe("getErrorMessage", () => {
