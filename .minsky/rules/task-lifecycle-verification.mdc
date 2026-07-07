@@ -16,7 +16,7 @@ The `minsky-reviewer[bot]` (`.claude/agents/reviewer.md` Mode 2, auto-firing on 
 
 Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an audit gate. It is a thin closeout wrapper for the bypass-merge path: it confirms `pr.merged === true` AND the merge-commit body contains the canonical bypass-merge audit-trail signature ("Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"), then sets DONE. If neither condition holds, it halts. The auditor subagent is no longer dispatched on the standard closeout path; it remains available for ad-hoc spec verification when explicitly requested.
 
-The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
+The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`packages/domain/src/session/session-merge-operations.ts:519-544`, line numbers approximate post-move). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
 
 Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke run by the reviewer bot does not cover this case.
 
