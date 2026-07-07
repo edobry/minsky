@@ -3,12 +3,17 @@ import {
   detectTriggerPhrases,
   detectUserCorrection,
   hasRetrospectiveSkillInvocation,
+  OVERRIDE_ENV_VAR,
+  run,
 } from "./retrospective-trigger-scanner";
 import {
   extractAssistantText,
   extractLastAssistantTurn,
   extractLastUserMessage,
 } from "./transcript";
+import type { TranscriptLine } from "./transcript";
+import type { ClaudeHookInput } from "./types";
+import type { DispatchContext } from "./registry";
 
 const WHY_DID_YOU_DO_THAT = "why did you do that?";
 
@@ -461,5 +466,91 @@ describe("R5 finding-reframing", () => {
   test("does NOT match general React discussion", () => {
     const matches = detectTriggerPhrases("this is a common anti-pattern in React codebases");
     expect(matches.some((m) => m.family === "R5")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652)
+//
+// No real fs needed: run() reads ctx.transcriptLines directly (resolved
+// once by the dispatcher's D6 shared context, mt#2637-safe) rather than
+// re-parsing a transcript_path itself — so transcriptLines is built
+// in-memory here instead of via a real file + parseTranscript.
+// ---------------------------------------------------------------------------
+
+function makeRunUserLine(text = "test user message"): TranscriptLine {
+  return { type: "user", message: { role: "user", content: text } };
+}
+
+function makeRunAssistantLine(text: string): TranscriptLine {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } };
+}
+
+const RUN_HOOK_EVENT_NAME = "UserPromptSubmit";
+
+const RUN_HOOK_INPUT: ClaudeHookInput = {
+  session_id: "test-session",
+  transcript_path: "/mock/transcript.jsonl",
+  cwd: "/test",
+  hook_event_name: RUN_HOOK_EVENT_NAME,
+};
+
+function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
+  return {
+    event: RUN_HOOK_EVENT_NAME,
+    hostCapSec: 15,
+    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+    transcriptCandidates: ["/mock/transcript.jsonl"],
+    transcriptLines,
+  };
+}
+
+describe("run() (dispatcher-compatible)", () => {
+  test("R1 trigger match -> additionalContext + calibration record", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("I owe you an apology for that mistake."),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toContain("Retrospective trigger detected");
+    expect(outcome?.calibration).toBeDefined();
+    const cal = outcome?.calibration as { matches: Array<{ family: string; phrase: string }> };
+    expect(cal.matches.some((m) => m.family === "R1")).toBe(true);
+  });
+
+  test("no match -> null (silent allow)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Nothing noteworthy here."),
+      makeRunUserLine(),
+    ];
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+  });
+
+  test("no transcript_path -> null", () => {
+    const input: ClaudeHookInput = {
+      session_id: "test",
+      cwd: "/test",
+      hook_event_name: RUN_HOOK_EVENT_NAME,
+    };
+    const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
+    expect(run(input, ctx)).toBeNull();
+  });
+
+  test("legacy override env var suppresses detection and returns an audit line", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("I owe you an apology for that mistake."),
+      makeRunUserLine(),
+    ];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      expect(outcome?.additionalContext).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });

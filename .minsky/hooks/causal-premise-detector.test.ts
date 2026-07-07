@@ -17,7 +17,11 @@ import {
   elideMarkdownContexts,
   OVERRIDE_ENV_VAR,
   INJECTION_ENABLED,
+  run,
 } from "./causal-premise-detector";
+import type { TranscriptLine } from "./transcript";
+import type { ClaudeHookInput } from "./types";
+import type { DispatchContext } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -198,5 +202,93 @@ The migration would fail since the permission flag is not set.`;
       expect(result.matched).toBe(true);
       expect(result.hadSameTurnVerification).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run() — dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652)
+//
+// No real fs needed: run() reads ctx.transcriptLines directly (resolved
+// once by the dispatcher's D6 shared context) rather than re-parsing a
+// transcript_path itself — so transcriptLines is built in-memory here.
+// ---------------------------------------------------------------------------
+
+function makeRunUserLine(text = "test user message"): TranscriptLine {
+  return { type: "user", message: { role: "user", content: text } };
+}
+
+function makeRunAssistantLine(text: string): TranscriptLine {
+  return { type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } };
+}
+
+const RUN_HOOK_EVENT_NAME = "UserPromptSubmit";
+
+const RUN_HOOK_INPUT: ClaudeHookInput = {
+  session_id: "test-session",
+  transcript_path: "/mock/transcript.jsonl",
+  cwd: "/test",
+  hook_event_name: RUN_HOOK_EVENT_NAME,
+};
+
+function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
+  return {
+    event: RUN_HOOK_EVENT_NAME,
+    hostCapSec: 15,
+    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
+    transcriptCandidates: ["/mock/transcript.jsonl"],
+    transcriptLines,
+  };
+}
+
+describe("run() (dispatcher-compatible)", () => {
+  test("unverified causal claim -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(
+        "The branch name got mangled due to the encoding configuration in the client library."
+      ),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.calibration).toBeDefined();
+    expect(outcome?.additionalContext).toBeUndefined();
+    expect(INJECTION_ENABLED).toBe(false);
+  });
+
+  test("no match -> null (silent allow)", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine("Nothing noteworthy here."),
+      makeRunUserLine(),
+    ];
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+  });
+
+  test("no transcript_path -> null", () => {
+    const input: ClaudeHookInput = {
+      session_id: "test",
+      cwd: "/test",
+      hook_event_name: RUN_HOOK_EVENT_NAME,
+    };
+    const ctx = makeCtx([makeRunUserLine(), makeRunAssistantLine("x"), makeRunUserLine()]);
+    expect(run(input, ctx)).toBeNull();
+  });
+
+  test("legacy override env var suppresses detection and returns an audit line", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(
+        "The branch name got mangled due to the encoding configuration in the client library."
+      ),
+      makeRunUserLine(),
+    ];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      expect(outcome?.calibration).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });
