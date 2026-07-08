@@ -286,3 +286,85 @@ describe("resolveIdPrefix (DB-backed)", () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Real-schema SQL rendering — verifies the query issued against the actual
+// production tables (memoriesTable, asksTable) is a `::text LIKE` comparison,
+// never a `uuid` cast, closing the gap the fake-column tests above can't
+// (their marker objects aren't real Drizzle columns, so `sql`${col}...``
+// there never exercises real column-reference rendering).
+// ---------------------------------------------------------------------------
+
+describe("resolveIdPrefix — real schema SQL rendering", () => {
+  it("renders a `::text LIKE` comparison (never a uuid cast) against memoriesTable.id", async () => {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const { memoriesTable } = await import("../storage/schemas/memory-embeddings");
+    const pgDialect = new PgDialect();
+
+    let capturedCondition: unknown;
+    const spyDb: IdPrefixResolverDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(cond: unknown) {
+                capturedCondition = cond;
+                return Promise.resolve([]);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    await resolveIdPrefix({
+      db: spyDb,
+      table: memoriesTable,
+      idColumn: memoriesTable.id,
+      labelColumn: memoriesTable.name,
+      input: "d8591800",
+      entityName: "memory",
+    });
+
+    const rendered = pgDialect.sqlToQuery(capturedCondition as import("drizzle-orm").SQL);
+    expect(rendered.sql.toLowerCase()).toContain("::text like");
+    expect(rendered.sql.toLowerCase()).not.toContain("::uuid");
+    expect(rendered.params).toEqual(["d8591800%"]);
+  });
+
+  it("renders a `::text LIKE` comparison (never a uuid cast) against asksTable.id", async () => {
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const { asksTable } = await import("../storage/schemas/ask-schema");
+    const pgDialect = new PgDialect();
+
+    let capturedCondition: unknown;
+    const spyDb: IdPrefixResolverDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(cond: unknown) {
+                capturedCondition = cond;
+                return Promise.resolve([]);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    await resolveIdPrefix({
+      db: spyDb,
+      table: asksTable,
+      idColumn: asksTable.id,
+      labelColumn: asksTable.title,
+      input: "483dbcb0",
+      entityName: "ask",
+    });
+
+    const rendered = pgDialect.sqlToQuery(capturedCondition as import("drizzle-orm").SQL);
+    expect(rendered.sql.toLowerCase()).toContain("::text like");
+    expect(rendered.sql.toLowerCase()).not.toContain("::uuid");
+    expect(rendered.params).toEqual(["483dbcb0%"]);
+  });
+});
