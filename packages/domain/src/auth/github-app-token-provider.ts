@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TokenProvider, TokenRole } from "./token-provider";
+import { createTimeoutFetch } from "../github/octokit-timeout";
 
 /** Per-App credentials used by SingleAppClient. */
 export interface AppCredentials {
@@ -27,6 +28,13 @@ export interface AppCredentials {
   privateKey?: string;
   /** Optional override for loading the private key — used in tests to avoid real file I/O. */
   privateKeyLoader?: () => string;
+  /**
+   * Test seam: override the bounded fetch used for JWT -> installation-token
+   * exchange and app-info lookups. Defaults to `createTimeoutFetch()` (mt#2677
+   * — a 30s wall-clock bound; see that module's doc comment for why an
+   * unbounded `fetch` here is a real production hang, not just theoretical).
+   */
+  fetchImpl?: typeof fetch;
 }
 
 /** Top-level constructor config for GitHubAppTokenProvider. */
@@ -40,6 +48,8 @@ export interface GitHubAppConfig {
   userToken: string;
   /** Optional override for loading the private key — used in tests to avoid real file I/O. */
   privateKeyLoader?: () => string;
+  /** Test seam: see `AppCredentials.fetchImpl`. Threaded to the implementer App's client. */
+  fetchImpl?: typeof fetch;
   /**
    * Reviewer App credentials. When present, `getToken("reviewer")` uses this
    * App's credentials instead of the implementer App.
@@ -74,6 +84,16 @@ class SingleAppClient {
   private readonly privateKeyFile: string | undefined;
   private readonly privateKey: string | undefined;
   private readonly privateKeyLoaderFn: () => string;
+  /**
+   * Bounded fetch (mt#2677): every network call this client makes (JWT ->
+   * installation-token exchange, app-info lookup) goes through this instead
+   * of the raw global `fetch`, so a stalled GitHub call rejects after
+   * `GITHUB_REQUEST_TIMEOUT_MS` instead of hanging forever. This is the same
+   * `createTimeoutFetch()` wrapper `createOctokit()` already applies to every
+   * Octokit-issued request (mt#2245/mt#2270) — this class was the one caller
+   * still making raw unbounded `fetch` calls.
+   */
+  private readonly boundedFetch: typeof fetch;
 
   private cachedToken: CachedInstallationToken | null = null;
   private privateKeyCache: string | null = null;
@@ -84,6 +104,7 @@ class SingleAppClient {
     this.privateKeyFile = creds.privateKeyFile;
     this.privateKey = creds.privateKey;
     this.privateKeyLoaderFn = creds.privateKeyLoader ?? (() => this.resolvePrivateKey());
+    this.boundedFetch = creds.fetchImpl ?? createTimeoutFetch();
   }
 
   async getToken(repo?: string): Promise<string> {
@@ -182,7 +203,7 @@ class SingleAppClient {
 
   async getAppInfo(): Promise<GitHubAppInfo> {
     const jwt = this.generateJwt();
-    const response = await fetch(`${GITHUB_API_BASE}/app`, {
+    const response = await this.boundedFetch(`${GITHUB_API_BASE}/app`, {
       headers: {
         Authorization: `Bearer ${jwt}`,
         Accept: "application/vnd.github+json",
@@ -211,7 +232,7 @@ class SingleAppClient {
       body.repositories = [repoName];
     }
 
-    const response = await fetch(
+    const response = await this.boundedFetch(
       `${GITHUB_API_BASE}/app/installations/${this.installationId}/access_tokens`,
       {
         method: "POST",
@@ -283,6 +304,7 @@ export class GitHubAppTokenProvider implements TokenProvider {
       privateKeyFile: config.privateKeyFile,
       privateKey: config.privateKey,
       privateKeyLoader: config.privateKeyLoader,
+      fetchImpl: config.fetchImpl,
     });
 
     this.reviewerClient = config.reviewerConfig ? new SingleAppClient(config.reviewerConfig) : null;
