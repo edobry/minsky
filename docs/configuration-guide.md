@@ -168,14 +168,24 @@ reviewer:
   url: "https://minsky-reviewer-webhook-production.up.railway.app"
 ```
 
-- `mcp.auth.token` — required to run `reviewer.retrigger`. When absent the command errors.
-  Environment override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
+- `mcp.auth.token` — required for `reviewer.retrigger`'s direct endpoint path. Environment
+  override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
 - `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment
   override: `MINSKY_REVIEWER_URL` → `reviewer.url`.
-- **`minsky config doctor` surfaces a warning when `mcp.auth.token` is absent** (mt#2660,
-  "Reviewer Retrigger Reachability" check) — catch this before you need the tool mid-incident,
-  rather than discovering it when `reviewer.retrigger` errors during a live recovery. Set
-  `mcp.auth.token` locally to clear the warning and make the tool usable.
+- **`minsky config doctor` surfaces a warning when `mcp.auth.token` is absent, and
+  `minsky config doctor --fix` provisions it automatically** (mt#2660 detection; mt#2679
+  turnkey fix). The fix reads `MINSKY_MCP_AUTH_TOKEN` from
+  `~/.config/minsky/railway-secrets.json` (the deploy synthesizer's secret store, which
+  already holds it on any machine set up for deploys) and writes `mcp.auth.token` through the
+  standard config writer — no hand-editing, and the secret value is never printed. Long-lived
+  processes cache config at boot (mt#1427), so reconnect the MCP server (`/mcp`) after fixing.
+- **GitHub-auth fallback (mt#2679):** when `mcp.auth.token` is absent but `github.token` is
+  configured, `reviewer.retrigger` does not error — it posts a `/review` comment on the PR via
+  the GitHub credential (the reviewer service treats a first-line `/review` comment from an
+  OWNER/MEMBER/COLLABORATOR author as a retrigger command, mt#2127). The result names the path
+  used (`direct` vs `review-comment`); the fallback is asynchronous and applies to open PRs
+  only. Only when BOTH credentials are absent does the command error, naming both remediation
+  paths.
 - `reviewer.webhookSecret` (`MINSKY_REVIEWER_WEBHOOK_SECRET`) — **deprecated for retrigger
   (mt#2346)**; no longer read by the command. The config key + env mapping are retained only
   so a lingering value still parses safely at boot. The reviewer service reads its webhook

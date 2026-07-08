@@ -12,7 +12,7 @@ import { CommonParameters, ConfigParameters, composeParams } from "../../common-
 /**
  * A single config.doctor diagnostic entry.
  */
-interface DoctorDiagnostic {
+export interface DoctorDiagnostic {
   check: string;
   status: "pass" | "warning" | "error";
   message: string;
@@ -139,6 +139,13 @@ export const configDoctorRegistration = defineCommand({
       required: false as const,
       defaultValue: false,
     },
+    fix: {
+      schema: z.boolean(),
+      description:
+        "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)",
+      required: false as const,
+      defaultValue: false,
+    },
   }),
   execute: async (params, ctx) => {
     // Perform lightweight diagnostics without external calls
@@ -195,11 +202,29 @@ export const configDoctorRegistration = defineCommand({
       });
     }
 
-    // Reviewer retrigger reachability (mt#2660).
+    // Reviewer retrigger reachability (mt#2660) + turnkey auto-fix (mt#2679).
     try {
       const provider = getConfigurationProvider();
       const config = provider.getConfig();
-      diagnostics.push(checkReviewerRetriggerReachability(config.mcp?.auth?.token));
+      const reachability = checkReviewerRetriggerReachability(config.mcp?.auth?.token);
+      diagnostics.push(reachability);
+
+      // --fix: provision mcp.auth.token from the local railway-secrets store
+      // instead of telling the operator to edit config by hand (the deferral
+      // that kept mt#2679's four incidents recurring). The fix never prints
+      // the secret value.
+      if (params.fix && reachability.status === "warning") {
+        const { fixMcpAuthTokenFromSecretsFile } = await import("./doctor-fixes");
+        const { createConfigWriter } = await import("@minsky/domain/configuration/config-writer");
+        const { readFileSync } = await import("fs");
+        diagnostics.push(
+          await fixMcpAuthTokenFromSecretsFile({
+            configDir: getUserConfigDir(),
+            readFile: (p: string): string => readFileSync(p, { encoding: "utf-8" }).toString(),
+            writer: createConfigWriter({ createBackup: true, format: "yaml", validate: true }),
+          })
+        );
+      }
     } catch (e) {
       diagnostics.push({
         check: "Reviewer Retrigger Reachability",
