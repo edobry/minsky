@@ -9,7 +9,7 @@
 
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
-import { buildReviewThreadsSection } from "./prompt";
+import { buildReviewThreadsSection, buildMigrationBaselineSection } from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
@@ -261,6 +261,16 @@ export function buildChunkedReviewPrompt(
     ? `## Task Specification\n\n${baseInput.taskSpec}`
     : `## Task Specification\n\n(No task spec found.)`;
 
+  // Migration/move baseline-awareness pre-check (mt#2655). Chunked reviews
+  // are exactly where the originating incident (mt#2304's #1812) occurred —
+  // each chunk only sees its own files' deletion/addition hunks, so every
+  // chunk needs this instruction independently, not just the single-pass path.
+  const migrationBaselineSection = buildMigrationBaselineSection(
+    baseInput.prBody,
+    baseInput.taskSpec
+  );
+  const migrationBaselineBlock = migrationBaselineSection ? `\n\n${migrationBaselineSection}` : "";
+
   const priorReviewsSection =
     baseInput.priorReviews && baseInput.priorReviews.trim() ? `\n\n${baseInput.priorReviews}` : "";
 
@@ -289,7 +299,7 @@ ${fileList}
 
 ${baseInput.prBody || "(empty)"}
 
-${specSection}${priorReviewsSection}${reviewThreadsSection}
+${specSection}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})
 

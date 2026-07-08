@@ -19,6 +19,7 @@ import {
   shouldChunkReview,
   chunkFiles,
   buildChunkDiff,
+  buildChunkedReviewPrompt,
   CHARS_PER_TOKEN,
   MAX_CHUNK_DIFF_TOKENS,
   MAX_FILE_PATCH_TOKENS,
@@ -27,6 +28,7 @@ import {
   type ChunkInfo,
 } from "./chunked-review";
 import type { PrFileEntry } from "./github-client";
+import type { ReviewPromptInput } from "./prompt";
 
 function makeFile(filename: string, patchChars: number, status = "modified"): PrFileEntry {
   return {
@@ -256,5 +258,67 @@ describe("regression — PR #1478-shaped diff yields only under-limit chunks", (
     // And the whole thing is covered — every file appears in exactly one chunk.
     const totalFilesInChunks = chunks.reduce((sum, c) => sum + c.files.length, 0);
     expect(totalFilesInChunks).toBe(files.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildChunkedReviewPrompt — migration baseline awareness wiring (mt#2655 SC2)
+//
+// Originating incident: the mt#2304 migration PR (#1812) WAS a chunked
+// review — each chunk only sees its own files' patches, so the migration-
+// baseline instruction has to be injected into every chunk's prompt
+// independently (mirroring how buildReviewPrompt injects it for the
+// single-pass path), not just the aggregate PR-level prompt.
+// ---------------------------------------------------------------------------
+describe("buildChunkedReviewPrompt — migration baseline section (mt#2655)", () => {
+  const MIGRATION_BASELINE_HEADING = "## Migration / move PR — baseline awareness";
+
+  const baseInput: Omit<ReviewPromptInput, "diff"> = {
+    prNumber: 1812,
+    prTitle: "Migrate reviewer prompts to new module layout",
+    prBody: "",
+    taskSpec: null,
+    authorshipTier: 3,
+    branchName: "task/mt-2304",
+    baseBranch: "main",
+  };
+
+  const chunk: ChunkInfo = {
+    index: 0,
+    totalChunks: 2,
+    files: [makeFile("services/reviewer/src/prompt.ts", 500)],
+  };
+
+  test("injects the migration baseline section into the chunk prompt when the PR body declares a byte-equivalence move", () => {
+    const prompt = buildChunkedReviewPrompt(
+      { ...baseInput, prBody: "This module was moved verbatim into its new home." },
+      chunk,
+      "some chunk diff"
+    );
+    expect(prompt).toContain(MIGRATION_BASELINE_HEADING);
+    expect(prompt).toContain("[PRE-EXISTING]");
+  });
+
+  test("omits the section when no byte-equivalence claim is present", () => {
+    const prompt = buildChunkedReviewPrompt(
+      { ...baseInput, prBody: "This PR adds a new feature." },
+      chunk,
+      "some chunk diff"
+    );
+    expect(prompt).not.toContain(MIGRATION_BASELINE_HEADING);
+  });
+
+  test("section appears between Task Specification and the chunk Diff heading", () => {
+    const prompt = buildChunkedReviewPrompt(
+      { ...baseInput, prBody: "Content moved verbatim.", taskSpec: "Spec content." },
+      chunk,
+      "some chunk diff"
+    );
+    const specIdx = prompt.indexOf("## Task Specification");
+    const migrationIdx = prompt.indexOf(MIGRATION_BASELINE_HEADING);
+    const diffIdx = prompt.indexOf(`## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})`);
+    expect(specIdx).toBeGreaterThan(-1);
+    expect(migrationIdx).toBeGreaterThan(specIdx);
+    expect(diffIdx).toBeGreaterThan(migrationIdx);
   });
 });

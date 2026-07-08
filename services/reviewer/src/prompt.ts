@@ -171,7 +171,9 @@ const CRITIC_CONSTITUTION_PRINCIPLES = `## Principles
 
 11. **Coverage completeness mandate.** You must review 100% of the diff before concluding. Sampling is not reviewing. If the diff is large, use \`read_file\`/\`list_directory\` aggressively to verify cross-file claims.
 
-12. **Spec section-precedence hierarchy.** Task specs have a normative layer and an informational layer. **Success Criteria** and **Acceptance Tests** are normative — they define what the PR must deliver to pass review. **Context**, **Summary**, and **Scope** sections are informational — they provide background, planning notes, and reference material that may have been written before the normative sections were finalized. When an informational section conflicts with a normative section (e.g., Context says "MCP tools to wire: X" but the Success Criterion says "calls the domain layer directly"), the normative section wins. Do NOT cite informational-section references as evidence that a spec criterion is unmet when the criterion itself says otherwise. Planning artifacts in Context (tool lists, scratch notes, early design sketches) are superseded by the final Success Criteria.`;
+12. **Spec section-precedence hierarchy.** Task specs have a normative layer and an informational layer. **Success Criteria** and **Acceptance Tests** are normative — they define what the PR must deliver to pass review. **Context**, **Summary**, and **Scope** sections are informational — they provide background, planning notes, and reference material that may have been written before the normative sections were finalized. When an informational section conflicts with a normative section (e.g., Context says "MCP tools to wire: X" but the Success Criterion says "calls the domain layer directly"), the normative section wins. Do NOT cite informational-section references as evidence that a spec criterion is unmet when the criterion itself says otherwise. Planning artifacts in Context (tool lists, scratch notes, early design sketches) are superseded by the final Success Criteria.
+
+13. **Verify before you block; "could not verify" is a question, never a block.** A BLOCKING finding about (a) a function/API signature or contract, or (b) a file's current content, requires direct evidence: the content is in the diff you were given, or you called \`read_file\`/\`list_directory\` (when tools are available) and got a definitive result THIS round. If your attempt to verify was inconclusive — the tool errored, the content wasn't where you expected, or you are re-asserting a citation from a prior review round without re-checking it against the CURRENT diff and codebase — you have NOT verified the claim. Write "I could not verify X" as a NON-BLOCKING \`NEEDS VERIFICATION\` finding phrased as a question, never as the basis for a BLOCKING finding or a REQUEST_CHANGES verdict. A citation that no longer resolves against the current PR content (a stale chunk, a stale prior-round reference) is itself evidence the citation is unreliable — flag it as a question, don't re-assert it as fact.`;
 
 /**
  * Returns the variant-appropriate carve-out paragraph for in-repo paths within
@@ -211,6 +213,7 @@ function buildCriticConstitutionFailureModes(toolsAvailable: boolean): string {
 - **Regression risk on paths the PR didn't touch.** Does the change affect a code path the implementer didn't consider?
 - **Live-target verification gap.** When the diff modifies a verify/probe/smoke/health-check script that references an external system, the PR body must include redacted live-run output under a \`## Test plan\` or \`## Live verification\` section. If absent, raise a BLOCKING finding requesting live-run evidence.
 - **Behavioral residue in removal PRs.** When deletions significantly outnumber additions OR the PR removes a feature/module/backend, search beyond symbol-level imports for residual references: hardcoded paths/filenames, concept-name strings in comments/descriptions, interface fields that only make sense with the removed feature, inline code blocks in shared services manipulating removed data formats. Any hits are BLOCKING findings indicating incomplete removal.
+- **Pre-existing content resurfaced by a verbatim move/migration.** When the PR declares a byte-equivalence move/migration (see the "Migration / move PR — baseline awareness" section, when present), compare the diff's deletion hunk (old location) against the addition hunk (new location) for the same content before raising a finding on it. If the content is unchanged — only its location moved — the finding is \`[PRE-EXISTING]\`, not \`[BLOCKING]\`: label it PRE-EXISTING, keep it non-blocking, and suggest a follow-up task. Only escalate to \`[BLOCKING]\` when the diff shows the move ALSO modified the content in a way that introduces or worsens the issue.
 
 ## JSONC-family files are not strict JSON
 
@@ -264,7 +267,9 @@ Both tools return their result as a JSON envelope. Parse the JSON before acting 
 
 **Before making any claim about a file or directory that is not directly in the diff, USE THE TOOLS to verify it.** If you assert that a file exists, call \`read_file\` first. If you assert that a directory has (or lacks) certain files, call \`list_directory\` first.
 
-Claims made without tool verification must be marked **non-blocking** with a \`NEEDS VERIFICATION\` prefix (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Verified claims may be marked as blocking if the evidence supports it. Hallucinating a file's content or a function's signature and marking it blocking is a failure mode — prefer tool use over confident speculation.`;
+Claims made without tool verification must be marked **non-blocking** with a \`NEEDS VERIFICATION\` prefix (e.g., \`[NON-BLOCKING] NEEDS VERIFICATION: the imports in src/foo.ts may conflict with…\`). Verified claims may be marked as blocking if the evidence supports it. Hallucinating a file's content or a function's signature and marking it blocking is a failure mode — prefer tool use over confident speculation.
+
+**A tool call you attempted but that came back inconclusive is not verification either.** If you called \`read_file\` and the result was truncated, errored, or simply didn't contain what you expected, you still have not verified the claim — "I could not verify X" downgrades the finding to NON-BLOCKING with a \`NEEDS VERIFICATION\` prefix; it does not license a BLOCKING finding (see Principle 13).`;
 
 const NO_TOOLS_SECTION = `## Cross-file claims without tool access
 
@@ -444,6 +449,110 @@ The pre-check scanner found ${lines.length} distinct path reference(s) outside t
 ${lines.join("\n")}`;
 }
 
+/**
+ * Structural pre-check for migration/move PR baseline awareness (mt#2655).
+ *
+ * Originating incident: the mt#2304 migration PR (#1812) moved content
+ * verbatim between locations. R1+R2 raised 6 findings, ALL of which were
+ * later verified pre-existing on main (the content itself was unchanged —
+ * only its location moved). The reviewer had no baseline notion on
+ * move/migration PRs, so it treated pre-existing issues in moved content as
+ * newly-introduced BLOCKING findings.
+ *
+ * This pre-check scans the PR body and task spec for phrases declaring a
+ * byte-equivalence move/migration (e.g. "moved verbatim", "byte-identical")
+ * and, when found, injects an explicit instruction: compare the diff's
+ * deletion hunk (old location) against its addition hunk (new location) —
+ * both already present in the diff the reviewer was given, no base-branch
+ * fetch required — before raising a BLOCKING finding on migrated content.
+ * Unchanged content is [PRE-EXISTING], not [BLOCKING]. Mirrors
+ * `buildOutOfRepoSection`'s structure: defense-in-depth against prompt-
+ * phrasing drift eroding the rule stated in the failure-modes list.
+ */
+type MigrationBaselineKind =
+  | "moved_verbatim"
+  | "byte_identical"
+  | "byte_for_byte"
+  | "byte_equivalent"
+  | "moved_without_modification"
+  | "moved_as_is"
+  | "no_content_change"
+  | "content_unchanged"
+  | "verbatim_move_or_migration";
+
+export interface MigrationBaselineClaim {
+  readonly phrase: string;
+  readonly kind: MigrationBaselineKind;
+  readonly source: "PR description" | "task spec";
+}
+
+const MIGRATION_BASELINE_PATTERNS: ReadonlyArray<{
+  readonly kind: MigrationBaselineKind;
+  readonly regex: RegExp;
+}> = [
+  { kind: "moved_verbatim", regex: /moved\s+verbatim/gi },
+  { kind: "byte_identical", regex: /byte[- ]identical/gi },
+  { kind: "byte_for_byte", regex: /byte[- ]for[- ]byte/gi },
+  { kind: "byte_equivalent", regex: /byte[- ]equivalent/gi },
+  {
+    kind: "moved_without_modification",
+    regex: /mov(?:ed|ing)\s+without\s+(?:modification|change|changes|content\s+change)/gi,
+  },
+  { kind: "moved_as_is", regex: /moved\s+as[- ]is/gi },
+  { kind: "no_content_change", regex: /no\s+content\s+change/gi },
+  { kind: "content_unchanged", regex: /content\s+(?:is\s+)?unchanged/gi },
+  {
+    kind: "verbatim_move_or_migration",
+    regex: /verbatim\s+(?:move|migration|copy)/gi,
+  },
+];
+
+export function extractMigrationBaselineClaims(
+  text: string,
+  source: "PR description" | "task spec"
+): MigrationBaselineClaim[] {
+  if (!text) return [];
+  const seen = new Map<string, MigrationBaselineClaim>();
+  for (const { kind, regex } of MIGRATION_BASELINE_PATTERNS) {
+    for (const match of text.matchAll(regex)) {
+      const phrase = match[0];
+      const key = `${kind}:${phrase.toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.set(key, { phrase, kind, source });
+      }
+    }
+  }
+  return Array.from(seen.values());
+}
+
+export function buildMigrationBaselineSection(
+  prBody: string,
+  taskSpec: string | null
+): string | null {
+  const claims = [
+    ...extractMigrationBaselineClaims(prBody, "PR description"),
+    ...extractMigrationBaselineClaims(taskSpec ?? "", "task spec"),
+  ];
+  if (claims.length === 0) return null;
+
+  const lines = claims.map((c) => `- "${c.phrase}" (${c.source})`);
+
+  return `## Migration / move PR — baseline awareness
+
+This PR's description or task spec declares a verbatim move/migration (a byte-equivalence claim: content moved without modification). Detected phrase(s):
+
+${lines.join("\n")}
+
+Before raising a BLOCKING finding on migrated/moved content:
+
+1. Locate the content's OLD location in the diff (a deletion hunk) and its NEW location (an addition hunk). Both are already in the diff you were given — no base-branch fetch is needed.
+2. Compare the deleted and added content. If they match, the content is unchanged by this PR — any issue in it predates the move.
+3. Label such findings \`[PRE-EXISTING]\`, mark them non-blocking, and suggest a follow-up task rather than blocking this PR on them.
+4. Only escalate to \`[BLOCKING]\` when the diff shows the move ALSO introduced or worsened the issue — the added content differs from the deleted content in a way that matters.
+
+This does not apply to genuinely new content added alongside the move; normal review rigor applies there.`;
+}
+
 export interface ReviewPromptInput {
   prNumber: number;
   prTitle: string;
@@ -481,6 +590,9 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
   const outOfRepoSection = buildOutOfRepoSection(input.prBody, input.taskSpec);
   const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
 
+  const migrationBaselineSection = buildMigrationBaselineSection(input.prBody, input.taskSpec);
+  const migrationBaselineBlock = migrationBaselineSection ? `\n\n${migrationBaselineSection}` : "";
+
   const priorReviewsSection =
     input.priorReviews && input.priorReviews.trim() ? `\n\n${input.priorReviews}` : "";
 
@@ -502,7 +614,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${input.prBody || "(empty)"}
 
-${specSection}${outOfRepoBlock}${priorReviewsSection}${reviewThreadsSection}
+${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff
 
