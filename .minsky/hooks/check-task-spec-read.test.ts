@@ -127,11 +127,54 @@ describe("resolveTargetTaskId", () => {
       "mt2515"
     );
   });
+});
 
-  test("tasks_dispatch new-task mode (title, no taskId) is not guarded", () => {
+/**
+ * New-task-mode pass-through (PR #1837 review 4651474893, finding #2): broadening the
+ * PreToolUse matcher to ALL `tasks_dispatch` calls could in principle increase denial risk for
+ * new-task-mode dispatches (which have no pre-existing spec to have read). The fix is that
+ * `resolveTargetTaskId` returns "" for every new-task-mode shape, and the hook's entrypoint
+ * treats an empty target id as an unconditional, unscanned ALLOW:
+ *
+ *   const targetId = resolveTargetTaskId(toolName, toolInput);
+ *   if (!targetId) process.exit(0); // not guarded / non-READY transition / no resolvable id
+ *
+ * — i.e. new-task-mode dispatches exit 0 (allow) BEFORE any transcript read happens, so there is
+ * no denial risk to eliminate: the guard never even attempts to resolve a transcript for them.
+ * These tests lock in every new-task-mode input shape that must resolve to "".
+ */
+describe("tasks_dispatch new-task-mode pass-through (mt#2657 / PR #1837 review finding #2)", () => {
+  test("title only, no taskId at all -> not guarded", () => {
     expect(
       resolveTargetTaskId(DISPATCH_TOOL, { title: "New subtask", instructions: "do it" })
     ).toBe("");
+  });
+
+  test("title + explicit empty-string taskId -> not guarded (falsy, not a real id)", () => {
+    expect(
+      resolveTargetTaskId(DISPATCH_TOOL, {
+        title: "New subtask",
+        taskId: "",
+        instructions: "do it",
+      })
+    ).toBe("");
+  });
+
+  test("title + parentTaskId (root/subtask creation), no taskId -> not guarded", () => {
+    expect(
+      resolveTargetTaskId(DISPATCH_TOOL, {
+        title: "New subtask",
+        parentTaskId: "mt#1",
+        instructions: "do it",
+      })
+    ).toBe("");
+  });
+
+  test("neither title nor taskId (malformed call the command layer will reject) -> still not guarded", () => {
+    // The guard's job is spec-read detection, not param-shape validation — a malformed call
+    // with no taskId is not this guard's concern (tasks.dispatch's own validateDispatchMode
+    // rejects it at the command layer). Confirms the guard never denies on absence alone.
+    expect(resolveTargetTaskId(DISPATCH_TOOL, { instructions: "do it" })).toBe("");
   });
 });
 

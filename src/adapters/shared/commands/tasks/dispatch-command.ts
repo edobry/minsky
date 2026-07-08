@@ -48,8 +48,10 @@ const tasksDispatchParams = {
       "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's " +
       "current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and " +
       "generates the prompt. Mutually exclusive with `title` (exactly one of the two is " +
-      "required) and with `parentTaskId` (rejected — existing tasks don't get a new parent " +
-      "edge here). `description` is ignored in this mode (the task's spec already exists).",
+      "required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks " +
+      "don't get a new parent edge here), and with `description` (rejected — existing-task " +
+      "mode targets a task whose spec already exists; passing `description` here would be " +
+      "silently ignored, so it's rejected instead).",
     required: false,
   },
   instructions: {
@@ -78,7 +80,9 @@ const tasksDispatchParams = {
   },
   description: {
     schema: z.string().optional(),
-    description: "Task description/spec content",
+    description:
+      "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — " +
+      "rejected when passed together with `taskId` (existing-task mode).",
     required: false,
   },
   premiseClaim: {
@@ -121,7 +125,8 @@ interface DispatchParams {
 
 /**
  * Validate the mode-selection params (mt#2657): exactly one of `taskId`/`title` must be
- * supplied, and `parentTaskId` only applies to new-task (`title`) mode.
+ * supplied (XOR — not "at least one"), and `parentTaskId`/`description` only apply to
+ * new-task (`title`) mode.
  *
  * Declared at module scope (not inline in `execute()`) so its `throw new ValidationError`
  * statements live outside the AST `execute()` closure — per ADR-004 / the
@@ -136,11 +141,25 @@ function validateDispatchMode(p: DispatchParams): void {
         "(create a new task)."
     );
   }
+  if (p.taskId && p.title) {
+    throw new ValidationError(
+      "`taskId` and `title` are mutually exclusive; pass exactly one. `taskId` dispatches an " +
+        "EXISTING task; `title` creates a NEW one — supplying both is an ambiguous call shape."
+    );
+  }
   if (p.taskId && p.parentTaskId) {
     throw new ValidationError(
       "`parentTaskId` only applies to new-task creation (`title` mode); existing-task " +
         "dispatch (`taskId`) does not set parent edges. Use tasks_deps_add / " +
         "tasks_graph tooling to manage parent edges for existing tasks."
+    );
+  }
+  if (p.taskId && p.description) {
+    throw new ValidationError(
+      "`description` only applies to new-task creation (`title` mode) as the new task's spec " +
+        "content; existing-task dispatch (`taskId`) targets a task whose spec already exists. " +
+        "Passing `description` alongside `taskId` would be silently ignored, which risks " +
+        "operator confusion — omit `description` when dispatching an existing task."
     );
   }
 }

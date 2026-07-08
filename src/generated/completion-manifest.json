@@ -1691,7 +1691,7 @@
             },
             {
               "flags": ["--task-id"],
-              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required) and with `parentTaskId` (rejected — existing tasks don't get a new parent edge here). `description` is ignored in this mode (the task's spec already exists).",
+              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks don't get a new parent edge here), and with `description` (rejected — existing-task mode targets a task whose spec already exists; passing `description` here would be silently ignored, so it's rejected instead).",
               "takesValue": true
             },
             {
@@ -1712,7 +1712,7 @@
             },
             {
               "flags": ["--description"],
-              "description": "Task description/spec content",
+              "description": "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — rejected when passed together with `taskId` (existing-task mode).",
               "takesValue": true
             },
             {
