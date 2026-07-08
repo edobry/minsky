@@ -19,6 +19,7 @@ import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { McpServerStatus } from "./widgets/McpServerStatus";
+import { ReviewerBotStatus } from "./widgets/ReviewerBotStatus";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 const AgentsPage = lazy(() =>
@@ -134,6 +135,7 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>>
   credentials: CredentialsSummary,
   "embeddings-health": EmbeddingsHealth,
   "mcp-server-status": McpServerStatus,
+  "reviewer-bot-status": ReviewerBotStatus,
 };
 
 // Prop-driven widgets: receive data from App-level polling.
