@@ -4,6 +4,10 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
+**Dispatcher status:** migrated onto the ADR-028 guard-dispatcher framework (Phase 2b, mt#2687) —
+runs in-process via `dispatch-userpromptsubmit.ts`'s `GUARD_REGISTRY` entry
+`skill-staleness-detector`; see `guard-dispatcher-framework.md`.
+
 A `UserPromptSubmit` hook that, on each agent turn, compares mtimes of files under
 `.claude/skills/**`, `.claude/agents/**`, and `.minsky/rules/**` against a session-start
 baseline, and injects an `additionalContext` warning when files have changed since the

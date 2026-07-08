@@ -4,6 +4,10 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
+**Dispatcher status:** migrated onto the ADR-028 guard-dispatcher framework (Phase 2b, mt#2687) —
+runs in-process via `dispatch-userpromptsubmit.ts`'s `GUARD_REGISTRY` entry
+`inject-dispatch-watchdog`; see `guard-dispatcher-framework.md`.
+
 A `UserPromptSubmit` hook (`.claude/hooks/inject-dispatch-watchdog.ts`) that injects a warning
 when a subagent dispatch has gone silent (mt#2646). Fourth instance of the structural-injection
 pattern after `inject-current-time` (mt#2181), `inject-git-state` (mt#2275), and

@@ -4,6 +4,10 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
+**Dispatcher status:** migrated onto the ADR-028 guard-dispatcher framework (Phase 2b, mt#2687) —
+runs in-process via `dispatch-userpromptsubmit.ts`'s `GUARD_REGISTRY` entry `inject-current-time`;
+see `guard-dispatcher-framework.md`.
+
 A `UserPromptSubmit` hook (`.claude/hooks/inject-current-time.ts`) that
 injects the current date, day of week, and UTC timestamp into every turn's
 `additionalContext` (mt#2181). This is the structural fix for the
