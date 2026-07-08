@@ -112,6 +112,44 @@ and must not be hardcoded into widget vocabularies.
 | `memories-detail`                                                                              | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                |
 | `slow-topology`                                                                                | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602) |
 
+### Reviewer Bot Status widget
+
+Widget ID: `reviewer-bot-status` (mt#2076). Backend: `src/cockpit/widgets/reviewer-bot-status.ts`. Frontend: `src/cockpit/web/widgets/ReviewerBotStatus.tsx`.
+
+**What it surfaces (14 fields):**
+
+| Field                 | Source                                  | Description                                                                                               |
+| --------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Health check          | `/health` HTTP probe                    | HTTP status code (200 OK or error); shows how long ago the probe ran so a stale result is visible         |
+| In-flight reviews     | `/health` JSON body                     | Real-time count of reviews the service currently has in progress                                          |
+| Provider              | `/health` JSON body                     | LLM provider (e.g. `anthropic`)                                                                           |
+| Model                 | `/health` JSON body                     | LLM model name (e.g. `claude-sonnet-4-6`)                                                                 |
+| Tier 2 enabled        | `/health` JSON body                     | Whether the tier-2 review path is active                                                                  |
+| Reviews (24h)         | `reviewer_webhook_events`               | Count of `review_submitted` outcome events in the last 24 h (throughput)                                  |
+| Failures (24h)        | `reviewer_webhook_events`               | Count of `failed_at_*` outcome events in the last 24 h; hover to see last error                           |
+| Recent tasks          | `reviewer_convergence_metrics.head_ref` | mt# task IDs from the last `N` reviewed PRs (derived from branch name; empty/null head_refs are excluded) |
+| Avg latency (24h)     | `review_timing.total_wall_clock_ms`     | Mean wall-clock time per review over the last 24 h                                                        |
+| P95 latency (24h)     | `review_timing.total_wall_clock_ms`     | 95th-percentile wall-clock time over the last 24 h                                                        |
+| Stale in-flight       | `reviewer_inflight_reviews.acquired_at` | Reviews acquired more than 10 min ago (indicates a stuck worker)                                          |
+| Failure rate (24h)    | Computed                                | `failureCount / (reviewCount + failureCount)` over the last 24 h                                          |
+| Rate-limit hits (24h) | `review_timing.retry_outcomes`          | Count of `rate_limited` entries across all retry outcome arrays in the last 24 h                          |
+| Last webhook          | `reviewer_webhook_events.received_at`   | Relative time of the most recently received webhook event                                                 |
+
+**Anomaly semantics (A1–A4):**
+
+| Code                     | Trigger                                                     | Severity |
+| ------------------------ | ----------------------------------------------------------- | -------- |
+| A1 — Service unreachable | `/health` probe returned non-200 or timed out (5 s timeout) | Error    |
+| A2 — Stale in-flight     | >= 1 review acquired more than 10 min ago                   | Warning  |
+| A3 — Failure-rate spike  | > 50% failure rate AND sample >= 5 events in the last 24 h  | Error    |
+| A4 — Latency regression  | P95 latency > 120 s in the last 24 h                        | Warning  |
+
+**DB access:** reads four reviewer tables directly via the shared Postgres connection (`getSharedPersistenceService`). The widget degrades gracefully — DB fields become `null` when the DB is unreachable (A1–A4 continue to be computable from the `/health` probe alone). Individual SQL query failures degrade only the affected field(s); the `db` object is still non-null when only some queries fail (e.g. `PERCENTILE_CONT` unsupported on a PG variant causes `avgLatencyMs`/`p95LatencyMs` to be null while all other fields remain populated).
+
+**Health endpoint override:** set `MINSKY_REVIEWER_HEALTH_URL` to point at a different host. Default: `https://minsky-reviewer-webhook-production.up.railway.app/health` (the Railway public domain for the `minsky-reviewer-webhook` service).
+
+**Polling interval:** 30 s (backend) / 30 s (frontend TanStack Query `refetchInterval`).
+
 ## Ask advancement sweep (mt#2265)
 
 The cockpit daemon runs the **ask advancement sweep**: one pass at boot, then
