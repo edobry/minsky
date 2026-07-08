@@ -17,6 +17,7 @@ import {
 import { log } from "@minsky/shared/logger";
 import type { CheckRunResult, ChecksResult, RepositoryBackend } from "../../repository/index";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
+import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
 
 // ── Trimmed checks payload (mt#2656) ────────────────────────────────────
 
@@ -150,7 +151,26 @@ export async function sessionPrChecks(
 
     // Wait mode: poll until all checks complete or timeout
     const deadline = now() + timeoutMs;
-    let result = await fetchChecks();
+
+    // mt#2677: bound every fetchChecks() call to the wait's own overall
+    // deadline (mirrors the same fix in pr-wait-for-review-subcommand.ts's
+    // poll loop) — a stalled backend.ci.getChecksForPR() call with no
+    // timeout of its own must not hang the wait past checksTimeoutSeconds.
+    // A DeadlineExceededError here is treated as "checks still pending" so
+    // the surrounding logic falls through to the same timedOut:true result
+    // the normal deadline-elapsed path returns.
+    let result: ChecksResult;
+    try {
+      result = await withDeadline(fetchChecks(), Math.max(0, deadline - now()));
+    } catch (ioError) {
+      if (!(ioError instanceof DeadlineExceededError)) throw ioError;
+      return {
+        allPassed: false,
+        summary: { total: 0, passed: 0, failed: 0, pending: 0 },
+        checks: [],
+        timedOut: true,
+      };
+    }
 
     while (!result.allPassed && result.summary.pending > 0 && now() < deadline) {
       const remaining = deadline - now();
@@ -163,7 +183,13 @@ export async function sessionPrChecks(
       );
 
       await sleep(sleepMs);
-      result = await fetchChecks();
+
+      try {
+        result = await withDeadline(fetchChecks(), Math.max(0, deadline - now()));
+      } catch (ioError) {
+        if (!(ioError instanceof DeadlineExceededError)) throw ioError;
+        break;
+      }
     }
 
     if (!result.allPassed && result.summary.pending > 0) {
