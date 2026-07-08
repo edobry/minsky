@@ -20,6 +20,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   getServerSseBrokerForWidget,
+  runSseBrokerWarmup,
   __resetServerSseBrokerForTests,
   __setSseBrokerProviderFactoryForTests,
 } from "./events";
@@ -87,5 +88,62 @@ describe("SSE broker init (mt#2699 post-bind warmup contract)", () => {
     expect(first).not.toBeNull();
     expect(second).toBe(first);
     expect(providerCalls).toBe(1);
+  });
+});
+
+describe("runSseBrokerWarmup — PR #1860 R1 (logged, bounded retry)", () => {
+  beforeEach(() => {
+    __resetServerSseBrokerForTests();
+  });
+
+  afterEach(() => {
+    __setSseBrokerProviderFactoryForTests(null);
+    __resetServerSseBrokerForTests();
+  });
+
+  test("retries failed init on the schedule and reports success", async () => {
+    let providerCalls = 0;
+    __setSseBrokerProviderFactoryForTests(async () => {
+      providerCalls++;
+      if (providerCalls < 3) throw new Error("simulated connect failure");
+      return {};
+    });
+
+    const ok = await runSseBrokerWarmup([0, 0, 0, 0]);
+
+    expect(ok).toBe(true);
+    expect(providerCalls).toBe(3);
+    // The broker is now cached for everyone else.
+    expect(await getServerSseBrokerForWidget()).not.toBeNull();
+    expect(providerCalls).toBe(3);
+  });
+
+  test("gives up after the schedule is exhausted — per-request retry remains available", async () => {
+    let providerCalls = 0;
+    __setSseBrokerProviderFactoryForTests(async () => {
+      providerCalls++;
+      throw new Error("still down");
+    });
+
+    const ok = await runSseBrokerWarmup([0, 0]);
+
+    expect(ok).toBe(false);
+    expect(providerCalls).toBe(2);
+    // A failed init is not cached: the next (per-request) caller retries.
+    __setSseBrokerProviderFactoryForTests(async () => ({}));
+    expect(await getServerSseBrokerForWidget()).not.toBeNull();
+  });
+});
+
+describe("test seams are guarded outside NODE_ENV=test (PR #1860 R1)", () => {
+  test("both seams throw when NODE_ENV is not 'test'", () => {
+    const saved = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "production";
+      expect(() => __resetServerSseBrokerForTests()).toThrow(/test-only/);
+      expect(() => __setSseBrokerProviderFactoryForTests(null)).toThrow(/test-only/);
+    } finally {
+      process.env.NODE_ENV = saved;
+    }
   });
 });

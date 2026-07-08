@@ -12,6 +12,7 @@
  */
 import { randomUUID } from "crypto";
 import type express from "express";
+import { log } from "@minsky/shared/logger";
 import { SseBroker } from "../sse-broker";
 import type { SseClient, SseEvent } from "../sse-broker";
 import {
@@ -103,10 +104,18 @@ let _sseBrokerInitPromise: Promise<SseBroker | null> | null = null;
  */
 let _providerFactoryOverride: (() => Promise<unknown>) | null = null;
 
+/** Throw when a test-only seam is called outside bun:test (PR #1860 R1). */
+function assertTestEnv(seam: string): void {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error(`${seam} is test-only (NODE_ENV=${process.env.NODE_ENV ?? "unset"})`);
+  }
+}
+
 /** Test-only: override the persistence-provider factory. Never call outside tests. */
 export function __setSseBrokerProviderFactoryForTests(
   factory: (() => Promise<unknown>) | null
 ): void {
+  assertTestEnv("__setSseBrokerProviderFactoryForTests");
   _providerFactoryOverride = factory;
 }
 
@@ -210,11 +219,64 @@ export async function initServerSseBroker(): Promise<void> {
 }
 
 /**
+ * Awaitable core of the post-bind warmup (mt#2699, hardened per PR #1860 R1):
+ * attempt broker init up to `delaysMs.length` times, sleeping `delaysMs[i]`
+ * before attempt i. Returns true once the broker is up. Failures are logged —
+ * a silently-dropped warmup promise would leave "no SSE channels subscribed"
+ * invisible until a client noticed missing events. Per-request lazy init in
+ * /api/events remains the fallback after the schedule is exhausted (a failed
+ * init is never cached, so every client connection retries).
+ *
+ * Exported for tests; production entry is {@link startSseBrokerWarmup}.
+ */
+export async function runSseBrokerWarmup(delaysMs: readonly number[]): Promise<boolean> {
+  for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+    const delay = delaysMs[attempt] ?? 0;
+    if (delay > 0) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, delay);
+        // Don't hold the process open for a pending warmup retry.
+        if (typeof timer.unref === "function") timer.unref();
+      });
+    }
+    const broker = await getServerSseBroker();
+    if (broker) {
+      if (attempt > 0) {
+        log.warn(`[cockpit] SSE broker warmup succeeded on attempt ${attempt + 1}`);
+      }
+      return true;
+    }
+    const next =
+      attempt + 1 < delaysMs.length
+        ? `retrying in ${delaysMs[attempt + 1] ?? 0}ms`
+        : `giving up — /api/events will retry init per client connection`;
+    log.warn(
+      `[cockpit] SSE broker warmup attempt ${attempt + 1}/${delaysMs.length} failed (persistence init did not complete); ${next}`
+    );
+  }
+  return false;
+}
+
+/** Warmup retry schedule: immediate, then backing off to ~1 min. */
+const SSE_WARMUP_DELAYS_MS: readonly number[] = [0, 5_000, 15_000, 30_000, 60_000];
+
+/**
+ * Post-bind background SSE-broker warmup (mt#2699). Fire-and-forget wrapper
+ * over {@link runSseBrokerWarmup} — the returned promise is intentionally
+ * detached, but every outcome is logged inside the runner (PR #1860 R1: a
+ * bare dropped promise had no failure signal at the process level).
+ */
+export function startSseBrokerWarmup(): void {
+  void runSseBrokerWarmup(SSE_WARMUP_DELAYS_MS);
+}
+
+/**
  * Test-only: reset the module-level broker cache so init-concurrency and
  * retry semantics can be exercised across test cases. Never call outside
  * tests.
  */
 export function __resetServerSseBrokerForTests(): void {
+  assertTestEnv("__resetServerSseBrokerForTests");
   _cachedSseBroker = null;
   _sseBrokerInitPromise = null;
 }
