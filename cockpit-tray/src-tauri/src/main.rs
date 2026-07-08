@@ -69,12 +69,15 @@ fn main() {
             // Register the minsky:// URL-scheme handler (mt#2528, ADR-023).
             deeplink::register(app, &handle);
 
-            // Keep the app out of the Dock even though it can open a window
-            // (mt#2219). mt#2202 owns the Info.plist LSUIElement path; the Tauri
-            // activation policy achieves the same accessory behavior here.
-            // This sets only the LAUNCH state: menu::set_dock_presence (mt#2675)
-            // flips to Regular while the cockpit window is visible so it is
-            // reachable via Cmd-Tab, and back to Accessory when it hides.
+            // Keep the app out of the Dock at launch (mt#2219). This is the
+            // SOLE owner of the menu-bar-only launch state: the declarative
+            // Info.plist LSUIElement flag (mt#2202) was removed in mt#2675
+            // because it pinned the app out of Cmd-Tab/Dock even after a
+            // runtime Regular switch. tao applies this policy at
+            // applicationDidFinishLaunching — before any window can exist —
+            // so there is no Dock-icon flash. menu::set_dock_presence
+            // (mt#2675) flips to Regular while the cockpit window is visible
+            // so it is reachable via Cmd-Tab, and back to Accessory on hide.
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 

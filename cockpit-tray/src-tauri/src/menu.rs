@@ -228,13 +228,14 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 
 /// Toggle macOS Dock + Cmd-Tab presence via the activation policy (mt#2675).
 ///
-/// The tray app launches as a menu-bar-only "agent" app (`LSUIElement` in
-/// Info.plist, mt#2202; setup-time `Accessory` policy, mt#2219), which macOS
-/// excludes from both the Dock and the Cmd-Tab switcher. While the cockpit
-/// window is visible we switch to `Regular` so the window is reachable via
-/// Cmd-Tab (and the app menu from mt#2327 becomes visible in the menu bar);
-/// when it hides we drop back to `Accessory` to restore menu-bar-only
-/// behavior.
+/// The tray app launches as a menu-bar-only "agent" app via the setup-time
+/// `Accessory` policy in main.rs (mt#2219; the former `LSUIElement` plist
+/// flag was removed in mt#2675 — it pinned the app out of Cmd-Tab even after
+/// a runtime `Regular` switch), and macOS excludes Accessory apps from both
+/// the Dock and the Cmd-Tab switcher. While the cockpit window is visible we
+/// switch to `Regular` so the window is reachable via Cmd-Tab (and the app
+/// menu from mt#2327 becomes visible in the menu bar); when it hides we drop
+/// back to `Accessory` to restore menu-bar-only behavior.
 ///
 /// Call this with `present: true` BEFORE `show()`/`set_focus()` — macOS only
 /// reliably fronts windows of apps with Dock presence (community pattern:
