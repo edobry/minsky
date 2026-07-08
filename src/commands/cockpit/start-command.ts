@@ -12,6 +12,7 @@ import {
   startTopologySweeper,
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
+  startDeploySmokeSweeper,
 } from "../../cockpit/sweepers";
 import {
   markDbDegraded,
@@ -266,6 +267,11 @@ export function createStartCommand(): Command {
       // event/subagent_invocations progress) and write the flagged set to the
       // local cache that inject-dispatch-watchdog.ts injects each turn.
       const stopDispatchWatchdogSweeper = startDispatchWatchdogSweeper();
+      // deploy.smoke sweep (mt#2599): periodically check whether the
+      // bundle-boot-smoke GitHub Actions check-run for the commit THIS
+      // cockpit process was deployed from has completed, emitting a
+      // best-effort deploy.smoke system event once per distinct commit.
+      const stopDeploySmokeSweeper = startDeploySmokeSweeper();
 
       let shuttingDown = false;
       const cleanupSync = () => {
@@ -277,6 +283,7 @@ export function createStartCommand(): Command {
         stopTranscriptWatcher();
         stopTranscriptSweep();
         stopDispatchWatchdogSweeper();
+        stopDeploySmokeSweeper();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
