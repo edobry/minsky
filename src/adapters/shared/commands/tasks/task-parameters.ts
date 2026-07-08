@@ -167,6 +167,7 @@ export const taskEditParams = {
       "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
+  kind: TaskParameters.kind,
   execute: {
     schema: z.boolean().default(false),
     description: "Execute the changes (default is dry-run preview)",
