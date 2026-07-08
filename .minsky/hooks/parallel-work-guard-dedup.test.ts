@@ -13,9 +13,12 @@ import {
   parseTaskListJson,
   formatDuplicateBlockMessage,
   decideTasksCreateGuard,
+  resolveDuplicateGuardOverride,
+  DUPLICATE_CHILD_GUARD_NAME,
   DUPLICATE_TOKEN_THRESHOLD,
   type ChildTask,
 } from "./parallel-work-guard";
+import type { OverrideResult } from "./dispatcher";
 
 function child(id: string, title: string, status = "TODO"): ChildTask {
   return { id, title, status };
@@ -247,6 +250,92 @@ describe("formatDuplicateBlockMessage (mt#1435)", () => {
 
   it("includes the override hint", () => {
     expect(msg).toContain("MINSKY_FORCE_DUPLICATE_OK=1");
+  });
+
+  it("includes the mid-session grant-issuance hint (mt#2658)", () => {
+    expect(msg).toContain("scripts/grant-guard-override.ts");
+    expect(msg).toContain(`--guard ${DUPLICATE_CHILD_GUARD_NAME}`);
+    expect(msg).toContain("--scope mt#2370");
+    expect(msg).toContain("--reason");
+  });
+});
+
+describe("resolveDuplicateGuardOverride (mt#2658)", () => {
+  const PARENT = "mt#2581";
+
+  it("returns inactive when neither the env var nor a grant matches", () => {
+    const checkOverrideFn = (): OverrideResult => ({ overridden: false });
+    const result = resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(result).toEqual({ active: false });
+  });
+
+  it("legacy MINSKY_FORCE_DUPLICATE_OK=1 activates via source 'env', without consulting checkOverrideFn", () => {
+    let called = false;
+    const checkOverrideFn = (): OverrideResult => {
+      called = true;
+      return { overridden: false };
+    };
+    const result = resolveDuplicateGuardOverride(
+      PARENT,
+      { MINSKY_FORCE_DUPLICATE_OK: "1" },
+      checkOverrideFn
+    );
+    expect(result).toEqual({ active: true, source: "env" });
+    expect(called).toBe(false);
+  });
+
+  it("a grant match (via checkOverrideFn) activates via source 'grant' with its reason", () => {
+    const checkOverrideFn = (): OverrideResult => ({
+      overridden: true,
+      grantReason: "concurrent decomposition — distinct sibling",
+    });
+    const result = resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(result).toEqual({
+      active: true,
+      source: "grant",
+      reason: "concurrent decomposition — distinct sibling",
+    });
+  });
+
+  it("passes the guard name and parent as scope through to checkOverrideFn", () => {
+    let seenGuardName: string | null = null;
+    let seenScope: string | undefined;
+    const checkOverrideFn = (
+      guardName: string,
+      _env: NodeJS.ProcessEnv,
+      options?: { scope?: string }
+    ): OverrideResult => {
+      seenGuardName = guardName;
+      seenScope = options?.scope;
+      return { overridden: false };
+    };
+    resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(seenGuardName).toBe(DUPLICATE_CHILD_GUARD_NAME);
+    expect(seenScope).toBe(PARENT);
+  });
+
+  it("passes scope=undefined through to checkOverrideFn when there is no parent", () => {
+    let seenScope: string | undefined = "unset";
+    const checkOverrideFn = (
+      _guardName: string,
+      _env: NodeJS.ProcessEnv,
+      options?: { scope?: string }
+    ): OverrideResult => {
+      seenScope = options?.scope;
+      return { overridden: false };
+    };
+    resolveDuplicateGuardOverride(undefined, {}, checkOverrideFn);
+    expect(seenScope).toBeUndefined();
+  });
+
+  it("MINSKY_FORCE_DUPLICATE_OK set to something other than '1' does not activate the env path", () => {
+    const checkOverrideFn = (): OverrideResult => ({ overridden: false });
+    const result = resolveDuplicateGuardOverride(
+      PARENT,
+      { MINSKY_FORCE_DUPLICATE_OK: "true" },
+      checkOverrideFn
+    );
+    expect(result).toEqual({ active: false });
   });
 });
 

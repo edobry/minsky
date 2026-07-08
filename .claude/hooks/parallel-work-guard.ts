@@ -31,6 +31,9 @@
 
 import { readInput, writeOutput, execWithPath } from "./types";
 import type { ToolHookInput } from "./types";
+import { checkOverride } from "./dispatcher";
+import type { OverrideResult } from "./dispatcher";
+import { GUARD_REGISTRY } from "./registry";
 
 // NOTE: execWithPath is centralized in types.ts and imported above.
 // This avoids duplicating the PATH-augmentation logic across hooks.
@@ -1704,7 +1707,14 @@ export function formatDuplicateBlockMessage(
   );
   lines.push("child instead of creating a second one.");
   lines.push("");
-  lines.push("If this is genuinely a distinct task, set MINSKY_FORCE_DUPLICATE_OK=1 and retry.");
+  lines.push("If this is genuinely a distinct task, override via ONE of:");
+  lines.push("  1. Set MINSKY_FORCE_DUPLICATE_OK=1 (only reachable BEFORE the harness launches —");
+  lines.push("     an env var set mid-session via Bash never reaches this hook's subprocess).");
+  lines.push("  2. Issue a mid-session, reason-mandatory grant (mt#2658 — reachable from inside");
+  lines.push("     the current session, unlike option 1):");
+  lines.push(
+    `     bun scripts/grant-guard-override.ts --guard ${DUPLICATE_CHILD_GUARD_NAME} --scope ${parent} --reason "<why this is distinct>"`
+  );
   return lines.join("\n");
 }
 
@@ -1750,6 +1760,80 @@ export function decideTasksCreateGuard(
   return { action: "permit" };
 }
 
+// ---------------------------------------------------------------------------
+// Override resolution — env var + grant-file channel (Phase-7 adjunct, mt#2658)
+// ---------------------------------------------------------------------------
+
+/**
+ * This guard's name in the grant-file channel (`.minsky/hooks/guard-grant-
+ * store.ts`) — mt#2658's tracking task and originating incident. NOT
+ * dispatcher-migrated (this hook remains a standalone `PreToolUse`
+ * registration, matched directly in `.claude/settings.json`), so it is not
+ * part of `GUARD_REGISTRY` — but `checkOverride()` (imported from
+ * `./dispatcher`) is a plain exported function usable outside the
+ * dispatcher's own `runDispatcher()` loop, and this guard uses it directly
+ * for BOTH the unified `MINSKY_HOOK_OVERRIDE` env var (a bonus — this guard
+ * previously only recognized its own bespoke `MINSKY_FORCE_DUPLICATE_OK`)
+ * and the new grant-file channel.
+ */
+export const DUPLICATE_CHILD_GUARD_NAME = "duplicate-child-matcher";
+
+/**
+ * The `checkOverride()`-known-guard-names universe for this guard's calls:
+ * the live `GUARD_REGISTRY` names, plus this guard's own name (which isn't
+ * itself a dispatcher registration). Without this, an operator correctly
+ * setting `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` would still be
+ * honored (the match check doesn't consult `knownGuardNames`), but would
+ * ALSO get a spurious "does not match any registered guard name" stderr
+ * warning — this constant prevents that false-typo signal.
+ */
+const KNOWN_GUARD_NAMES_WITH_SELF: readonly string[] = [
+  ...GUARD_REGISTRY.map((r) => r.name),
+  DUPLICATE_CHILD_GUARD_NAME,
+];
+
+/** Resolution of whether the duplicate-child guard's override is active, and why. */
+export type DuplicateGuardOverrideResolution =
+  | { active: false }
+  | { active: true; source: "env"; reason?: undefined }
+  | { active: true; source: "grant"; reason: string | undefined };
+
+/**
+ * Pure decision (given an injected `checkOverrideFn`) for whether the
+ * duplicate-child guard's override is active, and — when it is — whether
+ * that came from the legacy `MINSKY_FORCE_DUPLICATE_OK=1` env var or a
+ * grant-file match (mt#2658). `parent` is the scope qualifier for the
+ * grant-file lookup; when absent (no parent on the `tasks_create` call),
+ * the grant-file channel cannot be consulted (there is nothing to scope
+ * the grant to) — only the legacy env var is checked.
+ *
+ * `checkOverrideFn` is injected so this stays hermetically testable without
+ * touching the filesystem (mirrors `decideTasksCreateGuard`'s
+ * `fetchChildren` injection pattern).
+ */
+export function resolveDuplicateGuardOverride(
+  parent: string | undefined,
+  env: NodeJS.ProcessEnv,
+  checkOverrideFn: (
+    guardName: string,
+    env: NodeJS.ProcessEnv,
+    options?: { knownGuardNames?: readonly string[]; scope?: string }
+  ) => OverrideResult = checkOverride
+): DuplicateGuardOverrideResolution {
+  if (env["MINSKY_FORCE_DUPLICATE_OK"] === "1") {
+    return { active: true, source: "env" };
+  }
+
+  const result = checkOverrideFn(DUPLICATE_CHILD_GUARD_NAME, env, {
+    knownGuardNames: KNOWN_GUARD_NAMES_WITH_SELF,
+    scope: parent,
+  });
+  if (result.overridden) {
+    return { active: true, source: "grant", reason: result.grantReason };
+  }
+  return { active: false };
+}
+
 /** Entrypoint wrapper: resolve the decision and map it to hook output. */
 function runTasksCreateGuard(input: ToolHookInput): void {
   // Observability (PR #1660 R1 BLOCKING): any unexpected throw is surfaced on
@@ -1769,10 +1853,14 @@ function runTasksCreateGuard(input: ToolHookInput): void {
 }
 
 function runTasksCreateGuardInner(input: ToolHookInput): void {
-  const overrideActive = process.env["MINSKY_FORCE_DUPLICATE_OK"] === "1";
+  const parentForScope =
+    typeof input.tool_input["parent"] === "string"
+      ? (input.tool_input["parent"] as string)
+      : undefined;
+  const overrideResolution = resolveDuplicateGuardOverride(parentForScope, process.env);
   const decision = decideTasksCreateGuard(input.tool_input, {
     fetchChildren: (parent) => fetchTaskChildren(parent),
-    overrideActive,
+    overrideActive: overrideResolution.active,
   });
 
   switch (decision.action) {
@@ -1786,8 +1874,15 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
         typeof input.tool_input["parent"] === "string" ? input.tool_input["parent"] : "";
       const title = typeof input.tool_input["title"] === "string" ? input.tool_input["title"] : "";
       const ts = new Date().toISOString();
+      const source = overrideResolution.active ? overrideResolution.source : "env";
+      const reasonPart =
+        overrideResolution.active &&
+        overrideResolution.source === "grant" &&
+        overrideResolution.reason
+          ? ` reason="${overrideResolution.reason}"`
+          : "";
       process.stdout.write(
-        `[parallel-work-guard] override fired: parent=${parent}, title="${title}", duplicate_match=${decision.auditMatch} ts=${ts}\n`
+        `[parallel-work-guard] override fired: parent=${parent}, title="${title}", duplicate_match=${decision.auditMatch} source=${source}${reasonPart} ts=${ts}\n`
       );
       return;
     }
