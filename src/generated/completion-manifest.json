@@ -1695,6 +1695,11 @@
               "takesValue": true
             },
             {
+              "flags": ["--instructions"],
+              "description": "Work instructions for the subagent",
+              "takesValue": true
+            },
+            {
               "flags": ["--parent-task-id"],
               "description": "Parent task ID — creates a subtask. Omit for a root task. Only valid in new-task (`title`) mode.",
               "takesValue": true

@@ -51,6 +51,14 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        "tasks.dispatch": {
+          // mt#2657: dispatch is dual-mode (title XOR taskId), so `title` is no
+          // longer the first REQUIRED param — without this override the bridge
+          // would silently promote `instructions` to the positional slot,
+          // dropping --instructions from the CLI/manifest surface. Every param
+          // stays an explicit flag.
+          useFirstRequiredParamAsArgument: false,
+        },
         "tasks.edit": {
           useFirstRequiredParamAsArgument: true,
           parameters: {
