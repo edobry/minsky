@@ -314,6 +314,21 @@ independently verified against a minimal _non-Minsky_ Bun reproduction (e.g. syn
 files using only `Bun.spawn` without this repo's disconnect-tracker logic) within this
 task's scope.
 
+**Live confirmation on GitHub's hosted `ubuntu-latest` runner (not just local macOS).**
+The acceptance-test demonstration run for this task ([run
+28975783280](https://github.com/edobry/minsky/actions/runs/28975783280), job
+[85982472493](https://github.com/edobry/minsky/actions/runs/28975783280/job/85982472493),
+commit `c61c8b035` — a scratch commit carrying one deliberately-failing test, reverted
+immediately after in the next commit, never merged) failed with exactly the
+"no completion summary" branch of the new hardening — `bun run test` truncated silently
+on the hosted runner itself, before ever reaching the deliberately-broken test file. This
+is stronger evidence than originally planned: it confirms the truncation bug is not
+macOS-local-machine-specific, it reproduces on Linux `ubuntu-latest` too, and it shows
+the hardening catching the REAL bug live, not just a synthetic broken-assertion case
+(the `FAIL_COUNT > 0` branch was never exercised in this run because the "no summary"
+branch fired first). Pre-hardening, this exact run would have reported `success` — the
+`bun run test` step's own exit code was 0.
+
 ### Practical takeaway (updated post-mt#2665)
 
 **A green `build` check on this repo's CI is now hardened against the silent-truncation
