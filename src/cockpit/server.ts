@@ -87,7 +87,7 @@ export interface CockpitServerOptions {
    * tests, so the /assets 404 and SPA-fallback contracts are testable without
    * a real `cockpit:build` output).
    */
-  webDistDirOverride?: string;
+  overrideWebDistDir?: string;
 }
 
 /**
@@ -156,9 +156,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // --- Static SPA assets ---
 
   if (!opts.dev) {
-    const webDistDir = opts.webDistDirOverride ?? WEB_DIST_DIR;
-    const indexHtml = opts.webDistDirOverride
-      ? path.join(opts.webDistDirOverride, "index.html")
+    const webDistDir = opts.overrideWebDistDir ?? WEB_DIST_DIR;
+    const indexHtml = opts.overrideWebDistDir
+      ? path.join(opts.overrideWebDistDir, "index.html")
       : INDEX_HTML;
 
     /** GET /assets/* — served from web/dist/assets */

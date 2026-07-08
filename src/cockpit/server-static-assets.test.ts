@@ -8,7 +8,7 @@
  * JavaScript MIME type" and the widget error boundary renders as a crash.
  *
  * Mirrors the pattern in server-task-detail.test.ts: real HTTP server on a
- * random port, hit with fetch. Uses webDistDirOverride so the contract is
+ * random port, hit with fetch. Uses overrideWebDistDir so the contract is
  * testable without a real `cockpit:build` output.
  */
 /* eslint-disable custom/no-real-fs-in-tests -- express.static serves from the real fs; a temp dist dir IS the contract under test */
@@ -39,11 +39,11 @@ afterAll(() => {
   fs.rmSync(emptyDistDir, { recursive: true, force: true });
 });
 
-async function startTestServer(webDistDirOverride: string): Promise<{
+async function startTestServer(overrideWebDistDir: string): Promise<{
   url: string;
   close: () => Promise<void>;
 }> {
-  const app = createCockpitServer({ webDistDirOverride });
+  const app = createCockpitServer({ overrideWebDistDir });
   const server: Server = createServer(app);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
