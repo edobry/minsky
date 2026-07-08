@@ -315,14 +315,181 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
  */
 const MAX_DECOMPRESSED_ENTRY_BYTES = 64 * 1024 * 1024;
 
+const LOCAL_HEADER_SIG = 0x04034b50;
+const CENTRAL_DIR_SIG = 0x02014b50;
+const EOCD_SIG = 0x06054b50;
+
+/** Fixed-size portion of a central-directory file header (before name/extra/comment). */
+const CENTRAL_DIR_ENTRY_FIXED_SIZE = 46;
+/** Fixed size of the end-of-central-directory record (before the comment). */
+const EOCD_FIXED_SIZE = 22;
+/** Max comment length a conformant EOCD record can carry (uint16). */
+const MAX_EOCD_COMMENT_LENGTH = 65535;
+
+interface CentralDirEntry {
+  fileName: string;
+  compressionMethod: number;
+  compressedSize: number;
+  localHeaderOffset: number;
+}
+
+/**
+ * Locate the End Of Central Directory (EOCD) record by scanning backward from
+ * the end of the archive.
+ *
+ * The EOCD's own `comment length` field must make the record end exactly at
+ * `bytes.byteLength` — this disambiguates a genuine EOCD signature from an
+ * accidental 4-byte match inside compressed entry data or a comment field.
+ * Returns -1 if no EOCD is found (not a valid ZIP, or ZIP64 — see the
+ * function-level known-limitation note on `extractZipText`).
+ */
+function findEndOfCentralDirectory(bytes: Uint8Array, view: DataView): number {
+  const minPos = Math.max(0, bytes.byteLength - EOCD_FIXED_SIZE - MAX_EOCD_COMMENT_LENGTH);
+  for (let pos = bytes.byteLength - EOCD_FIXED_SIZE; pos >= minPos; pos--) {
+    if (view.getUint32(pos, true) === EOCD_SIG) {
+      const commentLength = view.getUint16(pos + 20, true);
+      if (pos + EOCD_FIXED_SIZE + commentLength === bytes.byteLength) {
+        return pos;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Read every central-directory file header starting at `centralDirOffset`.
+ *
+ * Central-directory entries carry the AUTHORITATIVE compressed/uncompressed
+ * sizes — unlike local file headers, which are zeroed when the archive was
+ * written in streaming mode (see `extractZipText`'s doc comment). Entries
+ * whose signature doesn't match at the expected position stop the walk
+ * early (defensive: a corrupt/truncated central directory yields whatever
+ * entries were read cleanly, rather than throwing away all of them).
+ */
+function readCentralDirectoryEntries(
+  bytes: Uint8Array,
+  view: DataView,
+  centralDirOffset: number,
+  totalEntries: number
+): CentralDirEntry[] {
+  const decoder = new TextDecoder("utf-8");
+  const entries: CentralDirEntry[] = [];
+  let offset = centralDirOffset;
+
+  for (let i = 0; i < totalEntries; i++) {
+    if (offset + CENTRAL_DIR_ENTRY_FIXED_SIZE > bytes.byteLength) break;
+    if (view.getUint32(offset, true) !== CENTRAL_DIR_SIG) break;
+
+    const compressionMethod = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const fileNameLength = view.getUint16(offset + 28, true);
+    const extraFieldLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+
+    const fileNameBytes = bytes.slice(
+      offset + CENTRAL_DIR_ENTRY_FIXED_SIZE,
+      offset + CENTRAL_DIR_ENTRY_FIXED_SIZE + fileNameLength
+    );
+    entries.push({
+      fileName: decoder.decode(fileNameBytes),
+      compressionMethod,
+      compressedSize,
+      localHeaderOffset,
+    });
+
+    offset += CENTRAL_DIR_ENTRY_FIXED_SIZE + fileNameLength + extraFieldLength + commentLength;
+  }
+
+  return entries;
+}
+
+/**
+ * Decode a single entry's compressed bytes to text, given its authoritative
+ * (central-directory-sourced) compression method and compressed size.
+ *
+ * Locates the entry's data by reading its OWN local header's filename/extra
+ * lengths (these may legitimately differ from the central directory's copy)
+ * to compute the data start offset, then slices `compressedSize` bytes from
+ * there — `compressedSize` itself always comes from the central directory,
+ * never the local header (which is 0 for streamed entries; see
+ * `extractZipText`).
+ */
+function decodeCentralDirEntry(
+  bytes: Uint8Array,
+  view: DataView,
+  entry: CentralDirEntry,
+  decoder: TextDecoder
+): string {
+  const { localHeaderOffset, compressionMethod, compressedSize, fileName } = entry;
+
+  if (
+    localHeaderOffset + 30 > bytes.byteLength ||
+    view.getUint32(localHeaderOffset, true) !== LOCAL_HEADER_SIG
+  ) {
+    return `[local file header for ${fileName} not found at offset ${localHeaderOffset} — archive may be truncated]`;
+  }
+
+  const localFileNameLength = view.getUint16(localHeaderOffset + 26, true);
+  const localExtraFieldLength = view.getUint16(localHeaderOffset + 28, true);
+  const dataOffset = localHeaderOffset + 30 + localFileNameLength + localExtraFieldLength;
+
+  if (dataOffset + compressedSize > bytes.byteLength) {
+    return `[entry ${fileName} data (offset ${dataOffset}, length ${compressedSize}) extends past end of archive — truncated]`;
+  }
+
+  const compressedData = bytes.slice(dataOffset, dataOffset + compressedSize);
+
+  if (compressionMethod === 0) {
+    // STORED — no compression
+    return decoder.decode(compressedData);
+  } else if (compressionMethod === 8) {
+    // DEFLATE — ZIP method 8 is raw DEFLATE; decompress synchronously via
+    // node:zlib (implemented by Bun, no extra dependency), bounded by
+    // MAX_DECOMPRESSED_ENTRY_BYTES (zip-bomb guard). Fall back to the base64
+    // placeholder if inflation throws (corrupt stream or over the cap) so a
+    // malformed/hostile entry never silently loses content (mt#2343).
+    try {
+      return decoder.decode(
+        inflateRawSync(compressedData, { maxOutputLength: MAX_DECOMPRESSED_ENTRY_BYTES })
+      );
+    } catch (err) {
+      const base64 = uint8ArrayToBase64(compressedData);
+      return `[DEFLATE entry could not be inflated (${
+        err instanceof Error ? err.message : String(err)
+      }) — decode: base64 then inflate-raw]\n${base64}`;
+    }
+  }
+  return `[unsupported compression method ${compressionMethod}]`;
+}
+
 /**
  * Extract text content from a ZIP Uint8Array.
  *
- * Parses ZIP local file headers (signature 0x04034b50) and extracts entries as
- * UTF-8 text: STORED (method 0) directly, and DEFLATE (method 8) via
- * `node:zlib` `inflateRawSync` (ZIP method 8 is raw DEFLATE; Bun implements
- * Node's zlib, so no extra dependency is needed). GitHub Actions log ZIPs use
- * DEFLATE, so that is the common path.
+ * Reads the ZIP CENTRAL DIRECTORY (via the End-Of-Central-Directory record,
+ * signature 0x06054b50) rather than walking local file headers in order —
+ * the central directory carries the AUTHORITATIVE compressed/uncompressed
+ * sizes for every entry, whereas local file headers do not when the archive
+ * was written in streaming mode.
+ *
+ * GitHub Actions run-log archives ARE written in streaming mode: every entry
+ * sets general-purpose bit 3 ("sizes unknown at header-write time; written
+ * in a trailing data descriptor instead"), and its local header's compressed/
+ * uncompressed size fields are both 0 (mt#2678 — confirmed by inspecting a
+ * live archive: `generalPurposeFlag & 0x0008 !== 0`, local `compressedSize
+ * === 0`, true size recovered from the entry's data-descriptor trailer /
+ * central directory). The prior implementation read sizes from the local
+ * header, so it always sliced a 0-byte "compressed" region and fed that to
+ * `inflateRawSync`, which reliably throws `unexpected end of file` — this
+ * bug fired on 100% of entries in 100% of runs, matching the reported
+ * symptom exactly. Reading sizes from the central directory instead (as any
+ * general-purpose ZIP reader does) fixes this without needing to understand
+ * or scan for the optional data-descriptor trailer at all.
+ *
+ * Extracts entries as UTF-8 text: STORED (method 0) directly, and DEFLATE
+ * (method 8) via `node:zlib` `inflateRawSync` (ZIP method 8 is raw DEFLATE;
+ * Bun implements Node's zlib, so no extra dependency is needed). GitHub
+ * Actions log ZIPs use DEFLATE, so that is the common path.
  *
  * Inflation is bounded by `MAX_DECOMPRESSED_ENTRY_BYTES` (zip-bomb guard). It is
  * synchronous deliberately: this function and its caller (`viewWorkflowRunLogs`)
@@ -334,79 +501,46 @@ const MAX_DECOMPRESSED_ENTRY_BYTES = 64 * 1024 * 1024;
  * bytes are returned as a base64 placeholder so content is never silently lost.
  * Other compression methods keep a placeholder. (mt#2343)
  *
- * Known limitation (pre-existing): the parser reads sizes from the local header
- * and does not handle data descriptors (general-purpose bit 3) — archives that
- * write sizes after the data are treated as truncated. GitHub's log ZIPs put
- * sizes in the local header, so this does not bite today.
+ * Known limitation: ZIP64 (archives/entries needing 64-bit size fields, which
+ * would set the EOCD's entry-count/central-dir-size/offset fields to the
+ * 0xFFFFFFFF/0xFFFF sentinel values and require reading a ZIP64 EOCD locator)
+ * is not handled. GitHub's run-log archives are per-run, text-only, and small
+ * (KB–low-single-digit-MB in practice), so this has not been observed to bite;
+ * if it ever does, `findEndOfCentralDirectory` still finds the (32-bit) EOCD
+ * record, but `readCentralDirectoryEntries` would read sentinel/truncated
+ * values for that entry.
  */
 function extractZipText(bytes: Uint8Array): string {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const parts: string[] = [];
   const decoder = new TextDecoder("utf-8");
 
-  let offset = 0;
-  const LOCAL_HEADER_SIG = 0x04034b50;
-
-  while (offset + 30 <= bytes.byteLength) {
-    // Check local file header signature (little-endian)
-    const sigVal = view.getUint32(offset, true);
-    if (sigVal !== LOCAL_HEADER_SIG) {
-      offset++;
-      continue;
-    }
-
-    const compressionMethod = view.getUint16(offset + 8, true);
-    const compressedSize = view.getUint32(offset + 18, true);
-    const fileNameLength = view.getUint16(offset + 26, true);
-    const extraFieldLength = view.getUint16(offset + 28, true);
-
-    const headerSize = 30 + fileNameLength + extraFieldLength;
-    const fileNameBytes = bytes.slice(offset + 30, offset + 30 + fileNameLength);
-    const fileName = decoder.decode(fileNameBytes);
-    const dataOffset = offset + headerSize;
-
-    if (dataOffset + compressedSize > bytes.byteLength) {
-      break; // truncated archive
-    }
-
-    const compressedData = bytes.slice(dataOffset, dataOffset + compressedSize);
-    let entryText: string;
-
-    if (compressionMethod === 0) {
-      // STORED — no compression
-      entryText = decoder.decode(compressedData);
-    } else if (compressionMethod === 8) {
-      // DEFLATE — ZIP method 8 is raw DEFLATE; decompress synchronously via
-      // node:zlib (implemented by Bun, no extra dependency), bounded by
-      // MAX_DECOMPRESSED_ENTRY_BYTES (zip-bomb guard). Fall back to the base64
-      // placeholder if inflation throws (corrupt stream or over the cap) so a
-      // malformed/hostile entry never silently loses content (mt#2343).
-      try {
-        entryText = decoder.decode(
-          inflateRawSync(compressedData, { maxOutputLength: MAX_DECOMPRESSED_ENTRY_BYTES })
-        );
-      } catch (err) {
-        const base64 = uint8ArrayToBase64(compressedData);
-        entryText = `[DEFLATE entry could not be inflated (${
-          err instanceof Error ? err.message : String(err)
-        }) — decode: base64 then inflate-raw]\n${base64}`;
-      }
-    } else {
-      entryText = `[unsupported compression method ${compressionMethod}]`;
-    }
-
-    if (parts.length > 0) {
-      parts.push(`\n--- ${fileName} ---\n`);
-    } else {
-      parts.push(`--- ${fileName} ---\n`);
-    }
-    parts.push(entryText);
-
-    offset = dataOffset + compressedSize;
+  const eocdOffset = findEndOfCentralDirectory(bytes, view);
+  if (eocdOffset === -1) {
+    throw new Error("ZIP end-of-central-directory record not found");
   }
 
-  if (parts.length === 0) {
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  const centralDirSize = view.getUint32(eocdOffset + 12, true);
+  const centralDirOffset = view.getUint32(eocdOffset + 16, true);
+
+  if (centralDirOffset + centralDirSize > eocdOffset) {
+    throw new Error("ZIP central directory extends past end-of-central-directory record");
+  }
+
+  const entries = readCentralDirectoryEntries(bytes, view, centralDirOffset, totalEntries);
+  if (entries.length === 0) {
     throw new Error("No entries found in ZIP archive");
+  }
+
+  const parts: string[] = [];
+  for (const entry of entries) {
+    const entryText = decodeCentralDirEntry(bytes, view, entry, decoder);
+    if (parts.length > 0) {
+      parts.push(`\n--- ${entry.fileName} ---\n`);
+    } else {
+      parts.push(`--- ${entry.fileName} ---\n`);
+    }
+    parts.push(entryText);
   }
 
   return parts.join("");

@@ -79,9 +79,11 @@ named in the mt#2662 spec:
   returned `[DEFLATE entry could not be inflated (unexpected end of file)]`. The
   unauthenticated GitHub REST API (`.../check-runs` and `.../annotations`, both used
   above) was the working fallback and is what all API-derived claims in this doc are
-  sourced from. The raw step-log path remains unverified as a source; if you need actual
-  step-by-step CI console output (not just check-run annotations), expect this tool to
-  fail and use `curl`/`gh api` against the endpoints cited in this doc instead.
+  sourced from. **Fixed in mt#2678** — GitHub writes run-log ZIP entries in streaming
+  mode (general-purpose bit 3 set, local-header sizes zeroed; true sizes only in the
+  central directory), which the tool's ZIP parser didn't handle. The tool now reads
+  authoritative sizes from the central directory and decodes step logs correctly; the
+  raw step-log path is a working source again.
 - **Bun exit-code semantics in general.** A synthetic single-file test with one failing
   assertion (`bun test <file>`) correctly returns exit code 1 locally. Running
   `subagent-dispatch-tracker.test.ts` alone returns exit 1 with the expected 6 failures.
