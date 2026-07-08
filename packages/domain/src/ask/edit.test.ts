@@ -17,6 +17,7 @@ import { describe, expect, test } from "bun:test";
 import {
   editAskContent,
   providedEditableFields,
+  sanitizeMetadata,
   EDIT_HISTORY_METADATA_KEY,
   type AskEditNote,
 } from "./edit";
@@ -63,6 +64,28 @@ describe("providedEditableFields", () => {
 
   test("returns empty array when nothing editable is provided", () => {
     expect(providedEditableFields({})).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeMetadata
+// ---------------------------------------------------------------------------
+
+describe("sanitizeMetadata", () => {
+  test("drops __proto__, prototype, and constructor own-keys, keeps the rest", () => {
+    const hostile = JSON.parse(
+      '{"__proto__": {"polluted": true}, "constructor": "x", "prototype": "y", "benign": 1}'
+    ) as Record<string, unknown>;
+
+    const clean = sanitizeMetadata(hostile);
+
+    expect(Object.keys(clean)).toEqual(["benign"]);
+    expect(clean.benign).toBe(1);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  test("returns an equivalent copy when nothing is forbidden", () => {
+    expect(sanitizeMetadata({ a: 1, b: "two" })).toEqual({ a: 1, b: "two" });
   });
 });
 
@@ -165,6 +188,26 @@ describe("editAskContent", () => {
 
     expect(ask.metadata.stagedFiles).toBe("all");
     expect(ask.metadata.refreshedFrom).toBe("docs/research/mt2206-fable-naming-cycle.md");
+  });
+
+  test("forbidden metadata keys are stripped from the merge and Object.prototype is not polluted", async () => {
+    const repo = new FakeAskRepository();
+    const suspended = await seedAskAtState(repo, "suspended");
+
+    // JSON.parse produces a literal own "__proto__" data property — the
+    // realistic shape of hostile input arriving over the MCP wire.
+    const hostile = JSON.parse(
+      '{"__proto__": {"polluted": true}, "constructor": "x", "prototype": "y", "benign": "kept"}'
+    ) as Record<string, unknown>;
+
+    const { ask } = await editAskContent(repo, { id: suspended.id, metadata: hostile });
+
+    expect(Object.prototype.hasOwnProperty.call(ask.metadata, "__proto__")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(ask.metadata, "constructor")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(ask.metadata, "prototype")).toBe(false);
+    expect(ask.metadata.benign).toBe("kept");
+    // The global prototype was never touched.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   test("caller-supplied editHistory in metadata cannot clobber the appended note", async () => {

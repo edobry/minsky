@@ -1339,4 +1339,22 @@ describe("validateAsksEditParams", () => {
       })
     ).not.toThrow();
   });
+
+  test("rejects metadata containing forbidden keys (prototype-pollution hardening)", () => {
+    const hostile = JSON.parse('{"__proto__": {"polluted": true}, "ok": 1}') as Record<
+      string,
+      unknown
+    >;
+    expect(() => validateAsksEditParams({ metadata: hostile })).toThrow(ValidationError);
+    expect(() => validateAsksEditParams({ metadata: hostile })).toThrow("forbidden key");
+    expect(() => validateAsksEditParams({ metadata: { constructor: "x" } })).toThrow(
+      ValidationError
+    );
+  });
+
+  test("passes metadata with only safe keys", () => {
+    expect(() =>
+      validateAsksEditParams({ metadata: { refreshedFrom: "docs/research/x.md" } })
+    ).not.toThrow();
+  });
 });

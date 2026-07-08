@@ -41,6 +41,34 @@ export interface AskEditNote {
 /** Reserved metadata key carrying the append-only edit provenance notes. */
 export const EDIT_HISTORY_METADATA_KEY = "editHistory";
 
+/**
+ * Keys that must never enter the metadata merge — prototype-pollution
+ * hardening (PR #1831 review). `metadata` arrives from the MCP surface as
+ * untrusted input; merging a literal `__proto__` / `constructor` /
+ * `prototype` own-key into a plain object is the classic pollution vector,
+ * and even under spread semantics (which define rather than set) a persisted
+ * `__proto__` own-property is a hazard for downstream consumers. The shared
+ * command layer's parameter validator enforces the same list at the
+ * boundary; this constant is the single policy both layers align on.
+ */
+export const FORBIDDEN_METADATA_KEYS = ["__proto__", "prototype", "constructor"] as const;
+
+/**
+ * Return a fresh object containing only the safe own-keys of `metadata` —
+ * every {@link FORBIDDEN_METADATA_KEYS} entry is dropped. Applied to BOTH
+ * sides of the edit merge (existing row metadata and caller-supplied
+ * metadata) as defense-in-depth: a hostile key already persisted at create
+ * time is scrubbed on the way through, not just blocked at the boundary.
+ */
+export function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if ((FORBIDDEN_METADATA_KEYS as readonly string[]).includes(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 /** Params accepted by {@link editAskContent}. */
 export interface EditAskContentParams {
   /** Primary key of the Ask to edit. */
@@ -133,12 +161,14 @@ export async function editAskContent(
 
   // Shallow-merge caller metadata over the existing metadata, then append the
   // provenance note. The note always wins over a caller-supplied editHistory —
-  // the history is append-only by construction.
+  // the history is append-only by construction. Both sides pass through
+  // sanitizeMetadata so forbidden keys (prototype-pollution vectors) never
+  // enter the merge, whatever their origin.
   const existingHistory = existing.metadata[EDIT_HISTORY_METADATA_KEY];
   const history = Array.isArray(existingHistory) ? existingHistory : [];
   const mergedMetadata: Record<string, unknown> = {
-    ...existing.metadata,
-    ...(params.metadata ?? {}),
+    ...sanitizeMetadata(existing.metadata),
+    ...sanitizeMetadata(params.metadata ?? {}),
     [EDIT_HISTORY_METADATA_KEY]: [...history, note],
   };
 

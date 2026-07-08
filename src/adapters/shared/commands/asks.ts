@@ -34,6 +34,7 @@ import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import {
   editAskContent,
   providedEditableFields,
+  FORBIDDEN_METADATA_KEYS,
   type EditAskContentParams,
 } from "@minsky/domain/ask/edit";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
@@ -748,14 +749,22 @@ const asksEditParams = {
 };
 
 /**
- * Cross-field validation for `asks.edit` MCP params: at least one editable
- * field must be provided — an edit that touches nothing is a caller error
- * caught at the parameter boundary, not a silent no-op.
+ * Cross-field validation for `asks.edit` MCP params:
+ *
+ * 1. At least one editable field must be provided — an edit that touches
+ *    nothing is a caller error caught at the parameter boundary, not a
+ *    silent no-op.
+ * 2. `metadata` must not contain forbidden keys (`__proto__`, `prototype`,
+ *    `constructor`) — prototype-pollution hardening at the MCP boundary,
+ *    aligned with the domain layer's `sanitizeMetadata` on the same
+ *    `FORBIDDEN_METADATA_KEYS` policy constant (PR #1831 review,
+ *    defense-in-depth at both layers).
  *
  * Exported for direct testing without the full command factory setup. The
  * `asks.edit` command's `validate` hook delegates to this function.
  *
- * @throws {ValidationError} when no editable field is provided
+ * @throws {ValidationError} when no editable field is provided, or when
+ *         metadata contains a forbidden key
  */
 export function validateAsksEditParams(
   params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
@@ -764,6 +773,17 @@ export function validateAsksEditParams(
     throw new ValidationError(
       "asks.edit: at least one editable field (title, question, options, contextRefs, metadata) must be provided."
     );
+  }
+  if (params.metadata !== undefined) {
+    const forbidden = Object.keys(params.metadata).filter((key) =>
+      (FORBIDDEN_METADATA_KEYS as readonly string[]).includes(key)
+    );
+    if (forbidden.length > 0) {
+      throw new ValidationError(
+        `asks.edit: metadata contains forbidden key(s): ${forbidden.join(", ")}. ` +
+          `The keys __proto__, prototype, and constructor are rejected (prototype-pollution hardening).`
+      );
+    }
   }
 }
 
