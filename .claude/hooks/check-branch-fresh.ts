@@ -29,13 +29,17 @@
 //     "something the operator should know," and operators should always learn
 //     about staleness.
 //   - Override: MINSKY_SKIP_FRESHNESS=1 bypasses with an audit log entry.
+//   - The repo ROOT is resolved from input.cwd by walking up to the first
+//     `.git` entry (mt#2700): the shell cwd is routinely a repo SUBDIRECTORY,
+//     which git subprocesses tolerate but the fs-only mid-merge probe and the
+//     CAS-marker write do not.
 //
 // @see mt#1483 — structural hook for the branch-behind-main pattern
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -302,6 +306,46 @@ export function detectMergeInProgress(
     }
   }
   return null;
+}
+
+/**
+ * Resolve the repository ROOT for `startDir`: walk parent directories until
+ * one contains a `.git` entry (directory OR `gitdir:`-file — `resolveGitDir`
+ * handles the indirection afterwards), falling back to `startDir` when no
+ * `.git` exists anywhere up the tree (missing-repo case; downstream probes
+ * then fail closed-to-allow exactly as before).
+ *
+ * Why this exists (mt#2700): the entrypoint passed `input.cwd` straight into
+ * `detectMergeInProgress` and `writeFreshnessMarker`, but `input.cwd` tracks
+ * the harness SHELL's working directory, which is routinely a SUBDIRECTORY
+ * of the repo (e.g. `<session>/cockpit-tray/src-tauri` during a build). The
+ * git subprocess probes (`git -C <dir>`) walk up to the repo root on their
+ * own, so the freshness comparison stayed correct — but the fs-only marker
+ * probe does NOT walk up, so a genuine in-progress merge at the repo root
+ * was invisible and the mt#1739 carve-out silently failed to fire,
+ * reintroducing the merge-completion deadlock it exists to close (observed
+ * 2026-07-08, mt#2675 convergence). Same class: the mt#1522 CAS marker was
+ * written under the subdirectory instead of the repo root, silently
+ * bypassing session_commit's push-time CAS read.
+ *
+ * fs-only by design (no subprocess): mid-merge detection runs BEFORE the
+ * wall-clock budget guard, which is safe only while it stays `existsSync`
+ * probes. Cost is one probe per path segment.
+ */
+export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (fs.existsSync(join(dir, ".git"))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      // Filesystem root reached without finding a repo — fall back to the
+      // original directory so callers' downstream probes fail naturally.
+      return resolve(startDir);
+    }
+    dir = parent;
+  }
 }
 
 /**
@@ -668,7 +712,11 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const repoDir = input.cwd;
+  // Resolve the repo ROOT from the shell cwd (mt#2700): `input.cwd` is
+  // routinely a subdirectory of the repo, which the `git -C` probes tolerate
+  // (git walks up) but the fs-only mid-merge detection and the CAS-marker
+  // write do not. All downstream consumers get the root.
+  const repoDir = findRepoRoot(input.cwd);
 
   // Read host cap from settings.json and apply derived budgets BEFORE
   // hookStart capture so the OVERALL_BUDGET_MS guard inside

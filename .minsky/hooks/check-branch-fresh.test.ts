@@ -3,6 +3,7 @@ import {
   formatBlockMessage,
   checkBranchFreshness,
   detectMergeInProgress,
+  findRepoRoot,
   resolveGitDir,
   MERGE_IN_PROGRESS_MARKERS,
   refreshRemoteRefs,
@@ -502,6 +503,57 @@ describe("checkBranchFreshness (exported)", () => {
         files: { [`${FAKE_REPO_DIR}/.git`]: "junk content with no gitdir line\n" },
       });
       expect(resolveGitDir(FAKE_REPO_DIR, fs)).toBe(`${FAKE_REPO_DIR}/.git`);
+    });
+  });
+
+  describe("mt#2700 findRepoRoot (cwd below repo root)", () => {
+    test("returns startDir unchanged when it contains .git (repo root case)", () => {
+      const fs = makeFakeFs({ directories: [`${FAKE_REPO_DIR}/.git`] });
+      expect(findRepoRoot(FAKE_REPO_DIR, fs)).toBe(FAKE_REPO_DIR);
+    });
+
+    test("walks up from a nested subdirectory to the dir containing .git", () => {
+      // The incident shape: shell cwd at <session>/cockpit-tray/src-tauri
+      // while the merge markers live under <session>/.git (mt#2700).
+      const fs = makeFakeFs({ directories: [`${FAKE_REPO_DIR}/.git`] });
+      expect(findRepoRoot(`${FAKE_REPO_DIR}/cockpit-tray/src-tauri`, fs)).toBe(FAKE_REPO_DIR);
+    });
+
+    test("stops at a dir whose .git is a FILE (worktree gitdir indirection)", () => {
+      const fs = makeFakeFs({
+        files: {
+          [`${FAKE_WORKTREE_REPO_DIR}/.git`]: `gitdir: ${RESOLVED_WORKTREE_GITDIR}\n`,
+        },
+      });
+      expect(findRepoRoot(`${FAKE_WORKTREE_REPO_DIR}/deep/nested`, fs)).toBe(
+        FAKE_WORKTREE_REPO_DIR
+      );
+    });
+
+    test("falls back to startDir when no .git exists anywhere up the tree", () => {
+      const fs = makeFakeFs({});
+      expect(findRepoRoot("/mock/no-repo/anywhere", fs)).toBe("/mock/no-repo/anywhere");
+    });
+
+    test("nearest .git wins for nested checkouts (stops at the first hit)", () => {
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`, `${FAKE_REPO_DIR}/vendor/inner/.git`],
+      });
+      expect(findRepoRoot(`${FAKE_REPO_DIR}/vendor/inner/src`, fs)).toBe(
+        `${FAKE_REPO_DIR}/vendor/inner`
+      );
+    });
+
+    test("INCIDENT REGRESSION: detectMergeInProgress finds MERGE_HEAD from a subdirectory cwd via findRepoRoot", () => {
+      // Direct probe from the subdirectory misses (the mt#2700 bug) ...
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/MERGE_HEAD`],
+      });
+      const subdirCwd = `${FAKE_REPO_DIR}/cockpit-tray/src-tauri`;
+      expect(detectMergeInProgress(subdirCwd, fs)).toBeNull();
+      // ... while the entrypoint's root resolution finds the marker.
+      expect(detectMergeInProgress(findRepoRoot(subdirCwd, fs), fs)).toBe("MERGE_HEAD");
     });
   });
 
