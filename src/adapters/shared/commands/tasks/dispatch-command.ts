@@ -454,7 +454,9 @@ export function createTasksDispatchCommand(
         if (!sessionResult?.sessionId) {
           return {
             success: false,
-            error: `Task ${taskId} created but session start failed`,
+            error: isExistingTaskMode
+              ? `Session start failed for task ${taskId}`
+              : `Task ${taskId} created but session start failed`,
             taskId,
             harness,
           };
