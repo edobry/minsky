@@ -49,10 +49,11 @@ TIMEOUT_S=75
 [[ -x "$BIN" ]] || { echo "SKIP: '$APP' not installed — run cockpit-tray/scripts/install-local.sh first."; exit 0; }
 
 listener_pid() { lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -t 2>/dev/null | head -n1; }
-# NOTE: WKWebView network traffic is attributed to the com.apple.WebKit.Networking
-# process, NOT cockpit-tray — so count ALL established connections on the port
-# (cold state guarantees a zero baseline; the screenshot remains the authority).
-estab()        { lsof -nP -iTCP:"${PORT}" -sTCP:ESTABLISHED 2>/dev/null | grep -c ':' || true; }
+# WKWebView network traffic is attributed to the com.apple.WebKit.Networking
+# helper process, not cockpit-tray. `+c 0` untruncates lsof's COMMAND column
+# so we can attribute established connections to the webview specifically
+# (a bare port-wide count could pass on unrelated clients).
+estab()        { lsof +c 0 -nP -iTCP:"${PORT}" -sTCP:ESTABLISHED 2>/dev/null | grep -c 'WebKit' || true; }
 wins()         { osascript -e 'tell application "System Events" to tell process "cockpit-tray" to count windows' 2>/dev/null || echo 0; }
 
 echo "== mt#2688 cold-start verification (task=${TASK}, port=${PORT}) =="
@@ -85,7 +86,7 @@ for i in $(seq 1 "${TIMEOUT_S}"); do
   W="$(wins)"; E="$(estab)"
   if [[ "${W:-0}" -ge 1 && "${E:-0}" -ge 1 ]]; then
     RESULT="PASS"
-    echo "PASS after ~${i}s (windows=${W}, ESTABLISHED conns on :${PORT}=${E}, daemon up at ~${DAEMON_UP_AT:-?}s)"
+    echo "PASS after ~${i}s (windows=${W}, WebKit ESTABLISHED conns on :${PORT}=${E}, daemon up at ~${DAEMON_UP_AT:-?}s)"
     break
   fi
 done
@@ -96,7 +97,7 @@ screencapture -x "${SHOT}" 2>/dev/null \
 if [[ "${RESULT}" == "PASS" ]]; then
   exit 0
 fi
-echo "FAIL: within ${TIMEOUT_S}s: daemon up at ~${DAEMON_UP_AT:-never}s, windows=$(wins), estab=$(estab)."
-echo "      A window with 0 established connections to :${PORT} is the mt#2688 white-window signature."
+echo "FAIL: within ${TIMEOUT_S}s: daemon up at ~${DAEMON_UP_AT:-never}s, windows=$(wins), webkit-estab=$(estab)."
+echo "      A window with 0 WebKit connections to :${PORT} is the mt#2688 white-window signature."
 echo "      (If the window IS visibly live in ${SHOT}, shell GUI-detection missed it.)"
 exit 1
