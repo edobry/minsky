@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- tracked by mt#2598 */
 /**
  * PlantFlowPage — the "/plant" route: the cockpit's whole-system plant board.
  *
@@ -62,8 +63,15 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useReadyCount } from "../hooks/useReadyCount";
-import { useSystemEvents } from "../hooks/useSystemEvents";
+import { useSystemEvents, useReplayEvents, type SystemEventRow } from "../hooks/useSystemEvents";
+import { useOpenAskCount } from "../hooks/useOpenAskCount";
+import { useTaskBacklogCounts } from "../hooks/useTaskBacklogCounts";
+import { useS3Gauges, gaugeFraction, GAUGE_SETPOINT_FRACTION } from "../hooks/useS3Gauges";
+import { useSystemHealth, type ServiceHealth } from "../hooks/useSystemHealth";
+import { useSlowTopology } from "../hooks/useSlowTopology";
+import { useNavigate } from "react-router-dom";
 import { GestureEdge } from "../components/GestureEdge";
+import { ScrubberBar } from "../components/ScrubberBar";
 import {
   GESTURE_MS,
   GESTURE_TONE_VARS,
@@ -71,6 +79,16 @@ import {
   mapEventToGestures,
   takeNewEvents,
 } from "../lib/plant-gestures";
+import {
+  buildReplaySchedule,
+  dueSteps,
+  isReplayComplete,
+  DEFAULT_REPLAY_SPEED,
+  type PlantMode,
+  type ReplaySpeed,
+  type ReplayStep,
+  type ReplayWindow,
+} from "../lib/plant-replay";
 
 // ---------------------------------------------------------------------------
 // Node data types
@@ -128,11 +146,14 @@ function MiniGaugeArc({
   sublabel,
   needleFraction,
   setpointFraction,
+  valueLabel,
 }: {
   label: string;
   sublabel: string;
   needleFraction: number;
   setpointFraction: number;
+  /** Real reading behind the needle, or "—" for an honest gap (mt#2590). */
+  valueLabel?: string;
 }) {
   const size = 64;
   const cx = size / 2;
@@ -200,6 +221,14 @@ function MiniGaugeArc({
         <div className="text-[8px] font-mono text-muted-foreground leading-tight truncate max-w-[64px]">
           {sublabel}
         </div>
+        {valueLabel !== undefined && (
+          <div
+            className="text-[8px] font-mono text-foreground/70 leading-tight"
+            data-testid={`gauge-value-${label}`}
+          >
+            {valueLabel}
+          </div>
+        )}
       </figcaption>
     </figure>
   );
@@ -352,8 +381,14 @@ function OrganNodeShell({
 // S5 Identity node — policy canopy at the top
 // ---------------------------------------------------------------------------
 
-function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface S5IdentityNodeData extends OrganNodeData {
+  openAskCount?: number | null;
+}
+
+function S5IdentityNode(props: NodeProps<Node<S5IdentityNodeData>>) {
   const accentVar = ORGAN_ACCENTS.s5;
+  const { openAskCount } = props.data as S5IdentityNodeData;
+  const hasPendingAsk = (openAskCount ?? 0) > 0;
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -366,16 +401,25 @@ function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
       ]}
     >
       <div className="flex items-center gap-4 flex-wrap">
+        {/* STABLE-tier identity labeling (policy corpus presence), not a live
+            telemetry claim — no numeric/measured value is asserted here, so
+            it is not in scope for mt#2590's fake-live-data fix. */}
         <div className="text-[9px] font-mono text-muted-foreground">rules: active</div>
         <div className="text-[9px] font-mono text-muted-foreground">decision-defaults: active</div>
         <div
-          className="ml-auto flex items-center justify-center w-6 h-6 rounded-full border vsm-ask-pulse text-[8px] font-mono font-bold"
+          className={[
+            "ml-auto flex items-center justify-center w-6 h-6 rounded-full border text-[8px] font-mono font-bold",
+            hasPendingAsk ? "vsm-ask-pulse" : undefined,
+          ]
+            .filter(Boolean)
+            .join(" ")}
           style={{
             borderColor: `oklch(var(--vsm-seam) / 0.9)`,
             color: `oklch(var(--vsm-seam) / 1)`,
             background: `oklch(var(--vsm-seam) / 0.12)`,
           }}
           aria-label="YOU — operator terminus"
+          data-testid="you-badge"
         >
           YOU
         </div>
@@ -388,8 +432,49 @@ function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
 // S4 Future node — roadmap feed + deploy loop
 // ---------------------------------------------------------------------------
 
-function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
+/** Backlog tank display scale — TODO+PLANNING count at/above this reads as "full". */
+const BACKLOG_TANK_MAX = 30;
+
+interface S4FutureNodeData extends OrganNodeData {
+  todoCount?: number;
+  planningCount?: number;
+  backlogLoading?: boolean;
+  backlogError?: boolean;
+  deployStatus?: string | null;
+}
+
+function S4FutureNode(props: NodeProps<Node<S4FutureNodeData>>) {
   const accentVar = ORGAN_ACCENTS.s4;
+  const { todoCount, planningCount, backlogLoading, backlogError, deployStatus } =
+    props.data as S4FutureNodeData;
+
+  const backlogTotal =
+    todoCount !== undefined && planningCount !== undefined ? todoCount + planningCount : undefined;
+  const fill = backlogTotal !== undefined ? Math.min(1, backlogTotal / BACKLOG_TANK_MAX) : 0;
+  const fillPct = Math.round(fill * 100);
+
+  const planningLabel = backlogLoading ? "…" : backlogError || planningCount === undefined ? "—" : String(planningCount);
+  const todoLabel = backlogLoading ? "…" : backlogError || todoCount === undefined ? "—" : String(todoCount);
+
+  // Deploy chip: reuses the mcp-server-status widget's already-computed
+  // deploy.status (no new endpoint — mt#2590 constraint 2). null means the
+  // status is genuinely unreachable — render the honest placeholder rather
+  // than the permanently-green claim this chip used to make.
+  let deployNode: React.ReactNode;
+  if (deployStatus === "SUCCESS") {
+    deployNode = (
+      <>
+        build → smoke → <span style={{ color: "oklch(var(--liveness-healthy) / 1)" }}>live ✓</span>
+      </>
+    );
+  } else if (deployStatus) {
+    deployNode = (
+      <span style={{ color: "oklch(var(--warn-amber) / 1)" }}>deploy: {deployStatus}</span>
+    );
+  } else {
+    deployNode = <span className="text-muted-foreground">deploy: —</span>;
+  }
+
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -407,12 +492,13 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
             className="w-4 rounded border overflow-hidden flex-none"
             style={{ height: "40px", borderColor: `oklch(${accentVar} / 0.6)` }}
             aria-label="Backlog feed tank"
+            data-testid="backlog-feed-tank"
           >
             <div
-              className="w-full vsm-breath"
+              className="w-full"
               style={{
-                height: "40%",
-                marginTop: "60%",
+                height: `${fillPct}%`,
+                marginTop: `${100 - fillPct}%`,
                 background: `oklch(${accentVar} / 0.35)`,
               }}
               aria-hidden="true"
@@ -421,7 +507,7 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
           <div className="flex flex-col gap-0.5">
             <span className="text-[9px] font-mono text-muted-foreground">backlog feed</span>
             <span className="text-[8px] font-mono text-muted-foreground/70">
-              PLANNING — · TODO —
+              PLANNING {planningLabel} · TODO {todoLabel}
             </span>
           </div>
         </div>
@@ -429,8 +515,21 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
         <div
           className="rounded px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground"
           style={{ border: `1px solid oklch(${accentVar} / 0.3)` }}
+          data-testid="s4-deploy-chip"
         >
-          build → smoke → <span style={{ color: "oklch(var(--liveness-healthy) / 1)" }}>live ✓</span>
+          {deployNode}
+        </div>
+        {/* Mesh region — honestly-empty reserved placeholder (mt#2591; canon:
+            mt#2375 §S4 "mesh region reserved/honestly-empty"). No data source
+            exists for the mesh yet, so this carries NO numbers and NO
+            animation — a dashed border + muted label is the whole contract. */}
+        <div
+          className="rounded px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground/60"
+          style={{ border: `1px dashed oklch(${accentVar} / 0.35)` }}
+          data-testid="s4-mesh-region"
+          aria-label="Mesh region — reserved, not yet wired"
+        >
+          mesh — reserved
         </div>
       </div>
     </OrganNodeShell>
@@ -441,8 +540,21 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
 // S3 Management node — gauges with alarm setpoints
 // ---------------------------------------------------------------------------
 
-function S3ManagementNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface S3ManagementNodeData extends OrganNodeData {
+  mcpDisconnectCount?: number | null;
+  mcpDisconnectThreshold?: number;
+  dispatchCount?: number | null;
+  dispatchThreshold?: number;
+}
+
+function S3ManagementNode(props: NodeProps<Node<S3ManagementNodeData>>) {
   const accentVar = ORGAN_ACCENTS.s3;
+  const { mcpDisconnectCount, mcpDisconnectThreshold, dispatchCount, dispatchThreshold } =
+    props.data as S3ManagementNodeData;
+
+  const mcpThreshold = mcpDisconnectThreshold ?? 3;
+  const dispThreshold = dispatchThreshold ?? 2;
+
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -457,25 +569,46 @@ function S3ManagementNode(_props: NodeProps<Node<OrganNodeData>>) {
       <div className="flex items-start justify-around gap-1 py-1">
         <MiniGaugeArc
           label="mcp disc."
-          sublabel="alarm 3/24h"
-          needleFraction={0.15}
-          setpointFraction={0.75}
+          sublabel={`alarm ${mcpThreshold}/24h`}
+          needleFraction={gaugeFraction(mcpDisconnectCount ?? null, mcpThreshold)}
+          setpointFraction={GAUGE_SETPOINT_FRACTION}
+          valueLabel={mcpDisconnectCount === null || mcpDisconnectCount === undefined ? "—" : String(mcpDisconnectCount)}
         />
         <MiniGaugeArc
           label="dispatch"
-          sublabel="alarm 2/sess"
-          needleFraction={0.10}
-          setpointFraction={0.65}
+          sublabel={`alarm ${dispThreshold}/sess`}
+          needleFraction={gaugeFraction(dispatchCount ?? null, dispThreshold)}
+          setpointFraction={GAUGE_SETPOINT_FRACTION}
+          valueLabel={dispatchCount === null || dispatchCount === undefined ? "—" : String(dispatchCount)}
         />
+        {/* attention_report has no HTTP surface today (mt#2590 documented
+            gap) — honest flat placeholder rather than a faked reading. */}
         <MiniGaugeArc
           label="attention"
           sublabel="—"
-          needleFraction={0.35}
-          setpointFraction={0.55}
+          needleFraction={0}
+          setpointFraction={0}
+          valueLabel="—"
         />
       </div>
-      <div className="text-[8px] font-mono text-muted-foreground text-center">
-        3★ sweep → over S1
+      <div className="flex items-center justify-center gap-1.5">
+        <span className="text-[8px] font-mono text-muted-foreground">3★ sweep → over S1</span>
+        {/* The 3★ scan sweep — one of the two canon-allowed idle animations
+            (memory 8d3d4f06). CSS-driven (not SVG SMIL) so the global
+            prefers-reduced-motion rule in index.css gates it. */}
+        <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden="true" data-testid="vsm-scan-sweep">
+          <line
+            x1="1"
+            y1="4"
+            x2="27"
+            y2="4"
+            stroke={`oklch(${accentVar} / 0.7)`}
+            strokeWidth="2"
+            strokeDasharray="6 4"
+            strokeLinecap="round"
+            className="vsm-scan"
+          />
+        </svg>
       </div>
     </OrganNodeShell>
   );
@@ -649,8 +782,22 @@ function S1DoneNode(_props: NodeProps<Node<S1StageNodeData>>) {
 // Attention / Ask seam node
 // ---------------------------------------------------------------------------
 
-function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface AttentionSeamNodeData extends OrganNodeData {
+  openAskCount?: number | null;
+  openAskLoading?: boolean;
+  openAskError?: boolean;
+}
+
+function AttentionSeamNode(props: NodeProps<Node<AttentionSeamNodeData>>) {
   const accentVar = ORGAN_ACCENTS.seam;
+  const { openAskCount, openAskLoading, openAskError } = props.data as AttentionSeamNodeData;
+  const hasPendingAsk = (openAskCount ?? 0) > 0;
+  const asksOpenLabel = openAskLoading
+    ? "…"
+    : openAskError || openAskCount === undefined || openAskCount === null
+      ? "—"
+      : String(openAskCount);
+
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -669,18 +816,24 @@ function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
           <span
-            className="inline-flex items-center justify-center w-5 h-5 rounded-full vsm-ask-pulse text-[8px] font-mono font-bold"
+            className={[
+              "inline-flex items-center justify-center w-5 h-5 rounded-full text-[8px] font-mono font-bold",
+              hasPendingAsk ? "vsm-ask-pulse" : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ")}
             style={{
               background: `oklch(${accentVar} / 0.18)`,
               border: `1.5px solid oklch(${accentVar} / 0.7)`,
               color: `oklch(${accentVar} / 1)`,
             }}
             aria-label="Pending ask"
+            data-testid="seam-ask-badge"
           >
             ↑
           </span>
           <span className="text-[9px] font-mono" style={{ color: `oklch(${accentVar} / 0.9)` }}>
-            ask pending
+            {hasPendingAsk ? "ask pending" : "no ask pending"}
           </span>
         </div>
         <div
@@ -689,7 +842,9 @@ function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
         >
           decision ↓ unblocks
         </div>
-        <div className="text-[8px] font-mono text-muted-foreground">asks open: —</div>
+        <div className="text-[8px] font-mono text-muted-foreground" data-testid="asks-open-count">
+          asks open: {asksOpenLabel}
+        </div>
       </div>
     </OrganNodeShell>
   );
@@ -699,8 +854,15 @@ function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
 // Learning loop node
 // ---------------------------------------------------------------------------
 
-function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
+interface LearningLoopNodeData extends OrganNodeData {
+  /** Derived interlock count (mt#2602) — null while the slow-clock sweep is still pending. */
+  interlockCount?: number | null;
+}
+
+function LearningLoopNode(props: NodeProps<Node<LearningLoopNodeData>>) {
   const accentVar = ORGAN_ACCENTS.learn;
+  const navigate = useNavigate();
+  const { interlockCount } = props.data as LearningLoopNodeData;
   return (
     <OrganNodeShell
       accentVar={accentVar}
@@ -725,8 +887,24 @@ function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
           <span className="text-muted-foreground/40">▸</span>
           <span>rule</span>
           <span className="text-muted-foreground/40">▸</span>
-          <span style={{ color: `oklch(${accentVar} / 0.7)` }}>⟂ interlock</span>
+          <span style={{ color: `oklch(${accentVar} / 0.7)` }}>
+            ⟂ interlock{typeof interlockCount === "number" ? ` (${interlockCount})` : ""}
+          </span>
         </div>
+        {/*
+         * Interlock-history drill-down entry point (mt#2602 acceptance test 2/3).
+         * Route renamed from /plant/weld-history (mt#2626, guard vocabulary
+         * alignment); the `weld-history-link` test id is kept stable.
+         */}
+        <button
+          type="button"
+          onClick={() => navigate("/plant/interlock-history")}
+          className="self-start text-[8px] font-mono text-muted-foreground hover:text-foreground transition-colors underline decoration-dotted"
+          data-testid="weld-history-link"
+          aria-label="View interlock history — provenance timeline"
+        >
+          interlock history →
+        </button>
         {/* Memory reservoir — the SVG board's tank instrument (mt#2466 item 4) */}
         <div
           className="flex items-center gap-2"
@@ -767,14 +945,45 @@ function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
 // Infra Supply node — supply band
 // ---------------------------------------------------------------------------
 
-function InfraSupplyNode(_props: NodeProps<Node<OrganNodeData>>) {
+/** Dot color per real service-health state — "unknown" is the honest placeholder. */
+function serviceDotColor(health: ServiceHealth | undefined): string {
+  switch (health) {
+    case "healthy":
+      return "oklch(var(--liveness-healthy) / 1)";
+    case "unhealthy":
+      return "oklch(var(--warn-amber) / 1)";
+    default:
+      return "oklch(var(--muted-foreground) / 0.5)";
+  }
+}
+
+interface InfraSupplyNodeData extends OrganNodeData {
+  mcpServerHealth?: ServiceHealth;
+  postgresHealth?: ServiceHealth;
+  credentialsHealth?: ServiceHealth;
+  embeddingsHealth?: ServiceHealth;
+  reviewerBotHealth?: ServiceHealth;
+}
+
+function InfraSupplyNode(props: NodeProps<Node<InfraSupplyNodeData>>) {
   const accentVar = ORGAN_ACCENTS.infra;
-  const services = [
-    { name: "MCP server", healthy: true },
-    { name: "Postgres", healthy: true },
-    { name: "credentials", healthy: false },
-    { name: "embeddings", healthy: false },
-    { name: "reviewer bot", healthy: false },
+  const {
+    mcpServerHealth,
+    postgresHealth,
+    credentialsHealth,
+    embeddingsHealth,
+    reviewerBotHealth,
+  } = props.data as InfraSupplyNodeData;
+
+  const services: Array<{ name: string; health: ServiceHealth | undefined }> = [
+    { name: "MCP server", health: mcpServerHealth },
+    { name: "Postgres", health: postgresHealth },
+    { name: "credentials", health: credentialsHealth },
+    { name: "embeddings", health: embeddingsHealth },
+    // No HTTP surface exists today for minsky-reviewer[bot] health from the
+    // cockpit server (mt#2590 documented gap) — always renders the honest
+    // "unknown" dot rather than a faked reading.
+    { name: "reviewer bot", health: reviewerBotHealth ?? "unknown" },
   ];
 
   return (
@@ -787,14 +996,15 @@ function InfraSupplyNode(_props: NodeProps<Node<OrganNodeData>>) {
     >
       <div className="flex items-center gap-3 flex-wrap">
         {services.map((s) => (
-          <div key={s.name} className="flex items-center gap-1.5">
+          <div key={s.name} className="flex items-center gap-1.5" data-testid={`infra-dot-${s.name}`}>
             <span
               className="w-1.5 h-1.5 rounded-full"
-              style={{
-                background: s.healthy
-                  ? "oklch(var(--liveness-healthy) / 1)"
-                  : "oklch(var(--muted-foreground) / 0.5)",
-              }}
+              style={{ backgroundColor: serviceDotColor(s.health) }}
+              data-testid={`infra-dot-status-${s.name}`}
+              // Plain attribute mirror of the health state driving the dot
+              // color, for test assertions — some CSS test environments
+              // don't reliably serialize oklch()-valued inline color styles.
+              data-health={s.health ?? "unknown"}
               aria-hidden="true"
             />
             <span className="text-[9px] font-mono text-muted-foreground">{s.name}</span>
@@ -816,11 +1026,19 @@ interface S2ValveNodeData {
   valveKey: string;
   /** when true, exposes a bottom target handle (the learning-loop interlock weld) */
   interlockTarget?: boolean;
+  /**
+   * Derived total interlock count (mt#2602). Only rendered on the
+   * `interlockTarget` valve (DONE) — the plant has 4 fixed positional valves
+   * regardless of the real hook count (which may be ~30+); the derived
+   * inventory surfaces here as a count badge rather than one valve per hook,
+   * with the full inventory available in the interlock-history drill-down.
+   */
+  interlockCount?: number | null;
   [key: string]: unknown;
 }
 
 function S2ValveNode(props: NodeProps<Node<S2ValveNodeData>>) {
-  const { valveKey, interlockTarget } = props.data as S2ValveNodeData;
+  const { valveKey, interlockTarget, interlockCount } = props.data as S2ValveNodeData;
   return (
     <div
       className="relative"
@@ -839,6 +1057,15 @@ function S2ValveNode(props: NodeProps<Node<S2ValveNodeData>>) {
         }}
         aria-hidden="true"
       />
+      {interlockTarget && typeof interlockCount === "number" && (
+        <span
+          className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap text-[7px] font-mono text-muted-foreground"
+          data-testid="s2-valve-interlock-count"
+          title={`${interlockCount} derived interlocks (guard hooks)`}
+        >
+          {interlockCount} interlocks
+        </span>
+      )}
       {interlockTarget && (
         <Handle
           type="target"
@@ -1363,7 +1590,8 @@ const INITIAL_EDGES: Edge[] = [
 // ---------------------------------------------------------------------------
 // Plant legend — the reading grammar (mt#2466 item 8), ported from the SVG
 // board's legend sidebar. Lives in a react-flow Panel in the bottom-right
-// (the board's open corner). Collapsible; expanded by default.
+// (the board's open corner). Collapsible; collapsed by default (mt#2591 —
+// info-on-demand default avoids crowding the S1 pipeline tail when open).
 // ---------------------------------------------------------------------------
 
 const LEGEND_ORGANS: Array<{ colorVar: string; label: string }> = [
@@ -1377,7 +1605,12 @@ const LEGEND_ORGANS: Array<{ colorVar: string; label: string }> = [
 ];
 
 function PlantLegend() {
-  const [open, setOpen] = useState(true);
+  // Collapsed by default (mt#2591): the expanded panel's bottom-right footprint
+  // crowded the S1 pipeline tail (REVIEW/DONE) and the Learning Loop label at
+  // narrower viewports. Collapse-by-default is the info-on-demand default the
+  // ISA-101 HMI discipline recommends (mt#2466 canon) and keeps the common view
+  // calm; the reading grammar stays one click away via the toggle below.
+  const [open, setOpen] = useState(false);
 
   return (
     <div
@@ -1444,16 +1677,30 @@ function PlantLegend() {
 
 function PlantFlowCanvas() {
   const { data: readyCount, isLoading: readyLoading } = useReadyCount();
+  const { data: openAskCount, isLoading: openAskLoading, isError: openAskError } =
+    useOpenAskCount();
+  const {
+    data: backlogCounts,
+    isLoading: backlogLoading,
+    isError: backlogError,
+  } = useTaskBacklogCounts();
+  const { data: s3Gauges } = useS3Gauges();
+  const { data: systemHealth } = useSystemHealth();
+  const { data: slowTopology } = useSlowTopology();
   const { fitView } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
 
   // -------------------------------------------------------------------------
-  // Fast-clock gesture engine (mt#2377 v2.0). Polls system_events; the FIRST
-  // poll only baselines (history is not motion); each subsequent poll fires
-  // the fixed gesture dictionary for genuinely-new rows. Expired gestures are
-  // pruned so the indefinite SMIL dots unmount.
+  // Fast-clock gesture engine (mt#2377 v2.0, replay added mt#2600). Live mode
+  // polls system_events; the FIRST poll only baselines (history is not
+  // motion); each subsequent poll fires the fixed gesture dictionary for
+  // genuinely-new rows. Replay mode feeds a fetched historical window through
+  // the SAME dictionary, paced by lib/plant-replay.ts's pure schedule — both
+  // paths converge on the one `fireGestures` callback below so there is no
+  // replay-only vocabulary (honest-motion law).
   // -------------------------------------------------------------------------
-  const { data: eventRows } = useSystemEvents();
+  const [mode, setMode] = useState<PlantMode>("live");
+  const { data: eventRows, refetch: refetchLiveEvents } = useSystemEvents(undefined, mode === "live");
   const engineRef = useRef(createGestureEngineState());
   const [activeGestures, setActiveGestures] = useState<{
     edgeDots: Record<string, { until: number; colorVar: string }>;
@@ -1461,10 +1708,20 @@ function PlantFlowCanvas() {
     nodePulses: Record<string, { until: number; colorVar: string }>;
   }>({ edgeDots: {}, edgeFlashes: {}, nodePulses: {} });
 
+  // Outstanding gesture-expiry timers, tracked so they can be cancelled on
+  // unmount (fireGestures is called imperatively from both the live-poll
+  // effect and the replay ticker, so no single useEffect owns its cleanup).
+  const gestureExpiryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   useEffect(() => {
-    if (!eventRows) return;
-    const fresh = takeNewEvents(engineRef.current, eventRows);
-    if (fresh.length === 0) return;
+    const timers = gestureExpiryTimersRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
+  const fireGestures = useCallback((events: SystemEventRow[]) => {
+    if (events.length === 0) return;
     const until = Date.now() + GESTURE_MS;
     setActiveGestures((prev) => {
       const next = {
@@ -1472,7 +1729,7 @@ function PlantFlowCanvas() {
         edgeFlashes: { ...prev.edgeFlashes },
         nodePulses: { ...prev.nodePulses },
       };
-      for (const ev of fresh) {
+      for (const ev of events) {
         const g = mapEventToGestures(ev);
         for (const d of g.edgeDots) {
           next.edgeDots[d.edgeId] = { until, colorVar: GESTURE_TONE_VARS[d.tone] };
@@ -1487,6 +1744,7 @@ function PlantFlowCanvas() {
       return next;
     });
     const timer = setTimeout(() => {
+      gestureExpiryTimersRef.current.delete(timer);
       const now = Date.now();
       setActiveGestures((prev) => ({
         edgeDots: Object.fromEntries(Object.entries(prev.edgeDots).filter(([, v]) => v.until > now)),
@@ -1498,8 +1756,83 @@ function PlantFlowCanvas() {
         ),
       }));
     }, GESTURE_MS + 200);
-    return () => clearTimeout(timer);
-  }, [eventRows]);
+    gestureExpiryTimersRef.current.add(timer);
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "live" || !eventRows) return;
+    const fresh = takeNewEvents(engineRef.current, eventRows);
+    fireGestures(fresh);
+  }, [mode, eventRows, fireGestures]);
+
+  // -------------------------------------------------------------------------
+  // Replay (mt#2600): a fixed historical window, ordered + paced by the pure
+  // lib/plant-replay.ts engine and stepped by a plain interval here.
+  // -------------------------------------------------------------------------
+  const [replayWindow, setReplayWindow] = useState<ReplayWindow | null>(null);
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(DEFAULT_REPLAY_SPEED);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replaySchedule, setReplaySchedule] = useState<ReplayStep[]>([]);
+  const [replayPlayheadIso, setReplayPlayheadIso] = useState<string | null>(null);
+  const replayEngineRef = useRef({ elapsedMs: 0, firedCount: 0, tickAnchor: null as number | null });
+
+  const { data: replayEventRows } = useReplayEvents(mode === "replay" ? replayWindow : null);
+
+  // A fresh window (or a speed change) rebuilds the schedule and resets
+  // playback progress. Speed changes mid-playback restart the window at the
+  // new speed rather than drift-correcting an in-flight schedule — an
+  // acceptable v1 simplification for a still/paused-by-default replay start.
+  useEffect(() => {
+    if (mode !== "replay" || !replayEventRows) return;
+    setReplaySchedule(buildReplaySchedule(replayEventRows, replaySpeed));
+    replayEngineRef.current = { elapsedMs: 0, firedCount: 0, tickAnchor: null };
+    setReplayPlayheadIso(null);
+  }, [mode, replayEventRows, replaySpeed]);
+
+  useEffect(() => {
+    if (mode !== "replay" || !replayPlaying || replaySchedule.length === 0) return;
+    const engine = replayEngineRef.current;
+    engine.tickAnchor = Date.now();
+    const id = setInterval(() => {
+      const now = Date.now();
+      const delta = now - (engine.tickAnchor ?? now);
+      engine.tickAnchor = now;
+      engine.elapsedMs += delta;
+      const { due, firedCount } = dueSteps(replaySchedule, engine.elapsedMs, engine.firedCount);
+      engine.firedCount = firedCount;
+      if (due.length > 0) {
+        fireGestures(due.map((s) => s.event));
+        setReplayPlayheadIso(due[due.length - 1]?.event.createdAt ?? null);
+      }
+      if (isReplayComplete(replaySchedule, firedCount)) {
+        setReplayPlaying(false);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [mode, replayPlaying, replaySchedule, fireGestures]);
+
+  const handleEnterReplay = useCallback((window: ReplayWindow) => {
+    setMode("replay");
+    setReplayWindow(window);
+    setReplayPlaying(false);
+  }, []);
+
+  const handleExitReplay = useCallback(() => {
+    setMode("live");
+    setReplayPlaying(false);
+    setReplayWindow(null);
+    setReplaySchedule([]);
+    replayEngineRef.current = { elapsedMs: 0, firedCount: 0, tickAnchor: null };
+    setReplayPlayheadIso(null);
+    // Re-baseline (mt#2600 acceptance test): a fresh engine state means the
+    // NEXT live poll's takeNewEvents() call treats every currently-existing
+    // row — including ones that happened while the live poller was paused
+    // during replay — as baseline, not motion. Clearing activeGestures too
+    // so no replay-fired gesture lingers past exit.
+    engineRef.current = createGestureEngineState();
+    setActiveGestures({ edgeDots: {}, edgeFlashes: {}, nodePulses: {} });
+    void refetchLiveEvents();
+  }, [refetchLiveEvents]);
 
   // Build the initial node layout with placeholder ready data.
   // Live readyCount is propagated into the READY node via `updatedNodes` below,
@@ -1513,13 +1846,31 @@ function PlantFlowCanvas() {
   // before custom HTML node heights are known (bounds = bare positions), which
   // over-zooms and clips the bottom row (mt#2422 R1 defect). This effect refits
   // against real bounds so the whole plant is always inside the viewport.
+  //
+  // mt#2590: also re-fit whenever the live instrument queries settle. Real
+  // data (e.g. "asks open: 517" vs the placeholder "asks open: —", or
+  // 3-digit backlog counts vs "—") can be substantially WIDER than the
+  // placeholder content nodesInitialized measured at mount — without this,
+  // the one-shot fitView leaves later-widened nodes (S3, Infra Supply, the
+  // right end of the S1 spine) pushed outside the viewport once real data
+  // arrives a beat after first paint.
   useEffect(() => {
     if (nodesInitialized) {
-      void fitView({ padding: 0.04, maxZoom: 1.0 });
+      void fitView({ padding: 0.1, maxZoom: 1.0 });
     }
-  }, [nodesInitialized, fitView]);
+  }, [
+    nodesInitialized,
+    fitView,
+    readyCount,
+    openAskCount,
+    backlogCounts,
+    s3Gauges,
+    systemHealth,
+    slowTopology,
+  ]);
 
-  // Propagate live readyCount into the READY node data without resetting layout.
+  // Propagate live instrument data into each node without resetting layout
+  // (mirrors the pre-existing s1-ready readyCount propagation, mt#2590).
   const updatedNodes = useMemo(() => {
     return nodes.map((node) => {
       let out = node;
@@ -1527,6 +1878,64 @@ function PlantFlowCanvas() {
         out = {
           ...out,
           data: { ...out.data, readyCount, readyLoading },
+        };
+      }
+      if (node.id === "s5-identity") {
+        out = { ...out, data: { ...out.data, openAskCount } };
+      }
+      if (node.id === "attention-seam") {
+        out = {
+          ...out,
+          data: { ...out.data, openAskCount, openAskLoading, openAskError },
+        };
+      }
+      if (node.id === "s4-future") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            todoCount: backlogCounts?.todo,
+            planningCount: backlogCounts?.planning,
+            backlogLoading,
+            backlogError,
+            deployStatus: systemHealth?.deployStatus ?? null,
+          },
+        };
+      }
+      if (node.id === "s3-management") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            mcpDisconnectCount: s3Gauges?.mcpDisconnects.eligibleCount24h,
+            mcpDisconnectThreshold: s3Gauges?.mcpDisconnects.threshold,
+            dispatchCount: s3Gauges?.subagentDispatches.partialUncommittedCount,
+            dispatchThreshold: s3Gauges?.subagentDispatches.threshold,
+          },
+        };
+      }
+      if (node.id === "infra-supply") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            mcpServerHealth: systemHealth?.infra.mcpServer,
+            postgresHealth: systemHealth?.infra.postgres,
+            credentialsHealth: systemHealth?.infra.credentials,
+            embeddingsHealth: systemHealth?.infra.embeddings,
+            reviewerBotHealth: systemHealth?.infra.reviewerBot,
+          },
+        };
+      }
+      // Derived interlock count (mt#2602): propagated into both the
+      // learning-loop node's inline readout and the DONE valve's count badge.
+      if (node.id === "learning-loop" || node.id === "s2-valve-done") {
+        out = {
+          ...out,
+          data: {
+            ...out.data,
+            interlockCount: slowTopology?.status === "ready" ? slowTopology.interlockCount : null,
+          },
         };
       }
       const pulse = activeGestures.nodePulses[node.id];
@@ -1542,7 +1951,21 @@ function PlantFlowCanvas() {
       }
       return out;
     });
-  }, [nodes, readyCount, readyLoading, activeGestures]);
+  }, [
+    nodes,
+    readyCount,
+    readyLoading,
+    openAskCount,
+    openAskLoading,
+    openAskError,
+    backlogCounts,
+    backlogLoading,
+    backlogError,
+    s3Gauges,
+    systemHealth,
+    slowTopology,
+    activeGestures,
+  ]);
 
   // Apply edge gestures: traveling-dot data on the spine's gesture edges,
   // flash class on governance edges.
@@ -1567,43 +1990,83 @@ function PlantFlowCanvas() {
   const onNodesChangeCallback = useCallback(onNodesChange, [onNodesChange]);
   const onEdgesChangeCallback = useCallback(onEdgesChange, [onEdgesChange]);
 
+  // Honest-motion law extension (mt#2600): replay must never be mistakable
+  // for live — an inset border frame on the whole canvas is the "impossible
+  // to miss" signal, on top of the top-center banner + timestamp readout.
   return (
-    <ReactFlow
-      nodes={updatedNodes}
-      edges={renderedEdges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      onNodesChange={onNodesChangeCallback}
-      onEdgesChange={onEdgesChangeCallback}
-      fitView
-      fitViewOptions={{ padding: 0.04, maxZoom: 1.0 }}
-      minZoom={0.25}
-      maxZoom={2}
-      defaultEdgeOptions={{
-        // Visible teal default for any edge without an explicit style
-        style: {
-          stroke: `oklch(var(--vsm-s1) / 0.60)`,
-          strokeWidth: 1.5,
-        },
-        labelBgStyle: EDGE_LABEL_BG_STYLE,
-        labelBgPadding: [4, 2] as [number, number],
-        labelBgBorderRadius: 3,
-        labelShowBg: true,
-      }}
-      proOptions={{ hideAttribution: true }}
-      style={{ background: "oklch(var(--background) / 1)" }}
-      aria-label="Minsky plant flow diagram — VSM organs as connected nodes"
+    <div
+      className="w-full h-full"
+      data-testid="replay-frame"
+      style={
+        mode === "replay"
+          ? { boxShadow: "inset 0 0 0 3px oklch(var(--warn-amber) / 0.85)" }
+          : undefined
+      }
     >
-      <Background
-        variant={BackgroundVariant.Dots}
-        gap={24}
-        size={1}
-        color="oklch(var(--border) / 0.5)"
-      />
-      <Panel position="bottom-right">
-        <PlantLegend />
-      </Panel>
-    </ReactFlow>
+      <ReactFlow
+        nodes={updatedNodes}
+        edges={renderedEdges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={onNodesChangeCallback}
+        onEdgesChange={onEdgesChangeCallback}
+        fitView
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
+        minZoom={0.25}
+        maxZoom={2}
+        defaultEdgeOptions={{
+          // Visible teal default for any edge without an explicit style
+          style: {
+            stroke: `oklch(var(--vsm-s1) / 0.60)`,
+            strokeWidth: 1.5,
+          },
+          labelBgStyle: EDGE_LABEL_BG_STYLE,
+          labelBgPadding: [4, 2] as [number, number],
+          labelBgBorderRadius: 3,
+          labelShowBg: true,
+        }}
+        proOptions={{ hideAttribution: true }}
+        style={{ background: "oklch(var(--background) / 1)" }}
+        aria-label="Minsky plant flow diagram — VSM organs as connected nodes"
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={24}
+          size={1}
+          color="oklch(var(--border) / 0.5)"
+        />
+        {mode === "replay" && (
+          <Panel position="top-center">
+            <div
+              className="rounded-md px-3 py-1 font-mono text-[10px] font-bold tracking-[0.12em] uppercase"
+              style={{
+                color: "oklch(var(--warn-amber) / 1)",
+                background: "oklch(var(--card) / 0.95)",
+                border: "1px solid oklch(var(--warn-amber) / 0.6)",
+              }}
+              data-testid="replay-banner"
+            >
+              ● REPLAY — {replayPlayheadIso ?? replayWindow?.since ?? "…"}
+            </div>
+          </Panel>
+        )}
+        <Panel position="bottom-center">
+          <ScrubberBar
+            mode={mode}
+            playing={replayPlaying}
+            speed={replaySpeed}
+            playheadIso={replayPlayheadIso}
+            onEnterReplay={handleEnterReplay}
+            onExitReplay={handleExitReplay}
+            onPlayPause={() => setReplayPlaying((p) => !p)}
+            onSpeedChange={setReplaySpeed}
+          />
+        </Panel>
+        <Panel position="bottom-right">
+          <PlantLegend />
+        </Panel>
+      </ReactFlow>
+    </div>
   );
 }
 
@@ -1611,7 +2074,28 @@ function PlantFlowCanvas() {
 // Main: PlantFlowPage
 // ---------------------------------------------------------------------------
 
+/** Header banner text + color per real aggregated health state (mt#2590). */
+function headerStatusPresentation(health: "nominal" | "degraded" | "unknown" | undefined): {
+  label: string;
+  className: string;
+} {
+  switch (health) {
+    case "nominal":
+      return { label: "● system nominal", className: "text-liveness-healthy" };
+    case "degraded":
+      return { label: "● system degraded", className: "text-warn-amber" };
+    default:
+      // Fetch not yet resolved, or every constituent source failed — the
+      // honest-fallback rule requires a neutral/unknown state here, never a
+      // green claim the data doesn't support.
+      return { label: "● status unknown", className: "text-muted-foreground" };
+  }
+}
+
 export function PlantFlowPage() {
+  const { data: systemHealth } = useSystemHealth();
+  const headerStatus = headerStatusPresentation(systemHealth?.header);
+
   return (
     <div
       // The cockpit shell (Layout.tsx) renders a sticky h-14 AppHeader above
@@ -1630,7 +2114,9 @@ export function PlantFlowPage() {
           v2 · node-link canvas · READY tank live · event-driven motion · idle-honest
         </span>
         <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
-          <span className="text-liveness-healthy">● system nominal</span>
+          <span className={headerStatus.className} data-testid="header-status">
+            {headerStatus.label}
+          </span>
         </span>
       </header>
 

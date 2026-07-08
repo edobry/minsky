@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import { approveSessionPr } from "./session-approval-operations";
+import { approveSessionPr } from "./session-pr-approval-operations";
 import { ResourceNotFoundError } from "../errors/index";
 import { initializeConfiguration, CustomConfigFactory } from "../configuration";
 import { PersistenceService } from "../persistence/service";

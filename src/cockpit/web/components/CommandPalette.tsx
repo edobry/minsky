@@ -9,8 +9,8 @@
  * recents-as-default; the former Recent group and its lib/recent-items
  * substrate were retired by mt#2399).
  *
- * PRs join as a source when a PR detail surface exists — mt#2410's spec
- * defers "/pr/:n" until then.
+ * PRs join as a search source (mt#2536 wired changeset linkification;
+ * the /changeset/:n detail route is mt#2535).
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +24,7 @@ import {
   CommandItem,
 } from "./ui/command";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { entityToPath } from "../lib/entity-codec";
 
 // ---------------------------------------------------------------------------
 // Entity types for the palette
@@ -86,6 +87,7 @@ const PAGES: PalettePage[] = [
   },
   { type: "page", path: "/tasks", label: "Task List", description: "Flat sortable task table" },
   { type: "page", path: "/tasks/graph", label: "Task Graph", description: "Dependency graph view" },
+  { type: "page", path: "/changesets", label: "Changesets", description: "Active PRs across sessions" },
   { type: "page", path: "/asks", label: "Asks", description: "Pending principal-attention asks" },
   { type: "page", path: "/activity", label: "Activity", description: "System event log" },
   {
@@ -281,25 +283,14 @@ export function CommandPalette() {
   const handleSelect = useCallback(
     (entity: PaletteEntity) => {
       // Entity selections land on the URL-addressable detail routes; the tab
-      // model (mt#2398) opens them as entity tabs on visit. mt#X ids encode
-      // their "#" as %23 via encodeURIComponent.
+      // model (mt#2398) opens them as entity tabs on visit. Path composition
+      // is delegated to the shared entity codec (entity-codec.ts) — the single
+      // source of truth for (type, id) → cockpit path.
       let path: string;
-      switch (entity.type) {
-        case "task":
-          path = `/tasks/${encodeURIComponent(entity.id)}`;
-          break;
-        case "session":
-          path = `/agents/${encodeURIComponent(entity.id)}`;
-          break;
-        case "ask":
-          path = `/ask/${encodeURIComponent(entity.id)}`;
-          break;
-        case "memory":
-          path = `/memory/${encodeURIComponent(entity.id)}`;
-          break;
-        case "page":
-          path = entity.path;
-          break;
+      if (entity.type === "page") {
+        path = entity.path;
+      } else {
+        path = entityToPath(entity.type, entity.id);
       }
 
       setOpen(false);

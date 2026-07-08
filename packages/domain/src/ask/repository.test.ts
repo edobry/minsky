@@ -20,10 +20,16 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
 import type { Ask, AskKind } from "./types";
-import { FakeAskRepository, toAsk } from "./repository";
+import {
+  FakeAskRepository,
+  toAsk,
+  respondAndCloseAsk,
+  ConcurrentTransitionError,
+} from "./repository";
 import type { CreateAskInput } from "./repository";
 import type { AskRecord } from "../storage/schemas/ask-schema";
 import { InvalidAskTransitionError } from "./state-machine";
+import { ALL_PROJECTS } from "../project/scope";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -351,6 +357,47 @@ describe("listByState", () => {
   });
 });
 
+describe("listByState — project scope filter (ADR-021, mt#2563)", () => {
+  const PROJECT_A = "11111111-1111-1111-1111-111111111111";
+  const PROJECT_B = "22222222-2222-2222-2222-222222222222";
+
+  it("create round-trips projectId", async () => {
+    const created = await repo.create(makeInput({ projectId: PROJECT_A }));
+    expect(created.projectId).toBe(PROJECT_A);
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.projectId).toBe(PROJECT_A);
+  });
+
+  it("a uuid scope returns only that project's Asks and excludes others", async () => {
+    await repo.create(makeInput({ projectId: PROJECT_A }));
+    await repo.create(makeInput({ projectId: PROJECT_A }));
+    await repo.create(makeInput({ projectId: PROJECT_B }));
+    await repo.create(makeInput()); // unscoped (projectId undefined)
+
+    const aOnly = await repo.listByState("detected", PROJECT_A);
+    expect(aOnly).toHaveLength(2);
+    expect(aOnly.every((a) => a.projectId === PROJECT_A)).toBe(true);
+
+    const bOnly = await repo.listByState("detected", PROJECT_B);
+    expect(bOnly).toHaveLength(1);
+    expect(bOnly[0]?.projectId).toBe(PROJECT_B);
+    // The cross-project exclusion the bug was about: project B never sees A's Asks.
+    expect(bOnly.some((a) => a.projectId === PROJECT_A)).toBe(false);
+  });
+
+  it("ALL_PROJECTS and an omitted scope return cross-project rows (incl. unscoped)", async () => {
+    await repo.create(makeInput({ projectId: PROJECT_A }));
+    await repo.create(makeInput({ projectId: PROJECT_B }));
+    await repo.create(makeInput()); // unscoped
+
+    const viaSentinel = await repo.listByState("detected", ALL_PROJECTS);
+    expect(viaSentinel).toHaveLength(3);
+
+    const viaOmit = await repo.listByState("detected");
+    expect(viaOmit).toHaveLength(3);
+  });
+});
+
 describe("listByClassifierVersion", () => {
   it("returns only Asks with the matching classifierVersion", async () => {
     await repo.create(makeInput({ classifierVersion: "v1.0.0" }));
@@ -569,6 +616,158 @@ describe("close", () => {
     await expect(
       repo.close("no-such-id", { response: { responder: "operator", payload: {} } })
     ).rejects.toThrow("not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// respondAndCloseAsk — shared suspended -> closed walk (mt#2615)
+//
+// Exercises the domain function both `respondToAsk` (asks.ts) and the
+// cockpit `/api/asks/:id/resolve` route now delegate to. Coverage mirrors
+// the asks.test.ts `respondToAsk` suite but calls the shared function
+// directly with a structured (non-message) payload, matching the real
+// cockpit UI caller shape.
+// ---------------------------------------------------------------------------
+
+describe("respondAndCloseAsk", () => {
+  /** Walk a freshly-created Ask to "suspended" via valid transitions. */
+  async function seedSuspended(overrides: Partial<CreateAskInput> = {}): Promise<Ask> {
+    const ask = await repo.create(makeInput(overrides));
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    return repo.transition(ask.id, "suspended");
+  }
+
+  it("walks suspended -> closed and writes a structured payload", async () => {
+    const ask = await seedSuspended();
+
+    const result = await respondAndCloseAsk(repo, {
+      id: ask.id,
+      payload: { option: "yes", chosen: true },
+      attentionCost: { transport: "inbox", resolvedIn: "inbox" },
+    });
+
+    expect(result.ask.state).toBe("closed");
+    expect(result.ask.response?.responder).toBe("operator");
+    expect(result.ask.response?.payload).toEqual({ option: "yes", chosen: true });
+    expect(result.ask.response?.attentionCost?.transport).toBe("inbox");
+    expect(result.ask.response?.attentionCost?.resolvedIn).toBe("inbox");
+
+    const persisted = await repo.getById(ask.id);
+    expect(persisted?.state).toBe("closed");
+  });
+
+  it("trims a whitespace-padded responder before persisting", async () => {
+    const ask = await seedSuspended();
+
+    const result = await respondAndCloseAsk(repo, {
+      id: ask.id,
+      responder: "  operator  ",
+      payload: { approved: true },
+    });
+
+    expect(result.ask.response?.responder).toBe("operator");
+  });
+
+  it("defaults responder to 'operator' when omitted", async () => {
+    const ask = await seedSuspended();
+
+    const result = await respondAndCloseAsk(repo, {
+      id: ask.id,
+      payload: { approved: true },
+    });
+
+    expect(result.ask.response?.responder).toBe("operator");
+  });
+
+  it("defaults responder to 'operator' when responder is empty after trim", async () => {
+    const ask = await seedSuspended();
+
+    const result = await respondAndCloseAsk(repo, {
+      id: ask.id,
+      responder: "   ",
+      payload: { approved: true },
+    });
+
+    expect(result.ask.response?.responder).toBe("operator");
+  });
+
+  it("throws when the Ask does not exist", async () => {
+    await expect(respondAndCloseAsk(repo, { id: "no-such-ask", payload: {} })).rejects.toThrow(
+      /Ask not found/
+    );
+  });
+
+  it("rejects an empty id", async () => {
+    await expect(respondAndCloseAsk(repo, { id: "", payload: {} })).rejects.toThrow(
+      /id is required/
+    );
+  });
+
+  it("rejects an Ask in a pre-suspended state ('detected')", async () => {
+    const ask = await repo.create(makeInput());
+
+    await expect(respondAndCloseAsk(repo, { id: ask.id, payload: {} })).rejects.toThrow(
+      /only "suspended" Asks can be responded to/
+    );
+  });
+
+  it("rejects a terminal Ask ('closed')", async () => {
+    const ask = await seedSuspended();
+    await repo.transition(ask.id, "responded");
+    await repo.transition(ask.id, "closed");
+
+    await expect(respondAndCloseAsk(repo, { id: ask.id, payload: {} })).rejects.toThrow(
+      /only "suspended" Asks can be responded to/
+    );
+  });
+
+  it("normalizes a concurrent transition into the same not-suspended error shape", async () => {
+    const ask = await seedSuspended();
+
+    // Simulate a concurrent actor racing the row to "cancelled" between the
+    // precondition check and the atomic update.
+    let raceArmed = true;
+    const originalGetById = repo.getById.bind(repo);
+    repo.getById = async (id: string) => {
+      const result = await originalGetById(id);
+      if (raceArmed && result?.state === "suspended") {
+        raceArmed = false;
+        if (result) repo._seedAtState({ ...result, state: "cancelled" });
+      }
+      return result;
+    };
+
+    await expect(respondAndCloseAsk(repo, { id: ask.id, payload: {} })).rejects.toThrow(
+      /Ask is in "cancelled" state.*only "suspended" Asks can be responded to/s
+    );
+
+    const persisted = await originalGetById(ask.id);
+    expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
+    // Sanity: the underlying repo error class is the one we normalized away.
+    expect(ConcurrentTransitionError).toBeDefined();
+  });
+
+  it("does not attach attentionCost on the respond stage — only on close", async () => {
+    const respondInputs: Array<{ responder: string; payload: unknown; attentionCost?: unknown }> =
+      [];
+    const originalRespondAndClose = repo.respondAndClose.bind(repo);
+    repo.respondAndClose = async (id, respondInput, closeInput) => {
+      respondInputs.push(respondInput.response);
+      return originalRespondAndClose(id, respondInput, closeInput);
+    };
+
+    const ask = await seedSuspended();
+    await respondAndCloseAsk(repo, {
+      id: ask.id,
+      payload: { approved: true },
+      attentionCost: { transport: "inbox", resolvedIn: "inbox" },
+    });
+
+    expect(respondInputs).toHaveLength(1);
+    expect(respondInputs[0]?.attentionCost).toBeUndefined();
+    expect(respondInputs[0]?.payload).toEqual({ approved: true });
   });
 });
 

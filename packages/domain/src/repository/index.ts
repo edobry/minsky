@@ -410,6 +410,17 @@ export interface ReviewOperations {
   getPullRequestCreatedAt?(prIdentifier: string | number): Promise<string>;
 
   /**
+   * Return the PR's current HEAD commit SHA (the tip of the PR branch).
+   *
+   * Introduced for mt#2586: `session_pr_wait_for_review` uses this to match
+   * only reviews submitted against the current HEAD, so a stale review of a
+   * superseded commit no longer satisfies a re-review wait. Non-GitHub
+   * backends may not implement this; callers treat `undefined` as
+   * "HEAD-sha lookup not supported" and fall back to the `since`-based filter.
+   */
+  getPullRequestHeadSha?(prIdentifier: string | number): Promise<string>;
+
+  /**
    * Mark a GitHub PR review thread as resolved.
    *
    * Requires a GraphQL `resolveReviewThread` mutation — no REST equivalent.
@@ -449,6 +460,34 @@ export interface ReviewOperations {
     prIdentifier: string | number,
     options: import("./github-checks-run").SubmitCheckRunOptions
   ): Promise<import("./github-checks-run").SubmitCheckRunResult & { headSha: string }>;
+
+  /**
+   * List the files changed by a pull request (all pages).
+   *
+   * Introduced for mt#2647: `session.pr.drive`'s postMerge deploy-watch mode
+   * needs the PR's changed-file set to determine which deploy services are
+   * affected (via `@minsky/domain/deployment`'s `findAffectedServices`).
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "changed-file listing not supported on this backend" and
+   * require an explicit `services` override instead.
+   */
+  listChangedFiles?(prIdentifier: string | number): Promise<PrChangedFile[]>;
+}
+
+/**
+ * A single changed file on a pull request, as returned by
+ * `ReviewOperations.listChangedFiles`. Narrow projection of GitHub's
+ * `pulls.listFiles` response shape — enough for deploy-surface detection
+ * without leaking the full forge payload into domain code.
+ */
+export interface PrChangedFile {
+  /** Repo-relative path (the current path, post-rename for a "renamed" status). */
+  filename: string;
+  /** Change kind. */
+  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  /** Present for renamed/copied files — the path before the rename/copy. */
+  previousFilename?: string;
 }
 
 /**
@@ -478,6 +517,13 @@ export interface ReviewListEntry {
   body: string;
   /** Web URL of the review, if the forge exposes one. */
   htmlUrl?: string;
+  /**
+   * The commit SHA the review was submitted against (GitHub's `commit_id`).
+   * Undefined when the forge does not expose it. Used by
+   * `session_pr_wait_for_review` to distinguish a review of the current HEAD
+   * from a stale review of a superseded commit (mt#2586).
+   */
+  commitId?: string;
 }
 
 // Completely rewritten repository backend interface with flexible types

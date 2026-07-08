@@ -59,6 +59,42 @@ describe("Multi-Backend Task System", () => {
         expect(created.title).toBe(spec.title);
       });
 
+      describe("mt#2572 Bug 4: backend param routing", () => {
+        it("throws a clear error when requested backend is not registered", async () => {
+          const { service } = createTaskServiceWithMocks();
+          // Service has "Markdown" (md) and "GitHub Issues" (gh); "minsky" is not registered
+          await expect(
+            service.createTaskFromTitleAndSpec("Test Task", "spec body", { backend: "minsky" })
+          ).rejects.toThrow("is not registered");
+        });
+
+        it("routes to the specified backend by name when registered", async () => {
+          const { service } = createTaskServiceWithMocks();
+          // "GitHub Issues" backend (prefix "gh") is registered; request by name
+          const created = await service.createTaskFromTitleAndSpec("Test Task", "spec body", {
+            backend: "GitHub Issues",
+          });
+          // The qualified id must have the "gh" prefix — proving the gh backend was used
+          expect(created.id).toMatch(/^gh#/);
+        });
+
+        it("routes to the specified backend by prefix when registered", async () => {
+          const { service } = createTaskServiceWithMocks();
+          // "Markdown" backend (prefix "md") is registered; request by prefix
+          const created = await service.createTaskFromTitleAndSpec("Test Task", "spec body", {
+            backend: "md",
+          });
+          expect(created.id).toMatch(/^md#/);
+        });
+
+        it("uses the default backend when no backend option is provided", async () => {
+          const { service } = createTaskServiceWithMocks();
+          // First registered backend ("Markdown", prefix "md") is the default
+          const created = await service.createTaskFromTitleAndSpec("Test Task", "spec body");
+          expect(created.id).toMatch(/^md#/);
+        });
+      });
+
       it("should support task listing from all backends", async () => {
         const { service } = createTaskServiceWithMocks();
         const all = await service.listTasks();

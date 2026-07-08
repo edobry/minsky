@@ -694,7 +694,8 @@ export function registerPersistenceCommandsWithMcp(
 }
 
 /**
- * Register changeset commands with MCP (repository changesets and session aliases)
+ * Register repository-scoped changeset commands with MCP (backend-agnostic
+ * `changeset.*` family: list/get/info/search).
  */
 export function registerChangesetCommandsWithMcp(
   commandMapper: CommandMapper,
@@ -715,19 +716,6 @@ export function registerMcpCommandsWithMcp(
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
     categories: [CommandCategory.MCP],
-    ...config,
-  });
-}
-
-/**
- * Register knowledge commands with MCP
- */
-export function registerKnowledgeCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.KNOWLEDGE],
     ...config,
   });
 }
@@ -777,60 +765,6 @@ export function registerPrincipalCorpusCommandsWithMcp(
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
     categories: [CommandCategory.PRINCIPAL_CORPUS],
-    ...config,
-  });
-}
-
-/**
- * Register authorship commands with MCP.
- *
- * This is the **least-privilege MCP entry point** for the authorship namespace.
- * Reviewer-style deployments that should NOT have access to the full provenance
- * record (transcript IDs, participants, substantive human input, etc.) should
- * call this function instead of `registerAllMainCommandsWithMcp` — the latter
- * intentionally exposes both `provenance.*` and `authorship.*` for admin/CLI use.
- *
- * The narrowing happens at two layers:
- *   1. Server surface: this function exposes only `CommandCategory.AUTHORSHIP`.
- *   2. Response shape: `authorship.get` returns `{ tier, rationale?, policyVersion?, judgingModel? }`,
- *      not the full ProvenanceRecord (see `authorship.ts`).
- *
- * `provenance.get` and `provenance.recompute` (deprecated alias) remain available
- * via `registerProvenanceCommandsWithMcp` / `registerAllMainCommandsWithMcp` for
- * admin and CLI consumers — that surface is INTENTIONAL, per mt#1227 / mt#1254.
- */
-export function registerAuthorshipCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.AUTHORSHIP],
-    ...config,
-  });
-}
-
-/**
- * Register workspace commands with MCP (e.g., workspace.info)
- */
-export function registerWorkspaceCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.WORKSPACE],
-    ...config,
-  });
-}
-
-/**
- * Register provenance commands with MCP
- */
-export function registerProvenanceCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.PROVENANCE],
     ...config,
   });
 }

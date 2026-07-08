@@ -25,7 +25,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
-import type { Ask, AskState, AskKind, AgentId } from "./types";
+import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
 import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
 import { isAllProjects, type ProjectScope } from "../project/scope";
 
@@ -51,6 +51,7 @@ export function toAsk(row: AskRecord): Ask {
     routingTarget: row.routingTarget ?? undefined,
     parentTaskId: row.parentTaskId ?? undefined,
     parentSessionId: row.parentSessionId ?? undefined,
+    projectId: row.projectId ?? undefined,
     title: row.title,
     question: row.question,
     options: row.options ?? undefined,
@@ -80,11 +81,12 @@ export function toAsk(row: AskRecord): Ask {
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
 function toInsert(input: CreateAskInput): AskInsert {
-  // ADR-021 / mt#2416: project_id write-stamping deferred to Phase-1.3b.
-  // The Ask domain type (CreateAskInput / Ask) does not yet carry a projectId
-  // field; adding it here requires a domain-type / contract change to AskInsert
-  // and the asksTable schema, which is scoped to Phase-1.3b.
-  // Read-scoping via listByState(state, projectScope) IS wired (mt#2416).
+  // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
+  // deferral from mt#2416). The resolved project uuid is threaded in via
+  // CreateAskInput.projectId (resolved at the asks.create execute callsite,
+  // mirroring how asks.list resolves the read-side scope). NULL when the
+  // project is unidentified (hosted server / cockpit daemon, no single-repo
+  // cwd) — an unscoped Ask, consistent with read-side fail-open.
   return {
     kind: input.kind,
     classifierVersion: input.classifierVersion,
@@ -93,6 +95,7 @@ function toInsert(input: CreateAskInput): AskInsert {
     routingTarget: input.routingTarget ?? null,
     parentTaskId: input.parentTaskId ?? null,
     parentSessionId: input.parentSessionId ?? null,
+    projectId: input.projectId ?? null,
     title: input.title,
     question: input.question,
     options: input.options ?? null,
@@ -120,6 +123,13 @@ export interface CreateAskInput {
   routingTarget?: Ask["routingTarget"];
   parentTaskId?: string;
   parentSessionId?: string;
+  /**
+   * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). Omitted
+   * when the project is unidentified — the Ask is then unscoped (NULL). Resolved
+   * at the `asks.create` execute callsite via the same path `asks.list` uses for
+   * read-side scoping.
+   */
+  projectId?: string;
   title: string;
   question: string;
   options?: Ask["options"];
@@ -421,6 +431,113 @@ export class ConcurrentTransitionError extends Error {
     this.name = "ConcurrentTransitionError";
     this.id = id;
     this.observedState = observedState;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// respondAndCloseAsk — shared suspended -> closed walk (mt#2615)
+// ---------------------------------------------------------------------------
+
+/** Params accepted by {@link respondAndCloseAsk}. */
+export interface RespondAndCloseAskParams {
+  /** Primary key of the Ask to respond to and close. */
+  id: string;
+  /** AgentId or `"operator"` identifier; defaults to `"operator"` when absent/blank. */
+  responder?: string;
+  /**
+   * Kind-specific response payload. Deliberately `unknown` — callers own
+   * their own payload shape (a plain `{ message }` wrapper for the CLI/MCP
+   * `respondToAsk` surface in `asks.ts`; a structured `{ option, chosen }` /
+   * `{ approved }` shape for the cockpit UI's resolve endpoint). This
+   * function does not interpret payload contents.
+   */
+  payload: unknown;
+  /**
+   * Attention cost recorded on close. Callers MUST compute this themselves
+   * (server-side for HTTP surfaces) rather than trusting untrusted input —
+   * this function does not validate or default it beyond passing it through.
+   */
+  attentionCost?: AttentionCost;
+}
+
+/**
+ * Shared suspended -> closed walk used by both `respondToAsk`
+ * (`src/adapters/shared/commands/asks.ts` — the plain-message CLI/MCP
+ * surface) and the cockpit `POST /api/asks/:id/resolve` route (the
+ * structured-payload UI surface). Extracted (mt#2615) so both callers share
+ * ONE suspended-state precondition check, ONE responder-trim rule, and ONE
+ * `ConcurrentTransitionError` handling path instead of two independently
+ * maintained implementations.
+ *
+ * Precondition: the Ask must exist and be in `"suspended"` state — earlier
+ * states (detected/classified/routed) mean no transport has dispatched yet;
+ * terminal states (closed/cancelled/expired) cannot be responded to again.
+ *
+ * Endpoint-specific policy (e.g. the cockpit resolve route's `routingTarget
+ * === "operator"` algedonic-selection gate, mt#1147 PR #1125 R1) is NOT part
+ * of this shared contract — callers apply their own additional gates before
+ * calling this function.
+ *
+ * @throws `Error` — Ask not found, or in a non-suspended state (including the
+ *         race-normalized message for a concurrent transition that lands the
+ *         Ask in a non-suspended state between the precondition check and
+ *         the atomic update).
+ */
+export async function respondAndCloseAsk(
+  repo: AskRepository,
+  params: RespondAndCloseAskParams
+): Promise<{ ask: Ask }> {
+  if (!params.id || params.id.trim() === "") {
+    throw new Error("respondAndCloseAsk: id is required and must not be empty");
+  }
+
+  const persisted = await repo.getById(params.id);
+  if (!persisted) {
+    throw new Error(`respondAndCloseAsk: Ask not found: ${params.id}`);
+  }
+  if (persisted.state !== "suspended") {
+    throw new Error(
+      `respondAndCloseAsk: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
+        `(detected/classified/routed: no transport has dispatched yet; ` +
+        `closed/cancelled/expired: terminal.)`
+    );
+  }
+
+  // Trim before constructing the payload so every caller (CLI/MCP/cockpit)
+  // sees the same normalized responder identifier.
+  const responder = params.responder?.trim() || "operator";
+
+  // Two-stage response payload, matching the Ask.response contract in
+  // types.ts: `attentionCost` is filled on close only.
+  const respondPayload = {
+    responder,
+    payload: params.payload,
+  };
+  const closePayload = {
+    responder,
+    payload: params.payload,
+    attentionCost: params.attentionCost,
+  };
+
+  // Atomic walk suspended -> closed via the repository's combined operation.
+  // Catch ConcurrentTransitionError and re-throw with the same friendly
+  // not-suspended message the pre-check above uses, so callers see ONE error
+  // shape for "Ask is not in suspended state" regardless of cause.
+  try {
+    const closed = await repo.respondAndClose(
+      params.id,
+      { response: respondPayload },
+      { response: closePayload }
+    );
+    return { ask: closed };
+  } catch (err) {
+    if (err instanceof ConcurrentTransitionError) {
+      throw new Error(
+        `respondAndCloseAsk: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
+          `(Concurrent actor transitioned the Ask between read and write.)`
+      );
+    }
+    throw err;
   }
 }
 
@@ -803,6 +920,7 @@ export class FakeAskRepository implements AskRepository {
       routingTarget: input.routingTarget,
       parentTaskId: input.parentTaskId,
       parentSessionId: input.parentSessionId,
+      projectId: input.projectId,
       title: input.title,
       question: input.question,
       options: input.options,
@@ -835,10 +953,14 @@ export class FakeAskRepository implements AskRepository {
   }
 
   async listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]> {
-    // In-memory fake: no projectId on Ask domain objects yet; scope filtering is a no-op
-    // unless the Ask type grows a projectId field (ADR-021, mt#2416 follow-up).
-    void projectScope;
-    return this.all.filter((a) => a.state === state).map((a) => ({ ...a }));
+    // Project-scope filter (ADR-021, mt#2563) — faithful to the Drizzle backend:
+    // when projectScope is a uuid (not ALL_PROJECTS / undefined), restrict to
+    // Asks stamped with that project_id. Unscoped Asks (projectId undefined) are
+    // excluded from a uuid-scoped read, matching the SQL `project_id = scope`.
+    const scoped = projectScope !== undefined && !isAllProjects(projectScope);
+    return this.all
+      .filter((a) => a.state === state && (!scoped || a.projectId === projectScope))
+      .map((a) => ({ ...a }));
   }
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {

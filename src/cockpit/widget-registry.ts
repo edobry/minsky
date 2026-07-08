@@ -22,6 +22,8 @@ import { memoriesHealthWidget } from "./widgets/memories-health";
 import { memoriesListWidget } from "./widgets/memories-list";
 import { memoriesSearchWidget } from "./widgets/memories-search";
 import { memoriesStatsWidget } from "./widgets/memories-stats";
+import { s3GaugesWidget } from "./widgets/s3-gauges";
+import { slowTopologyWidget } from "./widgets/slow-topology";
 import { taskGraphWidget } from "./widgets/task-graph";
 import { taskListWidget } from "./widgets/task-list";
 import { workstreamsWidget } from "./widgets/workstreams";
@@ -45,6 +47,8 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "memories-list": memoriesListWidget,
   "memories-search": memoriesSearchWidget,
   "memories-stats": memoriesStatsWidget,
+  "s3-gauges": s3GaugesWidget,
+  "slow-topology": slowTopologyWidget,
   "task-graph": taskGraphWidget,
   "task-list": taskListWidget,
   workstreams: workstreamsWidget,

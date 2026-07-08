@@ -97,6 +97,16 @@ export interface SessionPrWaitForReviewParams {
    * `ReviewOperations.getPullRequestCreatedAt` fall back to call-start.
    */
   since?: string;
+  /**
+   * When true (the default), only a review whose commit SHA matches the PR's
+   * current HEAD satisfies the wait. A stale review of a superseded commit is
+   * skipped, so a re-review cycle (pushing a fix after `CHANGES_REQUESTED`)
+   * waits for the fresh verdict instead of immediately returning the pre-fix
+   * one (mt#2586). Set `false` to accept any review regardless of commit (the
+   * pre-mt#2586 behavior). Ignored on backends that don't implement
+   * `getPullRequestHeadSha` (the wait falls back to the `since` filter).
+   */
+  requireCurrentHead?: boolean;
 }
 
 export interface SessionPrWaitForReviewMatch {
@@ -310,7 +320,8 @@ async function defaultGetTokenProvider(): Promise<TokenProvider> {
 export function explainReviewRejection(
   review: ReviewListEntry,
   since: number,
-  reviewer: string | undefined
+  reviewer: string | undefined,
+  headSha?: string
 ): string | null {
   // Exclude PENDING — those are draft reviews the reviewer hasn't submitted
   // yet; they don't count as "a review has been posted" for waiter purposes.
@@ -325,6 +336,13 @@ export function explainReviewRejection(
   if (submittedMs < since) {
     const sinceIso = new Date(since).toISOString();
     return `since: submittedAt ${review.submittedAt} < threshold ${sinceIso}`;
+  }
+  // mt#2586: reject a review submitted against a superseded commit. Only
+  // enforced when the caller resolved a HEAD sha (the backend supports
+  // getPullRequestHeadSha AND requireCurrentHead is not false); an undefined
+  // headSha means "no HEAD filter" — the fallback path for backends/opt-outs.
+  if (headSha !== undefined && review.commitId !== headSha) {
+    return `stale-head: review commit_id ${review.commitId ?? "<none>"} != HEAD ${headSha}`;
   }
   if (reviewer !== undefined) {
     // GitHub logins are case-insensitive at the platform level; the
@@ -349,10 +367,11 @@ export function explainReviewRejection(
 export function findMatchingReview(
   reviews: ReviewListEntry[],
   since: number,
-  reviewer: string | undefined
+  reviewer: string | undefined,
+  headSha?: string
 ): ReviewListEntry | undefined {
   for (const review of reviews) {
-    if (explainReviewRejection(review, since, reviewer) === null) {
+    if (explainReviewRejection(review, since, reviewer, headSha) === null) {
       return review;
     }
   }
@@ -374,12 +393,13 @@ export function findMatchingReview(
 export function annotateReviewRejections(
   reviews: ReviewListEntry[],
   since: number,
-  reviewer: string | undefined
+  reviewer: string | undefined,
+  headSha?: string
 ): AnnotatedReview[] {
   return reviews.map((review) => ({
     ...review,
     rejectionReason:
-      explainReviewRejection(review, since, reviewer) ??
+      explainReviewRejection(review, since, reviewer, headSha) ??
       "matched: review satisfies all filter criteria (annotation defensive fallback)",
   }));
 }
@@ -502,6 +522,20 @@ export async function sessionPrWaitForReview(
     }
 
     const sinceIso = new Date(since).toISOString();
+
+    // The PR's current HEAD sha (mt#2586), REFRESHED on every poll below — not
+    // resolved once — so that if HEAD advances during the wait (a quick
+    // re-push in a re-review cycle) a review of the PRIOR head keeps being
+    // rejected until a review of the NEW head lands. Declared here so
+    // `buildTimeoutResult`'s closure always reflects the latest poll's value.
+    // Stays undefined (no HEAD filter, `since`-only) when the caller opts out
+    // (requireCurrentHead === false) or the backend lacks getPullRequestHeadSha.
+    let headSha: string | undefined;
+    // Capture the HEAD-sha resolver (or undefined) so the poll loop can call it
+    // without a non-null assertion; requireCurrentHead === false disables it.
+    const getHeadSha =
+      params.requireCurrentHead !== false ? backend.review.getPullRequestHeadSha : undefined;
+
     const deadline = start + timeoutMs;
     let pollCount = 0;
     // Track the most recent poll's reviews so the timeout payload can
@@ -512,7 +546,7 @@ export async function sessionPrWaitForReview(
       matched: false,
       elapsedMs: now() - start,
       pollCount,
-      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer),
+      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer, headSha),
       sinceUsed: sinceIso,
     });
 
@@ -527,9 +561,16 @@ export async function sessionPrWaitForReview(
       }
 
       pollCount += 1;
+
+      // mt#2586: refresh HEAD each poll so a mid-wait HEAD advance keeps
+      // rejecting reviews of the prior head (getHeadSha captured once above).
+      if (getHeadSha) {
+        headSha = await getHeadSha(prNumber);
+      }
+
       const reviews = await backend.review.listReviews(prNumber);
       lastReviews = reviews;
-      const match = findMatchingReview(reviews, since, resolvedReviewer);
+      const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
       if (match) {
         return {
           matched: true,

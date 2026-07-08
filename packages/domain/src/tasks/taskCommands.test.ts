@@ -13,6 +13,7 @@ import {
   listTasksFromParams,
   setTaskStatusFromParams,
 } from "./taskCommands";
+import { createTaskFromTitleAndSpec } from "./commands/mutation-commands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskServiceInterface } from "./taskService";
 import { TEST_ENTITIES } from "../../../../src/utils/test-utils/test-constants";
@@ -995,5 +996,28 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const result = await getTaskFromParams(params, mockDeps as any);
       expect(result).toEqual({ ...mockTask, id: "mt#155" });
     });
+  });
+});
+
+describe("createTaskFromTitleAndSpec command — mt#2572 Bug 4 (backend forwarding)", () => {
+  test("forwards the requested backend option to the service (command-layer path)", async () => {
+    const createSpy = mock((_title: string, _spec: string, _options?: unknown) =>
+      Promise.resolve({ id: "mt#1", title: "Test", status: "TODO" })
+    );
+    const mockTaskService = {
+      createTaskFromTitleAndSpec: createSpy,
+    } as unknown as TaskServiceInterface;
+
+    await createTaskFromTitleAndSpec(
+      { title: "Test", spec: "spec body", backend: "minsky" },
+      { taskService: mockTaskService }
+    );
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    // The 3rd arg (options) must carry the caller's backend; otherwise the
+    // multi-backend service routes to its default — the exact regression this
+    // guards (the command previously omitted the options object). R1 blocking.
+    const options = createSpy.mock.calls[0]?.[2] as { backend?: string } | undefined;
+    expect(options?.backend).toBe("minsky");
   });
 });

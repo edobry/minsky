@@ -34,12 +34,18 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
 import type { ExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
@@ -93,9 +99,10 @@ export function registerTranscriptIndexEmbeddingsCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "index-embeddings",
     description:
-      "Generate and store per-turn embeddings and session-level summary + summary embedding " +
-      "for agent transcripts. Pass --all to sweep every ingested session, or " +
-      "--session=<uuid> to target one. Both pipelines are idempotent.",
+      "Generate and store per-turn embeddings and conversation-level summary + summary embedding " +
+      "for agent transcripts. Pass --all to sweep every ingested conversation, or " +
+      "--conversationId=<uuid> to target one (--session is a deprecated alias). " +
+      "Both pipelines are idempotent.",
     parameters: {
       all: {
         schema: z.boolean(),
@@ -103,11 +110,10 @@ export function registerTranscriptIndexEmbeddingsCommand(
         required: false,
         defaultValue: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Index a single session by its agent session UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam(
+        "Index a single harness conversation by its id (agent-session UUID)"
+      ),
+      session: deprecatedConversationAlias("session"),
       force: {
         schema: z.boolean(),
         description: "Force re-generation of summaries even for already-summarized rows",
@@ -118,13 +124,13 @@ export function registerTranscriptIndexEmbeddingsCommand(
 
     async execute(params, context): Promise<TranscriptIndexEmbeddingsResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
       const force = (params.force as boolean | undefined) ?? false;
 
       if (!doAll && !sessionId) {
         throw new Error(
-          "transcripts.index-embeddings requires either --all or --session=<uuid>. " +
-            "Pass --all to sweep all ingested sessions."
+          "transcripts.index-embeddings requires either --all or --conversationId=<uuid> " +
+            "(--session is a deprecated alias). Pass --all to sweep all ingested conversations."
         );
       }
 
@@ -261,7 +267,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
         const trows = await pgDb
           .select({ transcript: agentTranscriptsTable.transcript })
           .from(agentTranscriptsTable)
-          .where(eq(agentTranscriptsTable.agentSessionId, sessionId as string))
+          .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
           .limit(1);
         const turnsWritten = await writeTurnsForTranscript(
           pgDb,
@@ -294,7 +300,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
       let summaryProcessed = false;
       let summaryResult: SummaryPipelineRunResult | null = null;
       try {
-        summaryProcessed = await summaryPipeline.runForSession(sessionId as string);
+        summaryProcessed = await summaryPipeline.runForSession(sessionId as AgentSessionId);
         summaryResult = {
           transcriptsScanned: 1,
           transcriptsProcessed: summaryProcessed ? 1 : 0,

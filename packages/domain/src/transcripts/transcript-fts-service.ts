@@ -25,6 +25,7 @@ import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-sche
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
+import type { AgentSessionId } from "./transcript-source";
 import type {
   TranscriptTurnResult,
   TranscriptSessionMetadata,
@@ -173,7 +174,7 @@ export class TranscriptFtsService {
    * Throws if the session is not found.
    */
   async getSession(
-    sessionId: string,
+    sessionId: AgentSessionId,
     opts: TranscriptGetSessionOptions = {}
   ): Promise<TranscriptTurnResult[]> {
     const conditions: SQL[] = [eq(agentTranscriptTurnsTable.agentSessionId, sessionId)];

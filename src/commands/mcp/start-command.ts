@@ -1324,6 +1324,39 @@ export function createStartCommand(
             });
         }
 
+        // mt#2562/mt#2567: Pre-warm the PresenceClaimRepository so writeTaskClaim's
+        // first call skips the per-call DB connection build (fast-path optimization).
+        // This is now a WARM-UP ONLY — writeTaskClaim has its own per-call fallback
+        // that builds the repo from the container on every call when this hasn't fired.
+        // So if this async block doesn't complete before the first tool call (e.g.
+        // on a proxy/staleness-respawned server), the write path still works.
+        if (container) {
+          (async () => {
+            try {
+              const { buildPresenceClaimRepository } = await import(
+                "@minsky/domain/presence/index"
+              );
+              const provider = container.has("persistence")
+                ? (container.get("persistence") as {
+                    getDatabaseConnection?: () => Promise<unknown>;
+                  })
+                : undefined;
+              if (provider?.getDatabaseConnection) {
+                const db = await provider.getDatabaseConnection();
+                const repo = buildPresenceClaimRepository(db);
+                if (repo) {
+                  server.setPresenceClaimRepository(repo);
+                  log.debug("[mt#2562] PresenceClaimRepository pre-warmed");
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#2562] PresenceClaimRepository pre-warm unavailable", {
+                error: getErrorMessage(err),
+              });
+            }
+          })();
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
         profileCheckpoint("knowledge_resources_registered");
@@ -1474,6 +1507,22 @@ export function createStartCommand(
           // must leave an operator-findable signal, not vanish into .catch(()=>{}).
           .catch((err) => {
             log.warn("Startup transcript ingest failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
+        // Fire-and-forget background sweep bridging the disconnect-tracker's
+        // JSONL log into `system_events` as `mcp.disconnect` rows (mt#2537).
+        // HWM-gated internally so repeated boots (the MCP server restarts
+        // frequently — see CLAUDE.md's disconnect-cadence rule) only emit new
+        // disconnects since the last successful sweep.
+        import("../../mcp/disconnect-event-sweep")
+          .then(({ triggerMcpDisconnectEventSweep }) => {
+            if (!container) return;
+            return triggerMcpDisconnectEventSweep(container.get("persistence"));
+          })
+          .catch((err) => {
+            log.warn("mcp.disconnect event sweep failed (best-effort)", {
               error: err instanceof Error ? err.message : String(err),
             });
           });

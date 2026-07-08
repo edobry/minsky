@@ -40,7 +40,21 @@ bun run dev        # == `tauri dev`: compiles, launches, and rebuilds + relaunch
 
 So GUI-behavior verification = `bun run dev` + a manual click. **Do not report a tray UI change "verified" off `cargo check` alone** — that proves compilation, nothing about the click.
 
-## Release install (rare — testing the packaged app, not iterating)
+## Deep-link / `minsky://` scheme verification (the one thing `tauri dev` can't do)
+
+The `minsky://` URL scheme is registered from the app's `Info.plist` by macOS Launch Services at INSTALL time, not at runtime — so `tauri dev` (an unregistered binary) **cannot** exercise deep links. This is a macOS platform constraint, not a Tauri one ([Tauri deep-linking docs](https://v2.tauri.app/plugin/deep-linking/)). It's the one tray change that needs a build+install instead of `bun run dev`.
+
+Use the **lean installer** — it builds APP-ONLY (`tauri build --bundles app`), so it does NOT produce a `.dmg` and does NOT flash the macOS installer window on every rebuild (a full `bun run build` does both — mt#2553):
+
+```bash
+cockpit-tray/scripts/install-local.sh                # app-only build + install + LS register + dequarantine
+cockpit-tray/scripts/install-local.sh --binary-only  # fast iterative re-install (swap inner binary only)
+cockpit-tray/scripts/verify-deeplink-hotstart.sh     # automated hot-start-no-window check
+```
+
+Do NOT use the full `bun run build` (DMG-producing) path below for deep-link verification.
+
+## Release install (rare — testing the packaged DMG experience, not iterating)
 
 ```bash
 cd cockpit-tray && bun run build      # tauri build → src-tauri/target/release/bundle/macos/Minsky Cockpit.app
@@ -57,7 +71,7 @@ There is no auto-update yet, so a merged tray-binary change won't reach an insta
 
 ## Gotchas
 
-- **External-URL webviews lose Tauri IPC.** The cockpit window loads an external URL (`http://localhost:3737`), so that page **cannot call Tauri commands**. Fine for display-only (Rung 0). For native-bridge features (driving sessions — Rungs 2+ of mt#2230) you must bundle the cockpit frontend into the app (`frontendDist`) or use an iframe bridge.
+- **External-URL webviews lose Tauri IPC.** The cockpit window loads an external URL (`http://localhost:3737`), so that page **cannot call Tauri commands**. Fine for display-only (Rung 0). Per ADR-023 the SPA stays an untrusted external-URL client _by design_ — so driving sessions (Rungs 2+ of mt#2230) does **not** route through a Tauri native bridge or a bundled `frontendDist`. The terminal is hosted server-side in the cockpit daemon (a PTY) and streamed to the SPA over WebSocket (the VS Code Server / code-server / ttyd model); native-to-SPA data flows through the daemon (HTTP + SSE) and native-to-SPA actions through a Rust-to-webview `eval`. mt#2237 owns the final PTY-transport decision against ADR-023.
 - **Dock-icon suppression.** The app stays out of the Dock via `LSUIElement` (mt#2202) plus `ActivationPolicy::Accessory` in `main.rs`. If you add a window and a Dock icon appears, that's the regression to fix.
 - **Standalone package.** `cockpit-tray/` is NOT part of the root bun workspace — run `bun install` from inside it, not the repo root.
 - **Supervisor model (ADR-014 / mt#2241).** The tray is the canonical owner of the daemon lifecycle: spawn / adopt / supervise (respawn-with-throttle) / teardown, plus startup bundle-rebuild (mt#2297) and backend auto-restart (mt#2299). This already implemented the "app-owns-the-server" decision; read ADR-014 before touching lifecycle logic. (It supersedes the lifecycle question framed in mt#2231.)

@@ -21,6 +21,8 @@ import {
 // Shared test constants — reuse via these names so the magic-string linter is
 // satisfied and a rename only has one place to change.
 const PRE_COMMIT_SUMMARY = "Pre-commit hook blocked the commit";
+const ESLINT_WARNING_TAIL = "ESLint: 10 warnings exceed the threshold";
+const ESLINT_WARNING_THRESHOLD_STEP = "ESLint (warning threshold)";
 
 describe("McpErrorCode", () => {
   test("exports canonical string constants", () => {
@@ -86,6 +88,92 @@ describe("StructuredMcpError", () => {
       summary: "hooks blocked commit",
     });
     expect(err.message).toContain("hooks blocked commit");
+  });
+
+  // mt#2635: two live incidents showed an operator seeing ONLY the terse
+  // `summary` ("pre-commit hook blocked the commit") — because whatever
+  // surfaced the error rendered `error.message` and not `error.data`. These
+  // tests pin that the tail excerpt (and, when present, the failing-step
+  // label) are folded into `.message` itself, not just left in `.data`.
+  test("folds details.tail into message when present", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.PRE_COMMIT_FAILED,
+      summary: PRE_COMMIT_SUMMARY,
+      subprocessOutput: "full untruncated output",
+      details: { tail: ESLINT_WARNING_TAIL, truncated: false },
+    });
+    expect(err.message).toContain(PRE_COMMIT_SUMMARY);
+    expect(err.message).toContain(ESLINT_WARNING_TAIL);
+  });
+
+  test("folds details.failingStep into message when present", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.PRE_COMMIT_FAILED,
+      summary: PRE_COMMIT_SUMMARY,
+      details: {
+        tail: "⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️",
+        truncated: false,
+        failingStep: ESLINT_WARNING_THRESHOLD_STEP,
+      },
+    });
+    expect(err.message).toContain(ESLINT_WARNING_THRESHOLD_STEP);
+    expect(err.message).toContain("TOO MANY WARNINGS");
+  });
+
+  test("falls back to a fresh tail-truncation of subprocessOutput when details.tail is absent", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.COMMIT_MSG_FAILED,
+      summary: "commit-msg hook blocked the commit",
+      subprocessOutput: "Subject line too long (87 > 72 chars)",
+    });
+    expect(err.message).toContain("Subject line too long (87 > 72 chars)");
+  });
+
+  test("message is just the summary when there is no subprocess output at all", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.CONFLICT,
+      summary: "merge conflict",
+    });
+    // McpError's own constructor prefixes "MCP error -<code>: " onto whatever
+    // message it's given, so this asserts the SUFFIX equals the bare
+    // summary (no tail/failingStep appended) rather than an exact `.toBe`.
+    expect(err.message.endsWith("merge conflict")).toBe(true);
+    expect(err.message).not.toContain("\n");
+  });
+
+  // mt#2635 PR #1811 R1 minor note: don't repeat the headline text when the
+  // tail already contains it verbatim.
+  test("does not duplicate the headline when the tail already contains it", () => {
+    const err = new StructuredMcpError({
+      code: McpErrorCode.PRE_COMMIT_FAILED,
+      summary: PRE_COMMIT_SUMMARY,
+      details: {
+        // The tail happens to already contain the summary text verbatim
+        // (e.g. a caller-constructed payload, or a hook whose own output
+        // happens to echo the summary phrasing).
+        tail: `${PRE_COMMIT_SUMMARY}\n\n${ESLINT_WARNING_TAIL}`,
+        truncated: false,
+      },
+    });
+    const occurrences = err.message.split(PRE_COMMIT_SUMMARY).length - 1;
+    expect(occurrences).toBe(1);
+    expect(err.message).toContain(ESLINT_WARNING_TAIL);
+  });
+
+  test("does not duplicate when the tail contains both summary and failingStep headline", () => {
+    const lowercasePreCommitSummary = "pre-commit hook blocked the commit";
+    const headline = `${lowercasePreCommitSummary} (${ESLINT_WARNING_THRESHOLD_STEP})`;
+    const err = new StructuredMcpError({
+      code: McpErrorCode.PRE_COMMIT_FAILED,
+      summary: lowercasePreCommitSummary,
+      details: {
+        tail: `${headline}\n\n⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️`,
+        truncated: false,
+        failingStep: ESLINT_WARNING_THRESHOLD_STEP,
+      },
+    });
+    const occurrences = err.message.split(headline).length - 1;
+    expect(occurrences).toBe(1);
   });
 });
 

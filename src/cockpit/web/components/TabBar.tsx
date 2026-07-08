@@ -18,7 +18,7 @@
  * Links and the close buttons are natively focusable and keyboard-operable.
  */
 import { Link } from "react-router-dom";
-import { X, Network, Bot, GitBranch, CircleHelp, Brain } from "lucide-react";
+import { X, Network, Bot, GitBranch, CircleHelp, Brain, GitPullRequest } from "lucide-react";
 import { useTabs, type EntityTabKind } from "../lib/tabs";
 import { cn } from "../lib/utils";
 
@@ -28,6 +28,7 @@ const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string
   agent: GitBranch,
   ask: CircleHelp,
   memory: Brain,
+  changeset: GitPullRequest,
 };
 
 const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;

@@ -7,7 +7,7 @@
  * doesn't apply here.
  */
 /**
- * Regression test: no `elicitation/create` calls outside src/domain/ask/transports/.
+ * Regression test: no `elicitation/create` calls outside packages/domain/src/ask/transports/.
  *
  * Shape B's structural commitment is that the Ask subsystem owns elicitation
  * dispatch. Direct callers elsewhere — emitting `elicitation/create` or
@@ -21,7 +21,7 @@
  * if rg isn't present so the regression intent is preserved.
  *
  * Reference: mt#1457 spec §Acceptance Tests — "Repository grep for
- * `elicitation/create` outside `src/domain/ask/transports/` returns zero
+ * `elicitation/create` outside `packages/domain/src/ask/transports/` returns zero
  * matches."
  */
 
@@ -35,9 +35,15 @@ import { join } from "path";
 // ---------------------------------------------------------------------------
 
 function findProjectRoot(): string {
-  // __dirname-equivalent in bun. Walk up from the test file until package.json.
+  // __dirname-equivalent in bun. Walk up from the test file until the
+  // monorepo root. mt#2108 moved this file under packages/domain/src/..,
+  // which has its OWN package.json (a workspace package) — walking up to
+  // the nearest package.json stops one level too early and silently
+  // rescopes the search to packages/domain instead of the whole repo
+  // (mt#2608). bunfig.toml only exists at the monorepo root, so use that
+  // as the marker instead.
   let dir = import.meta.dir;
-  while (dir !== "/" && !existsSync(join(dir, "package.json"))) {
+  while (dir !== "/" && !existsSync(join(dir, "bunfig.toml"))) {
     dir = join(dir, "..");
   }
   return dir;
@@ -48,15 +54,16 @@ function findProjectRoot(): string {
 // ---------------------------------------------------------------------------
 
 describe("elicitation-containment", () => {
-  test("no `elicitation/create` literal outside src/domain/ask/transports", () => {
+  test("no `elicitation/create` literal outside packages/domain/src/ask/transports", () => {
     const root = findProjectRoot();
 
     // The literal we care about: 'elicitation/create' appearing as code text.
-    // Limit the search to src/ so node_modules / docs / generated artifacts
-    // don't pollute the result.
+    // Limit the search to src/ and packages/*/src/ so node_modules / docs /
+    // generated artifacts don't pollute the result. mt#2108 moved the Ask
+    // transport adapter to packages/domain/src/ask/transports/ (mt#2608).
     //
     // Legitimate exceptions:
-    //   - src/domain/ask/transports/** (the transport adapter itself)
+    //   - packages/domain/src/ask/transports/** (the transport adapter itself)
     //   - src/mcp/client-capabilities.ts (defines the structural type for
     //     the SDK method `elicitInput` and references the wire-level method
     //     name `elicitation/create` in JSDoc only — no calls)
@@ -69,13 +76,16 @@ describe("elicitation-containment", () => {
         "--glob",
         "src/**/*.ts",
         "--glob",
-        "!src/domain/ask/transports/**",
+        "packages/*/src/**/*.ts",
+        "--glob",
+        "!packages/domain/src/ask/transports/**",
         "--glob",
         "!src/mcp/client-capabilities.ts",
         "--glob",
         "!**/*.test.ts", // tests describing the literal in prose are fine
         "elicitation/create",
         "src",
+        "packages",
       ],
       { cwd: root, encoding: "utf-8" }
     );
@@ -92,7 +102,7 @@ describe("elicitation-containment", () => {
       throw new Error(
         `ripgrep failed (exit ${result.status}). stderr: ${result.stderr}\n` +
           `Install ripgrep or update this test's command. The intent is to ` +
-          `assert no elicitation/create calls live outside src/domain/ask/transports.`
+          `assert no elicitation/create calls live outside packages/domain/src/ask/transports.`
       );
     }
 
@@ -100,11 +110,12 @@ describe("elicitation-containment", () => {
     expect(result.stdout.trim(), "elicitation/create found outside the transport").toBe("");
   });
 
-  test("no `.elicitInput(` calls outside src/domain/ask/transports and src/mcp", () => {
+  test("no `.elicitInput(` calls outside packages/domain/src/ask/transports and src/mcp", () => {
     // The SDK method name `elicitInput` is the JavaScript-level invocation
     // of `elicitation/create`. The capability registry exports a structural
     // type for it (in src/mcp/client-capabilities.ts) — that file is the
-    // legitimate exception, alongside the transport adapter.
+    // legitimate exception, alongside the transport adapter (moved to
+    // packages/domain/src/ask/transports/ by mt#2108; see mt#2608).
     const root = findProjectRoot();
 
     const result = spawnSync(
@@ -116,13 +127,16 @@ describe("elicitation-containment", () => {
         "--glob",
         "src/**/*.ts",
         "--glob",
-        "!src/domain/ask/transports/**",
+        "packages/*/src/**/*.ts",
+        "--glob",
+        "!packages/domain/src/ask/transports/**",
         "--glob",
         "!src/mcp/client-capabilities.ts",
         "--glob",
         "!**/*.test.ts",
         "\\.elicitInput\\(",
         "src",
+        "packages",
       ],
       { cwd: root, encoding: "utf-8" }
     );

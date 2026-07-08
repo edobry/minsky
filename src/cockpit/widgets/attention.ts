@@ -230,7 +230,7 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
   // fall back to null and retry on the next fetch().
   if (!_cachedBroker) {
     try {
-      const { getServerSseBrokerForWidget } = await import("../server");
+      const { getServerSseBrokerForWidget } = await import("../routes/events");
       _cachedBroker = (await getServerSseBrokerForWidget()) ?? null;
     } catch {
       // Broker unavailable — will retry on next fetch()

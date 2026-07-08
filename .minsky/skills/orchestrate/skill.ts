@@ -316,6 +316,72 @@ different remote name (e.g., \`upstream\`), substitute accordingly.
 | \`session_update\` reports "Content conflicts detected" but working tree is clean (no \`<<<<<<<\` markers) | mt#1303 tooling gap: the tool aborts the merge cleanly on conflict and reverts the merge state. There is currently no MCP path to leave conflict markers for manual resolution. Direct \`git merge\` is hook-blocked. Looping with \`skipConflictCheck\` / \`force\` / \`noStash\` all abort identically. | When content compatibility is achievable but git's 3-way merge sees overlapping edits: (1) \`mcp__minsky__session_exec\` \`git reset --hard origin/main\` (carve-out is allowed); (2) use \`mcp__minsky__session_write_file\` to rewrite the conflicting file(s) with the desired final content; (3) \`mcp__minsky__session_commit\`; (4) \`mcp__minsky__git_push\` with \`force: true\`. **Cost: this loses the multi-commit history of the branch — the PR effectively becomes a single squashed commit.** Acceptable for feature PRs; loses signal for debugging-trail PRs. Escalate to the user if blocking — they can run \`git merge\` outside hook scope.                                                                                                                                                                                                             |
 | \`minsky-reviewer[bot]\` silent for >5 min after a follow-up push that addressed BLOCKING findings       | mt#1110-class webhook-miss-on-subsequent-push reliability gap. Distinct from CI not firing (which is a separate webhook/CI-trigger problem). Same-App-identity APPROVE block does NOT apply here — that's a structural gate; this is a reliability gate.                                          | (1) Confirm push reached GitHub: \`mcp__minsky__session_pr_get\`, check \`head.sha\`. (2) Try an empty commit to wake the webhook: \`mcp__minsky__session_commit\` with \`noFiles: true\` and \`noStage: true\`, then push. (3) If still silent, escalate via \`gh api PUT /repos/.../pulls/N/merge\` (\`merge_method=merge\`, never \`squash\`) — only after BLOCKING findings are addressed and remaining gap is the missing reviewer signal. (4) After bypass merge, manually clean up the session: \`mcp__minsky__session_delete\`. (5) Track the instance in the agent-memory file at \`~/.claude/projects/-Users-edobry-Projects-minsky/memory/project_mt1110_calibration_data.md\` (create if absent — see other \`project_*\` and \`feedback_*\` files in the same directory for the format). See \`/merge-coordination\` step 7a and \`feedback_gh_api_bypass\` (same directory). |
 
+## Dispatch watchdog and resume protocol (mt#2646)
+
+During the mt#2607 burndown (~14 implementer dispatches, 2026-07-06/07), 5 dispatches ended
+without a usable completion report: two stalled silently mid-review-convergence for 6.5h, one
+died with uncommitted work and no handoff, one died on a 529 API error mid-convergence, two
+stopped cleanly but pre-convergence. Every case required manually noticing the silence, probing
+session state by hand, and improvising recovery. This section mechanizes that probe-and-recover
+sequence.
+
+### Detection: the dispatch watchdog
+
+A cockpit cadence sweep (\`startDispatchWatchdogSweeper\`, \`src/cockpit/dispatch-watchdog.ts\`)
+checks every 5 minutes for \`subagent_invocations\` rows that are still in flight (dispatched, not
+yet Stop-classified) whose task is IN-PROGRESS or IN-REVIEW, and flags any with no activity
+(no commit on the session branch, no related \`system_events\` row — e.g. a PR event, no fresher
+dispatch signal) for **30 minutes** (\`DISPATCH_WATCHDOG_STALE_MS\`, tunable). The flagged set is
+written to a local cache and injected into every turn via the \`inject-dispatch-watchdog.ts\`
+UserPromptSubmit hook — you do not need to poll for this; a stalled dispatch surfaces as
+\`additionalContext\` automatically. Treat a "DISPATCH WATCHDOG" warning as the trigger to run the
+probe below before assuming the dispatch is dead.
+
+### Probe: one-call recovery state
+
+Before deciding how to recover a flagged (or suspected-stalled) dispatch, call
+\`mcp__minsky__session_status\` with \`probe: true\` for the subagent's session. This returns, in
+one call:
+
+- git status (staged/unstaged/untracked files, dirty-file count) — the existing \`session.status\`
+  output.
+- \`probe.commitsAheadOfBase\` — commits on the session branch not yet on the base branch (local-ref
+  comparison; "vs last-fetched origin", same honesty tradeoff as the git-state injection hook).
+- \`probe.pr\` — PR number, URL, cached state, and the most recently posted review (state,
+  reviewer, timestamp) when a PR exists; \`reviewFetchError\` is set (without blanking the rest)
+  if the live review lookup failed.
+- \`probe.handoff\` — whether \`.minsky/sessions/<sessionId>/handoff.md\` exists, and its first ~20
+  lines if so.
+
+This replaces the prior ad hoc sequence (separate \`git status\`, \`session.pr.get\`, a manual
+\`handoff.md\` read, a manual \`git rev-list\`) with a single read.
+
+### Resume decision rule
+
+Apply this rule, in order, once the probe result is in hand:
+
+1. **Uncommitted work present** (\`dirtyFileCount > 0\`) → the dispatch has real, unlanded work.
+   Checkpoint it FIRST: \`mcp__minsky__session_commit\` with a \`partial:\` description
+   (\`<type>(mt#X): partial: <status>\`) before doing anything else. Never discard uncommitted
+   work by re-dispatching into a fresh session over it.
+2. **Clean tree, PR open, review round in progress** (typically a CHANGES_REQUESTED review with
+   no matching fix commit yet, or the dispatch died mid-fix) → **prefer SendMessage-resume of the
+   SAME agent** over a fresh dispatch. Per memory \`6038c0a1\` (validated 2026-07-03, mt#2578 /
+   PR #1776): the harness \`SendMessage\` tool resumes a completed OR paused subagent from its
+   transcript with FULL context of the code it already wrote — a fix round lands in ~34 tool
+   uses vs. the cost of rebuilding context from scratch. Include the review findings verbatim
+   plus an explicit stop condition in the resume message, same as a fresh dispatch prompt.
+3. **Transcript unusable** (no agent id / transcript recoverable, or the resumed agent's
+   response indicates it lost context) → **fresh dispatch into the EXISTING session**, not a new
+   one. The session workspace, branch, and any committed work are already there; re-run
+   \`mcp__minsky__session_generate_prompt\` for the same \`sessionId\`/\`taskId\` and dispatch a new
+   agent against it. Creating a brand-new session for a task that already has one duplicates
+   state and orphans the original branch's history.
+
+**Do not loop the same recovery move.** If step 2's SendMessage-resume itself goes silent past
+the watchdog window, that is new evidence the transcript (or the agent process) is unusable —
+move to step 3 rather than re-sending the same message.
+
 ## Dependency graph navigation
 
 When the user asks "what's the order for mt#A, mt#B, mt#C" or similar, use

@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
-import { approveSessionPr } from "./session-approval-operations";
+import { approveSessionPr } from "./session-pr-approval-operations";
 import { FakeGitService } from "../git/fake-git-service";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
 

@@ -26,7 +26,7 @@ import {
   type AskRepository,
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
-import { ConcurrentTransitionError } from "@minsky/domain/ask/repository";
+import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
 import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
 import {
@@ -57,6 +57,7 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
+import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
 
@@ -302,66 +303,31 @@ export async function respondToAsk(
 ): Promise<RespondToAskResult> {
   validateRespondParams(params);
 
-  const persisted = await repo.getById(params.id);
-  if (!persisted) {
-    throw new Error(`asks.respond: Ask not found: ${params.id}`);
-  }
-
-  if (persisted.state !== "suspended") {
-    throw new Error(
-      `asks.respond: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
-        `(detected/classified/routed: no transport has dispatched yet; ` +
-        `closed/cancelled/expired: terminal.)`
-    );
-  }
-
   // Trim before constructing the payload so direct programmatic callers
   // see the same normalized message that CLI/MCP callers do (the schema
   // applies trim() at the surface).
   const message = params.message.trim();
-  const responder = params.responder?.trim() || "operator";
 
-  // Two-stage response payload, matching the Ask.response contract in
-  // types.ts: `attentionCost` is filled on close only. The respond stage
-  // gets responder + payload; the close stage adds attentionCost.
-  const respondPayload = {
-    responder,
-    payload: { message },
-  };
-  const closePayload = {
-    responder,
+  // Delegates the suspended-state precondition check, responder trimming,
+  // and ConcurrentTransitionError handling to the shared domain function
+  // (mt#2615) — this surface's only job is to shape the plain-message
+  // payload and the fixed inbox/CLI attentionCost.
+  const { ask } = await respondAndCloseAsk(repo, {
+    id: params.id,
+    responder: params.responder,
     payload: { message },
     attentionCost: {
       // The operator responded via the inbox/CLI surface. The original
       // transport is preserved on the Ask record; the attentionCost.transport
       // here records the surface that *resolved* it.
-      transport: "inbox" as const,
-      resolvedIn: "inbox" as const,
+      transport: "inbox",
+      resolvedIn: "inbox",
       // operatorCost is intentionally absent at v1 — deferred to mt#454-impl
       // along with claim/release semantics.
     },
-  };
+  });
 
-  // Atomic walk suspended → closed via the repository's combined operation.
-  // Catch ConcurrentTransitionError and re-throw with the same friendly
-  // not-suspended message the pre-check uses, so callers see ONE error shape
-  // for "Ask is not in suspended state" regardless of cause.
-  try {
-    const closed = await repo.respondAndClose(
-      params.id,
-      { response: respondPayload },
-      { response: closePayload }
-    );
-    return { ask: closed };
-  } catch (err) {
-    if (err instanceof ConcurrentTransitionError) {
-      throw new Error(
-        `asks.respond: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
-          `(Concurrent actor transitioned the Ask between read and write.)`
-      );
-    }
-    throw err;
-  }
+  return { ask };
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +492,13 @@ export interface CreateAskParams {
   windowKey?: string;
   /** Bypass window check and route immediately (default false). */
   forceImmediate?: boolean;
+  /**
+   * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). The
+   * `asks.create` execute path resolves this via `resolveCurrentProjectScope`;
+   * direct callers (tests, programmatic emitters) may pass it explicitly or omit
+   * it (unscoped Ask).
+   */
+  projectId?: string;
 }
 
 /**
@@ -587,6 +560,9 @@ export async function createAsk(
     contextRefs: params.contextRefs,
     parentTaskId: params.parentTaskId,
     parentSessionId: params.parentSessionId,
+    // Project scope stamped at create time (ADR-021, mt#2563). Threaded from the
+    // execute callsite's resolveCurrentProjectScope; undefined → unscoped Ask.
+    projectId: params.projectId,
     deadline: params.deadline,
     metadata: params.metadata,
     // Service-window fields (mt#1411 spine — mt#1488)
@@ -723,6 +699,43 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the current project's uuid for project-scoped Ask reads and writes
+ * (ADR-021 — mt#2416 read-side, mt#2563 write-side). Single source of truth so
+ * `asks.create` stamps the SAME project the `asks.list` default filter reads by:
+ * create/list scope parity. Returns the project uuid, or `undefined` when
+ * persistence is unavailable, the project is unidentified (hosted server /
+ * cockpit daemon with no single-repo cwd), or resolution fails — fail-open to an
+ * unscoped read/write, never a throw.
+ */
+async function resolveCurrentProjectScope(
+  container: AppContainerInterface | undefined,
+  caller: string
+): Promise<string | undefined> {
+  if (!container?.has("persistence")) return undefined;
+  try {
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    if (!persistenceProvider.getDatabaseConnection) return undefined;
+    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { isAllProjects } = await import("@minsky/domain/project/scope");
+    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+    if (identity.kind !== "resolved") return undefined;
+    const rawDb = await persistenceProvider.getDatabaseConnection();
+    if (!rawDb) return undefined;
+    const scope = await resolveProjectScope(
+      identity,
+      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+    );
+    return isAllProjects(scope) ? undefined : scope;
+  } catch (err: unknown) {
+    log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+/**
  * Register the asks commands in the shared command registry.
  *
  * @param container Optional DI container — when provided, commands resolve
@@ -752,36 +765,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         // ADR-021 / mt#2416: resolve project scope so list returns only this
         // project's asks by default. When allProjects=true, skip resolution.
-        let projectScope: import("@minsky/domain/project/scope").ProjectScope | undefined;
-        if (!allProjects && container?.has("persistence")) {
-          try {
-            const persistenceProvider = container.get(
-              "persistence"
-            ) as SqlCapablePersistenceProvider;
-            if (persistenceProvider.getDatabaseConnection) {
-              const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
-              const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
-              const { isAllProjects } = await import("@minsky/domain/project/scope");
-              const identity = resolveProjectIdentity({ repoPath: process.cwd() });
-              if (identity.kind === "resolved") {
-                const rawDb = await persistenceProvider.getDatabaseConnection();
-                if (rawDb) {
-                  const scope = await resolveProjectScope(
-                    identity,
-                    rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
-                  );
-                  if (!isAllProjects(scope)) {
-                    projectScope = scope;
-                  }
-                }
-              }
-            }
-          } catch (err: unknown) {
-            log.debug("[asks.list] Project scope resolution failed; defaulting to all projects", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
+        // Shares resolveCurrentProjectScope with asks.create (mt#2563) so the
+        // read filter and the write stamp agree on the same project_id.
+        const projectScope = allProjects
+          ? undefined
+          : await resolveCurrentProjectScope(container, "asks.list");
 
         const asks = await gatherAsks(repo, state, kind, projectScope);
         return {
@@ -869,6 +857,16 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           id: params.id as string,
           message: params.message as string,
           responder: params.responder as string | undefined,
+        }).then(async (result) => {
+          // Best-effort system event for the plant-board activity stream (mt#2489).
+          await emitSystemEventBestEffort(container, {
+            eventType: "ask.answered",
+            payload: {
+              askId: params.id as string,
+              responder: (params.responder as string | undefined) ?? null,
+            },
+          });
+          return result;
         });
       },
     })
@@ -895,12 +893,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        // ADR-021 / mt#2416: project_id write-stamping is deferred to Phase-1.3b.
-        // The Ask domain type has no projectId field; stamping requires extending
-        // CreateAskInput, AskInsert, and the asksTable schema — a domain-contract
-        // change out of scope for mt#2416. Read-scoping via
-        // listByState(state, projectScope) IS wired (mt#2416).
-        // See packages/domain/src/ask/repository.ts toInsert() for the corresponding note.
+        // ADR-021 / mt#2563: resolve the current project and stamp it on the new
+        // Ask so it is visible to the default project-scoped asks.list — completes
+        // the Phase-1.3b write-stamping deferred by mt#2416. Shares
+        // resolveCurrentProjectScope with asks.list, so create and the default
+        // read filter agree on the same project_id (create/list scope parity).
+        const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
 
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch
@@ -935,6 +933,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
               | undefined,
             windowKey: params.windowKey as string | undefined,
             forceImmediate: params.forceImmediate as boolean | undefined,
+            // ADR-021 / mt#2563: stamp the resolved project on the new Ask.
+            projectId: resolvedProjectId,
           },
           routerOptions
         );

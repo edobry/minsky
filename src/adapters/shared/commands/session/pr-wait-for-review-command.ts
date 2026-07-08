@@ -96,6 +96,7 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
               intervalSeconds: params.intervalSeconds as number | undefined,
               reviewer: params.reviewer as string | undefined,
               since: params.since as string | undefined,
+              requireCurrentHead: params.requireCurrentHead as boolean | undefined,
             },
             { sessionDB: deps.sessionProvider }
           );

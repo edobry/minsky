@@ -10,6 +10,8 @@
  */
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { Prose } from "../components/Prose";
+import { useEntityIndex } from "../lib/use-entity-index";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -238,6 +240,7 @@ export function AskDetail({
   const ks = kindStyle(ask.kind);
   const deadlineStr = formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
+  const entityIndex = useEntityIndex();
 
   const hasOptions =
     (ask.options && ask.options.length > 0) ||
@@ -278,7 +281,7 @@ export function AskDetail({
 
         {/* Question */}
         <div className="rounded-md bg-muted/40 p-3">
-          <p className="text-sm text-foreground leading-relaxed">{ask.question}</p>
+          <Prose entityIndex={entityIndex}>{ask.question}</Prose>
         </div>
 
         {/* Metadata */}
@@ -336,6 +339,7 @@ export function AskDetail({
                         {letter})
                       </span>
                       <div>
+                        {/* Plain text (not <Prose>): short inline option label/description — block Markdown breaks layout. mt#2556 */}
                         <span className="text-foreground font-medium">{opt.label}</span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">

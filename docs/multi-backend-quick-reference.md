@@ -1,5 +1,9 @@
 # Multi-Backend Quick Reference
 
+> **GitHub Issues backend is disabled by default.**
+> Set `tasks.githubBackend.enabled: true` in your config to enable `gh#` tasks.
+> See [GitHub Issues Backend Guide](./github-issues-backend-guide.md).
+
 ## Task ID Formats
 
 | Format    | Example  | Description                       |
@@ -53,12 +57,29 @@ minsky tasks migrate-backend --from minsky --to github --execute
 
 ## Backend Configuration
 
+### `tasks.githubBackend.enabled` (default: `false`)
+
+The GitHub Issues backend is disabled by default. Enable it explicitly:
+
+```yaml
+# ~/.config/minsky/config.yaml
+tasks:
+  githubBackend:
+    enabled: true
+```
+
+When disabled, `--backend github` or `--backend github-issues` throws:
+
+```
+GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+```
+
 ### Backend Prefixes
 
-| Backend       | Prefix | Example  |
-| ------------- | ------ | -------- |
-| Minsky DB     | `mt`   | `mt#123` |
-| GitHub Issues | `gh`   | `gh#456` |
+| Backend       | Prefix | Example  | Status              |
+| ------------- | ------ | -------- | ------------------- |
+| Minsky DB     | `mt`   | `mt#123` | Enabled (default)   |
+| GitHub Issues | `gh`   | `gh#456` | Disabled by default |
 
 ## Troubleshooting
 

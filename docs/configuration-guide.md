@@ -68,6 +68,39 @@ workspace:
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
 
+## Task Backend Configuration
+
+### `tasks.githubBackend.enabled` (default: `false`)
+
+Controls whether the GitHub Issues task backend is registered at startup. The github backend
+is **disabled by default** — the Minsky DB (`mt#`) backend is the operational default.
+
+```yaml
+tasks:
+  githubBackend:
+    enabled: false # default — github-issues backend disabled
+```
+
+**When `false` (default):**
+
+- `tasks_create` with no explicit backend → Minsky (`mt#`) backend (unchanged)
+- `minsky tasks list` → Minsky tasks only
+- Explicit `--backend github` or `--backend github-issues` → throws:
+  ```
+  GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+  ```
+- Multi-backend registration silently skips the github backend with an info-level log
+
+**When `true`:**
+
+- GitHub backend registers alongside Minsky when GitHub credentials (`GITHUB_TOKEN`,
+  owner, repo) are configured
+- `gh#` prefixed tasks become accessible
+- This restores the behavior from before the gate was introduced
+
+See [GitHub Issues Backend Guide](./github-issues-backend-guide.md) for full setup
+instructions and prerequisites.
+
 ## Embeddings Configuration
 
 The `embeddings` section controls the embedding provider and optional fallback chain.

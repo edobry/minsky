@@ -28,7 +28,82 @@ import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/rep
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
-export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 800;
+// mt#2635: bumped from 800 -> 2000. At 800 chars, a real ESLint-warning-
+// threshold failure (mt#2637 R1 diagnosis: 10 warnings) or a TypeScript
+// error dump routinely got truncated before the actual failing check's
+// banner/detail lines were reached, since `pre-commit hook`'s stdout also
+// includes the preceding (passing) steps' output. 2000 chars comfortably
+// fits a failure banner plus its immediate detail lines while still being a
+// bounded "tail" excerpt, not a full dump.
+export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 2000;
+
+/**
+ * Known `pre-commit.ts` / `commit-msg.ts` failure banners, mapped to a
+ * short human-readable step label. Used ONLY to produce a friendlier
+ * `details.failingStep` field for the error message — matching is
+ * best-effort: if pre-commit.ts's wording changes, `detectFailingStep`
+ * silently returns `undefined` and the raw tail excerpt (which still
+ * carries whatever banner text pre-commit.ts printed) is the fallback.
+ * This deliberately does NOT change any hook's own check logic or output
+ * (mt#2635 scope: "Out of scope: the pre-commit pipeline's checks
+ * themselves") — it only reads text the checks already emit.
+ *
+ * COUPLING / SOURCE OF TRUTH (mt#2635 PR #1811 R1): every pattern below is
+ * copied verbatim from a `log.cli(...)` / `log.error(...)` call in
+ * `src/hooks/pre-commit.ts` or `src/hooks/commit-msg.ts`. If either hook's
+ * banner wording changes, the corresponding pattern here silently stops
+ * matching (safe degradation — `detectFailingStep` just returns
+ * `undefined`, see above) but SHOULD be updated to track the new text.
+ * `workflow-commands-payload.test.ts`'s "recognizes each known ... banner"
+ * test pins these exact strings so drift breaks loudly (test failure)
+ * rather than silently (a `failingStep` that quietly stops appearing).
+ *
+ * Each pattern is deliberately matched against the FAILURE-specific text,
+ * not just a bare topic phrase, to avoid false-positiving on that same
+ * check's SUCCESS banner. Concrete example this guards against: pre-commit.ts
+ * prints "✅ No variable naming issues found." on success and "❌ Variable
+ * naming issues found! Please fix them before committing." on failure — an
+ * earlier draft of this list matched the bare phrase "variable naming
+ * issues found", which matches BOTH banners; the pattern below requires the
+ * failure-only "! Please fix" suffix.
+ */
+const KNOWN_FAILING_STEP_MARKERS: ReadonlyArray<{ pattern: RegExp; step: string }> = [
+  { pattern: /too many warnings/i, step: "ESLint (warning threshold)" },
+  { pattern: /linter errors detected/i, step: "ESLint (errors)" },
+  { pattern: /secrets detected by gitleaks/i, step: "gitleaks (secret scan)" },
+  { pattern: /node\.js shims detected/i, step: "Node-shim guard" },
+  { pattern: /nul byte\(s\) detected/i, step: "NUL-byte guard" },
+  { pattern: /typescript type errors found/i, step: "TypeScript typecheck" },
+  {
+    pattern: /executable entry points missing execute permission/i,
+    step: "hook-file permission check",
+  },
+  {
+    pattern: /applied migration file\(s\) staged for modification/i,
+    step: "immutable-migration guard",
+  },
+  { pattern: /deploy-domain ownership violation/i, step: "deploy-domain ownership guard" },
+  {
+    // Failure-only: "! Please fix" excludes the success banner "✅ No
+    // variable naming issues found." (see coupling note above).
+    pattern: /variable naming issues found! please fix/i,
+    step: "variable-naming check",
+  },
+  { pattern: /commit message validation failed/i, step: "commit-msg format validation" },
+];
+
+/**
+ * Best-effort extraction of a human-readable "which check failed" label
+ * from raw pre-commit/commit-msg subprocess output. Returns `undefined`
+ * when no known banner is recognized (safe degradation — the raw tail is
+ * still surfaced regardless).
+ */
+export function detectFailingStep(subprocessOutput: string): string | undefined {
+  for (const { pattern, step } of KNOWN_FAILING_STEP_MARKERS) {
+    if (pattern.test(subprocessOutput)) return step;
+  }
+  return undefined;
+}
 
 /**
  * Build the structured-error payload fields for a `git commit` subprocess
@@ -37,6 +112,12 @@ export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 800;
  * `subprocessOutput`. PR #962 R1: the previous shape stuffed up to
  * SUBPROCESS_OUTPUT_TRUNCATE_LIMIT chars of preview into `summary`, violating
  * the contract.
+ *
+ * mt#2635: `details.failingStep` (best-effort, see `detectFailingStep`) and
+ * `details.tail` are both folded into the WIRE message by
+ * `StructuredMcpError` (mcp-structured-errors.ts) — not just left in `data`
+ * — because the opacity incidents this fixes showed operators seeing only
+ * `error.message` (== `summary` before this fix), never `error.data`.
  */
 export function buildSubprocessFailurePayload(
   hookKind: "commit-msg" | "pre-commit" | "unknown" | "none",
@@ -63,6 +144,7 @@ export function buildSubprocessFailurePayload(
     return { code, summary, subprocessOutput };
   }
   const wasTruncated = subprocessOutput.length > SUBPROCESS_OUTPUT_TRUNCATE_LIMIT;
+  const failingStep = detectFailingStep(subprocessOutput);
   return {
     code,
     summary,
@@ -70,9 +152,11 @@ export function buildSubprocessFailurePayload(
     details: {
       tail: safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT),
       truncated: wasTruncated,
+      ...(failingStep ? { failingStep } : {}),
     },
   };
 }
+
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -86,6 +170,7 @@ export { createSessionPrGetCommand } from "./pr-get-command";
 export { createSessionPrOpenCommand } from "./pr-open-command";
 export { createSessionPrChecksCommand } from "./pr-checks-command";
 export { createSessionPrWaitForReviewCommand } from "./pr-wait-for-review-command";
+export { createSessionPrDriveCommand } from "./pr-drive-command";
 export { createSessionPrReviewContextCommand } from "./pr-review-context-command";
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
 export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
@@ -112,10 +197,30 @@ export { createSessionPrCheckRunSubmitCommand } from "./pr-check-run-submit-comm
  *
  * If subprocess output is empty, the error is internal (not a hook failure)
  * and `hookKind` is "none".
+ *
+ * mt#2635: also falls back to `err.cause` for both the message and the
+ * stderr/stdout fields. `execInRepositoryImpl` (git-core-operations.ts)
+ * wraps a subprocess failure in a fresh `MinskyError` and — as of mt#2635 —
+ * preserves the original error as `.cause`. `session_commit`'s own commit
+ * path no longer routes through that wrapper (it now goes through
+ * `commitImpl`, which re-throws the original error unmodified), but this
+ * fallback is defense-in-depth for any OTHER caller that reaches this
+ * classifier via an `execInRepositoryImpl`-wrapped error.
  */
 type HookKind = "commit-msg" | "pre-commit" | "unknown" | "none";
 
-function classifyHookFailure(err: unknown): {
+/**
+ * Exported (mt#2635 PR #1811 R2) so tests can exercise the REAL classifier
+ * directly against a REAL `execInRepositoryImpl`-wrapped `MinskyError` —
+ * rather than duplicating its logic in a test-local reimplementation (as
+ * `mcp-structured-errors.test.ts`'s pre-existing `classifyHookFailure` copy
+ * does, per its own mt#1524 comment) — closing the drift risk between a
+ * copy and the real thing, and giving genuine end-to-end coverage of the
+ * `.cause` fallback path. See
+ * `workflow-commands-payload.test.ts`'s "classifyHookFailure via .cause"
+ * describe block.
+ */
+export function classifyHookFailure(err: unknown): {
   isHookFailure: boolean;
   hookKind: HookKind;
   subprocessOutput: string;
@@ -124,13 +229,23 @@ function classifyHookFailure(err: unknown): {
     return { isHookFailure: false, hookKind: "none", subprocessOutput: "" };
   }
   const e = err as Record<string, unknown>;
+  const cause =
+    e.cause !== null && typeof e.cause === "object" ? (e.cause as Record<string, unknown>) : null;
+
   const msg = typeof e.message === "string" ? e.message : "";
-  const stderr = typeof e.stderr === "string" ? e.stderr : "";
-  const stdout = typeof e.stdout === "string" ? e.stdout : "";
+  const causeMsg = typeof cause?.message === "string" ? cause.message : "";
+  const stderr =
+    typeof e.stderr === "string" ? e.stderr : typeof cause?.stderr === "string" ? cause.stderr : "";
+  const stdout =
+    typeof e.stdout === "string" ? e.stdout : typeof cause?.stdout === "string" ? cause.stdout : "";
   const subprocessOutput = [stderr, stdout].filter(Boolean).join("\n").trim();
 
-  // Must reference a git commit invocation
-  const isCommitCommand = msg.includes("git") && msg.includes("commit");
+  // Must reference a git commit invocation — check the outer message first,
+  // falling back to the cause's message (the outer MinskyError's "cleaned"
+  // message may not retain "git"/"commit" substrings verbatim).
+  const isCommitCommand =
+    (msg.includes("git") && msg.includes("commit")) ||
+    (causeMsg.includes("git") && causeMsg.includes("commit"));
   // Must have subprocess output (if there is none, it's an internal error, not a hook)
   const hasOutput = subprocessOutput.length > 0;
 

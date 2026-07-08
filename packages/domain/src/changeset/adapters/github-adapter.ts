@@ -36,7 +36,7 @@ import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
-import { createTimeoutFetch } from "../../github/octokit-timeout";
+import { createOctokit } from "../../repository/github-pr-operations";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 /** Union of simplified and full PR types from Octokit responses */
@@ -80,33 +80,47 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
 
   /**
    * Ensure the repository backend is initialized for a session-dependent (mutation)
-   * operation, and return it. Surfaces the precise missing-sessionProvider error
-   * (which `isAvailable()` catches and downgrades to a `false` return), then a clear
-   * backend-unavailable error if GitHub access failed — so callers never dereference
-   * an undefined `repositoryBackend` and crash with an opaque TypeError (mt#1430 R1).
+   * operation, and return it. Owns backend construction outright (PR #1798 R2):
+   * `isAvailable()` is a pure reachability probe and must not construct the backend,
+   * because factory-created adapters on the read path have no sessionProvider. The
+   * precise missing-sessionProvider error surfaces first, so callers never
+   * dereference an undefined `repositoryBackend` and crash with an opaque
+   * TypeError (mt#1430 R1).
    */
   private async ensureRepositoryBackend(): Promise<RepositoryBackend> {
     if (!this.repositoryBackend) {
-      // Surface the precise "no sessionProvider" error first; isAvailable() swallows it.
-      await this.getSessionProvider();
-      const ok = await this.isAvailable();
-      if (!ok || !this.repositoryBackend) {
-        throw new MinskyError(
-          "GitHubChangesetAdapter: GitHub backend could not be initialized for this " +
-            "operation (check GitHub token and network access)."
-        );
+      // Mutation paths legitimately require a sessionProvider; throw its
+      // precise error before anything else.
+      const sessionProvider = await this.getSessionProvider();
+      if (!this.owner || !this.repo) {
+        throw new MinskyError("GitHub owner and repo must be configured");
       }
+      this.repositoryBackend = await createRepositoryBackend(
+        {
+          type: RepositoryBackendType.GITHUB,
+          repoUrl: this.repositoryUrl,
+          github: {
+            owner: this.owner,
+            repo: this.repo,
+            token: this.config?.token,
+          },
+        },
+        sessionProvider
+      );
     }
     return this.repositoryBackend;
   }
 
-  /** Returns a cached Octokit instance, creating it on first call. */
+  /**
+   * Returns a cached Octokit instance, creating it on first call via the shared
+   * `createOctokit()` factory (mt#2613) — the same construction path used by the
+   * `repository/github-pr-*` layer, so there is exactly one Octokit-construction
+   * function for PR operations rather than two independent ones.
+   */
   private async getOctokit(): Promise<Octokit> {
     if (!this._octokit) {
       const token = await this.tokenProvider.getServiceToken();
-      // Bound every request so a hung GitHub call can't wedge a long-lived
-      // process (mt#2270 sweep; see octokit-timeout.ts).
-      this._octokit = new Octokit({ auth: token, request: { fetch: createTimeoutFetch() } });
+      this._octokit = createOctokit(token);
     }
     return this._octokit;
   }
@@ -114,7 +128,23 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   constructor(
     private repositoryUrl: string,
     private config?: { token?: string; workdir?: string },
-    deps?: { sessionProvider?: SessionProviderInterface; tokenProvider?: TokenProvider }
+    deps?: {
+      sessionProvider?: SessionProviderInterface;
+      tokenProvider?: TokenProvider;
+      /**
+       * Test-only DI seam (mirrors the `octokitOverride` convention used across
+       * `repository/github-pr-*.ts`) — lets characterization tests inject a fake
+       * Octokit instance instead of hitting the network or relying on
+       * `mock.module()` (forbidden by the `no-global-module-mocks` ESLint rule).
+       */
+      octokitOverride?: Octokit;
+      /**
+       * Test-only DI seam for the repository backend used by mutation operations
+       * (create/update/merge/approve/getDetails). Bypasses `isAvailable()`'s real
+       * GitHub-backend construction so those flows can be exercised against a fake.
+       */
+      repositoryBackendOverride?: RepositoryBackend;
+    }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
@@ -138,6 +168,11 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       const token = config?.token || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
       this.tokenProvider = new FallbackTokenProvider(token);
     }
+
+    this._octokit = deps?.octokitOverride;
+    if (deps?.repositoryBackendOverride) {
+      this.repositoryBackend = deps.repositoryBackendOverride;
+    }
   }
 
   async isAvailable(): Promise<boolean> {
@@ -146,27 +181,16 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         return false;
       }
 
-      // Test GitHub API access
+      // Test GitHub API access. Availability is a REACHABILITY probe only —
+      // repository-backend initialization must NOT happen here: it requires a
+      // sessionProvider, which factory-constructed adapters (the production
+      // read path) don't have. Mutation methods initialize the backend lazily
+      // via ensureRepositoryBackend(). (PR #1798 R2 regression fix.)
       const octokit = await this.getOctokit();
       await octokit.rest.repos.get({
         owner: this.owner,
         repo: this.repo,
       });
-
-      // Initialize repository backend if not done
-      if (!this.repositoryBackend) {
-        const backendConfig = {
-          type: RepositoryBackendType.GITHUB,
-          repoUrl: this.repositoryUrl,
-          github: {
-            owner: this.owner,
-            repo: this.repo,
-            token: this.config?.token,
-          },
-        };
-        const sessionProvider = await this.getSessionProvider();
-        this.repositoryBackend = await createRepositoryBackend(backendConfig, sessionProvider);
-      }
 
       return true;
     } catch (error) {

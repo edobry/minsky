@@ -22,7 +22,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Channel name constants — mirrors server.ts COCKPIT_SSE_CHANNELS values.
+// Channel name constants — mirrors routes/events.ts COCKPIT_SSE_CHANNELS values.
 // Kept inline (no server import) because the frontend bundle is separate.
 // ---------------------------------------------------------------------------
 

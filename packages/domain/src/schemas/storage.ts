@@ -64,6 +64,27 @@ export const taskWriteOperationResultSchema = z.object({
 });
 
 /**
+ * Schema for GitHub issue label data.
+ *
+ * The GitHub REST API can return labels in two shapes depending on the endpoint:
+ * - as plain strings (e.g. from certain search responses)
+ * - as objects where `name` and `color` are typed optional/nullable in Octokit's
+ *   type definitions (`name?: string`, `color?: string | null`).
+ *
+ * Strict `z.string()` for both fields caused the entire batch to fail validation
+ * when any label had `color: null`, making ALL tasks appear as "not found" (mt#2572).
+ */
+const githubIssueLabelSchema = z.union([
+  z.string(),
+  z
+    .object({
+      name: z.string().optional(),
+      color: z.string().nullable().optional(),
+    })
+    .passthrough(),
+]);
+
+/**
  * Schema for GitHub issue data
  */
 export const githubIssueSchema = z.object({
@@ -72,12 +93,7 @@ export const githubIssueSchema = z.object({
   title: z.string(),
   body: z.string().nullable(),
   state: z.enum(["open", "closed"]),
-  labels: z.array(
-    z.object({
-      name: z.string(),
-      color: z.string(),
-    })
-  ),
+  labels: z.array(githubIssueLabelSchema),
   created_at: z.string(),
   updated_at: z.string(),
   assignees: z.array(

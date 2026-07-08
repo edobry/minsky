@@ -98,7 +98,7 @@ railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL=<your-supabase-postgres-
 
 After initial bootstrap, switch to Pulumi: run `pulumi preview --refresh` to verify the state matches production, then use `pulumi up --refresh` for all subsequent changes.
 
-> **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector, so the service silently falls back to its SQLite default and every schema-dependent MCP call fails with `no such table: ...`. See mt#1224.
+> **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector. Historically (pre-mt#2339) this silently fell back to a SQLite default with every schema-dependent MCP call failing with `no such table: ...` (mt#1224); since SQLite's removal, an unset/incorrect backend selector now surfaces as an explicit "PostgreSQL configuration required" error at boot instead of a silent fallback — set both vars regardless.
 >
 > **Legacy `MINSKY_SESSIONDB_*` env vars** (`_BACKEND`, `_POSTGRES_URL`, `_SQLITE_PATH`) are still accepted for back-compat with older deploys and user configs, but emit a deprecation warning on load. Prefer `MINSKY_PERSISTENCE_*` for new deployments.
 
@@ -142,6 +142,75 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 ```
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
+
+## Database migrations on deploy (mt#2505)
+
+Prod schema migrations are applied by a **single, deploy-keyed step** in
+`.github/workflows/deploy-minsky-mcp.yml`, not by every binary on boot. On a
+push to `main`, the `Apply migrations to production` step runs
+`persistence migrate --execute` **inside the freshly-built `:ci` image**, against
+the prod database, **before** the `:latest` image is pushed (which is what
+triggers the Railway deploy). So migration **gates** the deploy:
+
+```
+build :ci → boot+/health smoke → migrate prod → (only on success) push :latest → Railway deploys
+```
+
+Failure of the migration fails the job → the image is never pushed → Railway
+keeps running the prior version against the unchanged schema. This is the
+Heroku/GitLab "release phase" pattern.
+
+### Required secret
+
+The step needs the prod Postgres connection as a repo Actions secret:
+
+- **`MINSKY_PERSISTENCE_POSTGRES_URL`** — the SAME value as the service's sealed
+  Pulumi secret `minsky-persistence-postgres-url` (see `infra/index.ts`). The
+  bundle reads this canonical var (NOT `MINSKY_POSTGRES_URL`/`DATABASE_URL`;
+  mt#2439). The value is forwarded into the migrate container by name and is
+  never echoed; GitHub auto-masks `secrets.*` in logs.
+
+Set it with:
+
+```bash
+# value piped from the service's own var; never printed
+railway variables --json | jq -rj '."MINSKY_PERSISTENCE_POSTGRES_URL"' \
+  | gh secret set MINSKY_PERSISTENCE_POSTGRES_URL --repo edobry/minsky
+```
+
+### Backward-compatibility policy (REQUIRED — expand-contract)
+
+Because migration runs **before** the new code is live — and because sibling
+services (reviewer, cockpit) share the one prod database and deploy on their own
+schedule — **every migration MUST be backward-compatible** with the
+currently-running code (the "expand" half of expand-contract):
+
+- **Additive first:** add columns/tables/indexes; do NOT drop or rename a column
+  the running code still reads, and do NOT add a `NOT NULL` column without a
+  default in the same migration.
+- **Destructive changes are a SECOND migration**, shipped only after all
+  services run the new code that no longer needs the old shape.
+
+This requirement is not new with mt#2505 — the prior auto-migrate-on-boot model
+already produced an old-code-vs-new-schema skew across services (each service
+self-migrated on its own boot). mt#2505 makes the single-runner explicit; the
+expand-contract discipline is what keeps the deploy window safe.
+
+### Guardrails (in the workflow)
+
+- **Timeout:** the migrate container is wrapped in `timeout 600` — a hung
+  connection/lock fails the deploy fast instead of stalling for hours.
+- **No mid-migration cancellation:** the workflow's `concurrency` block sets
+  `cancel-in-progress: false`, so a new push queues behind an in-flight deploy
+  rather than cancelling a running migration.
+- **Single-runner + idempotent:** the `concurrency` group serializes deploys,
+  and drizzle's high-water-mark migrator is a no-op when nothing is pending, so
+  a retried run resumes safely.
+
+> **Sequencing note:** `MINSKY_AUTO_MIGRATE` still defaults ON, so the container
+> also self-migrates on boot today — redundant with this step (both are
+> idempotent), which is intentional: it keeps a backstop until the default is
+> flipped OFF in the mt#2505 follow-up, after this step is verified live.
 
 ## OAuth runbook (mt#1634, shipped May 2026)
 
@@ -405,7 +474,7 @@ The client and server both use the name `MINSKY_MCP_AUTH_TOKEN`.
 
 **Health endpoint returns but /mcp returns 500:** container is up but MCP initialization failed. Check `railway logs` for the real error (often a missing `MINSKY_PERSISTENCE_POSTGRES_URL` or unavailable Postgres).
 
-**MCP calls return `Tool execution failed: no such table: ...`:** the container is running against its SQLite default instead of Postgres. Confirm `MINSKY_PERSISTENCE_BACKEND=postgres` is set (not just the connection-string var). See mt#1224.
+**MCP calls return `Tool execution failed: no such table: ...`:** historically this meant the container had silently fallen back to a SQLite default instead of Postgres (mt#1224). SQLite has since been removed entirely (mt#2339) — `PersistenceProviderFactory` now has exactly one backend case (`postgres`) and throws a clear "PostgreSQL configuration required" error instead of silently falling back. If you see this exact error today, check `MINSKY_PERSISTENCE_BACKEND=postgres` is set and the connection string resolves to a schema that has had `persistence migrate --execute` run against it — the silent-fallback failure mode itself is no longer reachable.
 
 **Intermittent empty responses on tool calls:** session state issues with the Streamable HTTP transport. Check that the client is sending `mcp-session-id` correctly on follow-up requests after the initial session-establishment call.
 

@@ -25,9 +25,9 @@ export function parseGitHubIssues(
     const minskyStatusLabels = Object.values(statusLabels);
     const minskyIssues = validatedIssues.filter((issue) => {
       const issueLabels = issue.labels.map((label) =>
-        typeof label === "string" ? label : label.name
+        typeof label === "string" ? label : (label.name ?? "")
       );
-      return issueLabels.some((label) => minskyStatusLabels.includes(label));
+      return issueLabels.some((label) => label && minskyStatusLabels.includes(label));
     });
 
     log.debug(
@@ -152,39 +152,24 @@ export function convertTaskDataToIssueFormat(
 
 /**
  * Extract a qualified Minsky task ID from a GitHub issue.
+ *
+ * Always uses `issue.number` as the canonical ID. Title/body extraction was
+ * removed because it caused two critical bugs (mt#2572):
+ *
+ * 1. **Wrong id→content mapping** — if an issue title contains a reference like
+ *    "Re-attempt task from gh#1762", extracting from the title would map the NEW
+ *    issue (e.g. #1765) to gh#1762, so `tasks_get gh#1765` returned gh#1762's content.
+ * 2. **Create-then-not-found** — the newly created issue was stored under the wrong
+ *    ID (extracted from title), so looking it up by its real number returned nothing.
+ *
+ * The GitHub issue number is the immutable, unambiguous identifier assigned by
+ * GitHub at creation time. All Minsky gh# IDs are `gh#<issue.number>`.
  */
 export function extractTaskIdFromIssue(issue: {
   title: string;
   body: string | null;
   number: number;
 }): string {
-  const body = issue.body ?? "";
-
-  // Try to find qualified task ID like gh#123 in title
-  const qualifiedMatch = issue.title.match(/gh#(\d+)/);
-  if (qualifiedMatch && qualifiedMatch[1]) {
-    return `gh#${qualifiedMatch[1]}`;
-  }
-
-  // Try to find legacy task ID like #123 in title and convert to qualified
-  const titleMatch = issue.title.match(/#(\d+)/);
-  if (titleMatch && titleMatch[1]) {
-    return `gh#${titleMatch[1]}`;
-  }
-
-  // Look in body for qualified format
-  const bodyQualifiedMatch = body.match(/Task ID: gh#(\d+)/);
-  if (bodyQualifiedMatch && bodyQualifiedMatch[1]) {
-    return `gh#${bodyQualifiedMatch[1]}`;
-  }
-
-  // Look for legacy format and convert
-  const bodyMatch = body.match(/Task ID: #(\d+)/);
-  if (bodyMatch && bodyMatch[1]) {
-    return `gh#${bodyMatch[1]}`;
-  }
-
-  // Fallback to issue number with qualified format
   return `gh#${issue.number}`;
 }
 
@@ -265,6 +250,6 @@ ${issue.body || "No description provided"}
 - Updated: ${issue.updated_at}
 
 ## Labels
-${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.name}`).join("\n")}
+${issue.labels.map((label) => `- ${typeof label === "string" ? label : (label.name ?? "")}`).join("\n")}
 `;
 }

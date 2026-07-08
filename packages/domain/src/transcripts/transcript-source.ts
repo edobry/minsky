@@ -6,11 +6,17 @@
  * @see mt#1350 — this file
  */
 
+import type { ConversationId } from "../ids";
+
 /** ISO-8601 timestamp string (e.g., "2026-04-22T17:59:56.633Z"). */
 export type TimestampISO = string;
 
-/** Identifier of an agent session as known to its source harness. */
-export type AgentSessionId = string;
+/**
+ * Identifier of an agent session as known to its source harness.
+ * Aliased to ConversationId (branded) so it is compile-time distinct from
+ * WorkspaceId (Minsky session id). mt#2524.
+ */
+export type AgentSessionId = ConversationId;
 
 /** A raw JSONL line that survived the harness-specific retention filter. */
 export interface RawTurnLine {

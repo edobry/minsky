@@ -16,18 +16,26 @@ name: Cockpit Tray CI
 # (no macOS WKWebView driver) and this app has no webview window to drive.
 #
 # Path-filtered to cockpit-tray/** so the (slower) macOS build only runs when
-# the app changes.
+# the app changes. Also triggers on the mt#2629 health-shape contract pin
+# (contract/** and src/cockpit/routes/health.ts) — the Rust supervisor's
+# `health_contract` cargo tests (in supervisor.rs) read both of those via
+# include_str!, so a health.ts-only PR that doesn't touch cockpit-tray/**
+# still needs this job to run to catch a contract violation.
 
 on:
   push:
     branches: [main]
     paths:
       - "cockpit-tray/**"
+      - "contract/**"
+      - "src/cockpit/routes/health.ts"
       - ".github/workflows/cockpit-tray-ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "cockpit-tray/**"
+      - "contract/**"
+      - "src/cockpit/routes/health.ts"
       - ".github/workflows/cockpit-tray-ci.yml"
   workflow_dispatch:
 

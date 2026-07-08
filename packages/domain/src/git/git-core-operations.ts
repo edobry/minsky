@@ -64,16 +64,29 @@ export async function stageFilesImpl(
 }
 
 /**
- * Commit staged changes
+ * Commit staged changes.
+ *
+ * `allowEmpty` (mt#2635) passes `--allow-empty` through to `git commit` so a
+ * commit can be created on a clean tree (used by `sessionCommit`'s
+ * `noFiles: true` webhook-wake path). Routing the empty-commit case through
+ * THIS function — instead of a bespoke `execInRepository` call, as the code
+ * did before mt#2635 — matters because this function's catch block re-throws
+ * the ORIGINAL execAsync error unmodified, preserving `.stdout`/`.stderr` so
+ * `classifyHookFailure` (workflow-commands.ts) can still detect and report a
+ * hook failure. `execInRepositoryImpl` below discards that detail when it
+ * wraps failures in a fresh `MinskyError`.
  */
 export async function commitImpl(
   execAsync: ExecAsyncFn,
   message: string,
   repoPath?: string,
-  amend: boolean = false
+  amend: boolean = false,
+  allowEmpty: boolean = false
 ): Promise<string> {
   const workdir = repoPath || process.cwd();
   const amendFlag = amend ? "--amend" : "";
+  const allowEmptyFlag = allowEmpty ? "--allow-empty" : "";
+  const flags = [amendFlag, allowEmptyFlag].filter(Boolean).join(" ");
 
   let stdout: string;
   let stderr: string;
@@ -85,9 +98,11 @@ export async function commitImpl(
     // PR #1058 R1: extended workdir quoting per class-not-instance — same
     // shell-safety treatment for every interpolation in this template.
     ({ stdout, stderr } = await execAsync(
-      `git -C ${safeShellQuote(workdir)} commit ${amendFlag} -m ${safeShellQuote(message)}`
+      `git -C ${safeShellQuote(workdir)} commit ${flags} -m ${safeShellQuote(message)}`
     ));
   } catch (err: unknown) {
+    // --allow-empty makes "nothing to commit" impossible, so this check is a
+    // no-op for that case and unchanged for the normal-commit case.
     if (classifyNothingToCommit(err)) {
       throw new NothingToCommitError();
     }
@@ -225,7 +240,13 @@ export async function execInRepositoryImpl(
     const fullError = getErrorMessage(error);
     const cleanError = extractCleanGitError(fullError, command);
 
-    throw new MinskyError(`Failed to execute command in repository: ${cleanError}`);
+    // mt#2635: preserve the ORIGINAL error (with its `.stdout`/`.stderr`, if
+    // any) as `cause` rather than discarding it. MinskyError's constructor
+    // already accepts a `cause`; this is purely additive (nothing previously
+    // read `.cause` here) and gives any future execInRepository-based
+    // consumer a way to recover full subprocess output for diagnostics
+    // instead of only the one-line `cleanError` summary.
+    throw new MinskyError(`Failed to execute command in repository: ${cleanError}`, error);
   }
 }
 

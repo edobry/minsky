@@ -1,8 +1,14 @@
+> **Historical document**: This stability plan is from May 2025, immediately after Task #125's CLI
+> bridge merge. Status: historical — resolved May 2025 (see `docs/research/task-130-progress.md` and
+> `docs/research/task-130-test-stabilization-progress.md` for the stabilization work that resolved
+> the issues tracked here). Preserved for reference; it reflects the codebase state at that time, not
+> the current implementation.
+
 # Post-CLI Bridge Stability Plan
 
 **Date**: May 23, 2025
 **Context**: System stability issues after Task #125 CLI bridge merge
-**Status**: ACTIVE DAMAGE CONTROL
+**Status**: ACTIVE DAMAGE CONTROL AT TIME OF WRITING — historical, resolved May 2025
 
 ---
 

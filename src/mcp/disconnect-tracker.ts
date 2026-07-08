@@ -285,6 +285,16 @@ function getLogPath(): string {
 }
 
 /**
+ * Public accessor for the persistent disconnect event log path (mt#2537).
+ * Used by the boot-time `mcp.disconnect` system-event sweep
+ * (`src/mcp/disconnect-event-sweep.ts`), which reads this same JSONL file to
+ * bridge disconnect events into the `system_events` durable log.
+ */
+export function getDisconnectLogPath(): string {
+  return getLogPath();
+}
+
+/**
  * Validate that an unknown value parses as a structurally-valid event.
  * Used by `loadFromDisk` to skip malformed entries from either log format.
  */

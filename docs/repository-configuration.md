@@ -22,7 +22,7 @@ The Minsky configuration system is designed to be powerful and flexible, support
     - **Controls**:
       - Personal credentials (like a GitHub Personal Access Token, PostgreSQL connection strings).
       - Credential source preferences.
-      - Personal SessionDB preferences (SQLite database paths, etc.).
+      - Personal Postgres connection preferences.
       - Future user-specific settings (e.g., UI preferences).
 
 ## Configuration Hierarchy
@@ -37,17 +37,19 @@ Minsky resolves settings by looking in the following places, in order of precede
 
 ## SessionDB Configuration
 
-Minsky's SessionDB persistence is configured at both repository and user levels. **Postgres is now the required backend**; SQLite is deprecated and pending removal (mt#2339). Configuration uses YAML (`persistence.*`) — the TOML/`[sessiondb]` examples in the (deprecated) migration guide are legacy.
+Minsky's SessionDB persistence is configured at both repository and user levels. **Postgres is the only supported backend**; SQLite was removed (mt#2339, mt#2329). Configuration uses YAML (`persistence.*`) — the TOML/`[sessiondb]` examples in the (deprecated) migration guide are legacy.
 
 ### Available Backends
 
-> **Update (2026-06-08):** A Postgres connection is now the required backend. SQLite support is
-> being removed (see [ADR-018](architecture/adr-018-domain-persistence-pattern.md) and task mt#2339);
-> it was unused and already broken for the modern code paths. If a zero-dependency offline/local
-> option is ever wanted, the future vehicle is **PGlite** (embedded Postgres — task mt#434), not SQLite.
+> **Update (2026-06-08, removal completed 2026-06-08):** A Postgres connection is required.
+> SQLite support has been removed entirely (see [ADR-018](architecture/adr-018-domain-persistence-pattern.md)
+> and tasks mt#2339/mt#2329); it was unused and already broken for the modern code paths.
+> `PersistenceConfig.backend` is now a `"postgres"` literal type — `sqlite` is not a valid value
+> at the type level, not just deprecated in practice. If a zero-dependency offline/local option is
+> ever wanted, the future vehicle is **PGlite** (embedded Postgres — task mt#434), not SQLite.
 
-- **`postgres`**: PostgreSQL database (required) — e.g. hosted Supabase, or a local `docker run postgres`.
-- **`sqlite`**: _Deprecated; being removed (mt#2339)._ Previously the local default.
+- **`postgres`**: PostgreSQL database (required, and the only supported value) — e.g. hosted Supabase, or a local `docker run postgres`.
+- ~~`sqlite`~~: **Removed** (mt#2339). No longer a valid `backend` value; was previously the local default.
 
 ### Repository-Level SessionDB Configuration
 

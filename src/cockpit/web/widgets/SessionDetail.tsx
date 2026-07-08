@@ -15,7 +15,10 @@ import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { shortenId } from "../lib/format";
+import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/agents/:id response shape (src/cockpit/session-detail.ts)
@@ -40,7 +43,7 @@ export interface SessionPrRef {
 
 export interface SessionDetailPayload {
   session: {
-    sessionId: string;
+    sessionId: WorkspaceId;
     taskId: string | null;
     taskTitle: string | null;
     status: string | null;
@@ -57,7 +60,7 @@ export interface SessionDetailPayload {
   };
   commits: SessionCommitRef[];
   pr: SessionPrRef | null;
-  conversation: { agentSessionId: string } | null;
+  conversation: { agentSessionId: ConversationId } | null;
 }
 
 const LIVENESS_VALUES = ["healthy", "idle", "stale", "orphaned"] as const;
@@ -86,7 +89,7 @@ function isSessionDetailPayload(v: unknown): v is SessionDetailPayload {
 // Fetch
 // ---------------------------------------------------------------------------
 
-async function fetchSessionDetail(sessionId: string): Promise<SessionDetailPayload> {
+async function fetchSessionDetail(sessionId: WorkspaceId): Promise<SessionDetailPayload> {
   const encoded = encodeURIComponent(sessionId);
   const res = await fetch(`/api/agents/${encoded}`);
   if (!res.ok) {
@@ -138,23 +141,15 @@ function SessionDetailBody({
   sessionId,
   query,
 }: {
-  sessionId: string;
+  sessionId: WorkspaceId;
   query: UseQueryResult<SessionDetailPayload, Error>;
 }) {
   if (query.isPending) {
-    return (
-      <p className="text-sm text-muted-foreground" aria-live="polite">
-        Loading session {sessionId}…
-      </p>
-    );
+    return <LoadingState message={`Loading session ${sessionId}…`} />;
   }
 
   if (query.isError) {
-    return (
-      <p className="text-sm text-red-400" role="alert">
-        {query.error.message}
-      </p>
-    );
+    return <ErrorState error={query.error} />;
   }
 
   const data = query.data;
@@ -273,6 +268,7 @@ function SessionDetailBody({
                     {c.shortHash}
                   </span>
                 )}
+                {/* Plain text (not <Prose>): truncated single-line commit subject — block Markdown breaks layout. mt#2556 */}
                 <span className="truncate">{c.subject}</span>
               </li>
             ))}
@@ -289,7 +285,7 @@ function SessionDetailBody({
 
 interface SessionDetailProps {
   /** Minsky workspace sessionId (NOT the harness agentSessionId). */
-  sessionId: string;
+  sessionId: WorkspaceId;
   /** Render-context variant; defaults to the full-page card frame. */
   variant?: WidgetVariant;
 }

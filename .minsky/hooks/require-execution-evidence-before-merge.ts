@@ -1,0 +1,348 @@
+#!/usr/bin/env bun
+// PreToolUse hook: block session_pr_merge if a PR adds new test files but the PR body
+// lacks an "Execution evidence:" block.
+//
+// Rationale: Memory-tier enforcement (`feedback_behavior_detecting_artifacts_need_execution_evidence`)
+// failed 4-for-4 at the mt#1205 workstream. The first live run found 3 real bugs in 326ms,
+// including a production bug that had silently no-op'd `withPgPoolRetry` for ~3 days.
+//
+// This hook makes the discipline structural: at the exact tool call boundary where the
+// failure mode occurs (merging a PR that adds tests that have never been run).
+//
+// Two escape hatches:
+//   1. PR title starts with `[unverified-tests]` — allows merge with a warning.
+//      Use when tests cannot be run yet (e.g. infrastructure not deployed) and a
+//      follow-up verification task is filed.
+//   2. PR body contains `Execution evidence:` — evidence paste from actual test run.
+//
+// @see mt#1459 — this hook implementation
+// @see mt#1460 — sibling /prepare-pr skill step (PR-creation-time guard)
+// @see feedback_behavior_detecting_artifacts_need_execution_evidence — four-incident history
+
+import { readInput, writeOutput } from "./types";
+import type { ToolHookInput } from "./types";
+import {
+  deriveRepoFromGit as deriveRepoFromGitImpl,
+  parseGitHubRemoteUrl as parseGitHubRemoteUrlImpl,
+  resolvePrNumber as resolvePrNumberImpl,
+  makeProdPrDeps as makeProdPrDepsImpl,
+  fetchPrContext,
+  formatContextFailureWarnings,
+} from "./pr-context";
+import type {
+  PrFile as PrFileImpl,
+  ExecFn as ExecFnImpl,
+  PrDeps as PrDepsImpl,
+  FetchPrFilesResult as FetchPrFilesResultImpl,
+} from "./pr-context";
+
+// ---------------------------------------------------------------------------
+// mt#2617: PR-data fetch (repo derivation, PR-number resolution, files/meta
+// fetch) moved to the shared ./pr-context module — consumed by all four
+// session_pr_merge merge gates. Re-exported here VERBATIM so every existing
+// consumer (deploy-surface-detector.ts, deploy-verification-after-merge.ts,
+// require-deploy-verification-before-merge.ts, and this file's own test
+// suite) keeps importing from "./require-execution-evidence-before-merge"
+// unchanged. `resolvePrNumber`'s raw-stdout parsing contract is directly
+// unit-tested and is kept byte-identical in ./pr-context.
+// ---------------------------------------------------------------------------
+
+export const deriveRepoFromGit = deriveRepoFromGitImpl;
+export const parseGitHubRemoteUrl = parseGitHubRemoteUrlImpl;
+export const resolvePrNumber = resolvePrNumberImpl;
+export const makeProdPrDeps = makeProdPrDepsImpl;
+export type PrFile = PrFileImpl;
+export type ExecFn = ExecFnImpl;
+export type PrDeps = PrDepsImpl;
+export type FetchPrFilesResult = FetchPrFilesResultImpl;
+
+/** Result of the execution-evidence check */
+export interface ExecutionEvidenceCheckResult {
+  /** Whether merge should be blocked */
+  blocked: boolean;
+  /** Human-readable reason if blocked; undefined if allowed */
+  reason?: string;
+  /** Any new test files found in the PR diff */
+  newTestFiles: string[];
+  /** Whether the bypass prefix was detected */
+  bypassDetected: boolean;
+  /** Any non-fatal warnings to surface */
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Test file detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Pattern for test files we care about. Matches:
+ *   - *.test.ts
+ *   - *.integration.test.ts
+ *   - *.spec.ts
+ */
+const TEST_FILE_PATTERN = /\.(test|integration\.test|spec)\.ts$/;
+
+/**
+ * Returns true when a filename matches a test-file pattern.
+ */
+export function isTestFile(filename: string): boolean {
+  return TEST_FILE_PATTERN.test(filename);
+}
+
+/**
+ * Filters a list of PrFile objects to only those that are newly introduced test files.
+ *
+ * "Newly introduced" means:
+ *   - status === "added": file is brand new.
+ *   - status === "renamed" or "copied": the new filename matches a test pattern AND
+ *     the previous filename did NOT match a test pattern (i.e. this is a conversion
+ *     into a test file, not merely a rename of an existing test file).
+ */
+export function findNewTestFiles(files: PrFile[]): string[] {
+  return files
+    .filter((f) => {
+      if (!isTestFile(f.filename)) return false;
+      if (f.status === "added") return true;
+      if (f.status === "renamed" || f.status === "copied") {
+        // Only count if the source was NOT already a test file (new-test-file conversion)
+        if (f.previous_filename !== undefined) {
+          return !isTestFile(f.previous_filename);
+        }
+        // No previous_filename info available — conservatively include it
+        return true;
+      }
+      return false;
+    })
+    .map((f) => f.filename);
+}
+
+// ---------------------------------------------------------------------------
+// PR body parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the PR body contains an "Execution evidence" block with
+ * non-empty content following the marker.
+ *
+ * Acceptance criteria (mt#2648 — accepted marker forms, case-insensitive):
+ *   - A Markdown heading, any level 1-6, with an OPTIONAL trailing colon
+ *     (e.g. `## Execution evidence`, `### Execution evidence:`).
+ *   - A standalone label line WITH a colon (`Execution evidence: <content>`) —
+ *     the colon is REQUIRED for the non-heading form so bare prose containing
+ *     the phrase doesn't false-positive.
+ *   - Negation phrases like "No Execution evidence:" do NOT qualify.
+ *   - The marker must be followed by non-whitespace content (inline or on a
+ *     subsequent line before the next heading).
+ *
+ * Detection strategy:
+ *   1. Find a line that matches one of the two accepted marker forms above.
+ *   2. Verify the heading line itself does NOT start with "No " (negation guard).
+ *   3. Require that there is at least one non-empty line of content after the
+ *      heading and before the next Markdown heading or end-of-string.
+ */
+export function hasExecutionEvidence(prBody: string): boolean {
+  // Strip HTML comments before scanning. A marker inside <!-- ... --> is invisible
+  // in rendered Markdown and must not count as evidence.
+  const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
+
+  // Matches lines in one of two forms (mt#2648):
+  //   A. Markdown heading (any level 1-6) + "execution evidence" with an
+  //      OPTIONAL trailing colon — e.g. "## Execution evidence",
+  //      "### Execution evidence:".
+  //   B. Plain label line — "execution evidence:" with a REQUIRED colon (no
+  //      heading marker). Keeping the colon required here preserves the
+  //      original true-negative behavior for bare prose mentions.
+  // Anchored at start-of-line via the `m` flag. Group 1 (heading hashes, form
+  // A only) is unused downstream; group 2 captures trailing inline content.
+  // Up to 3 leading spaces before a heading marker, per CommonMark (spaces
+  // only — not \s, which would let the match skip across blank lines).
+  const headingPattern =
+    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+
+  const lines = strippedBody.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined) continue;
+    const match = line.match(headingPattern);
+    if (!match) continue;
+
+    // Negation guard: skip lines like "No Execution evidence:" or
+    // "## No Execution evidence:" where the word before the marker is "No".
+    // We check the full line up to "execution" for "no ".
+    const beforeMarker = line.slice(0, line.toLowerCase().indexOf("execution")).toLowerCase();
+    if (/\bno\b/.test(beforeMarker)) continue;
+
+    // Also reject template placeholders where the heading line itself contains
+    // the full text on the same line — allow only if there's content on the same
+    // line OR content follows on subsequent lines.
+    const inlineContent = (match[2] ?? "").trim();
+    if (inlineContent.length > 0) {
+      // Inline content on the heading line counts as evidence
+      return true;
+    }
+
+    // Look for non-empty content on subsequent lines before the next ## heading
+    for (let j = i + 1; j < lines.length; j++) {
+      const nextLine = lines[j];
+      if (nextLine === undefined) break;
+      if (/^ {0,3}#{1,6}\s/.test(nextLine)) break; // next heading (≤3-space indent, CommonMark) — stop
+      if (nextLine.trim().length > 0) return true; // found content
+    }
+    // Heading found but no content — keep looking in case there's another
+    // Execution evidence: block further down
+  }
+
+  return false;
+}
+
+/**
+ * Returns true when the PR title contains the bypass marker `[unverified-tests]`
+ * anywhere in the title (case-insensitive).
+ *
+ * The marker is bracket-delimited, so it must appear as `[unverified-tests]` and
+ * not merely as a substring embedded inside another word. Bracket delimiters provide
+ * natural word-boundary semantics without requiring regex word boundaries (which do
+ * not apply to `[`/`]` characters).
+ *
+ * Rationale: the sibling skill mt#1460 tells agents to put `[unverified-tests]` at
+ * the start of their *input* title, but the `prepare-pr` tool then composes the
+ * visible PR title as `feat(mt#X): <input title>`, placing the marker in the middle
+ * (e.g. `feat(mt#1459): [unverified-tests] real title`). A startsWith check would
+ * silently miss this common case.
+ */
+export function hasBypassPrefix(prTitle: string): boolean {
+  return /\[unverified-tests\]/i.test(prTitle);
+}
+
+// ---------------------------------------------------------------------------
+// Core check logic (pure / injectable)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the execution-evidence check given PR files and metadata.
+ * This is the pure core of the hook — injectable for unit tests.
+ */
+export function checkExecutionEvidence(
+  prFiles: PrFile[],
+  prTitle: string,
+  prBody: string
+): ExecutionEvidenceCheckResult {
+  const warnings: string[] = [];
+  const newTestFiles = findNewTestFiles(prFiles);
+
+  // No new test files → hook is silent
+  if (newTestFiles.length === 0) {
+    return { blocked: false, newTestFiles: [], bypassDetected: false, warnings };
+  }
+
+  // Bypass prefix present → allow with warning
+  const bypassDetected = hasBypassPrefix(prTitle);
+  if (bypassDetected) {
+    warnings.push(
+      `[unverified-tests] bypass detected: merge proceeding without execution evidence for ` +
+        `${newTestFiles.length} new test file(s). File a follow-up verification task.`
+    );
+    return { blocked: false, newTestFiles, bypassDetected: true, warnings };
+  }
+
+  // Execution evidence present → allow
+  if (hasExecutionEvidence(prBody)) {
+    return { blocked: false, newTestFiles, bypassDetected: false, warnings };
+  }
+
+  // No evidence, no bypass → block
+  const fileList = newTestFiles.map((f) => `  - ${f}`).join("\n");
+  const reason =
+    `Merge blocked: PR adds ${newTestFiles.length} new test file(s) but PR body has no ` +
+    `execution-evidence block.\n\n` +
+    `Accepted marker forms (case-insensitive): \`Execution evidence:\` (plain label, colon ` +
+    `required) OR a Markdown heading of any level with an optional trailing colon ` +
+    `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
+    `New test files:\n${fileList}\n\n` +
+    `To unblock, choose one of:\n` +
+    `  1. Run the new tests and paste output under an \`Execution evidence\` section ` +
+    `(any accepted form above) in ` +
+    `the PR body (use mcp__minsky__session_pr_edit to update the body).\n` +
+    `  2. Prefix the PR title with \`[unverified-tests]\` and file a follow-up ` +
+    `verification task before re-attempting the merge.`;
+
+  return { blocked: true, reason, newTestFiles, bypassDetected: false, warnings };
+}
+
+// ---------------------------------------------------------------------------
+// Top-level hook entry point
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  const input = await readInput<ToolHookInput>();
+
+  const task = (input.tool_input.task as string | undefined) ?? "";
+  if (!task) process.exit(0);
+
+  // Derive owner/repo from the git remote so the hook works on forks and
+  // non-edobry/minsky remotes. Fail-open with a warning if derivation fails.
+  const repo = deriveRepoFromGit(input.cwd);
+  if (!repo) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext:
+          "⚠️ [execution-evidence] Could not derive owner/repo from git remote — check skipped.",
+      },
+    });
+    process.exit(0);
+  }
+
+  // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
+  // instead of the previous resolvePrNumber (1-2 calls) + fetchPrMeta (1
+  // call) + fetchPrFiles (1 call) = up to 4 calls.
+  const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
+
+  // mt#2617 R1 BLOCKING #2 (class-not-instance fix — same pattern flagged in
+  // require-deploy-verification-before-merge.ts): surface BOTH the primary
+  // resolution warning AND any accumulated per-call warnings instead of only
+  // `context.warning`, so operator visibility matches the pre-refactor
+  // behavior where `topLevelWarnings` (e.g. a fetchPrFiles warning) preceded
+  // the terminal "could not fetch" message.
+  if (!context.ok) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: formatContextFailureWarnings(context)
+          .map((w) => `⚠️ ${w}`)
+          .join("\n"),
+      },
+    });
+    process.exit(0);
+  }
+
+  const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
+
+  const result = checkExecutionEvidence(prFiles, prTitle, prBody);
+
+  // Combine top-level warnings (e.g. fetchPrFiles warning) with check-level warnings
+  const allWarnings = [...topLevelWarnings, ...result.warnings];
+
+  if (result.blocked) {
+    // Blocked: aggregate warnings + deny into a single writeOutput call.
+    // Multiple JSON objects on stdout violate the single-JSON contract.
+    // Resolves BLOCKING #1 from PR #909 round 1 review.
+    const warningContext =
+      allWarnings.length > 0 ? `${allWarnings.map((w) => `⚠️ ${w}`).join("\n")}\n\n` : "";
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: `${warningContext}${result.reason}`,
+      },
+    });
+  } else if (allWarnings.length > 0) {
+    // Allowed but with warnings: single writeOutput with aggregated context.
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
+      },
+    });
+  }
+}

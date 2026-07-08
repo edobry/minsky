@@ -14,6 +14,8 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "../components/ui/card";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { cn } from "../lib/utils";
 import { useState } from "react";
 
@@ -262,7 +264,7 @@ export function ActivityPage() {
   if (query.isError) {
     return (
       <div className="p-4 max-w-5xl mx-auto w-full">
-        <p className="text-sm text-destructive">Failed to load activity: {query.error.message}</p>
+        <ErrorState prefix="Failed to load activity" error={query.error} />
       </div>
     );
   }
@@ -318,7 +320,7 @@ export function ActivityPage() {
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>
+        <LoadingState message="Loading..." variant="page" />
       ) : events.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">

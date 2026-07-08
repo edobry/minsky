@@ -19,11 +19,7 @@ import {
   isOverrideTruthy,
   NUL_BYTE_CHECK_OVERRIDE_ENV,
 } from "./nul-byte-detector";
-import {
-  runWorkspaceCopyCheck as runWorkspaceCopyDetector,
-  isWorkspaceCopyOverrideTruthy,
-  WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
-} from "./workspace-copy-detector";
+import { discoverProtectedDockerfiles } from "./workspace-copy-detector";
 import {
   detectMissingJournalEntries,
   MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV,
@@ -95,6 +91,22 @@ export class PreCommitHook {
         return formatResult;
       }
 
+      // Step 1b: Completion-manifest regeneration (mt#2622). Unlike the
+      // "compile --check" family below (Step 9 / 9b), which BLOCK the commit
+      // and tell the operator to re-run a generator by hand, this step
+      // auto-regenerates the shell-completion manifest and re-stages it —
+      // the same auto-fix-and-restage shape as Step 1's lint-staged, not the
+      // detect-and-block shape. That distinction is deliberate: the manifest
+      // is a mechanically-derived structural artifact (Commander-tree walk +
+      // Zod enum extraction) with zero editorial content, so silently
+      // re-staging a corrected version carries none of the "don't want an
+      // unreviewed content rewrite auto-committed" risk that motivates the
+      // rules/skills compile checks blocking instead of auto-fixing.
+      const completionManifestResult = await this.runCompletionManifestRegen();
+      if (!completionManifestResult.success) {
+        return completionManifestResult;
+      }
+
       // Console-usage validation moved into ESLint as the `custom/no-raw-console`
       // rule (mt#1960). Step 2 ran the standalone regex-based `lint:console:strict`
       // script; that script and its package.json scripts were retired with mt#1960.
@@ -121,17 +133,20 @@ export class PreCommitHook {
         return nulByteResult;
       }
 
-      // Step 3c: Workspace-COPY check (mt#1984 + mt#1992). Verify every
-      // workspace declared by root `package.json`'s `workspaces` glob has
-      // a corresponding `COPY <ws>/package.json` line in EVERY Dockerfile
-      // that runs `bun install --frozen-lockfile` (root + sub-project
-      // Dockerfiles under services/* and packages/*), placed BEFORE the
-      // install step. Prevents recurrence of mt#1977 (75-minute root-
-      // Dockerfile outage) and mt#1991 (4-hour reviewer-Dockerfile outage
-      // after the root-only check missed services/reviewer/Dockerfile).
-      const workspaceCopyResult = await this.runWorkspaceCopyCheck();
-      if (!workspaceCopyResult.success) {
-        return workspaceCopyResult;
+      // Step 3c: Dockerfile workspace-COPY regeneration (mt#1984 + mt#1992
+      // + mt#2621). Regenerates the workspace package.json COPY block in
+      // every Dockerfile that runs `bun install --frozen-lockfile` (root +
+      // sub-project Dockerfiles under services/* and packages/*) from the
+      // same `workspaces` glob bun itself resolves, and re-stages any file
+      // that changed. Replaces the mt#1984/mt#1992 detect-and-block guard —
+      // instead of catching drift after the fact, the COPY block can no
+      // longer drift by hand at all (mirrors the mt#2622 completion-
+      // manifest auto-fix-and-restage pattern). Eliminates the drift class
+      // that caused mt#1977 (75-minute root-Dockerfile outage) and mt#1991
+      // (4-hour reviewer-Dockerfile outage).
+      const dockerfileWorkspaceCopyResult = await this.runDockerfileWorkspaceCopyRegen();
+      if (!dockerfileWorkspaceCopyResult.success) {
+        return dockerfileWorkspaceCopyResult;
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
@@ -630,6 +645,38 @@ export class PreCommitHook {
    * Throws on non-zero exit (gitlinks, deleted-then-modified edge cases,
    * etc.); callers handle via `Promise.allSettled`.
    */
+  /**
+   * Run a git subcommand via `Bun.spawn` argv (no shell) and return its
+   * decoded stdout, throwing on non-zero exit. Used by
+   * `runCompletionManifestRegen`'s diff/add calls instead of
+   * `execGitWithTimeout` to avoid embedding a path into an interpolated
+   * shell command string — the same argv-bypasses-shell rationale as
+   * {@link gitShowStagedBytes} (reviewer-bot BLOCKING finding, mt#2622 PR
+   * review round 1: an unquoted path containing spaces or shell
+   * metacharacters could break the command or enable argument injection,
+   * even though `manifestPath` is a hardcoded constant today).
+   */
+  private async runGitArgv(args: string[], timeoutMs = 5000): Promise<string> {
+    const proc = Bun.spawn(["git", "-C", this.projectRoot, ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), timeoutMs);
+    try {
+      const stdoutPromise = new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) {
+        const stderrText = await new Response(proc.stderr).text();
+        throw new Error(
+          `git ${args.join(" ")} exited ${exitCode}: ${stderrText.trim() || "no stderr"}`
+        );
+      }
+      return await stdoutPromise;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async gitShowStagedBytes(file: string): Promise<Buffer> {
     const TIMEOUT_MS = 5000;
     const proc = Bun.spawn(["git", "-C", this.projectRoot, "show", `:${file}`], {
@@ -759,126 +806,103 @@ export class PreCommitHook {
   }
 
   /**
-   * Run the workspace-COPY check (mt#1984). Verify that every workspace
-   * declared by root `package.json`'s `workspaces` glob AND containing a
-   * `package.json` has a corresponding `COPY <ws>/package.json` line in
-   * the root `Dockerfile` BEFORE the `RUN bun install --frozen-lockfile`
-   * step.
+   * Regenerate the workspace package.json COPY block in every protected
+   * Dockerfile and re-stage any that changed (mt#2621). Replaces the
+   * mt#1984/mt#1992 static missing-COPY detector — instead of DETECTING
+   * drift between the `workspaces` glob and the Dockerfile's hand-typed
+   * COPY list and blocking the commit, this step ELIMINATES the drift
+   * class by generating the COPY block from the same glob bun itself
+   * resolves, then auto-fixing and re-staging (the mt#2622 completion-
+   * manifest pattern) — the same auto-fix-and-restage shape as Step 1b's
+   * completion-manifest regen, not the detect-and-block shape the old
+   * guard used.
    *
-   * Originating incident: mt#1977 — PR #1186 (mt#1934, marketing-site
-   * rebuild) added `services/site/` as a workspace without updating the
-   * Dockerfile's selective-COPY list. Every Railway deploy from that
-   * point until the mt#1977 fix landed (~75 minutes later) failed with
-   *   `error: lockfile had changes, but lockfile is frozen`
+   * Originating incidents this eliminates the drift class for: mt#1977
+   * (75-minute root-Dockerfile outage) and mt#1991 (4-hour
+   * reviewer-Dockerfile outage) — both caused by the hand-maintained COPY
+   * list silently falling out of sync with the `workspaces` glob.
    *
-   * The local `bun install` SUCCEEDS because the full repo is mounted;
-   * the failure mode is Railway-specific (selective COPY produces an
-   * incomplete tree). This check is the commit-time complement to that
-   * deploy-time failure mode.
-   *
-   * Override: setting `MINSKY_SKIP_WORKSPACE_COPY_CHECK` to `1` / `true`
-   * / `yes` skips the check and emits a one-line audit message.
+   * Unconditional, like Step 1b — no override. A thrown error here means a
+   * protected Dockerfile is missing the generated-block markers (a
+   * one-time setup gap, not staleness); the operator adds the markers
+   * once (see Dockerfile / services/reviewer/Dockerfile /
+   * services/cockpit/Dockerfile for the block shape) and the generator
+   * handles the rest going forward.
    *
    * See `src/hooks/workspace-copy-detector.ts` for the pure-function
-   * detector this method wraps.
+   * discovery/templating primitives and
+   * `scripts/generate-dockerfile-workspace-copies.ts` for the script this
+   * step invokes.
    */
-  private async runWorkspaceCopyCheck(): Promise<HookResult> {
-    if (isWorkspaceCopyOverrideTruthy(process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV])) {
-      const ts = new Date().toISOString();
-      log.cli(
-        `[pre-commit:workspace-copy-check] override ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=${process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV]} ` +
-          `at ${ts} — workspace-COPY check skipped`
-      );
+  private async runDockerfileWorkspaceCopyRegen(): Promise<HookResult> {
+    const protectedDockerfiles = discoverProtectedDockerfiles(this.projectRoot);
+    if (protectedDockerfiles.length === 0) {
       return {
         success: true,
-        message: "Workspace-COPY check skipped via override",
+        message: "No protected Dockerfiles found",
         exitCode: 0,
       };
     }
 
     try {
-      const results = runWorkspaceCopyDetector(this.projectRoot);
-
-      // Silent on happy path (per spec): no preamble, no pass/skip
-      // confirmation. Only the failure case below emits stdout.
-      // - null = "this repo has no root package.json we recognize" —
-      //   short-circuit silently.
-      if (results === null) {
-        return {
-          success: true,
-          message: "Workspace-COPY check inapplicable (no root package.json)",
-          exitCode: 0,
-        };
-      }
-
-      // No protected Dockerfiles discovered (e.g., a repo without any
-      // `RUN bun install --frozen-lockfile` step). Silent pass.
-      if (results.length === 0) {
-        return {
-          success: true,
-          message: "Workspace-COPY check inapplicable (no protected Dockerfiles)",
-          exitCode: 0,
-        };
-      }
-
-      const failing = results.filter((r) => r.missing.length > 0);
-      if (failing.length === 0) {
-        return {
-          success: true,
-          message: `Workspace-COPY check passed (${results.length} Dockerfile(s) verified)`,
-          exitCode: 0,
-        };
-      }
-
-      const totalMissing = failing.reduce((sum, r) => sum + r.missing.length, 0);
-
-      log.cli("");
-      log.cli(
-        `${failing.length} Dockerfile(s) missing workspace package.json COPY line(s). Commit blocked.`
-      );
-      log.cli("");
-      for (const r of failing) {
-        log.cli(`${r.dockerfileRelPath}:`);
-        for (const m of r.missing) {
-          log.cli(`   ${m.workspacePath}/  — add to ${r.dockerfileRelPath}:`);
-          log.cli(`     ${m.copyLineToAdd}`);
-        }
-        log.cli("");
-      }
-      log.cli("Why this is blocked:");
-      log.cli(
-        "   - Tracking tasks:       mt#1984 (root Dockerfile), mt#1992 (sub-project Dockerfiles)"
-      );
-      log.cli(
-        "   - Originating incidents: mt#1977 (75-minute outage), mt#1991 (4-hour reviewer outage)"
-      );
-      log.cli("");
-      log.cli("Background: root `package.json` declares workspaces (`packages/*`,");
-      log.cli("   `services/*`). When a new workspace is added, `bun.lock` regenerates");
-      log.cli("   with its dependencies. EVERY Dockerfile in the repo that runs");
-      log.cli("   `RUN bun install --frozen-lockfile` against that lockfile must include");
-      log.cli("   each workspace's package.json BEFORE the install step — otherwise the");
-      log.cli("   build container sees a workspace topology that doesn't match the lockfile");
-      log.cli('   and aborts with "lockfile had changes, but lockfile is frozen".');
-      log.cli("");
-      log.cli(
-        `If a COPY is intentionally omitted (rare), set ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=1 to override.`
-      );
-      log.cli("   The skip is audit-logged to stdout.");
-      return {
-        success: false,
-        message: `Workspace-COPY check failed: ${totalMissing} missing COPY line(s) across ${failing.length} Dockerfile(s)`,
-        exitCode: 1,
-      };
+      await execAsync("bun run generate:dockerfile-workspace-copies", {
+        cwd: this.projectRoot,
+        timeout: 15000,
+      });
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error(`Workspace-COPY check failed: ${errorMsg}`);
+      const result = classifyDockerfileWorkspaceCopyRegenError(error);
+      for (const line of result.logLines) {
+        log.cli(line);
+      }
+      return { success: false, message: result.message, exitCode: 1 };
+    }
+
+    let diffStdout: string;
+    try {
+      diffStdout = await this.runGitArgv(["diff", "--name-only", "--", ...protectedDockerfiles]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not diff regenerated Dockerfile(s): ${errMsg}`);
       return {
         success: false,
-        message: `Workspace-COPY check failed: ${errorMsg}`,
+        message: `Could not diff regenerated Dockerfile(s): ${errMsg}`,
         exitCode: 1,
       };
     }
+
+    const changedFiles = diffStdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    if (changedFiles.length === 0) {
+      return {
+        success: true,
+        message: "Dockerfile workspace-COPY blocks up-to-date",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      await this.runGitArgv(["add", "--", ...changedFiles]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not stage regenerated Dockerfile(s): ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not stage regenerated Dockerfile(s): ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    log.cli(
+      `✅ Dockerfile workspace-COPY block(s) regenerated and staged (was out of date): ${changedFiles.join(", ")}`
+    );
+    return {
+      success: true,
+      message: "Dockerfile workspace-COPY blocks regenerated and staged",
+      exitCode: 0,
+    };
   }
 
   private async runMigrationJournalCheck(): Promise<HookResult> {
@@ -1202,10 +1226,17 @@ export class PreCommitHook {
 
     try {
       await execAsync(
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain",
+        // mt#2608: packages/domain (336 test files, the mt#2108 extraction
+        // target) and the four orphaned tests/{unit,mcp,dev-tooling,
+        // architecture} subdirs had zero pre-commit coverage until this
+        // line added them. Kept aligned with the canonical `test` script's
+        // path list (package.json) so pre-commit and CI test the same
+        // surface — reviewer R1 flagged the original packages/domain-only
+        // version as drifting from the canonical script.
+        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain ./tests/unit ./tests/mcp ./tests/dev-tooling ./tests/architecture ./packages/domain",
         {
           cwd: this.projectRoot,
-          timeout: 60000, // Allow more time for full test suite
+          timeout: 120000, // mt#2608: packages/domain adds ~40s; bump budget accordingly
           env: { ...process.env, AGENT: "1" },
         }
       );
@@ -1352,6 +1383,110 @@ export class PreCommitHook {
   }
 
   /**
+   * Regenerate the shell-completion manifest and re-stage it if it changed
+   * (mt#2622). Unconditional — the generator is a pure function of the
+   * current CLI source tree (Commander tree walk + Zod enum extraction, no
+   * DB/network access) and completes in well under a second, so there is no
+   * benefit to gating on which files are staged: any narrower heuristic
+   * (e.g., "only run if src/adapters/shared/commands/** changed") risks
+   * silently missing a CLI-shape change made through a path it didn't
+   * anticipate, reintroducing exactly the staleness this step exists to
+   * prevent. This mirrors the "compile --check" family's unconditional,
+   * repo-wide scope (Step 9 / 9b) rather than lint-staged's staged-file
+   * scoping (Step 1) — but AUTO-FIXES and re-stages instead of blocking, per
+   * the Step 1b rationale above.
+   */
+  private async runCompletionManifestRegen(): Promise<HookResult> {
+    log.cli("🔧 Regenerating shell-completion manifest...");
+
+    const manifestPath = "src/generated/completion-manifest.json";
+
+    try {
+      // Reuses the same `build:completion-manifest` package.json script that
+      // `bun run build` invokes, so there is exactly one place that names the
+      // generator's invocation path.
+      await execAsync("bun run build:completion-manifest", {
+        cwd: this.projectRoot,
+        timeout: 15000,
+      });
+    } catch (error) {
+      const result = classifyCompletionManifestRegenError(error);
+      for (const line of result.logLines) {
+        log.cli(line);
+      }
+      return { success: false, message: result.message, exitCode: 1 };
+    }
+
+    try {
+      // Prettier-format the regenerated manifest before diff/stage: the
+      // generator's raw output is not prettier-styled, and the lint-staged
+      // formatting step (step 1) has already run by the time this step
+      // re-stages the file — without this pass, CI's `format:check` fails on
+      // the freshly staged manifest. Fully literal command string (no
+      // interpolation), consistent with the R1 no-shell-interpolation finding.
+      await execAsync("bunx prettier --write src/generated/completion-manifest.json", {
+        cwd: this.projectRoot,
+        timeout: 15000,
+      });
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not format the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not format the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    // Compare the regenerated working-tree copy against the index. `git diff`
+    // (no --quiet) always exits 0 and simply prints nothing when there is no
+    // difference, so this never throws on the common "already up to date" path.
+    // Uses `runGitArgv` (Bun.spawn argv, no shell) rather than
+    // `execGitWithTimeout` — reviewer-bot BLOCKING finding, mt#2622 PR review
+    // round 1: embedding `manifestPath` into an interpolated shell command
+    // string is a bad precedent even though the path is a hardcoded constant.
+    let changed = false;
+    try {
+      const diffStdout = await this.runGitArgv(["diff", "--name-only", "--", manifestPath]);
+      changed = manifestDiffIndicatesChange(diffStdout);
+    } catch (error) {
+      // A failure here is a git-plumbing problem, not a generator problem —
+      // fail closed rather than silently skip staging a possibly-changed file.
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not diff the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not diff the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    if (!changed) {
+      log.cli("✅ Completion manifest already up-to-date.");
+      return { success: true, message: "Completion manifest up-to-date", exitCode: 0 };
+    }
+
+    try {
+      await this.runGitArgv(["add", "--", manifestPath]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not stage the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not stage the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    log.cli("✅ Completion manifest regenerated and staged (was out of date).");
+    return {
+      success: true,
+      message: "Completion manifest regenerated and staged",
+      exitCode: 0,
+    };
+  }
+
+  /**
    * Run ESLint rule tooling tests
    */
   private async runESLintRuleTests(): Promise<HookResult> {
@@ -1471,7 +1606,7 @@ export class PreCommitHook {
    */
   private async runCompileCheck(): Promise<HookResult> {
     log.cli(
-      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents)..."
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
     );
 
     const fsp = await import("fs/promises");
@@ -1487,6 +1622,7 @@ export class PreCommitHook {
       skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
       rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
       agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
+      hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
     });
 
     if (targetsToCheck.length === 0) {
@@ -1498,7 +1634,7 @@ export class PreCommitHook {
       try {
         // `target` is from the locally-built `targetsToCheck` array which
         // contains only the hardcoded literals "claude-skills",
-        // "cursor-rules-ts", and "claude-agents". Bounded enum, no shell
+        // "cursor-rules-ts", "claude-agents", and "claude-hooks". Bounded enum, no shell
         // metacharacters — no safeShellQuote needed (mirrors
         // runRulesCompileCheck / mt#1829).
         await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
@@ -1520,6 +1656,77 @@ export class PreCommitHook {
 }
 
 /**
+ * True iff `git diff --name-only -- <manifestPath>`'s stdout indicates the
+ * regenerated completion manifest differs from the index. `git diff` (no
+ * `--quiet`) always exits 0, so this is a pure string check rather than an
+ * exit-code check. Pure + exported for unit testing (mt#2622).
+ */
+export function manifestDiffIndicatesChange(diffStdout: string): boolean {
+  return diffStdout.trim().length > 0;
+}
+
+/**
+ * Build the failure result for a completion-manifest regeneration error.
+ * Unlike {@link classifyCompileCheckError}, there is no STALE-vs-broken
+ * distinction to make here: `runCompletionManifestRegen` always regenerates
+ * (never `--check`s), so ANY thrown error means the generator itself failed —
+ * re-running the commit will not help until the generator is fixed. Pure +
+ * exported for unit testing (mt#2622).
+ */
+export function classifyCompletionManifestRegenError(error: unknown): {
+  logLines: string[];
+  message: string;
+} {
+  const execError = error as { stdout?: string; stderr?: string };
+  // `||`, not `??`: an EMPTY-string stderr must fall through to stdout (mirrors
+  // classifyCompileCheckError's `stderr.trim() || stdout.trim()` below) — `??`
+  // would treat `""` as "present" and never reach stdout.
+  const detail = (execError.stderr ?? "").trim() || (execError.stdout ?? "").trim();
+  const errorDetail = detail || (error instanceof Error ? error.message : String(error));
+  const logLines = [
+    "❌ Completion-manifest regeneration failed:",
+    ...errorDetail.split("\n").map((line) => `   ${line}`),
+    "💡 Fix the error above and retry the commit. This is a generator bug, not staleness — " +
+      "re-running the commit will NOT help until the generator itself is fixed.",
+  ];
+  return {
+    logLines,
+    message: `Completion-manifest regeneration failed: ${errorDetail.split("\n")[0]}`,
+  };
+}
+
+/**
+ * Build the failure result for a Dockerfile workspace-COPY regeneration
+ * error (mt#2621). Mirrors {@link classifyCompletionManifestRegenError}:
+ * `runDockerfileWorkspaceCopyRegen` always regenerates (never blocks on
+ * ordinary drift), so any thrown error here means the generator script
+ * itself failed — most likely a protected Dockerfile is missing the
+ * generated-block markers (see `applyGeneratedWorkspaceCopyBlock`'s error
+ * message), which is a one-time setup gap rather than staleness. Pure +
+ * exported for unit testing.
+ */
+export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
+  logLines: string[];
+  message: string;
+} {
+  const execError = error as { stdout?: string; stderr?: string };
+  // `??`, not `||`-only: an EMPTY-string stderr must fall through to stdout
+  // (mirrors classifyCompletionManifestRegenError above).
+  const detail = (execError.stderr ?? "").trim() || (execError.stdout ?? "").trim();
+  const errorDetail = detail || (error instanceof Error ? error.message : String(error));
+  const logLines = [
+    "❌ Dockerfile workspace-COPY regeneration failed:",
+    ...errorDetail.split("\n").map((line) => `   ${line}`),
+    "💡 A protected Dockerfile is likely missing the generated-block markers — see " +
+      "Dockerfile / services/reviewer/Dockerfile for the expected shape.",
+  ];
+  return {
+    logLines,
+    message: `Dockerfile workspace-COPY regeneration failed: ${errorDetail.split("\n")[0]}`,
+  };
+}
+
+/**
  * Maps which `.minsky/` source dirs are present to the compile targets the
  * pre-commit check verifies. Each target is opted in only when its source dir
  * exists, so repos without a given source tree skip that check. Pure +
@@ -1529,11 +1736,13 @@ export function compileCheckTargets(present: {
   skills: boolean;
   rules: boolean;
   agents: boolean;
+  hooks: boolean;
 }): string[] {
   const targets: string[] = [];
   if (present.skills) targets.push("claude-skills");
   if (present.rules) targets.push("cursor-rules-ts");
   if (present.agents) targets.push("claude-agents");
+  if (present.hooks) targets.push("claude-hooks");
   return targets;
 }
 

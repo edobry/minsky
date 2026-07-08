@@ -1,0 +1,35 @@
+{
+  "$comment": "Golden contract fixture for GET /api/health (mt#2629). Single shared location consumed by BOTH sides of the tray/cockpit supervision split: src/cockpit/health-contract.test.ts (bun) asserts the LIVE server response's field set + types match `fields` below; cockpit-tray/src-tauri/src/supervisor.rs's `health_contract` test module (cargo) asserts these fields — plus the literal TS source of health.ts — still name the fields the Rust supervisor parses (`rustConsumedFields`). See contract/README.md for the full contract note, including the port/process-detection semantics documented alongside this fixture.",
+  "endpoint": "GET /api/health",
+  "emittedBy": "src/cockpit/routes/health.ts (mountHealthRoutes)",
+  "consumedBy": [
+    "src/cockpit/web/hooks/useSystemHealth.ts",
+    "src/cockpit/web/components/Rail.tsx",
+    "cockpit-tray/src-tauri/src/supervisor.rs (health_ok, poll_health_detail)"
+  ],
+  "fields": {
+    "status": "string",
+    "version": "string",
+    "commit": "string",
+    "uptimeSec": "number",
+    "db": "string",
+    "processStartedAtMs": "number",
+    "consecutiveDegraded": "number",
+    "transcriptWatcher": "object",
+    "transcriptSweep": "object",
+    "dispatchWatchdogSweep": "object"
+  },
+  "rustConsumedFields": ["db", "processStartedAtMs"],
+  "sample": {
+    "status": "ok",
+    "version": "0.1.0",
+    "commit": "abc1234",
+    "uptimeSec": 42,
+    "db": "ok",
+    "processStartedAtMs": 1735689600000,
+    "consecutiveDegraded": 0,
+    "transcriptWatcher": { "activeSessionCount": 0 },
+    "transcriptSweep": { "totalRuns": 0 },
+    "dispatchWatchdogSweep": { "ticksRun": 0, "flagsWritten": 0 }
+  }
+}

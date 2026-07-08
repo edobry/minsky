@@ -18,7 +18,7 @@
  * @refactored Eliminated interface mismatches and local mock objects
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { approveSessionPr } from "./session/session-approval-operations";
+import { approveSessionPr } from "./session/session-pr-approval-operations";
 
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { FakeGitService } from "./git/fake-git-service";

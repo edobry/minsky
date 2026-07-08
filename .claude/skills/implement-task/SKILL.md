@@ -196,11 +196,26 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
    Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its `hook-files.mdc` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-`--target` invocation regenerated `AGENTS.md` but not `CLAUDE.md`). See `feedback_new_guard_needs_source_rule_doc_at_authoring_time`.
 
+5. **Spec-decision reconciliation.** Re-read the spec's `Design Decisions` / `Success Criteria`. For each, confirm the implementation reflects it. If you deviated from a stated decision mid-implementation (e.g., on the basis of a local code convention or comment), you MUST either (a) update the spec to record the change + rationale, or (b) revert to the spec — never leave an unreconciled spec-vs-impl divergence for the reviewer to find (a guaranteed extra round). A convention comment in ONE file is a claim about a local choice, not evidence of a global rule: grep for counter-examples across the broader codebase before letting it override a spec decision (see memory `d624c862`).
+
+   Origin: mt#2415 / PR #1711 R1 (2026-06-16) — the spec's Design Decision said `project_id` was a `uuid FK -> projects.id`; mid-implementation the decision was overridden to a no-FK plain ref after reading one file's "no FK constraints — plain text refs per project convention" comment, without checking that the agent-transcripts cluster DOES use uuid FKs and without re-reading the spec. The reviewer-bot's Spec-verification table caught the divergence (2 BLOCKING findings), costing a round. This step shifts that catch left to author time. Deciding-time recurrence of memory `d624c862`; see `488d4796`.
+
+6. **Architectural-pattern community-practice check (mt#2503).** Before committing a significant architectural pattern — a new workspace package, a module/package-boundary restructure, a re-export / proxy / barrel pattern, or a choice between competing structural approaches where the cheaper one is unvalidated — run ONE web search for community practice on the pattern and cite it (one line) before committing the approach. Evaluate the cheaper-effort path for CORRECTNESS, not just scope. This is the implement-execution-time sibling of `/plan-task` gate (l) (mt#2445), which covers plan/recommendation time.
+
+   Origin: mt#2108 (2026-05-25/26) — the `packages/domain/` extraction chose a barrel re-export to avoid a 224-file import rewrite; it hit an immediate runtime error (`getConfigValue` export not found), and a 30-second community-practice search returned unambiguous consensus (Turborepo / Nx / Coder Spirit / WebDong) that barrel re-exports in monorepos are an anti-pattern. R6 of the build-path-as-research family (`f6607043`); see `4012b934`.
+
+7. **Added a new test file? (mt#2530)** Two already-shipped gates fire at MERGE when a PR adds a NEW test file. Front-load BOTH in the PR body BEFORE `session_pr_create`, or they surface reactively as sequential merge blocks — each costing a full round:
+
+   - **(a) No placeholder assertions** in your tests. The Prevent-Placeholder-Tests CI check (mt#1938, `.github/workflows/test-quality.yml`) greps the repo for `expect(true).toBe(true)` and comment-marked placeholders — so it fires on ANY test file you ADD OR MODIFY (broader scope than (b)); also avoid `.skip`, `.todo`, and empty test bodies. For a compile-time-only test (e.g. a `// @ts-expect-error` type-guard assertion), PAIR the directive with a REAL runtime assertion so the test still exercises executable behavior.
+   - **(b) An `Execution evidence:` block in the PR body** — the LITERAL heading WITH the colon (the mt#1459 merge gate matches the regex `/Execution evidence:/`, NOT a markdown `## Execution evidence` heading without the colon). Put it near the PR body's Testing / Test Plan section (mirrors `/prepare-pr` §1b) and paste the ACTUAL test-run output for the new test files (`bun test ... <files>` — pass/fail counts + file names), not a promise to run them. The mt#1459 gate fires on **newly ADDED** test files only — a renamed/copied non-test→test conversion counts; MODIFYING an existing test does NOT (this matches `/prepare-pr` §1b's "newly created, not just modified" scope). If you genuinely cannot run them, use the `[unverified-tests]` title-tag escape hatch (`/prepare-pr` §1b) with a documented reason instead.
+
+   Origin: mt#2524 (2026-06-19) hit three sequential reactive merge blocks in one session — placeholder assertions, then execution-evidence-missing, then a heading without the colon — each fixed in its own round. mt#2525 (2026-06-21) recurred on the missing `Execution evidence:` block at merge. Front-loading removes the reactive rounds. Gates: mt#1459 (`Execution evidence:` merge gate, newly-added test files), mt#1460 (/prepare-pr §1b sibling, also newly-created only), mt#1938 (Prevent-Placeholder-Tests CI check, repo-wide grep).
+
 **Reactive phase (when iterating on reviewer findings):**
 
-5. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+8. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
 
-6. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+9. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
 
 Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds), plus mt#1811 (PR #1100 deferred-without-probing) for the probe-before-defer step. See `feedback_cascade_defense_in_implementer_prompt.md` and `feedback_probe_before_defer_at_action_time` for the pattern history.
 
@@ -324,13 +339,26 @@ When the PR is authored by `minsky-ai[bot]` or another identity that the reviewe
 
 ### 10. Post-merge deploy verification (when the task touches a deployed service)
 
-When the merged PR changes code that runs in a deployed service (anything under
-`services/<svc>/` that has a `deploy.config.ts`, or any source that the deploy
-image bundles via the project Dockerfile), do NOT stop at merge. The merge
+When the merged PR changes anything that affects WHAT gets deployed or HOW, do
+NOT stop at merge. This covers both deployed SOURCE (anything under
+`services/<svc>/` that has a `deploy.config.ts`, or source the deploy image
+bundles via the project Dockerfile) AND deploy/infra CONFIG-as-code — the
+**deploy surface** the mt#2353 hooks fire on: `infra/**`,
+`services/*/Dockerfile`, `services/*/railway.json`, `services/*/deploy.config.ts`,
+`services/*/railway.config.ts`, `.github/workflows/deploy-*.yml`. The merge
 triggers an auto-deploy on Railway (or whatever platform the service declares);
 that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
-missing env var, schema migration error, container crash on start. Verify the
-post-merge deploy succeeded before reporting the task done.
+missing env var, config-as-code resolution error, schema migration error,
+container crash on start.
+
+**Verifying the post-merge deploy is MANDATORY before you report the task done**
+— not a discretionary follow-up. Two hooks enforce it (mt#2353): the PreToolUse
+gate `require-deploy-verification-before-merge.ts` blocks the merge of a
+deploy-surface PR unless its body carries a `Deploy verification:` commitment, and
+the PostToolUse `deploy-verification-after-merge.ts` injects a reminder on the
+merge turn. A `Deploy verification:` section that merely DEFERS ("will verify
+later" / "deferred to §10 because not-yet-deployed") is NOT evidence — the
+verification must actually run, here, after the deploy completes.
 
 **Primary mechanism: `mcp__minsky__deployment_wait-for-latest`.**
 
@@ -370,9 +398,24 @@ candidates: Vercel, Cloudflare Pages, etc.). See
 on the failed deployment ID, inspect the failure, and either fix-forward
 in a new PR or surface to the user with the logs attached.
 
-This step does NOT change the task's DONE status — that's still owned by
-the at-merge handler. Post-merge deploy verification is a quality gate on
-the deploy itself, not the task lifecycle.
+**Three rules this step enforces (the mt#2345 incident violated all three):**
+
+1. **"Applied" is the ACTION, not the OUTCOME.** `pulumi up` exit-0, a 200 from a
+   config API, or an apply call returning success means the change was
+   _submitted_ — NOT that the service is healthy. A deploy-touching task is not
+   done until `deployment_wait-for-latest` returns SUCCESS AND the runtime shows
+   the service started (a `/health` 200 or `deployment_logs(..., type: "deploy")`
+   showing the boot). Verify outcomes, not actions.
+2. **A deploy-verification-tool flake is a BLOCKER, not a license to defer.** If
+   `deployment_wait-for-latest` errors on auth / an MCP transport flake (e.g.
+   Railway `Unauthorized`), reconnect (`/mcp`) and retry — do NOT downgrade to an
+   "observational" / "will-watch-future-merges" completion claim. That exact
+   downgrade left mt#2345's reviewer service crash-looping for ~30 min while the
+   task was reported DONE.
+3. **DONE being set ≠ deploy healthy.** The at-merge handler sets DONE atomically
+   at merge, BEFORE the deploy completes, so this step does NOT change DONE status.
+   DONE is necessary-but-not-sufficient; the deploy-health check above is the real
+   completion signal for a deploy-touching task.
 
 ## Constraints
 

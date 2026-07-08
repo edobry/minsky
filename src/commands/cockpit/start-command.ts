@@ -4,14 +4,23 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
+import { createCockpitServer } from "../../cockpit/server";
+import { initServerSseBroker } from "../../cockpit/routes/events";
 import {
-  createCockpitServer,
-  initServerSseBroker,
   startAskAdvancementSweeper,
   startProdStateRefreshSweeper,
-} from "../../cockpit/server";
+  startTopologySweeper,
+  startTranscriptSweepBackstop,
+  startDispatchWatchdogSweeper,
+} from "../../cockpit/sweepers";
+import {
+  markDbDegraded,
+  startDbRetryBackoff,
+  PersistenceInitTimeoutError,
+} from "../../cockpit/shared-persistence";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
+import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
 
@@ -48,6 +57,38 @@ async function attemptListen(app: express.Express, port: number): Promise<Listen
       }
     });
   });
+}
+
+// gh#1761: postgres-js error codes that indicate a DB-layer issue (circuit
+// breaker, connection recycling). Exported for unit testing.
+const DB_ERROR_CODES = new Set([
+  "ECIRCUITBREAKER",
+  "EDBHANDLEREXITED",
+  "CONNECTION_CLOSED",
+  "CONNECTION_DESTROYED",
+]);
+
+/**
+ * Returns true when `reason` is a DB-layer error that should cause the cockpit
+ * daemon to degrade gracefully (stay up, retry) rather than crash (exit 1).
+ *
+ * Covers:
+ *   - postgres-js circuit-breaker / connection-recycling errors (by `code`
+ *     property matching `DB_ERROR_CODES`)
+ *   - `PersistenceInitTimeoutError` thrown by `getSharedPersistenceService`
+ *     when the init deadline is exceeded
+ *
+ * Everything else — unrelated application bugs, programming errors, etc. —
+ * must NOT be swallowed; callers should exit(1) for those.
+ *
+ * @internal Exported for unit testing only.
+ */
+export function isDbDegradationError(reason: unknown): boolean {
+  if (reason instanceof PersistenceInitTimeoutError) return true;
+  if (reason != null && typeof reason === "object" && "code" in reason) {
+    return DB_ERROR_CODES.has(String((reason as { code: unknown }).code));
+  }
+  return false;
 }
 
 /**
@@ -206,6 +247,25 @@ export function createStartCommand(): Command {
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
+      // Slow-clock topology sweep (mt#2602): periodically re-derive the
+      // guard-hook registry + interlock history (git log + retrospective.fired
+      // correlation) so the plant board's S2 valve inventory and
+      // interlock-history drill-down stay current without any per-request
+      // derivation.
+      const stopTopologySweeper = startTopologySweeper();
+      // Transcript watcher (mt#2320): the PRIMARY transcript-capture path from
+      // ADR-017 — FS-watch ~/.claude/projects and ingest-on-append so in-flight
+      // sessions become searchable without an exit/manual ingest/reboot.
+      const stopTranscriptWatcher = startTranscriptWatcher();
+      // Transcript sweep backstop (mt#2321): BACKSTOP half of ADR-017 — periodic
+      // full-discovery ingest + embedding backfill to cover dropped FS events,
+      // sessions missed while the daemon was down, and stale embeddings.
+      const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Dispatch watchdog refresh (mt#2646): periodically check in-flight
+      // subagent dispatches (IN-PROGRESS/IN-REVIEW tasks with no commit/PR-
+      // event/subagent_invocations progress) and write the flagged set to the
+      // local cache that inject-dispatch-watchdog.ts injects each turn.
+      const stopDispatchWatchdogSweeper = startDispatchWatchdogSweeper();
 
       let shuttingDown = false;
       const cleanupSync = () => {
@@ -213,6 +273,10 @@ export function createStartCommand(): Command {
         shuttingDown = true;
         stopAskSweeper();
         stopProdStateSweeper();
+        stopTopologySweeper();
+        stopTranscriptWatcher();
+        stopTranscriptSweep();
+        stopDispatchWatchdogSweeper();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
@@ -249,7 +313,26 @@ export function createStartCommand(): Command {
         console.error(`Cockpit: uncaught exception: ${e.message}`);
         process.exit(1);
       });
+      // gh#1761: postgres-js ECIRCUITBREAKER / EDBHANDLEREXITED reach this
+      // handler when the Supavisor circuit breaker trips (e.g. after a burst of
+      // auth failures). Calling process.exit(1) here crashes the daemon and
+      // causes KeepAlive to respawn it, which re-trips the circuit breaker in a
+      // tight loop — exactly the 49,650-restart incident.
+      //
+      // The fix: detect DB-specific errors by their postgres-js error codes,
+      // mark the singleton degraded (so /api/health reports db:"degraded"), and
+      // start a background retry loop.  Non-DB errors still exit(1).
+      let stopDbRetry: (() => void) | null = null;
+
       proc.on("unhandledRejection", (reason: unknown) => {
+        if (isDbDegradationError(reason)) {
+          const r = reason instanceof Error ? reason.message : String(reason);
+          console.error(`Cockpit: DB circuit-breaker error — degrading gracefully: ${r}`);
+          markDbDegraded();
+          if (stopDbRetry !== null) stopDbRetry();
+          stopDbRetry = startDbRetryBackoff();
+          return; // do NOT exit — daemon stays up
+        }
         cleanupSync();
         const r = reason instanceof Error ? reason.message : String(reason);
         console.error(`Cockpit: unhandled rejection: ${r}`);

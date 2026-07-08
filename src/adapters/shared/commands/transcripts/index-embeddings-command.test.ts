@@ -65,7 +65,7 @@ describe("transcripts.index-embeddings command", () => {
       // pass an empty context and assert the validation error fires first.
       const minimalContext = { interface: "cli" as const };
       await expect(getCommand().execute({}, minimalContext)).rejects.toThrow(
-        /requires either --all or --session/
+        /requires either --all or --conversationId/
       );
     });
 

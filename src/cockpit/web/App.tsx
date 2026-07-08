@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { WidgetShell } from "./components/WidgetShell";
+import { useDeepLinkHandler } from "./hooks/useDeepLinkHandler";
 import {
   fetchWidgets,
   fetchWidgetData,
@@ -56,6 +57,12 @@ const TaskDetailPage = lazy(() =>
 );
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
 const AskPage = lazy(() => import("./pages/AskPage").then((m) => ({ default: m.AskPage })));
+const ChangesetDetailPage = lazy(() =>
+  import("./pages/ChangesetDetailPage").then((m) => ({ default: m.ChangesetDetailPage }))
+);
+const ChangesetsPage = lazy(() =>
+  import("./pages/ChangesetsPage").then((m) => ({ default: m.ChangesetsPage }))
+);
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
 );
@@ -70,6 +77,12 @@ const MemoryPage = lazy(() =>
 );
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
+);
+const WeldHistoryPage = lazy(() =>
+  import("./pages/WeldHistoryPage").then((m) => ({ default: m.WeldHistoryPage }))
+);
+const VitalsPage = lazy(() =>
+  import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
 
 /**
@@ -92,6 +105,21 @@ export const plantRoutes = (
     />
     <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
     <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
+    {/*
+     * Interlock-history drill-down (mt#2602): interlock provenance timeline.
+     * Route renamed from `/plant/weld-history` (mt#2626, guard vocabulary
+     * alignment — "interlock" is the domain noun; "weld" survives only as a
+     * verb). Accepted as a breaking rename — local-only cockpit, no external
+     * consumers/bookmarks to preserve, so no redirect route was added.
+     */}
+    <Route
+      path="/plant/interlock-history"
+      element={
+        <ErrorBoundary id="interlock-history-page">
+          <WeldHistoryPage />
+        </ErrorBoundary>
+      }
+    />
   </>
 );
 
@@ -256,6 +284,13 @@ function HomePage({ widgets }: HomePageProps) {
 export function App() {
   const [widgets, setWidgets] = useState<WidgetState[]>([]);
   const queryClient = useQueryClient();
+
+  // ---------------------------------------------------------------------------
+  // minsky:// deep-link handler (mt#2528, ADR-023).
+  // Installs window.__minskyDeepLink and drains window.__minskyPendingDeepLink.
+  // Called once; the hook is inside the router tree so useNavigate is available.
+  // ---------------------------------------------------------------------------
+  useDeepLinkHandler();
 
   // ---------------------------------------------------------------------------
   // SSE adapter — invalidates TanStack Query cache on push events (mt#1148).
@@ -449,6 +484,25 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Changeset entity route (mt#2535): URL-addressable changeset/PR detail tab.
+              Id is the changeset id — keyed to PR number (github-pr adapter). */}
+          <Route
+            path="/changeset/:id"
+            element={
+              <ErrorBoundary id="changeset-page">
+                <ChangesetDetailPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Changesets list route (mt#1920): active PRs across sessions. */}
+          <Route
+            path="/changesets"
+            element={
+              <ErrorBoundary id="changesets-page">
+                <ChangesetsPage />
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/activity"
             element={
@@ -491,6 +545,15 @@ export function App() {
             }
           />
           {plantRoutes}
+          {/* Phone vital-signs view (mt#2601): compressed four-loop sibling of /plant. */}
+          <Route
+            path="/vitals"
+            element={
+              <ErrorBoundary id="vitals-page">
+                <VitalsPage />
+              </ErrorBoundary>
+            }
+          />
         </Routes>
       </Suspense>
     </Layout>

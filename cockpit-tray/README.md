@@ -52,7 +52,24 @@ crates). Subsequent builds are incremental (~20s).
 
 ## Install (local, single-principal)
 
-Copy the bundle into `/Applications`:
+**For deep-link / URL-scheme verification, use the lean installer.** It builds
+APP-ONLY (`tauri build --bundles app` — no DMG, so no macOS installer-window
+popup), installs into `/Applications`, registers with Launch Services, and clears
+quarantine:
+
+```bash
+cockpit-tray/scripts/install-local.sh                # full install
+cockpit-tray/scripts/install-local.sh --binary-only  # fast iterative re-install (swap inner binary only)
+```
+
+> `tauri dev` (`bun run dev`) is the normal loop for ALL tray work EXCEPT
+> deep-link testing — the `minsky://` scheme only registers for a bundled app
+> installed in `/Applications` (a macOS Launch-Services constraint, not a Tauri
+> one), so deep links can't be exercised under `tauri dev`. See the Deep-link
+> section below.
+
+To install a bundle you built by hand instead (note that a full `bun run build`
+also emits a `.dmg` you don't need for local install):
 
 ```bash
 cp -r "src-tauri/target/release/bundle/macos/Minsky Cockpit.app" /Applications/
@@ -218,6 +235,43 @@ A separate **Last build** dropdown line shows the bundle's last rebuild outcome
 mtime it was started against (`Daemon uptime: 3m 12s (src @ 14:30:00 UTC)`), or
 `Daemon uptime: —` when nothing is running.
 
+### `minsky://` deep links (mt#2528)
+
+The tray registers the `minsky://` custom URL scheme, so clicking a
+`minsky://<type>/<id>` link — e.g. a terminal deeplink (mt#2519) or
+`open minsky://task/mt%232370` — **focuses the cockpit window and navigates it**
+to that entity's page. If the tray app is closed, macOS Launch Services
+**launches it first**, then delivers the URL (click-to-launch).
+
+- **Routing:** `task` → `/tasks/<id>`, `ask` → `/ask/<id>`, `memory` →
+  `/memory/<id>`, `session` → `/agents/<id>`; `pr`/`changeset`/unknown → no-op
+  (no route yet, mt#2410). All mappings come from the shared codec
+  (`src/cockpit/web/lib/entity-codec.ts`, mt#2518) — never hardcoded.
+- **How it works (ADR-023):** the cockpit window is an untrusted external-URL
+  webview, so the deep-link plugin's JS `onOpenUrl` listener is unavailable. The
+  Rust `on_open_url` handler shows/focuses the window and forwards the URL via
+  `window.eval` of the SPA-exposed `window.__minskyDeepLink(uri)` global
+  (JSON-encoded; retried until the webview is ready so a cold start doesn't drop
+  the link). No Tauri IPC / `remote` capability is granted to the SPA — see
+  `docs/architecture/adr-023-cockpit-ui-delivery-native-boundary.md`.
+- **macOS-only:** registration uses `CFBundleURLTypes` / Launch Services
+  (auto-generated from `tauri.conf.json` → `plugins.deep-link.desktop.schemes`).
+  Windows/Linux scheme registration differs and is a follow-up.
+- **Cannot be tested in `tauri dev`** (no `.app` bundle → the scheme is
+  unregistered; macOS registers schemes from `Info.plist` at INSTALL time, not at
+  runtime). Verify on a real build + install — use the lean installer (app-only
+  build, no DMG popup):
+
+  ```bash
+  cockpit-tray/scripts/install-local.sh        # app-only build + install + register
+  open "/Applications/Minsky Cockpit.app"      # launch the tray (spawns the daemon)
+  open 'minsky://task/mt%232370'               # cockpit focuses → /tasks/mt%232370
+  # quit the tray app, then:
+  open 'minsky://memory/<uuid>'                # app launches → /memory/<uuid>
+  # or run the automated hot-start check:
+  cockpit-tray/scripts/verify-deeplink-hotstart.sh
+  ```
+
 ## Testing (mt#2226)
 
 Three tiers; standard Tauri WebDriver e2e does **not** apply (it is Windows/Linux-only
@@ -241,6 +295,17 @@ Three tiers; standard Tauri WebDriver e2e does **not** apply (it is Windows/Linu
    open "/Applications/Minsky Cockpit.app"
    cockpit-tray/scripts/smoke-status.sh   # exit 0 = matches, 1 = mismatch, 2 = skipped
    ```
+
+### Post-restructure operator smoke (mt#2628)
+
+The mt#2628 module split (`main.rs` → `menu`/`supervisor`/`watcher_web`/
+`watcher_backend`/`deeplink`/`launchd`) is tier-1/2 verified only — GUI smoke
+cannot run from a session workspace or CI. After the next
+`install-local.sh` rebuild+reinstall, the operator verifies once:
+
+- [ ] Menu renders and items function (status line, open cockpit, quit)
+- [ ] Clicking a `minsky://` link opens the cockpit window
+- [ ] Killing the daemon (`kill <pid>` of the `cockpit start` process) triggers supervisor respawn
 
 ## Architecture
 

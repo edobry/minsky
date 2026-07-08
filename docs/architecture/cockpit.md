@@ -35,20 +35,22 @@ directory resolves to an ingested transcript's cwd, it links to the conversation
 
 ## Routes
 
-| Path           | Page           | Purpose                                                                                                                    |
-| -------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`            | Home           | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398) |
-| `/agents`      | Agents         | Workspace sessions in flight — rows open the workspace-session detail at `/agents/:id`                                     |
-| `/agents/:id`  | Session detail | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                |
-| `/session/:id` | Session        | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)   |
-| `/context`     | Context        | Agent context inspector                                                                                                    |
-| `/workstreams` | Workstreams    | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                          |
-| `/tasks`       | Tasks          | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                       |
-| `/asks`        | Asks           | Interactive ask management                                                                                                 |
-| `/activity`    | Activity       | Event stream                                                                                                               |
-| `/embeddings`  | Embeddings     | Provider health + index coverage                                                                                           |
-| `/memories`    | Memories       | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                         |
-| `/settings`    | Settings       | Cockpit configuration + credentials                                                                                        |
+| Path                       | Page              | Purpose                                                                                                                                             |
+| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | Home              | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398)                          |
+| `/agents`                  | Agents            | Workspace sessions in flight — rows open the workspace-session detail at `/agents/:id`                                                              |
+| `/agents/:id`              | Session detail    | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                                         |
+| `/session/:id`             | Session           | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)                            |
+| `/context`                 | Context           | Agent context inspector                                                                                                                             |
+| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                   |
+| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                |
+| `/asks`                    | Asks              | Interactive ask management                                                                                                                          |
+| `/activity`                | Activity          | Event stream                                                                                                                                        |
+| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                    |
+| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                  |
+| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                 |
+| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                              |
+| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626) |
 
 ## Widgets
 
@@ -99,15 +101,16 @@ and must not be hardcoded into widget vocabularies.
 
 ### Widget catalog by route
 
-| Widget ID                                                                                      | Page                | Surface                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                 | Home System-Status card grid                                                                                                                          |
-| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages     | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                          |
-| `memories-health`                                                                              | `/memories`         | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card) |
-| `memories-stats`                                                                               | `/memories`         | Stats panel: totals by type, recent count, top accessed, superseded count                                                                             |
-| `memories-list`                                                                                | `/memories`         | Browseable record table with type + scope filters                                                                                                     |
-| `memories-search`                                                                              | `/memories`         | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
-| `memories-detail`                                                                              | `/memories` (modal) | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
+| Widget ID                                                                                      | Page                                 | Surface                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                                  | Home System-Status card grid                                                                                                                                                           |
+| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages                      | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                           |
+| `memories-health`                                                                              | `/memories`                          | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                  |
+| `memories-stats`                                                                               | `/memories`                          | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                              |
+| `memories-list`                                                                                | `/memories`                          | Browseable record table with type + scope filters                                                                                                                                      |
+| `memories-search`                                                                              | `/memories`                          | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                        |
+| `memories-detail`                                                                              | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                |
+| `slow-topology`                                                                                | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602) |
 
 ### Reviewer Bot Status widget
 
@@ -150,7 +153,7 @@ Widget ID: `reviewer-bot-status` (mt#2076). Backend: `src/cockpit/widgets/review
 ## Ask advancement sweep (mt#2265)
 
 The cockpit daemon runs the **ask advancement sweep**: one pass at boot, then
-every 60s (`startAskAdvancementSweeper` in `src/cockpit/server.ts`, domain
+every 60s (`startAskAdvancementSweeper` in `src/cockpit/sweepers.ts`, domain
 logic in `packages/domain/src/ask/advancement.ts`). The sweep advances
 `detected` asks that nothing else routed — emission-callsite rows, rows from
 crashed processes — and expires stale ones (`detected` older than 7 days;
@@ -169,6 +172,139 @@ asks count-by-state on `debug_systemInfo` (`asks` field) — a growing
 triage: `bun scripts/asks-backlog-triage.ts` (dry-run by default,
 `--execute` to expire the stale set; `direction.decide` asks are never
 bulk-expired).
+
+## Transcript watcher (mt#2320)
+
+The cockpit daemon runs the **transcript watcher** — the primary transcript-capture
+mechanism of ADR-017. It attaches a recursive `fs.watch` over
+`~/.claude/projects/**/*.jsonl` (`startTranscriptWatcher` in
+`src/cockpit/transcript-watcher.ts`) and, on append, ingests the changed
+session's new turns through the existing idempotent
+`AgentTranscriptIngestService` (via a `SingleFileTranscriptSource` so a single
+file ingest is O(1), not a full project scan). An in-flight session therefore
+becomes FTS-searchable shortly after its turns hit disk — no session exit, no
+manual `transcripts ingest`, no MCP reboot. Existing transcripts are seeded at
+start with their tailer offset at EOF (history is owned by the boot sweep,
+mt#2051); only post-attach appends are tailed. The shared incremental-read
+primitive is `JsonlTailer` (`packages/domain/src/transcripts/jsonl-tailer.ts`),
+reused by the Rung-1 live renderer (mt#2232). Ingest dedup is owned by the
+service's timestamp high-water-mark, so a missed/dropped FS event is recovered
+by the periodic sweep backstop (mt#2321); the watcher fails open (an
+unsupported recursive watch logs and no-ops).
+
+**Observability — `GET /api/health` `transcriptWatcher`.** Because the watcher
+runs in the cockpit process (unlike `debug_systemInfo`, which is the MCP-server
+process), its health is exposed on the cockpit's own `/api/health` endpoint
+under a `transcriptWatcher` object:
+
+```jsonc
+"transcriptWatcher": {
+  "running": true,
+  "filesWatched": 12,
+  "ingestsTriggered": 34,
+  "ingestsSucceeded": 33,
+  "ingestErrors": 1,
+  "turnsIngested": 410,
+  "lastIngestAt": "2026-06-18T20:00:00.000Z",
+  "lastErrorAt": "2026-06-18T19:58:00.000Z",
+  "activeSessions": [
+    {
+      "agentSessionId": "abc-123",
+      "isSubagent": false,
+      "lastEventAt": "2026-06-18T20:00:00.000Z",
+      "lastIngestAt": "2026-06-18T20:00:00.000Z",
+      "lastTurnsIngested": 3
+    }
+  ]
+}
+```
+
+**Security posture.** `/api/health` is unauthenticated, so the payload is
+deliberately redacted: it carries **no absolute filesystem paths** (the
+`agentSessionId` — the JSONL filename stem — is the only session identifier;
+the absolute `jsonlPath` is never exposed) and **no raw error-message strings**
+(only an `ingestErrors` count and `lastErrorAt` timestamp; the underlying error
+text is emitted to the daemon log surface, not the API). Adding a field here
+that could leak a path or internal detail re-opens that disclosure — keep the
+redaction when extending it.
+
+**Watchdog fields (mt#2578).** The tray-app supervisor's self-health watchdog
+(ADR-014 lifecycle extension) reads two additional top-level fields from
+`/api/health` to detect daemon restarts and sustained DB degradation:
+
+| Field                 | Type                   | Semantics                                                                                                                                                                                                                       |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `processStartedAtMs`  | `number` (epoch-ms)    | Timestamp when this daemon process started. The tray supervisor compares it across polls; a value change means the daemon restarted (used to detect adopted-daemon restarts not caused by a supervised child exit).             |
+| `consecutiveDegraded` | `number` (integer ≥ 0) | Number of consecutive health polls where the DB status was not `"ok"`. The tray uses this as a cross-check; it also maintains its own DB-degraded counter for alert gating. Reset to `0` on the first poll where `db === "ok"`. |
+
+**Redaction note:** both fields are non-sensitive — `processStartedAtMs` is an
+epoch-ms integer with no path or identity information; `consecutiveDegraded` is
+a small counter. Neither violates the endpoint's unauthenticated-access posture.
+
+## Transcript sweep backstop (mt#2321)
+
+The cockpit daemon also runs the **transcript sweep backstop** — the recovery
+layer behind the watcher (mt#2320), per ADR-017's watcher-primary +
+sweep-backstop design. On a configurable cadence (`startTranscriptSweepBackstop`
+in `src/cockpit/sweepers.ts`) it runs a full-discovery `ingestAll()` (idempotent /
+HWM-gated) followed by the vector-only semantic-embedding backfill
+(`index-embeddings`), run off the critical path and fail-open — a missing or
+failing embedding provider does not crash the sweep. It recovers what the watcher
+can miss: dropped/coalesced FS events, sessions that completed while the daemon
+was down, sessions predating the watcher's attach, and stale/missing embeddings.
+
+**Cadence.** Default 30 minutes (heavier than the prod-state sweeper because a
+full `ingestAll` re-discovers every session). Externally configurable via the
+`MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS` env var (positive-integer milliseconds;
+invalid values fall back to the default with a warning).
+
+**Observability — `GET /api/health` `transcriptSweep`.** Like the watcher, the
+sweep runs in the cockpit process, so its health is on the cockpit's own
+`/api/health` — NOT `debug_systemInfo`, which runs in the MCP-server process and
+would read zero for cockpit-process state:
+
+```jsonc
+"transcriptSweep": {
+  "sweepsRun": 3,
+  "sessionsIngested": 41,
+  "sessionsErrored": 0,
+  "embedRuns": 3,
+  "lastSweepAt": "2026-06-19T22:00:00.000Z",
+  "lastErrorAt": null
+}
+```
+
+Same redaction posture as the watcher: counts + ISO timestamps only — no
+absolute paths, no raw error-message strings (the unauthenticated-endpoint
+disclosure constraint).
+
+## Slow-clock topology sweeper (mt#2602)
+
+The cockpit daemon runs the **slow-clock topology sweeper**
+(`startTopologySweeper` in `src/cockpit/sweepers.ts`): one pass at boot, then
+hourly, mirroring `startProdStateRefreshSweeper`'s producer/consumer split
+(mt#2506). Each pass:
+
+1. Resolves the repo root (`findRepoRoot`, `web-dist.ts`) and lists
+   `.claude/hooks/` and `.minsky/hooks/` (both, deduped — the mt#2304
+   compile-pipeline migration may be pre-merge, mid-flight, or complete).
+2. Runs a single bounded, read-only `git log --reverse --diff-filter=A
+--name-only -- .claude/hooks .minsky/hooks` (10s timeout, 4MB max-buffer)
+   to find each hook file's original install commit — pure derivation logic
+   in `src/cockpit/topology-derivation.ts`, impure I/O in
+   `src/cockpit/topology-cache.ts`.
+3. Queries `retrospective.fired` system events (mt#2537) and correlates them
+   to install commits by task ref (exact) or time proximity (nearest
+   preceding, within 14 days).
+4. Writes the result to an in-process cache; the `slow-topology` widget's
+   `fetch()` only ever reads this cache — no per-request git subprocess or
+   DB query.
+
+Fail-open at every step: a missing repo root, unreadable hook dirs, a failed
+git subprocess, or an unreachable DB each degrade to honest `null`/`unknown`
+fields (or, for a total failure, leave the last-good cache in place) rather
+than fabricating data. The widget payload's `status` field distinguishes
+`"pending"` (no successful sweep yet) from `"ready"`.
 
 ## Operator dev loop
 
@@ -208,3 +344,9 @@ When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-0
 - mt#2149 — embeddings-health overview card (DONE 2026-05-27)
 - mt#2150 — Memories page (this doc's `/memories` entry)
 - mt#2147 — `EmbeddingsHealthTracker` backend (DONE 2026-05-27)
+- mt#2626 — guard-vocabulary alignment: "hook" names the Claude Code
+  registration mechanics only; "interlock" is the domain noun used here and in
+  UI copy; "weld" survives only as a verb ("welding an interlock"). See
+  `src/cockpit/CLAUDE.md` §Vocabulary. The `/plant/weld-history` route was
+  renamed to `/plant/interlock-history` as part of this change (breaking,
+  local-only cockpit — no external consumers).

@@ -50,7 +50,7 @@ Minsky's hook architecture:
 | `check-prompt-watermark.ts`      | PreToolUse (merge) | Validates prompt watermark before merge          | Yes     |
 | `validate-task-spec.ts`          | PreToolUse         | Validates task spec structure                    | Yes     |
 
-Hooks can't detect semantic coherence (that requires understanding, not pattern matching), but they can enforce mechanical correctness (type checking, lint) and workflow invariants (review required).
+Hooks enforce mechanical correctness (type checking, lint) and workflow invariants (review required) — and they are **not** limited to literal pattern matching. Full semantic _coherence_ (e.g. "does this refactor leave the codebase consistent?") needs understanding, but cheaper semantic signals are available and **already shipped** in Minsky hooks: embedding _proximity_ (`.claude/hooks/memory-search.ts` does a per-turn `memory_search` / pgvector round-trip) and binary LLM _classification_ (`.claude/hooks/post-merge-unasked-direction-scan.ts` sends the transcript to a Haiku-class model via `UnaskedDirectionAnalyzer`). So a guidance hook detecting a behavioral trigger phrase is not forced into a hand-rolled regex list. How to choose among regex / embedding / LLM for that case — cheapest-sufficient-first, evidence-gated — is recorded in [ADR-024: Detection-mechanism ladder for the guidance-hook family](./adr-024-detection-mechanism-ladder-for-guidance-hooks.md).
 
 ## The strength ordering
 

@@ -31,7 +31,22 @@ describe("event category classification", () => {
   test("the informational/trajectory types are classified informational", () => {
     const informational = eventTypesForCategory("informational");
     expect(informational.sort()).toEqual(
-      ["task.status_changed", "pr.merged", "subagent.completed", "session.started"].sort()
+      [
+        "task.status_changed",
+        "pr.merged",
+        "subagent.completed",
+        "session.started",
+        "memory.created",
+        "ask.answered",
+        "changeset.created",
+        "hook.fired",
+        "mcp.disconnect",
+        "retrospective.fired",
+        "deploy.build",
+        "deploy.smoke",
+        "deploy.live",
+        "deploy.fail",
+      ].sort()
     );
   });
 

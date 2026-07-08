@@ -34,13 +34,34 @@ import {
   type ConversationElement,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
-import type { SessionContextSnapshot } from "@minsky/domain/context/types";
+import type { SessionContextSnapshot, SessionContextSnapshotBlock } from "@minsky/domain/context/types";
+import type { ConversationId, WorkspaceId } from "@minsky/domain/ids";
+import type { EntityIndex } from "../lib/entity-linkifier";
+import { useEntityIndex } from "../lib/use-entity-index";
+import { Prose } from "../components/Prose";
+import { ToolPayload } from "../components/ToolPayload";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
+import { useLiveTail } from "../hooks/useLiveTail";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 type ConversationViewProps =
-  | { sessionId: string; snapshot?: undefined; className?: string }
-  | { snapshot: SessionContextSnapshot; sessionId?: undefined; className?: string };
+  | {
+      sessionId: ConversationId;
+      snapshot?: undefined;
+      className?: string;
+      /**
+       * Minsky workspace sessionId (WorkspaceId). When provided, `ConversationFetcher`
+       * opens the `GET /api/agents/:id/live-tail` SSE channel and appends new turns
+       * in real time alongside the DB snapshot. The id-spaces are distinct — this must
+       * NOT be the same string as `sessionId` (which is the harness agentSessionId).
+       *
+       * This is the pluggable live stream-source seam (mt#2232 Rung 1).
+       */
+      workspaceSessionId?: WorkspaceId;
+    }
+  | { snapshot: SessionContextSnapshot; sessionId?: undefined; workspaceSessionId?: never; className?: string };
 
 // ── Snapshot fetch (mirrors ContextInspector's endpoint usage) ─────────────────
 
@@ -53,10 +74,15 @@ function isSnapshot(value: unknown): value is SessionContextSnapshot {
   );
 }
 
-/** Carries the HTTP status so callers can distinguish "no transcript" (404) from real failures. */
+/**
+ * Carries the HTTP status AND the structured error `code` so callers can
+ * distinguish "no transcript" (404 / `session_not_found`) from a wrong-id-space
+ * mistake (422 / `wrong_id_space`, mt#2525) and from real failures.
+ */
 class SnapshotError extends Error {
   constructor(
     public readonly status: number,
+    public readonly code: string | undefined,
     message: string
   ) {
     super(message);
@@ -64,13 +90,26 @@ class SnapshotError extends Error {
   }
 }
 
-async function fetchSnapshot(sessionId: string): Promise<SessionContextSnapshot> {
+async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextSnapshot> {
   const res = await fetch(
     `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}`
   );
   if (!res.ok) {
-    const text = await res.text();
-    throw new SnapshotError(res.status, `Snapshot fetch failed (${res.status}): ${text}`);
+    // The endpoint returns `{ error: { code, message } }`; fall back to the raw
+    // body when it isn't that shape (e.g. a proxy/HTML error page).
+    const raw = await res.text();
+    let code: string | undefined;
+    let detail = raw;
+    try {
+      const parsed = JSON.parse(raw) as { error?: { code?: unknown; message?: unknown } };
+      if (parsed.error && typeof parsed.error === "object") {
+        if (typeof parsed.error.code === "string") code = parsed.error.code;
+        if (typeof parsed.error.message === "string") detail = parsed.error.message;
+      }
+    } catch {
+      // Non-JSON body — keep the raw text as the detail.
+    }
+    throw new SnapshotError(res.status, code, `Snapshot fetch failed (${res.status}): ${detail}`);
   }
   const json: unknown = await res.json();
   if (!isSnapshot(json)) {
@@ -79,29 +118,14 @@ async function fetchSnapshot(sessionId: string): Promise<SessionContextSnapshot>
   return json;
 }
 
-// ── Content pretty-printing ────────────────────────────────────────────────────
+// ── Entity index for linkification ────────────────────────────────────────────
+//
+// The known-entity id-set used to linkify bare references (mt#NNNN, UUIDs) is
+// now built by the shared `useEntityIndex` hook (../lib/use-entity-index.ts),
+// extracted from this file in mt#2550 so every prose surface (`<Prose>`) shares
+// one index. ConversationView consumes it via ConversationThread below.
 
-/** Render an unknown tool input/result payload as readable text. */
-function pretty(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  // tool_result content is often an array of { type: "text", text } blocks.
-  if (Array.isArray(value)) {
-    const texts = value
-      .map((b) =>
-        b !== null && typeof b === "object" && typeof (b as { text?: unknown }).text === "string"
-          ? (b as { text: string }).text
-          : null
-      )
-      .filter((t): t is string => t !== null);
-    if (texts.length > 0) return texts.join("\n");
-  }
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
+// ── Time formatting ─────────────────────────────────────────────────────────────
 
 function formatTime(iso: string): string {
   try {
@@ -115,7 +139,13 @@ function formatTime(iso: string): string {
 
 // ── Element renderers ──────────────────────────────────────────────────────────
 
-function ThinkingBlock({ thinking }: { thinking: string }) {
+export function ThinkingBlock({
+  thinking,
+  entityIndex,
+}: {
+  thinking: string;
+  entityIndex: EntityIndex;
+}) {
   // Render the (potentially very large) body only while expanded — collapsed
   // thinking blocks otherwise pay full serialization/reconciliation cost for
   // text nobody is looking at (PR #1667 R1 non-blocking).
@@ -132,16 +162,27 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         </span>
       </summary>
       {open && (
-        <pre className="whitespace-pre-wrap break-words px-2 pb-2 pt-1 text-xs text-muted-foreground">
+        // Thinking is agent reasoning prose — render as Markdown via the shared
+        // <Prose> (same as assistant text), entity-aware. mt#2556 (mt#2550 follow-up).
+        // Newline semantics intentionally match assistant text (Markdown soft
+        // newlines): model reasoning is paragraph-structured. remark-breaks is NOT
+        // enabled globally — it would regress spec/memory rendering on <Prose>'s
+        // other callers (PR #1746 reviewer note).
+        <Prose entityIndex={entityIndex} className="px-2 pb-2 pt-1 text-xs text-muted-foreground">
           {thinking}
-        </pre>
+        </Prose>
       )}
     </details>
   );
 }
 
-function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "tool-call" }> }) {
-  const input = useMemo(() => pretty(element.input), [element.input]);
+function ToolCall({
+  element,
+  entityIndex,
+}: {
+  element: Extract<ConversationElement, { kind: "tool-call" }>;
+  entityIndex: EntityIndex;
+}) {
   return (
     <div className="rounded border border-sky-500/30 bg-sky-500/5">
       <div className="flex items-center gap-2 px-2 py-1 text-xs">
@@ -155,11 +196,13 @@ function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "
           </span>
         )}
       </div>
-      {input.length > 0 && (
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words border-t border-sky-500/20 px-2 py-1 text-xs text-foreground/80">
-          {input}
-        </pre>
-      )}
+      {/* tool-call args (mt#2552): JSON → entity-aware JsonView, else <pre> */}
+      <ToolPayload
+        value={element.input}
+        toolName={element.name}
+        entityIndex={entityIndex}
+        className="border-sky-500/20 text-foreground/80"
+      />
     </div>
   );
 }
@@ -167,11 +210,12 @@ function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "
 function ToolResult({
   element,
   callName,
+  entityIndex,
 }: {
   element: Extract<ConversationElement, { kind: "tool-result" }>;
   callName: string | undefined;
+  entityIndex: EntityIndex;
 }) {
-  const body = useMemo(() => pretty(element.content), [element.content]);
   return (
     <div
       className={cn(
@@ -184,16 +228,19 @@ function ToolResult({
         <span className="font-medium">{element.isError ? "tool error" : "tool result"}</span>
         {callName && <span className="font-mono text-muted-foreground/70">{callName}</span>}
       </div>
-      <pre
+      {/* Content-type dispatch (mt#2552): JSON payloads → JsonView (a Tier-3
+          per-tool renderer if registered, else the generic entity-aware tree);
+          non-JSON content → <pre> (unchanged). */}
+      <ToolPayload
+        value={element.content}
+        toolName={callName}
+        entityIndex={entityIndex}
         className={cn(
-          "max-h-48 overflow-auto whitespace-pre-wrap break-words border-t px-2 py-1 text-xs",
           element.isError
             ? "border-destructive/30 text-destructive"
             : "border-border/40 text-foreground/70"
         )}
-      >
-        {body}
-      </pre>
+      />
     </div>
   );
 }
@@ -201,26 +248,32 @@ function ToolResult({
 function ElementView({
   element,
   callNameByToolUseId,
+  entityIndex,
 }: {
   element: ConversationElement;
   callNameByToolUseId: Map<string, string>;
+  /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
+  entityIndex: EntityIndex;
 }) {
   switch (element.kind) {
     case "text":
+      // Assistant/user prose turns are Markdown — render via the shared <Prose>
+      // (Markdown structure + entity-linkification). mt#2550.
       return element.text.trim().length > 0 ? (
-        <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">{element.text}</p>
+        <Prose entityIndex={entityIndex}>{element.text}</Prose>
       ) : null;
     case "thinking":
       return element.thinking.trim().length > 0 ? (
-        <ThinkingBlock thinking={element.thinking} />
+        <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
       ) : null;
     case "tool-call":
-      return <ToolCall element={element} />;
+      return <ToolCall element={element} entityIndex={entityIndex} />;
     case "tool-result":
       return (
         <ToolResult
           element={element}
           callName={element.toolUseId ? callNameByToolUseId.get(element.toolUseId) : undefined}
+          entityIndex={entityIndex}
         />
       );
     case "unknown":
@@ -242,15 +295,22 @@ const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: str
 function TurnView({
   turn,
   callNameByToolUseId,
+  entityIndex,
 }: {
   turn: ConversationTurn;
   callNameByToolUseId: Map<string, string>;
+  entityIndex: EntityIndex;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
-        <ElementView key={i} element={element} callNameByToolUseId={callNameByToolUseId} />
+        <ElementView
+          key={i}
+          element={element}
+          callNameByToolUseId={callNameByToolUseId}
+          entityIndex={entityIndex}
+        />
       );
       return node;
     })
@@ -289,12 +349,32 @@ const OLDER_CHUNK = 100;
 
 function ConversationThread({
   snapshot,
+  extraBlocks,
   className,
 }: {
   snapshot: SessionContextSnapshot;
+  /**
+   * Live-tail blocks to append after the snapshot's historical blocks (mt#2232).
+   * When non-empty, they are merged into the block list before turn conversion.
+   * Block ids in `extraBlocks` must NOT collide with snapshot block ids — live
+   * blocks use the `<agentSessionId>:live:<N>` scheme to guarantee this.
+   */
+  extraBlocks?: SessionContextSnapshotBlock[];
   className?: string;
 }) {
-  const turns = useMemo(() => snapshotBlocksToConversation(snapshot.blocks), [snapshot.blocks]);
+  // Build the entity index for transcript linkification. Fetches the same
+  // underlying data as CommandPalette via useEntityIndex (which uses distinct
+  // query keys to avoid cache-shape collisions — see useEntityIndex for details).
+  const entityIndex = useEntityIndex();
+
+  // Merge snapshot blocks with any live-tail appends.
+  const allBlocks = useMemo(
+    () =>
+      extraBlocks && extraBlocks.length > 0 ? [...snapshot.blocks, ...extraBlocks] : snapshot.blocks,
+    [snapshot.blocks, extraBlocks]
+  );
+
+  const turns = useMemo(() => snapshotBlocksToConversation(allBlocks), [allBlocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
   // Computed over ALL turns (not the window): a windowed tool-result may answer
@@ -365,6 +445,17 @@ function ConversationThread({
     }
   }, [windowedTurns.length, hiddenCount]);
 
+  // Live-tail auto-scroll: when new turns arrive from the SSE stream (mt#2232),
+  // scroll to the bottom so the operator sees them immediately. Only fires
+  // when extraBlocks grows — not on the initial snapshot render (which has the
+  // one-shot gate above). Keyed on extraBlocks.length so it fires once per new
+  // live turn, not on every render.
+  const extraBlocksLen = extraBlocks?.length ?? 0;
+  useLayoutEffect(() => {
+    if (extraBlocksLen === 0) return;
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [extraBlocksLen]);
+
   if (visibleTurns.length === 0) {
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
@@ -394,7 +485,12 @@ function ConversationThread({
         </div>
       )}
       {windowedTurns.map((turn) => (
-        <TurnView key={turn.blockId} turn={turn} callNameByToolUseId={callNameByToolUseId} />
+        <TurnView
+          key={turn.blockId}
+          turn={turn}
+          callNameByToolUseId={callNameByToolUseId}
+          entityIndex={entityIndex}
+        />
       ))}
       <div ref={endRef} aria-hidden />
     </div>
@@ -403,15 +499,55 @@ function ConversationThread({
 
 // ── Self-fetching wrapper ───────────────────────────────────────────────────────
 
-function ConversationFetcher({ sessionId, className }: { sessionId: string; className?: string }) {
+function ConversationFetcher({
+  sessionId,
+  workspaceSessionId,
+  className,
+}: {
+  sessionId: ConversationId;
+  /**
+   * When provided, opens a live-tail SSE connection and appends new turns to
+   * the static snapshot in real-time (mt#2232 Rung 1). Must be the Minsky
+   * workspace sessionId (WorkspaceId) — NOT the same string as `sessionId`.
+   */
+  workspaceSessionId?: WorkspaceId;
+  className?: string;
+}) {
   const query = useQuery<SessionContextSnapshot, Error>({
     queryKey: ["conversation", "snapshot", sessionId],
     queryFn: () => fetchSnapshot(sessionId),
     staleTime: 30_000,
   });
 
+  // Live-tail seam (mt#2232): accumulate SSE appends when workspaceSessionId is set.
+  const { liveBlocks } = useLiveTail(workspaceSessionId);
+
   if (query.isError) {
-    const notFound = query.error instanceof SnapshotError && query.error.status === 404;
+    const snapErr = query.error instanceof SnapshotError ? query.error : null;
+    // Fail LOUD on the wrong-id-space mistake (mt#2525 / mt#2420): a workspace
+    // session id was passed where a harness conversation id is required. This
+    // must NOT fall through to the "no transcript yet" empty state — that was
+    // the original misleading surface. Also key off the 422 status so an
+    // intermediary/proxy that drops the JSON body but preserves the status still
+    // routes here (reviewer #1729 robustness suggestion).
+    if (snapErr?.code === "wrong_id_space" || snapErr?.status === 422) {
+      return (
+        <div
+          role="alert"
+          className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}
+        >
+          <p className="text-sm font-medium text-destructive">
+            Wrong id type for the conversation view.
+          </p>
+          <p className="max-w-md text-xs text-muted-foreground">
+            This looks like a Minsky workspace session id, not a harness conversation id. Open the
+            workspace&apos;s session detail page and use its &ldquo;View conversation&rdquo; link to
+            reach the transcript.
+          </p>
+        </div>
+      );
+    }
+    const notFound = snapErr?.status === 404;
     if (notFound) {
       return (
         <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>
@@ -425,16 +561,18 @@ function ConversationFetcher({ sessionId, className }: { sessionId: string; clas
         </div>
       );
     }
-    return (
-      <p className={cn("text-sm text-muted-foreground", className)}>
-        Failed to load conversation: {query.error.message}
-      </p>
-    );
+    return <ErrorState prefix="Failed to load conversation" error={query.error} className={className} />;
   }
   if (query.isLoading || !query.data) {
-    return <p className={cn("text-sm text-muted-foreground", className)}>Loading conversation…</p>;
+    return <LoadingState message="Loading conversation…" className={className} />;
   }
-  return <ConversationThread snapshot={query.data} className={className} />;
+  return (
+    <ConversationThread
+      snapshot={query.data}
+      extraBlocks={liveBlocks.length > 0 ? liveBlocks : undefined}
+      className={className}
+    />
+  );
 }
 
 // ── Public component ────────────────────────────────────────────────────────────
@@ -443,10 +581,21 @@ function ConversationFetcher({ sessionId, className }: { sessionId: string; clas
  * Renders a session's conversation as a chronological chat thread. Layout-agnostic:
  * the host supplies the chrome. Pass either `sessionId` (self-fetch) or `snapshot`
  * (pre-fetched).
+ *
+ * Live-tail seam (mt#2232): pass `workspaceSessionId` alongside `sessionId` to
+ * enable real-time appends from the SSE stream. The two id-spaces are distinct —
+ * `sessionId` is the harness ConversationId; `workspaceSessionId` is the Minsky
+ * workspace WorkspaceId.
  */
 export function ConversationView(props: ConversationViewProps) {
   if (props.snapshot !== undefined) {
     return <ConversationThread snapshot={props.snapshot} className={props.className} />;
   }
-  return <ConversationFetcher sessionId={props.sessionId} className={props.className} />;
+  return (
+    <ConversationFetcher
+      sessionId={props.sessionId}
+      workspaceSessionId={props.workspaceSessionId}
+      className={props.className}
+    />
+  );
 }
