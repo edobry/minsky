@@ -146,18 +146,50 @@ describe("sessionPrDrive", () => {
     expect(deps.checksCalls).toBe(0);
   });
 
-  test("CHANGES_REQUESTED stops and surfaces the review payload; never calls checks", async () => {
+  test("CHANGES_REQUESTED stops and surfaces the trimmed review payload by default (mt#2656)", async () => {
     const review = mkReview({
       state: CHANGES_REQUESTED_STATE,
-      body: "fix the null check on line 42",
+      body: [
+        "## Findings",
+        "",
+        "- [BLOCKING] src/foo.ts:42 — Null check missing.",
+        "  Full explanation.",
+      ].join("\n"),
     });
     const deps = makeDeps({ reviewsQueue: [[review]] });
 
     const result = await sessionPrDrive({ sessionId: SESSION_ID, reviewTimeoutSeconds: 30 }, deps);
 
     expect(result.state).toBe(CHANGES_REQUESTED_STATE);
-    if (result.state === "CHANGES_REQUESTED") {
-      expect(result.review.body).toBe("fix the null check on line 42");
+    if (result.state === CHANGES_REQUESTED_STATE) {
+      expect("body" in result.review).toBe(false);
+      expect(result.review.submittedAt).toBeDefined();
+      if ("findings" in result.review) {
+        expect(result.review.blockingCount).toBe(1);
+        expect(result.review.findings).toHaveLength(1);
+      }
+    }
+    expect(deps.checksCalls).toBe(0);
+  });
+
+  test("CHANGES_REQUESTED with fullBody:true restores the raw ReviewListEntry body (mt#2656)", async () => {
+    const review = mkReview({
+      state: CHANGES_REQUESTED_STATE,
+      body: "fix the null check on line 42",
+    });
+    const deps = makeDeps({ reviewsQueue: [[review]] });
+
+    const result = await sessionPrDrive(
+      { sessionId: SESSION_ID, reviewTimeoutSeconds: 30, fullBody: true },
+      deps
+    );
+
+    expect(result.state).toBe(CHANGES_REQUESTED_STATE);
+    if (result.state === CHANGES_REQUESTED_STATE) {
+      expect("body" in result.review).toBe(true);
+      if ("body" in result.review) {
+        expect(result.review.body).toBe("fix the null check on line 42");
+      }
       expect(result.review.submittedAt).toBeDefined();
     }
     expect(deps.checksCalls).toBe(0);
@@ -190,6 +222,72 @@ describe("sessionPrDrive", () => {
     expect(result.state).toBe("CHECKS_FAILED");
     if (result.state === "CHECKS_FAILED") {
       expect(result.checks.summary.failed).toBe(1);
+    }
+  });
+
+  // ============================================================================
+  // mt#2656 — trimmed-by-default checks payload
+  // ============================================================================
+
+  test("READY_TO_MERGE trims checks to summary-only by default (mt#2656)", async () => {
+    const deps = makeDeps({
+      reviewsQueue: [[mkReview({ state: "APPROVED" })]],
+      checksQueue: [PASSED_CHECKS],
+    });
+
+    const result = await sessionPrDrive(
+      { sessionId: SESSION_ID, reviewTimeoutSeconds: 30, checksTimeoutSeconds: 30 },
+      deps
+    );
+
+    expect(result.state).toBe("READY_TO_MERGE");
+    if (result.state === "READY_TO_MERGE") {
+      expect(result.checks?.allPassed).toBe(true);
+      expect(result.checks?.summary.passed).toBe(2);
+      expect("failingChecks" in (result.checks ?? {})).toBe(false);
+      expect("checks" in (result.checks ?? {})).toBe(false);
+    }
+  });
+
+  test("CHECKS_FAILED surfaces only the failing check in failingChecks, not the passing one (mt#2656)", async () => {
+    const deps = makeDeps({
+      reviewsQueue: [[mkReview({ state: "APPROVED" })]],
+      checksQueue: [FAILED_CHECKS],
+    });
+
+    const result = await sessionPrDrive(
+      { sessionId: SESSION_ID, reviewTimeoutSeconds: 30, checksTimeoutSeconds: 30 },
+      deps
+    );
+
+    expect(result.state).toBe("CHECKS_FAILED");
+    if (result.state === "CHECKS_FAILED") {
+      expect("failingChecks" in result.checks).toBe(true);
+      if ("failingChecks" in result.checks) {
+        expect(result.checks.failingChecks).toEqual([
+          { name: "test", status: "completed", conclusion: "failure", url: null },
+        ]);
+      }
+    }
+  });
+
+  test("fullBody:true restores the full per-check breakdown (mt#2656)", async () => {
+    const deps = makeDeps({
+      reviewsQueue: [[mkReview({ state: "APPROVED" })]],
+      checksQueue: [FAILED_CHECKS],
+    });
+
+    const result = await sessionPrDrive(
+      { sessionId: SESSION_ID, reviewTimeoutSeconds: 30, checksTimeoutSeconds: 30, fullBody: true },
+      deps
+    );
+
+    expect(result.state).toBe("CHECKS_FAILED");
+    if (result.state === "CHECKS_FAILED") {
+      expect("checks" in result.checks).toBe(true);
+      if ("checks" in result.checks) {
+        expect(result.checks.checks).toHaveLength(2);
+      }
     }
   });
 

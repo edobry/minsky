@@ -74,6 +74,30 @@ describe("formatDriveMessage", () => {
     expect(msg).toContain('Re-invoke with since: "2026-07-07T00:10:00Z"');
   });
 
+  test("CHANGES_REQUESTED renders the trimmed findings shape when review is trimmed (mt#2656)", () => {
+    const result: SessionPrDriveResult = {
+      state: CHANGES_REQUESTED_STATE,
+      review: {
+        reviewId: 2,
+        state: CHANGES_REQUESTED_STATE,
+        submittedAt: "2026-07-07T00:10:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        blockingCount: 1,
+        nonBlockingCount: 0,
+        findings: [
+          { severity: "BLOCKING", location: "src/foo.ts:42", summary: "Null check missing." },
+        ],
+      },
+      elapsedMs: 30_000,
+    };
+    const msg = formatDriveMessage(result);
+    expect(msg).toContain(CHANGES_REQUESTED_STATE);
+    expect(msg).toContain("1 BLOCKING");
+    expect(msg).toContain("src/foo.ts:42");
+    expect(msg).toContain("Null check missing.");
+    expect(msg).not.toContain("undefined");
+  });
+
   test("COMMENT stops and is never described as approval", () => {
     const result: SessionPrDriveResult = {
       state: "COMMENT",
