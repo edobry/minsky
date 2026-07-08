@@ -47,16 +47,42 @@ instead of distinct phrases.
 **Re-warning suppression:** mirrors `skill-staleness-detector.ts`'s
 `lastReported` pattern via a small persisted state file
 (`.minsky/calibration-review-cadence-last-warned.json`, keyed by log path →
-`{lastWarnedAt, lastWarnedFireCount}`). A due log is re-warned only when its
-total fire count has grown since the last warning, or `COOLDOWN_MS` (3 days)
-has elapsed while still unaddressed — avoiding a nag on every single turn
-while still surfacing the reminder periodically if ignored.
+`{lastWarnedAt, lastWarnedFireCount, pendingAskWarnedSessionId?}`). A due log
+is re-warned only when its total fire count has grown since the last warning,
+or `COOLDOWN_MS` (3 days) has elapsed while still unaddressed — avoiding a nag
+on every single turn while still surfacing the reminder periodically if
+ignored.
+
+**Per-tool-call-volume logs — time-only re-warn (mt#2659):** `policy-coverage`
+(mt#1575) fires once per Edit/Write/NotebookEdit call rather than once per
+matched pattern, so an active orchestration session's own tool-call volume
+re-crosses `FIRES_THRESHOLD` every few turns — the fire-count-growth re-warn
+trigger effectively nagged every turn for this log. `shouldReWarn` now skips
+the fire-count-growth check for `kind: "policy-coverage"` (and any future log
+registered in the same `PER_TOOL_CALL_VOLUME_KINDS` set), leaving only the
+`COOLDOWN_MS` time-based trigger.
+
+**Ask-aware suppression (mt#2659):** a due log whose watermark carries an
+`openAskId` (written by the `/calibration-review` skill's Step 5 after filing
+a disposition Ask) is NOT routed through the normal fire-count/cooldown
+warning at all. Instead it shows a single low-noise "disposition pending on
+ask `<id>`" line, at most once per `session_id` (tracked via
+`pendingAskWarnedSessionId`) — re-running the skill while the prior
+flip/tune/keep decision is still awaiting the operator would otherwise just
+reproduce the same pending question. The `openAskId` reference is cleared by
+the skill (via `clearAskId`) once it confirms via `asks_list` that the ask
+has reached a terminal state, at which point normal cadence resumes. The
+`observability.calibration-review` command also refuses to silently `--ack`
+(and thereby mark "reviewed") a past-threshold log whose watermark already
+carries an `openAskId` when the call doesn't also supply `askId` — belt-and-
+suspenders against the skill's own Step 1a skip being missed.
 
 **On fire:** injects `additionalContext` naming each due log (fire counts,
 distinct-phrase count, and which of the two conditions fired) and instructing
 the agent to run `/calibration-review` (or
 `mcp__minsky__observability_calibration-review`) before the drift compounds
-further.
+further — except for openAskId-bearing logs, which get the pending-ask line
+instead (see above).
 
 **Fail-open posture:** any error reading the watermark store, the calibration
 logs, or the last-warned state exits 0 with a stderr warning. The hook never
@@ -89,11 +115,16 @@ prompted its review) and is noted as a follow-up rather than backfilled here
 
 - mt#2619 — this hook's tracking task (Track-1 item of the mt#2607 tech-debt
   burndown)
+- mt#2659 — ask-aware suppression + policy-coverage time-only re-warn (this
+  update); `openAskId` watermark field, `PER_TOOL_CALL_VOLUME_KINDS`,
+  `selectPendingAskLogs` / `formatPendingAskLines`
 - `.claude/hooks/skill-staleness-detector.ts` — architectural template
   (re-warning suppression, per-turn injection)
 - `.claude/hooks/inject-prod-state.ts` — sibling cache-staleness framing
 - `src/domain/calibration/calibration-sweep.ts` — the pure sweep logic this
-  hook reuses
+  hook reuses, including `LogWatermark.openAskId`, `advanceWatermarks`'s
+  `askId` param, and `clearResolvedAskIds`
 - `.claude/skills/calibration-review/SKILL.md` — the skill this hook points
-  the agent at when a log is review-due
+  the agent at when a log is review-due; Step 1a / Step 4 / Step 5 record and
+  reconcile `openAskId`
 - mt#2483 — the calibration-review sweep command/skill this hook keeps honest

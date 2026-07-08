@@ -266,7 +266,10 @@ Fail: open on transcript error. Doc: `docs/architecture/hooks/ask-routing-deferr
 
 UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires +
 ≥3 distinct phrases) OR goes stale (reviewed before, ≥10 days since, ≥1 new fire). On fire: run
-`/calibration-review`. Hook: `calibration-review-cadence-detector.ts`. Override:
+`/calibration-review` — unless a disposition Ask is already open for that log (mt#2659 watermark
+`openAskId`), in which case a single low-noise pending line replaces the warning, at most once per
+session. `policy-coverage`-class (per-tool-call-volume) logs re-warn on cooldown only, not fire-count
+growth (mt#2659). Hook: `calibration-review-cadence-detector.ts`. Override:
 `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
 Doc: `docs/architecture/hooks/calibration-review-cadence-detector.md`.
 
