@@ -250,14 +250,6 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
 
 /// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
 fn open_cockpit_window(app: &AppHandle) {
-    let cockpit: tauri::Url = match COCKPIT_URL.parse() {
-        Ok(url) => url,
-        Err(e) => {
-            eprintln!("[cockpit-tray] invalid cockpit URL {COCKPIT_URL:?}: {e}");
-            return;
-        }
-    };
-
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         if let Err(e) = window.show() {
             eprintln!("[cockpit-tray] failed to show cockpit window: {e}");
@@ -265,18 +257,12 @@ fn open_cockpit_window(app: &AppHandle) {
         if let Err(e) = window.set_focus() {
             eprintln!("[cockpit-tray] failed to focus cockpit window: {e}");
         }
-        // Heal or refresh (mt#2688): reload() only works on a LIVE cockpit
-        // document (the daemon Start/Restart recovery it was added for). On a
-        // never-loaded (connection-refused) document, reload() re-loads the
-        // blank page -- the window stays white forever. Re-NAVIGATE dead
-        // documents instead.
-        if crate::deeplink::is_cockpit_document(window.url().ok().as_ref(), &cockpit) {
-            if let Err(e) = window.eval("window.location.reload()") {
-                eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
-            }
-        } else if let Err(e) = window.navigate(cockpit) {
-            eprintln!("[cockpit-tray] failed to navigate cockpit window: {e}");
-        }
+        // Heal or refresh (mt#2688): a LIVE document is reloaded (the daemon
+        // Start/Restart recovery this branch has always done); a dead
+        // (never-loaded) document is re-navigated by the recovery loop --
+        // reload() on a failed document just reloads the blank page. The
+        // probe runs off-main (DOM probe blocks on the eval callback).
+        crate::deeplink::refresh_or_heal_window(app);
         return;
     }
 
