@@ -771,6 +771,14 @@ if (import.meta.main) {
   // routinely a subdirectory of the repo, which the `git -C` probes tolerate
   // (git walks up) but the fs-only mid-merge detection and the CAS-marker
   // write do not. All downstream consumers get the root.
+  //
+  // Nested-repo intent (PR #1851 R2): `findRepoRoot` stops at the NEAREST
+  // enclosing `.git`, which is exactly the repo `git -C <input.cwd>` would
+  // have discovered by its own upward walk — so handing the same nearest
+  // root to the git subprocesses changes nothing for nested checkouts
+  // (inner repo wins in both worlds); it only anchors the fs probes and
+  // marker write to that same repo. Pinned by the nested-repo test in
+  // check-branch-fresh.test.ts.
   const repoDir = findRepoRoot(input.cwd);
 
   // Read host cap from settings.json and apply derived budgets BEFORE

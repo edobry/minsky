@@ -573,6 +573,32 @@ describe("checkBranchFreshness (exported)", () => {
       );
     });
 
+    test("nested repos: the single repoDir handed to ALL consumers is the INNER repo (PR #1851 R2)", () => {
+      // The entrypoint computes ONE `repoDir = findRepoRoot(input.cwd)` and
+      // passes it verbatim to the fs-only mid-merge probe AND the `git -C`
+      // helpers (detectCurrentBranch / refreshRemoteRefs / listCommitsAhead
+      // all receive `repoDir` unchanged). Nearest-root selection matches
+      // git's own upward discovery from the cwd, so for a nested checkout
+      // both the git side and the fs side operate on the INNER repo — the
+      // same repo `git -C <cwd>` used before mt#2700. Pin that: the inner
+      // repo's mid-merge marker is seen; the outer repo's is NOT.
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`, `${FAKE_REPO_DIR}/vendor/inner/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/MERGE_HEAD`],
+      });
+      const repoDir = findRepoRoot(`${FAKE_REPO_DIR}/vendor/inner/src`, fs);
+      expect(repoDir).toBe(`${FAKE_REPO_DIR}/vendor/inner`);
+      // Outer repo is mid-merge, inner is not: the probe run against the
+      // resolved repoDir must answer for the INNER repo only.
+      expect(detectMergeInProgress(repoDir, fs)).toBeNull();
+      // And when the INNER repo is mid-merge, the same repoDir sees it.
+      const fsInnerMerging = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`, `${FAKE_REPO_DIR}/vendor/inner/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/vendor/inner/.git/MERGE_HEAD`],
+      });
+      expect(detectMergeInProgress(repoDir, fsInnerMerging)).toBe("MERGE_HEAD");
+    });
+
     test("skips an ancestor whose .git is a stray NON-git file and keeps walking (PR #1851 R1 BLOCKING #2)", () => {
       // /mock has a real repo; /mock/repo/junk-parent/.git is a malformed
       // file (no gitdir: line). The walk must NOT stop at junk-parent.
