@@ -22,6 +22,7 @@ import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
 import { log } from "@minsky/shared/logger";
 import { isAllProjects } from "../project/scope";
+import { MEMORY_SCOPES } from "./types";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -148,7 +149,11 @@ export class MemoryService implements MemoryServiceSurface {
         name: input.name,
         description: input.description,
         content: input.content,
-        scope: input.scope,
+        // mt#2663: last-line-of-defense default. `MemoryCreateInput.scope` is
+        // typed as required, but callers that bypass TypeScript (raw MCP/CLI
+        // args, `as any` casts) could still hand us `undefined`, which would
+        // otherwise hit the `memories.scope` NOT NULL constraint at the DB.
+        scope: input.scope ?? MEMORY_SCOPES.project,
         projectId: input.projectId ?? null,
         tags: input.tags ?? [],
         sourceAgentId: input.sourceAgentId ?? null,
@@ -446,7 +451,10 @@ export class MemoryService implements MemoryServiceSurface {
           name: newInput.name,
           description: newInput.description,
           content: newInput.content,
-          scope: newInput.scope,
+          // mt#2663: same last-line-of-defense default as create() — an
+          // untyped caller passing undefined would otherwise hit the
+          // `memories.scope` NOT NULL constraint at the DB.
+          scope: newInput.scope ?? MEMORY_SCOPES.project,
           projectId: newInput.projectId ?? null,
           tags: newInput.tags ?? [],
           sourceAgentId: newInput.sourceAgentId ?? null,

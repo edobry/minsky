@@ -26,6 +26,8 @@ export interface ConvergenceMetricInput {
   priorBlockerCount: number;
   newBlockerCount: number;
   acknowledgedAddressedCount: number;
+  /** PR head branch name (e.g. "task/mt-2076"). Nullable — omit for back-compat. (mt#2076) */
+  headRef?: string | null;
 }
 
 /**
@@ -51,6 +53,7 @@ export async function recordConvergenceMetric(
       priorBlockerCount: input.priorBlockerCount,
       newBlockerCount: input.newBlockerCount,
       acknowledgedAddressedCount: input.acknowledgedAddressedCount,
+      headRef: input.headRef ?? null,
     });
   } catch (err: unknown) {
     log.error("metric_write_error", {

@@ -4839,7 +4839,7 @@
             },
             {
               "flags": ["--scope"],
-              "description": "Scope of the memory (project | user | cross_project)",
+              "description": "Scope of the memory (project | user | cross_project). Defaults to \"project\" when omitted (mt#2663).",
               "takesValue": true,
               "values": ["project", "user", "cross_project"]
             },

@@ -2,17 +2,18 @@
  * Cockpit periodic sweepers (mt#2615 — extracted from server.ts).
  *
  * Houses the shared `createIntervalSweeper` factory (with mt#2625's per-tick
- * timeout + watchdog fix baked in) and the four concrete periodic sweepers
- * that use it:
+ * timeout + watchdog fix baked in) and the concrete periodic sweepers that
+ * use it:
  *
  *   - startAskAdvancementSweeper   (mt#2265)
  *   - startProdStateRefreshSweeper (mt#2506)
  *   - startTopologySweeper         (mt#2602)
  *   - startTranscriptSweepBackstop (mt#2321)
  *   - startDispatchWatchdogSweeper (mt#2646)
+ *   - startDeploySmokeSweeper      (mt#2599)
  *
- * All four previously duplicated an ~8-line skeleton (running-guard, boot
- * tick, setInterval, clearInterval) with NO protection against a single tick
+ * These previously duplicated an ~8-line skeleton (running-guard, boot tick,
+ * setInterval, clearInterval) with NO protection against a single tick
  * hanging forever — see mt#2625: `startProdStateRefreshSweeper` stalled for
  * 28+ hours on 2026-07-05 because a hung `getRawSqlConnection()` call left
  * the `running` guard permanently `true`, silently starving every later tick.
@@ -571,6 +572,52 @@ export function startTranscriptSweepBackstop(opts?: TranscriptSweepBackstopOptio
         } else {
           TranscriptSweepTracker.getInstance().recordSweepError();
         }
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// deploy.smoke sweep (mt#2599)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default cadence for the deploy.smoke sweep. The bundle-boot-smoke workflow
+ * typically completes within a few minutes of the triggering push; 5 minutes
+ * matches the dispatch-watchdog sweeper's cadence for a similarly
+ * GitHub-API-backed poll.
+ */
+const DEPLOY_SMOKE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Start the periodic deploy.smoke sweep in this cockpit process (mt#2599).
+ *
+ * See `deploy-smoke-sweep.ts`'s module doc block for the full design
+ * (poll-not-webhook rationale, which commit gets checked, dedup strategy).
+ * In short: each tick asks "has the bundle-boot-smoke check-run for the
+ * commit THIS cockpit process was deployed from (`RAILWAY_GIT_COMMIT_SHA`)
+ * completed?" and emits a best-effort `deploy.smoke` system event once per
+ * distinct commit when it has.
+ *
+ * Fail-open: no GitHub backend configured / no commit SHA / a failed GitHub
+ * API call all no-op and retry next tick — never crashes the cockpit.
+ * Overlapping ticks are skipped (via `createIntervalSweeper`).
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startDeploySmokeSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "deploy.smoke",
+    intervalMs: intervalMs ?? DEPLOY_SMOKE_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const { getSharedProvider } = await import("./shared-persistence");
+        const { triggerDeploySmokeSweep } = await import("./deploy-smoke-sweep");
+        const provider = await getSharedProvider();
+        await triggerDeploySmokeSweep(provider);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: deploy.smoke sweep failed", { message });
       }
     },
   });

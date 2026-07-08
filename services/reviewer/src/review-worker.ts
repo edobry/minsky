@@ -2085,6 +2085,7 @@ async function runReviewBody(
       priorBlockerCount: priorBlockerTotal,
       newBlockerCount: blockingCount,
       acknowledgedAddressedCount: acknowledgedCount,
+      headRef: pr.branchName,
     };
     // Fire-and-forget: await but errors are swallowed inside recordConvergenceMetric.
     await recorder(deps.db, metricInput);

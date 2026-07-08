@@ -12,6 +12,7 @@
 
 import { injectable } from "tsyringe";
 
+import { log } from "@minsky/shared/logger";
 import type { DeploymentConfig, RailwayDeploymentConfig } from "../config";
 import {
   type DeploymentPlatformAdapter,
@@ -232,6 +233,7 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
     const targetId = initialNode.id;
 
     let lastRecord: DeploymentRecord = toRecord(initialNode);
+    await notifyStatusObserved(options?.onStatusObserved, lastRecord);
     if (isTerminalStatus(lastRecord.status)) {
       return lastRecord;
     }
@@ -256,6 +258,7 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
         );
       }
       lastRecord = toRecord(found);
+      await notifyStatusObserved(options?.onStatusObserved, lastRecord);
       if (isTerminalStatus(lastRecord.status)) {
         return lastRecord;
       }
@@ -306,6 +309,29 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Best-effort invocation of `WaitForLatestOptions.onStatusObserved` (mt#2599).
+ * The callback is caller-supplied (crosses a trust boundary from this
+ * adapter's perspective) and MUST NOT be able to abort the wait loop — a
+ * throwing or rejecting callback is caught and logged, never rethrown.
+ * Exported for direct unit testing (the full poll loop requires mocking the
+ * GraphQL client + timers; this isolates the best-effort contract instead).
+ */
+export async function notifyStatusObserved(
+  onStatusObserved: WaitForLatestOptions["onStatusObserved"],
+  record: DeploymentRecord
+): Promise<void> {
+  if (!onStatusObserved) return;
+  try {
+    await onStatusObserved(record);
+  } catch (err) {
+    log.warn("railway adapter: onStatusObserved callback threw (swallowed, best-effort)", {
+      error: err instanceof Error ? err.message : String(err),
+      status: record.status,
+    });
+  }
 }
 
 /**

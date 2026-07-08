@@ -14,32 +14,32 @@ const event = {
 };
 
 describe("emitSystemEventFromProvider (mt#2537)", () => {
-  test("undefined persistenceProvider → no-op, does not throw", async () => {
-    await expect(emitSystemEventFromProvider(undefined, event)).resolves.toBeUndefined();
+  test("undefined persistenceProvider → no-op (returns false), does not throw", async () => {
+    await expect(emitSystemEventFromProvider(undefined, event)).resolves.toBe(false);
   });
 
-  test("provider without getDatabaseConnection → no-op, no throw", async () => {
+  test("provider without getDatabaseConnection → no-op (returns false), no throw", async () => {
     const provider = {} as any;
-    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBeUndefined();
+    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBe(false);
   });
 
-  test("getDatabaseConnection resolving to null → no-op, no throw", async () => {
+  test("getDatabaseConnection resolving to null → no-op (returns false), no throw", async () => {
     const provider = {
       getDatabaseConnection: async () => null,
     } as any;
-    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBeUndefined();
+    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBe(false);
   });
 
-  test("a throwing getDatabaseConnection is swallowed (best-effort contract)", async () => {
+  test("a throwing getDatabaseConnection is swallowed (best-effort contract, returns false)", async () => {
     const provider = {
       getDatabaseConnection: async () => {
         throw new Error("boom");
       },
     } as any;
-    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBeUndefined();
+    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBe(false);
   });
 
-  test("SQL-capable provider with a live db → emits via DrizzleEventEmitter", async () => {
+  test("SQL-capable provider with a live db → emits via DrizzleEventEmitter, returns true", async () => {
     const insertValues = mock(() => Promise.resolve());
     const fakeDb = {
       insert: () => ({ values: insertValues }),
@@ -47,7 +47,17 @@ describe("emitSystemEventFromProvider (mt#2537)", () => {
     const provider = {
       getDatabaseConnection: async () => fakeDb,
     } as any;
-    await emitSystemEventFromProvider(provider, event);
+    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBe(true);
     expect(insertValues).toHaveBeenCalledTimes(1);
+  });
+
+  test("a rejecting insert is swallowed and returns false", async () => {
+    const fakeDb = {
+      insert: () => ({ values: () => Promise.reject(new Error("db down")) }),
+    } as any;
+    const provider = {
+      getDatabaseConnection: async () => fakeDb,
+    } as any;
+    await expect(emitSystemEventFromProvider(provider, event)).resolves.toBe(false);
   });
 });
