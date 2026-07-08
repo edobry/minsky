@@ -59,9 +59,11 @@ the override FOR migrated guards.
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`tasks_create`(parent set): blocks `session_start` on open-PR file
-overlap (advisory-only for recently-merged); blocks `tasks_create` on duplicate-child titles.
-Tier-3 ceiling for the parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
+PreToolUse on `session_start`/`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only,
+mt#2657)/`tasks_create`(parent set): blocks `session_start` (and existing-task `tasks_dispatch`,
+which binds a session in-process the same way) on open-PR file overlap (advisory-only for
+recently-merged); blocks `tasks_create` on duplicate-child titles. Tier-3 ceiling for the
+parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
 Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
 — both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
 consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):
@@ -236,11 +238,12 @@ Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start`: blocks when the target task's spec was never
-surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the session transcript. On
-hit: read the spec in full before retrying. Hook: `check-task-spec-read.ts`. Override:
-`MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error/missing transcript/unresolvable id.
-Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
+PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start` /
+`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only, mt#2657): blocks when the target
+task's spec was never surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the
+session transcript. On hit: read the spec in full before retrying. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any
+error/missing transcript/unresolvable id. Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 

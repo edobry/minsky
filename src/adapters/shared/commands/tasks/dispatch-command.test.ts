@@ -97,3 +97,113 @@ describe("tasks_dispatch evidence gate (mt#2488)", () => {
     }
   });
 });
+
+/**
+ * Mode-selection tests for the existing-taskId dispatch mode (mt#2657).
+ *
+ * `validateDispatchMode` runs right after the evidence gate and before the harness check, so —
+ * like the evidence gate tests above — these assertions are deterministic regardless of what
+ * `hasNativeSubagentSupport()` returns in this environment.
+ */
+const MODE_ERROR =
+  /requires either `taskId`|are mutually exclusive|only applies to new-task creation/;
+
+describe("tasks_dispatch mode selection (mt#2657)", () => {
+  test("blocks when neither taskId nor title is provided", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        instructions: "i",
+        type: "implementation",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(MODE_ERROR);
+  });
+
+  // R1 review fix (PR #1837 review 4651483333): both taskId and title were previously
+  // accepted together — taskId silently won, ignoring title. Now rejected outright.
+  test("blocks when both taskId and title are provided", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#2657",
+        title: "t",
+        instructions: "i",
+        type: "implementation",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+
+  test("blocks when both taskId and parentTaskId are provided", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#2657",
+        parentTaskId: "mt#1",
+        instructions: "i",
+        type: "implementation",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(MODE_ERROR);
+  });
+
+  // R1 review fix (PR #1837 review 4651474893): description was previously silently
+  // ignored in existing-task mode, risking operator confusion. Now rejected outright.
+  test("blocks when both taskId and description are provided", async () => {
+    const cmd = makeCommand();
+    await expect(
+      cmd.execute({
+        taskId: "mt#2657",
+        description: "spec content",
+        instructions: "i",
+        type: "implementation",
+        ...validPremise,
+      } as never)
+    ).rejects.toThrow(/only applies to new-task creation/);
+  });
+
+  test("title-only (no taskId) passes mode selection unaffected (backward compat)", async () => {
+    const cmd = makeCommand();
+    let caught: unknown;
+    let result: unknown;
+    try {
+      result = await cmd.execute({
+        title: "t",
+        instructions: "i",
+        type: "implementation",
+        ...validPremise,
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+    if (caught !== undefined) {
+      expect((caught as Error).message).not.toMatch(MODE_ERROR);
+    } else {
+      expect(result).toBeDefined();
+    }
+  });
+
+  test("taskId-only (existing-task mode) passes mode selection", async () => {
+    const cmd = makeCommand();
+    let caught: unknown;
+    let result: unknown;
+    try {
+      result = await cmd.execute({
+        taskId: "mt#2657",
+        instructions: "i",
+        type: "implementation",
+        ...validPremise,
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+    // The mode gate let it through: any failure past it is a harness/dep concern (the deps are
+    // throwing stubs), NOT a mode-selection ValidationError.
+    if (caught !== undefined) {
+      expect((caught as Error).message).not.toMatch(MODE_ERROR);
+    } else {
+      expect(result).toBeDefined();
+    }
+  });
+});

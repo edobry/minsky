@@ -1685,13 +1685,23 @@
           "description": "Create a subtask, start a session, and generate a subagent prompt — all in one call",
           "options": [
             {
+              "flags": ["--title"],
+              "description": "Title for a new subtask. Required unless `taskId` is provided (existing-task mode).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task-id"],
+              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks don't get a new parent edge here), and with `description` (rejected — existing-task mode targets a task whose spec already exists; passing `description` here would be silently ignored, so it's rejected instead).",
+              "takesValue": true
+            },
+            {
               "flags": ["--instructions"],
               "description": "Work instructions for the subagent",
               "takesValue": true
             },
             {
               "flags": ["--parent-task-id"],
-              "description": "Parent task ID — creates a subtask. Omit for a root task.",
+              "description": "Parent task ID — creates a subtask. Omit for a root task. Only valid in new-task (`title`) mode.",
               "takesValue": true
             },
             {
@@ -1707,7 +1717,7 @@
             },
             {
               "flags": ["--description"],
-              "description": "Task description/spec content",
+              "description": "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — rejected when passed together with `taskId` (existing-task mode).",
               "takesValue": true
             },
             {

@@ -1,11 +1,21 @@
 #!/usr/bin/env bun
-// PreToolUse hook: block mcp__minsky__session_start when parallel work is detected.
+// PreToolUse hook: block mcp__minsky__session_start — or mcp__minsky__tasks_dispatch in
+// existing-task mode (a `taskId` param present, mt#2657 R3 fix) — when parallel work is
+// detected.
 //
 // Rationale: Starting a new session while another UNMERGED open PR touches the same
 // files produces silent merge conflicts and duplicated effort. This hook enforces the
 // parallel-work check that mt#1305 added to the /plan-task and /implement-task skills —
 // but structurally, at the tool call boundary, so it fires regardless of which skill
 // (or no skill) led to session_start.
+//
+// mt#2657 note: `tasks_dispatch` in existing-task mode calls `SessionService.start()`
+// IN-PROCESS — the same session-bind action `session_start` performs as a top-level tool
+// call. Guarding `tasks_dispatch` directly (scoped to existing-task mode via
+// `resolveSessionStartLikeTaskId`) is how the one-call dispatch path composes this open-PR
+// sweep rather than silently bypassing it, mirroring `check-task-spec-read.ts`'s
+// DISPATCH_TOOL approach for the bind/advance spec-read guard. New-task mode (`title`, no
+// `taskId`) is not covered by this sweep — nothing pre-existing to collide with.
 //
 // Two checks are run:
 //   A. Open-PR sweep (BLOCKING): any open PR whose changed files overlap the task's
@@ -1244,9 +1254,19 @@ export function runParallelWorkChecks(
 // Denial message formatting
 // ---------------------------------------------------------------------------
 
-export function formatBlockMessage(taskId: string, collisions: ParallelWorkCollision[]): string {
+export function formatBlockMessage(
+  taskId: string,
+  collisions: ParallelWorkCollision[],
+  /**
+   * Names the action being blocked (mt#2657 R3 fix). Defaults to "session_start"
+   * for the original Tier-3 ceiling; `tasks_dispatch`'s existing-task mode passes
+   * "one-call-dispatching" (mirroring `check-task-spec-read.ts`'s `buildDenialReason`
+   * action-naming convention) so the denial message names what actually happened.
+   */
+  actionLabel: string = "session_start"
+): string {
   const lines: string[] = [
-    `Parallel-work guard: session_start for ${taskId} blocked — in-scope files overlap with active work.`,
+    `Parallel-work guard: ${actionLabel} for ${taskId} blocked — in-scope files overlap with active work.`,
     "",
   ];
 
@@ -1911,6 +1931,52 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
 }
 
 // ---------------------------------------------------------------------------
+// session_start / tasks_dispatch (existing-task mode) open-PR-sweep routing
+// (mt#2657 R3 fix, PR #1837 review 4651664356)
+//
+// `tasks_dispatch` in existing-task mode (a `taskId` param present) walks the
+// task's status to READY and calls `SessionService.start()` IN-PROCESS — the
+// same session-binding action `session_start` performs as a top-level tool
+// call. Before this fix, the open-PR sweep's PreToolUse matcher covered only
+// `mcp__minsky__session_start`, so a one-call dispatch of an existing task
+// could bind a session without ever running the open-PR file-overlap check —
+// silently weakening this guard for the collapsed dispatch path, in
+// violation of mt#2657's spec ("honoring ALL existing guards in-band").
+//
+// Fix mirrors `check-task-spec-read.ts`'s DISPATCH_TOOL approach: the guard
+// now also matches `mcp__minsky__tasks_dispatch`, but ONLY in existing-task
+// mode. New-task mode (`title`, no `taskId`) creates a fresh task in-call —
+// there is nothing PRE-EXISTING for this sweep to compare against, so it
+// resolves to "" and is skipped (same pass-through semantics as the
+// spec-read guard's new-task-mode carve-out).
+// ---------------------------------------------------------------------------
+
+export const DISPATCH_TOOL_NAME = "mcp__minsky__tasks_dispatch";
+
+/**
+ * Resolve the target taskId for the open-PR sweep from a `session_start` or
+ * existing-task-mode `tasks_dispatch` tool call. Returns "" for any other
+ * tool, or for `tasks_dispatch` new-task mode (no `taskId`) — both cases the
+ * caller treats as "skip, nothing to check."
+ */
+export function resolveSessionStartLikeTaskId(input: ToolHookInput): string {
+  if (input.tool_name === "mcp__minsky__session_start") {
+    // The MCP `session_start` tool exposes its task identifier as `task`. We
+    // also accept `taskId` for forward compatibility in case the surface is
+    // renamed; whichever is present wins.
+    return (
+      (input.tool_input.task as string | undefined) ??
+      (input.tool_input.taskId as string | undefined) ??
+      ""
+    );
+  }
+  if (input.tool_name === DISPATCH_TOOL_NAME) {
+    return (input.tool_input.taskId as string | undefined) ?? "";
+  }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
 
@@ -1924,23 +1990,19 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Only act on session_start (the original Tier-3 ceiling)
-  if (input.tool_name !== "mcp__minsky__session_start") {
+  // session_start (the original Tier-3 ceiling) OR tasks_dispatch existing-task
+  // mode (mt#2657 R3 fix) — both bind a session from a taskId and must run the
+  // SAME open-PR sweep. Any other tool exits here.
+  if (input.tool_name !== "mcp__minsky__session_start" && input.tool_name !== DISPATCH_TOOL_NAME) {
     process.exit(0);
   }
 
-  // The MCP `session_start` tool exposes its task identifier as `task`. We
-  // also accept `taskId` for forward compatibility in case the surface is
-  // renamed; whichever is present wins.
-  const taskFromInput =
-    (input.tool_input.task as string | undefined) ??
-    (input.tool_input.taskId as string | undefined) ??
-    "";
-  const taskId = taskFromInput;
+  const taskId = resolveSessionStartLikeTaskId(input);
   if (!taskId) {
-    // No task identifier — can't run check; warn and allow
+    // No task identifier (session_start) or new-task-mode tasks_dispatch
+    // (nothing pre-existing to check) — can't/needn't run the check; allow.
     process.stdout.write(
-      `[parallel-work-guard] No 'task' (or 'taskId') in session_start input — check skipped\n`
+      `[parallel-work-guard] No resolvable existing-task id for ${input.tool_name} — check skipped\n`
     );
     process.exit(0);
   }
@@ -2013,11 +2075,13 @@ if (import.meta.main) {
   }
 
   if (result.blocked) {
+    const actionLabel =
+      input.tool_name === DISPATCH_TOOL_NAME ? "one-call-dispatching" : "session_start";
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: formatBlockMessage(taskId, result.collisions),
+        permissionDecisionReason: formatBlockMessage(taskId, result.collisions, actionLabel),
       },
     });
     process.exit(0);
