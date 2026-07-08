@@ -18,6 +18,7 @@ import {
   type SessionPrDriveResult,
 } from "@minsky/domain/session/commands/pr-drive-subcommand";
 import { sessionPrDrivePostMerge } from "@minsky/domain/session/commands/pr-drive-post-merge-subcommand";
+import { formatTrimmedFindings, isTrimmedReview } from "./pr-wait-for-review-command";
 
 /**
  * Render the text-mode message for the convergence-tail mode's terminal
@@ -48,9 +49,11 @@ export function formatDriveMessage(result: SessionPrDriveResult): string {
         result.review.submittedAt ? `  Submitted: ${result.review.submittedAt}` : undefined,
         result.review.htmlUrl ? `  URL:       ${result.review.htmlUrl}` : undefined,
         "",
-        result.review.body
-          ? result.review.body.split("\n").slice(0, 40).join("\n")
-          : "  (empty review body)",
+        isTrimmedReview(result.review)
+          ? formatTrimmedFindings(result.review)
+          : result.review.body
+            ? result.review.body.split("\n").slice(0, 40).join("\n")
+            : "  (empty review body)",
         "",
         `Re-invoke with since: "${result.review.submittedAt ?? ""}" after pushing a fix.`,
       ]
@@ -154,6 +157,7 @@ export function createSessionPrDriveCommand(getDeps: LazySessionDeps): CommandDe
             checksTimeoutSeconds: params.checksTimeoutSeconds as number | undefined,
             checksIntervalSeconds: params.checksIntervalSeconds as number | undefined,
             skipChecks: params.skipChecks as boolean | undefined,
+            fullBody: params.fullBody as boolean | undefined,
           },
           { sessionDB: deps.sessionProvider }
         );

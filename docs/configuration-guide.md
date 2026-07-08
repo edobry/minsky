@@ -172,6 +172,10 @@ reviewer:
   Environment override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
 - `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment
   override: `MINSKY_REVIEWER_URL` → `reviewer.url`.
+- **`minsky config doctor` surfaces a warning when `mcp.auth.token` is absent** (mt#2660,
+  "Reviewer Retrigger Reachability" check) — catch this before you need the tool mid-incident,
+  rather than discovering it when `reviewer.retrigger` errors during a live recovery. Set
+  `mcp.auth.token` locally to clear the warning and make the tool usable.
 - `reviewer.webhookSecret` (`MINSKY_REVIEWER_WEBHOOK_SECRET`) — **deprecated for retrigger
   (mt#2346)**; no longer read by the command. The config key + env mapping are retained only
   so a lingering value still parses safely at boot. The reviewer service reads its webhook

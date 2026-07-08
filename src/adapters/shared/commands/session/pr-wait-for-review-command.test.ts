@@ -8,7 +8,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { formatMatchMessage, formatTimeoutMessage } from "./pr-wait-for-review-command";
+import {
+  formatMatchMessage,
+  formatTimeoutMessage,
+  isTrimmedReview,
+} from "./pr-wait-for-review-command";
 import type {
   AnnotatedReview,
   SessionPrWaitForReviewMatch,
@@ -58,6 +62,71 @@ describe("formatMatchMessage", () => {
     };
     const msg = formatMatchMessage(result);
     expect(msg).toContain("(empty review body)");
+  });
+
+  test("renders the trimmed findings shape by default (mt#2656)", () => {
+    const result: SessionPrWaitForReviewMatch = {
+      matched: true,
+      review: {
+        reviewId: 42,
+        state: "CHANGES_REQUESTED",
+        submittedAt: "2026-07-07T00:00:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        blockingCount: 2,
+        nonBlockingCount: 1,
+        findings: [
+          { severity: "BLOCKING", location: "src/foo.ts:42", summary: "Null check missing." },
+          { severity: "BLOCKING", location: "src/bar.ts:10", summary: "Off-by-one error." },
+          { severity: "NON-BLOCKING", location: "src/baz.ts:5", summary: "Consider a rename." },
+        ],
+      },
+      elapsedMs: 91_000,
+      pollCount: 7,
+    };
+    const msg = formatMatchMessage(result);
+    expect(msg).toContain("2 BLOCKING");
+    expect(msg).toContain("1 NON-BLOCKING");
+    expect(msg).toContain("src/foo.ts:42");
+    expect(msg).toContain("Null check missing.");
+    expect(msg).toContain("src/bar.ts:10");
+    expect(msg).toContain("src/baz.ts:5");
+    expect(msg).not.toContain("undefined");
+  });
+
+  test("renders '(no findings)' for a trimmed clean-approve review", () => {
+    const result: SessionPrWaitForReviewMatch = {
+      matched: true,
+      review: {
+        reviewId: 1,
+        state: "APPROVED",
+        submittedAt: "2026-07-07T00:00:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        blockingCount: 0,
+        nonBlockingCount: 0,
+        findings: [],
+      },
+      elapsedMs: 5_000,
+      pollCount: 1,
+    };
+    const msg = formatMatchMessage(result);
+    expect(msg).toContain("0 BLOCKING");
+    expect(msg).toContain("(no findings)");
+  });
+
+  test("isTrimmedReview discriminates trimmed vs. full review shapes", () => {
+    expect(
+      isTrimmedReview({
+        reviewId: 1,
+        state: "APPROVED",
+        reviewerLogin: null,
+        blockingCount: 0,
+        nonBlockingCount: 0,
+        findings: [],
+      })
+    ).toBe(true);
+    expect(isTrimmedReview({ reviewId: 1, state: "APPROVED", reviewerLogin: null, body: "" })).toBe(
+      false
+    );
   });
 
   test("renders unknown reviewer when reviewerLogin is null", () => {
