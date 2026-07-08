@@ -29,10 +29,17 @@ section headers below is left as-is pending a future corpus pass.
 A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` + per-event entrypoints
 `dispatch-pretooluse.ts` / `dispatch-userpromptsubmit.ts`) letting multiple guards share ONE spawned
 Bun process per lifecycle event. Ships inert; only guards with a `GUARD_REGISTRY` entry run through
-it. Migrated: `check-guessed-session-path` (Phase 1) + six Phase 2a UserPromptSubmit detectors
-(`substrate-bypass-detector`, `retrospective-trigger-scanner`, `pre-narration-detector`,
-`causal-premise-detector`, `code-mechanism-assertion-detector`, `ask-routing-deferral-detector`).
-Every other guard below is still a standalone `settings.json` registration. Full history:
+it. Migrated: `check-guessed-session-path` (Phase 1); the full `UserPromptSubmit` event (Phase 2,
+mt#2652 + mt#2687) — 15 guards across two sub-waves, taking this event from 14 spawns/turn to 1:
+Phase 2a's six guidance detectors (`substrate-bypass-detector`, `retrospective-trigger-scanner`,
+`pre-narration-detector`, `causal-premise-detector`, `code-mechanism-assertion-detector`,
+`ask-routing-deferral-detector`) and Phase 2b's remaining nine (`auto-session-title`,
+`inject-current-time`, `inject-git-state`, `inject-prod-state`, `inject-dispatch-watchdog`,
+`memory-search`, `skill-staleness-detector`, `mcp-daemon-staleness-detector`,
+`calibration-review-cadence-detector`). `policy-coverage-detector` is NOT part of this family — it's
+registered on `PreToolUse`, not `UserPromptSubmit`, despite being named among the detectors in both
+phases' specs (recorded as a spec discrepancy each time). Every other guard below (PreToolUse,
+PostToolUse, Stop, etc.) is still a standalone `settings.json` registration. Full history:
 `docs/architecture/hooks/guard-dispatcher-framework.md`, `docs/architecture/adr-028-*.md`.
 
 **Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
