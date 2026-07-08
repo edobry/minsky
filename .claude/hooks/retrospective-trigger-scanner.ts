@@ -37,6 +37,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { elideQuotedAndCodeContexts } from "./elision";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -191,11 +192,54 @@ export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): bo
 // Detection functions (exported for testing)
 // ---------------------------------------------------------------------------
 
+/**
+ * Meta-discussion context markers (mt#2672): when the assistant turn's
+ * SUBJECT is the retrospective-trigger detector or the calibration system
+ * itself, trigger-phrase mentions are overwhelmingly quotations of the
+ * detector's own patterns — 5 of 8 fires in the 2026-07-08 review window
+ * were exactly this shape (62% FP rate), and 0 real positives occurred in
+ * such turns.
+ *
+ * The narrow marker set (this is the "documented, narrow heuristic" from the
+ * approved disposition on ask 0147caa5):
+ *   - the detector's own name,
+ *   - calibration vocabulary (log/data/review),
+ *   - "false positive(s)" — the FP-triage register itself.
+ *
+ * Documented tradeoff: a live failure admission inside a
+ * calibration-discussion turn is suppressed (a false negative). Accepted
+ * because every such turn in the review window was an FP, a deliberate
+ * `/retrospective` invocation is unaffected, and the FP/FN balance is
+ * re-measured at the next calibration review (mt#2483 loop).
+ */
+export const META_CONTEXT_PATTERNS: RegExp[] = [
+  /retrospective[- ]trigger/i,
+  /\bcalibration\b/i,
+  /\bfalse[- ]positives?\b/i,
+  /\/calibration-review\b/,
+];
+
+/** True when the raw turn text is meta-discussion of the detector/calibration system. */
+export function isDetectorMetaDiscussion(text: string): boolean {
+  return META_CONTEXT_PATTERNS.some((p) => p.test(text));
+}
+
 export function detectTriggerPhrases(text: string): TriggerMatch[] {
+  // Meta-discussion suppression (mt#2672, layer 2): quoting shapes that
+  // defeat pairwise elision (e.g. escaped quotes nested inside a quoted
+  // span, as in the 2026-06-15 FP) are caught by suppressing R-family
+  // matches in detector/calibration meta-discussion turns entirely.
+  if (isDetectorMetaDiscussion(text)) return [];
+
+  // Quoted/code elision (mt#2672, layer 1): a trigger phrase inside
+  // backticks, fences, blockquotes, or double-quoted prose is being
+  // DESCRIBED, not asserted.
+  const scanned = elideQuotedAndCodeContexts(text);
+
   const matches: TriggerMatch[] = [];
   for (const { family, patterns } of FAMILY_PATTERNS) {
     for (const pattern of patterns) {
-      const match = pattern.exec(text);
+      const match = pattern.exec(scanned);
       if (match) {
         matches.push({ family, matchedPhrase: match[0] });
         break;
@@ -206,9 +250,14 @@ export function detectTriggerPhrases(text: string): TriggerMatch[] {
 }
 
 export function detectUserCorrection(userText: string): TriggerMatch[] {
+  // Same quoted/code elision as the assistant side (mt#2672) — a user
+  // QUOTING a correction phrase while discussing it is not a correction.
+  // No meta-discussion suppression here: user-correction signals stay live
+  // even in calibration-discussion turns.
+  const scanned = elideQuotedAndCodeContexts(userText);
   const matches: TriggerMatch[] = [];
   for (const pattern of USER_CORRECTION_PATTERNS) {
-    const match = pattern.exec(userText);
+    const match = pattern.exec(scanned);
     if (match) {
       matches.push({ family: "user-correction", matchedPhrase: match[0] });
       break;
