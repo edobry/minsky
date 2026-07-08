@@ -341,9 +341,11 @@ the override FOR migrated guards.
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`tasks_create`(parent set): blocks `session_start` on open-PR file
-overlap (advisory-only for recently-merged); blocks `tasks_create` on duplicate-child titles.
-Tier-3 ceiling for the parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
+PreToolUse on `session_start`/`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only,
+mt#2657)/`tasks_create`(parent set): blocks `session_start` (and existing-task `tasks_dispatch`,
+which binds a session in-process the same way) on open-PR file overlap (advisory-only for
+recently-merged); blocks `tasks_create` on duplicate-child titles. Tier-3 ceiling for the
+parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
 Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
 — both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
 consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):

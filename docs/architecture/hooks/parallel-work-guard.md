@@ -4,12 +4,28 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
-A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
-an open PR or a commit merged to main in the last 24 hours. This is the Tier-3 structural
-ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in `/plan-task` gate
-criterion (g) and `/implement-task` §0a.
+A PreToolUse hook on `mcp__minsky__session_start` — and, since mt#2657 R3, on
+`mcp__minsky__tasks_dispatch` when it carries an existing-task `taskId` — blocks sessions whose
+in-scope files overlap an open PR or a commit merged to main in the last 24 hours. This is the
+Tier-3 structural ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in
+`/plan-task` gate criterion (g) and `/implement-task` §0a.
 
 **Hook file:** `.claude/hooks/parallel-work-guard.ts`
+
+**mt#2657 R3 note — `tasks_dispatch` coverage (PR #1837 review 4651664356).**
+`tasks_dispatch`'s existing-task mode (a `taskId` param, not `title`) walks the task's status to
+READY and calls `SessionService.start()` IN-PROCESS — the same session-bind action
+`session_start` performs as a top-level tool call. Before this fix, the open-PR sweep's
+PreToolUse matcher covered only `mcp__minsky__session_start`, so a one-call dispatch of an
+existing task could bind a session without the open-PR check ever running — silently weakening
+the guard for the collapsed dispatch path. The fix mirrors the bind/advance spec-read guard's
+`DISPATCH_TOOL` approach (`check-task-spec-read.ts` / mt#2657): `resolveSessionStartLikeTaskId`
+resolves a `taskId` for `session_start` (its `task`/`taskId` field) OR for `tasks_dispatch`
+existing-task mode (its `taskId` field), and "" for anything else — including `tasks_dispatch`
+new-task mode (`title`, no `taskId`), which creates a fresh task in-call with nothing
+pre-existing to collide with, so it is intentionally NOT covered by this sweep. The denial
+message names the actual action (`session_start` vs `one-call-dispatching`) via
+`formatBlockMessage`'s `actionLabel` parameter.
 
 **Checks run:**
 

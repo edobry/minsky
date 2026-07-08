@@ -12,10 +12,13 @@ import {
   detectDefaultBranch,
   isAppendOnlyToJsonArrays,
   STRUCTURED_CONFIG_ALLOWLIST,
+  DISPATCH_TOOL_NAME,
+  resolveSessionStartLikeTaskId,
   type ParallelWorkCheckInput,
   type ParallelWorkCheckDeps,
   type ParallelWorkCollision,
 } from "./parallel-work-guard";
+import type { ToolHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures (extracted to avoid magic-string duplication warnings)
@@ -40,6 +43,18 @@ function makeDeps(overrides: Partial<ParallelWorkCheckDeps> = {}): ParallelWorkC
   };
 }
 
+/** Minimal ToolHookInput fixture builder (mt#2657 R3). */
+function makeToolHookInput(toolName: string, toolInput: Record<string, unknown>): ToolHookInput {
+  return {
+    session_id: "test-session",
+    cwd: "/tmp/fixture-repo",
+    hook_event_name: "PreToolUse",
+    tool_name: toolName,
+    tool_input: toolInput,
+  };
+}
+
+const SESSION_START_TOOL_NAME = "mcp__minsky__session_start";
 const FIXTURE_SETTINGS_JSON = ".claude/settings.json";
 const FIXTURE_ASK_TS = "src/domain/ask/ask.ts";
 const FIXTURE_ASK_TEST_TS = "src/domain/ask/ask.test.ts";
@@ -307,6 +322,90 @@ describe("formatBlockMessage", () => {
     expect(msg).toContain("REFRAME");
     expect(msg).toContain("OVERRIDE");
   });
+
+  // mt#2657 R3 (PR #1837 review 4651664356): actionLabel names what was actually
+  // blocked, distinguishing session_start from a one-call tasks_dispatch.
+  it("defaults to 'session_start' as the action label", () => {
+    const collisions: ParallelWorkCollision[] = [
+      { type: "open-pr", prNumber: 1, prTitle: "some PR", overlappingFiles: ["src/foo.ts"] },
+    ];
+    const msg = formatBlockMessage("mt#1", collisions);
+    expect(msg).toContain("session_start for mt#1 blocked");
+  });
+
+  it("accepts an explicit actionLabel for tasks_dispatch", () => {
+    const collisions: ParallelWorkCollision[] = [
+      { type: "open-pr", prNumber: 1, prTitle: "some PR", overlappingFiles: ["src/foo.ts"] },
+    ];
+    const msg = formatBlockMessage("mt#1", collisions, "one-call-dispatching");
+    expect(msg).toContain("one-call-dispatching for mt#1 blocked");
+    expect(msg).not.toContain("session_start for mt#1 blocked");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSessionStartLikeTaskId (mt#2657 R3 — PR #1837 review 4651664356)
+//
+// The open-PR sweep's PreToolUse matcher previously covered only
+// mcp__minsky__session_start, so tasks_dispatch's existing-task mode (which
+// calls SessionService.start() IN-PROCESS) could bind a session without ever
+// running the open-PR file-overlap check. These tests lock in the fix's
+// routing: existing-task-mode tasks_dispatch resolves a taskId (guarded);
+// new-task-mode tasks_dispatch and every other tool resolve "" (pass-through,
+// mirroring check-task-spec-read.ts's DISPATCH_TOOL new-task-mode carve-out).
+// ---------------------------------------------------------------------------
+
+describe("resolveSessionStartLikeTaskId", () => {
+  it("session_start resolves 'task', falling back to 'taskId'", () => {
+    expect(
+      resolveSessionStartLikeTaskId(makeToolHookInput(SESSION_START_TOOL_NAME, { task: "mt#2657" }))
+    ).toBe("mt#2657");
+    expect(
+      resolveSessionStartLikeTaskId(
+        makeToolHookInput(SESSION_START_TOOL_NAME, { taskId: "mt#2657" })
+      )
+    ).toBe("mt#2657");
+  });
+
+  it("session_start with neither task nor taskId resolves ''", () => {
+    expect(resolveSessionStartLikeTaskId(makeToolHookInput(SESSION_START_TOOL_NAME, {}))).toBe("");
+  });
+
+  it("tasks_dispatch existing-task mode (taskId present) resolves the taskId — GUARDED", () => {
+    expect(
+      resolveSessionStartLikeTaskId(
+        makeToolHookInput(DISPATCH_TOOL_NAME, { taskId: "mt#2657", instructions: "do it" })
+      )
+    ).toBe("mt#2657");
+  });
+
+  it("tasks_dispatch new-task mode (title, no taskId) resolves '' — NOT guarded", () => {
+    expect(
+      resolveSessionStartLikeTaskId(
+        makeToolHookInput(DISPATCH_TOOL_NAME, { title: "New subtask", instructions: "do it" })
+      )
+    ).toBe("");
+  });
+
+  it("tasks_dispatch new-task mode with parentTaskId, no taskId, resolves '' — NOT guarded", () => {
+    expect(
+      resolveSessionStartLikeTaskId(
+        makeToolHookInput(DISPATCH_TOOL_NAME, {
+          title: "New subtask",
+          parentTaskId: "mt#1",
+          instructions: "do it",
+        })
+      )
+    ).toBe("");
+  });
+
+  it("unrelated tools resolve ''", () => {
+    expect(
+      resolveSessionStartLikeTaskId(
+        makeToolHookInput("mcp__minsky__tasks_status_set", { taskId: "mt#1" })
+      )
+    ).toBe("");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -516,6 +615,83 @@ describe("runParallelWorkChecks — colliding path (full integration via DI)", (
     expect(
       result.warnings.some((w) => w.includes("abcd123") && w.includes("Recently-merged"))
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tasks_dispatch existing-task mode — composed pipeline (mt#2657 R3,
+// PR #1837 review 4651664356)
+//
+// Full pipeline: resolveSessionStartLikeTaskId (routing) -> runParallelWorkChecks
+// (the SAME open-PR sweep session_start uses) -> formatBlockMessage (denial
+// surfaced with the dispatch-specific action label). Mirrors the
+// "colliding path (full integration via DI)" pattern above, but starting from
+// a tasks_dispatch tool_input rather than a bare taskId — proving the guard
+// actually fires for the collapsed dispatch path this round's finding was
+// about, not just that the underlying sweep logic is correct in isolation.
+// ---------------------------------------------------------------------------
+
+describe("tasks_dispatch existing-task mode — composed guard pipeline (mt#2657 R3)", () => {
+  it("DENY: existing-task dispatch with an open-PR collision blocks, with the dispatch action surfaced", () => {
+    const dispatchInput = makeToolHookInput(DISPATCH_TOOL_NAME, {
+      taskId: "mt#1068",
+      instructions: "resume the work",
+    });
+    const taskId = resolveSessionStartLikeTaskId(dispatchInput);
+    expect(taskId).toBe("mt#1068"); // routing actually fires — the R3 regression this locks in
+
+    const checkInput: ParallelWorkCheckInput = {
+      taskId,
+      inScopeFiles: [FIXTURE_ASK_TS, FIXTURE_ASK_TEST_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+    const collidingDeps: ParallelWorkCheckDeps = makeDeps({
+      fetchOpenPrs: () => [
+        { number: 788, title: "feat(mt#1240): Ask reconciler chain", headRefName: "task/mt-1240" },
+      ],
+      fetchPrFiles: (_repo, prNumber) => (prNumber === 788 ? [FIXTURE_ASK_TS] : []),
+    });
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, collidingDeps);
+    expect(result.blocked).toBe(true); // the whole dispatch fails, per the round's requirement
+
+    const msg = formatBlockMessage(taskId, result.collisions, "one-call-dispatching");
+    expect(msg).toContain("one-call-dispatching for mt#1068 blocked");
+    expect(msg).toContain("PR #788");
+    expect(msg).toContain(FIXTURE_ASK_TS);
+  });
+
+  it("PASS: existing-task dispatch with no collision does not block", () => {
+    const dispatchInput = makeToolHookInput(DISPATCH_TOOL_NAME, {
+      taskId: "mt#9999",
+      instructions: "resume the work",
+    });
+    const taskId = resolveSessionStartLikeTaskId(dispatchInput);
+    expect(taskId).toBe("mt#9999");
+
+    const checkInput: ParallelWorkCheckInput = {
+      taskId,
+      inScopeFiles: [FIXTURE_ASK_TS],
+      repo: "edobry/minsky",
+      lookbackHours: 24,
+    };
+    const cleanDeps: ParallelWorkCheckDeps = makeDeps({});
+
+    const result = runParallelWorkChecks(checkInput, "/tmp/anywhere", undefined, cleanDeps);
+    expect(result.blocked).toBe(false);
+    expect(result.collisions).toHaveLength(0);
+  });
+
+  it("PASS: new-task-mode dispatch never reaches the sweep (routing resolves '' upstream)", () => {
+    const dispatchInput = makeToolHookInput(DISPATCH_TOOL_NAME, {
+      title: "New subtask",
+      instructions: "do it",
+    });
+    // The entrypoint's `if (!taskId) process.exit(0)` short-circuit means
+    // runParallelWorkChecks is never even called for new-task-mode — asserting
+    // the routing resolves "" is the complete, correct test at this layer.
+    expect(resolveSessionStartLikeTaskId(dispatchInput)).toBe("");
   });
 });
 
