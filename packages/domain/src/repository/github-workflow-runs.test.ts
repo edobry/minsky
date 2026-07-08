@@ -18,26 +18,125 @@ const TEST_GH = {
 
 const METHOD_LIST_RUNS = "listWorkflowRuns";
 
-/**
- * Build a minimal single-entry ZIP (local file header + data) with the given
- * compression method. extractZipText only reads sig / method / compressedSize /
- * fileNameLength / extraFieldLength, so the other header fields are zeroed.
- */
-function buildSingleEntryZip(filename: string, data: Uint8Array, method: number): Uint8Array {
-  const nameBytes = new TextEncoder().encode(filename);
-  const header = new Uint8Array(30);
-  const dv = new DataView(header.buffer);
-  dv.setUint32(0, 0x04034b50, true); // local file header signature
-  dv.setUint16(8, method, true); // compression method
-  dv.setUint32(18, data.length, true); // compressed size
-  dv.setUint32(22, data.length, true); // uncompressed size (unread by extractZipText)
-  dv.setUint16(26, nameBytes.length, true); // filename length
-  dv.setUint16(28, 0, true); // extra field length
-  const out = new Uint8Array(30 + nameBytes.length + data.length);
-  out.set(header, 0);
-  out.set(nameBytes, 30);
-  out.set(data, 30 + nameBytes.length);
+function concatUint8Arrays(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, p) => sum + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const p of parts) {
+    out.set(p, offset);
+    offset += p.length;
+  }
   return out;
+}
+
+interface ZipEntrySpec {
+  filename: string;
+  data: Uint8Array;
+  method: number;
+  /**
+   * When true, emulate GitHub Actions' streaming ZIP writer (mt#2678): the
+   * local header's general-purpose bit 3 is set and its compressed/
+   * uncompressed size fields are ZEROED, matching real GitHub run-log
+   * archives. extractZipText must recover the real size from the central
+   * directory (which always carries authoritative sizes), not the local
+   * header. Defaults to false (sizes present in the local header).
+   */
+  streamed?: boolean;
+  /**
+   * When true, set general-purpose bit 11 (filename/comment are UTF-8) in
+   * both headers. When false/absent, the ZIP spec mandates CP437 filenames —
+   * the parser approximates those as latin1.
+   */
+  utf8Flag?: boolean;
+  /**
+   * Raw filename bytes override for non-UTF-8 encodings (TextEncoder can only
+   * produce UTF-8). `filename` is still used for readability in assertions.
+   */
+  filenameBytes?: Uint8Array;
+}
+
+/**
+ * Build a minimal, spec-compliant ZIP archive: local file headers + data,
+ * followed by a central directory and an end-of-central-directory (EOCD)
+ * record. `extractZipText` (mt#2678) reads sizes from the central directory,
+ * so a fixture without one no longer parses — this builder always emits one.
+ */
+function buildZip(entries: ZipEntrySpec[]): Uint8Array {
+  const localParts: Uint8Array[] = [];
+  const localOffsets: number[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBytes = entry.filenameBytes ?? new TextEncoder().encode(entry.filename);
+    const header = new Uint8Array(30);
+    const dv = new DataView(header.buffer);
+    dv.setUint32(0, 0x04034b50, true); // local file header signature
+    // general purpose flag: bit 3 = data descriptor, bit 11 = UTF-8 filename
+    dv.setUint16(6, (entry.streamed ? 0x0008 : 0) | (entry.utf8Flag ? 0x0800 : 0), true);
+    dv.setUint16(8, entry.method, true); // compression method
+    const localSize = entry.streamed ? 0 : entry.data.length;
+    dv.setUint32(18, localSize, true); // compressed size
+    dv.setUint32(22, localSize, true); // uncompressed size
+    dv.setUint16(26, nameBytes.length, true); // filename length
+    dv.setUint16(28, 0, true); // extra field length
+
+    localOffsets.push(offset);
+    localParts.push(header, nameBytes, entry.data);
+    offset += header.length + nameBytes.length + entry.data.length;
+
+    if (entry.streamed) {
+      // Trailing data descriptor: signature + crc32 (unused by our parser) +
+      // compressed size + uncompressed size.
+      const dd = new Uint8Array(16);
+      const ddv = new DataView(dd.buffer);
+      ddv.setUint32(0, 0x08074b50, true);
+      ddv.setUint32(4, 0, true); // crc32 (not verified by extractZipText)
+      ddv.setUint32(8, entry.data.length, true);
+      ddv.setUint32(12, entry.data.length, true);
+      localParts.push(dd);
+      offset += dd.length;
+    }
+  }
+
+  const localSection = concatUint8Arrays(localParts);
+  const centralDirOffset = localSection.length;
+  const centralParts: Uint8Array[] = [];
+
+  entries.forEach((entry, i) => {
+    const nameBytes = entry.filenameBytes ?? new TextEncoder().encode(entry.filename);
+    const central = new Uint8Array(46);
+    const dv = new DataView(central.buffer);
+    dv.setUint32(0, 0x02014b50, true); // central file header signature
+    dv.setUint16(8, entry.utf8Flag ? 0x0800 : 0, true); // general purpose flag (bit 11 = UTF-8 filename)
+    dv.setUint16(10, entry.method, true); // compression method
+    dv.setUint32(20, entry.data.length, true); // compressed size (authoritative)
+    dv.setUint32(24, entry.data.length, true); // uncompressed size (authoritative)
+    dv.setUint16(28, nameBytes.length, true); // filename length
+    dv.setUint32(42, localOffsets[i] as number, true); // relative offset of local header
+    centralParts.push(central, nameBytes);
+  });
+
+  const centralSection = concatUint8Arrays(centralParts);
+
+  const eocd = new Uint8Array(22);
+  const edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true); // EOCD signature
+  edv.setUint16(8, entries.length, true); // entries on this disk
+  edv.setUint16(10, entries.length, true); // total entries
+  edv.setUint32(12, centralSection.length, true); // central directory size
+  edv.setUint32(16, centralDirOffset, true); // central directory offset
+
+  return concatUint8Arrays([localSection, centralSection, eocd]);
+}
+
+/** Build a spec-compliant single-entry ZIP (see {@link buildZip}). */
+function buildSingleEntryZip(
+  filename: string,
+  data: Uint8Array,
+  method: number,
+  streamed = false
+): Uint8Array {
+  return buildZip([{ filename, data, method, streamed }]);
 }
 
 function octokitReturningZip(zip: Uint8Array) {
@@ -86,49 +185,7 @@ function buildMockOctokit(opts: { runs?: Array<Record<string, unknown>> } = {}) 
         downloadWorkflowRunLogs: mock(async (params: Record<string, unknown>) => {
           calls.push({ method: "downloadWorkflowRunLogs", params });
           // STORED ZIP entry with content "hello\n"
-          const data = new Uint8Array([
-            0x50,
-            0x4b,
-            0x03,
-            0x04, // local header sig
-            0x14,
-            0x00,
-            0x00,
-            0x00, // version + flags
-            0x00,
-            0x00, // compression method 0 (STORED)
-            0x00,
-            0x00,
-            0x00,
-            0x00, // mod time + date
-            0x00,
-            0x00,
-            0x00,
-            0x00, // CRC
-            0x06,
-            0x00,
-            0x00,
-            0x00, // compressed size = 6
-            0x06,
-            0x00,
-            0x00,
-            0x00, // uncompressed size = 6
-            0x05,
-            0x00, // filename length = 5
-            0x00,
-            0x00, // extra field length = 0
-            0x6c,
-            0x6f,
-            0x67,
-            0x2e,
-            0x74, // "log.t"
-            0x68,
-            0x65,
-            0x6c,
-            0x6c,
-            0x6f,
-            0x0a, // "hello\n"
-          ]);
+          const data = buildSingleEntryZip("log.t", new TextEncoder().encode("hello\n"), 0);
           return { data };
         }),
       },
@@ -291,6 +348,84 @@ describe("viewWorkflowRunLogs", () => {
     // Must NOT leak the un-inflated placeholder.
     expect(result).not.toContain("DEFLATE entry could not be inflated");
     expect(result).not.toContain("decode: base64 then inflate-raw");
+  });
+
+  test("decodes streamed (data-descriptor) DEFLATE entries via the central directory (mt#2678)", async () => {
+    // Emulates GitHub Actions' actual run-log ZIP format: general-purpose bit 3
+    // set, local header compressed/uncompressed sizes ZEROED, real size only
+    // recoverable from the central directory (which buildZip always emits).
+    // Before mt#2678, extractZipText read sizes from the local header only,
+    // so this exact shape produced "[DEFLATE entry could not be inflated
+    // (unexpected end of file)]" on every entry, every run.
+    const content = "2026-07-08T20:39:26Z Current runner version: '2.335.1'\n";
+    const compressed = new Uint8Array(deflateRawSync(Buffer.from(content, "utf8")));
+    const zip = buildSingleEntryZip("0_monitor.txt", compressed, 8, /* streamed */ true);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain("0_monitor.txt");
+    expect(result).toContain("Current runner version");
+    expect(result).not.toContain(DEFLATE_FALLBACK_MARKER);
+  });
+
+  test("decodes a real captured GitHub Actions run-log archive (mt#2678 recorded-fixture regression)", async () => {
+    // Recorded fixture: the actual ZIP bytes GitHub returned for a live
+    // Post-Deploy Health Monitor run on edobry/minsky main (run 28974111562,
+    // captured 2026-07-08 while diagnosing mt#2678). Confirmed independently
+    // valid via the system `unzip -l` tool (10 entries) before being checked
+    // in. This is the acceptance test's "captured real log-archive response
+    // body" fixture — it pins the fix against the actual streamed-ZIP shape
+    // GitHub emits, not just a synthetic approximation of it.
+    const fixturePath = new URL("./__fixtures__/gh-actions-run-log.zip", import.meta.url);
+    const zipBytes = new Uint8Array(await Bun.file(fixturePath).arrayBuffer());
+    const oct = octokitReturningZip(zipBytes);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      28974111562,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    // Filenames from every one of the archive's 10 entries.
+    expect(result).toContain("0_monitor.txt");
+    expect(result).toContain("monitor/system.txt");
+    expect(result).toContain("monitor/1_Set up job.txt");
+    expect(result).toContain("monitor/11_Complete job.txt");
+    // Real decoded step-log content, not the DEFLATE-failure placeholder.
+    expect(result).toContain("Current runner version");
+    expect(result).toContain("##[group]Runner Image Provisioner");
+    expect(result).not.toContain(DEFLATE_FALLBACK_MARKER);
+    expect(result).not.toContain("[base64-encoded ZIP");
+  });
+
+  test("decodes filenames as UTF-8 when general-purpose bit 11 is set", async () => {
+    const data = new TextEncoder().encode("step output\n");
+    const zip = buildZip([{ filename: "monitor/1_étape.txt", data, method: 0, utf8Flag: true }]);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain("monitor/1_étape.txt");
+    expect(result).toContain("step output");
+  });
+
+  test("decodes filenames as latin1 (CP437 approximation) when bit 11 is unset", async () => {
+    // "café.txt" with é as the single byte 0xE9 — a legacy (non-UTF-8) name.
+    // Decoding these bytes as UTF-8 would produce U+FFFD ("caf�.txt").
+    const filenameBytes = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x2e, 0x74, 0x78, 0x74]);
+    const data = new TextEncoder().encode("legacy name entry\n");
+    const zip = buildZip([{ filename: "café.txt", filenameBytes, data, method: 0 }]);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain("café.txt");
+    expect(result).not.toContain("�");
   });
 
   test("falls back to base64 placeholder when a DEFLATE entry cannot be inflated", async () => {
