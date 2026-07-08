@@ -10,6 +10,62 @@ import { CommandCategory, defineCommand } from "../../command-registry";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
 
 /**
+ * A single config.doctor diagnostic entry.
+ */
+interface DoctorDiagnostic {
+  check: string;
+  status: "pass" | "warning" | "error";
+  message: string;
+  suggestion?: string;
+}
+
+/**
+ * Reviewer-retrigger reachability check (mt#2660).
+ *
+ * `reviewer.retrigger` (src/adapters/shared/commands/reviewer-retrigger.ts)
+ * authenticates against the reviewer service's `/retrigger` endpoint using
+ * `mcp.auth.token` (← `MINSKY_MCP_AUTH_TOKEN`), NOT the webhook HMAC secret
+ * (mt#2346). `reviewer.url` always resolves to a usable target — when unset
+ * it falls back to the Minsky-hosted default (DEFAULT_REVIEWER_URL) — so the
+ * reviewer service is effectively always "configured" for retrigger purposes.
+ * The token is the one precondition that can silently be missing.
+ *
+ * Without this token, `resolveReviewerEndpoint` throws at CALL time — which
+ * historically was only discovered mid-incident, exactly when an operator
+ * needed the tool most (mt#2660 / PR #1812: `reviewer.retrigger` errored
+ * with "requires MINSKY_MCP_AUTH_TOKEN / mcp.auth.token" during the recovery
+ * attempt, forcing a manual retrigger commit instead). Surfacing the gap
+ * here, at setup-diagnostic time, lets an operator catch it before it's
+ * needed.
+ *
+ * Exported as a pure function (config in, diagnostic out) so it's unit
+ * testable without mocking the config-provider module loader.
+ */
+export function checkReviewerRetriggerReachability(
+  mcpAuthToken: string | undefined
+): DoctorDiagnostic {
+  if (!mcpAuthToken) {
+    return {
+      check: "Reviewer Retrigger Reachability",
+      status: "warning",
+      message:
+        "`mcp.auth.token` is not set — `reviewer.retrigger` will fail with " +
+        '"requires the Minsky MCP auth token" when invoked. This is the ' +
+        "on-demand recovery path for a review the reviewer-service sweeper " +
+        "hasn't yet caught (see mt#2660).",
+      suggestion:
+        "Set mcp.auth.token in your Minsky config, or export MINSKY_MCP_AUTH_TOKEN, " +
+        "to make reviewer.retrigger usable.",
+    };
+  }
+  return {
+    check: "Reviewer Retrigger Reachability",
+    status: "pass",
+    message: "`mcp.auth.token` is set — `reviewer.retrigger` is reachable.",
+  };
+}
+
+/**
  * Shared parameters for config commands (eliminates duplication)
  */
 const configCommandParams = composeParams(
@@ -136,6 +192,19 @@ export const configDoctorRegistration = defineCommand({
         check: "Configuration Validation",
         status: "error",
         message: `Validation check failed: ${getErrorMessage(e)}`,
+      });
+    }
+
+    // Reviewer retrigger reachability (mt#2660).
+    try {
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      diagnostics.push(checkReviewerRetriggerReachability(config.mcp?.auth?.token));
+    } catch (e) {
+      diagnostics.push({
+        check: "Reviewer Retrigger Reachability",
+        status: "error",
+        message: `Reviewer retrigger reachability check failed: ${getErrorMessage(e)}`,
       });
     }
 
