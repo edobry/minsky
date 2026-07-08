@@ -266,7 +266,9 @@ export interface AnnotatedReview extends ReviewListEntry {
    *   - `"state-pending"` — review is in PENDING (draft) state.
    *   - `"missing-submittedAt"` — review has no `submittedAt` timestamp.
    *   - `"unparseable-submittedAt: <value>"` — `submittedAt` could not be parsed.
-   *   - `"since: submittedAt <iso> < threshold <iso>"` — review predates the `since` filter.
+   *   - `"since: submittedAt <iso> <relation> threshold <iso>"` — review does not
+   *     post-date the `since` filter; `<relation>` is `<` (predates) or `==`
+   *     (exact boundary — excluded since mt#2656 made `since` strictly-after).
    *   - `"reviewer-mismatch: reviewerLogin <login> != filter <filter>"` — reviewer filter excluded it.
    *
    * `null` is intentionally not possible here — if a review matched, it would
