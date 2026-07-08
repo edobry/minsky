@@ -77,8 +77,35 @@ jobs:
         if: ${{ always() }}
         run: bun services/reviewer/scripts/smoke-image-module-resolution.ts
 
+      # mt#2665: `bun test` 1.2.21 can silently truncate this step's large
+      # multi-directory/many-file invocation — exiting 0 with NO completion
+      # summary line — when several MCP-lifecycle test files (files under
+      # src/mcp that spawn/track real MCP server subprocesses) run together.
+      # See docs/testing-patterns.md "Root cause, pinned" for the
+      # investigation and a minimal 4-file repro. This step hardens against
+      # that (and any other silent-truncation class, e.g. an older/pinned
+      # Bun version) by treating the run as failed whenever bun's own
+      # completion summary ("Ran N tests across M files") is missing, or
+      # whenever its own "<N> fail" summary line reports N > 0 — both
+      # independent of the process exit code.
       - name: Test
-        run: bun run test
+        run: |
+          set -o pipefail
+          bun run test 2>&1 | tee test-output.log
+          TEST_EXIT=${PIPESTATUS[0]}
+
+          if ! grep -qE "Ran [0-9]+ tests across [0-9]+ files" test-output.log; then
+            echo "::error::bun test did not print a completion summary line (\"Ran N tests across M files\") — the run may have silently truncated (see docs/testing-patterns.md). Treating as a failure regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          FAIL_COUNT=$(grep -oE "^ *[0-9]+ fail$" test-output.log | tail -1 | grep -oE "[0-9]+")
+          if [ "${FAIL_COUNT:-0}" -gt 0 ]; then
+            echo "::error::bun test reported $FAIL_COUNT failing test(s) in its summary. Treating as a failure regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          exit "$TEST_EXIT"
 
       # mt#2608: the guard system (.claude/hooks/*.test.ts, ~39 files) had no
       # CI wiring at all before this step existed — hook regressions merged
