@@ -270,6 +270,47 @@ describe("regression — PR #1478-shaped diff yields only under-limit chunks", (
 // independently (mirroring how buildReviewPrompt injects it for the
 // single-pass path), not just the aggregate PR-level prompt.
 // ---------------------------------------------------------------------------
+describe("buildChunkedReviewPrompt — out-of-repo references section parity (mt#2655)", () => {
+  const OUT_OF_REPO_HEADING = "## Out-of-repo references observed";
+
+  const outOfRepoBaseInput: Omit<ReviewPromptInput, "diff"> = {
+    prNumber: 1825,
+    prTitle: "Reviewer hardening",
+    prBody: "",
+    taskSpec: null,
+    authorshipTier: 3,
+    branchName: "task/mt-2655",
+    baseBranch: "main",
+  };
+
+  const outOfRepoChunk: ChunkInfo = {
+    index: 0,
+    totalChunks: 2,
+    files: [makeFile("services/reviewer/src/prompt.ts", 500)],
+  };
+
+  test("injects the out-of-repo section into the chunk prompt when the PR body references an out-of-repo path", () => {
+    const prompt = buildChunkedReviewPrompt(
+      {
+        ...outOfRepoBaseInput,
+        prBody: "Grant state is persisted at ~/.local/state/minsky/merge-grants.json for auditing.",
+      },
+      outOfRepoChunk,
+      "some chunk diff"
+    );
+    expect(prompt).toContain(OUT_OF_REPO_HEADING);
+  });
+
+  test("omits the out-of-repo section when nothing references out-of-repo paths", () => {
+    const prompt = buildChunkedReviewPrompt(
+      { ...outOfRepoBaseInput, prBody: "Plain change, no external paths." },
+      outOfRepoChunk,
+      "some chunk diff"
+    );
+    expect(prompt).not.toContain(OUT_OF_REPO_HEADING);
+  });
+});
+
 describe("buildChunkedReviewPrompt — migration baseline section (mt#2655)", () => {
   const MIGRATION_BASELINE_HEADING = "## Migration / move PR — baseline awareness";
 

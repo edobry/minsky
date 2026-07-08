@@ -422,7 +422,7 @@ export function extractOutOfRepoReferences(
   return Array.from(seen.values());
 }
 
-function buildOutOfRepoSection(prBody: string, taskSpec: string | null): string | null {
+export function buildOutOfRepoSection(prBody: string, taskSpec: string | null): string | null {
   const perSource = [
     ...extractOutOfRepoReferences(prBody, "PR description"),
     ...extractOutOfRepoReferences(taskSpec ?? "", "task spec"),

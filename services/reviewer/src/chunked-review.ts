@@ -9,7 +9,11 @@
 
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
-import { buildReviewThreadsSection, buildMigrationBaselineSection } from "./prompt";
+import {
+  buildReviewThreadsSection,
+  buildMigrationBaselineSection,
+  buildOutOfRepoSection,
+} from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
@@ -271,6 +275,13 @@ export function buildChunkedReviewPrompt(
   );
   const migrationBaselineBlock = migrationBaselineSection ? `\n\n${migrationBaselineSection}` : "";
 
+  // Out-of-repo references pre-check: same parity argument as the migration
+  // baseline above — each chunk reviews independently, so the "no filesystem
+  // access to verify these paths" instruction must reach every chunk, not
+  // just the single-pass path.
+  const outOfRepoSection = buildOutOfRepoSection(baseInput.prBody, baseInput.taskSpec);
+  const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
+
   const priorReviewsSection =
     baseInput.priorReviews && baseInput.priorReviews.trim() ? `\n\n${baseInput.priorReviews}` : "";
 
@@ -299,7 +310,7 @@ ${fileList}
 
 ${baseInput.prBody || "(empty)"}
 
-${specSection}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
+${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})
 
