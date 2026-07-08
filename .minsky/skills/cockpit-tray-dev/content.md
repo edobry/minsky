@@ -50,6 +50,7 @@ Use the **lean installer** — it builds APP-ONLY (`tauri build --bundles app`),
 cockpit-tray/scripts/install-local.sh                # app-only build + install + LS register + dequarantine
 cockpit-tray/scripts/install-local.sh --binary-only  # fast iterative re-install (swap inner binary only)
 cockpit-tray/scripts/verify-deeplink-hotstart.sh     # automated hot-start-no-window check
+cockpit-tray/scripts/verify-deeplink-coldstart.sh    # automated cold-boot check (mt#2688: white-window race)
 ```
 
 Do NOT use the full `bun run build` (DMG-producing) path below for deep-link verification.
