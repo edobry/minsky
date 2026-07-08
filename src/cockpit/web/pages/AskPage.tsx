@@ -38,21 +38,18 @@ import {
   type AskState,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useState } from "react";
 import { shortenId } from "../lib/format";
 import { useTabs } from "../lib/tabs";
 
-/** States where the ask's lifecycle has ended — mirror of the domain state machine's terminal set. */
-const TERMINAL_STATES: ReadonlySet<AskState> = new Set([
-  "responded",
-  "closed",
-  "cancelled",
-  "expired",
-]);
-
-/** Human phrasing for a terminal state. */
+/** Human phrasing for a terminal state. Terminal-vs-open classification itself
+ * comes from the domain state machine's `isTerminal` (the single source of
+ * truth — note "responded" is NOT terminal: the response is recorded but the
+ * ask has not closed, so it still renders the actionable detail view).
+ */
 function terminalLabel(state: AskState): string {
   if (state === "expired") return "expired";
   if (state === "cancelled") return "cancelled";
@@ -79,7 +76,7 @@ export function AskPage() {
 
   const ask = query.data ?? null;
   const notFound = query.isError && query.error instanceof AskNotFoundError;
-  const terminal = ask !== null && TERMINAL_STATES.has(ask.state);
+  const terminal = ask !== null && isTerminal(ask.state);
 
   /** Consumable-entity settle: close this ask's tab, landing on /asks. */
   function settle() {

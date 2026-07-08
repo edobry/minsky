@@ -137,6 +137,26 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
     });
   });
 
+  test("responded ask is NOT terminal — renders the detail view, not a banner (PR #1848 R1)", async () => {
+    const ask = makeAsk({
+      state: "responded",
+      response: { responder: "operator", payload: { option: "flip" } },
+      respondedAt: "2026-07-08T05:00:00.000Z",
+    });
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes(`/api/asks/${ask.id}`)) return jsonResponse({ ask });
+      return jsonResponse({ error: "unexpected" }, 500);
+    }) as unknown as typeof globalThis.fetch;
+
+    renderAskPage(ask.id);
+
+    await waitFor(() => {
+      expect(screen.getByText("Calibration-review disposition")).toBeDefined();
+    });
+    expect(screen.queryByText(/This ask was/)).toBeNull();
+  });
+
   test("unknown id renders not-found only after the per-id fetch settles", async () => {
     globalThis.fetch = mock(async (input: RequestInfo | URL) => {
       const url = String(input);
