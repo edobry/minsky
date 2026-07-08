@@ -90,4 +90,5 @@ registered in `HOOK_ONLY_ENV_VARS` at
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration).
 - mt#2652 — this guard's process-dispatch mechanism migrated onto the
   ADR-028 guard dispatcher (Phase 2a); detection logic unchanged — see
-  "Guard-Dispatcher Framework (ADR-028 Phase 1–2a)" above.
+  `docs/architecture/hooks/guard-dispatcher-framework.md` and
+  `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md`.

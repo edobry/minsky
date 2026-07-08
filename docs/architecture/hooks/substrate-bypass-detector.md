@@ -148,5 +148,6 @@ session) also exits silently.
   hook with the same context-injection shape).
 - mt#2652 — this guard's process-dispatch mechanism migrated onto the
   ADR-028 guard dispatcher (Phase 2a); its own detection logic (the four
-  detector functions above) is unchanged — see "Guard-Dispatcher Framework
-  (ADR-028 Phase 1–2a)" above.
+  detector functions above) is unchanged — see
+  `docs/architecture/hooks/guard-dispatcher-framework.md` and
+  `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md`.
