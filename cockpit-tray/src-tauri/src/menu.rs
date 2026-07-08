@@ -242,13 +242,22 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
         }
         return;
     }
-    // Window doesn't exist yet — create it (same as open_cockpit_window).
-    // The retry loop will wait for the webview to load before eval-ing.
-    open_cockpit_window(app);
+    // Window doesn't exist yet -- create it. Creation ONLY: the caller (the
+    // deep-link/recovery loop, mt#2688) owns liveness healing; spawning
+    // another recovery watch here would double-navigate the same window.
+    create_cockpit_window(app);
 }
 
 /// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
 fn open_cockpit_window(app: &AppHandle) {
+    let cockpit: tauri::Url = match COCKPIT_URL.parse() {
+        Ok(url) => url,
+        Err(e) => {
+            eprintln!("[cockpit-tray] invalid cockpit URL {COCKPIT_URL:?}: {e}");
+            return;
+        }
+    };
+
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         if let Err(e) = window.show() {
             eprintln!("[cockpit-tray] failed to show cockpit window: {e}");
@@ -256,13 +265,33 @@ fn open_cockpit_window(app: &AppHandle) {
         if let Err(e) = window.set_focus() {
             eprintln!("[cockpit-tray] failed to focus cockpit window: {e}");
         }
-        // Reload so the view recovers after a daemon Start/Restart.
-        if let Err(e) = window.eval("window.location.reload()") {
-            eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+        // Heal or refresh (mt#2688): reload() only works on a LIVE cockpit
+        // document (the daemon Start/Restart recovery it was added for). On a
+        // never-loaded (connection-refused) document, reload() re-loads the
+        // blank page -- the window stays white forever. Re-NAVIGATE dead
+        // documents instead.
+        if crate::deeplink::is_cockpit_document(window.url().ok().as_ref(), &cockpit) {
+            if let Err(e) = window.eval("window.location.reload()") {
+                eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+            }
+        } else if let Err(e) = window.navigate(cockpit) {
+            eprintln!("[cockpit-tray] failed to navigate cockpit window: {e}");
         }
         return;
     }
 
+    create_cockpit_window(app);
+    // Cold-start heal (mt#2688): if the daemon is still booting, the fresh
+    // window's initial load fails (connection refused). The recovery watch
+    // re-navigates it as soon as the daemon accepts connections.
+    crate::deeplink::spawn_window_recovery(app, None);
+}
+
+/// Create the cockpit webview window (creation only -- no show-if-exists, no
+/// recovery). Callers own recovery semantics: `open_cockpit_window` pairs
+/// this with a recovery watch; the deep-link loop calls it via
+/// `ensure_cockpit_window_visible` and runs its own loop (mt#2688).
+fn create_cockpit_window(app: &AppHandle) {
     let url: tauri::Url = match COCKPIT_URL.parse() {
         Ok(url) => url,
         Err(e) => {
