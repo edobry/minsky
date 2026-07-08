@@ -30,6 +30,7 @@ interface TasksEditParams extends BaseTaskParams {
   specFile?: string;
   specContent?: string;
   tag?: string | string[];
+  kind?: string;
   execute?: boolean;
 }
 
@@ -66,8 +67,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
     const hasTagOperation = params.tag !== undefined;
+    const hasKindOperation = params.kind !== undefined;
 
-    if (!params.title && !hasSpecOperation && !hasTagOperation) {
+    if (!params.title && !hasSpecOperation && !hasTagOperation && !hasKindOperation) {
       throw new ValidationError(
         `${
           chalk.red("❌ At least one edit operation must be specified:\n") +
@@ -130,7 +132,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     this.debug("Task found, preparing updates");
 
     // Prepare the updates object
-    const updates: { title?: string; spec?: string; tags?: string[] } = {};
+    const updates: { title?: string; spec?: string; tags?: string[]; kind?: string } = {};
 
     // Handle title update
     if (params.title) {
@@ -181,8 +183,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       this.debug(`Tags update: ${JSON.stringify(newTags)}`);
     }
 
+    // Handle workflow kind update (mt#1812 / mt#2661)
+    if (params.kind !== undefined) {
+      updates.kind = params.kind;
+      this.debug(`Kind update: "${params.kind}"`);
+    }
+
     // Show preview if not executing
-    if (!params.execute && (updates.title || updates.spec || updates.tags)) {
+    if (!params.execute && (updates.title || updates.spec || updates.tags || updates.kind)) {
       return this.formatResult(
         this.createSuccessResult(
           validatedTaskId,
@@ -208,9 +216,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       // Access internal multi-backend methods via a typed extension interface
       type ServiceWithBackendAccess = typeof service & {
         parsePrefixFromId(taskId: string): string | null;
-        getBackendByPrefix(
-          prefix: string | null
-        ): { name: string; setTaskMetadata?: (...args: unknown[]) => Promise<void> } | null;
+        getBackendByPrefix(prefix: string | null): {
+          name: string;
+          setTaskMetadata?: (...args: unknown[]) => Promise<void>;
+          setTaskKind?: (id: string, kind: string) => Promise<void>;
+        } | null;
       };
       const serviceWithAccess = service as ServiceWithBackendAccess;
 
@@ -227,6 +237,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         throw new ValidationError(
           `Backend "${backend.name}" does not support specification editing`
         );
+      }
+
+      // Check if backend supports setTaskKind for workflow-kind updates (mt#2661)
+      if (updates.kind && !backend.setTaskKind) {
+        throw new ValidationError(`Backend "${backend.name}" does not support kind editing`);
       }
 
       // Apply updates
@@ -251,6 +266,12 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       if (updates.tags !== undefined) {
         await service.updateTask?.(validatedTaskId, { tags: updates.tags });
         this.debug("Updated task tags");
+      }
+
+      // Apply kind update separately (mt#2661 back-annotation support)
+      if (updates.kind && backend.setTaskKind) {
+        await backend.setTaskKind(validatedTaskId, updates.kind);
+        this.debug(`Updated task kind to "${updates.kind}"`);
       }
 
       // Fire-and-forget embedding re-index if content that affects embeddings changed
@@ -310,7 +331,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       if (!params.json) {
         const errorMsg = getErrorMessage(error);
         let errorMessage = "";
-        if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
+        if (errorMsg.includes("Backend") && errorMsg.includes("does not support kind editing")) {
+          // Kind-edit capability failures must not be coerced into the
+          // specification-editing message below (mt#2661 review finding).
+          errorMessage = chalk.red(`❌ Failed to update task: ${errorMsg}`);
+          errorMessage += `\n${chalk.yellow(
+            "   Tip: Some backends may have limited editing capabilities. Check backend documentation."
+          )}`;
+        } else if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
           errorMessage = chalk.red(
             `❌ Failed to update task specification: Backend does not support specification editing`
           );
@@ -406,7 +434,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
    * Build a descriptive update message
    */
   private buildUpdateMessage(
-    updates: { title?: string; spec?: string; tags?: string[] },
+    updates: { title?: string; spec?: string; tags?: string[]; kind?: string },
     taskId: string
   ): string {
     const parts: string[] = [];
@@ -420,6 +448,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     if (updates.tags !== undefined) {
       parts.push("tags");
     }
+    if (updates.kind) {
+      parts.push("kind");
+    }
 
     return `Task ${taskId} ${parts.join(" and ")} updated successfully`;
   }
@@ -429,7 +460,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
    */
   private buildPreviewMessage(
     currentTask: Task,
-    updates: { title?: string; spec?: string; tags?: string[] },
+    updates: { title?: string; spec?: string; tags?: string[]; kind?: string },
     taskId: string
   ): string {
     let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
@@ -470,6 +501,12 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       const currentTags = currentTask.tags || [];
       message += `  ${chalk.red("- ")}${currentTags.length > 0 ? currentTags.join(", ") : "(none)"}\n`;
       message += `  ${chalk.green("+ ")}${updates.tags.length > 0 ? updates.tags.join(", ") : "(none)"}\n\n`;
+    }
+
+    if (updates.kind) {
+      message += `${chalk.bold("Kind change:")}\n`;
+      message += `  ${chalk.red("- ")}${currentTask.kind || "implementation"}\n`;
+      message += `  ${chalk.green("+ ")}${updates.kind}\n\n`;
     }
 
     message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;
