@@ -62,6 +62,17 @@ export interface SessionPrWaitForReviewDependencies {
    * builds one. Pure literal-login filters do not consult this seam.
    */
   getTokenProvider?: () => Promise<TokenProvider>;
+  /**
+   * mt#2677: optional progress callback, invoked once per poll iteration
+   * (right before sleeping, when no match was found on that poll). Lets a
+   * long review-wait produce MCP transport activity — via the caller's
+   * `context.onProgress` (see `src/mcp/server.ts`'s progress-notification
+   * wiring) — so a legitimate multi-minute wait doesn't look identical, from
+   * the harness's idle-timeout perspective, to a genuine hang. A no-op when
+   * omitted (the CLI interface, or an MCP caller that didn't request
+   * progress notifications via `_meta.progressToken`).
+   */
+  onProgress?: (message: string) => void;
 }
 
 export interface SessionPrWaitForReviewParams {
@@ -762,6 +773,12 @@ export async function sessionPrWaitForReview(
       log.debug(
         `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} no match; ` +
           `sleeping ${Math.round(sleepMs / 1000)}s (${Math.round(remaining / 1000)}s remaining)`
+      );
+      // mt#2677: once per poll interval so a legitimate long wait produces
+      // MCP transport activity — see SessionPrWaitForReviewDependencies.onProgress.
+      deps.onProgress?.(
+        `Waiting for review on PR #${prNumber} (poll ${pollCount}, ` +
+          `${Math.round(remaining / 1000)}s remaining)`
       );
       await sleep(sleepMs);
     }

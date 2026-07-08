@@ -71,6 +71,17 @@ export interface CommandExecutionContext {
   workspacePath?: string;
   /** DI container — provides access to services via typed dependency resolution. */
   container?: import("@minsky/domain/composition/types").AppContainerInterface;
+  /**
+   * mt#2677: reports a human-readable progress message for a long-running
+   * command. Present only when the calling interface supports out-of-band
+   * progress (currently: MCP, only when the client requested it via
+   * `_meta.progressToken` — see `src/mcp/server.ts`'s `buildProgressReporter`).
+   * Absent on the CLI interface and on MCP calls that didn't opt in. Commands
+   * that poll (e.g. `session.pr.drive`, `session.pr.wait-for-review`) call
+   * `context.onProgress?.("...")` once per poll interval so a legitimate
+   * long-running wait produces transport activity instead of silence.
+   */
+  onProgress?: (message: string) => void;
 }
 
 /**

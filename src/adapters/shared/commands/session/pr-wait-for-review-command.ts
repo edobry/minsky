@@ -120,7 +120,7 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
     parameters: sessionPrWaitForReviewCommandParams,
     execute: withErrorLogging(
       "session.pr.wait-for-review",
-      async (params: Record<string, unknown>) => {
+      async (params: Record<string, unknown>, ctx) => {
         try {
           const deps = await getDeps();
           const result = await sessionPrWaitForReview(
@@ -135,7 +135,9 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
               requireCurrentHead: params.requireCurrentHead as boolean | undefined,
               fullBody: params.fullBody as boolean | undefined,
             },
-            { sessionDB: deps.sessionProvider }
+            // mt#2677: thread the MCP progress reporter (when the caller
+            // requested one) through to the review-wait poll loop.
+            { sessionDB: deps.sessionProvider, onProgress: ctx?.onProgress }
           );
 
           if (params.json) {

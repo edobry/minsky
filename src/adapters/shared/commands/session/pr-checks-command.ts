@@ -45,7 +45,7 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
     name: "checks",
     description: "Get CI check status for a session pull request",
     parameters: sessionPrChecksCommandParams,
-    execute: withErrorLogging("session.pr.checks", async (params: Record<string, unknown>) => {
+    execute: withErrorLogging("session.pr.checks", async (params: Record<string, unknown>, ctx) => {
       try {
         const deps = await getDeps();
         const result = await sessionPrChecks(
@@ -57,7 +57,9 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
             timeoutSeconds: params.timeoutSeconds as number | undefined,
             intervalSeconds: params.intervalSeconds as number | undefined,
           },
-          { sessionDB: deps.sessionProvider }
+          // mt#2677: thread the MCP progress reporter (when the caller
+          // requested one) through to the checks-wait poll loop.
+          { sessionDB: deps.sessionProvider, onProgress: ctx?.onProgress }
         );
 
         if (params.json) {

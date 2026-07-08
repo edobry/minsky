@@ -80,6 +80,13 @@ export interface SessionPrChecksDependencies {
   now?: () => number;
   /** Test seam: override the delay between polls. Defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * mt#2677: optional progress callback, invoked once per poll iteration in
+   * wait mode (right before sleeping, when checks are still pending). See
+   * `SessionPrWaitForReviewDependencies.onProgress` for the full rationale —
+   * this is the checks-wait sibling of the same mechanism.
+   */
+  onProgress?: (message: string) => void;
 }
 
 export interface SessionPrChecksParams {
@@ -179,6 +186,11 @@ export async function sessionPrChecks(
 
       log.info(
         `Waiting for ${result.summary.pending} pending check(s)... ` +
+          `(${Math.round(remaining / 1000)}s remaining)`
+      );
+      // mt#2677: once per poll interval — see SessionPrChecksDependencies.onProgress.
+      deps.onProgress?.(
+        `Waiting for ${result.summary.pending} pending check(s) ` +
           `(${Math.round(remaining / 1000)}s remaining)`
       );
 

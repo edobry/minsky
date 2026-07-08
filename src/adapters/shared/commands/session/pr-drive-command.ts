@@ -103,7 +103,7 @@ export function createSessionPrDriveCommand(getDeps: LazySessionDeps): CommandDe
       "Pass postMerge: true to instead run the post-merge deploy-watch mode (call this " +
       "AFTER your own merge succeeds).",
     parameters: sessionPrDriveCommandParams,
-    execute: withErrorLogging("session.pr.drive", async (params: Record<string, unknown>) => {
+    execute: withErrorLogging("session.pr.drive", async (params: Record<string, unknown>, ctx) => {
       try {
         const deps = await getDeps();
 
@@ -159,7 +159,9 @@ export function createSessionPrDriveCommand(getDeps: LazySessionDeps): CommandDe
             skipChecks: params.skipChecks as boolean | undefined,
             fullBody: params.fullBody as boolean | undefined,
           },
-          { sessionDB: deps.sessionProvider }
+          // mt#2677: thread the MCP progress reporter (when the caller
+          // requested one) through to the review-wait/checks-wait poll loops.
+          { sessionDB: deps.sessionProvider, onProgress: ctx?.onProgress }
         );
 
         if (params.json) {
