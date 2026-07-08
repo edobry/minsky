@@ -1198,6 +1198,12 @@
               "takesValue": true
             },
             {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
               "flags": ["--execute"],
               "description": "Execute the changes (default is dry-run preview)"
             },
