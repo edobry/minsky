@@ -92,16 +92,29 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *   - `retrospective.fired` → `{ note: string; taskId?: string }`
  *       emitted via the CLI path (`minsky events emit retrospective.fired`)
  *       from the `/retrospective` skill's structural-fix step.
- *   - `deploy.build` / `deploy.smoke` / `deploy.live` / `deploy.fail` →
- *       `{ phase: "build" | "smoke" | "live" | "fail"; service?: string; status: string }`
- *       — v1 emits `deploy.live` / `deploy.fail` from the
- *       `deployment_wait-for-latest` observation path
- *       (`packages/domain/src/deployment/`); `deploy.build` / `deploy.smoke`
- *       have no clean v1 seam (the platform-neutral wrapper observes only the
- *       terminal deployment record, not per-phase build/smoke callbacks) and
- *       are deferred to follow-up task mt#2599 (see the mt#2537 spec's
- *       v1-scope amendment). Both enum values ship now so mt#2599 needs no
- *       further migration.
+ *   - `deploy.live` / `deploy.fail` → `{ phase: "live" | "fail"; service?: string; status: string }`
+ *       emitted from the `deployment_wait-for-latest` observation path
+ *       (`packages/domain/src/deployment/`, mapped by `mapDeploymentRecordToEvent`
+ *       in `src/adapters/shared/commands/deployment.ts`) once the deployment
+ *       reaches a terminal status.
+ *   - `deploy.build` → `{ phase: "build"; service?: string; status: "BUILDING" }`
+ *       (mt#2599) emitted from the SAME `deployment_wait-for-latest` execute
+ *       handler via a `WaitForLatestOptions.onStatusObserved` progress
+ *       callback (`makeDeployBuildObserver` in `deployment.ts`) threaded
+ *       through `RailwayDeploymentAdapter.waitForLatestDeployment`
+ *       (`packages/domain/src/deployment/railway/adapter.ts`), which invokes
+ *       it on every observed poll — non-terminal statuses included. Fires
+ *       once per wait call, on the first observed `BUILDING` status.
+ *   - `deploy.smoke` → `{ phase: "smoke"; sha: string; status: "success" | "failure" }`
+ *       (mt#2599) emitted by a periodic cockpit sweeper
+ *       (`startDeploySmokeSweeper` in `src/cockpit/sweepers.ts`, delegating to
+ *       `triggerDeploySmokeSweep` in `src/cockpit/deploy-smoke-sweep.ts`) that
+ *       polls the GitHub Checks API for the `bundle-boot-smoke` check-run
+ *       (CLAUDE.md `§Bundle-Boot Smoke Gate`) on the cockpit process's own
+ *       deployed commit (`RAILWAY_GIT_COMMIT_SHA`). This is a poll, not a
+ *       webhook — see that module's doc block for why (no webhook-receiver
+ *       surface is in scope for this bridge; see mt#2599's hard boundary on
+ *       `services/reviewer/**`).
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -200,7 +213,8 @@ export const systemEventsTable = pgTable(
      * hook.fired:                     { hook, decision, subject? }
      * mcp.disconnect:                 { cause, serverName, uptimeMs?, processRole? }
      * retrospective.fired:            { note, taskId? }
-     * deploy.build/smoke/live/fail:   { phase, service?, status }
+     * deploy.build/live/fail:         { phase, service?, status }
+     * deploy.smoke:                   { phase, sha, status }
      */
     payload: jsonb("payload").notNull(),
 

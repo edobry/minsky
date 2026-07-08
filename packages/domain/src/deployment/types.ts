@@ -86,6 +86,24 @@ export interface WaitForLatestOptions {
   timeoutSeconds?: number;
   /** Poll interval in seconds. Default 10s. May be ignored by adapters with a stream primitive. */
   pollIntervalSeconds?: number;
+  /**
+   * Optional progress callback (mt#2599). Adapters invoke this with EVERY
+   * observed `DeploymentRecord` — once for the initial poll and once per
+   * subsequent poll iteration — including non-terminal statuses (BUILDING,
+   * DEPLOYING), not just the final terminal record `waitForLatestDeployment`
+   * resolves with.
+   *
+   * This is the seam `deployment.wait-for-latest`'s execute handler
+   * (`src/adapters/shared/commands/deployment.ts`) uses to emit a best-effort
+   * `deploy.build` system event the first time a `BUILDING` status is
+   * observed, without adding a separate poller — see the mt#2599 spec's
+   * "option 1" (progress-callback) design.
+   *
+   * Adapters MUST treat this as best-effort: a throwing callback must never
+   * abort the wait, so implementations wrap the call in try/catch. Callers
+   * that don't need progress observation simply omit the option.
+   */
+  onStatusObserved?: (record: DeploymentRecord) => void | Promise<void>;
 }
 
 /**
