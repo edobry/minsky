@@ -33,6 +33,7 @@ import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
   advanceWatermarks,
+  clearResolvedAskIds,
   type CalibrationLogResult,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
@@ -104,6 +105,9 @@ function formatResult(results: CalibrationLogResult[]): string {
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
     lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
+    if (r.openAskId) {
+      lines.push(`  Open ask (mt#2659):     ${r.openAskId} — disposition pending`);
+    }
     if (r.lowDiversity) {
       lines.push(`  ⚠  Low diversity (count bar hit but < 3 distinct phrases) — keep collecting`);
     }
@@ -181,6 +185,25 @@ export function registerCalibrationCommands(): void {
         required: false,
         defaultValue: false,
       },
+      askId: {
+        schema: z.string(),
+        description:
+          "ID of the disposition Ask just filed for the past-threshold logs in this pass " +
+          "(mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on " +
+          "every watermark advanced by this call so the cadence-detector hook suppresses its " +
+          "per-turn warning for these logs until the ask is resolved.",
+        required: false,
+      },
+      clearAskIds: {
+        schema: z.array(z.string()),
+        description:
+          "Ask IDs to clear from any watermark's `openAskId` field (mt#2659). Pass the id(s) " +
+          "once `asks_list` confirms a previously-filed disposition ask has reached a terminal " +
+          "state (responded/closed/cancelled/expired) — clearing resumes the cadence " +
+          "detector's normal per-turn warning for the affected log(s). Independent of ack; " +
+          "applied before the sweep result is computed.",
+        required: false,
+      },
     },
     async execute(params, ctx) {
       try {
@@ -192,7 +215,20 @@ export function registerCalibrationCommands(): void {
           return readFileOrNull(join(workspacePath, relPath));
         };
 
-        const watermarks = await loadWatermarks(workspacePath);
+        let watermarks = await loadWatermarks(workspacePath);
+
+        // Clear any resolved disposition-ask references first (mt#2659) — this
+        // is independent of --ack and does not touch lastReviewedCount/At.
+        let clearedAskIds = false;
+        if (params.clearAskIds && params.clearAskIds.length > 0) {
+          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set(params.clearAskIds));
+          if (clearedWatermarks !== watermarks) {
+            watermarks = clearedWatermarks;
+            await saveWatermarks(workspacePath, watermarks);
+            clearedAskIds = true;
+          }
+        }
+
         const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
 
         // Advance watermarks for past-threshold logs when --ack is set
@@ -206,7 +242,8 @@ export function registerCalibrationCommands(): void {
               watermarks,
               results,
               pastThresholdPaths,
-              new Date().toISOString()
+              new Date().toISOString(),
+              params.askId
             );
             await saveWatermarks(workspacePath, updated);
             watermarkAdvanced = true;
@@ -230,8 +267,10 @@ export function registerCalibrationCommands(): void {
               pastThreshold: r.pastThreshold,
               newRecordCount: r.newRecords.length,
               newRecords: r.newRecords,
+              openAskId: r.openAskId,
             })),
             watermarkAdvanced,
+            clearedAskIds,
           };
         }
 
@@ -241,12 +280,14 @@ export function registerCalibrationCommands(): void {
           : params.ack
             ? "\nNo past-threshold logs to advance."
             : "";
+        const clearedSuffix = clearedAskIds ? "\nCleared resolved ask(s) from watermark(s)." : "";
 
         return {
           success: true,
           json: false,
-          message: text + suffix,
+          message: text + suffix + clearedSuffix,
           watermarkAdvanced,
+          clearedAskIds,
         };
       } catch (error) {
         return {

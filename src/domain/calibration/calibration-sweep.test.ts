@@ -11,6 +11,7 @@ import {
   extractDistinctPhrases,
   computeLogResult,
   advanceWatermarks,
+  clearResolvedAskIds,
   runSweep,
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
@@ -27,6 +28,7 @@ const RETRO_KIND = "retrospective-trigger";
 const DEFERRAL_KIND = "ask-routing-deferral";
 const DEFERRAL_CLASS = "principal-reserved";
 const CODE_MECHANISM_KIND = "code-mechanism-assertion";
+const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -546,6 +548,25 @@ describe("computeLogResult — watermark handling", () => {
     expect(result.totalFires).toBe(count);
     expect(result.newRecords).toHaveLength(count);
   });
+
+  test("forwards openAskId from the watermark (mt#2659)", () => {
+    const watermark: LogWatermark = {
+      lastReviewedCount: 0,
+      lastReviewedAt: "2026-06-01T00:00:00Z",
+      openAskId: TEST_ASK_ID,
+    };
+    const result = computeLogResult(CAUSAL_ENTRY, "", false, watermark);
+    expect(result.openAskId).toBe(TEST_ASK_ID);
+  });
+
+  test("openAskId is undefined when the watermark has none", () => {
+    const watermark: LogWatermark = {
+      lastReviewedCount: 0,
+      lastReviewedAt: "2026-06-01T00:00:00Z",
+    };
+    const result = computeLogResult(CAUSAL_ENTRY, "", false, watermark);
+    expect(result.openAskId).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -602,6 +623,101 @@ describe("advanceWatermarks", () => {
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
     advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
     expect(current).toEqual({});
+  });
+
+  test("records openAskId on advanced watermarks when askId is provided (mt#2659)", () => {
+    const current: WatermarkStore = {};
+    const results = [
+      computeLogResult(
+        CAUSAL_ENTRY,
+        buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+        true,
+        undefined
+      ),
+    ];
+    const ackedPaths = new Set([CAUSAL_ENTRY.path]);
+    const updated = advanceWatermarks(
+      current,
+      results,
+      ackedPaths,
+      "2026-06-10T00:00:00Z",
+      TEST_ASK_ID
+    );
+    expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
+  });
+
+  test("omits openAskId on advanced watermarks when askId is not provided", () => {
+    const current: WatermarkStore = {};
+    const results = [
+      computeLogResult(
+        CAUSAL_ENTRY,
+        buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+        true,
+        undefined
+      ),
+    ];
+    const ackedPaths = new Set([CAUSAL_ENTRY.path]);
+    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clearResolvedAskIds
+// ---------------------------------------------------------------------------
+
+describe("clearResolvedAskIds", () => {
+  const OTHER_ASK_ID = "11111111-1111-1111-1111-111111111111";
+
+  test("clears openAskId for watermarks matching a resolved ask id", () => {
+    const current: WatermarkStore = {
+      [CAUSAL_ENTRY.path]: {
+        lastReviewedCount: 10,
+        lastReviewedAt: "2026-06-10T00:00:00Z",
+        openAskId: TEST_ASK_ID,
+      },
+    };
+    const updated = clearResolvedAskIds(current, new Set([TEST_ASK_ID]));
+    expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
+    // Other fields untouched.
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedCount).toBe(10);
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+  });
+
+  test("leaves watermarks with a different openAskId untouched", () => {
+    const current: WatermarkStore = {
+      [CAUSAL_ENTRY.path]: {
+        lastReviewedCount: 10,
+        lastReviewedAt: "2026-06-10T00:00:00Z",
+        openAskId: OTHER_ASK_ID,
+      },
+    };
+    const updated = clearResolvedAskIds(current, new Set([TEST_ASK_ID]));
+    expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(OTHER_ASK_ID);
+  });
+
+  test("is a no-op (same reference) when resolvedAskIds is empty", () => {
+    const current: WatermarkStore = {
+      [CAUSAL_ENTRY.path]: {
+        lastReviewedCount: 10,
+        lastReviewedAt: "2026-06-10T00:00:00Z",
+        openAskId: TEST_ASK_ID,
+      },
+    };
+    const updated = clearResolvedAskIds(current, new Set());
+    expect(updated).toBe(current);
+  });
+
+  test("does not mutate the input store", () => {
+    const current: WatermarkStore = {
+      [CAUSAL_ENTRY.path]: {
+        lastReviewedCount: 10,
+        lastReviewedAt: "2026-06-10T00:00:00Z",
+        openAskId: TEST_ASK_ID,
+      },
+    };
+    clearResolvedAskIds(current, new Set([TEST_ASK_ID]));
+    expect(current[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
   });
 });
 

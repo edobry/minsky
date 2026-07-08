@@ -4644,6 +4644,16 @@
             {
               "flags": ["--json"],
               "description": "Output results as JSON instead of human-readable text."
+            },
+            {
+              "flags": ["--ask-id"],
+              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--clear-ask-ids"],
+              "description": "Ask IDs to clear from any watermark's `openAskId` field (mt#2659). Pass the id(s) once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed.",
+              "takesValue": true
             }
           ]
         },

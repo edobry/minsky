@@ -161,6 +161,19 @@ export interface LogWatermark {
   lastReviewedCount: number;
   /** ISO-8601 timestamp of the last review. */
   lastReviewedAt: string;
+  /**
+   * ID of an operator-routed Ask (mt#1034 / ADR-008) filed by the
+   * /calibration-review skill's Step 4 that still awaits a disposition
+   * (flip/tune/keep). Present only while the ask is open (mt#2659) — the
+   * cadence detector suppresses its normal per-turn warning for this log in
+   * favor of a single "disposition pending" line while this field is set.
+   *
+   * Cleared via `clearResolvedAskIds()` once the /calibration-review skill
+   * confirms (via `asks_list`) that the referenced ask has reached a
+   * terminal state (responded/closed/cancelled/expired) — at which point
+   * normal cadence-detector behavior resumes for this log.
+   */
+  openAskId?: string;
 }
 
 /** Shape of the full watermark store (path → mark). */
@@ -250,6 +263,12 @@ export interface CalibrationLogResult {
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
+  /**
+   * ID of a still-open disposition Ask filed for this log by a prior
+   * /calibration-review pass (mt#2659), forwarded from the watermark's
+   * `openAskId`. Undefined when no ask is on file or it has been cleared.
+   */
+  openAskId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,6 +475,7 @@ export function computeLogResult(
     // log is low-diversity), even though the Ask only fires on pastThreshold.
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
+    openAskId: watermark?.openAskId,
   };
 }
 
@@ -492,12 +512,19 @@ export async function runSweep(
  * @param results    - sweep results (used to read current total counts)
  * @param ackedPaths - set of log paths whose watermarks should be advanced
  * @param now        - timestamp string to use for lastReviewedAt
+ * @param askId      - optional ID of the disposition Ask the /calibration-review
+ *                     skill just filed covering ALL acked logs in this pass
+ *                     (mt#2659). When provided, recorded as `openAskId` on every
+ *                     advanced watermark so the cadence detector can suppress its
+ *                     per-turn warning in favor of a single pending-ask line
+ *                     until the ask is resolved (see `clearResolvedAskIds`).
  */
 export function advanceWatermarks(
   current: WatermarkStore,
   results: CalibrationLogResult[],
   ackedPaths: Set<string>,
-  now: string
+  now: string,
+  askId?: string
 ): WatermarkStore {
   const updated: WatermarkStore = { ...current };
   for (const result of results) {
@@ -505,7 +532,35 @@ export function advanceWatermarks(
       updated[result.entry.path] = {
         lastReviewedCount: result.totalFires,
         lastReviewedAt: now,
+        ...(askId ? { openAskId: askId } : {}),
       };
+    }
+  }
+  return updated;
+}
+
+/**
+ * Clear `openAskId` from any watermark entries whose recorded ask id is in
+ * `resolvedAskIds` (mt#2659).
+ *
+ * Does NOT touch `lastReviewedCount` / `lastReviewedAt` — this is purely the
+ * "ask closed → resume normal cadence" transition, used once the
+ * /calibration-review skill confirms (via `asks_list`) that a previously-filed
+ * disposition ask has reached a terminal state (responded / closed /
+ * cancelled / expired). Returns a new store (does not mutate the input); a
+ * no-op (returns `current` unchanged, same reference) when `resolvedAskIds`
+ * is empty.
+ */
+export function clearResolvedAskIds(
+  current: WatermarkStore,
+  resolvedAskIds: ReadonlySet<string>
+): WatermarkStore {
+  if (resolvedAskIds.size === 0) return current;
+  const updated: WatermarkStore = { ...current };
+  for (const [path, wm] of Object.entries(current)) {
+    if (wm.openAskId && resolvedAskIds.has(wm.openAskId)) {
+      const { openAskId: _drop, ...rest } = wm;
+      updated[path] = rest;
     }
   }
   return updated;
