@@ -316,14 +316,11 @@ if (import.meta.main) {
   };
   const calibLog = join(repoRoot, CALIBRATION_LOG);
 
-  // Permit path: covered — no calibration record (mt#2670 exception-only
-  // logging; the gate inside appendCalibrationRecordIfLoggable drops it).
+  // Permit path: covered — no calibration record is built or written
+  // (mt#2670 exception-only logging). The gate inside
+  // appendCalibrationRecordIfLoggable enforces the same invariant for any
+  // future callsite that does construct a covered record.
   if (coverage.covered) {
-    appendCalibrationRecordIfLoggable(calibLog, {
-      ...baseRecord,
-      outcome: "covered",
-      evidence: coverage.evidence,
-    });
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
