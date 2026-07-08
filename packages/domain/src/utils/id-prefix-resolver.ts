@@ -101,7 +101,20 @@ export interface PrefixCandidate {
 export type PrefixCandidateResolution =
   | { kind: "resolved"; id: string }
   | { kind: "not_found"; input: string }
-  | { kind: "ambiguous"; input: string; candidates: PrefixCandidate[] };
+  | {
+      kind: "ambiguous";
+      input: string;
+      /** Candidates shown in the error, capped at `MAX_AMBIGUOUS_CANDIDATES`. */
+      candidates: PrefixCandidate[];
+      /**
+       * TRUE total number of matching rows, which may exceed `candidates.length`
+       * when the match count is truncated to `MAX_AMBIGUOUS_CANDIDATES`. Callers
+       * MUST report this value (not `candidates.length`) as "how many records
+       * match" — reporting the truncated length as the total is misleading
+       * (e.g. "matches 10 records" when 23 actually matched).
+       */
+      totalCount: number;
+    };
 
 /**
  * Resolve a prefix-matched candidate list to a single id, given zero, one, or
@@ -125,6 +138,7 @@ export function resolveCandidates(
     kind: "ambiguous",
     input,
     candidates: candidates.slice(0, MAX_AMBIGUOUS_CANDIDATES),
+    totalCount: candidates.length,
   };
 }
 
@@ -135,7 +149,7 @@ export function resolveCandidates(
 export type IdPrefixResolution =
   | { kind: "resolved"; id: string }
   | { kind: "not_found"; input: string }
-  | { kind: "ambiguous"; input: string; candidates: PrefixCandidate[] }
+  | { kind: "ambiguous"; input: string; candidates: PrefixCandidate[]; totalCount: number }
   | { kind: "invalid"; input: string; reason: string };
 
 /**
@@ -150,18 +164,26 @@ export function idPrefixResolutionError(entityName: string, resolution: IdPrefix
     case "invalid":
       return new Error(`Invalid ${entityName} id "${resolution.input}": ${resolution.reason}`);
     case "ambiguous": {
-      const list = resolution.candidates
-        .map((c) => `  - ${c.id}${c.label ? ` (${c.label})` : ""}`)
-        .join("\n");
-      return new Error(
-        `Ambiguous ${entityName} id prefix "${resolution.input}" matches ` +
-          `${resolution.candidates.length} record(s):\n${list}\n` +
-          `Use a longer prefix or the full id.`
-      );
+      const { candidates, totalCount, input } = resolution;
+      const list = candidates.map((c) => `  - ${c.id}${c.label ? ` (${c.label})` : ""}`).join("\n");
+      // Report the TRUE total, not the (possibly truncated) shown-candidate
+      // count — "matches 10 records" when 23 actually matched is misleading.
+      const summary =
+        candidates.length < totalCount
+          ? `${totalCount} ${entityName} records match id prefix "${input}" — showing first ${candidates.length}:`
+          : `Ambiguous ${entityName} id prefix "${input}" matches ${totalCount} record(s):`;
+      return new Error(`${summary}\n${list}\nUse a longer prefix or the full id.`);
     }
     case "resolved":
-      // Programmer error: callers should check `.kind === "resolved"` first.
-      throw new Error("idPrefixResolutionError called with a resolved result");
+      // Programmer error: the caller already has a resolved id and should use
+      // it directly instead of routing it through error-shaping. Reaching
+      // this branch means `idPrefixResolutionError` was called without first
+      // checking `.kind === "resolved"` on the resolution it was given.
+      throw new Error(
+        "idPrefixResolutionError: called with an already-resolved IdPrefixResolution " +
+          `(id "${resolution.id}") — check \`.kind === "resolved"\` before calling ` +
+          "idPrefixResolutionError; this function is only for non-resolved outcomes."
+      );
   }
 }
 

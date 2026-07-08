@@ -1003,6 +1003,25 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           responder: params.responder as string | undefined,
         }).then(async (result) => {
           // Best-effort system event for the plant-board activity stream (mt#2489).
+          // mt#2696 R1 (reviewer finding 3): `askId` is the RESOLVED full uuid
+          // (`id`, not the raw `params.id` prefix a caller may have passed).
+          // Verified this is the correct/expected form for every current
+          // consumer of `ask.answered`'s `askId` payload field — no consumer
+          // parses or compares against a short-prefix form:
+          //   - `system-events-schema.ts` documents the payload shape as
+          //     `{ askId: string; ... }` with no length/format constraint
+          //     tied to the short-prefix convention.
+          //   - `plant-gestures.ts`'s `ask.answered` case triggers a visual
+          //     pulse from the event TYPE alone; it does not read
+          //     `payload.askId` at all.
+          //   - `ActivityPage.tsx`'s `eventSummary()` switch has no
+          //     `ask.answered` case (falls through), so no reader there
+          //     dereferences `payload.askId` today either.
+          //   - The one place askId IS compared for equality against a live
+          //     record, `AskPage.tsx:54` (`asks.find((a) => a.id === askId)`),
+          //     compares against `Ask.id` — a full uuid — so a full-uuid
+          //     `askId` is the format every existing/plausible-future
+          //     consumer expects; a short prefix would be the wrong choice.
           await emitSystemEventBestEffort(container, {
             eventType: "ask.answered",
             payload: {

@@ -187,13 +187,25 @@ used in the citation determines whether the next agent can actually
 dereference it:
 
 - **MUST** carry either the **full UUID** or an **id form the get/lookup
-  tools resolve** — post-mt#2696, that means an **unambiguous prefix of at
-  least 8 hex characters** (git-short-SHA style, e.g. `d8591800`).
-  `memory_get`, `asks_respond`, `asks_edit`, and `asks_wait-for-response` all
-  resolve such a prefix to the full record (unique match), a clean
-  not-found error (no match), or an ambiguity error listing candidates (2+
-  matches) — never a raw Postgres `invalid input syntax for type uuid`
-  crash. A prefix shorter than 8 characters is NOT guaranteed to resolve.
+  tools resolve** — post-mt#2696, `memory_get`, `asks_respond`, `asks_edit`,
+  and `asks_wait-for-response` all resolve an unambiguous hex-prefix to the
+  full record (unique match), a clean not-found error (no match), or an
+  ambiguity error listing candidates (2+ matches) — never a raw Postgres
+  `invalid input syntax for type uuid` crash.
+- **Author handoffs with an 8-hex-char prefix** (git-short-SHA style, e.g.
+  `d8591800`) as the citation convention — this is deliberately a
+  **handoff-authoring convention for collision safety**, independent of
+  the resolver's technical floor. The resolver's minimum accepted prefix
+  length is a configurable parameter (`resolveIdPrefix`'s
+  `minPrefixLength`, `MIN_ID_PREFIX_LENGTH` in
+  `packages/domain/src/utils/id-prefix-resolver.ts`, currently defaulted to
+  8 at every call site this skill's tools use) — do not treat 8 as a
+  load-bearing technical constant when writing handoffs; treat it as "long
+  enough that a collision within one project's memory/ask corpus is
+  vanishingly unlikely," which just happens to currently coincide with the
+  resolver's default floor. A shorter prefix may still resolve (if
+  unambiguous) or may be rejected as too-short depending on the current
+  floor — don't rely on that boundary; always author at 8+ hex chars.
 - **SHOULD** carry the record's **name alongside** the id (a memory's `name`
   field, an Ask's `title`) as a search fallback — if the id somehow doesn't
   resolve (rotated, deleted, or the prefix collides after this skill was

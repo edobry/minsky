@@ -83,7 +83,7 @@ describe("resolveCandidates", () => {
     expect(result).toEqual({ kind: "not_found", input: "ffffffff" });
   });
 
-  it("returns ambiguous for two or more candidates, listing them", () => {
+  it("returns ambiguous for two or more candidates, listing them and reporting the true total", () => {
     const candidates: PrefixCandidate[] = [
       { id: SIBLING_UUID_A, label: "memory-a" },
       { id: SIBLING_UUID_B, label: "memory-b" },
@@ -93,6 +93,20 @@ describe("resolveCandidates", () => {
     if (result.kind === "ambiguous") {
       expect(result.candidates).toHaveLength(2);
       expect(result.candidates.map((c) => c.id)).toEqual(candidates.map((c) => c.id));
+      expect(result.totalCount).toBe(2);
+    }
+  });
+
+  it("caps shown candidates at MAX_AMBIGUOUS_CANDIDATES but reports the true total", () => {
+    const manyCandidates: PrefixCandidate[] = Array.from({ length: 23 }, (_, i) => ({
+      id: `ab000000-0000-0000-0000-${String(i).padStart(12, "0")}`,
+      label: `memory-${i}`,
+    }));
+    const result = resolveCandidates(manyCandidates, "ab");
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates).toHaveLength(10);
+      expect(result.totalCount).toBe(23);
     }
   });
 });
@@ -113,11 +127,29 @@ describe("idPrefixResolutionError", () => {
         { id: SIBLING_UUID_A, label: "memory-a" },
         { id: SIBLING_UUID_B, label: "memory-b" },
       ],
+      totalCount: 2,
     });
     expect(err.message).toContain(SIBLING_UUID_A);
     expect(err.message).toContain("memory-a");
     expect(err.message).toContain(SIBLING_UUID_B);
     expect(err.message).toContain("memory-b");
+    expect(err.message).toContain("matches 2 record(s)");
+  });
+
+  it("reports the TRUE total match count, not the truncated shown-candidate count", () => {
+    const err = idPrefixResolutionError("memory", {
+      kind: "ambiguous",
+      input: "ab",
+      candidates: [
+        { id: SIBLING_UUID_A, label: "memory-a" },
+        { id: SIBLING_UUID_B, label: "memory-b" },
+      ],
+      // 23 rows matched the prefix query; only the first 2 are shown here.
+      totalCount: 23,
+    });
+    expect(err.message).toContain("23");
+    expect(err.message).toContain("showing first 2");
+    expect(err.message).not.toContain("matches 2 record(s)");
   });
 
   it("surfaces the invalid reason verbatim", () => {
@@ -127,6 +159,15 @@ describe("idPrefixResolutionError", () => {
       reason: "id prefix must be hexadecimal",
     });
     expect(err.message).toContain("id prefix must be hexadecimal");
+  });
+
+  it("throws a descriptive programmer-error message when called with an already-resolved result", () => {
+    expect(() => idPrefixResolutionError("memory", { kind: "resolved", id: FULL_UUID })).toThrow(
+      /already-resolved/i
+    );
+    expect(() => idPrefixResolutionError("memory", { kind: "resolved", id: FULL_UUID })).toThrow(
+      new RegExp(FULL_UUID)
+    );
   });
 });
 

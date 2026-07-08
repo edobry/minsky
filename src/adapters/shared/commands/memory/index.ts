@@ -41,7 +41,7 @@ import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
 import { emitSystemEventBestEffort } from "../system-event-emit";
 import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
-import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import { classifyIdInput, resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
@@ -761,7 +761,18 @@ export function registerMemoryCommands(
       const record = await service.get(id);
 
       if (!record) {
-        throw new Error(`Memory not found: "${params.id}"`);
+        // mt#2696 R1: name both what the caller passed AND how it was
+        // interpreted (full UUID vs prefix) rather than echoing the raw
+        // input unconditionally — a resolved prefix that no longer matches
+        // a live row (e.g. deleted between resolution and this read) reads
+        // very differently from a syntactically full UUID that never
+        // existed, and the diagnostic should say which happened.
+        const classification = classifyIdInput(params.id);
+        const message =
+          classification.kind === "prefix"
+            ? `Memory not found for id prefix "${params.id}" (resolved to "${id}")`
+            : `Memory not found with id "${id}"`;
+        throw new Error(message);
       }
 
       return record;

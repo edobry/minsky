@@ -187,9 +187,30 @@ describe("Memory Commands", () => {
       registerMemoryCommands(registry, makeDeps({ getResult: null }));
 
       const cmd = registry.getCommand(GET_CMD);
+      // mt#2696 R1: message names how the id was interpreted. "missing-id" is
+      // not a valid hex prefix (contains non-hex letters), so it falls
+      // through to the generic "not found with id" phrasing rather than the
+      // "for id prefix" phrasing reserved for genuinely prefix-shaped input.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await expect(cmd!.execute({ id: "missing-id" }, {})).rejects.toThrow(
-        'Memory not found: "missing-id"'
+        'Memory not found with id "missing-id"'
+      );
+    });
+
+    test("names the id as a prefix (not a raw echo) when the input is a valid hex prefix that resolved but no longer has a live row", async () => {
+      // mt#2696 R1 (reviewer finding 2): a prefix that resolved to a full id
+      // (via classifyIdInput, which is pure and doesn't need a live DB — this
+      // test has no persistence container, so resolveMemoryIdInput passes
+      // the raw prefix through unchanged) but then finds no row must name
+      // BOTH the original prefix input and how it was interpreted, not just
+      // echo the raw input as if it were an opaque id.
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ getResult: null }));
+
+      const cmd = registry.getCommand(GET_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await expect(cmd!.execute({ id: "d8591800" }, {})).rejects.toThrow(
+        'Memory not found for id prefix "d8591800"'
       );
     });
   });
