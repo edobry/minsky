@@ -55,6 +55,18 @@ export const convergenceMetricsTable = pgTable(
     /** Best-effort count of findings acknowledged-as-addressed in the review body. */
     acknowledgedAddressedCount: integer("acknowledged_addressed_count").notNull(),
 
+    /**
+     * Git branch name of the PR head at review time (e.g. "task/mt-2076").
+     *
+     * Nullable — rows written before this column was added (0000–0004 migrations)
+     * retain NULL. Used by the cockpit reviewer-bot-status widget to derive the
+     * Minsky task ID from the branch name via the extractTaskIdFromBranch pattern.
+     * Populated from `pr.branchName` (= `pr.head.ref`) at the call site in
+     * review-worker.ts (~L2079–2090). Additive; immutable-migration-compliant
+     * (new 0005_*.sql migration only — 0000–0004 untouched). (mt#2076)
+     */
+    headRef: text("head_ref"),
+
     /** Row insertion timestamp (UTC). */
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
