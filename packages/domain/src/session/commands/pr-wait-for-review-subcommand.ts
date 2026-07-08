@@ -6,8 +6,9 @@
  * primitive that mt#1180's Ask subsystem composes for its `quality.review`
  * resolution.
  *
- * Resolution criteria: a review on the PR with `submittedAt >= since`,
- * optionally filtered by reviewer login.
+ * Resolution criteria: a review on the PR with `submittedAt > since`
+ * (strictly after — an exactly-equal `submittedAt` counts as already-seen,
+ * mt#2656), optionally filtered by reviewer login.
  *
  * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
  * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
@@ -19,6 +20,14 @@
  * with per-entry `rejectionReason`) and `sinceUsed` (the resolved
  * threshold) so callers can diagnose the miss class without a separate
  * forensics round-trip (mt#2043).
+ *
+ * By default (mt#2656) a matched review is returned TRIMMED — state,
+ * submittedAt, reviewer, blocking/non-blocking finding counts, and a
+ * findings list (severity + file:line + one-sentence summary each) —
+ * stripping the raw markdown body (spec-verification tables, the embedded
+ * provenance JSON comment, full finding prose), which otherwise runs
+ * 5-10KB per review. Pass `params.fullBody: true` to restore the full
+ * `ReviewListEntry` (pre-mt#2656 behavior).
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
@@ -84,19 +93,38 @@ export interface SessionPrWaitForReviewParams {
    */
   reviewer?: string;
   /**
-   * Optional ISO timestamp; reviews with submittedAt earlier than this are
-   * ignored. Defaults to the PR's `created_at` timestamp (mt#2043), so
+   * Optional ISO timestamp; reviews with submittedAt earlier than OR EQUAL
+   * TO this are ignored (strictly-after semantics, mt#2656) — passing a
+   * prior review's exact `submittedAt` as `since` will not re-match that
+   * same review. Defaults to the PR's `created_at` timestamp (mt#2043), so
    * pre-existing reviews on the PR match by default. Pass an explicit value
    * to narrow the window (e.g., wait only for reviews newer than a known
-   * stale one).
+   * stale one — the standard re-invoke pattern after a CHANGES_REQUESTED
+   * fix: pass the previous review's `submittedAt` and the wait will not
+   * re-match it).
    *
    * Backwards-compat note: prior to mt#2043 the default was the call's
    * start time, which silently excluded reviews posted before the wait was
    * invoked. The new default is structurally more useful for the typical
    * post-PR-create wait pattern. Backends that don't implement
    * `ReviewOperations.getPullRequestCreatedAt` fall back to call-start.
+   *
+   * Boundary note (mt#2656): prior to mt#2656 the comparison was inclusive
+   * (`submittedAt >= since`), so passing a previous review's exact
+   * `submittedAt` as `since` re-matched that same review — hit live on
+   * PR #1811, worked around with a manual `+1s` adjustment. The comparison
+   * is now strictly-after.
    */
   since?: string;
+  /**
+   * When true, return the full `ReviewListEntry` (raw markdown body,
+   * including the spec-verification table and embedded provenance JSON
+   * comment) instead of the default trimmed payload (mt#2656). Defaults to
+   * false — most callers only need state/counts/findings to decide the next
+   * step; use this when you need the full review prose (e.g. to quote it
+   * back to a human).
+   */
+  fullBody?: boolean;
   /**
    * When true (the default), only a review whose commit SHA matches the PR's
    * current HEAD satisfies the wait. A stale review of a superseded commit is
@@ -111,9 +139,116 @@ export interface SessionPrWaitForReviewParams {
 
 export interface SessionPrWaitForReviewMatch {
   matched: true;
-  review: ReviewListEntry;
+  /**
+   * By default (mt#2656) a `TrimmedReview` — see that type's doc comment.
+   * Pass `params.fullBody: true` to get the full `ReviewListEntry` instead.
+   * Discriminate the two shapes structurally: `TrimmedReview` has a
+   * `findings` array; `ReviewListEntry` has a `body` string. Neither type
+   * has both.
+   */
+  review: ReviewListEntry | TrimmedReview;
   elapsedMs: number;
   pollCount: number;
+}
+
+/**
+ * A single finding extracted from the review body's rendered `## Findings`
+ * section (see `services/reviewer/src/compose-review.ts`
+ * `composeReviewBody`, which renders each finding as a two-line entry:
+ * `- [SEVERITY] file:line — summary` followed by a details line). This
+ * module only reads the already-rendered markdown — it does not depend on
+ * the reviewer service's output-tools schema (mt#2656 scope: consuming-side
+ * payload trimming, not reviewer output format).
+ */
+export interface TrimmedReviewFinding {
+  severity: "BLOCKING" | "NON-BLOCKING" | "PRE-EXISTING";
+  /** `file:line` (or `file:line-lineEnd`), optionally suffixed ` (LEFT)`. */
+  location: string;
+  /** One-sentence finding summary (the `submit_finding` tool's `summary` arg). */
+  summary: string;
+}
+
+/**
+ * Trimmed review payload (mt#2656): the default shape `session_pr_wait-for-review`
+ * / `session_pr_drive` return in place of the full `ReviewListEntry`. The raw
+ * `body` (spec-verification table, embedded `minsky-review-provenance` JSON
+ * comment, full finding prose — often 5-10KB) is stripped; the fields below
+ * carry everything a caller needs to decide the next step. Pass
+ * `params.fullBody: true` to get the full `ReviewListEntry` instead.
+ */
+export interface TrimmedReview {
+  reviewId: number;
+  state: ReviewListEntry["state"];
+  submittedAt?: string;
+  reviewerLogin: string | null;
+  htmlUrl?: string;
+  commitId?: string;
+  blockingCount: number;
+  nonBlockingCount: number;
+  findings: TrimmedReviewFinding[];
+}
+
+/**
+ * Matches a rendered finding line from `composeReviewBody`:
+ *   `- [SEVERITY] location — summary`
+ * Non-greedy on `location` so the ` — ` separator (an em dash, matching the
+ * reviewer's exact rendering) anchors correctly even if `summary` itself
+ * contains a hyphen or dash. The details line that follows each finding
+ * does not start with `- [` and is skipped without needing to be matched.
+ */
+const FINDING_LINE_RE = /^- \[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\] (.+?) — (.+)$/gm;
+
+/**
+ * Parse the finding entries out of a rendered review body. Returns an empty
+ * array when the body has no `## Findings` section (e.g. a clean APPROVE
+ * with zero findings) or isn't in the expected format (e.g. a legacy/manual
+ * review body that predates the structured output-tools format).
+ *
+ * Exported for unit tests.
+ */
+export function parseReviewFindings(body: string): TrimmedReviewFinding[] {
+  const findings: TrimmedReviewFinding[] = [];
+  for (const match of body.matchAll(FINDING_LINE_RE)) {
+    const [, severity, location, summary] = match;
+    if (severity === undefined || location === undefined || summary === undefined) continue;
+    findings.push({
+      severity: severity as TrimmedReviewFinding["severity"],
+      location,
+      summary,
+    });
+  }
+  return findings;
+}
+
+/**
+ * Trim a full `ReviewListEntry` down to the mt#2656 default payload. Finding
+ * counts are derived from the parsed findings list (BLOCKING vs. everything
+ * else — NON-BLOCKING + PRE-EXISTING — mirroring the convention already
+ * used by `services/reviewer/src/review-provenance.ts`'s
+ * `extractProvenance`), not from the embedded provenance JSON comment, so
+ * this function works even on review bodies without a provenance block.
+ *
+ * Exported for unit tests and reuse by `pr-drive-subcommand.ts`.
+ */
+export function trimReview(review: ReviewListEntry): TrimmedReview {
+  const findings = parseReviewFindings(review.body);
+  let blockingCount = 0;
+  let nonBlockingCount = 0;
+  for (const finding of findings) {
+    if (finding.severity === "BLOCKING") blockingCount++;
+    else nonBlockingCount++;
+  }
+  return {
+    reviewId: review.reviewId,
+    state: review.state,
+    submittedAt: review.submittedAt,
+    reviewerLogin: review.reviewerLogin,
+    htmlUrl: review.htmlUrl,
+    commitId: review.commitId,
+    blockingCount,
+    nonBlockingCount,
+    findings,
+  };
 }
 
 /**
@@ -131,7 +266,9 @@ export interface AnnotatedReview extends ReviewListEntry {
    *   - `"state-pending"` — review is in PENDING (draft) state.
    *   - `"missing-submittedAt"` — review has no `submittedAt` timestamp.
    *   - `"unparseable-submittedAt: <value>"` — `submittedAt` could not be parsed.
-   *   - `"since: submittedAt <iso> < threshold <iso>"` — review predates the `since` filter.
+   *   - `"since: submittedAt <iso> <relation> threshold <iso>"` — review does not
+   *     post-date the `since` filter; `<relation>` is `<` (predates) or `==`
+   *     (exact boundary — excluded since mt#2656 made `since` strictly-after).
    *   - `"reviewer-mismatch: reviewerLogin <login> != filter <filter>"` — reviewer filter excluded it.
    *
    * `null` is intentionally not possible here — if a review matched, it would
@@ -316,6 +453,12 @@ async function defaultGetTokenProvider(): Promise<TokenProvider> {
  * (`state-pending`, `missing-submittedAt`, `unparseable-submittedAt`,
  * `since`, `reviewer-mismatch`) followed by the relevant evidence.
  * Agents can string-match on the tag for programmatic dispatch.
+ *
+ * `since` comparison is strictly-after (mt#2656): a review whose
+ * `submittedAt` exactly equals `since` is rejected as already-seen, not
+ * matched. This closes the inclusive-boundary bug where passing a previous
+ * review's exact `submittedAt` as `since` re-matched that same review
+ * (hit live on PR #1811; the workaround was a manual `+1s` adjustment).
  */
 export function explainReviewRejection(
   review: ReviewListEntry,
@@ -333,9 +476,12 @@ export function explainReviewRejection(
   if (Number.isNaN(submittedMs)) {
     return `unparseable-submittedAt: ${review.submittedAt}`;
   }
-  if (submittedMs < since) {
+  // mt#2656: strictly-after — `<=` (not `<`) so an exactly-equal
+  // submittedAt is treated as already-seen rather than re-matched.
+  if (submittedMs <= since) {
     const sinceIso = new Date(since).toISOString();
-    return `since: submittedAt ${review.submittedAt} < threshold ${sinceIso}`;
+    const relation = submittedMs === since ? "==" : "<";
+    return `since: submittedAt ${review.submittedAt} ${relation} threshold ${sinceIso}`;
   }
   // mt#2586: reject a review submitted against a superseded commit. Only
   // enforced when the caller resolved a HEAD sha (the backend supports
@@ -574,7 +720,9 @@ export async function sessionPrWaitForReview(
       if (match) {
         return {
           matched: true,
-          review: match,
+          // mt#2656: trimmed by default; params.fullBody: true restores the
+          // full ReviewListEntry (raw body, provenance comment, tables).
+          review: params.fullBody ? match : trimReview(match),
           elapsedMs: now() - start,
           pollCount,
         };
