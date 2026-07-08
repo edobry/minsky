@@ -90,6 +90,70 @@ describe("detectCodeMechanismAssertion", () => {
   });
 });
 
+describe("mt#2673 — truncated-substring extraction + backed-claim accounting", () => {
+  const SESSION_PR_DRIVE = "session_pr_drive";
+
+  test("AT2: window boundary cutting through the identifier yields the full symbol, no truncated tails", () => {
+    // Position the identifier so the predicate's ±100-char proximity
+    // window starts MID-IDENTIFIER — the 2026-07-07 calibration records'
+    // "ion_pr_drive"/"on_pr_drive" bug shape.
+    const sym = SESSION_PR_DRIVE;
+    const text = `intro text here. ${sym} ${"z".repeat(90)} returns null when the input is missing.`;
+    const anchor = text.indexOf("returns");
+    // Sanity: the window cut (anchor - 100) lands inside the symbol.
+    const symStart = text.indexOf(sym);
+    expect(anchor - 100).toBeGreaterThan(symStart);
+    expect(anchor - 100).toBeLessThan(symStart + sym.length);
+
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).toContain(sym);
+    for (const s of syms) {
+      expect(s === sym || !sym.endsWith(s)).toBe(true);
+    }
+    expect(syms).not.toContain("ion_pr_drive");
+    expect(syms).not.toContain("on_pr_drive");
+  });
+
+  test("AT2: one identifier mention yields exactly one claim for that identifier per predicate", () => {
+    const text = "The `session_pr_drive` helper returns null when the PR is already merged.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const driveClaims = result.claims.filter((c) => c.symbol.includes("pr_drive"));
+    expect(driveClaims.length).toBe(1);
+    expect(driveClaims[0]?.symbol).toBe(SESSION_PR_DRIVE);
+  });
+
+  test("AT1: symbol present in the verification corpus → no claim logged, backedClaimCount >= 1", () => {
+    const text = "`session_pr_drive` returns null when the PR is already merged.";
+    const result = detectCodeMechanismAssertion(
+      text,
+      "export async function session_pr_drive() { /* read this turn */ }"
+    );
+    expect(result.claims.map((c) => c.symbol)).not.toContain(SESSION_PR_DRIVE);
+    expect(result.backedClaimCount).toBeGreaterThanOrEqual(1);
+    expect(result.hadSameTurnRead).toBe(true);
+  });
+
+  test("AT1: symbol NOT in the corpus → fires with the claim and backedClaimCount 0", () => {
+    const text = "`session_pr_drive` returns null when the PR is already merged.";
+    const result = detectCodeMechanismAssertion(text, "unrelated corpus content");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain(SESSION_PR_DRIVE);
+    expect(result.backedClaimCount).toBe(0);
+    expect(result.hadSameTurnRead).toBe(false);
+  });
+
+  test("proper-substring dedup does not eliminate equal-length case variants", () => {
+    // Both `maxBuffer` and `MaxBuffer` near a predicate: neither is a PROPER
+    // substring of the other, so neither is dropped by the dedup filter.
+    const text = "`maxBuffer` and `MaxBuffer` default to 1MB in this module.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).toContain("maxBuffer");
+    expect(syms).toContain("MaxBuffer");
+  });
+});
+
 describe("buildVerificationCorpus", () => {
   test("captures read-class tool_use INPUT and tool_result CONTENT; ignores non-read inputs", () => {
     const turn: TranscriptLine[] = [

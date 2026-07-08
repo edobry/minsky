@@ -166,8 +166,31 @@ function isPlausibleSymbol(tok: string): boolean {
  * scanning the slice, so no real symbol is lost.
  */
 function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
-  const start = Math.max(0, anchorIndex - window);
-  const end = Math.min(text.length, anchorIndex + window);
+  let start = Math.max(0, anchorIndex - window);
+  let end = Math.min(text.length, anchorIndex + window);
+
+  // Boundary expansion (mt#2673): a raw character-offset cut can land
+  // MID-IDENTIFIER, making `\b` match at the cut point and emitting truncated
+  // tails as separate "symbols" ("ion_pr_drive" / "on_pr_drive" from
+  // "session_pr_drive" — the 2026-07-07 calibration records). Expand both
+  // boundaries outward over identifier-ish characters so a token straddling
+  // the window is captured whole (it is still "near" the predicate).
+  const identifierish = /[`\w.$/-]/;
+  while (
+    start > 0 &&
+    identifierish.test(text[start - 1] ?? "") &&
+    identifierish.test(text[start] ?? "")
+  ) {
+    start--;
+  }
+  while (
+    end < text.length &&
+    identifierish.test(text[end] ?? "") &&
+    identifierish.test(text[end - 1] ?? "")
+  ) {
+    end++;
+  }
+
   const slice = text.slice(start, end);
   const found = new Set<string>();
 
@@ -181,7 +204,17 @@ function symbolsNear(text: string, anchorIndex: number, window: number): string[
   for (const m of slice.matchAll(SNAKE_CASE_RE)) {
     if (isPlausibleSymbol(m[0])) found.add(m[0]);
   }
-  return [...found];
+
+  // Proper-substring dedup (mt#2673, belt-and-suspenders): one identifier
+  // mention must yield one symbol. Drop any candidate that is a proper
+  // substring (case-insensitive) of a sibling candidate.
+  const candidates = [...found];
+  return candidates.filter(
+    (c) =>
+      !candidates.some(
+        (other) => other.length > c.length && other.toLowerCase().includes(c.toLowerCase())
+      )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -281,9 +314,23 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
 
 export interface CodeMechanismDetectionResult {
   matched: boolean;
-  /** Distinct unbacked (symbol, predicate) claims, truncated for logging. */
+  /**
+   * Distinct UNBACKED (symbol, predicate) claims, truncated for logging.
+   * A claim whose symbol appears in the same-turn verification corpus is
+   * excluded at claim level and never appears here (mt#2673 SC1).
+   */
   claims: Array<{ symbol: string; predicate: string }>;
+  /**
+   * TURN-level aggregate (mt#2673): true when at least one (symbol,
+   * predicate) pair elsewhere in the turn WAS backed by the verification
+   * corpus. NOT a claim-level flag on the `claims` above — those are
+   * definitionally unbacked. This ambiguity is exactly how the 2026-07-08
+   * calibration review misread the 22:13Z record; see `backedClaimCount`
+   * for the count of excluded-as-backed pairs.
+   */
   hadSameTurnRead: boolean;
+  /** Number of (symbol, predicate) pairs excluded from `claims` as backed (mt#2673). */
+  backedClaimCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +352,7 @@ export function detectCodeMechanismAssertion(
     matched: false,
     claims: [],
     hadSameTurnRead: false,
+    backedClaimCount: 0,
   };
   if (!assistantText) return empty;
 
@@ -314,7 +362,7 @@ export function detectCodeMechanismAssertion(
 
   const claims: Array<{ symbol: string; predicate: string }> = [];
   const seen = new Set<string>();
-  let anyBacked = false;
+  const backedSeen = new Set<string>();
 
   for (const pattern of PREDICATE_PATTERNS) {
     const globalFlags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
@@ -323,11 +371,11 @@ export function detectCodeMechanismAssertion(
       const idx = m.index ?? 0;
       const symbols = symbolsNear(prose, idx, SYMBOL_PROXIMITY_CHARS);
       for (const sym of symbols) {
+        const key = `${sym}::${m[0].toLowerCase()}`;
         if (symbolBacked(sym)) {
-          anyBacked = true;
+          backedSeen.add(key);
           continue;
         }
-        const key = `${sym}::${m[0].toLowerCase()}`;
         if (seen.has(key)) continue;
         seen.add(key);
         claims.push({ symbol: sym, predicate: m[0].slice(0, 40) });
@@ -338,7 +386,8 @@ export function detectCodeMechanismAssertion(
   return {
     matched: claims.length > 0,
     claims,
-    hadSameTurnRead: anyBacked,
+    hadSameTurnRead: backedSeen.size > 0,
+    backedClaimCount: backedSeen.size,
   };
 }
 
@@ -443,6 +492,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       session_id: input.session_id,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
+      backedClaimCount: result.backedClaimCount,
     },
   };
 
@@ -527,6 +577,7 @@ export async function main(): Promise<void> {
       session_id: input.session_id,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
+      backedClaimCount: result.backedClaimCount,
     });
   }
 
