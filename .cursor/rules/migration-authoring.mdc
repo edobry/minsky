@@ -9,11 +9,11 @@ description: Use drizzle-kit generate for all database migrations — never hand
 
 When adding or modifying a database table, column, index, or enum:
 
-1. **Edit the Drizzle schema file** (TypeScript) under `src/domain/storage/schemas/`
+1. **Edit the Drizzle schema file** (TypeScript) under `packages/domain/src/storage/schemas/`
 2. **Run `bun run db:generate:pg`** — this invokes `drizzle-kit generate` which diffs the schema against the last snapshot and atomically produces:
-   - The SQL migration file (`src/domain/storage/migrations/pg/NNNN_<name>.sql`)
-   - The journal entry (`src/domain/storage/migrations/pg/meta/_journal.json`)
-   - The snapshot file (`src/domain/storage/migrations/pg/meta/NNNN_snapshot.json`)
+   - The SQL migration file (`packages/domain/src/storage/migrations/pg/NNNN_<name>.sql`)
+   - The journal entry (`packages/domain/src/storage/migrations/pg/meta/_journal.json`)
+   - The snapshot file (`packages/domain/src/storage/migrations/pg/meta/NNNN_snapshot.json`)
 3. **Commit all three artifacts together** — the pre-commit hook validates that every SQL file has a journal entry
 
 ## Why this matters
