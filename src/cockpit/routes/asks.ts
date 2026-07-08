@@ -126,6 +126,63 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
   });
 
   /**
+   * GET /api/asks/:id — fetch a single ask by id, regardless of state (mt#2669)
+   *
+   * The pending-list endpoint only returns live suspended operator asks, so a
+   * deeplink resolved through it cannot distinguish "not in the pending
+   * snapshot" from "actually terminal". This per-id endpoint is the deeplink
+   * resolution path: it returns terminal asks too — including the recorded
+   * response — so the detail page can say what actually happened. 404 only
+   * for an id that does not exist at all.
+   */
+  app.get("/api/asks/:id", async (req, res) => {
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({
+          error: "Ask repository unavailable — persistence provider does not support SQL",
+        });
+        return;
+      }
+
+      const a = await repo.getById(req.params.id);
+      if (!a) {
+        res.status(404).json({ error: "Ask not found" });
+        return;
+      }
+
+      res.json({
+        ask: {
+          id: a.id,
+          kind: a.kind,
+          state: a.state,
+          title: a.title,
+          question: a.question,
+          requestor: a.requestor,
+          routingTarget: a.routingTarget,
+          parentTaskId: a.parentTaskId,
+          parentSessionId: a.parentSessionId,
+          options: a.options,
+          contextRefs: a.contextRefs,
+          deadline: a.deadline,
+          createdAt: a.createdAt,
+          suspendedAt: a.suspendedAt,
+          windowKey: a.windowKey,
+          windowMissedCount: a.windowMissedCount ?? 0,
+          serviceStrategy: a.serviceStrategy,
+          metadata: a.metadata,
+          response: a.response,
+          respondedAt: a.respondedAt,
+          closedAt: a.closedAt,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
    * POST /api/asks/:id/defer — defer an ask to the next service window (mt#1916)
    *
    * Transitions the ask back to "routed" state so it re-enters the routing

@@ -3,13 +3,17 @@
 <plist version="1.0">
 <dict>
   <!--
-    Menu-bar-only ("agent") app: no Dock icon, no Cmd-Tab entry (mt#2202).
-    Tauri v2's macOS bundler merges this file into the generated Info.plist.
-    Complements the runtime `set_activation_policy(Accessory)` (mt#2219): this
-    declarative flag prevents the Dock icon from ever appearing (incl. at launch)
-    and removes the Cmd-Tab entry; the activation policy is the runtime backstop.
+    Menu-bar-only ("agent") launch state is owned SOLELY by the setup-time
+    `set_activation_policy(Accessory)` in main.rs (mt#2219), which tao applies
+    at applicationDidFinishLaunching — before any window can appear, so there
+    is no Dock-icon flash at launch. The former declarative `LSUIElement`
+    flag (mt#2202) was REMOVED in mt#2675: with it present, the runtime
+    Accessory→Regular transform (`set_dock_presence`) never takes OS-level
+    effect — the app stays out of Cmd-Tab and the Dock even after
+    NSApp.setActivationPolicy(Regular) — so dynamic Dock presence requires
+    the plist key to be absent (matches the community reference pattern,
+    tauri-apps/tauri discussion #10774). Tauri v2's macOS bundler still
+    merges this file into the generated Info.plist.
   -->
-  <key>LSUIElement</key>
-  <true/>
 </dict>
 </plist>
