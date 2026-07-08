@@ -107,6 +107,16 @@ export interface BranchFreshnessResult {
    * R1 BLOCKING #6 fix.
    */
   comparisonRan?: boolean;
+  /**
+   * The EXACT branch ref the commits-ahead comparison used as the left side
+   * of the `branchRef..mainRef` range (e.g. `"origin/task/mt-2700"`). Set
+   * only when the comparison ran. The entrypoint derives the denial
+   * message's branch name from THIS value (via `denialBranchName`) rather
+   * than re-deriving from `currentBranch`, so the message can never name a
+   * ref other than the one the ahead-count was computed against (PR #1851
+   * R1 BLOCKING #1).
+   */
+  branchRef?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,13 +339,41 @@ export function detectMergeInProgress(
  * bypassing session_commit's push-time CAS read.
  *
  * fs-only by design (no subprocess): mid-merge detection runs BEFORE the
- * wall-clock budget guard, which is safe only while it stays `existsSync`
- * probes. Cost is one probe per path segment.
+ * wall-clock budget guard, which is safe only while it stays fs probes.
+ * Cost is a few probes per path segment.
+ *
+ * A candidate directory is accepted ONLY when its `.git` entry is a real
+ * git anchor — a DIRECTORY, or a FILE whose `gitdir:` indirection resolves
+ * to an existing directory (PR #1851 R1 BLOCKING #2: a stray non-git `.git`
+ * file in an ancestor must not stop the walk early, or every downstream
+ * consumer runs against a pseudo-root). Invalid candidates are skipped and
+ * the walk continues upward.
  */
+function isRepoRootCandidate(dir: string, fs: MergeDetectFs): boolean {
+  const dotGit = join(dir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return false;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return true;
+    }
+    // `.git` is a file — accept only a parseable `gitdir:` indirection
+    // (resolveGitDir returns dotGit itself when the file is unparseable)
+    // whose target exists and is a directory.
+    const resolved = resolveGitDir(dir, fs);
+    return resolved !== dotGit && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+  } catch {
+    // Any stat/read error means this candidate can't be validated — skip it
+    // and let the walk continue.
+    return false;
+  }
+}
+
 export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
   let dir = resolve(startDir);
   for (;;) {
-    if (fs.existsSync(join(dir, ".git"))) {
+    if (isRepoRootCandidate(dir, fs)) {
       return dir;
     }
     const parent = dirname(dir);
@@ -631,6 +669,7 @@ export function checkBranchFreshness(
       silent: true,
       currentBranch,
       comparisonRan: true,
+      branchRef,
     };
   }
 
@@ -638,16 +677,32 @@ export function checkBranchFreshness(
     blocked: true,
     aheadCount: count,
     aheadSubjects: subjects,
-    reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
+    reason: `${mainRef} is ${count} commit(s) ahead of ${branchRef}`,
     mainRef,
     currentBranch,
     comparisonRan: true,
+    branchRef,
   };
 }
 
 // ---------------------------------------------------------------------------
 // Message formatting
 // ---------------------------------------------------------------------------
+
+/**
+ * Derive the branch NAME the denial message should render, from the EXACT
+ * ref the comparison used (`result.branchRef`), falling back to
+ * `currentBranch` only for results that never reached the comparison.
+ * Centralized so the message can never drift from the compared ref
+ * (PR #1851 R1 BLOCKING #1). The entrypoint always calls
+ * `checkBranchFreshness` with `branch: undefined` (detection inside the
+ * budget guard — round-5 fix); this helper keeps the message honest even
+ * if a future caller passes an override.
+ */
+export function denialBranchName(result: BranchFreshnessResult): string {
+  const ref = result.branchRef ?? `origin/${result.currentBranch ?? "unknown"}`;
+  return ref.replace(/^origin\//, "");
+}
 
 export function formatBlockMessage(
   branch: string,
@@ -822,13 +877,13 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Blocked: format and emit denial. Reuse `result.mainRef` and
-  // `result.currentBranch` (set by checkBranchFreshness) instead of
-  // re-detecting — re-detection could yield different values under flaky
-  // probes, AND re-detection would run outside the budget guard.
+  // Blocked: format and emit denial. Reuse `result.mainRef` and the EXACT
+  // compared ref via `denialBranchName(result)` (PR #1851 R1 BLOCKING #1)
+  // instead of re-detecting — re-detection could yield different values
+  // under flaky probes, AND re-detection would run outside the budget guard.
   const mainRef = result.mainRef ?? "origin/main";
   const message = formatBlockMessage(
-    result.currentBranch ?? "unknown",
+    denialBranchName(result),
     mainRef,
     result.aheadCount,
     result.aheadSubjects

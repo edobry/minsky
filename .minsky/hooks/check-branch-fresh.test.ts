@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   formatBlockMessage,
   checkBranchFreshness,
+  denialBranchName,
   detectMergeInProgress,
   findRepoRoot,
   resolveGitDir,
@@ -43,6 +44,33 @@ const FIXTURE_COMMITS_MANY = [
   "def5678 fix: repair something",
   "ghi9012 chore: update deps",
 ];
+
+describe("denialBranchName (PR #1851 R1 BLOCKING #1 — message pins to the compared ref)", () => {
+  const base = { blocked: true, aheadCount: 1, aheadSubjects: [], reason: "" };
+
+  test("uses branchRef verbatim when set — even if currentBranch disagrees", () => {
+    // Forced mismatch: the comparison ran against origin/task/mt-2700 but
+    // currentBranch (e.g. re-detected after a concurrent checkout) differs.
+    // The message MUST reflect the ref the ahead-count was computed against.
+    const name = denialBranchName({
+      ...base,
+      branchRef: "origin/task/mt-2700",
+      currentBranch: "some-other-branch",
+    });
+    expect(name).toBe("task/mt-2700");
+    const msg = formatBlockMessage(name, "origin/main", 1, ["abc fix"]);
+    expect(msg).toContain("origin/main is 1 commit(s) ahead of origin/task/mt-2700");
+    expect(msg).not.toContain("some-other-branch");
+  });
+
+  test("falls back to currentBranch when the comparison never ran (no branchRef)", () => {
+    expect(denialBranchName({ ...base, currentBranch: "task/mt-1483" })).toBe("task/mt-1483");
+  });
+
+  test("falls back to 'unknown' when neither branchRef nor currentBranch is set", () => {
+    expect(denialBranchName({ ...base })).toBe("unknown");
+  });
+});
 
 describe("formatBlockMessage", () => {
   test("includes ahead count and branch name", () => {
@@ -519,8 +547,9 @@ describe("checkBranchFreshness (exported)", () => {
       expect(findRepoRoot(`${FAKE_REPO_DIR}/cockpit-tray/src-tauri`, fs)).toBe(FAKE_REPO_DIR);
     });
 
-    test("stops at a dir whose .git is a FILE (worktree gitdir indirection)", () => {
+    test("stops at a dir whose .git is a FILE (worktree gitdir indirection, target present)", () => {
       const fs = makeFakeFs({
+        directories: [RESOLVED_WORKTREE_GITDIR],
         files: {
           [`${FAKE_WORKTREE_REPO_DIR}/.git`]: `gitdir: ${RESOLVED_WORKTREE_GITDIR}\n`,
         },
@@ -542,6 +571,30 @@ describe("checkBranchFreshness (exported)", () => {
       expect(findRepoRoot(`${FAKE_REPO_DIR}/vendor/inner/src`, fs)).toBe(
         `${FAKE_REPO_DIR}/vendor/inner`
       );
+    });
+
+    test("skips an ancestor whose .git is a stray NON-git file and keeps walking (PR #1851 R1 BLOCKING #2)", () => {
+      // /mock has a real repo; /mock/repo/junk-parent/.git is a malformed
+      // file (no gitdir: line). The walk must NOT stop at junk-parent.
+      const fs = makeFakeFs({
+        directories: [`/mock/.git`],
+        files: { [`/mock/junk-parent/.git`]: "not a gitdir file\n" },
+      });
+      expect(findRepoRoot("/mock/junk-parent/child", fs)).toBe("/mock");
+    });
+
+    test("falls back to startDir when the ONLY ancestor .git is a malformed non-git file", () => {
+      const fs = makeFakeFs({
+        files: { [`/mock/ancestor/.git`]: "not a gitdir file\n" },
+      });
+      expect(findRepoRoot("/mock/ancestor/child/repo", fs)).toBe("/mock/ancestor/child/repo");
+    });
+
+    test("rejects a gitdir:-file candidate whose target does not exist", () => {
+      const fs = makeFakeFs({
+        files: { [`/mock/stale-worktree/.git`]: "gitdir: /mock/deleted-main/.git/worktrees/x\n" },
+      });
+      expect(findRepoRoot("/mock/stale-worktree/sub", fs)).toBe("/mock/stale-worktree/sub");
     });
 
     test("INCIDENT REGRESSION: detectMergeInProgress finds MERGE_HEAD from a subdirectory cwd via findRepoRoot", () => {
