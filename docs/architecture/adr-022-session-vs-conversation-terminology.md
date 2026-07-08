@@ -42,7 +42,7 @@ We migrate in **tiers**, funded end-to-end as a staged rollout (2026-07-06 decis
 
 **Easier:** one unambiguous word per concept ("find a past conversation" vs "list my workspaces" stop colliding); new surfaces converge on a documented vocabulary (`docs/architecture/cockpit.md`'s existing "workspace/transcript session" usage becomes the sanctioned direction); the branded-id work makes the mt#2420 id-space bug class structurally impossible with no public-API change.
 
-**Harder / committed:** "session" now means two things by design (harness conversation + MCP transport) — acceptable because they rarely co-occur and both are ecosystem-sanctioned; the full M rename is large breaking debt carried as deferred (mt#2527), so until it ships `session_*` keeps the old name and prose must qualify "workspace"; a back-compat alias window is required for the `transcripts_*` param renames.
+**Harder / committed:** "session" now means two things by design (harness conversation + MCP transport) — acceptable because they rarely co-occur and both are ecosystem-sanctioned; the full mechanical rename is large breaking debt carried as scheduled stage-2 work (mt#2527), so until it ships `session_*` keeps the old name and prose must qualify "workspace"; a back-compat alias window is required for the `transcripts_*` param renames.
 
 ## Cross-references
 
