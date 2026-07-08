@@ -293,7 +293,7 @@ interface WorkspaceDetailProps {
 
 export function WorkspaceDetail({ sessionId, variant = "card" }: WorkspaceDetailProps) {
   const query = useQuery<WorkspaceDetailPayload, Error>({
-    queryKey: ["session-detail", sessionId],
+    queryKey: ["workspace-detail", sessionId],
     queryFn: () => fetchWorkspaceDetail(sessionId),
     staleTime: 30_000,
     retry: 1,

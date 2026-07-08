@@ -244,7 +244,7 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
   });
 
   if (sessionsQuery.isError) {
-    return <ErrorState prefix="Failed to load sessions" error={sessionsQuery.error} />;
+    return <ErrorState prefix="Failed to load conversations" error={sessionsQuery.error} />;
   }
   if (sessionsQuery.isLoading || !sessionsQuery.data) {
     return <LoadingState />;
@@ -279,9 +279,9 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
 
   return (
     <>
-      {/* Session picker */}
+      {/* Conversation picker */}
       <div className="mb-3">
-        <label className="text-xs font-medium text-muted-foreground block mb-1">Session</label>
+        <label className="text-xs font-medium text-muted-foreground block mb-1">Conversation</label>
         <select
           className="w-full text-sm bg-background border border-input rounded px-2 py-1"
           value={selectedSessionId ?? ""}
@@ -323,7 +323,7 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
 
       {/* Snapshot state */}
       {selectedSessionId === null ? (
-        <p className="text-sm text-muted-foreground">Select a session to view its context.</p>
+        <p className="text-sm text-muted-foreground">Select a conversation to view its context.</p>
       ) : snapshotQuery.isError ? (
         <ErrorState prefix="Failed to load snapshot" error={snapshotQuery.error} />
       ) : snapshotQuery.isLoading || !snapshotQuery.data ? (

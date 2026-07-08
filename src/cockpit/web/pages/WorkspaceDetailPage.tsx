@@ -44,7 +44,7 @@ export function WorkspaceDetailPage() {
 
   // Fetch workspace detail to resolve workspace→agentSessionId bridge for live tail.
   const detailQuery = useQuery<WorkspaceDetailPayload, Error>({
-    queryKey: ["session-detail", sessionId],
+    queryKey: ["workspace-detail", sessionId],
     queryFn: () => fetchWorkspaceDetail(sessionId),
     staleTime: 30_000,
     retry: 1,
