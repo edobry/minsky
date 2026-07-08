@@ -1679,7 +1679,10 @@ the override FOR migrated guards.
 PreToolUse on `session_start`/`tasks_create`(parent set): blocks `session_start` on open-PR file
 overlap (advisory-only for recently-merged); blocks `tasks_create` on duplicate-child titles.
 Tier-3 ceiling for the parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
-Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`.
+Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
+— both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
+consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):
+`bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
 Fail: closed (open-PR sweep) / open (duplicate sweep, unreadable data warns+permits).
 Doc: `docs/architecture/hooks/parallel-work-guard.md`.
 

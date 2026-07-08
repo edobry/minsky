@@ -37,6 +37,12 @@ import type {
   GuardRunResult,
   LifecycleEvent,
 } from "./registry";
+import {
+  getGuardGrantStorePath,
+  readGuardGrantStore,
+  findValidGuardGrant,
+} from "./guard-grant-store";
+import type { GuardGrant } from "./guard-grant-store";
 
 // ---------------------------------------------------------------------------
 // D3 — unified override mechanism
@@ -53,6 +59,13 @@ export interface OverrideResult {
   overridden: boolean;
   /** The raw env var value, present whenever the var was set (regardless of match). */
   raw?: string;
+  /**
+   * Present when `overridden` came from a grant-file match (Phase-7 adjunct,
+   * mt#2658) rather than the env var — the grant's MANDATORY `reason`, so
+   * callers can fold it into their own audit line alongside (or instead of)
+   * {@link buildOverrideAuditLine}.
+   */
+  grantReason?: string;
 }
 
 export interface CheckOverrideOptions {
@@ -65,24 +78,81 @@ export interface CheckOverrideOptions {
   knownGuardNames?: readonly string[];
   /** Injectable for tests — defaults to `process.stderr.write`. */
   stderrWrite?: (s: string) => void;
+  /**
+   * Scope qualifier for a grant-file lookup (Phase-7 adjunct, mt#2658) — e.g.
+   * a task id a guard's override should be scoped to. When supplied AND the
+   * env var didn't already override this guard, `checkOverride` additionally
+   * consults the guard-grant store (`.minsky/hooks/guard-grant-store.ts`) for
+   * a valid, unexpired `(guardName, scope)` grant. Omitting `scope` (the
+   * default) skips grant-file consultation entirely — every existing caller
+   * that never passes `scope` sees zero behavior change.
+   */
+  scope?: string;
+  /** Injectable — defaults to a real fs-backed guard-grant-store lookup. */
+  findGuardGrant?: (guardName: string, scope: string, nowMs: number) => GuardGrant | null;
+  /** Injectable clock for grant-expiry checks — defaults to `Date.now`. */
+  now?: () => number;
 }
 
 /**
- * Check whether `guardName` is named in `MINSKY_HOOK_OVERRIDE` — one shared,
- * tested override predicate (D3), replacing each guard's bespoke inline
- * truthy-parsing.
+ * Real fs-backed grant lookup — the default `findGuardGrant` implementation.
+ * Reads via THIS module's own `readGuardGrantStore()` (`guard-grant-
+ * store.ts`). On any non-`"ok"` result — a genuine store-read error
+ * (malformed JSON, permission denied, etc.; an absent file is `"ok"` with
+ * an empty `grants` array, per that function's own doc comment) — this
+ * returns `null`, i.e. "no grant found via this channel," rather than
+ * propagating the error or synthesizing an override.
  *
- * Matching is case-INSENSITIVE on both sides — `guardName` and every
- * comma-delimited env token are lowercased before comparison. Registry names
- * are canonical lowercase-hyphenated, but an operator typing
- * `MINSKY_HOOK_OVERRIDE=Check-Guessed-Session-Path` (or `ALL`) should still
- * suppress the guard rather than silently no-op. Whitespace around each
- * comma-delimited token is still trimmed.
+ * This is fail-CLOSED with respect to the override itself: a broken
+ * grant-file channel can never spuriously GRANT an override — it can only
+ * ever fail to find one, leaving the calling guard's own default posture
+ * (allow or deny) entirely unaffected. `checkOverride()` treats a `null`
+ * here identically to "no scope supplied" or "grant expired" — all three
+ * collapse to the grant branch simply not firing. This posture is correct
+ * BECAUSE `checkOverride()` is a secondary, additive channel behind the
+ * `MINSKY_HOOK_OVERRIDE` env var, not a guard's sole gate — contrast with
+ * `merge-grant-store.ts`'s `readGrantStore()`, whose caller
+ * (`block-subagent-merge-without-grant.ts`) explicitly fails OPEN
+ * (permits the merge) on a genuine read error, because for THAT guard the
+ * grant store IS the sole gate and a broken store must not silently deny
+ * every subagent merge. `checkOverride()` is never in that position — it
+ * has no way to know what "fail open" should mean for an arbitrary
+ * caller — so a broken store here always resolves to "no override
+ * available," and the caller's own logic decides the actual outcome.
+ */
+function defaultFindGuardGrant(guardName: string, scope: string, nowMs: number): GuardGrant | null {
+  const result = readGuardGrantStore(getGuardGrantStorePath());
+  if (result.status !== "ok") return null;
+  return findValidGuardGrant(result.grants, { guardName, scope }, nowMs);
+}
+
+/**
+ * Check whether `guardName` is overridden — one shared, tested override
+ * predicate (D3), replacing each guard's bespoke inline truthy-parsing. Two
+ * channels are consulted, in order:
  *
- * Any token that is neither `"all"` nor a known guard name (per
- * `options.knownGuardNames`, case-insensitively) triggers a stderr warning —
- * the typo-detection signal ("did the operator mean a guard that doesn't
- * exist?") without changing the override decision for THIS guard.
+ *   1. `MINSKY_HOOK_OVERRIDE` env var — the original D3 mechanism. Matching
+ *      is case-INSENSITIVE on both sides — `guardName` and every
+ *      comma-delimited env token are lowercased before comparison. Registry
+ *      names are canonical lowercase-hyphenated, but an operator typing
+ *      `MINSKY_HOOK_OVERRIDE=Check-Guessed-Session-Path` (or `ALL`) should
+ *      still suppress the guard rather than silently no-op. Whitespace
+ *      around each comma-delimited token is trimmed. Any token that is
+ *      neither `"all"` nor a known guard name (per `options.knownGuardNames`,
+ *      case-insensitively) triggers a stderr warning — the typo-detection
+ *      signal ("did the operator mean a guard that doesn't exist?") without
+ *      changing the override decision for THIS guard.
+ *   2. **Grant-file channel (Phase-7 adjunct, mt#2658)** — consulted ONLY
+ *      when `options.scope` is supplied and the env var didn't already
+ *      override. Env vars are read from the harness's launch-time process
+ *      env, which an agent mid-session cannot self-serve for MCP-tool-
+ *      matched guards (a `Bash`-set env var never propagates to the sibling
+ *      hook subprocess). The grant-file channel is the reachable
+ *      alternative: an agent (or an issuance script on its behalf) writes a
+ *      TTL-bound, reason-mandatory grant record to
+ *      `.minsky/hooks/guard-grant-store.ts`'s store, and this function reads
+ *      it at decision time. See that module's doc comment for the full
+ *      rationale.
  */
 export function checkOverride(
   guardName: string,
@@ -90,30 +160,50 @@ export function checkOverride(
   options?: CheckOverrideOptions
 ): OverrideResult {
   const raw = env[HOOK_OVERRIDE_ENV_VAR];
-  if (!raw) return { overridden: false };
 
-  const knownGuardNames = options?.knownGuardNames ?? GUARD_REGISTRY.map((r) => r.name);
-  const stderrWrite = options?.stderrWrite ?? ((s: string) => process.stderr.write(s));
-  const knownLower = new Set(knownGuardNames.map((n) => n.toLowerCase()));
+  let overriddenByEnv = false;
+  if (raw) {
+    const knownGuardNames = options?.knownGuardNames ?? GUARD_REGISTRY.map((r) => r.name);
+    const stderrWrite = options?.stderrWrite ?? ((s: string) => process.stderr.write(s));
+    const knownLower = new Set(knownGuardNames.map((n) => n.toLowerCase()));
 
-  const names = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+    const names = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-  for (const name of names) {
-    const lower = name.toLowerCase();
-    if (lower !== "all" && !knownLower.has(lower)) {
-      stderrWrite(
-        `[dispatcher] MINSKY_HOOK_OVERRIDE token "${name}" does not match any registered guard name (or "all") — possible typo; it will not suppress any guard.\n`
-      );
+    for (const name of names) {
+      const lower = name.toLowerCase();
+      if (lower !== "all" && !knownLower.has(lower)) {
+        stderrWrite(
+          `[dispatcher] MINSKY_HOOK_OVERRIDE token "${name}" does not match any registered guard name (or "all") — possible typo; it will not suppress any guard.\n`
+        );
+      }
+    }
+
+    const namesLower = names.map((n) => n.toLowerCase());
+    const guardNameLower = guardName.toLowerCase();
+    overriddenByEnv = namesLower.includes("all") || namesLower.includes(guardNameLower);
+  }
+
+  if (overriddenByEnv) {
+    return { overridden: true, raw };
+  }
+
+  // Phase-7 adjunct (mt#2658): grant-file channel, consulted only when the
+  // caller supplies a scope qualifier — see this function's doc comment.
+  if (options?.scope) {
+    const findGrant = options.findGuardGrant ?? defaultFindGuardGrant;
+    const nowFn = options.now ?? Date.now;
+    const grant = findGrant(guardName, options.scope, nowFn());
+    if (grant) {
+      return raw
+        ? { overridden: true, raw, grantReason: grant.reason }
+        : { overridden: true, grantReason: grant.reason };
     }
   }
 
-  const namesLower = names.map((n) => n.toLowerCase());
-  const guardNameLower = guardName.toLowerCase();
-  const overridden = namesLower.includes("all") || namesLower.includes(guardNameLower);
-  return { overridden, raw };
+  return raw ? { overridden: false, raw } : { overridden: false };
 }
 
 /**
@@ -122,14 +212,22 @@ export function checkOverride(
  * non-JSON stdout line Claude Code's hook-output parser ignores, matching
  * the existing sibling-hook audit convention (documented in CLAUDE.md).
  * `now` is injectable so tests can assert an exact timestamp.
+ *
+ * `reason` (Phase-7 adjunct, mt#2658) is optional and appended as a
+ * ` reason="..."` segment only when supplied — a grant-file-sourced override
+ * always carries one (grants require a mandatory `reason`); an env-var-
+ * sourced override never does, so the documented format for that path is
+ * byte-for-byte unchanged.
  */
 export function buildOverrideAuditLine(
   event: LifecycleEvent,
   guardName: string,
   sessionId: string | undefined,
-  now: () => string = () => new Date().toISOString()
+  now: () => string = () => new Date().toISOString(),
+  reason?: string
 ): string {
-  return `[dispatcher:${event}] OVERRIDE: guard=${guardName} session=${sessionId ?? "unknown"} ts=${now()}\n`;
+  const reasonPart = reason ? ` reason="${reason}"` : "";
+  return `[dispatcher:${event}] OVERRIDE: guard=${guardName} session=${sessionId ?? "unknown"}${reasonPart} ts=${now()}\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +408,9 @@ export async function runDispatcher(
   for (const reg of matched) {
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
-      stdoutWrite(buildOverrideAuditLine(event, reg.name, input.session_id));
+      stdoutWrite(
+        buildOverrideAuditLine(event, reg.name, input.session_id, undefined, override.grantReason)
+      );
       continue;
     }
 
