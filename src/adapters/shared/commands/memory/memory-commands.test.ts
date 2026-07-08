@@ -239,6 +239,9 @@ describe("Memory Commands", () => {
       expect(cmd?.name).toBe("create");
       expect(cmd?.parameters["content"]?.required).toBe(true);
       expect(cmd?.parameters["force"]?.required).toBe(false);
+      // mt#2663: scope is optional at the command layer, defaulting to "project".
+      expect(cmd?.parameters["scope"]?.required).toBe(false);
+      expect(cmd?.parameters["scope"]?.defaultValue).toBe("project");
     });
 
     test("rejects derivable content without force", async () => {
@@ -300,6 +303,69 @@ describe("Memory Commands", () => {
         {}
       )) as MemoryRecord;
       expect(result.id).toBe("clean-1");
+    });
+
+    // mt#2663: an omitted scope must default to "project" at the command
+    // layer (the site that produced the live NOT NULL failure), not just at
+    // the service/DB layer.
+    test("defaults scope to 'project' when omitted from execute() params", async () => {
+      let capturedInput: MemoryCreateInput | undefined;
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {
+        memoryService: {
+          ...makeFakeMemoryService(),
+          create: async (input) => {
+            capturedInput = input;
+            return makeRecord({ id: "no-scope-1", scope: input.scope });
+          },
+        },
+      });
+
+      const cmd = registry.getCommand(CREATE_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute(
+        {
+          type: "user",
+          name: "No scope supplied",
+          description: "Regression test for mt#2663",
+          content: "edobry omitted scope on this memory.create call",
+          // scope intentionally omitted
+        },
+        {}
+      )) as MemoryRecord;
+
+      expect(capturedInput?.scope).toBe("project");
+      expect(result.scope).toBe("project");
+    });
+
+    test("respects an explicit scope when provided", async () => {
+      let capturedInput: MemoryCreateInput | undefined;
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {
+        memoryService: {
+          ...makeFakeMemoryService(),
+          create: async (input) => {
+            capturedInput = input;
+            return makeRecord({ id: "explicit-scope-1", scope: input.scope });
+          },
+        },
+      });
+
+      const cmd = registry.getCommand(CREATE_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute(
+        {
+          type: "user",
+          name: "Explicit scope",
+          description: "Regression test for mt#2663",
+          content: "edobry supplied scope=cross_project explicitly",
+          scope: "cross_project",
+        },
+        {}
+      )) as MemoryRecord;
+
+      expect(capturedInput?.scope).toBe("cross_project");
+      expect(result.scope).toBe("cross_project");
     });
   });
 

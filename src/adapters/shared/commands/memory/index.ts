@@ -84,7 +84,8 @@ export interface MemoryCreateParams {
   name: string;
   description: string;
   content: string;
-  scope: MemoryScope;
+  /** Scope of the memory. Optional — defaults to "project" when omitted (mt#2663). */
+  scope?: MemoryScope;
   projectId?: string | null;
   tags?: string[];
   sourceAgentId?: string | null;
@@ -276,8 +277,10 @@ const memoryCreateParams = {
   },
   scope: {
     schema: z.enum(memoryScopeValues),
-    description: "Scope of the memory (project | user | cross_project)",
-    required: true as const,
+    description:
+      'Scope of the memory (project | user | cross_project). Defaults to "project" when omitted (mt#2663).',
+    required: false as const,
+    defaultValue: MEMORY_SCOPES.project,
   },
   projectId: {
     schema: z.string().nullable(),
@@ -782,7 +785,11 @@ export function registerMemoryCommands(
         name: params.name,
         description: params.description,
         content: params.content,
-        scope: params.scope,
+        // mt#2663: scope is optional at this layer (defaultValue: "project" on
+        // the parameter definition above); defend here too in case execute()
+        // is invoked directly (e.g. tests) bypassing the MCP/CLI default-value
+        // application.
+        scope: params.scope ?? MEMORY_SCOPES.project,
         projectId: resolvedProjectId,
         tags: params.tags ?? [],
         sourceAgentId: params.sourceAgentId ?? null,
