@@ -146,9 +146,9 @@ describe("originating-incident walk", () => {
 // Reminder + rollout gate
 // ---------------------------------------------------------------------------
 
-describe("reminder + calibration-first rollout", () => {
-  test("calibration-first: INJECTION_ENABLED is false in v1", () => {
-    expect(INJECTION_ENABLED).toBe(false);
+describe("reminder + rollout gate", () => {
+  test("gate flipped to live injection (mt#2694, operator-approved 2026-07-08)", () => {
+    expect(INJECTION_ENABLED).toBe(true);
   });
 
   test("principal-reserved reminder names asks_create", () => {
@@ -204,7 +204,7 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
 }
 
 describe("run() (dispatcher-compatible)", () => {
-  test("deferral match -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
+  test("deferral match -> calibration record AND additionalContext (live injection, mt#2694)", () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(
@@ -214,8 +214,8 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.calibration).toBeDefined();
-    expect(outcome?.additionalContext).toBeUndefined();
-    expect(INJECTION_ENABLED).toBe(false);
+    expect(outcome?.additionalContext).toBeDefined();
+    expect(outcome?.additionalContext).toContain("asks_create");
     const cal = outcome?.calibration as { matches: Array<{ class: string; phrase: string }> };
     expect(cal.matches.some((m) => m.class === PRINCIPAL_RESERVED)).toBe(true);
   });
