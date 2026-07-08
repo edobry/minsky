@@ -780,9 +780,11 @@ export async function runSweep(
  * Prior to mt#2660 the first sweep ran only after one full interval had
  * elapsed, which left an unbounded miss window under closely-spaced
  * redeploys (see module-header "Boot catch-up sweep" for the diagnosis).
- * `startSweeper` is called from `server.ts` AFTER migrations and the domain
- * container have already booted, so the immediate cycle does not compete
- * with service startup.
+ * `startSweeper` is called from `server.ts` AFTER migrations have applied and
+ * the domain-container boot ATTEMPT has resolved (success OR graceful
+ * degradation — `domainServices` may be `undefined`, see `hasContainer` in
+ * the boot catch-up block below), so the immediate cycle does not block or
+ * compete with service startup either way.
  *
  * A reentrancy guard (isSweeping) prevents overlapping sweeps if a cycle
  * takes longer than the interval (e.g., during a slow LLM round), and also
@@ -892,7 +894,14 @@ export function startSweeper(
    */
   const runCycle = (): void => {
     if (isSweeping) {
-      log.warn("sweeper.skip_reentrant", {
+      // info, not warn (reviewer R1, mt#2660): reentrancy is the guard
+      // WORKING as designed — a prior cycle (often the mt#2660 boot catch-up
+      // cycle itself, when a slow first cycle overlaps the next periodic
+      // tick) is still in flight, so this tick no-ops rather than
+      // double-sweeping. That's expected, benign behavior, not an anomaly —
+      // warn-level noise here would false-positive any log-level-based
+      // alerting that treats "warn" as "investigate this."
+      log.info("sweeper.skip_reentrant", {
         event: "sweeper.skip_reentrant",
         message: "Previous sweep still in progress; skipping this interval tick.",
       });
@@ -929,13 +938,54 @@ export function startSweeper(
   // process surviving uninterrupted for a full intervalMs. See module-header
   // "Boot catch-up sweep" for the full diagnosis (mt#2660 / PR #1812).
   if (sweeperConfig.bootCatchupEnabled) {
+    // Reviewer R1 (mt#2660): the boot catch-up cycle is the FIRST sweep to
+    // run after a redeploy — the earliest possible point to surface a
+    // degraded-boot signal for circuit-breaker alerting, rather than waiting
+    // for an actual circuit trip to discover it. Both `container` (domain
+    // container, mt#2450) and `alertSink` (mt#2364/mt#2451) can be absent on
+    // a degraded boot; when absent, the circuit-breaker's Ask-emit and
+    // external-alert paths silently no-op (see `sweeper.circuit_breaker_tripped`
+    // above). Per the mt#2464/mt#2465 convention, this degraded status MUST be
+    // templated into the rendered message text, not left as a JSON-only
+    // attribute (Railway's log surface displays/searches only the rendered
+    // message line — an attribute-only signal is invisible there).
+    const hasContainer = container !== undefined;
+    const hasAlertSink = alertSink !== null;
+    const degradedParts: string[] = [];
+    if (!hasContainer) {
+      degradedParts.push("no domain container — circuit-breaker Asks will not fire");
+    }
+    if (!hasAlertSink) {
+      degradedParts.push(
+        "no external alert sink — circuit-breaker off-cockpit alerts will not fire"
+      );
+    }
+    const degradedSuffix =
+      degradedParts.length > 0 ? ` DEGRADED: ${degradedParts.join("; ")}.` : "";
+
     log.info("sweeper.boot_catchup_start", {
       event: "sweeper.boot_catchup_start",
       message:
         "Running an immediate sweep cycle at boot to catch reviews missed " +
-        "during this process's own redeploy window.",
+        `during this process's own redeploy window.${degradedSuffix}`,
+      hasContainer,
+      hasAlertSink,
     });
     runCycle();
+  } else {
+    // mt#2660 / reviewer R1: without this line, an operator scanning Railway
+    // logs after a redeploy sees no `sweeper.boot_catchup_start` and has no
+    // way to distinguish "boot catch-up is intentionally disabled" from
+    // "something is silently broken". Only reachable when the sweeper itself
+    // is enabled (the `sweeperConfig.enabled` false path returns earlier,
+    // above, with its own `sweeper.disabled` line).
+    log.info("sweeper.boot_catchup_skipped", {
+      event: "sweeper.boot_catchup_skipped",
+      message:
+        "Boot catch-up sweep is disabled (SWEEPER_BOOT_CATCHUP_ENABLED=false) — " +
+        "this boot will not self-heal a redeploy-window webhook miss until the " +
+        "next periodic sweep tick.",
+    });
   }
 
   const handle = setInterval(runCycle, sweeperConfig.intervalMs);

@@ -76,6 +76,7 @@ const TIER1_BODY = "<!-- minsky:tier=1 -->";
 const TIER2_BODY = "<!-- minsky:tier=2 -->";
 const REASON_NO_REVIEW = "no_review_by_bot" as const;
 const PR_AUTHOR = "test-author";
+const EVENT_CYCLE_END = "sweeper.cycle_end";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -149,6 +150,31 @@ function makeFakeDeps(
     botLogin,
     runReviewFn,
   };
+}
+
+/**
+ * Poll `logs` until `findLogEvent` finds `eventName` or `maxMs` elapses.
+ *
+ * Used by the mt#2660 boot catch-up tests below in place of a flat
+ * `setTimeout` wait (reviewer nit — a single fixed delay is sensitive to
+ * CI/scheduler jitter; polling in short steps up to a generous bound is not).
+ * The underlying work here is a chain of already-resolved fake promises
+ * (depsOverride + a fake octokit that resolves synchronously), so in
+ * practice this resolves within a couple of `stepMs` ticks — `maxMs` is a
+ * generous ceiling, not the expected wait.
+ */
+async function waitForLogEvent(
+  logs: string[],
+  eventName: string,
+  maxMs = 500
+): Promise<Record<string, unknown> | null> {
+  const stepMs = 5;
+  for (let waited = 0; waited < maxMs; waited += stepMs) {
+    const found = findLogEvent(logs, eventName);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return findLogEvent(logs, eventName);
 }
 
 // ---------------------------------------------------------------------------
@@ -936,9 +962,9 @@ describe("startSweeper", () => {
         deps
       );
 
-      // Let the microtask/timer queue flush so the fire-and-forget sweep
-      // (chained off the already-resolved depsOverride promise) completes.
-      await new Promise((r) => setTimeout(r, 20));
+      // Poll for the fire-and-forget sweep (chained off the already-resolved
+      // depsOverride promise) to complete, rather than a flat sleep.
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
     } finally {
       if (handle) clearInterval(handle);
       restore();
@@ -946,7 +972,7 @@ describe("startSweeper", () => {
 
     expect(findLogEvent(logs, "sweeper.boot_catchup_start")).not.toBeNull();
     expect(findLogEvent(logs, "sweeper.cycle_start")).not.toBeNull();
-    expect(findLogEvent(logs, "sweeper.cycle_end")).not.toBeNull();
+    expect(findLogEvent(logs, EVENT_CYCLE_END)).not.toBeNull();
   });
 
   test("bootCatchupEnabled=false: does NOT run a sweep cycle at boot; only the periodic tick would", async () => {
@@ -963,7 +989,12 @@ describe("startSweeper", () => {
         deps
       );
 
-      await new Promise((r) => setTimeout(r, 20));
+      // No wait needed here: with bootCatchupEnabled=false, runCycle() is
+      // never called from startSweeper — there is no async work in flight to
+      // wait for, so asserting immediately is both correct and non-flaky.
+      // (Contrast the sibling "runs" tests above/below, which DO schedule
+      // fire-and-forget async work and poll for it via waitForLogEvent.)
+      expect(findLogEvent(logs, "sweeper.boot_catchup_skipped")).not.toBeNull();
     } finally {
       if (handle) clearInterval(handle);
       restore();
@@ -1005,14 +1036,14 @@ describe("startSweeper", () => {
         deps
       );
 
-      await new Promise((r) => setTimeout(r, 20));
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
     } finally {
       if (handle) clearInterval(handle);
       restore();
     }
 
     expect(runReviewFn).toHaveBeenCalledTimes(1);
-    const cycleEnd = findLogEvent(logs, "sweeper.cycle_end");
+    const cycleEnd = findLogEvent(logs, EVENT_CYCLE_END);
     expect(cycleEnd?.retriggeredCount).toBe(1);
   });
 });
