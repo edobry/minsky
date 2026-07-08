@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (2026-07-08 — the recorded decision was principal-confirmed 2026-07-01 via ask `8bec2e60`; independent advisor critique incorporated before merge)
 
 ## Context
 
