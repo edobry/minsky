@@ -15,6 +15,10 @@
  *   Ask through `responded → closed` with the operator's message as the
  *   response payload. Wired as mt#1458 (per mt#454 slim research: v1 verb
  *   set is `list` + `respond` only).
+ * - `asks.edit` — content-update surface (mt#2668). Updates a non-terminal
+ *   Ask's question/title/options/contextRefs/metadata in place WITHOUT
+ *   consuming it — a suspended Ask stays suspended and stays in the operator
+ *   queue. Appends an editHistory provenance note on every edit.
  */
 
 import { z } from "zod";
@@ -27,6 +31,11 @@ import {
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
+import {
+  editAskContent,
+  providedEditableFields,
+  type EditAskContentParams,
+} from "@minsky/domain/ask/edit";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
 import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
 import {
@@ -695,6 +704,70 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
 }
 
 // ---------------------------------------------------------------------------
+// asks.edit — schemas + validation (mt#2668)
+// ---------------------------------------------------------------------------
+
+const asksEditParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description: "Ask ID (UUID) to edit",
+    required: true,
+  },
+  title: {
+    schema: z.string().min(1).optional(),
+    description: "Replacement title (list rendering / notifications)",
+    required: false,
+  },
+  question: {
+    schema: z.string().min(1).optional(),
+    description: "Replacement question body",
+    required: false,
+  },
+  options: {
+    schema: z.array(askOptionSchema).optional(),
+    description: "Replacement decision-frame options (wholesale replace, not merge)",
+    required: false,
+  },
+  contextRefs: {
+    schema: z.array(contextRefSchema).optional(),
+    description: "Replacement context refs (wholesale replace, not merge)",
+    required: false,
+  },
+  metadata: {
+    schema: z.record(z.string(), z.unknown()).optional(),
+    description:
+      "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+    required: false,
+  },
+  editor: {
+    schema: z.string().trim().min(1).optional(),
+    description:
+      "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+    required: false,
+  },
+};
+
+/**
+ * Cross-field validation for `asks.edit` MCP params: at least one editable
+ * field must be provided — an edit that touches nothing is a caller error
+ * caught at the parameter boundary, not a silent no-op.
+ *
+ * Exported for direct testing without the full command factory setup. The
+ * `asks.edit` command's `validate` hook delegates to this function.
+ *
+ * @throws {ValidationError} when no editable field is provided
+ */
+export function validateAsksEditParams(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): void {
+  if (providedEditableFields(params).length === 0) {
+    throw new ValidationError(
+      "asks.edit: at least one editable field (title, question, options, contextRefs, metadata) must be provided."
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
@@ -1009,6 +1082,48 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           },
           { repo }
         );
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.edit",
+      category: CommandCategory.TOOLS,
+      name: "edit",
+      description:
+        "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place " +
+        "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
+        "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
+        "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
+        "to metadata.",
+      // requiresSetup: false — asks.edit depends only on the persistence
+      // provider, not on global Minsky configuration (same posture as
+      // asks.respond / asks.wait-for-response).
+      requiresSetup: false,
+      parameters: asksEditParams,
+      validate: async (params) => {
+        // At least one editable field must be provided — reject at the
+        // parameter boundary so callers get immediate, actionable feedback.
+        validateAsksEditParams(params);
+      },
+      execute: async (params): Promise<{ ask: Ask }> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.edit: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        return editAskContent(repo, {
+          id: params.id as string,
+          title: params.title as string | undefined,
+          question: params.question as string | undefined,
+          options: params.options as AskOption[] | undefined,
+          contextRefs: params.contextRefs as ContextRef[] | undefined,
+          metadata: params.metadata as Record<string, unknown> | undefined,
+          editor: params.editor as string | undefined,
+        });
       },
     })
   );

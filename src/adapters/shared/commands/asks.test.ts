@@ -18,7 +18,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createAsk, respondToAsk, validateAsksCreateParams, formatAskWaitMessage } from "./asks";
+import {
+  createAsk,
+  respondToAsk,
+  validateAsksCreateParams,
+  validateAsksEditParams,
+  formatAskWaitMessage,
+} from "./asks";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
@@ -1306,5 +1312,31 @@ describe("formatAskWaitMessage", () => {
     const msg = formatAskWaitMessage(result);
     expect(msg).toContain('Ask still pending (state "suspended")');
     expect(msg).toContain("Timeout reached");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAsksEditParams (mt#2668)
+// ---------------------------------------------------------------------------
+
+describe("validateAsksEditParams", () => {
+  test("throws ValidationError when no editable field is provided", () => {
+    expect(() => validateAsksEditParams({})).toThrow(ValidationError);
+    expect(() => validateAsksEditParams({})).toThrow("at least one editable field");
+  });
+
+  test("passes when a single editable field is provided", () => {
+    expect(() => validateAsksEditParams({ question: "refreshed" })).not.toThrow();
+    expect(() => validateAsksEditParams({ metadata: { note: "x" } })).not.toThrow();
+  });
+
+  test("passes when multiple editable fields are provided", () => {
+    expect(() =>
+      validateAsksEditParams({
+        title: "t",
+        options: [{ label: "A", value: "a" }],
+        contextRefs: [{ kind: "task", ref: "mt#2668" }],
+      })
+    ).not.toThrow();
   });
 });
