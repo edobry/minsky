@@ -231,7 +231,8 @@ export function buildReminder(matches: DeferralMatch[]): string {
  * `ctx.transcriptLines` (D6) instead of re-parsing the transcript itself.
  * Calibration is logged unconditionally on a match (mirrors `main()`'s "the
  * v1 product" comment); `additionalContext` is gated behind
- * `INJECTION_ENABLED` (currently `false`).
+ * `INJECTION_ENABLED` (`true` since the mt#2694 flip — see its doc for the
+ * decision provenance).
  */
 export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
