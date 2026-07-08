@@ -13,9 +13,15 @@
  * is deliberately avoided — bun runs test files in one shared process, so a module mock of
  * harness-detection could leak into sibling test files that rely on the real implementation.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createTasksDispatchCommand } from "./dispatch-command";
 import { ValidationError } from "@minsky/domain/errors";
+import { FakeTaskService } from "@minsky/domain/tasks/fake-task-service";
+import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
+import { FakePersistenceProvider } from "@minsky/domain/persistence/fake-persistence-provider";
+import { SessionStatus } from "@minsky/domain/session/types";
+import type { SessionRecord } from "@minsky/domain/session/types";
+import { TASK_STATUS } from "@minsky/domain/tasks/taskConstants";
 
 const throwingDep = () => {
   throw new Error("dispatch dependency should not be reached in this test");
@@ -205,5 +211,166 @@ describe("tasks_dispatch mode selection (mt#2657)", () => {
     } else {
       expect(result).toBeDefined();
     }
+  });
+});
+
+/**
+ * Type-default and crash-safety (resume) tests for tasks_dispatch existing-task mode (mt#2695).
+ *
+ * Root cause 1 (type default): the MCP/CLI parameter layers only apply a default from the
+ * sibling `defaultValue` field on a `CommandParameterDefinition` — the Zod schema's own
+ * `.default(...)` on the `type` param is never consulted by either boundary (see the comment on
+ * the `type` param def in dispatch-command.ts). Omitting `type` used to crash at
+ * packages/domain/src/session/prompt-generation.ts:207 (`params.type.charAt(0)`).
+ *
+ * Root cause 2 (crash-safety): a dispatch that crashed after the status walk + session_start but
+ * before prompt generation completed left the task IN-PROGRESS with a stranded, commit-free
+ * (`SessionStatus.CREATED`) session. A repeat dispatch now detects that exact signature and
+ * RESUMES against the existing session instead of refusing.
+ *
+ * These tests drive `execute()` through a REAL status read (via FakeTaskService) and a REAL
+ * resume-detection lookup (via FakeSessionProvider) — fully hermetic, no filesystem/git I/O. The
+ * resume path doubles as the vehicle to reach Step 4 (prompt generation, where `type` is
+ * actually consumed): Step 3's fresh-session-creation branch calls the REAL
+ * `createGitService()`/`SessionService.start()` pipeline, which is not injectable here and would
+ * do real git I/O — unsuitable for a hermetic unit test (this mirrors why the mode-selection
+ * tests above use throwing stubs and never reach that branch either).
+ *
+ * `hasNativeSubagentSupport()` is forced to `true` via `CLAUDECODE` for this block since a
+ * `success: true` assertion — unlike the environment-agnostic "not this error" assertions above —
+ * requires the pipeline to actually run to completion regardless of the host environment.
+ */
+describe("tasks_dispatch existing-task mode: type default + crash-safety resume (mt#2695)", () => {
+  let savedClaudeCode: string | undefined;
+
+  beforeEach(() => {
+    savedClaudeCode = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = "1";
+  });
+
+  afterEach(() => {
+    if (savedClaudeCode === undefined) {
+      delete process.env.CLAUDECODE;
+    } else {
+      process.env.CLAUDECODE = savedClaudeCode;
+    }
+  });
+
+  function makeResumeFixtures(
+    taskId: string,
+    taskStatus: string,
+    session?: Partial<SessionRecord>
+  ): {
+    taskService: FakeTaskService;
+    sessionProvider: FakeSessionProvider;
+    sessionRecord?: SessionRecord;
+  } {
+    const taskService = new FakeTaskService({
+      initialTasks: [{ id: taskId, title: "mt#2695 fixture task", status: taskStatus }],
+    });
+    const sessionRecord: SessionRecord | undefined = session
+      ? {
+          sessionId: `task-${taskId}`,
+          repoName: "minsky",
+          repoUrl: "https://github.com/edobry/minsky.git",
+          createdAt: new Date().toISOString(),
+          taskId,
+          status: SessionStatus.CREATED,
+          ...session,
+        }
+      : undefined;
+    const sessionProvider = new FakeSessionProvider({
+      initialSessions: sessionRecord ? [sessionRecord] : [],
+    });
+    return { taskService, sessionProvider, sessionRecord };
+  }
+
+  function makeCommandWithFixtures(
+    taskService: FakeTaskService,
+    sessionProvider: FakeSessionProvider
+  ) {
+    return createTasksDispatchCommand(
+      () => new FakePersistenceProvider(),
+      async () => sessionProvider,
+      throwingDep as never, // getTaskGraphService — never touched (no parentTaskId in these tests)
+      () => taskService
+    );
+  }
+
+  test("t1: omitted `type` defaults to implementation instead of crashing", async () => {
+    const { taskService, sessionProvider } = makeResumeFixtures(
+      "mt#9101",
+      TASK_STATUS.IN_PROGRESS,
+      {}
+    );
+    const cmd = makeCommandWithFixtures(taskService, sessionProvider);
+
+    const result = (await cmd.execute({
+      taskId: "mt#9101",
+      instructions: "do the thing",
+      ...validPremise,
+    } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.prompt as string).toContain("Implementation work");
+  });
+
+  test("t2: a repeat dispatch resumes a stranded (CREATED, commit-free) session instead of refusing", async () => {
+    const { taskService, sessionProvider, sessionRecord } = makeResumeFixtures(
+      "mt#9102",
+      TASK_STATUS.IN_PROGRESS,
+      {}
+    );
+    const cmd = makeCommandWithFixtures(taskService, sessionProvider);
+
+    const result = (await cmd.execute({
+      taskId: "mt#9102",
+      instructions: "do the thing",
+      type: "implementation",
+      ...validPremise,
+    } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.resumed).toBe(true);
+    expect(result.sessionId).toBe(sessionRecord?.sessionId);
+    expect(result.statusWalk).toEqual([]);
+    // No new session was created — the store still holds exactly the one stranded session.
+    expect((await sessionProvider.listSessions()).length).toBe(1);
+  });
+
+  test("IN-PROGRESS with an ACTIVE (committed-work) session is refused, not resumed", async () => {
+    const { taskService, sessionProvider } = makeResumeFixtures(
+      "mt#9103",
+      TASK_STATUS.IN_PROGRESS,
+      { status: SessionStatus.ACTIVE, commitCount: 1 }
+    );
+    const cmd = makeCommandWithFixtures(taskService, sessionProvider);
+
+    const result = (await cmd.execute({
+      taskId: "mt#9103",
+      instructions: "do the thing",
+      type: "implementation",
+      ...validPremise,
+    } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(false);
+    expect(result.error as string).toMatch(/committed work/);
+  });
+
+  test("IN-PROGRESS with no session at all is refused with PLANNING-path guidance, not a bare READY suggestion", async () => {
+    const { taskService, sessionProvider } = makeResumeFixtures("mt#9104", TASK_STATUS.IN_PROGRESS);
+    const cmd = makeCommandWithFixtures(taskService, sessionProvider);
+
+    const result = (await cmd.execute({
+      taskId: "mt#9104",
+      instructions: "do the thing",
+      type: "implementation",
+      ...validPremise,
+    } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(false);
+    const error = result.error as string;
+    expect(error).toMatch(/via PLANNING/);
+    expect(error).toMatch(/IN-PROGRESS -> READY is NOT a valid/);
   });
 });
