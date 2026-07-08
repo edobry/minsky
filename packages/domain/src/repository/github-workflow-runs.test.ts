@@ -42,6 +42,17 @@ interface ZipEntrySpec {
    * header. Defaults to false (sizes present in the local header).
    */
   streamed?: boolean;
+  /**
+   * When true, set general-purpose bit 11 (filename/comment are UTF-8) in
+   * both headers. When false/absent, the ZIP spec mandates CP437 filenames —
+   * the parser approximates those as latin1.
+   */
+  utf8Flag?: boolean;
+  /**
+   * Raw filename bytes override for non-UTF-8 encodings (TextEncoder can only
+   * produce UTF-8). `filename` is still used for readability in assertions.
+   */
+  filenameBytes?: Uint8Array;
 }
 
 /**
@@ -56,11 +67,12 @@ function buildZip(entries: ZipEntrySpec[]): Uint8Array {
   let offset = 0;
 
   for (const entry of entries) {
-    const nameBytes = new TextEncoder().encode(entry.filename);
+    const nameBytes = entry.filenameBytes ?? new TextEncoder().encode(entry.filename);
     const header = new Uint8Array(30);
     const dv = new DataView(header.buffer);
     dv.setUint32(0, 0x04034b50, true); // local file header signature
-    dv.setUint16(6, entry.streamed ? 0x0008 : 0, true); // general purpose flag (bit 3 = data descriptor)
+    // general purpose flag: bit 3 = data descriptor, bit 11 = UTF-8 filename
+    dv.setUint16(6, (entry.streamed ? 0x0008 : 0) | (entry.utf8Flag ? 0x0800 : 0), true);
     dv.setUint16(8, entry.method, true); // compression method
     const localSize = entry.streamed ? 0 : entry.data.length;
     dv.setUint32(18, localSize, true); // compressed size
@@ -91,10 +103,11 @@ function buildZip(entries: ZipEntrySpec[]): Uint8Array {
   const centralParts: Uint8Array[] = [];
 
   entries.forEach((entry, i) => {
-    const nameBytes = new TextEncoder().encode(entry.filename);
+    const nameBytes = entry.filenameBytes ?? new TextEncoder().encode(entry.filename);
     const central = new Uint8Array(46);
     const dv = new DataView(central.buffer);
     dv.setUint32(0, 0x02014b50, true); // central file header signature
+    dv.setUint16(8, entry.utf8Flag ? 0x0800 : 0, true); // general purpose flag (bit 11 = UTF-8 filename)
     dv.setUint16(10, entry.method, true); // compression method
     dv.setUint32(20, entry.data.length, true); // compressed size (authoritative)
     dv.setUint32(24, entry.data.length, true); // uncompressed size (authoritative)
@@ -384,6 +397,35 @@ describe("viewWorkflowRunLogs", () => {
     expect(result).toContain("##[group]Runner Image Provisioner");
     expect(result).not.toContain(DEFLATE_FALLBACK_MARKER);
     expect(result).not.toContain("[base64-encoded ZIP");
+  });
+
+  test("decodes filenames as UTF-8 when general-purpose bit 11 is set", async () => {
+    const data = new TextEncoder().encode("step output\n");
+    const zip = buildZip([{ filename: "monitor/1_étape.txt", data, method: 0, utf8Flag: true }]);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain("monitor/1_étape.txt");
+    expect(result).toContain("step output");
+  });
+
+  test("decodes filenames as latin1 (CP437 approximation) when bit 11 is unset", async () => {
+    // "café.txt" with é as the single byte 0xE9 — a legacy (non-UTF-8) name.
+    // Decoding these bytes as UTF-8 would produce U+FFFD ("caf�.txt").
+    const filenameBytes = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x2e, 0x74, 0x78, 0x74]);
+    const data = new TextEncoder().encode("legacy name entry\n");
+    const zip = buildZip([{ filename: "café.txt", filenameBytes, data, method: 0 }]);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    expect(result).toContain("café.txt");
+    expect(result).not.toContain("�");
   });
 
   test("falls back to base64 placeholder when a DEFLATE entry cannot be inflated", async () => {

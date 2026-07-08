@@ -321,6 +321,8 @@ const EOCD_SIG = 0x06054b50;
 
 /** Fixed-size portion of a central-directory file header (before name/extra/comment). */
 const CENTRAL_DIR_ENTRY_FIXED_SIZE = 46;
+/** General-purpose bit 11: the entry's filename and comment fields are UTF-8. */
+const GPBF_FILENAME_UTF8 = 0x0800;
 /** Fixed size of the end-of-central-directory record (before the comment). */
 const EOCD_FIXED_SIZE = 22;
 /** Max comment length a conformant EOCD record can carry (uint16). */
@@ -372,7 +374,12 @@ function readCentralDirectoryEntries(
   centralDirOffset: number,
   totalEntries: number
 ): CentralDirEntry[] {
-  const decoder = new TextDecoder("utf-8");
+  const utf8Decoder = new TextDecoder("utf-8");
+  // When GPBF bit 11 is unset the ZIP spec mandates IBM CP437 filenames. No
+  // TextDecoder label exists for CP437; latin1 shares its full ASCII range
+  // (all GitHub run-log filenames), so high bytes decode approximately rather
+  // than as U+FFFD replacement noise.
+  const legacyDecoder = new TextDecoder("latin1");
   const entries: CentralDirEntry[] = [];
   let offset = centralDirOffset;
 
@@ -380,6 +387,7 @@ function readCentralDirectoryEntries(
     if (offset + CENTRAL_DIR_ENTRY_FIXED_SIZE > bytes.byteLength) break;
     if (view.getUint32(offset, true) !== CENTRAL_DIR_SIG) break;
 
+    const gpFlag = view.getUint16(offset + 8, true);
     const compressionMethod = view.getUint16(offset + 10, true);
     const compressedSize = view.getUint32(offset + 20, true);
     const fileNameLength = view.getUint16(offset + 28, true);
@@ -392,7 +400,7 @@ function readCentralDirectoryEntries(
       offset + CENTRAL_DIR_ENTRY_FIXED_SIZE + fileNameLength
     );
     entries.push({
-      fileName: decoder.decode(fileNameBytes),
+      fileName: (gpFlag & GPBF_FILENAME_UTF8 ? utf8Decoder : legacyDecoder).decode(fileNameBytes),
       compressionMethod,
       compressedSize,
       localHeaderOffset,
