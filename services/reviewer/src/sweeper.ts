@@ -50,6 +50,47 @@
  * temporary faster recovery during the mt#1897 (OpenAI timeout) investigation
  * window can set SWEEPER_INTERVAL_MS=300000 (5 min) at the Railway env-var
  * layer; revert after mt#1897 ships.
+ *
+ * ## Boot catch-up sweep (mt#2660)
+ *
+ * `setInterval` fires its first tick only after a full `intervalMs` elapses —
+ * NOT immediately at boot. This is fine for a long-lived process, but the
+ * reviewer service auto-redeploys on every merge to main that touches its own
+ * source (mt#2345/mt#2352 scoped `watchPatterns` to the reviewer's own paths,
+ * not off entirely), so the process restarts frequently. Each restart resets
+ * the `setInterval` clock, so a PR opened during a redeploy window is not
+ * caught by the periodic sweep until a FULL `intervalMs` (10 min default)
+ * elapses with NO further redeploy in between.
+ *
+ * ### Diagnosis: why PR #1812 wasn't caught within 25 minutes (mt#2660)
+ *
+ * `SWEEPER_ENABLED=true` in production (`infra/index.ts`), so the sweeper was
+ * running — this was not a disabled-sweeper or predicate bug. The predicate
+ * (`detectMissingReview`) and cadence (10 min) both work correctly in
+ * isolation; the miss is a property of the STARTUP model: a sequence of
+ * closely-spaced merges to main (each retriggering a reviewer redeploy, per
+ * `reviewer_auto_deploy_churn_signature`) can restart the process repeatedly,
+ * and if a new redeploy lands before the current process's FIRST sweep tick
+ * fires (up to 10 min after ITS boot), the sweep is aborted mid-wait and the
+ * clock restarts from zero on the new process. A burst of redeploys inside a
+ * 10-minute window can therefore push the effective "time until first sweep"
+ * arbitrarily high — unbounded by the nominal cadence. This is a boot-timing
+ * gap, not a cadence or predicate bug: the fix is to run one sweep cycle
+ * IMMEDIATELY at boot (in addition to the periodic interval), so every
+ * redeploy — however soon after the last — gets at least one chance to
+ * self-heal any review the outgoing process's webhook window swallowed.
+ *
+ * ### Invocation path
+ *
+ * Wired into `startSweeper` (this file): when `SWEEPER_ENABLED=true` (gate 1)
+ * AND `SWEEPER_BOOT_CATCHUP_ENABLED` resolves true (gate 2; env var, default
+ * `"true"` — explicit opt-out via `SWEEPER_BOOT_CATCHUP_ENABLED=false`),
+ * `startSweeper` invokes one sweep cycle synchronously at call time (fired
+ * from `services/reviewer/src/server.ts`'s boot sequence, AFTER migrations +
+ * domain-container boot have already completed), before the `setInterval`
+ * handle is created. The immediate cycle and the periodic ticks share the
+ * same `runCycle` closure (same reentrancy guard, same cached-deps builder),
+ * so the boot catch-up cannot race a periodic tick.
  */
 
 import type { ReviewerConfig } from "./config";
@@ -97,6 +138,14 @@ export interface SweeperConfig {
    * PR #1116 R1 cascade-defense.
    */
   repoDefaulted: boolean;
+  /**
+   * Whether `startSweeper` runs one sweep cycle immediately at boot, in
+   * addition to the periodic `setInterval` ticks (mt#2660 — see module-header
+   * "Boot catch-up sweep"). Default true; explicit opt-out via
+   * `SWEEPER_BOOT_CATCHUP_ENABLED=false` for operators who want to avoid the
+   * extra GitHub API calls on every boot.
+   */
+  bootCatchupEnabled: boolean;
 }
 
 export function loadSweeperConfig(): SweeperConfig {
@@ -119,6 +168,10 @@ export function loadSweeperConfig(): SweeperConfig {
     // mis-targeting in non-Minsky deployments produces an operator-visible signal.
     ownerDefaulted: ownerEnv === undefined,
     repoDefaulted: repoEnv === undefined,
+    // mt#2660: see module-header "Boot catch-up sweep". Default on so the
+    // redeploy-window webhook-miss class is closed by default; explicit
+    // opt-out available.
+    bootCatchupEnabled: (process.env["SWEEPER_BOOT_CATCHUP_ENABLED"] ?? "true") === "true",
   };
 }
 
@@ -722,11 +775,18 @@ export async function runSweep(
  * already has. The interval is configurable via SWEEPER_INTERVAL_MS (default
  * 10 min). Opt-in via SWEEPER_ENABLED=true (disabled by default).
  *
- * The first sweep runs after one full interval — not immediately at boot —
- * to avoid competing with the service startup sequence.
+ * mt#2660: a boot catch-up cycle now runs immediately at call time (before
+ * the first `setInterval` tick), gated by `sweeperConfig.bootCatchupEnabled`.
+ * Prior to mt#2660 the first sweep ran only after one full interval had
+ * elapsed, which left an unbounded miss window under closely-spaced
+ * redeploys (see module-header "Boot catch-up sweep" for the diagnosis).
+ * `startSweeper` is called from `server.ts` AFTER migrations and the domain
+ * container have already booted, so the immediate cycle does not compete
+ * with service startup.
  *
  * A reentrancy guard (isSweeping) prevents overlapping sweeps if a cycle
- * takes longer than the interval (e.g., during a slow LLM round).
+ * takes longer than the interval (e.g., during a slow LLM round), and also
+ * prevents the boot catch-up cycle from racing the first periodic tick.
  *
  * Returns the timer handle so callers can clear it in tests.
  */
@@ -738,7 +798,13 @@ export function startSweeper(
   // mt#2451: when the caller (server start) passes a pre-built sink, reuse that
   // single instance (shared with the /alert-test route). When omitted (existing
   // test callers), build one from env — preserving prior behavior.
-  providedAlertSink?: AlertSink | null
+  providedAlertSink?: AlertSink | null,
+  // mt#2660: test seam only — production callers never pass this. When
+  // provided, both the boot catch-up cycle and every periodic tick reuse this
+  // SweeperDeps instead of calling buildSweeperDeps (which performs real
+  // Octokit/App-identity network calls). Lets tests exercise the boot
+  // catch-up behavior hermetically, mirroring runSweep's depsOverride.
+  depsOverride?: SweeperDeps
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
     log.info("sweeper.disabled", {
@@ -815,9 +881,16 @@ export function startSweeper(
 
   // Cache a deps promise so we build octokit + botLogin once and reuse across
   // sweep cycles. The db is forwarded so runSweep can use the inflight marker.
-  let cachedDeps: Promise<SweeperDeps> | null = null;
+  // mt#2660: depsOverride (test seam) pre-seeds the cache so the boot
+  // catch-up cycle below never calls the real buildSweeperDeps.
+  let cachedDeps: Promise<SweeperDeps> | null = depsOverride ? Promise.resolve(depsOverride) : null;
 
-  const handle = setInterval(() => {
+  /**
+   * Run one sweep cycle, guarded by the reentrancy flag. Shared by both the
+   * boot catch-up call (mt#2660) and every periodic `setInterval` tick, so
+   * the two paths cannot race each other or double-sweep.
+   */
+  const runCycle = (): void => {
     if (isSweeping) {
       log.warn("sweeper.skip_reentrant", {
         event: "sweeper.skip_reentrant",
@@ -838,12 +911,34 @@ export function startSweeper(
           ...extractPgErrorContext(err),
         });
         // Clear cached deps on error so next cycle retries building them.
-        cachedDeps = null;
+        // Never clear a test-injected depsOverride — it has no "rebuild"
+        // path and clearing would make the next tick call the real
+        // buildSweeperDeps in tests that only provided a fake.
+        if (!depsOverride) {
+          cachedDeps = null;
+        }
       })
       .finally(() => {
         isSweeping = false;
       });
-  }, sweeperConfig.intervalMs);
+  };
+
+  // mt#2660: boot catch-up sweep. Run one cycle immediately (not waiting for
+  // the first setInterval tick) so a redeploy that happens to land while a
+  // PR is unreviewed self-heals right away, instead of depending on this
+  // process surviving uninterrupted for a full intervalMs. See module-header
+  // "Boot catch-up sweep" for the full diagnosis (mt#2660 / PR #1812).
+  if (sweeperConfig.bootCatchupEnabled) {
+    log.info("sweeper.boot_catchup_start", {
+      event: "sweeper.boot_catchup_start",
+      message:
+        "Running an immediate sweep cycle at boot to catch reviews missed " +
+        "during this process's own redeploy window.",
+    });
+    runCycle();
+  }
+
+  const handle = setInterval(runCycle, sweeperConfig.intervalMs);
 
   return handle;
 }

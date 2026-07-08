@@ -60,6 +60,12 @@ const SWEEPER_CONFIG: SweeperConfig = {
   enabled: true,
   ownerDefaulted: false,
   repoDefaulted: false,
+  // Existing tests in this file predate the mt#2660 boot catch-up feature and
+  // don't inject a depsOverride, so keep it off by default here to avoid an
+  // unawaited real buildSweeperDeps() (Octokit/App-identity network call)
+  // firing in the background during unrelated tests. Dedicated boot-catchup
+  // tests below opt back in explicitly with a depsOverride.
+  bootCatchupEnabled: false,
 };
 
 const BOT_LOGIN = "minsky-reviewer[bot]";
@@ -741,6 +747,37 @@ describe("loadSweeperConfig", () => {
       }
     }
   });
+
+  // mt#2660: boot catch-up opt-out toggle.
+  const BOOT_CATCHUP_ENV_VAR = "SWEEPER_BOOT_CATCHUP_ENABLED";
+
+  test("bootCatchupEnabled defaults to true when SWEEPER_BOOT_CATCHUP_ENABLED is not set", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    delete process.env[BOOT_CATCHUP_ENV_VAR];
+    try {
+      const cfg = loadSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      }
+    }
+  });
+
+  test("bootCatchupEnabled=false when SWEEPER_BOOT_CATCHUP_ENABLED=false", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    process.env[BOOT_CATCHUP_ENV_VAR] = "false";
+    try {
+      const cfg = loadSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(false);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      } else {
+        delete process.env[BOOT_CATCHUP_ENV_VAR];
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -877,6 +914,106 @@ describe("startSweeper", () => {
     }
 
     expect(findLogEvent(logs, "sweeper.low_interval_warning")).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Boot catch-up sweep (mt#2660)
+  // ---------------------------------------------------------------------------
+
+  test("bootCatchupEnabled=true: runs a sweep cycle immediately at boot, without waiting for the interval", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const deps = makeFakeDeps({ openPRs: [], reviews: {} });
+      // Long interval — if the immediate boot cycle didn't fire, no
+      // sweeper.cycle_end would ever appear within this test's lifetime.
+      handle = startSweeper(
+        BASE_CONFIG,
+        { ...SWEEPER_CONFIG, bootCatchupEnabled: true, intervalMs: 3_600_000 },
+        undefined,
+        undefined,
+        undefined,
+        deps
+      );
+
+      // Let the microtask/timer queue flush so the fire-and-forget sweep
+      // (chained off the already-resolved depsOverride promise) completes.
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "sweeper.boot_catchup_start")).not.toBeNull();
+    expect(findLogEvent(logs, "sweeper.cycle_start")).not.toBeNull();
+    expect(findLogEvent(logs, "sweeper.cycle_end")).not.toBeNull();
+  });
+
+  test("bootCatchupEnabled=false: does NOT run a sweep cycle at boot; only the periodic tick would", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const deps = makeFakeDeps({ openPRs: [], reviews: {} });
+      handle = startSweeper(
+        BASE_CONFIG,
+        { ...SWEEPER_CONFIG, bootCatchupEnabled: false, intervalMs: 3_600_000 },
+        undefined,
+        undefined,
+        undefined,
+        deps
+      );
+
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "sweeper.boot_catchup_start")).toBeNull();
+    expect(findLogEvent(logs, "sweeper.cycle_start")).toBeNull();
+  });
+
+  test("boot catch-up retriggers a missing review immediately (mt#2660 acceptance scenario)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "ok", tier: 3 as const })
+    );
+    try {
+      const deps = makeFakeDeps(
+        {
+          openPRs: [
+            {
+              number: 1812,
+              head: { sha: HEAD_SHA },
+              body: TIER3_BODY,
+              user: { login: PR_AUTHOR },
+            },
+          ],
+          reviews: { 1812: [] },
+        },
+        BOT_LOGIN,
+        runReviewFn
+      );
+
+      handle = startSweeper(
+        BASE_CONFIG,
+        { ...SWEEPER_CONFIG, bootCatchupEnabled: true, intervalMs: 3_600_000 },
+        undefined,
+        undefined,
+        undefined,
+        deps
+      );
+
+      await new Promise((r) => setTimeout(r, 20));
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    const cycleEnd = findLogEvent(logs, "sweeper.cycle_end");
+    expect(cycleEnd?.retriggeredCount).toBe(1);
   });
 });
 

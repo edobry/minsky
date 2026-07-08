@@ -1495,6 +1495,14 @@ if (import.meta.main) {
   // mt#2363 / mt#1596 Phase 1: the domain container is forwarded so a tripped
   // circuit breaker also surfaces as an operator-routed Ask on the cockpit
   // (direct domain imports, mt#2121 — no MCP-over-HTTP).
+  // mt#2660: startSweeper also runs one boot catch-up sweep cycle immediately
+  // (before this call returns control to the event loop's next tick), so a
+  // redeploy landing on top of an unreviewed PR self-heals without waiting a
+  // full SWEEPER_INTERVAL_MS. Gated by SWEEPER_BOOT_CATCHUP_ENABLED (default
+  // true); called here — after migrations + domain container boot above —
+  // so it never competes with startup. See sweeper.ts module-header "Boot
+  // catch-up sweep" for the diagnosis of why the pre-mt#2660 sweeper missed
+  // PR #1812's webhook for 25+ minutes.
   startSweeper(config, loadSweeperConfig(), db, domainServices?.container, alertSink);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
