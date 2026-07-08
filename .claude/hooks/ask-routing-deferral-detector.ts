@@ -7,10 +7,12 @@
 // substrate (asks_create) — or surfaced a deferral menu around items that a
 // cheap lookup / standing default would resolve. Per mt#2471.
 //
-// CALIBRATION-FIRST (mirrors causal-premise-detector mt#2216): in v1 this
-// logs matches to a JSONL file and injects NOTHING. INJECTION_ENABLED gates
-// the additionalContext injection. Review the FP rate after ~10 fires (via the
-// `calibration-review` skill) before flipping the gate.
+// LIVE-INJECTING since 2026-07-08 (mt#2694): shipped calibration-first
+// (mirrors causal-premise-detector mt#2216) with INJECTION_ENABLED=false;
+// the gate was flipped after the 2026-07-06/07-08 calibration reviews
+// confirmed a ~5-10% FP rate across 44 fires (see the INJECTION_ENABLED
+// doc below). Matches now inject the additionalContext reminder AND log a
+// calibration record (post-flip FP monitoring, mt#2483 loop).
 //
 // TWO sub-classes (the spec's R4 + the 2026-06-11 post-closeout incident):
 //   - PRINCIPAL-RESERVED ("needs your call", "that decision is his", "you
@@ -54,10 +56,16 @@ import { elideQuotedContexts } from "./elision";
 // ---------------------------------------------------------------------------
 
 /**
- * Injection gate. FALSE in v1 (calibration-first): log only, inject nothing.
- * Flip to true after the calibration review confirms an acceptable FP rate.
+ * Injection gate. FLIPPED TO TRUE 2026-07-08 (mt#2694, operator-approved):
+ * the 2026-07-06 calibration review (disposition ask 483dbcb0, mt#2619)
+ * classified all 43 fires in its window as genuine (~5-10% FP rate, both
+ * sub-classes), and the single fire since (2026-07-07) was also a real
+ * positive (2026-07-08 review, ask 0147caa5). Calibration logging continues
+ * unchanged for post-flip FP monitoring (mt#2483 loop).
+ *
+ * v1 (mt#2471) shipped FALSE (calibration-first: log only, inject nothing).
  */
-export const INJECTION_ENABLED = false;
+export const INJECTION_ENABLED = true;
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_ASK_ROUTING_DEFERRAL";
 
