@@ -1646,10 +1646,17 @@ section headers below is left as-is pending a future corpus pass.
 A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` + per-event entrypoints
 `dispatch-pretooluse.ts` / `dispatch-userpromptsubmit.ts`) letting multiple guards share ONE spawned
 Bun process per lifecycle event. Ships inert; only guards with a `GUARD_REGISTRY` entry run through
-it. Migrated: `check-guessed-session-path` (Phase 1) + six Phase 2a UserPromptSubmit detectors
-(`substrate-bypass-detector`, `retrospective-trigger-scanner`, `pre-narration-detector`,
-`causal-premise-detector`, `code-mechanism-assertion-detector`, `ask-routing-deferral-detector`).
-Every other guard below is still a standalone `settings.json` registration. Full history:
+it. Migrated: `check-guessed-session-path` (Phase 1); the full `UserPromptSubmit` event (Phase 2,
+mt#2652 + mt#2687) — 15 guards across two sub-waves, taking this event from 14 spawns/turn to 1:
+Phase 2a's six guidance detectors (`substrate-bypass-detector`, `retrospective-trigger-scanner`,
+`pre-narration-detector`, `causal-premise-detector`, `code-mechanism-assertion-detector`,
+`ask-routing-deferral-detector`) and Phase 2b's remaining nine (`auto-session-title`,
+`inject-current-time`, `inject-git-state`, `inject-prod-state`, `inject-dispatch-watchdog`,
+`memory-search`, `skill-staleness-detector`, `mcp-daemon-staleness-detector`,
+`calibration-review-cadence-detector`). `policy-coverage-detector` is NOT part of this family — it's
+registered on `PreToolUse`, not `UserPromptSubmit`, despite being named among the detectors in both
+phases' specs (recorded as a spec discrepancy each time). Every other guard below (PreToolUse,
+PostToolUse, Stop, etc.) is still a standalone `settings.json` registration. Full history:
 `docs/architecture/hooks/guard-dispatcher-framework.md`, `docs/architecture/adr-028-*.md`.
 
 **Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
@@ -1676,10 +1683,15 @@ the override FOR migrated guards.
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`tasks_create`(parent set): blocks `session_start` on open-PR file
-overlap (advisory-only for recently-merged); blocks `tasks_create` on duplicate-child titles.
-Tier-3 ceiling for the parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
-Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`.
+PreToolUse on `session_start`/`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only,
+mt#2657)/`tasks_create`(parent set): blocks `session_start` (and existing-task `tasks_dispatch`,
+which binds a session in-process the same way) on open-PR file overlap (advisory-only for
+recently-merged); blocks `tasks_create` on duplicate-child titles. Tier-3 ceiling for the
+parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
+Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
+— both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
+consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):
+`bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
 Fail: closed (open-PR sweep) / open (duplicate sweep, unreadable data warns+permits).
 Doc: `docs/architecture/hooks/parallel-work-guard.md`.
 
@@ -1850,11 +1862,12 @@ Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start`: blocks when the target task's spec was never
-surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the session transcript. On
-hit: read the spec in full before retrying. Hook: `check-task-spec-read.ts`. Override:
-`MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error/missing transcript/unresolvable id.
-Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
+PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start` /
+`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only, mt#2657): blocks when the target
+task's spec was never surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the
+session transcript. On hit: read the spec in full before retrying. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any
+error/missing transcript/unresolvable id. Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 
@@ -1884,7 +1897,10 @@ Fail: open on transcript error. Doc: `docs/architecture/hooks/ask-routing-deferr
 
 UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires +
 ≥3 distinct phrases) OR goes stale (reviewed before, ≥10 days since, ≥1 new fire). On fire: run
-`/calibration-review`. Hook: `calibration-review-cadence-detector.ts`. Override:
+`/calibration-review` — unless a disposition Ask is already open for that log (mt#2659 watermark
+`openAskId`), in which case a single low-noise pending line replaces the warning, at most once per
+session. `policy-coverage`-class (per-tool-call-volume) logs re-warn on cooldown only, not fire-count
+growth (mt#2659). Hook: `calibration-review-cadence-detector.ts`. Override:
 `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
 Doc: `docs/architecture/hooks/calibration-review-cadence-detector.md`.
 
@@ -1918,7 +1934,7 @@ This is Surface A (the terminal). There is no harness hook that rewrites assista
 | --------- | ------------------------------ | ------------------------------------ | ---- |
 | task      | `minsky://task/<id>`           | `minsky://task/mt%232370`            | the `#` in a task id MUST be percent-encoded as `%23` |
 | ask       | `minsky://ask/<uuid>`          | `minsky://ask/38b1c0de-…`            | uuid is URL-safe; no encoding |
-| session   | `minsky://session/<uuid>`      | `minsky://session/2154425b-…`        | URI type is `session` (NOT `agent`), even though the cockpit page is `/agents/<id>` |
+| session   | `minsky://session/<uuid>`      | `minsky://session/2154425b-…`        | URI type is `session` (NOT `agent` or `workspace`), even though the cockpit page is `/agents/<id>` (the workspace detail page — see ADR-022 stage 2, mt#2527, for the deferred `session_*` → `workspace_*` boundary this URI type stays on the near side of) |
 | memory    | `minsky://memory/<uuid>`       | `minsky://memory/bd38be2c-…`         | uuid is URL-safe; no encoding |
 | changeset | `minsky://changeset/<pr-num>`  | `minsky://changeset/1234`            | id == PR number (positive integer); cockpit route is `/changeset/<id>` (mt#2535) |
 
@@ -1954,6 +1970,7 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 - mt#2535 — `/changeset/:id` cockpit detail route (ships the page the changeset URI navigates to).
 - mt#2536 — PR/changeset linkification (adds `changeset` to RoutableEntityType + linkifier PR #N recognition).
 - `src/cockpit/web/lib/entity-codec.ts` — `entityToMinskyUri(type, id)` / `parseMinskyUri(uri)`; the format documented here matches the codec's output exactly.
+- `docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) / `.minsky/rules/terminology-workspace-conversation.mdc` — the workspace/conversation/transport-session vocabulary for NEW code, docs, and cockpit UI copy. The `session` URI type above is deliberately NOT part of that rename (stage 1, mt#2686) — it stays `session` until the deferred stage-2 mechanical `session_*` → `workspace_*` tool-surface rename (mt#2527), which is the only stage that would touch this table.
 
 # User Preferences
 
@@ -2449,6 +2466,69 @@ When spawning subagents, use the appropriate model and type:
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
 
+# Terminology: workspace / conversation / transport session
+
+`docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) resolves a
+three-way overload of the word "session" that made Minsky hard to think, talk, and search
+about. This rule is the **stage-1 convention**: it applies to NEW code, docs, and UI copy
+starting now. It does NOT rename the existing `session_*` tool/API surface — that is stage 2
+(mt#2527), a separately scheduled, larger mechanical rename.
+
+## The three senses
+
+| Term (use this) | What it names | Old/ecosystem name | Example surface |
+| --- | --- | --- | --- |
+| **workspace** | The Minsky per-task isolated git-clone + branch (`SessionRecord`, `~/.local/state/minsky/sessions/`, ~59 `session_*` tools) | "session" | cockpit `/agents/:id` detail page (workspace-session id-space) |
+| **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
+| **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
+
+Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI
+copy. Reserve **session** (bare, unqualified) for the MCP-transport sense only, since that is
+the one place "session" is the authoritative external-spec term (`Mcp-Session-Id`) and no
+better word exists. If "session" appears in new prose about the work-area or the chat, that's
+the overload this rule exists to prevent — say "workspace" or "conversation" instead.
+
+## What this rule does NOT change (stage 2 scope, mt#2527)
+
+- No `session_*` MCP/CLI tool name, parameter name, or DB column is renamed.
+- No `~/.local/state/minsky/sessions/` path changes.
+- Back-compat aliases from mt#2526 (`transcripts_*` param renames) are untouched.
+- Existing docs/prose keep their current vocabulary until stage 2 or an opportunistic edit —
+  this rule does not require a docs back-fill pass.
+
+## `minsky://` deeplink URI types are NOT renamed
+
+The `minsky://<type>/<id>` deeplink scheme (`cockpit-deeplinks.mdc`,
+`src/cockpit/web/lib/entity-codec.ts`) keeps its five URI types — `task`, `ask`, `session`,
+`memory`, `changeset` — exactly as they are. In particular, `minsky://session/<uuid>` keeps
+naming the **workspace** sessionId (stored transcripts already carry links in this form; they
+must keep resolving). The entity-codec's type→route mapping already absorbs one such
+divergence today — the `session` URI type resolves to the `/agents/:id` cockpit route, not a
+literal `/session/:id` path — and continues to absorb the stage-1 cockpit rename the same way:
+the URI **type name** is a stable public identifier; the cockpit **route/component name** is
+free to carry the new vocabulary. Do not "fix" this apparent mismatch by renaming URI types —
+that is exactly the breaking-API move stage 2 owns, and renaming URI types would break every
+stored `minsky://session/...` link in every ingested transcript.
+
+## Applying this in cockpit UI copy
+
+When a cockpit surface displays the **workspace** sense (branch, liveness, commits, PR state —
+the Minsky work-area), label it "workspace" in headings and copy. When it displays the
+**conversation** sense (a readable chat transcript), label it "conversation". A surface that
+bridges both (e.g. a workspace detail page that also shows a live conversation tail) should
+label each section per the sense it shows, not blend the words.
+
+## Cross-references
+
+- `docs/architecture/adr-022-session-vs-conversation-terminology.md` — the ADR this rule
+  operationalizes (Accepted 2026-07-06).
+- `cockpit-deeplinks.mdc` — the `minsky://` URI format; its `session` row notes the
+  URI-type/route divergence this rule generalizes.
+- mt#2522 — epic; mt#2524 (branded ids), mt#2525 (id-space hardening), mt#2526 (conversation
+  labeling) — DONE prerequisite tiers; mt#2686 — this rule's originating task (stage 1);
+  mt#2527 — stage 2 (the deferred mechanical tool-surface rename).
+- Funding decision: 2026-07-06, ask f0782a96; living record memory 805ef48f.
+
 # Key Architecture
 
 - Clean architecture: Domain → Adapters → Infrastructure
@@ -2912,6 +2992,10 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Auto-walked transitions** (chain forward unless an explicit halt condition holds):
 
+- `/create-task` → `/plan-task` when the task was filed as **incident response** — a problem the
+  user reported in the live conversation, or one discovered during this conversation's work
+  (mt#2689). Filing the task is not the deliverable; the fix is. Background/tracking tasks filed
+  for later by design are exempt — say so explicitly when stopping there.
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)

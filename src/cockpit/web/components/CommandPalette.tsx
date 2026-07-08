@@ -77,7 +77,12 @@ type PaletteEntity = PaletteTask | PaletteSession | PaletteAsk | PaletteMemory |
 const PAGES: PalettePage[] = [
   { type: "page", path: "/", label: "Home", description: "Dashboard overview" },
   { type: "page", path: "/agents", label: "Agents", description: "Workspace sessions in flight" },
-  { type: "page", path: "/sessions", label: "Sessions", description: "Conversation transcripts" },
+  {
+    type: "page",
+    path: "/conversations",
+    label: "Conversations",
+    description: "Conversation transcripts",
+  },
   { type: "page", path: "/context", label: "Context", description: "Session context inspector" },
   {
     type: "page",

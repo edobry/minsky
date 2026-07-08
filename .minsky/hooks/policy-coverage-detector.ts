@@ -17,8 +17,13 @@
 // On covered:   PERMIT with citation in additionalContext.
 // On dismissed signature: PERMIT with "(dismissed)" note in additionalContext.
 //
-// Calibration: every firing (covered, uncovered, dismissed) appends a line
-// to `.minsky/policy-coverage-calibration.jsonl` for firing-rate analysis.
+// Calibration: EXCEPTIONAL firings (uncovered, dismissed) append a line to
+// `.minsky/policy-coverage-calibration.jsonl` for firing-rate analysis.
+// Covered outcomes are NOT recorded (mt#2670 exception-only logging): the
+// per-call covered records proved pure noise — 1,600+ lifetime fires, 100%
+// covered, zero uncovered — and dominated the calibration-review sweep. The
+// historical covered records remain in the log as baseline; the covered path
+// still injects its permit-with-citation additionalContext unchanged.
 //
 // Mode override: set MINSKY_POLICY_COVERAGE_MODE in environment to control behavior:
 //   - unset / "log-only" (DEFAULT): always permit; record calibration data.
@@ -157,6 +162,25 @@ export function appendCalibrationRecord(logPath: string, record: Record<string, 
   }
 }
 
+/**
+ * Exception-only calibration gate (mt#2670): all hook callsites route through
+ * this single choke point, which drops `covered` records instead of appending.
+ *
+ * Rationale: 1,600+ lifetime fires were 100% `covered` — the event the log
+ * exists to capture (uncovered) never occurred, while the per-call covered
+ * records dominated the calibration-review sweep (~10-140 no-signal
+ * records/day). Non-covered outcomes (`dismissed`, `uncovered-logged`,
+ * `uncovered-blocked`) keep the exact record shape the calibration sweep
+ * parses today.
+ */
+export function appendCalibrationRecordIfLoggable(
+  logPath: string,
+  record: Record<string, unknown> & { outcome: string }
+): void {
+  if (record.outcome === "covered") return;
+  appendCalibrationRecord(logPath, record);
+}
+
 // ---------------------------------------------------------------------------
 // Permit-with-citation message
 // ---------------------------------------------------------------------------
@@ -292,13 +316,11 @@ if (import.meta.main) {
   };
   const calibLog = join(repoRoot, CALIBRATION_LOG);
 
-  // Permit path: covered
+  // Permit path: covered — no calibration record is built or written
+  // (mt#2670 exception-only logging). The gate inside
+  // appendCalibrationRecordIfLoggable enforces the same invariant for any
+  // future callsite that does construct a covered record.
   if (coverage.covered) {
-    appendCalibrationRecord(calibLog, {
-      ...baseRecord,
-      outcome: "covered",
-      evidence: coverage.evidence,
-    });
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -314,7 +336,7 @@ if (import.meta.main) {
   const dismissed = readLocalDismissals(dismissalsPath).includes(signature);
 
   if (dismissed) {
-    appendCalibrationRecord(calibLog, {
+    appendCalibrationRecordIfLoggable(calibLog, {
       ...baseRecord,
       outcome: "dismissed",
       signature,
@@ -332,7 +354,7 @@ if (import.meta.main) {
   const signal = buildDetectionSignal(action, input.tool_name, input.tool_input);
   const askIntent = emitAskIntent(signal, ctx);
 
-  appendCalibrationRecord(calibLog, {
+  appendCalibrationRecordIfLoggable(calibLog, {
     ...baseRecord,
     outcome: mode === "block" ? "uncovered-blocked" : "uncovered-logged",
     mode,

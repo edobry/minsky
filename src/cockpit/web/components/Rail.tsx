@@ -50,7 +50,7 @@ const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitB
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
   { to: "/changesets", label: "Changesets", icon: GitPullRequest },
-  { to: "/sessions", label: "Conversations", icon: MessagesSquare },
+  { to: "/conversations", label: "Conversations", icon: MessagesSquare },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/context", label: "Context", icon: FileSearch },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },

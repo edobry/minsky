@@ -39,8 +39,14 @@ import {
   sessionPrWaitForReview,
   type AnnotatedReview,
   type SessionPrWaitForReviewDependencies,
+  type TrimmedReview,
 } from "./pr-wait-for-review-subcommand";
-import { sessionPrChecks, type SessionPrChecksDependencies } from "./pr-checks-subcommand";
+import {
+  sessionPrChecks,
+  trimChecksResult,
+  type SessionPrChecksDependencies,
+  type TrimmedChecksResult,
+} from "./pr-checks-subcommand";
 import type { ReviewListEntry } from "../../repository/index";
 
 // ── Params / dependencies ───────────────────────────────────────────────────
@@ -68,6 +74,15 @@ export interface SessionPrDriveParams {
    * When true, an APPROVED review alone resolves to READY_TO_MERGE.
    */
   skipChecks?: boolean;
+  /**
+   * When true, return the full `ReviewListEntry` (raw body) and full
+   * `ChecksResult` (per-check breakdown) instead of the default trimmed
+   * payloads (mt#2656). Defaults to false. See
+   * `pr-wait-for-review-subcommand.ts`'s `fullBody` doc for the review-side
+   * rationale; `pr-checks-subcommand.ts`'s `trimChecksResult` for the
+   * checks-side trimming.
+   */
+  fullBody?: boolean;
 }
 
 export type SessionPrDriveDependencies = SessionPrWaitForReviewDependencies &
@@ -88,11 +103,25 @@ interface SessionPrDriveResultBase {
   elapsedMs: number;
 }
 
+/**
+ * Review payload shape returned in every drive result: trimmed by default
+ * (mt#2656), full `ReviewListEntry` when `params.fullBody: true`. See
+ * `pr-wait-for-review-subcommand.ts`'s `SessionPrWaitForReviewMatch.review`
+ * doc for the discrimination rule (`findings` array vs. `body` string).
+ */
+export type SessionPrDriveReviewPayload = ReviewListEntry | TrimmedReview;
+
+/**
+ * Checks payload shape returned when checks were waited on: trimmed by
+ * default (mt#2656), full `ChecksResult` when `params.fullBody: true`.
+ */
+export type SessionPrDriveChecksPayload = ChecksResult | TrimmedChecksResult;
+
 /** Review approved and checks passed (or checks were explicitly skipped). */
 export interface SessionPrDriveReadyToMerge extends SessionPrDriveResultBase {
   state: "READY_TO_MERGE";
-  review: ReviewListEntry;
-  checks: ChecksResult | null;
+  review: SessionPrDriveReviewPayload;
+  checks: SessionPrDriveChecksPayload | null;
 }
 
 /**
@@ -103,14 +132,14 @@ export interface SessionPrDriveReadyToMerge extends SessionPrDriveResultBase {
  */
 export interface SessionPrDriveReviewBlocked extends SessionPrDriveResultBase {
   state: "CHANGES_REQUESTED" | "COMMENT" | "UNRECOGNIZED_REVIEW_STATE";
-  review: ReviewListEntry;
+  review: SessionPrDriveReviewPayload;
 }
 
 /** Review approved, but CI checks failed or timed out waiting for them. */
 export interface SessionPrDriveChecksBlocked extends SessionPrDriveResultBase {
   state: "CHECKS_FAILED" | "CHECKS_TIMEOUT";
-  review: ReviewListEntry;
-  checks: ChecksResult;
+  review: SessionPrDriveReviewPayload;
+  checks: SessionPrDriveChecksPayload;
 }
 
 /** No matching review appeared within the review-wait timeout. */
@@ -152,6 +181,7 @@ export async function sessionPrDrive(
         requireCurrentHead: params.requireCurrentHead,
         timeoutSeconds: params.reviewTimeoutSeconds,
         intervalSeconds: params.reviewIntervalSeconds,
+        fullBody: params.fullBody,
       },
       deps
     );
@@ -185,7 +215,7 @@ export async function sessionPrDrive(
       return { state: "READY_TO_MERGE", review, checks: null, elapsedMs: now() - start };
     }
 
-    const checks = await sessionPrChecks(
+    const rawChecks = await sessionPrChecks(
       {
         sessionId: params.sessionId,
         task: params.task,
@@ -197,10 +227,18 @@ export async function sessionPrDrive(
       deps
     );
 
-    if (checks.timedOut) {
+    // mt#2656: trimmed by default (drop the per-check breakdown once all
+    // pass — only failing/pending checks are worth surfacing). Branching on
+    // timedOut/allPassed below reads `rawChecks` (always the full shape) so
+    // the branch decisions are unaffected by the payload trim.
+    const checks: SessionPrDriveChecksPayload = params.fullBody
+      ? rawChecks
+      : trimChecksResult(rawChecks);
+
+    if (rawChecks.timedOut) {
       return { state: "CHECKS_TIMEOUT", review, checks, elapsedMs: now() - start };
     }
-    if (!checks.allPassed) {
+    if (!rawChecks.allPassed) {
       return { state: "CHECKS_FAILED", review, checks, elapsedMs: now() - start };
     }
 

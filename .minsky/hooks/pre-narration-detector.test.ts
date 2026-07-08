@@ -6,8 +6,10 @@ import { join } from "node:path";
 import {
   detectPreNarration,
   elideMarkdownContexts,
+  extractWindowToolUseNames,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
+  TRAILING_WINDOW_TURNS,
   run,
 } from "./pre-narration-detector";
 import { parseTranscript, extractLastAssistantTurn } from "./transcript";
@@ -15,6 +17,8 @@ import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 
 const CREATED_PR_CLAIM = "Created PR #4242.";
+const APPROVED_CLAIM = "The review came back: APPROVED, no findings.";
+const PR_CREATE_TOOL = "mcp__minsky__session_pr_create";
 
 // ---------------------------------------------------------------------------
 // Transcript JSONL helpers
@@ -100,10 +104,7 @@ describe("detectPreNarration — claim without matching tool", () => {
   });
 
   test("'Created PR #123' WITH session_pr_create in the turn → not flagged", () => {
-    const turn = [
-      makeAssistantLine("Created PR #123."),
-      makeToolUseLine("mcp__minsky__session_pr_create"),
-    ];
+    const turn = [makeAssistantLine("Created PR #123."), makeToolUseLine(PR_CREATE_TOOL)];
     const matches = detectPreNarration(turn);
     expect(matches.some((m) => m.category === "pr-created")).toBe(false);
   });
@@ -133,7 +134,7 @@ describe("detectPreNarration — claim without matching tool", () => {
   });
 
   test("'review came back APPROVED' with no review tool → flagged (review-approved)", () => {
-    const turn = [makeAssistantLine("The review came back: APPROVED, no findings.")];
+    const turn = [makeAssistantLine(APPROVED_CLAIM)];
     const matches = detectPreNarration(turn);
     expect(matches.some((m) => m.category === "review-approved")).toBe(true);
   });
@@ -148,6 +149,113 @@ describe("detectPreNarration — claim without matching tool", () => {
 
   test("empty turn → no matches", () => {
     expect(detectPreNarration([]).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-turn suppression — trailing window (mt#2671)
+// ---------------------------------------------------------------------------
+
+describe("cross-turn suppression — trailing window (mt#2671)", () => {
+  const WAIT_TOOL = "mcp__minsky__session_pr_wait-for-review";
+
+  /**
+   * Transcript: verdict fetched at turn N, back-reference two turns later.
+   * The trailing user line models the CURRENT prompt (extractLastAssistantTurn
+   * extracts the segment between the last two real prompts, so the claim turn
+   * must sit before a final prompt — the real hook-invocation shape).
+   */
+  function transcriptWithPriorFetch(claimText: string, fetchTool: string) {
+    return [
+      makeUserLine(),
+      makeAssistantToolUseLine(fetchTool),
+      makeToolResultLine(),
+      makeAssistantLine("Review result received."),
+      makeUserLine(),
+      makeAssistantLine("Pushed the fix."),
+      makeUserLine(),
+      makeAssistantLine(claimText),
+      makeUserLine(),
+    ];
+  }
+
+  test("AT1/AT3: CHANGES_REQUESTED back-reference with wait-for-review 2 turns back → suppressed", () => {
+    const lines = transcriptWithPriorFetch(
+      "As established, the bot returned CHANGES_REQUESTED on the first round.",
+      WAIT_TOOL
+    );
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const matches = detectPreNarration(turn, windowTools);
+    expect(matches.some((m) => m.category === "review-approved")).toBe(false);
+  });
+
+  test("AT1 negative / SC2: same prose with NO fetch anywhere in the window → still fires", () => {
+    const lines = [
+      makeUserLine(),
+      makeAssistantLine("Investigating."),
+      makeUserLine(),
+      makeAssistantLine(APPROVED_CLAIM),
+      makeUserLine(),
+    ];
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const matches = detectPreNarration(turn, windowTools);
+    expect(matches.some((m) => m.category === "review-approved")).toBe(true);
+  });
+
+  test("AT2: 'PR was created' with session_pr_create in a prior turn → suppressed", () => {
+    const lines = transcriptWithPriorFetch(
+      "Recall the PR was created earlier; now driving convergence.",
+      PR_CREATE_TOOL
+    );
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    const matches = detectPreNarration(turn, windowTools);
+    expect(matches.some((m) => m.category === "pr-created")).toBe(false);
+  });
+
+  test("a backing tool call OLDER than the window does not suppress", () => {
+    const lines: ReturnType<typeof makeUserLine>[] = [
+      makeUserLine(),
+      makeAssistantToolUseLine(WAIT_TOOL),
+      makeAssistantLine("Fetched long ago."),
+    ];
+    // Push TRAILING_WINDOW_TURNS filler turns so the fetch falls outside the window.
+    for (let i = 0; i < TRAILING_WINDOW_TURNS; i++) {
+      lines.push(makeUserLine(), makeAssistantLine(`Filler turn ${i}.`));
+    }
+    // Claim turn + trailing current prompt (the real hook-invocation shape).
+    lines.push(
+      makeUserLine(),
+      makeAssistantLine("The review came back: APPROVED."),
+      makeUserLine()
+    );
+    const turn = extractLastAssistantTurn(lines as never);
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    expect(windowTools.has(WAIT_TOOL)).toBe(false);
+    const matches = detectPreNarration(turn, windowTools);
+    expect(matches.some((m) => m.category === "review-approved")).toBe(true);
+  });
+
+  test("extractWindowToolUseNames collects tools from current and prior in-window turns", () => {
+    const lines = [
+      makeUserLine(),
+      makeAssistantToolUseLine("toolA"),
+      makeUserLine(),
+      makeAssistantToolUseLine("toolB"),
+      makeUserLine(),
+      makeAssistantLine("Current turn, no tools."),
+    ];
+    const windowTools = extractWindowToolUseNames(lines as never, TRAILING_WINDOW_TURNS);
+    expect(windowTools.has("toolA")).toBe(true);
+    expect(windowTools.has("toolB")).toBe(true);
+  });
+
+  test("omitting the window parameter preserves same-turn-only semantics", () => {
+    const turn = [makeAssistantLine(APPROVED_CLAIM)];
+    const matches = detectPreNarration(turn as never);
+    expect(matches.some((m) => m.category === "review-approved")).toBe(true);
   });
 });
 
@@ -249,7 +357,7 @@ describe("pre-narration-detector E2E", () => {
       buildTranscriptJSONL([
         makeUserLine(),
         makeAssistantLine("Calling create now."),
-        makeAssistantToolUseLine("mcp__minsky__session_pr_create"),
+        makeAssistantToolUseLine(PR_CREATE_TOOL),
         makeToolResultLine(),
         makeAssistantLine(CREATED_PR_CLAIM),
         makeUserLine(),

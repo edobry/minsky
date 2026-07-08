@@ -4,18 +4,30 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
-A PreToolUse hook on `mcp__minsky__tasks_status_set` (READY transition) and
-`mcp__minsky__session_start` that blocks advancing a task to READY, or binding a
-session to it, when that task's spec was **never surfaced in-session**. This is
-Seam 1 of the "task-hijack" guard (mt#2515, under parent mt#2511): bind / advance
-/ complete a task you never read.
+A PreToolUse hook on `mcp__minsky__tasks_status_set` (READY transition),
+`mcp__minsky__session_start`, and `mcp__minsky__tasks_dispatch` (existing-task mode
+only, mt#2657) that blocks advancing a task to READY, or binding a session to it,
+when that task's spec was **never surfaced in-session**. This is Seam 1 of the
+"task-hijack" guard (mt#2515, under parent mt#2511): bind / advance / complete a
+task you never read.
 
 **Hook file:** `.claude/hooks/check-task-spec-read.ts`
+
+**mt#2657 note — `tasks_dispatch` coverage.** `tasks_dispatch` collapses
+task-status-walk + `session_start` + prompt-generation into one call. When
+dispatching an EXISTING task (a `taskId` param is present), the command performs
+the same advance/bind internally, IN-PROCESS — invisible to this hook if it only
+matched `tasks_status_set`/`session_start`, since a PreToolUse event fires once per
+TOP-LEVEL harness tool call, not per internal domain-function call. Guarding
+`tasks_dispatch` directly is how the one-call path composes this guard rather than
+silently bypassing it. New-task mode (`title`, no `taskId`) is NOT guarded — a
+freshly created task has no pre-existing spec to have skipped reading.
 
 **How it works:**
 
 1. Resolves the target task id from `tool_input` — `taskId` for `tasks_status_set`
-   (only when `status == "READY"`; other transitions pass), `task` (falling back
+   (only when `status == "READY"`; other transitions pass) and for `tasks_dispatch`
+   (only when `taskId` is present — existing-task mode), `task` (falling back
    to `taskId`) for `session_start`. Ids are normalised (lowercase, strip `#` /
    whitespace) so `mt#2515` / `MT#2515` / `mt2515` compare equal.
 2. Resolves the transcript CANDIDATE set via `resolveTranscriptCandidates` in
@@ -100,3 +112,5 @@ the naming task; the false DONE is irreversible.
 - discipline memory `57c9e939` — "the merge AUTO-marks DONE; auto-DONE is
   irreversible" (the structural escalation target)
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+- mt#2657 — one-call dispatch for existing tasks (`tasks_dispatch` `taskId` mode);
+  extended this guard to cover the collapsed call rather than bypassing it

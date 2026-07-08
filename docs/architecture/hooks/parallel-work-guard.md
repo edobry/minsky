@@ -4,12 +4,28 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
-A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
-an open PR or a commit merged to main in the last 24 hours. This is the Tier-3 structural
-ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in `/plan-task` gate
-criterion (g) and `/implement-task` §0a.
+A PreToolUse hook on `mcp__minsky__session_start` — and, since mt#2657 R3, on
+`mcp__minsky__tasks_dispatch` when it carries an existing-task `taskId` — blocks sessions whose
+in-scope files overlap an open PR or a commit merged to main in the last 24 hours. This is the
+Tier-3 structural ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in
+`/plan-task` gate criterion (g) and `/implement-task` §0a.
 
 **Hook file:** `.claude/hooks/parallel-work-guard.ts`
+
+**mt#2657 R3 note — `tasks_dispatch` coverage (PR #1837 review 4651664356).**
+`tasks_dispatch`'s existing-task mode (a `taskId` param, not `title`) walks the task's status to
+READY and calls `SessionService.start()` IN-PROCESS — the same session-bind action
+`session_start` performs as a top-level tool call. Before this fix, the open-PR sweep's
+PreToolUse matcher covered only `mcp__minsky__session_start`, so a one-call dispatch of an
+existing task could bind a session without the open-PR check ever running — silently weakening
+the guard for the collapsed dispatch path. The fix mirrors the bind/advance spec-read guard's
+`DISPATCH_TOOL` approach (`check-task-spec-read.ts` / mt#2657): `resolveSessionStartLikeTaskId`
+resolves a `taskId` for `session_start` (its `task`/`taskId` field) OR for `tasks_dispatch`
+existing-task mode (its `taskId` field), and "" for anything else — including `tasks_dispatch`
+new-task mode (`title`, no `taskId`), which creates a fresh task in-call with nothing
+pre-existing to collide with, so it is intentionally NOT covered by this sweep. The denial
+message names the actual action (`session_start` vs `one-call-dispatching`) via
+`formatBlockMessage`'s `actionLabel` parameter.
 
 **Checks run:**
 
@@ -95,6 +111,27 @@ guard can never silently block.
 would-be duplicate match. The override env var is registered in `HOOK_ONLY_ENV_VARS`
 (`packages/domain/src/configuration/sources/environment.ts`) per the
 `custom/no-unregistered-minsky-env-var` rule (mt#1788).
+
+**Mid-session-reachable override (mt#2658, ADR-028 D8):** the env var above is read from the
+harness's launch-time process env — a value set via `Bash` mid-session never reaches this
+hook's sibling subprocess, so an agent that hits a false-positive DURING a session cannot
+self-serve `MINSKY_FORCE_DUPLICATE_OK=1` (the originating incident below hit exactly this and
+worked around it by retitling the child, which is an anti-pattern — see
+`feedback_use_sanctioned_cli_override_for_mcp_scoped_guards_dont_retitle_to_dodge`). The
+reachable alternative is a TTL-bound, reason-mandatory grant file:
+
+```bash
+bun scripts/grant-guard-override.ts --guard duplicate-child-matcher \
+  --scope mt#2370 --reason "distinct sibling, not a concurrent duplicate" [--ttl-minutes 30]
+```
+
+The guard consults this channel (via `.minsky/hooks/dispatcher.ts`'s `checkOverride()`, scoped
+to the parent task id) whenever `MINSKY_FORCE_DUPLICATE_OK` isn't already set; a matching,
+unexpired grant bypasses with the same audit-line shape, additionally naming
+`source=grant reason="<the grant's reason>"`. See `.minsky/hooks/guard-grant-store.ts` for the
+grant schema and `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md` §D8 for the
+design rationale (generalizes mt#2651's merge-grant store from a single guard/scope pair to
+any `(guardName, scope)` pair).
 
 **Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
 umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent

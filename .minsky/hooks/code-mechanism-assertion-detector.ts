@@ -163,20 +163,66 @@ function isPlausibleSymbol(tok: string): boolean {
  * scanning the slice, so no real symbol is lost.
  */
 function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
-  const start = Math.max(0, anchorIndex - window);
-  const end = Math.min(text.length, anchorIndex + window);
+  let start = Math.max(0, anchorIndex - window);
+  let end = Math.min(text.length, anchorIndex + window);
+
+  // Boundary expansion (mt#2673): a raw character-offset cut can land
+  // MID-IDENTIFIER, making `\b` match at the cut point and emitting truncated
+  // tails as separate "symbols" ("ion_pr_drive" / "on_pr_drive" from
+  // "session_pr_drive" — the 2026-07-07 calibration records). Expand both
+  // boundaries outward over WORD characters only (PR #1835 R1 nit: `/`, `-`,
+  // `.` excluded so path-like prose never over-expands the slice) so a \w
+  // token straddling the window is captured whole. A backticked span cut by
+  // the window simply fails to match (missed, not junk) — only \w-token
+  // truncation produced the junk-claims bug class.
+  const wordChar = /\w/;
+  while (start > 0 && wordChar.test(text[start - 1] ?? "") && wordChar.test(text[start] ?? "")) {
+    start--;
+  }
+  while (
+    end < text.length &&
+    wordChar.test(text[end] ?? "") &&
+    wordChar.test(text[end - 1] ?? "")
+  ) {
+    end++;
+  }
+
   const slice = text.slice(start, end);
-  const found = new Set<string>();
+
+  // Collect occurrences with extraction class + position so dedup targets
+  // SAME-CLASS STRICT CONTAINMENT only (PR #1835 R1 blocking finding): a
+  // truncation residue occupies a range strictly inside the full token's
+  // range in the same regex class, while a separately-mentioned substring
+  // (`drive` alongside `session_pr_drive`) occupies a disjoint range, and a
+  // camel sub-identifier inside a backticked dotted token (`maxBuffer` in
+  // `cfg.maxBuffer`) is a different class — both of those are kept.
+  type Occurrence = { tok: string; cls: "backtick" | "camel" | "snake"; s: number; e: number };
+  const occs: Occurrence[] = [];
 
   for (const m of slice.matchAll(BACKTICK_SYMBOL_RE)) {
     const raw = m[1] ?? "";
-    if (isPlausibleSymbol(raw)) found.add(raw);
+    if (isPlausibleSymbol(raw)) {
+      const s = (m.index ?? 0) + 1;
+      occs.push({ tok: raw, cls: "backtick", s, e: s + raw.length });
+    }
   }
   for (const m of slice.matchAll(CAMEL_CASE_RE)) {
-    if (isPlausibleSymbol(m[0])) found.add(m[0]);
+    if (isPlausibleSymbol(m[0])) {
+      occs.push({ tok: m[0], cls: "camel", s: m.index ?? 0, e: (m.index ?? 0) + m[0].length });
+    }
   }
   for (const m of slice.matchAll(SNAKE_CASE_RE)) {
-    if (isPlausibleSymbol(m[0])) found.add(m[0]);
+    if (isPlausibleSymbol(m[0])) {
+      occs.push({ tok: m[0], cls: "snake", s: m.index ?? 0, e: (m.index ?? 0) + m[0].length });
+    }
+  }
+
+  const found = new Set<string>();
+  for (const o of occs) {
+    const containedInSibling = occs.some(
+      (p) => p.cls === o.cls && p.s <= o.s && p.e >= o.e && p.e - p.s > o.e - o.s
+    );
+    if (!containedInSibling) found.add(o.tok);
   }
   return [...found];
 }
@@ -278,9 +324,23 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
 
 export interface CodeMechanismDetectionResult {
   matched: boolean;
-  /** Distinct unbacked (symbol, predicate) claims, truncated for logging. */
+  /**
+   * Distinct UNBACKED (symbol, predicate) claims, truncated for logging.
+   * A claim whose symbol appears in the same-turn verification corpus is
+   * excluded at claim level and never appears here (mt#2673 SC1).
+   */
   claims: Array<{ symbol: string; predicate: string }>;
+  /**
+   * TURN-level aggregate (mt#2673): true when at least one (symbol,
+   * predicate) pair elsewhere in the turn WAS backed by the verification
+   * corpus. NOT a claim-level flag on the `claims` above — those are
+   * definitionally unbacked. This ambiguity is exactly how the 2026-07-08
+   * calibration review misread the 22:13Z record; see `backedClaimCount`
+   * for the count of excluded-as-backed pairs.
+   */
   hadSameTurnRead: boolean;
+  /** Number of (symbol, predicate) pairs excluded from `claims` as backed (mt#2673). */
+  backedClaimCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +362,7 @@ export function detectCodeMechanismAssertion(
     matched: false,
     claims: [],
     hadSameTurnRead: false,
+    backedClaimCount: 0,
   };
   if (!assistantText) return empty;
 
@@ -311,7 +372,7 @@ export function detectCodeMechanismAssertion(
 
   const claims: Array<{ symbol: string; predicate: string }> = [];
   const seen = new Set<string>();
-  let anyBacked = false;
+  const backedSeen = new Set<string>();
 
   for (const pattern of PREDICATE_PATTERNS) {
     const globalFlags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
@@ -320,11 +381,11 @@ export function detectCodeMechanismAssertion(
       const idx = m.index ?? 0;
       const symbols = symbolsNear(prose, idx, SYMBOL_PROXIMITY_CHARS);
       for (const sym of symbols) {
+        const key = `${sym}::${m[0].toLowerCase()}`;
         if (symbolBacked(sym)) {
-          anyBacked = true;
+          backedSeen.add(key);
           continue;
         }
-        const key = `${sym}::${m[0].toLowerCase()}`;
         if (seen.has(key)) continue;
         seen.add(key);
         claims.push({ symbol: sym, predicate: m[0].slice(0, 40) });
@@ -335,7 +396,8 @@ export function detectCodeMechanismAssertion(
   return {
     matched: claims.length > 0,
     claims,
-    hadSameTurnRead: anyBacked,
+    hadSameTurnRead: backedSeen.size > 0,
+    backedClaimCount: backedSeen.size,
   };
 }
 
@@ -440,6 +502,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       session_id: input.session_id,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
+      backedClaimCount: result.backedClaimCount,
     },
   };
 
@@ -524,6 +587,7 @@ export async function main(): Promise<void> {
       session_id: input.session_id,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
+      backedClaimCount: result.backedClaimCount,
     });
   }
 

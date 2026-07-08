@@ -1,11 +1,21 @@
 #!/usr/bin/env bun
-// PreToolUse hook: block mcp__minsky__session_start when parallel work is detected.
+// PreToolUse hook: block mcp__minsky__session_start — or mcp__minsky__tasks_dispatch in
+// existing-task mode (a `taskId` param present, mt#2657 R3 fix) — when parallel work is
+// detected.
 //
 // Rationale: Starting a new session while another UNMERGED open PR touches the same
 // files produces silent merge conflicts and duplicated effort. This hook enforces the
 // parallel-work check that mt#1305 added to the /plan-task and /implement-task skills —
 // but structurally, at the tool call boundary, so it fires regardless of which skill
 // (or no skill) led to session_start.
+//
+// mt#2657 note: `tasks_dispatch` in existing-task mode calls `SessionService.start()`
+// IN-PROCESS — the same session-bind action `session_start` performs as a top-level tool
+// call. Guarding `tasks_dispatch` directly (scoped to existing-task mode via
+// `resolveSessionStartLikeTaskId`) is how the one-call dispatch path composes this open-PR
+// sweep rather than silently bypassing it, mirroring `check-task-spec-read.ts`'s
+// DISPATCH_TOOL approach for the bind/advance spec-read guard. New-task mode (`title`, no
+// `taskId`) is not covered by this sweep — nothing pre-existing to collide with.
 //
 // Two checks are run:
 //   A. Open-PR sweep (BLOCKING): any open PR whose changed files overlap the task's
@@ -28,6 +38,9 @@
 
 import { readInput, writeOutput, execWithPath } from "./types";
 import type { ToolHookInput } from "./types";
+import { checkOverride } from "./dispatcher";
+import type { OverrideResult } from "./dispatcher";
+import { GUARD_REGISTRY } from "./registry";
 
 // NOTE: execWithPath is centralized in types.ts and imported above.
 // This avoids duplicating the PATH-augmentation logic across hooks.
@@ -1241,9 +1254,19 @@ export function runParallelWorkChecks(
 // Denial message formatting
 // ---------------------------------------------------------------------------
 
-export function formatBlockMessage(taskId: string, collisions: ParallelWorkCollision[]): string {
+export function formatBlockMessage(
+  taskId: string,
+  collisions: ParallelWorkCollision[],
+  /**
+   * Names the action being blocked (mt#2657 R3 fix). Defaults to "session_start"
+   * for the original Tier-3 ceiling; `tasks_dispatch`'s existing-task mode passes
+   * "one-call-dispatching" (mirroring `check-task-spec-read.ts`'s `buildDenialReason`
+   * action-naming convention) so the denial message names what actually happened.
+   */
+  actionLabel: string = "session_start"
+): string {
   const lines: string[] = [
-    `Parallel-work guard: session_start for ${taskId} blocked — in-scope files overlap with active work.`,
+    `Parallel-work guard: ${actionLabel} for ${taskId} blocked — in-scope files overlap with active work.`,
     "",
   ];
 
@@ -1701,7 +1724,14 @@ export function formatDuplicateBlockMessage(
   );
   lines.push("child instead of creating a second one.");
   lines.push("");
-  lines.push("If this is genuinely a distinct task, set MINSKY_FORCE_DUPLICATE_OK=1 and retry.");
+  lines.push("If this is genuinely a distinct task, override via ONE of:");
+  lines.push("  1. Set MINSKY_FORCE_DUPLICATE_OK=1 (only reachable BEFORE the harness launches —");
+  lines.push("     an env var set mid-session via Bash never reaches this hook's subprocess).");
+  lines.push("  2. Issue a mid-session, reason-mandatory grant (mt#2658 — reachable from inside");
+  lines.push("     the current session, unlike option 1):");
+  lines.push(
+    `     bun scripts/grant-guard-override.ts --guard ${DUPLICATE_CHILD_GUARD_NAME} --scope ${parent} --reason "<why this is distinct>"`
+  );
   return lines.join("\n");
 }
 
@@ -1747,6 +1777,93 @@ export function decideTasksCreateGuard(
   return { action: "permit" };
 }
 
+// ---------------------------------------------------------------------------
+// Override resolution — env var + grant-file channel (Phase-7 adjunct, mt#2658)
+// ---------------------------------------------------------------------------
+
+/**
+ * This guard's name in the grant-file channel (`.minsky/hooks/guard-grant-
+ * store.ts`) — mt#2658's tracking task and originating incident. NOT
+ * dispatcher-migrated (this hook remains a standalone `PreToolUse`
+ * registration, matched directly in `.claude/settings.json`), so it is not
+ * part of `GUARD_REGISTRY` — but `checkOverride()` (imported from
+ * `./dispatcher`) is a plain exported function usable outside the
+ * dispatcher's own `runDispatcher()` loop, and this guard uses it directly
+ * for BOTH the unified `MINSKY_HOOK_OVERRIDE` env var (a bonus — this guard
+ * previously only recognized its own bespoke `MINSKY_FORCE_DUPLICATE_OK`)
+ * and the new grant-file channel.
+ */
+export const DUPLICATE_CHILD_GUARD_NAME = "duplicate-child-matcher";
+
+/**
+ * The `checkOverride()`-known-guard-names universe for this guard's calls:
+ * the live `GUARD_REGISTRY` names, plus this guard's own name (which isn't
+ * itself a dispatcher registration). Without this, an operator correctly
+ * setting `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` would still be
+ * honored (the match check doesn't consult `knownGuardNames`), but would
+ * ALSO get a spurious "does not match any registered guard name" stderr
+ * warning — this constant prevents that false-typo signal.
+ */
+const KNOWN_GUARD_NAMES_WITH_SELF: readonly string[] = [
+  ...GUARD_REGISTRY.map((r) => r.name),
+  DUPLICATE_CHILD_GUARD_NAME,
+];
+
+/** Resolution of whether the duplicate-child guard's override is active, and why. */
+export type DuplicateGuardOverrideResolution =
+  | { active: false }
+  | { active: true; source: "env"; reason?: undefined }
+  | { active: true; source: "grant"; reason: string | undefined };
+
+/**
+ * Pure decision (given an injected `checkOverrideFn`) for whether the
+ * duplicate-child guard's override is active, and — when it is — whether
+ * that came from an env var (the legacy `MINSKY_FORCE_DUPLICATE_OK=1`, OR
+ * the unified `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` that
+ * `checkOverrideFn` also recognizes) or a grant-file match (mt#2658).
+ * `parent` is the scope qualifier for the grant-file lookup; when absent
+ * (no parent on the `tasks_create` call), the grant-file channel cannot be
+ * consulted (there is nothing to scope the grant to) — only the env-var
+ * channels are checked.
+ *
+ * `checkOverrideFn`'s `OverrideResult` conflates two provenances behind one
+ * `overridden: true` — `grantReason` is present ONLY for a grant-file match
+ * (`.minsky/hooks/guard-grant-store.ts` grants always carry a mandatory
+ * `reason`); an env-var-sourced override (either channel) never sets it. So
+ * `result.grantReason !== undefined` is the correct discriminator for
+ * `source` below — NOT "did `checkOverrideFn` return `overridden: true`,"
+ * which would mislabel a `MINSKY_HOOK_OVERRIDE`-sourced hit as `"grant"`.
+ *
+ * `checkOverrideFn` is injected so this stays hermetically testable without
+ * touching the filesystem (mirrors `decideTasksCreateGuard`'s
+ * `fetchChildren` injection pattern).
+ */
+export function resolveDuplicateGuardOverride(
+  parent: string | undefined,
+  env: NodeJS.ProcessEnv,
+  checkOverrideFn: (
+    guardName: string,
+    env: NodeJS.ProcessEnv,
+    options?: { knownGuardNames?: readonly string[]; scope?: string }
+  ) => OverrideResult = checkOverride
+): DuplicateGuardOverrideResolution {
+  if (env["MINSKY_FORCE_DUPLICATE_OK"] === "1") {
+    return { active: true, source: "env" };
+  }
+
+  const result = checkOverrideFn(DUPLICATE_CHILD_GUARD_NAME, env, {
+    knownGuardNames: KNOWN_GUARD_NAMES_WITH_SELF,
+    scope: parent,
+  });
+  if (result.overridden && result.grantReason !== undefined) {
+    return { active: true, source: "grant", reason: result.grantReason };
+  }
+  if (result.overridden) {
+    return { active: true, source: "env" };
+  }
+  return { active: false };
+}
+
 /** Entrypoint wrapper: resolve the decision and map it to hook output. */
 function runTasksCreateGuard(input: ToolHookInput): void {
   // Observability (PR #1660 R1 BLOCKING): any unexpected throw is surfaced on
@@ -1766,10 +1883,14 @@ function runTasksCreateGuard(input: ToolHookInput): void {
 }
 
 function runTasksCreateGuardInner(input: ToolHookInput): void {
-  const overrideActive = process.env["MINSKY_FORCE_DUPLICATE_OK"] === "1";
+  const parentForScope =
+    typeof input.tool_input["parent"] === "string"
+      ? (input.tool_input["parent"] as string)
+      : undefined;
+  const overrideResolution = resolveDuplicateGuardOverride(parentForScope, process.env);
   const decision = decideTasksCreateGuard(input.tool_input, {
     fetchChildren: (parent) => fetchTaskChildren(parent),
-    overrideActive,
+    overrideActive: overrideResolution.active,
   });
 
   switch (decision.action) {
@@ -1783,8 +1904,15 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
         typeof input.tool_input["parent"] === "string" ? input.tool_input["parent"] : "";
       const title = typeof input.tool_input["title"] === "string" ? input.tool_input["title"] : "";
       const ts = new Date().toISOString();
+      const source = overrideResolution.active ? overrideResolution.source : "env";
+      const reasonPart =
+        overrideResolution.active &&
+        overrideResolution.source === "grant" &&
+        overrideResolution.reason
+          ? ` reason="${overrideResolution.reason}"`
+          : "";
       process.stdout.write(
-        `[parallel-work-guard] override fired: parent=${parent}, title="${title}", duplicate_match=${decision.auditMatch} ts=${ts}\n`
+        `[parallel-work-guard] override fired: parent=${parent}, title="${title}", duplicate_match=${decision.auditMatch} source=${source}${reasonPart} ts=${ts}\n`
       );
       return;
     }
@@ -1803,6 +1931,52 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
 }
 
 // ---------------------------------------------------------------------------
+// session_start / tasks_dispatch (existing-task mode) open-PR-sweep routing
+// (mt#2657 R3 fix, PR #1837 review 4651664356)
+//
+// `tasks_dispatch` in existing-task mode (a `taskId` param present) walks the
+// task's status to READY and calls `SessionService.start()` IN-PROCESS — the
+// same session-binding action `session_start` performs as a top-level tool
+// call. Before this fix, the open-PR sweep's PreToolUse matcher covered only
+// `mcp__minsky__session_start`, so a one-call dispatch of an existing task
+// could bind a session without ever running the open-PR file-overlap check —
+// silently weakening this guard for the collapsed dispatch path, in
+// violation of mt#2657's spec ("honoring ALL existing guards in-band").
+//
+// Fix mirrors `check-task-spec-read.ts`'s DISPATCH_TOOL approach: the guard
+// now also matches `mcp__minsky__tasks_dispatch`, but ONLY in existing-task
+// mode. New-task mode (`title`, no `taskId`) creates a fresh task in-call —
+// there is nothing PRE-EXISTING for this sweep to compare against, so it
+// resolves to "" and is skipped (same pass-through semantics as the
+// spec-read guard's new-task-mode carve-out).
+// ---------------------------------------------------------------------------
+
+export const DISPATCH_TOOL_NAME = "mcp__minsky__tasks_dispatch";
+
+/**
+ * Resolve the target taskId for the open-PR sweep from a `session_start` or
+ * existing-task-mode `tasks_dispatch` tool call. Returns "" for any other
+ * tool, or for `tasks_dispatch` new-task mode (no `taskId`) — both cases the
+ * caller treats as "skip, nothing to check."
+ */
+export function resolveSessionStartLikeTaskId(input: ToolHookInput): string {
+  if (input.tool_name === "mcp__minsky__session_start") {
+    // The MCP `session_start` tool exposes its task identifier as `task`. We
+    // also accept `taskId` for forward compatibility in case the surface is
+    // renamed; whichever is present wins.
+    return (
+      (input.tool_input.task as string | undefined) ??
+      (input.tool_input.taskId as string | undefined) ??
+      ""
+    );
+  }
+  if (input.tool_name === DISPATCH_TOOL_NAME) {
+    return (input.tool_input.taskId as string | undefined) ?? "";
+  }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
 
@@ -1816,23 +1990,19 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Only act on session_start (the original Tier-3 ceiling)
-  if (input.tool_name !== "mcp__minsky__session_start") {
+  // session_start (the original Tier-3 ceiling) OR tasks_dispatch existing-task
+  // mode (mt#2657 R3 fix) — both bind a session from a taskId and must run the
+  // SAME open-PR sweep. Any other tool exits here.
+  if (input.tool_name !== "mcp__minsky__session_start" && input.tool_name !== DISPATCH_TOOL_NAME) {
     process.exit(0);
   }
 
-  // The MCP `session_start` tool exposes its task identifier as `task`. We
-  // also accept `taskId` for forward compatibility in case the surface is
-  // renamed; whichever is present wins.
-  const taskFromInput =
-    (input.tool_input.task as string | undefined) ??
-    (input.tool_input.taskId as string | undefined) ??
-    "";
-  const taskId = taskFromInput;
+  const taskId = resolveSessionStartLikeTaskId(input);
   if (!taskId) {
-    // No task identifier — can't run check; warn and allow
+    // No task identifier (session_start) or new-task-mode tasks_dispatch
+    // (nothing pre-existing to check) — can't/needn't run the check; allow.
     process.stdout.write(
-      `[parallel-work-guard] No 'task' (or 'taskId') in session_start input — check skipped\n`
+      `[parallel-work-guard] No resolvable existing-task id for ${input.tool_name} — check skipped\n`
     );
     process.exit(0);
   }
@@ -1905,11 +2075,13 @@ if (import.meta.main) {
   }
 
   if (result.blocked) {
+    const actionLabel =
+      input.tool_name === DISPATCH_TOOL_NAME ? "one-call-dispatching" : "session_start";
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: formatBlockMessage(taskId, result.collisions),
+        permissionDecisionReason: formatBlockMessage(taskId, result.collisions, actionLabel),
       },
     });
     process.exit(0);

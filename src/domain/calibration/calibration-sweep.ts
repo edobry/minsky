@@ -161,6 +161,19 @@ export interface LogWatermark {
   lastReviewedCount: number;
   /** ISO-8601 timestamp of the last review. */
   lastReviewedAt: string;
+  /**
+   * ID of an operator-routed Ask (mt#1034 / ADR-008) filed by the
+   * /calibration-review skill's Step 4 that still awaits a disposition
+   * (flip/tune/keep). Present only while the ask is open (mt#2659) — the
+   * cadence detector suppresses its normal per-turn warning for this log in
+   * favor of a single "disposition pending" line while this field is set.
+   *
+   * Cleared via `clearResolvedAskIds()` once the /calibration-review skill
+   * confirms (via `asks_list`) that the referenced ask has reached a
+   * terminal state (responded/closed/cancelled/expired) — at which point
+   * normal cadence-detector behavior resumes for this log.
+   */
+  openAskId?: string;
 }
 
 /** Shape of the full watermark store (path → mark). */
@@ -250,6 +263,12 @@ export interface CalibrationLogResult {
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
+  /**
+   * ID of a still-open disposition Ask filed for this log by a prior
+   * /calibration-review pass (mt#2659), forwarded from the watermark's
+   * `openAskId`. Undefined when no ask is on file or it has been cleared.
+   */
+  openAskId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,6 +475,7 @@ export function computeLogResult(
     // log is low-diversity), even though the Ask only fires on pastThreshold.
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
+    openAskId: watermark?.openAskId,
   };
 }
 
@@ -492,21 +512,119 @@ export async function runSweep(
  * @param results    - sweep results (used to read current total counts)
  * @param ackedPaths - set of log paths whose watermarks should be advanced
  * @param now        - timestamp string to use for lastReviewedAt
+ * @param askId      - optional ID of the disposition Ask the /calibration-review
+ *                     skill just filed covering ALL acked logs in this pass
+ *                     (mt#2659). When provided, recorded as `openAskId` on every
+ *                     advanced watermark so the cadence detector can suppress its
+ *                     per-turn warning in favor of a single pending-ask line
+ *                     until the ask is resolved (see `clearResolvedAskIds`).
+ *
+ *                     When `askId` is NOT provided, any PRE-EXISTING `openAskId`
+ *                     on the watermark being advanced is preserved verbatim, NOT
+ *                     dropped (mt#2659 review fix). Rebuilding the watermark as a
+ *                     fresh object without merging the prior entry would silently
+ *                     disable ask-aware suppression on every ordinary `ack:true`
+ *                     call that doesn't happen to also carry `askId` — clearing
+ *                     `openAskId` must stay the exclusive job of
+ *                     `clearResolvedAskIds()`, an explicit, intentional call.
  */
 export function advanceWatermarks(
   current: WatermarkStore,
   results: CalibrationLogResult[],
   ackedPaths: Set<string>,
-  now: string
+  now: string,
+  askId?: string
 ): WatermarkStore {
   const updated: WatermarkStore = { ...current };
   for (const result of results) {
     if (ackedPaths.has(result.entry.path)) {
+      const priorOpenAskId = current[result.entry.path]?.openAskId;
+      const nextOpenAskId = askId ?? priorOpenAskId;
       updated[result.entry.path] = {
         lastReviewedCount: result.totalFires,
         lastReviewedAt: now,
+        ...(nextOpenAskId ? { openAskId: nextOpenAskId } : {}),
       };
     }
   }
   return updated;
+}
+
+/**
+ * Clear `openAskId` from any watermark entries whose recorded ask id is in
+ * `resolvedAskIds` (mt#2659).
+ *
+ * Does NOT touch `lastReviewedCount` / `lastReviewedAt` — this is purely the
+ * "ask closed → resume normal cadence" transition, used once the
+ * /calibration-review skill confirms (via `asks_list`) that a previously-filed
+ * disposition ask has reached a terminal state (responded / closed /
+ * cancelled / expired). Returns a new store (does not mutate the input); a
+ * no-op (returns `current` unchanged, same reference) when `resolvedAskIds`
+ * is empty.
+ */
+export function clearResolvedAskIds(
+  current: WatermarkStore,
+  resolvedAskIds: ReadonlySet<string>
+): WatermarkStore {
+  if (resolvedAskIds.size === 0) return current;
+  const updated: WatermarkStore = { ...current };
+  for (const [path, wm] of Object.entries(current)) {
+    if (wm.openAskId && resolvedAskIds.has(wm.openAskId)) {
+      const { openAskId: _drop, ...rest } = wm;
+      updated[path] = rest;
+    }
+  }
+  return updated;
+}
+
+/**
+ * Result of `selectAckablePaths` — which past-threshold logs may be advanced
+ * (acked) this pass, and which must be skipped.
+ */
+export interface AckSelection {
+  /** Paths safe to advance via `advanceWatermarks`. */
+  ackablePaths: Set<string>;
+  /**
+   * Paths skipped because they carry a still-open disposition ask that this
+   * call is not explicitly reaffirming (mt#2659, BLOCKING 2 review fix).
+   */
+  skippedOpenAskPaths: string[];
+}
+
+/**
+ * Determine which past-threshold logs may be safely advanced (acked) in this
+ * pass, and which must be skipped because they already carry a still-open
+ * disposition ask (mt#2659).
+ *
+ * When `askId` is provided, the caller is explicitly (re)affirming an ask for
+ * every past-threshold result this call — ALL are ackable regardless of any
+ * pre-existing `openAskId`.
+ *
+ * When `askId` is NOT provided, any result whose `openAskId` is already set
+ * is skipped rather than silently advanced: per the /calibration-review
+ * skill's Step 1a, a log with an open disposition ask must not be
+ * re-classified or marked reviewed until that ask resolves (via
+ * `clearResolvedAskIds`). Advancing its watermark anyway would falsely mark
+ * an unreviewed batch of fires as "reviewed" while the operator's decision on
+ * an earlier snapshot is still outstanding.
+ *
+ * Pure — no I/O, no mutation of inputs. This is the command-adapter-facing
+ * counterpart to `advanceWatermarks`'s own openAskId-preservation behavior;
+ * together they make BOTH halves of "an ack call must never silently lose or
+ * misapply ask-aware suppression state" independently testable.
+ */
+export function selectAckablePaths(
+  pastThresholdResults: CalibrationLogResult[],
+  askId?: string
+): AckSelection {
+  const ackablePaths = new Set<string>();
+  const skippedOpenAskPaths: string[] = [];
+  for (const r of pastThresholdResults) {
+    if (!askId && r.openAskId) {
+      skippedOpenAskPaths.push(r.entry.path);
+      continue;
+    }
+    ackablePaths.add(r.entry.path);
+  }
+  return { ackablePaths, skippedOpenAskPaths };
 }

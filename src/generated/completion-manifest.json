@@ -1198,6 +1198,12 @@
               "takesValue": true
             },
             {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
               "flags": ["--execute"],
               "description": "Execute the changes (default is dry-run preview)"
             },
@@ -1679,13 +1685,23 @@
           "description": "Create a subtask, start a session, and generate a subagent prompt — all in one call",
           "options": [
             {
+              "flags": ["--title"],
+              "description": "Title for a new subtask. Required unless `taskId` is provided (existing-task mode).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task-id"],
+              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks don't get a new parent edge here), and with `description` (rejected — existing-task mode targets a task whose spec already exists; passing `description` here would be silently ignored, so it's rejected instead).",
+              "takesValue": true
+            },
+            {
               "flags": ["--instructions"],
               "description": "Work instructions for the subagent",
               "takesValue": true
             },
             {
               "flags": ["--parent-task-id"],
-              "description": "Parent task ID — creates a subtask. Omit for a root task.",
+              "description": "Parent task ID — creates a subtask. Omit for a root task. Only valid in new-task (`title`) mode.",
               "takesValue": true
             },
             {
@@ -1701,7 +1717,7 @@
             },
             {
               "flags": ["--description"],
-              "description": "Task description/spec content",
+              "description": "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — rejected when passed together with `taskId` (existing-task mode).",
               "takesValue": true
             },
             {
@@ -2700,12 +2716,16 @@
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
+                  "description": "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches (exclusive lower bound, mt#2656 — an exactly-equal submittedAt does not re-match, so you can safely pass a previous review's exact submittedAt to wait for its successor). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
                   "takesValue": true
                 },
                 {
                   "flags": ["--require-current-head"],
                   "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full review (raw markdown body, spec-verification table, embedded provenance JSON comment) instead of the default trimmed payload (mt#2656: state, submittedAt, reviewer, blocking/non-blocking finding counts, and a findings list of severity + file:line + one-sentence summary). Defaults to false."
                 }
               ]
             },
@@ -2743,12 +2763,16 @@
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches. Pass the previous terminal result's review.submittedAt when re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT. Defaults to the PR's created_at timestamp. Ignored in postMerge mode.",
+                  "description": "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches (exclusive lower bound, mt#2656). Pass the previous terminal result's review.submittedAt when re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT — the exact same review will not re-match. Defaults to the PR's created_at timestamp. Ignored in postMerge mode.",
                   "takesValue": true
                 },
                 {
                   "flags": ["--require-current-head"],
                   "description": "When true (default), only a review of the PR's current HEAD commit counts as a match (mt#2586). Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full review body and full per-check breakdown instead of the default trimmed payloads (mt#2656). Defaults to false. Ignored in postMerge mode."
                 },
                 {
                   "flags": ["--review-timeout-seconds"],
@@ -4308,6 +4332,42 @@
                   "takesValue": true
                 }
               ]
+            },
+            {
+              "name": "edit",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata.",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "Replacement title (list rendering / notifications)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--question"],
+                  "description": "Replacement question body",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--options"],
+                  "description": "Replacement decision-frame options (wholesale replace, not merge)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--context-refs"],
+                  "description": "Replacement context refs (wholesale replace, not merge)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--metadata"],
+                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--editor"],
+                  "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+                  "takesValue": true
+                }
+              ]
             }
           ]
         },
@@ -4644,6 +4704,16 @@
             {
               "flags": ["--json"],
               "description": "Output results as JSON instead of human-readable text."
+            },
+            {
+              "flags": ["--ask-id"],
+              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A past-threshold log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--clear-ask-id"],
+              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all past-threshold logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
+              "takesValue": true
             }
           ]
         },

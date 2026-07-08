@@ -34,6 +34,10 @@ const KNOWN_GUARDS = ["some-guard", "other-guard", "a", "b", "c"];
  * live GUARD_REGISTRY default rather than a synthetic KNOWN_GUARDS universe. */
 const PILOT_GUARD_NAME = "check-guessed-session-path";
 
+/** Shared grant-reason fixture (Phase-7 adjunct, mt#2658) — extracted to satisfy
+ * custom/no-magic-string-duplication. */
+const GRANT_REASON = "concurrent decomposition — distinct sibling";
+
 describe("checkOverride", () => {
   test("no env var set -> not overridden", () => {
     expect(checkOverride("some-guard", {})).toEqual({ overridden: false });
@@ -175,6 +179,109 @@ describe("checkOverride", () => {
     expect(result.overridden).toBe(true);
     expect(spy.writes).toEqual([]);
   });
+
+  // -------------------------------------------------------------------------
+  // Grant-file channel (Phase-7 adjunct, mt#2658)
+  // -------------------------------------------------------------------------
+
+  test("no scope supplied -> grant lookup is never invoked (back-compat default)", () => {
+    let called = false;
+    const result = checkOverride(
+      "some-guard",
+      {},
+      {
+        knownGuardNames: KNOWN_GUARDS,
+        findGuardGrant: () => {
+          called = true;
+          return null;
+        },
+      }
+    );
+    expect(result).toEqual({ overridden: false });
+    expect(called).toBe(false);
+  });
+
+  test("scope supplied, no matching grant -> not overridden", () => {
+    const result = checkOverride(
+      "some-guard",
+      {},
+      {
+        knownGuardNames: KNOWN_GUARDS,
+        scope: "mt#2581",
+        findGuardGrant: () => null,
+      }
+    );
+    expect(result.overridden).toBe(false);
+  });
+
+  test("scope supplied, matching grant -> overridden with grantReason", () => {
+    let seenArgs: [string, string, number] | null = null;
+    const result = checkOverride(
+      "duplicate-child-matcher",
+      {},
+      {
+        knownGuardNames: KNOWN_GUARDS,
+        scope: "mt#2581",
+        now: () => 1000,
+        findGuardGrant: (guardName, scope, nowMs) => {
+          seenArgs = [guardName, scope, nowMs];
+          return {
+            guardName,
+            scope,
+            issuedAt: "2026-07-08T00:00:00.000Z",
+            ttlMs: 1000,
+            reason: GRANT_REASON,
+          };
+        },
+      }
+    );
+    expect(result).toEqual({
+      overridden: true,
+      grantReason: GRANT_REASON,
+    });
+    expect(seenArgs).toEqual(["duplicate-child-matcher", "mt#2581", 1000]);
+  });
+
+  test("env-var override takes precedence over a grant match (grant lookup never invoked)", () => {
+    let called = false;
+    const result = checkOverride(
+      "b",
+      { [HOOK_OVERRIDE_ENV_VAR]: "b" },
+      {
+        knownGuardNames: KNOWN_GUARDS,
+        scope: "mt#2581",
+        findGuardGrant: () => {
+          called = true;
+          return { guardName: "b", scope: "mt#2581", issuedAt: "x", ttlMs: 1, reason: "unused" };
+        },
+      }
+    );
+    expect(result.overridden).toBe(true);
+    expect(result.raw).toBe("b");
+    expect(result.grantReason).toBeUndefined();
+    expect(called).toBe(false);
+  });
+
+  test("env var set but doesn't match this guard, scope supplied and grant matches -> overridden via grant, raw preserved", () => {
+    const result = checkOverride(
+      "b",
+      { [HOOK_OVERRIDE_ENV_VAR]: "other-guard" },
+      {
+        knownGuardNames: KNOWN_GUARDS,
+        scope: "mt#2581",
+        findGuardGrant: () => ({
+          guardName: "b",
+          scope: "mt#2581",
+          issuedAt: "x",
+          ttlMs: 1,
+          reason: "grant reason here",
+        }),
+      }
+    );
+    expect(result.overridden).toBe(true);
+    expect(result.raw).toBe("other-guard");
+    expect(result.grantReason).toBe("grant reason here");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -197,6 +304,25 @@ describe("buildOverrideAuditLine", () => {
   test("missing session id falls back to 'unknown'", () => {
     const line = buildOverrideAuditLine("PreToolUse", "g", undefined, () => "TS");
     expect(line).toContain("session=unknown");
+  });
+
+  test("reason (Phase-7 adjunct, mt#2658), when supplied, is included as a quoted segment", () => {
+    const line = buildOverrideAuditLine(
+      "PreToolUse",
+      PILOT_GUARD_NAME,
+      "sess-123",
+      () => "2026-07-07T00:00:00.000Z",
+      GRANT_REASON
+    );
+    expect(line).toBe(
+      `[dispatcher:PreToolUse] OVERRIDE: guard=${PILOT_GUARD_NAME} session=sess-123 reason="${GRANT_REASON}" ts=2026-07-07T00:00:00.000Z\n`
+    );
+  });
+
+  test("omitted reason produces the exact same format as before (no trailing space/segment)", () => {
+    const withReason = buildOverrideAuditLine("PreToolUse", "g", "s", () => "TS", undefined);
+    const withoutReasonParam = buildOverrideAuditLine("PreToolUse", "g", "s", () => "TS");
+    expect(withReason).toBe(withoutReasonParam);
   });
 });
 

@@ -24,7 +24,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
-import { isSessionsPayload } from "../lib/sessions-source";
+import { isConversationsPayload } from "../lib/conversations-source";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
@@ -244,7 +244,7 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
   });
 
   if (sessionsQuery.isError) {
-    return <ErrorState prefix="Failed to load sessions" error={sessionsQuery.error} />;
+    return <ErrorState prefix="Failed to load conversations" error={sessionsQuery.error} />;
   }
   if (sessionsQuery.isLoading || !sessionsQuery.data) {
     return <LoadingState />;
@@ -252,7 +252,7 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
   if (sessionsQuery.data.state === "degraded") {
     return <p className="text-muted-foreground text-sm">{sessionsQuery.data.reason}</p>;
   }
-  if (!isSessionsPayload(sessionsQuery.data.payload)) {
+  if (!isConversationsPayload(sessionsQuery.data.payload)) {
     return <ErrorState message="Unexpected payload shape" />;
   }
 
@@ -279,9 +279,9 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
 
   return (
     <>
-      {/* Session picker */}
+      {/* Conversation picker */}
       <div className="mb-3">
-        <label className="text-xs font-medium text-muted-foreground block mb-1">Session</label>
+        <label className="text-xs font-medium text-muted-foreground block mb-1">Conversation</label>
         <select
           className="w-full text-sm bg-background border border-input rounded px-2 py-1"
           value={selectedSessionId ?? ""}
@@ -323,7 +323,7 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
 
       {/* Snapshot state */}
       {selectedSessionId === null ? (
-        <p className="text-sm text-muted-foreground">Select a session to view its context.</p>
+        <p className="text-sm text-muted-foreground">Select a conversation to view its context.</p>
       ) : snapshotQuery.isError ? (
         <ErrorState prefix="Failed to load snapshot" error={snapshotQuery.error} />
       ) : snapshotQuery.isLoading || !snapshotQuery.data ? (

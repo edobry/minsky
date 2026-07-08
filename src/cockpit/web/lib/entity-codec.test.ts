@@ -186,6 +186,20 @@ describe("minskyUriToPath", () => {
     expect(minskyUriToPath("https://example.com")).toBeNull();
     expect(minskyUriToPath("minsky://pr/123")).toBeNull();
   });
+
+  test("old minsky://session/<uuid> URI still resolves after the ADR-022 stage-1 cockpit rename (mt#2686)", () => {
+    // Stored transcripts (pre-dating ADR-022) carry minsky://session/<uuid>
+    // links that name the Minsky WORKSPACE sessionId. mt#2686 renamed the
+    // cockpit component that serves /agents/:id from SessionDetailPage to
+    // WorkspaceDetailPage (and its widget from SessionDetail to
+    // WorkspaceDetail), but did NOT rename the "session" URI type or the
+    // /agents/:id path — the type->route mapping absorbs the divergence, as
+    // it already did pre-rename. A URI minted years ago must still resolve.
+    const id = SESSION_ID;
+    const uri = entityToMinskyUri("session", id);
+    expect(uri).toBe(`minsky://session/${id}`);
+    expect(minskyUriToPath(uri)).toBe(`/agents/${id}`);
+  });
 });
 
 describe("trailing prose-punctuation robustness (mt#2549)", () => {

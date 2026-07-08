@@ -122,7 +122,7 @@
         ]
       },
       {
-        "matcher": "mcp__minsky__session_start",
+        "matcher": "mcp__minsky__session_start|mcp__minsky__tasks_dispatch",
         "hooks": [
           {
             "type": "command",
@@ -172,7 +172,7 @@
         ]
       },
       {
-        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start",
+        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start|mcp__minsky__tasks_dispatch",
         "hooks": [
           {
             "type": "command",
@@ -341,65 +341,11 @@
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/auto-session-title.ts",
-            "timeout": 5,
-            "statusMessage": "Checking session label..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-current-time.ts",
-            "timeout": 5,
-            "statusMessage": "Injecting current time..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-git-state.ts",
-            "timeout": 5,
-            "statusMessage": "Injecting git state..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-prod-state.ts",
-            "timeout": 5,
-            "statusMessage": "Injecting prod state..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-dispatch-watchdog.ts",
-            "timeout": 5,
-            "statusMessage": "Checking dispatch watchdog..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/memory-search.ts",
-            "timeout": 10,
-            "statusMessage": "Searching memory for context..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/skill-staleness-detector.ts",
-            "timeout": 5,
-            "statusMessage": "Checking for skill/agent/rule staleness..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/mcp-daemon-staleness-detector.ts",
-            "timeout": 5,
-            "statusMessage": "Checking for MCP daemon staleness..."
-          },
-          {
-            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a (mt#2652): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (currently: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector). Takes the first-migrated guard's (substrate-bypass-detector) ORIGINAL slot in this block to preserve relative order vs the non-migrating UserPromptSubmit hooks above/below it — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=60 (R1 fix): this ONE process now runs all six guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget — the six standalone entries this replaced summed to 65s (15+10+10+10+10+10); 60s keeps the six guards' individual worst-case budgets intact (minus a small process-spawn-overhead saving) instead of silently capping the family at the largest single guard's old 15s. See hook-files.mdc's \"Dispatcher host-cap budget model\" paragraph.",
+            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b (mt#2652, mt#2687): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector, calibration-review-cadence-detector). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=115 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all fifteen UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Built from the Phase 2a entry's already-calibrated 60s (covering the six Phase 2a guards' worst-case 65s summed budget, minus a small process-spawn-overhead saving) plus the nine Phase 2b guards' individual worst-case budgets summed (5+5+5+5+5+10+5+5+10=55s): 60+55=115s.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 60,
+            "timeout": 115,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/calibration-review-cadence-detector.ts",
-            "timeout": 10,
-            "statusMessage": "Checking calibration-log review cadence..."
           }
         ]
       }

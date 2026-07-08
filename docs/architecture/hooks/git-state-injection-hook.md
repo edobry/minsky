@@ -4,6 +4,11 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
+**Dispatcher status:** migrated onto the ADR-028 guard-dispatcher framework (Phase 2b, mt#2687) —
+runs in-process via `dispatch-userpromptsubmit.ts`'s `GUARD_REGISTRY` entry `inject-git-state`;
+`run()` uses `ctx.budgets.gitTimeoutMs` (D6) rather than re-deriving its own host cap. See
+`guard-dispatcher-framework.md`.
+
 A `UserPromptSubmit` hook (`.claude/hooks/inject-git-state.ts`) that injects
 the current git state (branch name, working-tree status, ahead/behind counts
 vs the default branch, and the 5 most-recent commits) into every turn's

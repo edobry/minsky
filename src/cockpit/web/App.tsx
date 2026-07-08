@@ -25,17 +25,17 @@ import { ReviewerBotStatus } from "./widgets/ReviewerBotStatus";
 const AgentsPage = lazy(() =>
   import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
 );
-const SessionDetailPage = lazy(() =>
-  import("./pages/SessionDetailPage").then((m) => ({ default: m.SessionDetailPage }))
+const WorkspaceDetailPage = lazy(() =>
+  import("./pages/WorkspaceDetailPage").then((m) => ({ default: m.WorkspaceDetailPage }))
 );
 const ContextPage = lazy(() =>
   import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
 );
-const SessionPage = lazy(() =>
-  import("./pages/SessionPage").then((m) => ({ default: m.SessionPage }))
+const ConversationPage = lazy(() =>
+  import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
 );
-const SessionsPage = lazy(() =>
-  import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+const ConversationsPage = lazy(() =>
+  import("./pages/ConversationsPage").then((m) => ({ default: m.ConversationsPage }))
 );
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
@@ -409,14 +409,17 @@ export function App() {
               </ErrorBoundary>
             }
           />
-          {/* Workspace-session entity route (mt#1919): keyed by the Minsky
-              workspace sessionId — distinct from /session/:id, which takes the
-              harness agentSessionId (transcript). */}
+          {/* Workspace entity route (mt#1919): keyed by the Minsky workspace
+              sessionId — distinct from /conversation/:id, which takes the
+              harness agentSessionId (transcript). Renamed from
+              SessionDetailPage per ADR-022 stage 1 (mt#2686); the /agents/:id
+              path itself is unchanged (the Agents list/detail pair is a
+              separate naming decision, out of scope here). */}
           <Route
             path="/agents/:id"
             element={
               <ErrorBoundary id="session-detail-page">
-                <SessionDetailPage />
+                <WorkspaceDetailPage />
               </ErrorBoundary>
             }
           />
@@ -429,20 +432,23 @@ export function App() {
             }
           />
           <Route
-            path="/sessions"
+            path="/conversations"
             element={
               <ErrorBoundary id="sessions-page">
-                <SessionsPage />
+                <ConversationsPage />
               </ErrorBoundary>
             }
           />
-          {/* Session entity route (mt#2398): URL-addressable session tab; body is
-              mt#2374's ConversationView, re-homed from the retired /conversation host. */}
+          {/* Conversation entity route (mt#2398): URL-addressable conversation
+              tab; body is mt#2374's ConversationView, re-homed from the retired
+              /conversation host. Path renamed from /session/:id per ADR-022
+              stage 1 (mt#2686) — the old URL used "session" for what this page
+              always meant: a harness conversation transcript. */}
           <Route
-            path="/session/:id"
+            path="/conversation/:id"
             element={
               <ErrorBoundary id="session-page">
-                <SessionPage />
+                <ConversationPage />
               </ErrorBoundary>
             }
           />

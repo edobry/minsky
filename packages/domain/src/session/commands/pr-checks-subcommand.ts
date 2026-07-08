@@ -15,8 +15,53 @@ import {
   getErrorMessage,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
-import type { ChecksResult, RepositoryBackend } from "../../repository/index";
+import type { CheckRunResult, ChecksResult, RepositoryBackend } from "../../repository/index";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
+
+// ── Trimmed checks payload (mt#2656) ────────────────────────────────────
+
+/**
+ * Trimmed checks payload used by `session.pr.drive`'s convergence-tail mode
+ * (mt#2656). When every check passed, the per-check breakdown is dropped —
+ * the summary counts are all a caller needs to confirm green. When at least
+ * one check is not passing (failed or still pending), `failingChecks`
+ * carries just those entries (name/status/conclusion/url) so the caller can
+ * see what to fix or wait on, without the full list of already-passing
+ * check names.
+ */
+export interface TrimmedChecksResult {
+  allPassed: boolean;
+  timedOut?: boolean;
+  summary: ChecksResult["summary"];
+  /** Present (possibly empty) only when `allPassed` is false. */
+  failingChecks?: CheckRunResult[];
+}
+
+/** A check counts as "not passing" for the failingChecks filter below. */
+function isFailingOrPending(check: CheckRunResult): boolean {
+  if (check.status !== "completed") return true;
+  return (
+    check.conclusion !== "success" &&
+    check.conclusion !== "neutral" &&
+    check.conclusion !== "skipped"
+  );
+}
+
+/**
+ * Trim a full `ChecksResult` down to the mt#2656 default payload for
+ * `session.pr.drive`. Exported for unit tests and for the drive subcommand.
+ */
+export function trimChecksResult(result: ChecksResult): TrimmedChecksResult {
+  if (result.allPassed) {
+    return { allPassed: true, summary: result.summary };
+  }
+  return {
+    allPassed: false,
+    ...(result.timedOut ? { timedOut: true as const } : {}),
+    summary: result.summary,
+    failingChecks: result.checks.filter(isFailingOrPending),
+  };
+}
 
 export interface SessionPrChecksDependencies {
   sessionDB: SessionProviderInterface;

@@ -33,6 +33,8 @@ import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
   advanceWatermarks,
+  clearResolvedAskIds,
+  selectAckablePaths,
   type CalibrationLogResult,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
@@ -104,6 +106,9 @@ function formatResult(results: CalibrationLogResult[]): string {
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
     lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
+    if (r.openAskId) {
+      lines.push(`  Open ask (mt#2659):     ${r.openAskId} — disposition pending`);
+    }
     if (r.lowDiversity) {
       lines.push(`  ⚠  Low diversity (count bar hit but < 3 distinct phrases) — keep collecting`);
     }
@@ -181,6 +186,35 @@ export function registerCalibrationCommands(): void {
         required: false,
         defaultValue: false,
       },
+      askId: {
+        schema: z.string(),
+        description:
+          "ID of the disposition Ask just filed for the past-threshold logs in this pass " +
+          "(mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on " +
+          "every watermark advanced by this call so the cadence-detector hook suppresses its " +
+          "per-turn warning for these logs until the ask is resolved. A past-threshold log " +
+          "whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is " +
+          "NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather " +
+          "than silently advanced — per the /calibration-review skill's Step 1a, a log with a " +
+          "still-open disposition ask must not be re-classified or re-acked until that ask " +
+          "resolves (via `clearAskId`).",
+        required: false,
+      },
+      clearAskId: {
+        schema: z.string(),
+        description:
+          "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once " +
+          "`asks_list` confirms a previously-filed disposition ask has reached a terminal " +
+          "state (responded/closed/cancelled/expired) — clearing resumes the cadence " +
+          "detector's normal per-turn warning for the affected log(s). Independent of ack; " +
+          "applied before the sweep result is computed. Single ask ID (not an array) because " +
+          "one /calibration-review pass files exactly ONE ask covering all past-threshold logs " +
+          "in that pass, so exactly one id is ever cleared at a time in practice — this also " +
+          "sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that " +
+          "the shared command-registry's CLI bridge does not currently resolve for array-typed " +
+          "Zod schemas.",
+        required: false,
+      },
     },
     async execute(params, ctx) {
       try {
@@ -192,21 +226,48 @@ export function registerCalibrationCommands(): void {
           return readFileOrNull(join(workspacePath, relPath));
         };
 
-        const watermarks = await loadWatermarks(workspacePath);
+        let watermarks = await loadWatermarks(workspacePath);
+
+        // Clear a resolved disposition-ask reference first (mt#2659) — this
+        // is independent of --ack and does not touch lastReviewedCount/At.
+        let clearedAskId = false;
+        if (params.clearAskId) {
+          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
+          if (clearedWatermarks !== watermarks) {
+            watermarks = clearedWatermarks;
+            await saveWatermarks(workspacePath, watermarks);
+            clearedAskId = true;
+          }
+        }
+
         const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
 
-        // Advance watermarks for past-threshold logs when --ack is set
+        // Advance watermarks for past-threshold logs when --ack is set.
+        //
+        // mt#2659 review fix (BLOCKING 2): a past-threshold log whose watermark
+        // ALREADY carries an `openAskId` must NOT be silently re-acked when this
+        // call doesn't also supply `askId` — per the /calibration-review skill's
+        // Step 1a, a log with a still-open disposition ask is skipped entirely
+        // (no re-classification, no re-ack) until the ask resolves via
+        // `clearAskId`. Advancing its watermark anyway would falsely mark THIS
+        // batch of fires as "reviewed" even though nobody looked at them — the
+        // operator's outstanding decision covers an earlier snapshot, not
+        // whatever accumulated since. When `askId` IS supplied, the caller is
+        // explicitly (re)affirming an ask for every past-threshold log this
+        // call, so no log is skipped on that basis.
         let watermarkAdvanced = false;
+        let skippedOpenAskPaths: string[] = [];
         if (params.ack) {
-          const pastThresholdPaths = new Set(
-            results.filter((r) => r.pastThreshold).map((r) => r.entry.path)
-          );
-          if (pastThresholdPaths.size > 0) {
+          const pastThresholdResults = results.filter((r) => r.pastThreshold);
+          const selection = selectAckablePaths(pastThresholdResults, params.askId);
+          skippedOpenAskPaths = selection.skippedOpenAskPaths;
+          if (selection.ackablePaths.size > 0) {
             const updated = advanceWatermarks(
               watermarks,
               results,
-              pastThresholdPaths,
-              new Date().toISOString()
+              selection.ackablePaths,
+              new Date().toISOString(),
+              params.askId
             );
             await saveWatermarks(workspacePath, updated);
             watermarkAdvanced = true;
@@ -230,23 +291,34 @@ export function registerCalibrationCommands(): void {
               pastThreshold: r.pastThreshold,
               newRecordCount: r.newRecords.length,
               newRecords: r.newRecords,
+              openAskId: r.openAskId,
             })),
             watermarkAdvanced,
+            clearedAskId,
+            skippedOpenAskPaths,
           };
         }
 
         const text = formatResult(results);
         const suffix = watermarkAdvanced
           ? "\nWatermarks advanced for past-threshold logs."
-          : params.ack
+          : params.ack && skippedOpenAskPaths.length === 0
             ? "\nNo past-threshold logs to advance."
+            : "";
+        const clearedSuffix = clearedAskId ? "\nCleared resolved ask from watermark(s)." : "";
+        const skippedSuffix =
+          skippedOpenAskPaths.length > 0
+            ? `\nSkipped ${skippedOpenAskPaths.length} log(s) with a still-open disposition ask ` +
+              `(no askId supplied): ${skippedOpenAskPaths.join(", ")}`
             : "";
 
         return {
           success: true,
           json: false,
-          message: text + suffix,
+          message: text + suffix + clearedSuffix + skippedSuffix,
           watermarkAdvanced,
+          clearedAskId,
+          skippedOpenAskPaths,
         };
       } catch (error) {
         return {

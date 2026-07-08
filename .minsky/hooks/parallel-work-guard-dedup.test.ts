@@ -13,9 +13,15 @@ import {
   parseTaskListJson,
   formatDuplicateBlockMessage,
   decideTasksCreateGuard,
+  resolveDuplicateGuardOverride,
+  DUPLICATE_CHILD_GUARD_NAME,
   DUPLICATE_TOKEN_THRESHOLD,
   type ChildTask,
 } from "./parallel-work-guard";
+import { checkOverride } from "./dispatcher";
+import type { OverrideResult } from "./dispatcher";
+import { findValidGuardGrant } from "./guard-grant-store";
+import type { GuardGrant } from "./guard-grant-store";
 
 function child(id: string, title: string, status = "TODO"): ChildTask {
   return { id, title, status };
@@ -23,6 +29,8 @@ function child(id: string, title: string, status = "TODO"): ChildTask {
 
 // Shared fixtures (extracted to satisfy custom/no-magic-string-duplication).
 const RAIL_TITLE = "Cockpit shell A: persistent rail";
+/** A title that token-overlaps RAIL_TITLE's child ("mt#2397") but is a distinct task. */
+const RAIL_VARIANT_TITLE = "Cockpit shell A: persistent rail (variant)";
 
 describe("tokenizeTitle (mt#1435)", () => {
   it("lowercases and splits on non-alphanumerics", () => {
@@ -248,6 +256,113 @@ describe("formatDuplicateBlockMessage (mt#1435)", () => {
   it("includes the override hint", () => {
     expect(msg).toContain("MINSKY_FORCE_DUPLICATE_OK=1");
   });
+
+  it("includes the mid-session grant-issuance hint (mt#2658)", () => {
+    expect(msg).toContain("scripts/grant-guard-override.ts");
+    expect(msg).toContain(`--guard ${DUPLICATE_CHILD_GUARD_NAME}`);
+    expect(msg).toContain("--scope mt#2370");
+    expect(msg).toContain("--reason");
+  });
+});
+
+describe("resolveDuplicateGuardOverride (mt#2658)", () => {
+  const PARENT = "mt#2581";
+
+  it("returns inactive when neither the env var nor a grant matches", () => {
+    const checkOverrideFn = (): OverrideResult => ({ overridden: false });
+    const result = resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(result).toEqual({ active: false });
+  });
+
+  it("legacy MINSKY_FORCE_DUPLICATE_OK=1 activates via source 'env', without consulting checkOverrideFn", () => {
+    let called = false;
+    const checkOverrideFn = (): OverrideResult => {
+      called = true;
+      return { overridden: false };
+    };
+    const result = resolveDuplicateGuardOverride(
+      PARENT,
+      { MINSKY_FORCE_DUPLICATE_OK: "1" },
+      checkOverrideFn
+    );
+    expect(result).toEqual({ active: true, source: "env" });
+    expect(called).toBe(false);
+  });
+
+  it("a grant match (via checkOverrideFn) activates via source 'grant' with its reason", () => {
+    const checkOverrideFn = (): OverrideResult => ({
+      overridden: true,
+      grantReason: "concurrent decomposition — distinct sibling",
+    });
+    const result = resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(result).toEqual({
+      active: true,
+      source: "grant",
+      reason: "concurrent decomposition — distinct sibling",
+    });
+  });
+
+  it("passes the guard name and parent as scope through to checkOverrideFn", () => {
+    let seenGuardName: string | null = null;
+    let seenScope: string | undefined;
+    const checkOverrideFn = (
+      guardName: string,
+      _env: NodeJS.ProcessEnv,
+      options?: { scope?: string }
+    ): OverrideResult => {
+      seenGuardName = guardName;
+      seenScope = options?.scope;
+      return { overridden: false };
+    };
+    resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(seenGuardName).toBe(DUPLICATE_CHILD_GUARD_NAME);
+    expect(seenScope).toBe(PARENT);
+  });
+
+  it("passes scope=undefined through to checkOverrideFn when there is no parent", () => {
+    let seenScope: string | undefined = "unset";
+    const checkOverrideFn = (
+      _guardName: string,
+      _env: NodeJS.ProcessEnv,
+      options?: { scope?: string }
+    ): OverrideResult => {
+      seenScope = options?.scope;
+      return { overridden: false };
+    };
+    resolveDuplicateGuardOverride(undefined, {}, checkOverrideFn);
+    expect(seenScope).toBeUndefined();
+  });
+
+  it("MINSKY_FORCE_DUPLICATE_OK set to something other than '1' does not activate the env path", () => {
+    const checkOverrideFn = (): OverrideResult => ({ overridden: false });
+    const result = resolveDuplicateGuardOverride(
+      PARENT,
+      { MINSKY_FORCE_DUPLICATE_OK: "true" },
+      checkOverrideFn
+    );
+    expect(result).toEqual({ active: false });
+  });
+
+  it("a checkOverrideFn hit with overridden:true and no grantReason (the unified MINSKY_HOOK_OVERRIDE path) activates via source 'env', not 'grant'", () => {
+    // Reviewer finding (PR #1838 R1 BLOCKING 1): checkOverride() also fires
+    // for MINSKY_HOOK_OVERRIDE=duplicate-child-matcher, returning
+    // `{ overridden: true }` with `grantReason` undefined — that must be
+    // labeled "env", not "grant" (which would report a nonsensical
+    // `reason=undefined` in the audit line).
+    const checkOverrideFn = (): OverrideResult => ({
+      overridden: true,
+      raw: "duplicate-child-matcher",
+    });
+    const result = resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(result).toEqual({ active: true, source: "env" });
+  });
+
+  it("end-to-end with the real checkOverride: MINSKY_HOOK_OVERRIDE=duplicate-child-matcher resolves source 'env'", () => {
+    const result = resolveDuplicateGuardOverride(PARENT, {
+      MINSKY_HOOK_OVERRIDE: "duplicate-child-matcher",
+    });
+    expect(result).toEqual({ active: true, source: "env" });
+  });
 });
 
 describe("decideTasksCreateGuard (mt#1435)", () => {
@@ -273,7 +388,7 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 
   it("blocks on a duplicate child", () => {
     const d = decideTasksCreateGuard(
-      { parent: "mt#2370", title: "Cockpit shell A: persistent rail (variant)" },
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
       { fetchChildren: fetchOk, overrideActive: false }
     );
     expect(d.action).toBe("block");
@@ -298,7 +413,7 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 
   it("override bypasses the block and reports the would-be match for audit", () => {
     const d = decideTasksCreateGuard(
-      { parent: "mt#2370", title: "Cockpit shell A: persistent rail (variant)" },
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
       { fetchChildren: fetchOk, overrideActive: true }
     );
     expect(d.action).toBe("override");
@@ -329,5 +444,92 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
       { fetchChildren: fetchOk, overrideActive: false }
     );
     expect(d.action).toBe("skip");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Acceptance test (mt#2658 spec): full pipeline — resolveDuplicateGuardOverride
+// (real checkOverride) -> decideTasksCreateGuard, backed by an in-memory grant
+// list via the real findValidGuardGrant matcher. No fs is touched: checkOverride's
+// `findGuardGrant` is injected with a closure over an in-memory GuardGrant[].
+// ---------------------------------------------------------------------------
+
+describe("mt#2658 acceptance test: fresh grant permits, expired grant denies", () => {
+  const PARENT = "mt#2581";
+  const NEW_TITLE = RAIL_VARIANT_TITLE; // token-overlapping-but-distinct
+  const children = [child("mt#2397", RAIL_TITLE, "DONE")]; // RAIL_TITLE shares >=2 tokens
+  const fetchOk = () => children;
+  const REASON = "concurrent decomposition — distinct sibling, not a duplicate";
+
+  function makeGrant(overrides: Partial<GuardGrant> = {}): GuardGrant {
+    return {
+      guardName: DUPLICATE_CHILD_GUARD_NAME,
+      scope: PARENT,
+      issuedAt: "2026-07-08T00:00:00.000Z",
+      ttlMs: 30 * 60 * 1000, // 30 minutes
+      reason: REASON,
+      ...overrides,
+    };
+  }
+
+  it("fresh (unexpired) grant: token-overlapping-but-distinct child files successfully, reason lands in the resolution", () => {
+    const grants = [makeGrant()];
+    const nowMs = Date.parse("2026-07-08T00:05:00.000Z"); // 5 min after issuance — well within TTL
+
+    const overrideResolution = resolveDuplicateGuardOverride(
+      PARENT,
+      {},
+      (guardName, env, options) =>
+        checkOverride(guardName, env, {
+          ...options,
+          now: () => nowMs,
+          findGuardGrant: (gName, scope, ms) =>
+            findValidGuardGrant(grants, { guardName: gName, scope }, ms),
+        })
+    );
+
+    expect(overrideResolution).toEqual({
+      active: true,
+      source: "grant",
+      reason: REASON,
+    });
+
+    const decision = decideTasksCreateGuard(
+      { parent: PARENT, title: NEW_TITLE },
+      { fetchChildren: fetchOk, overrideActive: overrideResolution.active }
+    );
+
+    // "files successfully" — the guard does not block; it reports the
+    // would-be match for audit (the standard override-decision shape).
+    expect(decision.action).toBe("override");
+    if (decision.action === "override") expect(decision.auditMatch).toBe("mt#2397");
+  });
+
+  it("expired grant: the guard denies as today (block, same as with no grant at all)", () => {
+    const grants = [makeGrant()];
+    // 31 minutes after issuance — 1 minute past the 30-minute TTL.
+    const nowMs = Date.parse("2026-07-08T00:31:00.000Z");
+
+    const overrideResolution = resolveDuplicateGuardOverride(
+      PARENT,
+      {},
+      (guardName, env, options) =>
+        checkOverride(guardName, env, {
+          ...options,
+          now: () => nowMs,
+          findGuardGrant: (gName, scope, ms) =>
+            findValidGuardGrant(grants, { guardName: gName, scope }, ms),
+        })
+    );
+
+    expect(overrideResolution).toEqual({ active: false });
+
+    const decision = decideTasksCreateGuard(
+      { parent: PARENT, title: NEW_TITLE },
+      { fetchChildren: fetchOk, overrideActive: overrideResolution.active }
+    );
+
+    expect(decision.action).toBe("block");
+    if (decision.action === "block") expect(decision.message).toContain("mt#2397");
   });
 });

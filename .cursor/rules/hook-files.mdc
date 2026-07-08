@@ -29,10 +29,17 @@ section headers below is left as-is pending a future corpus pass.
 A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` + per-event entrypoints
 `dispatch-pretooluse.ts` / `dispatch-userpromptsubmit.ts`) letting multiple guards share ONE spawned
 Bun process per lifecycle event. Ships inert; only guards with a `GUARD_REGISTRY` entry run through
-it. Migrated: `check-guessed-session-path` (Phase 1) + six Phase 2a UserPromptSubmit detectors
-(`substrate-bypass-detector`, `retrospective-trigger-scanner`, `pre-narration-detector`,
-`causal-premise-detector`, `code-mechanism-assertion-detector`, `ask-routing-deferral-detector`).
-Every other guard below is still a standalone `settings.json` registration. Full history:
+it. Migrated: `check-guessed-session-path` (Phase 1); the full `UserPromptSubmit` event (Phase 2,
+mt#2652 + mt#2687) — 15 guards across two sub-waves, taking this event from 14 spawns/turn to 1:
+Phase 2a's six guidance detectors (`substrate-bypass-detector`, `retrospective-trigger-scanner`,
+`pre-narration-detector`, `causal-premise-detector`, `code-mechanism-assertion-detector`,
+`ask-routing-deferral-detector`) and Phase 2b's remaining nine (`auto-session-title`,
+`inject-current-time`, `inject-git-state`, `inject-prod-state`, `inject-dispatch-watchdog`,
+`memory-search`, `skill-staleness-detector`, `mcp-daemon-staleness-detector`,
+`calibration-review-cadence-detector`). `policy-coverage-detector` is NOT part of this family — it's
+registered on `PreToolUse`, not `UserPromptSubmit`, despite being named among the detectors in both
+phases' specs (recorded as a spec discrepancy each time). Every other guard below (PreToolUse,
+PostToolUse, Stop, etc.) is still a standalone `settings.json` registration. Full history:
 `docs/architecture/hooks/guard-dispatcher-framework.md`, `docs/architecture/adr-028-*.md`.
 
 **Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
@@ -59,10 +66,15 @@ the override FOR migrated guards.
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`tasks_create`(parent set): blocks `session_start` on open-PR file
-overlap (advisory-only for recently-merged); blocks `tasks_create` on duplicate-child titles.
-Tier-3 ceiling for the parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
-Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`.
+PreToolUse on `session_start`/`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only,
+mt#2657)/`tasks_create`(parent set): blocks `session_start` (and existing-task `tasks_dispatch`,
+which binds a session in-process the same way) on open-PR file overlap (advisory-only for
+recently-merged); blocks `tasks_create` on duplicate-child titles. Tier-3 ceiling for the
+parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
+Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
+— both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
+consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):
+`bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
 Fail: closed (open-PR sweep) / open (duplicate sweep, unreadable data warns+permits).
 Doc: `docs/architecture/hooks/parallel-work-guard.md`.
 
@@ -233,11 +245,12 @@ Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start`: blocks when the target task's spec was never
-surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the session transcript. On
-hit: read the spec in full before retrying. Hook: `check-task-spec-read.ts`. Override:
-`MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error/missing transcript/unresolvable id.
-Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
+PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start` /
+`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only, mt#2657): blocks when the target
+task's spec was never surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the
+session transcript. On hit: read the spec in full before retrying. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any
+error/missing transcript/unresolvable id. Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 
@@ -267,7 +280,10 @@ Fail: open on transcript error. Doc: `docs/architecture/hooks/ask-routing-deferr
 
 UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires +
 ≥3 distinct phrases) OR goes stale (reviewed before, ≥10 days since, ≥1 new fire). On fire: run
-`/calibration-review`. Hook: `calibration-review-cadence-detector.ts`. Override:
+`/calibration-review` — unless a disposition Ask is already open for that log (mt#2659 watermark
+`openAskId`), in which case a single low-noise pending line replaces the warning, at most once per
+session. `policy-coverage`-class (per-tool-call-volume) logs re-warn on cooldown only, not fire-count
+growth (mt#2659). Hook: `calibration-review-cadence-detector.ts`. Override:
 `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
 Doc: `docs/architecture/hooks/calibration-review-cadence-detector.md`.
 

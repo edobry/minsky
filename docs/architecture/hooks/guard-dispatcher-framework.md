@@ -1,4 +1,4 @@
-# Guard-Dispatcher Framework (ADR-028 Phase 1–2a)
+# Guard-Dispatcher Framework (ADR-028 Phase 1–2b)
 
 > Extracted from `.minsky/rules/hook-files.mdc` (mt#2620) — full incident narration,
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
@@ -11,13 +11,17 @@ process per lifecycle event instead of each guard being its own `settings.json` 
 and OS process. This is the framework-primitives phase of ADR-028
 (`docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md`) — it ships inert alongside
 every existing standalone hook file; only guards explicitly migrated (an entry in
-`GUARD_REGISTRY`) run through it. As of this section's authoring, SEVEN guards have migrated:
-`check-guessed-session-path` (the Phase 1 PreToolUse pilot) plus the Phase 2a UserPromptSubmit
-guidance-detector family (`substrate-bypass-detector`, `retrospective-trigger-scanner`,
-`pre-narration-detector`, `causal-premise-detector`, `code-mechanism-assertion-detector`,
-`ask-routing-deferral-detector`) — see the "Phase 2a family migration" subsection below. Every
-other guard documented elsewhere in this file remains a standalone `settings.json`
-registration.
+`GUARD_REGISTRY`) run through it. As of this section's authoring, SIXTEEN guards have migrated:
+`check-guessed-session-path` (the Phase 1 PreToolUse pilot) plus the ENTIRE `UserPromptSubmit`
+event — Phase 2a's six-guard guidance-detector family (`substrate-bypass-detector`,
+`retrospective-trigger-scanner`, `pre-narration-detector`, `causal-premise-detector`,
+`code-mechanism-assertion-detector`, `ask-routing-deferral-detector`) plus Phase 2b's remaining
+nine (`auto-session-title`, `inject-current-time`, `inject-git-state`, `inject-prod-state`,
+`inject-dispatch-watchdog`, `memory-search`, `skill-staleness-detector`,
+`mcp-daemon-staleness-detector`, `calibration-review-cadence-detector`) — see the "Phase 2a
+family migration" and "Phase 2b family migration" subsections below. Every other guard
+documented elsewhere in this file (PreToolUse siblings, PostToolUse, Stop, etc.) remains a
+standalone `settings.json` registration.
 
 **Why this exists.** ADR-028's measured baseline (2026-07-07): 48 `settings.json` hook
 registrations across 45 distinct files; a single `UserPromptSubmit` event spawned up to 14
@@ -26,8 +30,9 @@ re-reads `.claude/settings.json` (`readHostCap`), independently parses the trans
 (`resolveTranscriptCandidates`), and independently hand-rolls override-env-var truthy-parsing
 and calibration-log appending. `src/hooks/pre-commit.ts` (the husky pre-commit dispatcher) is
 the in-repo proof this "one process, many pure-function checks" shape already works in
-Minsky; this framework generalizes it to the Claude Code hook family. Post-Phase-2a, the
-`UserPromptSubmit` event spawns 9 processes (down from 14) — see the Phase 2a subsection.
+Minsky; this framework generalizes it to the Claude Code hook family. Post-Phase-2b, the
+`UserPromptSubmit` event spawns exactly 1 process (down from 14) — the ADR's full target for
+this event — see the Phase 2a and Phase 2b subsections.
 
 **Framework files (all under `.minsky/hooks/`, compiled to `.claude/hooks/` per mt#2304):**
 
@@ -172,12 +177,12 @@ equivalent "before transcript read" checkpoint left inside a per-guard `run()`.
   migration (not a single guard sharing a slot with not-yet-migrated siblings), so the single
   `dispatch-userpromptsubmit.ts` entry took the FIRST migrated guard's
   (`substrate-bypass-detector`) original array slot in the `UserPromptSubmit` block, preserving
-  relative order against the guards that did NOT migrate (`auto-session-title`,
+  relative order against the guards that had NOT yet migrated at the time (`auto-session-title`,
   `inject-current-time`, `inject-git-state`, `inject-prod-state`, `memory-search`,
   `skill-staleness-detector`, `mcp-daemon-staleness-detector` before it;
-  `calibration-review-cadence-detector` after it — Phase 2b, out of scope for mt#2652). Ordering
-  among the six migrated guards moved into `GUARD_REGISTRY`'s array order, itself preserving
-  the pre-migration `settings.json` relative order.
+  `calibration-review-cadence-detector` after it — migrated in Phase 2b, mt#2687, see below).
+  Ordering among the six migrated guards moved into `GUARD_REGISTRY`'s array order, itself
+  preserving the pre-migration `settings.json` relative order.
 - **Process-count reduction:** the `UserPromptSubmit` event's `settings.json` command count
   dropped from 14 to 9 (6 individual detector processes collapsed into 1 dispatcher process) —
   measured directly by counting `hooks.UserPromptSubmit[].hooks[]` entries before/after.
@@ -235,11 +240,55 @@ compile` and verify EACH target regenerated (the no-`--target` invocation does n
 regenerate every output; `grep` the new section into `CLAUDE.md` specifically, and run
 `--target claude.md` / `--target cursor-rules` explicitly if a target is missing the update).
 
-**Deferred to later ADR-028 phases (not this task):** the remaining non-detector
-`UserPromptSubmit` hooks (Phase 2b — `auto-session-title`, `inject-current-time`,
-`inject-git-state`, `inject-prod-state`, `memory-search`, `skill-staleness-detector`,
-`mcp-daemon-staleness-detector`, `calibration-review-cadence-detector`); Phase 4 — the
-merge-gate stack, blocked on mt#2617; Phase 5 — remaining `PreToolUse` blocks; Phase 6 —
+**Phase 2b family migration (mt#2687).** The remaining nine `UserPromptSubmit` hooks —
+`auto-session-title`, `inject-current-time`, `inject-git-state`, `inject-prod-state`,
+`inject-dispatch-watchdog`, `memory-search`, `skill-staleness-detector`,
+`mcp-daemon-staleness-detector`, `calibration-review-cadence-detector` — migrated onto
+`dispatch-userpromptsubmit.ts`, completing the `UserPromptSubmit` event (14 -> 1 spawn). Ground
+truth (`.claude/settings.json` before this migration) found NINE standalone entries remaining,
+not seven as the ADR's "auto-session-title through mcp-daemon-staleness-detector" span and the
+Phase 2a "guards NOT migrated" comment both implied — a second instance of the same
+under-counting pattern Phase 2a hit with `policy-coverage-detector` (one gap from that same
+off-by-one class; the other because `inject-dispatch-watchdog.ts` was added to the codebase
+after the ADR text and the Phase 2a comment were written). Migrating all nine — not just seven —
+was required for this task's own acceptance test ("ONE UserPromptSubmit process spawn... where
+14 existed pre-ADR") to literally hold.
+
+- **`auto-session-title`'s scalar output required a framework extension.** Every other
+  UserPromptSubmit guard's output is `additionalContext` (concatenated across the matched set);
+  `auto-session-title` instead sets the session's display title via a `sessionTitle` scalar
+  field on `hookSpecificOutput` — a Claude Code extension beyond the documented hook-output
+  schema. `GuardOutcome.sessionTitle` (registry.ts) and `HookOutput.hookSpecificOutput.sessionTitle`
+  (types.ts) were added; `runDispatcher`'s aggregation now also carries the last non-undefined
+  `sessionTitle` from the matched set into the final `HookOutput` (in practice only one guard in
+  the family ever sets it, so last-write-wins ordering is moot).
+- **`inject-git-state` uses `ctx.budgets.gitTimeoutMs` (D6) instead of re-deriving its own host
+  cap.** Pre-migration, `computeGitTimeoutMs()` called `readHostCap("inject-git-state.ts", ...)`
+  to find its OWN `settings.json` matcher entry. After migration that entry no longer exists (its
+  budget is folded into the dispatcher's), so a standalone `readHostCap` call would silently fall
+  back to the 15s default instead of the correctly-derived per-family budget — `run()` uses the
+  D6-resolved `ctx.budgets.gitTimeoutMs` instead.
+- **Registry order is byte-preserved, not append-order.** `GUARD_REGISTRY`'s UserPromptSubmit
+  entries are ordered: the 8 Phase 2b hooks that preceded the Phase 2a dispatcher slot in the
+  pre-migration `settings.json` (`auto-session-title` .. `mcp-daemon-staleness-detector`), THEN
+  the six Phase 2a detectors (the slot they already occupied), THEN
+  `calibration-review-cadence-detector` (which sat after the Phase 2a slot). Since
+  `runDispatcher` concatenates `additionalContext` fragments in registry-array order, appending
+  the Phase 2b entries after Phase 2a's (the initial, since-corrected implementation) would have
+  silently reordered what operators see turn to turn — Success Criterion 3's "byte-preserved
+  injection order."
+- **Settings.json:** the `UserPromptSubmit` block shrank to the single dispatcher entry, timeout
+  resized from 60 (Phase 2a's six-guard family sum) to 115 — the host-cap-SUM model applied
+  additively: 60 (Phase 2a, already covering its family) + 55 (Phase 2b's nine guards' individual
+  worst-case budgets summed: 5+5+5+5+5+10+5+5+10) = 115.
+- **Fixture parity tests** (`.minsky/hooks/dispatch-userpromptsubmit.phase2b-parity.test.ts`)
+  prove, per hook, that the dispatcher-path `run()` and the standalone CLI entrypoint produce the
+  same output for the same fixture input — override-audit-line parity (timestamp-normalized)
+  where the hook has a bespoke override var, functional/silent-path parity otherwise. A separate
+  test asserts the exact `GUARD_REGISTRY` UserPromptSubmit name order.
+
+**Deferred to later ADR-028 phases (not this task):** Phase 4 — the merge-gate stack, blocked on
+mt#2617; Phase 5 — remaining `PreToolUse` blocks; Phase 6 —
 `PostToolUse`/`Stop`/`SubagentStop`/`SessionStart`/`SessionEnd`; the legacy-override-var
 deprecation-shim lookup table; generating `settings.json`'s `hooks` block FROM the registry
 (today it is still hand-maintained, just with fewer entries per migrated family); removing
@@ -251,6 +300,8 @@ guards' standalone `if (import.meta.main)` CLI entrypoints.
   record (D1–D7), migration plan, and community-practice research this framework implements
 - mt#2650 — the framework's tracking task (ADR-028 Phase 1, pilot)
 - mt#2652 — this section's Phase 2a family migration (UserPromptSubmit guidance detectors)
+- mt#2687 — this section's Phase 2b family migration (remaining UserPromptSubmit hooks;
+  completes the event's 14-spawns -> 1 target)
 - mt#2618 — parent umbrella (ADR-028 acceptance)
 - mt#2263 — regex-scanner-family matcher consolidation; adopted at the process/scaffold layer
   by mt#2652 (see "Phase 2a family migration" above)

@@ -35,6 +35,7 @@ import type { ClaudeHookInput, HookOutput } from "./types";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -517,6 +518,33 @@ export function decideAndUpdate(args: {
       changedSrcCount: changedSrcPaths.length,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout / calling `process.exit`. The
+ * opt-out check lives inside `decideAndUpdate` itself (via `OPT_OUT_ENV`), so
+ * no separate override handling is needed here.
+ *
+ * @see .minsky/hooks/registry.ts — the guard-dispatcher registration
+ * @see .minsky/hooks/dispatch-userpromptsubmit.ts — the dispatcher entrypoint
+ */
+export function run(input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
+  const sessionId = input.session_id ?? "unknown";
+  const projectDir = input.cwd;
+  if (!projectDir) return null;
+
+  const decision = decideAndUpdate({ projectDir, sessionId, env: process.env });
+
+  if (decision.newTracker) {
+    writeTracker(decision.trackerPath, decision.newTracker);
+  }
+
+  return decision.injection ? { additionalContext: decision.injection } : null;
 }
 
 // ---------------------------------------------------------------------------

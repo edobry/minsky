@@ -19,13 +19,20 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import {
   readLocalDismissals,
   formatPermitMessage,
   formatBlockMessage,
   appendCalibrationRecord,
+  appendCalibrationRecordIfLoggable,
 } from "./policy-coverage-detector";
 import type { CoverageEvidence } from "../../packages/domain/src/detectors/policy-coverage/coverage";
+
+/** Shared literals (custom/no-magic-string-duplication). */
+const CALIBRATION_FILENAME = "calibration.jsonl";
+const OUTCOME_UNCOVERED_LOGGED = "uncovered-logged";
+const OUTCOME_UNCOVERED_BLOCKED = "uncovered-blocked";
 
 let tempRoot: string;
 
@@ -161,9 +168,9 @@ describe("dismiss-and-remember integration", () => {
 
 describe("appendCalibrationRecord", () => {
   it("appends a JSONL line to the log path", async () => {
-    const path = join(tempRoot, "calibration.jsonl");
+    const path = join(tempRoot, CALIBRATION_FILENAME);
     appendCalibrationRecord(path, { outcome: "covered", reason: "new-config-key" });
-    appendCalibrationRecord(path, { outcome: "uncovered-blocked", reason: "new-dependency" });
+    appendCalibrationRecord(path, { outcome: OUTCOME_UNCOVERED_BLOCKED, reason: "new-dependency" });
     const text = await readFile(path, "utf-8");
     const lines = text.trim().split("\n");
     expect(lines).toHaveLength(2);
@@ -174,7 +181,7 @@ describe("appendCalibrationRecord", () => {
       expect(JSON.parse(first)).toMatchObject({ outcome: "covered" });
     }
     if (second !== undefined) {
-      expect(JSON.parse(second)).toMatchObject({ outcome: "uncovered-blocked" });
+      expect(JSON.parse(second)).toMatchObject({ outcome: OUTCOME_UNCOVERED_BLOCKED });
     }
   });
 
@@ -183,5 +190,43 @@ describe("appendCalibrationRecord", () => {
     appendCalibrationRecord(path, { outcome: "covered" });
     const text = await readFile(path, "utf-8");
     expect(text.trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("appendCalibrationRecordIfLoggable (mt#2670 exception-only logging)", () => {
+  it("does NOT create the log for outcome 'covered'", () => {
+    const path = join(tempRoot, CALIBRATION_FILENAME);
+    appendCalibrationRecordIfLoggable(path, { outcome: "covered", reason: "new-file" });
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("does NOT append 'covered' to an existing log", async () => {
+    const path = join(tempRoot, CALIBRATION_FILENAME);
+    appendCalibrationRecord(path, { outcome: OUTCOME_UNCOVERED_LOGGED, reason: "new-dependency" });
+    appendCalibrationRecordIfLoggable(path, { outcome: "covered", reason: "new-file" });
+    const text = await readFile(path, "utf-8");
+    expect(text.trim().split("\n")).toHaveLength(1);
+  });
+
+  it("appends every non-covered outcome with the record shape intact", async () => {
+    const path = join(tempRoot, CALIBRATION_FILENAME);
+    appendCalibrationRecordIfLoggable(path, {
+      outcome: "dismissed",
+      reason: "new-config-key",
+      signature: "sig1",
+    });
+    appendCalibrationRecordIfLoggable(path, {
+      outcome: OUTCOME_UNCOVERED_LOGGED,
+      mode: "log-only",
+    });
+    appendCalibrationRecordIfLoggable(path, { outcome: OUTCOME_UNCOVERED_BLOCKED, mode: "block" });
+    const lines = (await readFile(path, "utf-8")).trim().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({
+      outcome: "dismissed",
+      signature: "sig1",
+    });
+    expect(JSON.parse(lines[1] ?? "")).toMatchObject({ outcome: OUTCOME_UNCOVERED_LOGGED });
+    expect(JSON.parse(lines[2] ?? "")).toMatchObject({ outcome: OUTCOME_UNCOVERED_BLOCKED });
   });
 });
