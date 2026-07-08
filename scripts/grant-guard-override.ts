@@ -30,7 +30,19 @@
  *   --scope <qualifier>   Required. Scope the grant is bound to — e.g. a
  *                          task id. An unscoped grant would silently
  *                          authorize every FUTURE invocation of the guard,
- *                          defeating the audit-and-expire design.
+ *                          defeating the audit-and-expire design. NOTE:
+ *                          the stored scope is NORMALIZED (`#` stripped,
+ *                          lowercased, whitespace trimmed) via
+ *                          `guard-grant-store.ts`'s `normalizeScope()` —
+ *                          `--scope mt#2581` is stored (and matched) as
+ *                          `mt2581`. This matches the same normalization
+ *                          `checkOverride()`'s grant lookup applies to the
+ *                          guard's own scope value at match time, so a
+ *                          `#`-vs-no-`#` mismatch between issuance and
+ *                          lookup never causes a false miss — but the
+ *                          success/dry-run output below echoes the stored
+ *                          (normalized) value, which will look different
+ *                          from what you typed.
  *   --reason <note>       Required. Human-readable justification. Every
  *                          issuance is necessarily an audit record — this
  *                          preserves the deliberate-friction property env
@@ -130,10 +142,17 @@ async function main(): Promise<void> {
 
   const storePath = getGuardGrantStorePath();
   const expiresAt = new Date(Date.parse(grant.issuedAt) + grant.ttlMs).toISOString();
+  // Echo raw + normalized scope so an operator who typed `--scope mt#2581`
+  // isn't surprised the stored/matched value is `mt2581` (normalizeScope
+  // strips `#`, lowercases, trims whitespace — see the --scope flag doc
+  // above and guard-grant-store.ts's normalizeScope()).
+  const rawScope = args["scope"] ?? grant.scope;
+  const scopePart =
+    rawScope === grant.scope ? grant.scope : `${grant.scope} (normalized from "${rawScope}")`;
 
   if (args["dry-run"] === "true") {
     console.log(
-      `[dry-run] would grant guard override: guard=${grant.guardName} scope=${grant.scope} ` +
+      `[dry-run] would grant guard override: guard=${grant.guardName} scope=${scopePart} ` +
         `reason="${grant.reason}" issuedAt=${grant.issuedAt} expiresAt=${expiresAt} store=${storePath}`
     );
     return;
@@ -141,7 +160,7 @@ async function main(): Promise<void> {
 
   appendGuardGrant(storePath, grant);
   console.log(
-    `Granted guard override: guard=${grant.guardName} scope=${grant.scope} ` +
+    `Granted guard override: guard=${grant.guardName} scope=${scopePart} ` +
       `reason="${grant.reason}" expiresAt=${expiresAt} store=${storePath}`
   );
 }

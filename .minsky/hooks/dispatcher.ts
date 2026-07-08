@@ -96,14 +96,29 @@ export interface CheckOverrideOptions {
 
 /**
  * Real fs-backed grant lookup — the default `findGuardGrant` implementation.
- * Fails closed to "no grant" (not "overridden") on a store read error: a
- * broken grant-file channel must never SUPPRESS a guard that would otherwise
- * correctly deny — it only ever ADDS an override path, never removes the
- * guard's default posture. (Contrast with `readGrantStore`'s own fail-OPEN
- * posture for guards that gate solely on the store, e.g.
- * `block-subagent-merge-without-grant.ts` — this function is a secondary
- * channel behind the env var, not the guard's sole gate, so the safe default
- * here is "the grant channel found nothing," not "permit.")
+ * Reads via THIS module's own `readGuardGrantStore()` (`guard-grant-
+ * store.ts`). On any non-`"ok"` result — a genuine store-read error
+ * (malformed JSON, permission denied, etc.; an absent file is `"ok"` with
+ * an empty `grants` array, per that function's own doc comment) — this
+ * returns `null`, i.e. "no grant found via this channel," rather than
+ * propagating the error or synthesizing an override.
+ *
+ * This is fail-CLOSED with respect to the override itself: a broken
+ * grant-file channel can never spuriously GRANT an override — it can only
+ * ever fail to find one, leaving the calling guard's own default posture
+ * (allow or deny) entirely unaffected. `checkOverride()` treats a `null`
+ * here identically to "no scope supplied" or "grant expired" — all three
+ * collapse to the grant branch simply not firing. This posture is correct
+ * BECAUSE `checkOverride()` is a secondary, additive channel behind the
+ * `MINSKY_HOOK_OVERRIDE` env var, not a guard's sole gate — contrast with
+ * `merge-grant-store.ts`'s `readGrantStore()`, whose caller
+ * (`block-subagent-merge-without-grant.ts`) explicitly fails OPEN
+ * (permits the merge) on a genuine read error, because for THAT guard the
+ * grant store IS the sole gate and a broken store must not silently deny
+ * every subagent merge. `checkOverride()` is never in that position — it
+ * has no way to know what "fail open" should mean for an arbitrary
+ * caller — so a broken store here always resolves to "no override
+ * available," and the caller's own logic decides the actual outcome.
  */
 function defaultFindGuardGrant(guardName: string, scope: string, nowMs: number): GuardGrant | null {
   const result = readGuardGrantStore(getGuardGrantStorePath());

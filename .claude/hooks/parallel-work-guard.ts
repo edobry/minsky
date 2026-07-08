@@ -1801,11 +1801,21 @@ export type DuplicateGuardOverrideResolution =
 /**
  * Pure decision (given an injected `checkOverrideFn`) for whether the
  * duplicate-child guard's override is active, and — when it is — whether
- * that came from the legacy `MINSKY_FORCE_DUPLICATE_OK=1` env var or a
- * grant-file match (mt#2658). `parent` is the scope qualifier for the
- * grant-file lookup; when absent (no parent on the `tasks_create` call),
- * the grant-file channel cannot be consulted (there is nothing to scope
- * the grant to) — only the legacy env var is checked.
+ * that came from an env var (the legacy `MINSKY_FORCE_DUPLICATE_OK=1`, OR
+ * the unified `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` that
+ * `checkOverrideFn` also recognizes) or a grant-file match (mt#2658).
+ * `parent` is the scope qualifier for the grant-file lookup; when absent
+ * (no parent on the `tasks_create` call), the grant-file channel cannot be
+ * consulted (there is nothing to scope the grant to) — only the env-var
+ * channels are checked.
+ *
+ * `checkOverrideFn`'s `OverrideResult` conflates two provenances behind one
+ * `overridden: true` — `grantReason` is present ONLY for a grant-file match
+ * (`.minsky/hooks/guard-grant-store.ts` grants always carry a mandatory
+ * `reason`); an env-var-sourced override (either channel) never sets it. So
+ * `result.grantReason !== undefined` is the correct discriminator for
+ * `source` below — NOT "did `checkOverrideFn` return `overridden: true`,"
+ * which would mislabel a `MINSKY_HOOK_OVERRIDE`-sourced hit as `"grant"`.
  *
  * `checkOverrideFn` is injected so this stays hermetically testable without
  * touching the filesystem (mirrors `decideTasksCreateGuard`'s
@@ -1828,8 +1838,11 @@ export function resolveDuplicateGuardOverride(
     knownGuardNames: KNOWN_GUARD_NAMES_WITH_SELF,
     scope: parent,
   });
-  if (result.overridden) {
+  if (result.overridden && result.grantReason !== undefined) {
     return { active: true, source: "grant", reason: result.grantReason };
+  }
+  if (result.overridden) {
+    return { active: true, source: "env" };
   }
   return { active: false };
 }

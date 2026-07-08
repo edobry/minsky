@@ -342,6 +342,27 @@ describe("resolveDuplicateGuardOverride (mt#2658)", () => {
     );
     expect(result).toEqual({ active: false });
   });
+
+  it("a checkOverrideFn hit with overridden:true and no grantReason (the unified MINSKY_HOOK_OVERRIDE path) activates via source 'env', not 'grant'", () => {
+    // Reviewer finding (PR #1838 R1 BLOCKING 1): checkOverride() also fires
+    // for MINSKY_HOOK_OVERRIDE=duplicate-child-matcher, returning
+    // `{ overridden: true }` with `grantReason` undefined — that must be
+    // labeled "env", not "grant" (which would report a nonsensical
+    // `reason=undefined` in the audit line).
+    const checkOverrideFn = (): OverrideResult => ({
+      overridden: true,
+      raw: "duplicate-child-matcher",
+    });
+    const result = resolveDuplicateGuardOverride(PARENT, {}, checkOverrideFn);
+    expect(result).toEqual({ active: true, source: "env" });
+  });
+
+  it("end-to-end with the real checkOverride: MINSKY_HOOK_OVERRIDE=duplicate-child-matcher resolves source 'env'", () => {
+    const result = resolveDuplicateGuardOverride(PARENT, {
+      MINSKY_HOOK_OVERRIDE: "duplicate-child-matcher",
+    });
+    expect(result).toEqual({ active: true, source: "env" });
+  });
 });
 
 describe("decideTasksCreateGuard (mt#1435)", () => {
