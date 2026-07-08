@@ -1691,7 +1691,7 @@
             },
             {
               "flags": ["--task-id"],
-              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks don't get a new parent edge here), and with `description` (rejected — existing-task mode targets a task whose spec already exists; passing `description` here would be silently ignored, so it's rejected instead).",
+              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks don't get a new parent edge here), and with `description` (rejected — existing-task mode targets a task whose spec already exists; passing `description` here would be silently ignored, so it's rejected instead). Crash-safety (mt#2695): if a PRIOR dispatch for this same taskId crashed after starting a session but before finishing, re-calling with the same taskId RESUMES that stranded session (detected via task IN-PROGRESS + an untouched/CREATED session) instead of erroring — see the result's `resumed` field.",
               "takesValue": true
             },
             {
@@ -1706,7 +1706,7 @@
             },
             {
               "flags": ["--type"],
-              "description": "Prompt type for the subagent",
+              "description": "Prompt type for the subagent. Defaults to \"implementation\" when omitted.",
               "takesValue": true,
               "values": ["implementation", "refactor", "review", "cleanup", "audit"]
             },
