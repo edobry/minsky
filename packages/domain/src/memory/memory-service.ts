@@ -451,7 +451,10 @@ export class MemoryService implements MemoryServiceSurface {
           name: newInput.name,
           description: newInput.description,
           content: newInput.content,
-          scope: newInput.scope,
+          // mt#2663: same last-line-of-defense default as create() — an
+          // untyped caller passing undefined would otherwise hit the
+          // `memories.scope` NOT NULL constraint at the DB.
+          scope: newInput.scope ?? MEMORY_SCOPES.project,
           projectId: newInput.projectId ?? null,
           tags: newInput.tags ?? [],
           sourceAgentId: newInput.sourceAgentId ?? null,
