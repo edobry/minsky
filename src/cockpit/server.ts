@@ -82,6 +82,12 @@ export interface CockpitServerOptions {
   overrideCredentialModule?: CredentialModuleOverride;
   /** When true, skip static/SPA asset serving — Vite middleware handles it. */
   dev?: boolean;
+  /**
+   * Override the web-dist directory the static SPA is served from (used in
+   * tests, so the /assets 404 and SPA-fallback contracts are testable without
+   * a real `cockpit:build` output).
+   */
+  webDistDirOverride?: string;
 }
 
 /**
@@ -150,10 +156,28 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // --- Static SPA assets ---
 
   if (!opts.dev) {
+    const webDistDir = opts.webDistDirOverride ?? WEB_DIST_DIR;
+    const indexHtml = opts.webDistDirOverride
+      ? path.join(opts.webDistDirOverride, "index.html")
+      : INDEX_HTML;
+
     /** GET /assets/* — served from web/dist/assets */
-    if (fs.existsSync(path.join(WEB_DIST_DIR, "assets"))) {
-      app.use("/assets", express.static(path.join(WEB_DIST_DIR, "assets")));
+    if (fs.existsSync(path.join(webDistDir, "assets"))) {
+      app.use("/assets", express.static(path.join(webDistDir, "assets")));
     }
+
+    /**
+     * A missing /assets file must 404 — NOT fall through to the SPA fallback.
+     * The tray rebuilds the SPA on every merge, replacing the content-hashed
+     * chunk files a stale window still references; serving index.html
+     * (text/html) for such a chunk request makes the dynamic import fail with
+     * "'text/html' is not a valid JavaScript MIME type" (mt#2674). A hard 404
+     * instead surfaces as a load error the client's vite:preloadError
+     * recovery can act on.
+     */
+    app.use("/assets", (_req, res) => {
+      res.status(404).json({ error: "Asset not found" });
+    });
 
     /**
      * SPA fallback — serve index.html for any GET that didn't match an API
@@ -161,10 +185,13 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
      * a hard refresh on /agents would otherwise 404 at the server. Must be
      * registered LAST — Express matches routes in registration order and a
      * bare `*` would otherwise swallow every unmatched GET immediately.
+     * The entry document is served no-cache so a reload always reflects the
+     * latest build's chunk hashes (per Vite's load-error-handling guidance).
      */
     app.get("*", (_req, res) => {
-      if (fs.existsSync(INDEX_HTML)) {
-        res.sendFile(INDEX_HTML);
+      if (fs.existsSync(indexHtml)) {
+        res.setHeader("Cache-Control", "no-cache");
+        res.sendFile(indexHtml);
       } else {
         res.status(404).json({
           error: "Cockpit bundle not built",
