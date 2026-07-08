@@ -226,6 +226,38 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
+/// Toggle macOS Dock + Cmd-Tab presence via the activation policy (mt#2675).
+///
+/// The tray app launches as a menu-bar-only "agent" app via the setup-time
+/// `Accessory` policy in main.rs (mt#2219; the former `LSUIElement` plist
+/// flag was removed in mt#2675 — it pinned the app out of Cmd-Tab even after
+/// a runtime `Regular` switch), and macOS excludes Accessory apps from both
+/// the Dock and the Cmd-Tab switcher. While the cockpit window is visible we
+/// switch to `Regular` so the window is reachable via Cmd-Tab (and the app
+/// menu from mt#2327 becomes visible in the menu bar); when it hides we drop
+/// back to `Accessory` to restore menu-bar-only behavior.
+///
+/// Call this with `present: true` BEFORE `show()`/`set_focus()` — macOS only
+/// reliably fronts windows of apps with Dock presence (community pattern:
+/// tauri-apps/tauri discussion #10774).
+pub(crate) fn set_dock_presence(app: &AppHandle, present: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if present {
+            tauri::ActivationPolicy::Regular
+        } else {
+            tauri::ActivationPolicy::Accessory
+        };
+        if let Err(e) = app.set_activation_policy(policy) {
+            eprintln!("[cockpit-tray] failed to set activation policy (present={present}): {e}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, present);
+    }
+}
+
 /// Show + focus the cockpit window without reloading, creating it if needed.
 ///
 /// Used by the deep-link handler so the navigation eval can land on the CURRENT
@@ -234,6 +266,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 /// race with the deep-link eval if used here.
 pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        set_dock_presence(app, true);
         if let Err(e) = window.show() {
             eprintln!("[cockpit-tray] deep-link: failed to show cockpit window: {e}");
         }
@@ -251,6 +284,7 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
 /// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
 fn open_cockpit_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        set_dock_presence(app, true);
         if let Err(e) = window.show() {
             eprintln!("[cockpit-tray] failed to show cockpit window: {e}");
         }
@@ -286,16 +320,40 @@ fn create_cockpit_window(app: &AppHandle) {
         }
     };
 
+    // Regular BEFORE build (mt#2675): the window must appear with Dock
+    // presence already in place or macOS may refuse to front it.
+    set_dock_presence(app, true);
+
     match WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
         .build()
     {
-        // Re-apply the tracked zoom (mt#2334 review): closing the window
-        // destroys it (prevent_exit keeps the *app* alive, not the window), so a
-        // reopened window starts at the webview default — restore the stored
-        // factor or the next zoom step would jump from 1.0 to the tracked value.
         Ok(window) => {
+            // Hide-on-close (mt#2675): intercept CloseRequested so the red
+            // button / Cmd+W hides the window (preserving SPA state) instead
+            // of destroying it, and drop Dock + Cmd-Tab presence while
+            // hidden. Destroyed is the defensive fallback for any destroy
+            // path that bypasses CloseRequested (e.g. app teardown).
+            let handle = app.clone();
+            let window_for_events = window.clone();
+            window.on_window_event(move |event| match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    if let Err(e) = window_for_events.hide() {
+                        eprintln!("[cockpit-tray] failed to hide cockpit window on close: {e}");
+                    }
+                    set_dock_presence(&handle, false);
+                }
+                tauri::WindowEvent::Destroyed => set_dock_presence(&handle, false),
+                _ => {}
+            });
+
+            // Re-apply the tracked zoom (mt#2334 review): with hide-on-close
+            // the window usually survives, but this create path still runs on
+            // first open and after any genuine destroy — restore the stored
+            // factor or the next zoom step would jump from 1.0 to the tracked
+            // value.
             if let Some(zoom_state) = app.try_state::<ZoomLevel>() {
                 let factor = *zoom_state.0.lock().unwrap();
                 if (factor - 1.0).abs() > f64::EPSILON {

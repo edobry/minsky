@@ -16,7 +16,9 @@ use std::time::Duration;
 use tauri::webview::WebviewWindow;
 use tauri::{AppHandle, Manager, Url, Wry};
 
-use crate::menu::{ensure_cockpit_window_visible, COCKPIT_URL, COCKPIT_WINDOW_LABEL};
+use crate::menu::{
+    ensure_cockpit_window_visible, set_dock_presence, COCKPIT_URL, COCKPIT_WINDOW_LABEL,
+};
 use crate::supervisor::DAEMON_PORT;
 
 // Recovery-loop constants (mt#2528, ADR-023 cold-start handling; reworked
@@ -253,7 +255,11 @@ pub(crate) fn register(app: &tauri::App<Wry>, handle: &AppHandle) {
 /// hands the URL to the recovery loop, which creates a missing window,
 /// heals a dead document, and delivers the link (mt#2688).
 pub(crate) fn handle_deep_link(app: &AppHandle, url: String) {
+    // Dock presence first (mt#2675): the window may be hidden via hide-on-close
+    // with the app back in Accessory; Regular must be restored BEFORE show/focus
+    // or macOS may refuse to front the window.
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        set_dock_presence(app, true);
         let _ = window.show();
         let _ = window.set_focus();
     }
