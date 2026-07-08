@@ -35,6 +35,7 @@ import * as os from "os";
 import * as path from "path";
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 export const DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION";
 
@@ -211,6 +212,50 @@ export function readCache(cachePath: string): CacheReadResult {
 
   const record = parseDispatchWatchdogCache(raw);
   return record === null ? { kind: "malformed" } : { kind: "ok", record };
+}
+
+/**
+ * Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687). Mirrors
+ * `main()`'s orchestration but returns a `GuardOutcome` instead of writing to
+ * stdout / calling `process.exit`. A "malformed cache" audit line (R1
+ * non-blocking #1 in the original hook) is surfaced via `auditLines` rather
+ * than a direct `process.stdout.write` — same information, dispatcher-owned
+ * stdout.
+ *
+ * @see .minsky/hooks/registry.ts — the guard-dispatcher registration
+ * @see .minsky/hooks/dispatch-userpromptsubmit.ts — the dispatcher entrypoint
+ */
+export function run(input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
+  if (isOverrideTruthy(process.env[DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV])) {
+    return {
+      auditLines: [
+        `[inject-dispatch-watchdog] override active: ${DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV}=${process.env[DISPATCH_WATCHDOG_INJECTION_OVERRIDE_ENV]} at ${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") return null;
+
+  let cacheResult: CacheReadResult;
+  try {
+    cacheResult = readCache(getDispatchWatchdogCachePath());
+  } catch {
+    return null;
+  }
+
+  const auditLines: string[] = [];
+  if (cacheResult.kind === "malformed") {
+    auditLines.push(
+      `[inject-dispatch-watchdog] cache file present but malformed at ${getDispatchWatchdogCachePath()} — skipping injection at ${new Date().toISOString()}\n`
+    );
+  }
+
+  const record = cacheResult.kind === "ok" ? cacheResult.record : null;
+  const additionalContext = formatDispatchWatchdogState(record);
+  if (additionalContext === null) {
+    return auditLines.length > 0 ? { auditLines } : null;
+  }
+
+  return { additionalContext, ...(auditLines.length > 0 ? { auditLines } : {}) };
 }
 
 async function main(): Promise<void> {

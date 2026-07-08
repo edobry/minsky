@@ -31,6 +31,7 @@
 
 import { deriveBudgets, execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 export const GIT_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_GIT_STATE_INJECTION";
 
@@ -351,6 +352,40 @@ function isOverrideTruthy(value: string | undefined): boolean {
   if (!value) return false;
   const v = value.toLowerCase();
   return v === "1" || v === "true" || v === "yes";
+}
+
+/**
+ * Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687). Mirrors
+ * `main()`'s orchestration but returns a `GuardOutcome` instead of writing to
+ * stdout / calling `process.exit`, and uses `ctx.budgets.gitTimeoutMs` (D6 —
+ * resolved once by the dispatcher from the DISPATCHER's own host cap) rather
+ * than calling `computeGitTimeoutMs()` itself — after migration this hook no
+ * longer has its own `settings.json` matcher entry for `readHostCap` to find,
+ * so a standalone `computeGitTimeoutMs()` call here would silently fall back
+ * to the 15s default instead of the correctly-derived per-family budget.
+ *
+ * @see .minsky/hooks/registry.ts — the guard-dispatcher registration
+ * @see .minsky/hooks/dispatch-userpromptsubmit.ts — the dispatcher entrypoint
+ */
+export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+  if (isOverrideTruthy(process.env[GIT_STATE_INJECTION_OVERRIDE_ENV])) {
+    return {
+      auditLines: [
+        `[inject-git-state] override active: ${GIT_STATE_INJECTION_OVERRIDE_ENV}=${process.env[GIT_STATE_INJECTION_OVERRIDE_ENV]} at ${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") return null;
+
+  let snap: GitStateSnapshot | null;
+  try {
+    snap = buildGitStateSnapshot(input.cwd, ctx.budgets.gitTimeoutMs);
+  } catch {
+    return null;
+  }
+  if (snap === null) return null;
+
+  return { additionalContext: formatGitState(snap) };
 }
 
 async function main(): Promise<void> {

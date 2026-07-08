@@ -4,6 +4,12 @@
 > cross-references, and worked examples for this hook/guard. The compiled rule corpus
 > carries only a terse index entry; this file is the durable detail.
 
+**Dispatcher status:** migrated onto the ADR-028 guard-dispatcher framework (Phase 2b, mt#2687) —
+runs in-process via `dispatch-userpromptsubmit.ts`'s `GUARD_REGISTRY` entry
+`calibration-review-cadence-detector` (the LAST entry — this hook sat after the Phase 2a
+dispatcher slot in the pre-migration `settings.json` order, and that relative position is
+preserved). See `guard-dispatcher-framework.md`.
+
 A `UserPromptSubmit` hook that warns when a hook-calibration JSONL log has
 crossed its review threshold, or has sat unreviewed for too long, so a
 calibration review cannot silently lapse again (mt#2619). This is the

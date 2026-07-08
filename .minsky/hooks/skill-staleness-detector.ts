@@ -52,6 +52,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -581,6 +582,31 @@ export function decideAndUpdate(args: {
       warned: true,
     },
   };
+}
+
+/**
+ * Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687). Mirrors
+ * `main()`'s orchestration but returns a `GuardOutcome` instead of writing to
+ * stdout / calling `process.exit`. The opt-out check lives inside
+ * `decideAndUpdate` already, so no separate override handling is needed here
+ * (this guard has no bespoke `MINSKY_ACK_*`-style pre-check like the
+ * injection hooks — `decideAndUpdate` short-circuits on `OPT_OUT_ENV` itself).
+ *
+ * @see .minsky/hooks/registry.ts — the guard-dispatcher registration
+ * @see .minsky/hooks/dispatch-userpromptsubmit.ts — the dispatcher entrypoint
+ */
+export function run(input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
+  const sessionId = input.session_id ?? "unknown";
+  const projectDir = input.cwd;
+  if (!projectDir) return null;
+
+  const decision = decideAndUpdate({ projectDir, sessionId, env: process.env });
+
+  if (decision.newBaseline) {
+    writeBaseline(decision.baselinePath, decision.newBaseline);
+  }
+
+  return decision.injection ? { additionalContext: decision.injection } : null;
 }
 
 if (import.meta.main) {

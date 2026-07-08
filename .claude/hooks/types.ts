@@ -31,6 +31,13 @@ export interface HookOutput {
     additionalContext?: string;
     permissionDecision?: "allow" | "deny" | "ask";
     permissionDecisionReason?: string;
+    /**
+     * UserPromptSubmit-only: sets the session's display title (Claude Code
+     * extension beyond the documented hook-output schema). Added for
+     * `auto-session-title.ts` (ADR-028 Phase 2b, mt#2687) — the one guard
+     * whose output is a scalar session label rather than additive context.
+     */
+    sessionTitle?: string;
   };
 }
 

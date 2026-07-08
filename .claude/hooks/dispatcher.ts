@@ -409,6 +409,7 @@ export async function runDispatcher(
 
   const knownGuardNames = registrations.map((r) => r.name);
   const contextFragments: string[] = [];
+  let sessionTitle: string | undefined;
   for (const reg of matched) {
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
@@ -445,13 +446,17 @@ export async function runDispatcher(
       return;
     }
     if (outcome.additionalContext) contextFragments.push(outcome.additionalContext);
+    if (outcome.sessionTitle !== undefined) sessionTitle = outcome.sessionTitle;
   }
 
-  if (contextFragments.length > 0) {
+  if (contextFragments.length > 0 || sessionTitle !== undefined) {
     writeOutputFn({
       hookSpecificOutput: {
         hookEventName: event,
-        additionalContext: contextFragments.join("\n\n"),
+        ...(contextFragments.length > 0
+          ? { additionalContext: contextFragments.join("\n\n") }
+          : {}),
+        ...(sessionTitle !== undefined ? { sessionTitle } : {}),
       },
     });
   }
