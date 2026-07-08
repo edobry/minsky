@@ -170,48 +170,61 @@ function symbolsNear(text: string, anchorIndex: number, window: number): string[
   // MID-IDENTIFIER, making `\b` match at the cut point and emitting truncated
   // tails as separate "symbols" ("ion_pr_drive" / "on_pr_drive" from
   // "session_pr_drive" — the 2026-07-07 calibration records). Expand both
-  // boundaries outward over identifier-ish characters so a token straddling
-  // the window is captured whole (it is still "near" the predicate).
-  const identifierish = /[`\w.$/-]/;
-  while (
-    start > 0 &&
-    identifierish.test(text[start - 1] ?? "") &&
-    identifierish.test(text[start] ?? "")
-  ) {
+  // boundaries outward over WORD characters only (PR #1835 R1 nit: `/`, `-`,
+  // `.` excluded so path-like prose never over-expands the slice) so a \w
+  // token straddling the window is captured whole. A backticked span cut by
+  // the window simply fails to match (missed, not junk) — only \w-token
+  // truncation produced the junk-claims bug class.
+  const wordChar = /\w/;
+  while (start > 0 && wordChar.test(text[start - 1] ?? "") && wordChar.test(text[start] ?? "")) {
     start--;
   }
   while (
     end < text.length &&
-    identifierish.test(text[end] ?? "") &&
-    identifierish.test(text[end - 1] ?? "")
+    wordChar.test(text[end] ?? "") &&
+    wordChar.test(text[end - 1] ?? "")
   ) {
     end++;
   }
 
   const slice = text.slice(start, end);
-  const found = new Set<string>();
+
+  // Collect occurrences with extraction class + position so dedup targets
+  // SAME-CLASS STRICT CONTAINMENT only (PR #1835 R1 blocking finding): a
+  // truncation residue occupies a range strictly inside the full token's
+  // range in the same regex class, while a separately-mentioned substring
+  // (`drive` alongside `session_pr_drive`) occupies a disjoint range, and a
+  // camel sub-identifier inside a backticked dotted token (`maxBuffer` in
+  // `cfg.maxBuffer`) is a different class — both of those are kept.
+  type Occurrence = { tok: string; cls: "backtick" | "camel" | "snake"; s: number; e: number };
+  const occs: Occurrence[] = [];
 
   for (const m of slice.matchAll(BACKTICK_SYMBOL_RE)) {
     const raw = m[1] ?? "";
-    if (isPlausibleSymbol(raw)) found.add(raw);
+    if (isPlausibleSymbol(raw)) {
+      const s = (m.index ?? 0) + 1;
+      occs.push({ tok: raw, cls: "backtick", s, e: s + raw.length });
+    }
   }
   for (const m of slice.matchAll(CAMEL_CASE_RE)) {
-    if (isPlausibleSymbol(m[0])) found.add(m[0]);
+    if (isPlausibleSymbol(m[0])) {
+      occs.push({ tok: m[0], cls: "camel", s: m.index ?? 0, e: (m.index ?? 0) + m[0].length });
+    }
   }
   for (const m of slice.matchAll(SNAKE_CASE_RE)) {
-    if (isPlausibleSymbol(m[0])) found.add(m[0]);
+    if (isPlausibleSymbol(m[0])) {
+      occs.push({ tok: m[0], cls: "snake", s: m.index ?? 0, e: (m.index ?? 0) + m[0].length });
+    }
   }
 
-  // Proper-substring dedup (mt#2673, belt-and-suspenders): one identifier
-  // mention must yield one symbol. Drop any candidate that is a proper
-  // substring (case-insensitive) of a sibling candidate.
-  const candidates = [...found];
-  return candidates.filter(
-    (c) =>
-      !candidates.some(
-        (other) => other.length > c.length && other.toLowerCase().includes(c.toLowerCase())
-      )
-  );
+  const found = new Set<string>();
+  for (const o of occs) {
+    const containedInSibling = occs.some(
+      (p) => p.cls === o.cls && p.s <= o.s && p.e >= o.e && p.e - p.s > o.e - o.s
+    );
+    if (!containedInSibling) found.add(o.tok);
+  }
+  return [...found];
 }
 
 // ---------------------------------------------------------------------------

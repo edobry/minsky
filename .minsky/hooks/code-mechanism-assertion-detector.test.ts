@@ -152,6 +152,28 @@ describe("mt#2673 — truncated-substring extraction + backed-claim accounting",
     expect(syms).toContain("maxBuffer");
     expect(syms).toContain("MaxBuffer");
   });
+
+  test("R1: separately-mentioned substring symbols are BOTH kept (`drive` alongside `session_pr_drive`)", () => {
+    // PR #1835 R1 blocking finding: dedup must target truncation residues
+    // (same-class strict range containment), not distinct mentions that
+    // happen to be substrings.
+    const text = "`drive` and `session_pr_drive` return null when the target is missing.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).toContain("drive");
+    expect(syms).toContain(SESSION_PR_DRIVE);
+  });
+
+  test("R1: camel sub-identifier inside a backticked dotted token is kept (different class)", () => {
+    // Documented behavior (symbolsNear header): `maxBuffer` inside
+    // `cfg.maxBuffer` is captured independently — cross-class containment
+    // must not dedup it away.
+    const text = "The `cfg.maxBuffer` value defaults to 1MB here.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).toContain("maxBuffer");
+    expect(syms).toContain("cfg.maxBuffer");
+  });
 });
 
 describe("buildVerificationCorpus", () => {
