@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager, Wry};
 
-use crate::menu::{ensure_cockpit_window_visible, COCKPIT_WINDOW_LABEL};
+use crate::menu::{ensure_cockpit_window_visible, set_dock_presence, COCKPIT_WINDOW_LABEL};
 
 // Deep-link retry constants (mt#2528, ADR-023 cold-start handling).
 // After a minsky:// URL is opened we retry window.eval(...) until the webview
@@ -90,7 +90,11 @@ pub(crate) fn handle_deep_link(app: &AppHandle, url: String) {
     // window CREATION (`build()`), `show()`/`set_focus()` don't block on the run
     // loop, so they're safe to call directly from the `on_open_url` callback. A
     // MISSING window is created later, deferred onto the run loop (see below).
+    // Dock presence first (mt#2675): the window may be hidden via hide-on-close
+    // with the app back in Accessory; Regular must be restored BEFORE show/focus
+    // or macOS may refuse to front the window.
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        set_dock_presence(app, true);
         let _ = window.show();
         let _ = window.set_focus();
     }
