@@ -417,15 +417,24 @@ describe("sessionPrDrive", () => {
 
       const start = performance.now();
       const result = await sessionPrDrive(
-        { sessionId: SESSION_ID, reviewTimeoutSeconds: 2, reviewIntervalSeconds: 5 },
+        // reviewTimeoutSeconds: 1 is the schema's clamp floor (see
+        // `clamp(params.timeoutSeconds ?? 600, 1, 1800)` in
+        // pr-wait-for-review-subcommand.ts) — the smallest legal real wait,
+        // keeping this test's wall-clock cost minimal and reducing CI-timing
+        // flakiness surface vs. a longer real sleep.
+        { sessionId: SESSION_ID, reviewTimeoutSeconds: 1, reviewIntervalSeconds: 5 },
         deps
       );
       const elapsedMs = performance.now() - start;
 
       expect(result.state).toBe("REVIEW_TIMEOUT");
-      // Bounded by the configured 2s deadline, not the caller's real 1800s
+      // Bounded by the configured 1s deadline, not the caller's real 1800s
       // MCP idle-timeout (the actual failure mode in all three live hangs).
-      expect(elapsedMs).toBeLessThan(2000 + 2000);
+      // Generous 3x margin (1000ms nominal -> 3000ms cap) absorbs CI
+      // scheduling jitter without weakening what the test proves (a real
+      // setTimeout-based deadline, not the fake now/sleep seams elsewhere
+      // in this suite, genuinely bounds the stalled call).
+      expect(elapsedMs).toBeLessThan(1000 + 2000);
     });
   });
 });

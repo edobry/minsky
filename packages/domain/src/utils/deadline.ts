@@ -53,10 +53,26 @@ export function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise
     );
   }
 
-  let timer: ReturnType<typeof setTimeout>;
+  // `| undefined` (rather than a definite-assignment assertion) so this
+  // stays correct even if a future refactor moves the Promise executor
+  // somewhere non-synchronous — the `timer &&` guard below then degrades to
+  // "nothing to clear" instead of crashing.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new DeadlineExceededError()), timeoutMs);
   });
+  // The executor above runs synchronously (per the Promise spec), so `timer`
+  // is always assigned by this point. unref() so a pending deadline timer
+  // never keeps the process alive on its own once nothing else is pending —
+  // relevant for short-lived scripts/tests that finish before the deadline
+  // naturally (e.g. this module's own tests, and any CLI-style caller).
+  if (timer && typeof timer.unref === "function") timer.unref();
 
+  // Promise.race settles on whichever of `promise`/`deadline` settles FIRST;
+  // the loser's eventual settlement is simply ignored — a promise settles at
+  // most once (Promises/A+), so no manual "already settled" flag is needed
+  // here. `clearTimeout` on an already-fired (or already-cleared) timer is a
+  // documented no-op, so calling it unconditionally in `.finally()` below is
+  // always safe regardless of which branch won the race.
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
