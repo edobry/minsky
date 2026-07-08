@@ -21,36 +21,38 @@ Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any fil
 The app shell (mt#2397/mt#2398) is a persistent left **rail** (attention digest pinned at
 top → workstream spine → browse entity entry points; replaces the former hamburger/NavSheet
 overlay) beside a **tabbed workspace**: list pages navigate the main pane, while entity
-details (a task at `/tasks/:id`, a transcript session at `/session/:id`, a workspace
-session at `/agents/:id`) open as URL-driven tabs in a
+details (a task at `/tasks/:id`, a conversation at `/conversation/:id`, a workspace at
+`/agents/:id`) open as URL-driven tabs in a
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
-Two session id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate): `/agents` and
-`/agents/:id` are keyed by the **Minsky workspace sessionId** (`SessionRecord`);
-`/sessions` and `/session/:id` are keyed by the **harness agentSessionId** (ingested
-transcript). The workspace-session detail page bridges the two — when the workspace
-directory resolves to an ingested transcript's cwd, it links to the conversation at
-`/session/:agentSessionId` (served by `GET /api/agents/:id`).
+Two id-spaces (mt#2398/mt#2420/mt#1919 — do not conflate; vocabulary per ADR-022 stage 1,
+mt#2686): `/agents` and `/agents/:id` are keyed by the **Minsky workspace sessionId**
+(`SessionRecord`); `/conversations` and `/conversation/:id` are keyed by the **harness
+agentSessionId** (ingested transcript). The workspace detail page bridges the two — when the
+workspace directory resolves to an ingested transcript's cwd, it links to the conversation at
+`/conversation/:agentSessionId` (served by `GET /api/agents/:id`). (`/agents` and `/agents/:id`
+keep their existing names — the Agents list/detail pair is a separate naming decision, out of
+scope for the ADR-022 rename.)
 
 ## Routes
 
-| Path                       | Page              | Purpose                                                                                                                                             |
-| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                        | Home              | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398)                          |
-| `/agents`                  | Agents            | Workspace sessions in flight — rows open the workspace-session detail at `/agents/:id`                                                              |
-| `/agents/:id`              | Session detail    | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                                         |
-| `/session/:id`             | Session           | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)                            |
-| `/context`                 | Context           | Agent context inspector                                                                                                                             |
-| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                   |
-| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                |
-| `/asks`                    | Asks              | Interactive ask management                                                                                                                          |
-| `/activity`                | Activity          | Event stream                                                                                                                                        |
-| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                    |
-| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                  |
-| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                 |
-| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                              |
-| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626) |
+| Path                       | Page              | Purpose                                                                                                                                                                                                   |
+| -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | Home              | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398)                                                                                |
+| `/agents`                  | Agents            | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                    |
+| `/agents/:id`              | Workspace detail  | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686) |
+| `/conversation/:id`        | Conversation      | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                   |
+| `/context`                 | Context           | Agent context inspector                                                                                                                                                                                   |
+| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                         |
+| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                      |
+| `/asks`                    | Asks              | Interactive ask management                                                                                                                                                                                |
+| `/activity`                | Activity          | Event stream                                                                                                                                                                                              |
+| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                                                                          |
+| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                        |
+| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                                                                       |
+| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                    |
+| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                       |
 
 ## Widgets
 

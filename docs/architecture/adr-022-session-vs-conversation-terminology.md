@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed
+Accepted (2026-07-06, ask f0782a96 — "Agreed with all" on the July 2026 audit decisions; living record: memory 805ef48f).
+
+**Rollout is staged, not gated.** The principal funded the full rename as two tiers rather than deferring it behind a future go-decision:
+
+- **Stage 1 (mt#2686, this commit):** new code, docs convention, and cockpit routes/components adopt workspace/conversation/transport-session now. `session_*` tools, params, DB columns, and `~/.local/state/minsky/sessions/` paths are untouched.
+- **Stage 2 (mt#2527):** the breaking mechanical `session_*` → `workspace_*` public-API rename, no longer deferred-gated on this ADR's acceptance — it is scheduled, ungated follow-on work.
 
 ## Context
 
@@ -24,11 +29,12 @@ We will adopt:
 - **session / conversation** = the harness conversation; "session" matches ecosystem convention, surfaced as **"conversation"** in Minsky's own user-facing surfaces to keep it distinct from the workspace.
 - **session** (MCP-transport-scoped) = the MCP connection, per the MCP spec, used only within transport machinery.
 
-We will migrate in **tiers** and **defer** the breaking public rename:
+We migrate in **tiers**, funded end-to-end as a staged rollout (2026-07-06 decision) rather than gated behind a later go/no-go:
 
-- **Non-breaking now:** disambiguate where the overload causes wrong behavior/confusion (cockpit id-space hardening + MCP-"session" prose, mt#2525) and label harness-conversation surfaces "conversation" (cockpit + `transcripts_*` params with back-compat aliases, mt#2526).
-- **Structural, rename-independent:** branded id types (`WorkspaceId`/`ConversationId`/`McpSessionId`) so wrong-id is a compile error at zero runtime cost (mt#2524).
-- **Deferred (gated):** the full `session_*` → `workspace_*` public-API rename (mt#2527), gated on this ADR's acceptance + an explicit go-decision, given the blast radius (~546 files, ~72 public tools, breaking API).
+- **Non-breaking, shipped:** disambiguate where the overload causes wrong behavior/confusion (cockpit id-space hardening + MCP-"session" prose, mt#2525) and label harness-conversation surfaces "conversation" (cockpit + `transcripts_*` params with back-compat aliases, mt#2526).
+- **Structural, rename-independent, shipped:** branded id types (`WorkspaceId`/`ConversationId`/`McpSessionId`) so wrong-id is a compile error at zero runtime cost (mt#2524).
+- **Stage 1 (mt#2686, this commit):** new code, docs, and cockpit web routes/components converge on the vocabulary now — this ADR moves Proposed → Accepted as part of stage 1.
+- **Stage 2, scheduled (mt#2527):** the full `session_*` → `workspace_*` public-API rename, given the blast radius (~546 files, ~72 public tools, breaking API). No longer gated on a future decision — the 2026-07-06 funding decision is that go-decision — but sequenced after stage 1 lands so the vocabulary convention exists before the mechanical rename executes against it.
 
 (Why "workspace" not "worktree": Minsky sessions are full clones, deliberately not git worktrees — for isolation, multi-backend independence, and cloud-exec relocatability. Recorded here as context; may warrant its own ADR.)
 
@@ -36,10 +42,11 @@ We will migrate in **tiers** and **defer** the breaking public rename:
 
 **Easier:** one unambiguous word per concept ("find a past conversation" vs "list my workspaces" stop colliding); new surfaces converge on a documented vocabulary (`docs/architecture/cockpit.md`'s existing "workspace/transcript session" usage becomes the sanctioned direction); the branded-id work makes the mt#2420 id-space bug class structurally impossible with no public-API change.
 
-**Harder / committed:** "session" now means two things by design (harness conversation + MCP transport) — acceptable because they rarely co-occur and both are ecosystem-sanctioned; the full M rename is large breaking debt carried as deferred (mt#2527), so until it ships `session_*` keeps the old name and prose must qualify "workspace"; a back-compat alias window is required for the `transcripts_*` param renames.
+**Harder / committed:** "session" now means two things by design (harness conversation + MCP transport) — acceptable because they rarely co-occur and both are ecosystem-sanctioned; the full mechanical rename is large breaking debt carried as scheduled stage-2 work (mt#2527), so until it ships `session_*` keeps the old name and prose must qualify "workspace"; a back-compat alias window is required for the `transcripts_*` param renames.
 
 ## Cross-references
 
 - Related ADRs: ADR-006 (agent identity — `agentId` vs `agent_session_id`), ADR-017 (transcript capture), ADR-021 (project scoping)
-- Related tasks: mt#2522 (epic), mt#2513 (this decision + full inventory/research), mt#2523–2527 (tracks), mt#2516 (param bug), mt#2420 (id-space bug), mt#2191 (origin, CLOSED), mt#2234 (indexing)
+- Related tasks: mt#2522 (epic), mt#2513 (this decision + full inventory/research), mt#2523–2527 (tracks), mt#2686 (stage 1: vocabulary in new code/docs/cockpit + this Accepted flip), mt#2527 (stage 2: mechanical tool-surface rename), mt#2516 (param bug), mt#2420 (id-space bug), mt#2191 (origin, CLOSED), mt#2234 (indexing)
 - Research: 2026-06-18/19 inventory + ecosystem + branded-types research, persisted in mt#2513's spec
+- Funding decision: 2026-07-06, ask f0782a96; living record memory 805ef48f
