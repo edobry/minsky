@@ -22,6 +22,7 @@ import {
   TASKS_GET_TOOL,
   STATUS_SET_TOOL,
   SESSION_START_TOOL,
+  DISPATCH_TOOL,
 } from "./check-task-spec-read";
 
 /** A non-spec tool name reused across fixtures. */
@@ -119,6 +120,19 @@ describe("resolveTargetTaskId", () => {
     expect(resolveTargetTaskId("mcp__minsky__tasks_get", { taskId: "mt#2515" })).toBe("");
     expect(resolveTargetTaskId(SPEC_GET_TOOL, { taskId: "mt#2515" })).toBe("");
   });
+
+  // mt#2657: tasks_dispatch existing-task mode composes this guard rather than bypassing it.
+  test("tasks_dispatch fires only when taskId is present (existing-task mode)", () => {
+    expect(resolveTargetTaskId(DISPATCH_TOOL, { taskId: "mt#2515", instructions: "do it" })).toBe(
+      "mt2515"
+    );
+  });
+
+  test("tasks_dispatch new-task mode (title, no taskId) is not guarded", () => {
+    expect(
+      resolveTargetTaskId(DISPATCH_TOOL, { title: "New subtask", instructions: "do it" })
+    ).toBe("");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -215,6 +229,11 @@ describe("buildDenialReason", () => {
   test("tolerates a missing id", () => {
     const msg = buildDenialReason(STATUS_SET_TOOL, undefined);
     expect(msg).toContain("<unknown>");
+  });
+
+  test("names the dispatch action for tasks_dispatch (mt#2657)", () => {
+    const msg = buildDenialReason(DISPATCH_TOOL, "mt#2515");
+    expect(msg).toContain("one-call-dispatching mt#2515");
   });
 });
 

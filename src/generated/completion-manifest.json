@@ -1685,13 +1685,18 @@
           "description": "Create a subtask, start a session, and generate a subagent prompt — all in one call",
           "options": [
             {
-              "flags": ["--instructions"],
-              "description": "Work instructions for the subagent",
+              "flags": ["--title"],
+              "description": "Title for a new subtask. Required unless `taskId` is provided (existing-task mode).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task-id"],
+              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title`/`parentTaskId`/`description`, which only apply to new-task creation.",
               "takesValue": true
             },
             {
               "flags": ["--parent-task-id"],
-              "description": "Parent task ID — creates a subtask. Omit for a root task.",
+              "description": "Parent task ID — creates a subtask. Omit for a root task. Only valid in new-task (`title`) mode.",
               "takesValue": true
             },
             {

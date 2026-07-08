@@ -3,6 +3,21 @@
  *
  * Composes subtask creation + session start + prompt generation into
  * a single MCP tool for streamlined subagent dispatch.
+ *
+ * Two modes (mt#2657):
+ *   - New-task mode (`title`): create a subtask/root task, start a session, generate a prompt.
+ *   - Existing-task mode (`taskId`): walk the task's current status to READY
+ *     (TODO -> PLANNING -> READY, skipping already-satisfied steps), start a session, generate
+ *     a prompt. Replaces the manual 5-call pipeline (tasks_status_set x2 + session_start +
+ *     session_generate_prompt + Agent) for pre-filed tasks (e.g. audit-burndown shape).
+ *
+ * Guard composition (existing-task mode): the status walk reuses `setTaskStatusFromParams`
+ * (the same function `tasks_status_set` calls), so transition validity is enforced identically —
+ * no reimplementation. The bind/advance spec-read guard (`.claude/hooks/check-task-spec-read.ts`)
+ * is extended to also match this tool when it carries an existing `taskId`, since the guard is a
+ * harness-level PreToolUse hook keyed on tool name and would otherwise never see the internal
+ * status-set/session-start calls this command makes in-process. See that hook's
+ * `resolveTargetTaskId` for the DISPATCH_TOOL branch.
  */
 import { z } from "zod";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
@@ -13,6 +28,7 @@ import {
   hasNativeSubagentSupport,
 } from "@minsky/domain/runtime/harness-detection";
 import { log } from "@minsky/shared/logger";
+import { ValidationError } from "@minsky/domain/errors";
 import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 import {
   validateEvidenceArgument,
@@ -21,9 +37,19 @@ import {
 
 const tasksDispatchParams = {
   title: {
-    schema: z.string(),
-    description: "Title for the new subtask",
-    required: true,
+    schema: z.string().optional(),
+    description:
+      "Title for a new subtask. Required unless `taskId` is provided (existing-task mode).",
+    required: false,
+  },
+  taskId: {
+    schema: z.string().optional(),
+    description:
+      "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's " +
+      "current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and " +
+      "generates the prompt. Mutually exclusive with `title`/`parentTaskId`/`description`, " +
+      "which only apply to new-task creation.",
+    required: false,
   },
   instructions: {
     schema: z.string(),
@@ -32,7 +58,9 @@ const tasksDispatchParams = {
   },
   parentTaskId: {
     schema: z.string().optional(),
-    description: "Parent task ID — creates a subtask. Omit for a root task.",
+    description:
+      "Parent task ID — creates a subtask. Omit for a root task. Only valid in new-task " +
+      "(`title`) mode.",
     required: false,
   },
   type: {
@@ -78,7 +106,8 @@ const tasksDispatchParams = {
 } satisfies CommandParameterMap;
 
 interface DispatchParams {
-  title: string;
+  title?: string;
+  taskId?: string;
   instructions: string;
   parentTaskId?: string;
   type: "implementation" | "refactor" | "review" | "cleanup" | "audit";
@@ -87,6 +116,32 @@ interface DispatchParams {
   premiseClaim: string;
   premiseFalsifier: string;
   premiseEvidence: string;
+}
+
+/**
+ * Validate the mode-selection params (mt#2657): exactly one of `taskId`/`title` must be
+ * supplied, and `parentTaskId` only applies to new-task (`title`) mode.
+ *
+ * Declared at module scope (not inline in `execute()`) so its `throw new ValidationError`
+ * statements live outside the AST `execute()` closure — per ADR-004 / the
+ * `custom/no-validation-error-in-execute` lint rule, which flags a `ValidationError` thrown
+ * directly inside a command's `execute()` body. `validateEvidenceArgument` (imported from the
+ * domain layer) follows the same pattern for the premise gate.
+ */
+function validateDispatchMode(p: DispatchParams): void {
+  if (!p.taskId && !p.title) {
+    throw new ValidationError(
+      "tasks.dispatch requires either `taskId` (dispatch an existing task) or `title` " +
+        "(create a new task)."
+    );
+  }
+  if (p.taskId && p.parentTaskId) {
+    throw new ValidationError(
+      "`parentTaskId` only applies to new-task creation (`title` mode); existing-task " +
+        "dispatch (`taskId`) does not set parent edges. Use tasks_deps_add / " +
+        "tasks_graph tooling to manage parent edges for existing tasks."
+    );
+  }
 }
 
 export function createTasksDispatchCommand(
@@ -144,29 +199,89 @@ export function createTasksDispatchCommand(
         };
       }
 
-      // Step 1: Create the task
-      log.debug("[tasks.dispatch] Creating task", { title: p.title, parent: p.parentTaskId });
-      const { createTaskFromTitleAndSpec } = await import("@minsky/domain/tasks");
-      const taskResult = await createTaskFromTitleAndSpec(
-        {
-          title: p.title,
-          spec: p.description || p.instructions,
-          workspace: process.cwd(),
-        },
-        { persistenceProvider: getPersistenceProvider(), taskService: getTaskService() }
-      );
+      // Mode selection (mt#2657): `taskId` dispatches an EXISTING task; `title` creates a new
+      // one. Exactly one must be supplied — the two modes' remaining params don't compose.
+      validateDispatchMode(p);
+      const isExistingTaskMode = Boolean(p.taskId);
 
-      const taskId = taskResult.id;
-      log.debug("[tasks.dispatch] Task created", { taskId });
+      let taskId: string;
+      const statusWalk: string[] = [];
 
-      // Step 2: Add parent edge if parentTaskId provided
-      if (p.parentTaskId) {
-        try {
-          const service = getTaskGraphService();
-          await service.addParent(taskId, p.parentTaskId);
-          log.debug("[tasks.dispatch] Parent edge added", { taskId, parent: p.parentTaskId });
-        } catch (err) {
-          log.warn(`[tasks.dispatch] Failed to set parent: ${err}`);
+      if (isExistingTaskMode) {
+        // Existing-task mode (mt#2657): walk the task's current status to READY, reusing the
+        // SAME domain function `tasks_status_set` calls (`setTaskStatusFromParams`) so status-
+        // machine transition validity (per-kind workflow, BLOCKED/CLOSED refusal, etc.) is
+        // enforced identically — not reimplemented. See module header for the spec-read guard
+        // composition note (enforced by the harness hook, not here).
+        taskId = p.taskId as string;
+        log.debug("[tasks.dispatch] Existing-task mode", { taskId });
+
+        const { getTaskStatusFromParams, setTaskStatusFromParams } = await import(
+          "@minsky/domain/tasks"
+        );
+        const { TASK_STATUS } = await import("@minsky/domain/tasks/taskConstants");
+        const persistenceProvider = getPersistenceProvider();
+        const taskService = getTaskService();
+
+        let status = await getTaskStatusFromParams(
+          { taskId },
+          { persistenceProvider, taskService }
+        );
+
+        if (status === TASK_STATUS.TODO) {
+          await setTaskStatusFromParams(
+            { taskId, status: TASK_STATUS.PLANNING },
+            { persistenceProvider, taskService }
+          );
+          statusWalk.push(TASK_STATUS.PLANNING);
+          status = TASK_STATUS.PLANNING;
+        }
+
+        if (status === TASK_STATUS.PLANNING) {
+          await setTaskStatusFromParams(
+            { taskId, status: TASK_STATUS.READY },
+            { persistenceProvider, taskService }
+          );
+          statusWalk.push(TASK_STATUS.READY);
+          status = TASK_STATUS.READY;
+        }
+
+        if (status !== TASK_STATUS.READY) {
+          return {
+            success: false,
+            error:
+              `Task ${taskId} is in status ${status}; tasks.dispatch existing-task mode walks ` +
+              `TODO -> PLANNING -> READY automatically but cannot resolve from ${status}. ` +
+              `Advance or resolve the task manually (e.g. via tasks_status_set), then dispatch.`,
+            taskId,
+            harness,
+          };
+        }
+        log.debug("[tasks.dispatch] Status walk complete", { taskId, statusWalk, from: status });
+      } else {
+        // New-task mode: create the task, optionally wire a parent edge.
+        log.debug("[tasks.dispatch] Creating task", { title: p.title, parent: p.parentTaskId });
+        const { createTaskFromTitleAndSpec } = await import("@minsky/domain/tasks");
+        const taskResult = await createTaskFromTitleAndSpec(
+          {
+            title: p.title as string,
+            spec: p.description || p.instructions,
+            workspace: process.cwd(),
+          },
+          { persistenceProvider: getPersistenceProvider(), taskService: getTaskService() }
+        );
+
+        taskId = taskResult.id;
+        log.debug("[tasks.dispatch] Task created", { taskId });
+
+        if (p.parentTaskId) {
+          try {
+            const service = getTaskGraphService();
+            await service.addParent(taskId, p.parentTaskId);
+            log.debug("[tasks.dispatch] Parent edge added", { taskId, parent: p.parentTaskId });
+          } catch (err) {
+            log.warn(`[tasks.dispatch] Failed to set parent: ${err}`);
+          }
         }
       }
 
@@ -288,8 +403,10 @@ export function createTasksDispatchCommand(
 
       return {
         success: true,
+        mode: isExistingTaskMode ? "existing" : "created",
         taskId,
-        parentTaskId: p.parentTaskId,
+        parentTaskId: isExistingTaskMode ? undefined : p.parentTaskId,
+        statusWalk: isExistingTaskMode ? statusWalk : undefined,
         sessionId,
         sessionDir,
         harness,
