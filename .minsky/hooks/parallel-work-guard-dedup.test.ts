@@ -18,7 +18,10 @@ import {
   DUPLICATE_TOKEN_THRESHOLD,
   type ChildTask,
 } from "./parallel-work-guard";
+import { checkOverride } from "./dispatcher";
 import type { OverrideResult } from "./dispatcher";
+import { findValidGuardGrant } from "./guard-grant-store";
+import type { GuardGrant } from "./guard-grant-store";
 
 function child(id: string, title: string, status = "TODO"): ChildTask {
   return { id, title, status };
@@ -26,6 +29,8 @@ function child(id: string, title: string, status = "TODO"): ChildTask {
 
 // Shared fixtures (extracted to satisfy custom/no-magic-string-duplication).
 const RAIL_TITLE = "Cockpit shell A: persistent rail";
+/** A title that token-overlaps RAIL_TITLE's child ("mt#2397") but is a distinct task. */
+const RAIL_VARIANT_TITLE = "Cockpit shell A: persistent rail (variant)";
 
 describe("tokenizeTitle (mt#1435)", () => {
   it("lowercases and splits on non-alphanumerics", () => {
@@ -362,7 +367,7 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 
   it("blocks on a duplicate child", () => {
     const d = decideTasksCreateGuard(
-      { parent: "mt#2370", title: "Cockpit shell A: persistent rail (variant)" },
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
       { fetchChildren: fetchOk, overrideActive: false }
     );
     expect(d.action).toBe("block");
@@ -387,7 +392,7 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 
   it("override bypasses the block and reports the would-be match for audit", () => {
     const d = decideTasksCreateGuard(
-      { parent: "mt#2370", title: "Cockpit shell A: persistent rail (variant)" },
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
       { fetchChildren: fetchOk, overrideActive: true }
     );
     expect(d.action).toBe("override");
@@ -418,5 +423,92 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
       { fetchChildren: fetchOk, overrideActive: false }
     );
     expect(d.action).toBe("skip");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Acceptance test (mt#2658 spec): full pipeline — resolveDuplicateGuardOverride
+// (real checkOverride) -> decideTasksCreateGuard, backed by an in-memory grant
+// list via the real findValidGuardGrant matcher. No fs is touched: checkOverride's
+// `findGuardGrant` is injected with a closure over an in-memory GuardGrant[].
+// ---------------------------------------------------------------------------
+
+describe("mt#2658 acceptance test: fresh grant permits, expired grant denies", () => {
+  const PARENT = "mt#2581";
+  const NEW_TITLE = RAIL_VARIANT_TITLE; // token-overlapping-but-distinct
+  const children = [child("mt#2397", RAIL_TITLE, "DONE")]; // RAIL_TITLE shares >=2 tokens
+  const fetchOk = () => children;
+  const REASON = "concurrent decomposition — distinct sibling, not a duplicate";
+
+  function makeGrant(overrides: Partial<GuardGrant> = {}): GuardGrant {
+    return {
+      guardName: DUPLICATE_CHILD_GUARD_NAME,
+      scope: PARENT,
+      issuedAt: "2026-07-08T00:00:00.000Z",
+      ttlMs: 30 * 60 * 1000, // 30 minutes
+      reason: REASON,
+      ...overrides,
+    };
+  }
+
+  it("fresh (unexpired) grant: token-overlapping-but-distinct child files successfully, reason lands in the resolution", () => {
+    const grants = [makeGrant()];
+    const nowMs = Date.parse("2026-07-08T00:05:00.000Z"); // 5 min after issuance — well within TTL
+
+    const overrideResolution = resolveDuplicateGuardOverride(
+      PARENT,
+      {},
+      (guardName, env, options) =>
+        checkOverride(guardName, env, {
+          ...options,
+          now: () => nowMs,
+          findGuardGrant: (gName, scope, ms) =>
+            findValidGuardGrant(grants, { guardName: gName, scope }, ms),
+        })
+    );
+
+    expect(overrideResolution).toEqual({
+      active: true,
+      source: "grant",
+      reason: REASON,
+    });
+
+    const decision = decideTasksCreateGuard(
+      { parent: PARENT, title: NEW_TITLE },
+      { fetchChildren: fetchOk, overrideActive: overrideResolution.active }
+    );
+
+    // "files successfully" — the guard does not block; it reports the
+    // would-be match for audit (the standard override-decision shape).
+    expect(decision.action).toBe("override");
+    if (decision.action === "override") expect(decision.auditMatch).toBe("mt#2397");
+  });
+
+  it("expired grant: the guard denies as today (block, same as with no grant at all)", () => {
+    const grants = [makeGrant()];
+    // 31 minutes after issuance — 1 minute past the 30-minute TTL.
+    const nowMs = Date.parse("2026-07-08T00:31:00.000Z");
+
+    const overrideResolution = resolveDuplicateGuardOverride(
+      PARENT,
+      {},
+      (guardName, env, options) =>
+        checkOverride(guardName, env, {
+          ...options,
+          now: () => nowMs,
+          findGuardGrant: (gName, scope, ms) =>
+            findValidGuardGrant(grants, { guardName: gName, scope }, ms),
+        })
+    );
+
+    expect(overrideResolution).toEqual({ active: false });
+
+    const decision = decideTasksCreateGuard(
+      { parent: PARENT, title: NEW_TITLE },
+      { fetchChildren: fetchOk, overrideActive: overrideResolution.active }
+    );
+
+    expect(decision.action).toBe("block");
+    if (decision.action === "block") expect(decision.message).toContain("mt#2397");
   });
 });
