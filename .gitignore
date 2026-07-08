@@ -32,13 +32,16 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
-# Policy-coverage detector calibration telemetry (mt#1541) — local runtime data.
-# Match at root and inside any package/service workspace.
-**/.minsky/policy-coverage-calibration.jsonl
-# Sibling hook calibration telemetry — same local-runtime class (mt#2197
-# pre-narration detector, mt#2057 retrospective-trigger scanner).
-**/.minsky/pre-narration-calibration.jsonl
-**/.minsky/retrospective-trigger-calibration.jsonl
+# Hook-calibration telemetry + calibration-review state (mt#2667) — local
+# runtime data written by the UserPromptSubmit/PreToolUse detector family and
+# the calibration-review sweep. Pattern-based so a NEW detector's log is
+# ignored automatically (the per-file predecessor lines missed three newer
+# detectors for weeks). Matches at root and inside any package/service
+# workspace (hooks running with a subpackage cwd spill logs into e.g.
+# cockpit-tray/.minsky/ and infra/.minsky/).
+**/.minsky/*-calibration.jsonl
+**/.minsky/calibration-review-watermarks.json
+**/.minsky/calibration-review-cadence-last-warned.json
 
 # IntelliJ based IDEs
 .idea
