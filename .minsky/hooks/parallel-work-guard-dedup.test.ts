@@ -604,6 +604,24 @@ describe("lazy parent-title fetch (mt#2683)", () => {
     expect(d.action).toBe("block");
     expect(calls).toBe(1);
   });
+
+  it("override path never fetches the parent title and reports the undiscounted match (PR #1859 R1)", () => {
+    let calls = 0;
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      {
+        fetchChildren: () => [child("mt#2397", RAIL_TITLE, "TODO")],
+        overrideActive: true,
+        fetchParentTitle: () => {
+          calls++;
+          return "anything";
+        },
+      }
+    );
+    expect(d.action).toBe("override");
+    if (d.action === "override") expect(d.auditMatch).toBe("mt#2397");
+    expect(calls).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

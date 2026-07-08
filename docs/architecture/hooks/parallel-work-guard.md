@@ -98,10 +98,13 @@ so it catches the concurrent-decomposition case regardless of that time gap.
    cold-start), AND a
    `DUP_GUARD_OVERALL_BUDGET_MS = 20000` wall-clock budget that hard-breaks the
    per-child fallback early (visible warning + partial-set check —
-   fail-open-on-budget). **ALL statuses** are enumerated
-   (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
-   decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
-   terminal-status-only filter would miss exactly the case this exists to catch.
+   fail-open-on-budget). Enumeration covers **all** existing children regardless
+   of status — a concurrent decomposition's children are typically still
+   TODO/IN-PROGRESS at file-time, so skipping any status class at enumeration
+   time would lose signal. The **decision** then buckets the enumerated children
+   by status (mt#2683): ACTIVE siblings (TODO / PLANNING / READY / IN-PROGRESS /
+   IN-REVIEW / BLOCKED) are BLOCK candidates (step 3); TERMINAL siblings
+   (DONE / CLOSED / COMPLETED) are WARN candidates only (step 4).
 2. Tokenize the new title and each child title into lowercase 4+-char non-stopword tokens
    (domain nouns are deliberately NOT stopworded — they are the duplicate signal). Tokens
    that appear in the **parent's own title** are discounted from the count (mt#2683): an

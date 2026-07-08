@@ -1883,8 +1883,12 @@ export function decideTasksCreateGuard(
   };
 
   if (deps.overrideActive) {
+    // Audit-only path (PR #1859 R1 BLOCKING): no parent-title fetch, no
+    // discount — a single undiscounted detection keeps the override
+    // side-effect-free (no extra CLI call) and the audited match id
+    // deterministic regardless of parent-title availability.
     const children = deps.fetchChildren(parent) ?? [];
-    const match = detect(children);
+    const match = detectDuplicateChild(title, children);
     return { action: "override", auditMatch: match ? match.child.id : "none" };
   }
 
@@ -2027,7 +2031,16 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
       );
       return;
     case "warn":
+      // stdout for log-grep compatibility; additionalContext so host UIs
+      // that only surface hookSpecificOutput content still see the advisory
+      // (mirrors the open-PR sweep's permit-with-warnings path, PR #1859 R1).
       process.stdout.write(`${decision.message}\n`);
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: decision.message,
+        },
+      });
       return;
     case "override": {
       const parent = parentForScope ?? "";
