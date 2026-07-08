@@ -77,19 +77,98 @@ const AUTHORITY_KEYWORDS = [
 ] as const;
 
 /**
+ * Kinds eligible for phase-1 policy short-circuit (mt#2666 layer 2).
+ *
+ * The AUTHORITY_KEYWORDS vocabulary (auto-approve / authorized / permitted /
+ * pre-approved / allow) is authorization vocabulary: the short-circuit's
+ * intent is "policy pre-authorizes this action, no human needed." Kinds whose
+ * answer is a decision, a review verdict, information, or coordination are
+ * not pre-answerable by an authority citation and always proceed to phase-2
+ * kind routing.
+ *
+ * Originating incident (c26eca0a, 2026-07-08): the previous kind-verb match
+ * closed EVERY quality.review Ask against this repo's CLAUDE.md — the word
+ * "review" co-occurs with "allow"/"policy" in dozens of paragraphs — silently
+ * destroying an operator-bound disposition Ask at creation.
+ */
+const POLICY_ELIGIBLE_KINDS: ReadonlySet<Ask["kind"]> = new Set([
+  "authorization.approve",
+] as Ask["kind"][]);
+
+/**
+ * Generic tokens excluded from title-derived action names (mt#2666 layer 3).
+ * Two groups: kind-taxonomy words (which would reintroduce the category-match
+ * failure mode via titles like "Commit authorization: ..."), and English glue
+ * common in ask titles. Tokens under 4 characters are excluded structurally.
+ */
+const TITLE_TOKEN_STOPWORDS: ReadonlySet<string> = new Set([
+  // kind-taxonomy words
+  "authorization",
+  "authorize",
+  "approve",
+  "approval",
+  "review",
+  "decide",
+  "decision",
+  "request",
+  "escalate",
+  "notify",
+  "retrieve",
+  "unblock",
+  // English glue
+  "this",
+  "that",
+  "with",
+  "from",
+  "into",
+  "before",
+  "after",
+  "should",
+  "would",
+  "could",
+  "about",
+  "please",
+  "needs",
+  "your",
+  "call",
+  "action",
+]);
+
+/**
+ * Extract the explicit action-name tokens from an Ask's title (mt#2666
+ * layer 3). ADR-008 §9 requires an "explicit action-name" — the action being
+ * authorized is named by the ask itself, not by its kind taxonomy (the
+ * previous kind-verb derivation was category-matching, which §9 calls
+ * insufficient). Tokens are lowercase, >=4 chars, stopword-filtered,
+ * deduplicated.
+ */
+export function extractActionTokens(ask: Ask): string[] {
+  const tokens = ask.title.toLowerCase().match(/[a-z0-9_./-]{4,}/g) ?? [];
+  return [...new Set(tokens.filter((t) => !TITLE_TOKEN_STOPWORDS.has(t)))];
+}
+
+/**
  * Determine whether a single policy text covers the given Ask.
  *
- * Coverage requires two signals:
- *   1. The action name appears in a statement (case-insensitive substring match).
+ * Coverage requires two signals per ADR-008 §9 ("explicit action-name AND
+ * authority-citation required ... Name-match alone insufficient"):
+ *   1. At least one of the Ask's title-derived action tokens appears in a
+ *      statement (case-insensitive substring match).
  *   2. An authority keyword appears in the same statement (case-insensitive).
  *
  * "Statement" is defined as a paragraph (blank-line-delimited block) or a
  * list item (line starting with `-`, `*`, or a number followed by `.`).
- * This is intentionally simple — ADR-008 notes the semantics are candidates
- * for refinement after false-positive data is collected.
+ * This remains intentionally simple — ADR-008 notes the semantics are
+ * candidates for refinement (the deeper semantic-relevance matcher shares a
+ * family with mt#1698).
  */
 function checkSingleSource(ask: Ask, source: PolicyText): CoverageResult {
-  const actionName = deriveActionName(ask);
+  const actionTokens = extractActionTokens(ask);
+  if (actionTokens.length === 0) {
+    // No explicit action name available — per ADR-008 §9 there is nothing to
+    // match explicitly, so policy cannot cover the ask.
+    return { covered: false };
+  }
   const lines = source.content.split("\n");
 
   // Split into "statements": paragraphs and list items.
@@ -98,8 +177,8 @@ function checkSingleSource(ask: Ask, source: PolicyText): CoverageResult {
   for (const { text, startLine } of statements) {
     const lowerText = text.toLowerCase();
 
-    // Signal 1: action name appears in the statement.
-    if (!lowerText.includes(actionName.toLowerCase())) {
+    // Signal 1: an explicit action token from the ask's title appears.
+    if (!actionTokens.some((t) => lowerText.includes(t))) {
       continue;
     }
 
@@ -123,22 +202,6 @@ function checkSingleSource(ask: Ask, source: PolicyText): CoverageResult {
   }
 
   return { covered: false };
-}
-
-/**
- * Derive the action name to search for from an Ask.
- *
- * Uses the Ask `kind` domain part (e.g., "authorization.approve" → "approve"),
- * the full kind label, and any action name embedded in the Ask title/question
- * as supplementary search tokens. The primary match key is the full kind string
- * plus the verb component.
- */
-function deriveActionName(ask: Ask): string {
-  // The kind itself is the primary action name for routing purposes.
-  // "authorization.approve" → we search for "approve" (the action verb).
-  // Callers may also embed action context in the title; this is a v1 heuristic.
-  const kindParts = ask.kind.split(".");
-  return kindParts[kindParts.length - 1] ?? ask.kind;
 }
 
 /** A parsed statement block with its start line (0-indexed). */
@@ -224,11 +287,24 @@ function truncateQuote(text: string, maxLength = 200): string {
 /**
  * Determine whether any of the given policy sources covers the Ask.
  *
- * Sources are evaluated in order (ADR-008 §Router priority: CLAUDE.md first,
- * then project rules, then task spec, then memories). Returns on the first
- * match; the caller need not inspect all sources if one covers.
+ * Two structural gates run before any text matching (mt#2666):
+ *   1. Options escape — an Ask carrying `options` is a decision menu; a
+ *      policy citation cannot answer "which option" (ADR-008 §Packaging:
+ *      options are present when the kind is decision-like).
+ *   2. Kind restriction — only POLICY_ELIGIBLE_KINDS (authorization
+ *      semantics) can be pre-answered by an authority citation.
+ *
+ * Sources are then evaluated in order (ADR-008 §Router priority: CLAUDE.md
+ * first, then project rules, then task spec, then memories). Returns on the
+ * first match; the caller need not inspect all sources if one covers.
  */
 export function isCovered(ask: Ask, sources: PolicyText[]): CoverageResult {
+  if (ask.options && ask.options.length > 0) {
+    return { covered: false };
+  }
+  if (!POLICY_ELIGIBLE_KINDS.has(ask.kind)) {
+    return { covered: false };
+  }
   for (const source of sources) {
     const result = checkSingleSource(ask, source);
     if (result.covered) {

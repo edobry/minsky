@@ -19,7 +19,13 @@ import { mkdtemp, writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
-import { isCovered, loadClaudeMd, loadProjectRules, loadTaskSpec } from "./policy";
+import {
+  isCovered,
+  extractActionTokens,
+  loadClaudeMd,
+  loadProjectRules,
+  loadTaskSpec,
+} from "./policy";
 import type { Ask } from "./types";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
@@ -173,6 +179,94 @@ This project follows clean architecture principles.
 
     expect(result.covered).toBe(true);
     expect(result.citation?.source).toBe("first.md");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: mt#2666 — phase-1 gating (options escape, kind restriction,
+// explicit action-name) against the c26eca0a incident class
+// ---------------------------------------------------------------------------
+
+// The exact CLAUDE.md paragraph that spuriously covered the c26eca0a
+// disposition Ask: contains "review" (kind verb) and "silent-allow"
+// (authority-keyword substring). Reproduced verbatim as a hermetic fixture.
+const BRANCH_FRESHNESS_GUARD_FIXTURE = `
+## Branch Freshness Guard
+
+PreToolUse on \`session_commit\`/\`session_pr_create\`/\`session_pr_edit\`: blocks when \`origin/main\` has
+commits the session branch lacks. On block: \`session_update\` to rebase, review for overlap, retry.
+Hook: \`check-branch-fresh.ts\`. Override: \`MINSKY_SKIP_FRESHNESS=1\`. Fail: silent-allow on 4 routine
+paths (even, fresh branch, detached HEAD, no default branch); merge-in-progress allows w/ audit line;
+fetch-failure warnings always surface.
+`;
+
+describe("isCovered — mt#2666 gating", () => {
+  it("AT1: quality.review disposition Ask with options is NOT covered by the Branch Freshness Guard paragraph (c26eca0a reproducer)", () => {
+    const ask: Ask = {
+      ...makeAsk(
+        "quality.review",
+        "Calibration review 2026-07-08: per-detector flip/tune/retire disposition (6 detector logs)"
+      ),
+      options: [
+        { label: "Approve all six recommendations as stated", value: "approve-all" },
+        { label: "Approve, but retire policy-coverage log entirely", value: "retire" },
+      ],
+    };
+    const result = isCovered(ask, [
+      { source: "CLAUDE.md", content: BRANCH_FRESHNESS_GUARD_FIXTURE },
+    ]);
+    expect(result.covered).toBe(false);
+  });
+
+  it("kind restriction: a quality.review Ask WITHOUT options is still not policy-eligible", () => {
+    const ask = makeAsk("quality.review", "Detector calibration disposition");
+    const result = isCovered(ask, [
+      { source: "CLAUDE.md", content: BRANCH_FRESHNESS_GUARD_FIXTURE },
+    ]);
+    expect(result.covered).toBe(false);
+  });
+
+  it("options escape: even an authorization.approve Ask with options is not policy-closed", () => {
+    const ask: Ask = {
+      ...makeAsk(KIND_AUTH_APPROVE, "Approve formatter commits"),
+      options: [{ label: "Approve", value: "yes" }],
+    };
+    // The same fixture that covers the option-less sibling test above.
+    const result = isCovered(ask, [
+      {
+        source: "CLAUDE.md",
+        content: "- auto-approve formatter commits: pre-approved, no manual review required.",
+      },
+    ]);
+    expect(result.covered).toBe(false);
+  });
+
+  it("explicit action-name: a statement matching only kind-taxonomy words does not cover", () => {
+    // Title carries only taxonomy/stopword tokens -> no explicit action name
+    // -> nothing to match explicitly (ADR-008 §9).
+    const ask = makeAsk(KIND_AUTH_APPROVE, "Approve this action");
+    const result = isCovered(ask, [
+      { source: "CLAUDE.md", content: "approve actions are allowed by policy." },
+    ]);
+    expect(result.covered).toBe(false);
+  });
+});
+
+describe("extractActionTokens (mt#2666)", () => {
+  it("extracts substantive title tokens, filtering taxonomy words and glue", () => {
+    const ask = makeAsk(KIND_AUTH_APPROVE, "Commit authorization: fix session rebase before merge");
+    const tokens = extractActionTokens(ask);
+    expect(tokens).toContain("commit");
+    expect(tokens).toContain("session");
+    expect(tokens).toContain("rebase");
+    expect(tokens).toContain("merge");
+    expect(tokens).not.toContain("authorization");
+    expect(tokens).not.toContain("before");
+  });
+
+  it("returns empty for a title of only stopwords/short tokens", () => {
+    const ask = makeAsk(KIND_AUTH_APPROVE, "Approve this action");
+    expect(extractActionTokens(ask)).toEqual([]);
   });
 });
 

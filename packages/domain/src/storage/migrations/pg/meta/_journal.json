@@ -365,6 +365,13 @@
       "when": 1783124785497,
       "tag": "0051_brief_shriek",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1783544779363,
+      "tag": "0052_lonely_master_chief",
+      "breakpoints": true
     }
   ]
 }
