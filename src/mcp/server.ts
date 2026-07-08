@@ -10,6 +10,7 @@ import {
   GetPromptRequestSchema,
   isInitializeRequest,
   McpError,
+  type ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
@@ -144,6 +145,21 @@ const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.systemInfo",
 ]);
 
+/**
+ * mt#2677: reports a human-readable progress message for a long-running tool
+ * call. Bound (by `buildProgressReporter` below) to the MCP transport's
+ * `notifications/progress` mechanism when the CALLER requested it (a
+ * `_meta.progressToken` on the originating request) — a no-op function is
+ * NOT passed when the caller didn't ask for progress, so tool handlers can
+ * unconditionally call `progress?.("...")` without checking for support.
+ *
+ * Kept as a plain `(message: string) => void` (not the raw MCP SDK
+ * notification shape) so nothing below this layer — command-mapper,
+ * shared-command-integration, domain poll loops — needs to know about
+ * `RequestHandlerExtra` or JSON-RPC notification framing.
+ */
+export type ToolProgressReporter = (message: string) => void;
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -151,8 +167,18 @@ export interface ToolDefinition {
   /**
    * Eager (legacy) handler. At least one of `handler` or `getHandler` must be
    * provided. When both are present, `handler` takes precedence.
+   *
+   * The optional second argument (mt#2677) is a progress reporter, present
+   * only when the calling client requested progress notifications for this
+   * request. Long-running tools (poll loops in particular) call it once per
+   * poll interval so a legitimate multi-minute wait produces MCP transport
+   * activity instead of total silence — see
+   * `packages/domain/src/session/commands/pr-wait-for-review-subcommand.ts`
+   * for the originating case (a harness-side 1800s MCP idle timeout killed
+   * connections that were still correctly polling within their own
+   * server-side timeout).
    */
-  handler?: (args: Record<string, unknown>) => Promise<unknown>;
+  handler?: (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>;
   /**
    * mt#1792: lazy handler thunk — defers handler-module loading until first
    * invocation. Mutually exclusive with `handler` at registration time: provide
@@ -163,7 +189,9 @@ export interface ToolDefinition {
    * When both are provided, the legacy `handler` takes precedence and
    * `getHandler` is ignored — backward-compatible coexistence.
    */
-  getHandler?: () => Promise<(args: Record<string, unknown>) => Promise<unknown>>;
+  getHandler?: () => Promise<
+    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+  >;
   /**
    * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
    * call when `getHandler` resolution starts; subsequent concurrent first
@@ -171,7 +199,9 @@ export interface ToolDefinition {
    * Cleared on success (resolved value cached on `handler`) and on rejection
    * (so retry can occur). Internal; not part of the registration API.
    */
-  __resolving?: Promise<(args: Record<string, unknown>) => Promise<unknown>>;
+  __resolving?: Promise<
+    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+  >;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
    * create/edit/merge, force-push, session-update). The server will refuse
@@ -191,6 +221,40 @@ export interface ToolDefinition {
    * runtime error on first call before background init completes.
    */
   requiresInit?: boolean;
+}
+
+/**
+ * Build a `ToolProgressReporter` bound to this request's MCP transport
+ * (mt#2677), or `undefined` when the calling client did not request progress
+ * notifications for this request (no `_meta.progressToken`). Per the MCP
+ * spec, progress notifications are only sent when the caller opts in with a
+ * `progressToken` — sending them unconditionally would be protocol-incorrect
+ * for clients that never asked.
+ *
+ * `progress` is a monotonically increasing counter (the `progress` field is
+ * required by `notifications/progress`); callers only care about `message`,
+ * so the counter is purely internal bookkeeping to satisfy the schema.
+ *
+ * Notification failures are logged and swallowed — a progress notification
+ * is best-effort UX, never a reason to fail the underlying tool call.
+ */
+export function buildProgressReporter(
+  progressToken: string | number | undefined,
+  sendNotification: (notification: ServerNotification) => Promise<void>
+): ToolProgressReporter | undefined {
+  if (progressToken === undefined) return undefined;
+  let progress = 0;
+  return (message: string) => {
+    progress += 1;
+    void sendNotification({
+      method: "notifications/progress",
+      params: { progressToken, progress, message },
+    } satisfies ServerNotification).catch((err) => {
+      log.debug("mt#2677: progress notification failed (non-blocking)", {
+        error: getErrorMessage(err),
+      });
+    });
+  };
 }
 
 interface ResourceDefinition {
@@ -1004,7 +1068,13 @@ export class MinskyMCPServer {
             throw new Error(`Tool '${request.params.name}' has no handler or getHandler`);
           }
 
-          const result = await tool.handler(request.params.arguments || {});
+          // mt#2677: build a progress reporter bound to this request's
+          // transport when the caller opted in via _meta.progressToken.
+          const progressToken = (request.params as { _meta?: { progressToken?: string | number } })
+            ._meta?.progressToken;
+          const progress = buildProgressReporter(progressToken, extra.sendNotification);
+
+          const result = await tool.handler(request.params.arguments || {}, progress);
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
           this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {

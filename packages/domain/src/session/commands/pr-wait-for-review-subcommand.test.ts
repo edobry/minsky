@@ -479,6 +479,25 @@ describe("sessionPrWaitForReview", () => {
     expect(deps.sleepCalls[0]).toBe(5000);
   });
 
+  test("onProgress fires once per poll interval (mt#2677)", async () => {
+    const progressMessages: string[] = [];
+    const deps = {
+      ...makeDeps([[], [], [match]]),
+      onProgress: (message: string) => progressMessages.push(message),
+    };
+
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 60, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    // 3 polls, 2 of which found no match and therefore slept (and reported
+    // progress) — the poll that matched returns immediately without a final
+    // progress call, mirroring the existing sleepCalls assertion above.
+    expect(progressMessages).toHaveLength(2);
+  });
+
   test("returns matched=false on timeout with no review", async () => {
     // Queue returns empty indefinitely (makeDeps repeats last entry).
     const deps = makeDeps([[]]);

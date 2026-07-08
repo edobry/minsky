@@ -42,6 +42,7 @@ import { log } from "@minsky/shared/logger";
 import type { RepositoryBackend, ReviewListEntry } from "../../repository/index";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import type { TokenProvider, TokenRole } from "../../auth/token-provider";
+import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
 
 export interface SessionPrWaitForReviewDependencies {
   sessionDB: SessionProviderInterface;
@@ -61,6 +62,17 @@ export interface SessionPrWaitForReviewDependencies {
    * builds one. Pure literal-login filters do not consult this seam.
    */
   getTokenProvider?: () => Promise<TokenProvider>;
+  /**
+   * mt#2677: optional progress callback, invoked once per poll iteration
+   * (right before sleeping, when no match was found on that poll). Lets a
+   * long review-wait produce MCP transport activity — via the caller's
+   * `context.onProgress` (see `src/mcp/server.ts`'s progress-notification
+   * wiring) — so a legitimate multi-minute wait doesn't look identical, from
+   * the harness's idle-timeout perspective, to a genuine hang. A no-op when
+   * omitted (the CLI interface, or an MCP caller that didn't request
+   * progress notifications via `_meta.progressToken`).
+   */
+  onProgress?: (message: string) => void;
 }
 
 export interface SessionPrWaitForReviewParams {
@@ -708,24 +720,48 @@ export async function sessionPrWaitForReview(
 
       pollCount += 1;
 
-      // mt#2586: refresh HEAD each poll so a mid-wait HEAD advance keeps
-      // rejecting reviews of the prior head (getHeadSha captured once above).
-      if (getHeadSha) {
-        headSha = await getHeadSha(prNumber);
-      }
+      // mt#2677: bound EVERY async call made within a single poll iteration
+      // to the wait's own overall deadline, not just the interval between
+      // polls. Without this, a stalled call with no timeout of its own (the
+      // token-mint fetch fixed in github-app-token-provider.ts was one
+      // instance; any future unbounded call inside listReviews/getHeadSha
+      // would be another) hangs the ENTIRE function past its configured
+      // timeoutSeconds — the deadline check below only runs BETWEEN
+      // iterations, so it never fires while an iteration's own I/O is stuck.
+      // DeadlineExceededError is caught below and treated exactly like a
+      // normal poll-loop timeout.
+      const ioDeadlineMs = Math.max(0, deadline - now());
 
-      const reviews = await backend.review.listReviews(prNumber);
-      lastReviews = reviews;
-      const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
-      if (match) {
-        return {
-          matched: true,
-          // mt#2656: trimmed by default; params.fullBody: true restores the
-          // full ReviewListEntry (raw body, provenance comment, tables).
-          review: params.fullBody ? match : trimReview(match),
-          elapsedMs: now() - start,
-          pollCount,
-        };
+      try {
+        // mt#2586: refresh HEAD each poll so a mid-wait HEAD advance keeps
+        // rejecting reviews of the prior head (getHeadSha captured once above).
+        if (getHeadSha) {
+          headSha = await withDeadline(getHeadSha(prNumber), ioDeadlineMs);
+        }
+
+        const reviews = await withDeadline(backend.review.listReviews(prNumber), ioDeadlineMs);
+        lastReviews = reviews;
+        const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
+        if (match) {
+          return {
+            matched: true,
+            // mt#2656: trimmed by default; params.fullBody: true restores the
+            // full ReviewListEntry (raw body, provenance comment, tables).
+            review: params.fullBody ? match : trimReview(match),
+            elapsedMs: now() - start,
+            pollCount,
+          };
+        }
+      } catch (ioError) {
+        if (ioError instanceof DeadlineExceededError) {
+          log.debug(
+            `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} I/O exceeded the ` +
+              `wait's overall deadline (a stalled fetch with no bound of its own); ` +
+              `returning REVIEW_TIMEOUT instead of hanging further`
+          );
+          return buildTimeoutResult();
+        }
+        throw ioError;
       }
 
       const remaining = deadline - now();
@@ -737,6 +773,12 @@ export async function sessionPrWaitForReview(
       log.debug(
         `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} no match; ` +
           `sleeping ${Math.round(sleepMs / 1000)}s (${Math.round(remaining / 1000)}s remaining)`
+      );
+      // mt#2677: once per poll interval so a legitimate long wait produces
+      // MCP transport activity — see SessionPrWaitForReviewDependencies.onProgress.
+      deps.onProgress?.(
+        `Waiting for review on PR #${prNumber} (poll ${pollCount}, ` +
+          `${Math.round(remaining / 1000)}s remaining)`
       );
       await sleep(sleepMs);
     }

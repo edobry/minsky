@@ -1541,3 +1541,58 @@ describe("MinskyMCPServer init setters — mt#1962 symmetric mutual-exclusivity 
     await server.close();
   });
 });
+
+describe("buildProgressReporter (mt#2677)", () => {
+  test("returns undefined when the caller did not request progress (no progressToken)", async () => {
+    const { buildProgressReporter } = await import("./server");
+    const sendNotification = mock(async () => {});
+    const reporter = buildProgressReporter(undefined, sendNotification);
+    expect(reporter).toBeUndefined();
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  test("sends a notifications/progress message with an incrementing counter when a progressToken is present", async () => {
+    const { buildProgressReporter } = await import("./server");
+    const calls: unknown[] = [];
+    const sendNotification = mock(async (notification: unknown) => {
+      calls.push(notification);
+    });
+
+    const reporter = buildProgressReporter("tok-123", sendNotification);
+    expect(reporter).toBeDefined();
+
+    reporter?.("waiting for review, poll 1");
+    reporter?.("waiting for review, poll 2");
+
+    // sendNotification is fire-and-forget (void + .catch) inside the
+    // reporter — flush a microtask so both calls have been dispatched.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual([
+      {
+        method: "notifications/progress",
+        params: { progressToken: "tok-123", progress: 1, message: "waiting for review, poll 1" },
+      },
+      {
+        method: "notifications/progress",
+        params: { progressToken: "tok-123", progress: 2, message: "waiting for review, poll 2" },
+      },
+    ]);
+  });
+
+  test("a sendNotification failure is swallowed — does not throw or reject", async () => {
+    const { buildProgressReporter } = await import("./server");
+    const sendNotification = mock(async () => {
+      throw new Error("transport gone");
+    });
+
+    const reporter = buildProgressReporter("tok-456", sendNotification);
+    expect(() => reporter?.("this should not throw synchronously")).not.toThrow();
+
+    // Let the rejected promise's .catch() handler run — an unhandled
+    // rejection here would fail the test via bun's global handler.
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+});
