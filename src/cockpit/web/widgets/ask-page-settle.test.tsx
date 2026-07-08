@@ -72,6 +72,13 @@ describe("AskPage settle convention (mt#2410)", () => {
       if (url.includes(`/api/asks/${ASK_ID}/defer`)) {
         return new Response("{}", { status: 200 });
       }
+      /** Per-id deeplink resolution path (mt#2669). */
+      if (url.endsWith(`/api/asks/${ASK_ID}`) && (!init || !init.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ ask: PENDING_ASK }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       throw new Error(`Unexpected fetch in test: ${url}`);
     }) as typeof fetch;
   });
