@@ -515,11 +515,12 @@ Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start`: blocks when the target task's spec was never
-surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the session transcript. On
-hit: read the spec in full before retrying. Hook: `check-task-spec-read.ts`. Override:
-`MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error/missing transcript/unresolvable id.
-Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
+PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start` /
+`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only, mt#2657): blocks when the target
+task's spec was never surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the
+session transcript. On hit: read the spec in full before retrying. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any
+error/missing transcript/unresolvable id. Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 
