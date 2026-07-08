@@ -215,7 +215,10 @@ export function createTasksDispatchCommand(
         // machine transition validity (per-kind workflow, BLOCKED/CLOSED refusal, etc.) is
         // enforced identically — not reimplemented. See module header for the spec-read guard
         // composition note (enforced by the harness hook, not here).
-        taskId = p.taskId as string;
+        const { normalizeTaskIdInput } = await import(
+          "@minsky/domain/tasks/commands/shared-helpers"
+        );
+        taskId = normalizeTaskIdInput(p.taskId);
         log.debug("[tasks.dispatch] Existing-task mode", { taskId });
 
         const { getTaskStatusFromParams, setTaskStatusFromParams } = await import(
