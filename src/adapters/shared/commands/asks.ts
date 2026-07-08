@@ -70,6 +70,9 @@ import { makeProductionGithubReviewClient } from "./asks-github-client";
 import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
+import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
+import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -134,6 +137,32 @@ async function buildCompositeWakeSink(
 }
 
 /**
+ * Resolve the raw Postgres connection from the DI container's persistence
+ * provider. Shared by `buildAskRepository` (below) and the mt#2696
+ * id-prefix-resolution helper so both use the same connection-resolution
+ * logic instead of two independently maintained copies.
+ *
+ * Returns null on any resolution problem (no container, no SQL capability,
+ * no connection) — never throws. Callers surface their own clear error.
+ */
+async function getAskDb(
+  container: AppContainerInterface | undefined
+): Promise<PostgresJsDatabase | null> {
+  if (!container?.has("persistence")) return null;
+  try {
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    if (!persistenceProvider.getDatabaseConnection) return null;
+    const db = await persistenceProvider.getDatabaseConnection();
+    return db ?? null;
+  } catch (err: unknown) {
+    log.warn("asks: could not resolve database connection", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Build a `DrizzleAskRepository` from the persistence provider's DB connection.
  *
  * Returns null when the provider does not support SQL capability or when no
@@ -142,19 +171,36 @@ async function buildCompositeWakeSink(
 export async function buildAskRepository(
   container: AppContainerInterface | undefined
 ): Promise<AskRepository | null> {
-  if (!container?.has("persistence")) return null;
-  try {
-    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
-    if (!persistenceProvider.getDatabaseConnection) return null;
-    const db = await persistenceProvider.getDatabaseConnection();
-    if (!db) return null;
-    return new DrizzleAskRepository(db);
-  } catch (err: unknown) {
-    log.warn("asks: could not initialize AskRepository", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
+  const db = await getAskDb(container);
+  return db ? new DrizzleAskRepository(db) : null;
+}
+
+/**
+ * Resolve a caller-supplied ask id (full UUID or unambiguous prefix, mt#2696)
+ * to the full UUID `asks.id` before it reaches any `eq(asksTable.id, ...)`
+ * comparison in the repository. A full UUID passes through unchanged with no
+ * query. A short/no-match/ambiguous prefix throws a clean tool-level error
+ * (never a raw Postgres "invalid input syntax for type uuid" error).
+ *
+ * When no DB connection is resolvable here, the raw input passes through —
+ * the immediately-following `buildAskRepository` call in every command
+ * surfaces the "AskRepository unavailable" error instead.
+ */
+async function resolveAskIdInput(
+  id: string,
+  container: AppContainerInterface | undefined
+): Promise<string> {
+  const db = await getAskDb(container);
+  if (!db) return id;
+
+  return resolveIdPrefixOrThrow({
+    db,
+    table: asksTable,
+    idColumn: asksTable.id,
+    labelColumn: asksTable.title,
+    input: id,
+    entityName: "ask",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -931,7 +977,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "Respond to any suspended Ask (mt#1458, ADR-008). " +
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
-        "(closed/cancelled/expired) states are rejected with a clear error.",
+        "(closed/cancelled/expired) states are rejected with a clear error. " +
+        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
       // requiresSetup: false — asks.respond depends only on the persistence
       // provider, not on global Minsky configuration. The execute() closure
       // surfaces a clear "AskRepository unavailable" error if persistence
@@ -946,8 +993,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation to the full uuid before it
+        // ever reaches a Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return respondToAsk(repo, {
-          id: params.id as string,
+          id,
           message: params.message as string,
           responder: params.responder as string | undefined,
         }).then(async (result) => {
@@ -955,7 +1006,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           await emitSystemEventBestEffort(container, {
             eventType: "ask.answered",
             payload: {
-              askId: params.id as string,
+              askId: id,
               responder: (params.responder as string | undefined) ?? null,
             },
           });
@@ -1081,7 +1132,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "Block until an Ask reaches responded/closed (returns the response payload), " +
         "or a cancelled/expired terminal state, or the timeout elapses. " +
         "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
-        "Caller-managed gating: does NOT mutate task status.",
+        "Caller-managed gating: does NOT mutate task status. " +
+        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
       // requiresSetup: false — depends only on the persistence provider
       // (like asks.respond), not on global Minsky configuration.
       requiresSetup: false,
@@ -1094,9 +1146,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return askWaitForResponse(
           {
-            id: params.id as string,
+            id,
             timeoutSeconds: params.timeoutSeconds as number | undefined,
             intervalSeconds: params.intervalSeconds as number | undefined,
           },
@@ -1116,7 +1172,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata.",
+        "to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as
       // asks.respond / asks.wait-for-response).
@@ -1135,8 +1191,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return editAskContent(repo, {
-          id: params.id as string,
+          id,
           title: params.title as string | undefined,
           question: params.question as string | undefined,
           options: params.options as AskOption[] | undefined,

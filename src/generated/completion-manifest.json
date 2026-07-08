@@ -4233,7 +4233,7 @@
             },
             {
               "name": "respond",
-              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error.",
+              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--message"],
@@ -4319,7 +4319,7 @@
             },
             {
               "name": "wait-for-response",
-              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status.",
+              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
@@ -4335,7 +4335,7 @@
             },
             {
               "name": "edit",
-              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata.",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--title"],
