@@ -109,8 +109,39 @@ jobs:
             exit 1
           fi
 
-          FAIL_COUNT=$(grep -oE "^ *[0-9]+ fail$" test-output.log | tail -1 | grep -oE "[0-9]+")
-          if [ "${FAIL_COUNT:-0}" -gt 0 ]; then
+          # Verified against real captured `bun test` 1.2.21 output (mt#2665 R1
+          # review: both local macOS runs and a live GitHub Actions
+          # ubuntu-latest run's raw log bytes, via `gh api .../logs`,
+          # inspected with `od -c` for hidden CR/ANSI). The summary block is
+          # exactly:
+          #   N pass
+          #   M fail
+          #   K expect() calls
+          #   Ran <total> tests across <files> file(s). [<duration>]
+          # -- one leading space before the digit, no ANSI escapes, no
+          # trailing CR, even though OTHER lines in the same GitHub Actions
+          # log (the echoed step-script source) DO carry ANSI color codes;
+          # bun's own reporter output is unaffected because it correctly
+          # detects the non-TTY pipe and disables color.
+          #
+          # Fail CLOSED, not open: if the completion summary line was found
+          # (checked above) but the "<N> fail" line can't be located or its
+          # count can't be parsed, do NOT default to 0 -- that would silently
+          # pass on an unparseable/malformed summary, recreating exactly the
+          # "failures reported success" class this task exists to close.
+          FAIL_LINE=$(grep -E "^ *[0-9]+ fail$" test-output.log | tail -1)
+          if [ -z "$FAIL_LINE" ]; then
+            echo "::error::bun test printed a completion summary but its \"<N> fail\" line could not be found — refusing to assume 0 failures. Treating as a failure (fail-closed) regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          FAIL_COUNT=$(echo "$FAIL_LINE" | grep -oE "[0-9]+")
+          if [ -z "$FAIL_COUNT" ]; then
+            echo "::error::bun test's \"<N> fail\" line was found (\"$FAIL_LINE\") but its count could not be parsed — refusing to assume 0 failures. Treating as a failure (fail-closed) regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          if [ "$FAIL_COUNT" -gt 0 ]; then
             echo "::error::bun test reported $FAIL_COUNT failing test(s) in its summary. Treating as a failure regardless of exit code ($TEST_EXIT)."
             exit 1
           fi

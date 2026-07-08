@@ -19,21 +19,40 @@
  * treated as a failure regardless of exit code (the exact silent-truncation
  * signature this script exists to route around).
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const MCP_DIR = "./src/mcp";
 
-const files = readdirSync(MCP_DIR)
-  .filter((f) => f.endsWith(".test.ts"))
-  .map((f) => join(MCP_DIR, f))
-  .sort();
+// mt#2665 R1 review fix: the docstring above says "**.test.ts" (recursive),
+// but the original implementation only read the top-level directory --
+// silently skipping src/mcp/middleware/*.test.ts (3 files) and
+// src/mcp/stdio-proxy/*.test.ts (1 file). Those 4 files were consequently
+// never run by ANY CI step: excluded from the main "Test" step by
+// scripts/run-tests-main.ts's src/mcp/** prefix exclusion, and silently
+// dropped here too. Recurse properly.
+function walk(dir: string, out: string[]): void {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const info = statSync(full);
+    if (info.isDirectory()) {
+      walk(full, out);
+    } else if (entry.endsWith(".test.ts")) {
+      out.push(full);
+    }
+  }
+}
+
+const files: string[] = [];
+walk(MCP_DIR, files);
+files.sort();
 
 if (files.length === 0) {
   console.error(
-    "run-tests-mcp-isolated.ts: found zero *.test.ts files under src/mcp -- this is almost " +
-      "certainly a bug (either this script's path is stale, or src/mcp's test files moved). " +
-      "Refusing to report a false-green result."
+    "run-tests-mcp-isolated.ts: found zero *.test.ts files under src/mcp (recursive) -- this is " +
+      "almost certainly a bug (either this script's path is stale, or src/mcp's test files " +
+      "moved). Refusing to report a false-green result -- a silently-empty isolation step is " +
+      "exactly the failure class this task exists to close."
   );
   process.exit(1);
 }

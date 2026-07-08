@@ -59,7 +59,11 @@ function walk(dir: string, out: string[]): void {
   }
   for (const entry of entries) {
     const full = join(dir, entry);
-    const rel = relative(".", full);
+    // node:path's `relative()` uses the platform separator (backslash on
+    // Windows); EXCLUDE_DIR_PREFIXES above are POSIX-style. CI is
+    // ubuntu-only and local dev here is macOS, so this has never actually
+    // mattered, but normalizing is a one-liner (mt#2665 R1 review).
+    const rel = relative(".", full).split("\\").join("/");
     if (shouldExclude(rel)) continue;
     let info: ReturnType<typeof statSync>;
     try {
