@@ -156,6 +156,25 @@ export interface RespondAskInput {
   response: NonNullable<Ask["response"]>;
 }
 
+/**
+ * Editable content fields on an Ask (mt#2668).
+ *
+ * Only content-bearing fields are editable — lifecycle state, routing fields,
+ * and service-window fields are owned by their respective mechanisms (state
+ * machine, router, reaper) and are NOT reachable through `updateContent`.
+ *
+ * `metadata` here is the FINAL metadata object to persist — callers that want
+ * merge semantics (e.g. `editAskContent` in edit.ts) compute the merged object
+ * before calling the repository.
+ */
+export interface EditAskFields {
+  title?: string;
+  question?: string;
+  options?: Ask["options"];
+  contextRefs?: Ask["contextRefs"];
+  metadata?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // AskRepository interface
 // ---------------------------------------------------------------------------
@@ -323,6 +342,33 @@ export interface AskRepository {
    * @returns      The updated Ask.
    */
   updateRoutingTarget(id: string, target: string): Promise<Ask>;
+
+  /**
+   * Persist edited content fields on a non-terminal Ask (mt#2668).
+   *
+   * Does NOT enforce the state machine and MUST NOT change `state` — this is
+   * a field-level content update (same family as `updateWindowMissedCount` /
+   * `updateRoutingTarget`), so a suspended Ask stays suspended and stays in
+   * the operator queue.
+   *
+   * Atomicity guarantee (Drizzle): optimistic-concurrency
+   * `WHERE id = ? AND state NOT IN (closed, cancelled, expired)`. If the Ask
+   * reached a terminal state between the caller's read and this write, the
+   * update matches zero rows and an `Error` naming the observed terminal
+   * state is thrown — terminal asks are never edited.
+   *
+   * Note: the read-merge-write on `metadata` performed by callers (edit.ts)
+   * is NOT protected against concurrent metadata writers — acceptable for
+   * the rare-edit cadence this surface serves; revisit with a jsonb-append
+   * UPDATE if concurrent editors become real.
+   *
+   * @param id     Primary key of the Ask to update.
+   * @param fields Content fields to persist (at least one must be present).
+   * @returns      The updated Ask.
+   * @throws       `Error` — Ask not found, Ask in terminal state, or no
+   *               fields provided.
+   */
+  updateContent(id: string, fields: EditAskFields): Promise<Ask>;
 
   /**
    * Atomically persist a router outcome on a pre-routing Ask (mt#2265).
@@ -811,6 +857,46 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async updateContent(id: string, fields: EditAskFields): Promise<Ask> {
+    const updates: Partial<AskInsert> = {};
+    if (fields.title !== undefined) updates.title = fields.title;
+    if (fields.question !== undefined) updates.question = fields.question;
+    if (fields.options !== undefined) updates.options = fields.options as AskInsert["options"];
+    if (fields.contextRefs !== undefined) {
+      updates.contextRefs = fields.contextRefs as AskInsert["contextRefs"];
+    }
+    if (fields.metadata !== undefined) updates.metadata = fields.metadata;
+    if (Object.keys(updates).length === 0) {
+      throw new Error(`Ask updateContent: no fields to update for ${id}`);
+    }
+
+    // Optimistic concurrency: only touch a row that is still non-terminal.
+    // MUST NOT change `state` — see the interface contract (mt#2668).
+    const rows = await this.db
+      .update(asksTable)
+      .set(updates)
+      .where(
+        and(eq(asksTable.id, id), notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[]))
+      )
+      .returning();
+
+    if (rows.length === 0) {
+      // Disambiguate: not-found vs. terminal-state.
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — content edits are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateContent returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
   async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
     // Validate the logical walk against the state-machine table first.
     guardRouteOutcomeWalk(outcome.state);
@@ -1105,6 +1191,48 @@ export class FakeAskRepository implements AskRepository {
     }
 
     const updated: Ask = { ...existing, routingTarget: target };
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateContent(id: string, fields: EditAskFields): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    // Mirror the Drizzle backend's non-terminal guard.
+    if (isTerminal(existing.state)) {
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — content edits are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+
+    const updated: Ask = { ...existing };
+    let touched = false;
+    if (fields.title !== undefined) {
+      updated.title = fields.title;
+      touched = true;
+    }
+    if (fields.question !== undefined) {
+      updated.question = fields.question;
+      touched = true;
+    }
+    if (fields.options !== undefined) {
+      updated.options = fields.options;
+      touched = true;
+    }
+    if (fields.contextRefs !== undefined) {
+      updated.contextRefs = fields.contextRefs;
+      touched = true;
+    }
+    if (fields.metadata !== undefined) {
+      updated.metadata = fields.metadata;
+      touched = true;
+    }
+    if (!touched) {
+      throw new Error(`Ask updateContent: no fields to update for ${id}`);
+    }
+
     this.store.set(id, updated);
     return { ...updated };
   }

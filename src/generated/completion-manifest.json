@@ -4314,6 +4314,42 @@
                   "takesValue": true
                 }
               ]
+            },
+            {
+              "name": "edit",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata.",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "Replacement title (list rendering / notifications)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--question"],
+                  "description": "Replacement question body",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--options"],
+                  "description": "Replacement decision-frame options (wholesale replace, not merge)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--context-refs"],
+                  "description": "Replacement context refs (wholesale replace, not merge)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--metadata"],
+                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--editor"],
+                  "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+                  "takesValue": true
+                }
+              ]
             }
           ]
         },
