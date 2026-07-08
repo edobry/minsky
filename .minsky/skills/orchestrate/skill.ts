@@ -267,6 +267,43 @@ failure (a fix subagent dispatched on a misdiagnosed cause). Supply all three:
 - \`premiseFalsifier\` — the cheapest check that would disprove the claim if it were false.
 - \`premiseEvidence\` — the result of actually running that check (the outcome, not a promise to run it).
 
+### One-call dispatch: new OR existing tasks (mt#2657)
+
+\`tasks_dispatch\` collapses the dispatch pipeline into a single call for BOTH task shapes —
+this is the default path; prefer it over hand-rolling the manual sequence below for either shape:
+
+- **New task** (\`title\` + \`instructions\`): creates the task, optionally wires \`parentTaskId\`,
+  starts the session, and generates the prompt.
+- **Existing task** (\`taskId\` + \`instructions\`, no \`title\`/\`parentTaskId\`): walks the task's
+  current status to READY (TODO -> PLANNING -> READY, skipping steps already satisfied), starts
+  the session, and generates the prompt — replacing the manual 5-call pipeline
+  (\`tasks_status_set\` PLANNING, \`tasks_status_set\` READY, \`session_start\`,
+  \`session_generate_prompt\`, then the Agent call) that pre-filed tasks (e.g. the audit-burndown
+  shape) previously required.
+
+Both modes return \`{ taskId, sessionId, sessionDir, prompt, suggestedModel, agentType }\` in one
+response — no more duplicating the ~4-5KB generated prompt across a separate
+\`session_generate_prompt\` result AND the \`Agent\` call's \`prompt\` param.
+
+**Collapsing the calls does NOT bypass any guard — they're composed in-band:**
+
+- The TODO -> PLANNING -> READY walk reuses the exact same \`setTaskStatusFromParams\` function
+  \`tasks_status_set\` calls, so an invalid transition (wrong kind, BLOCKED/CLOSED task, etc.)
+  still fails the call with the same error \`tasks_status_set\` would raise.
+- The bind/advance spec-read guard (\`check-task-spec-read.ts\`) now ALSO matches
+  \`mcp__minsky__tasks_dispatch\` when it carries an existing \`taskId\` — dispatching a task whose
+  spec was never surfaced in this session's transcript is denied before the call runs, exactly as
+  a manual \`tasks_status_set\`/\`session_start\` pair would be. Read the spec
+  (\`tasks_spec_get\`) before dispatching an existing task; new-task mode is not guarded (there is
+  no pre-existing spec to have skipped reading).
+- The dispatch premise gate (\`premiseClaim\`/\`premiseFalsifier\`/\`premiseEvidence\`, mt#2488)
+  applies to both modes unchanged.
+
+**When existing-task mode returns a failure instead of a session:** the task's current status is
+outside TODO/PLANNING/READY (e.g. IN-PROGRESS from a prior partial dispatch, or BLOCKED). Resolve
+the status manually (\`tasks_status_set\`) before retrying — one-call dispatch only auto-walks the
+pre-implementation portion of the status machine.
+
 ### D. In-flight iteration: branch-divergence check
 
 The pre-dispatch sweep in §A catches sibling work that's already filed/merged at decomposition
