@@ -14,6 +14,8 @@ import {
   formatDuplicateBlockMessage,
   decideTasksCreateGuard,
   resolveDuplicateGuardOverride,
+  resolveDuplicateGuardParent,
+  isNewTaskModeDispatch,
   DUPLICATE_CHILD_GUARD_NAME,
   DUPLICATE_TOKEN_THRESHOLD,
   type ChildTask,
@@ -31,6 +33,8 @@ function child(id: string, title: string, status = "TODO"): ChildTask {
 const RAIL_TITLE = "Cockpit shell A: persistent rail";
 /** A title that token-overlaps RAIL_TITLE's child ("mt#2397") but is a distinct task. */
 const RAIL_VARIANT_TITLE = "Cockpit shell A: persistent rail (variant)";
+/** A title sharing no substantive tokens with RAIL_TITLE (the clean-permit case). */
+const NON_OVERLAPPING_TITLE = "Embeddings reindex throughput probe";
 
 describe("tokenizeTitle (mt#1435)", () => {
   it("lowercases and splits on non-alphanumerics", () => {
@@ -165,6 +169,67 @@ describe("detectDuplicateChild (mt#1435)", () => {
   });
 });
 
+describe("detectDuplicateChild parent-vocabulary discount (mt#2683)", () => {
+  it("discounts shared tokens that appear in the parent title", () => {
+    // shared: transcript, archive, storage; parent contributes transcript +
+    // storage -> counted: [archive] -> below threshold -> no match.
+    const m = detectDuplicateChild(
+      "transcript archive storage layer",
+      [child("mt#1", "transcript storage archive design")],
+      { parentTitle: "Transcript storage epic" }
+    );
+    expect(m).toBeNull();
+  });
+
+  it("applies no discount when parentTitle is absent (back-compat)", () => {
+    const m = detectDuplicateChild("transcript archive storage layer", [
+      child("mt#1", "transcript storage archive design"),
+    ]);
+    expect(m).not.toBeNull();
+  });
+
+  it("reports discounted tokens on the match and keeps counted tokens separate", () => {
+    const m = detectDuplicateChild(
+      "transcript archive bucket thing",
+      [child("mt#1", "transcript archive bucket design")],
+      { parentTitle: "Transcript epic" }
+    );
+    expect(m).not.toBeNull();
+    expect(new Set(m?.tokens)).toEqual(new Set(["archive", "bucket"]));
+    expect(m?.discounted).toEqual(["transcript"]);
+  });
+});
+
+describe("resolveDuplicateGuardParent + isNewTaskModeDispatch (mt#2683)", () => {
+  it("reads parent (tasks_create) and falls back to parentTaskId (dispatch new-task mode)", () => {
+    expect(resolveDuplicateGuardParent({ parent: "mt#1" })).toBe("mt#1");
+    expect(resolveDuplicateGuardParent({ parentTaskId: "mt#2" })).toBe("mt#2");
+    expect(resolveDuplicateGuardParent({})).toBe("");
+    expect(resolveDuplicateGuardParent({ parent: 3, parentTaskId: ["x"] })).toBe("");
+  });
+
+  it("isNewTaskModeDispatch: title without taskId", () => {
+    expect(isNewTaskModeDispatch({ title: "New child" })).toBe(true);
+    expect(isNewTaskModeDispatch({ title: "x", parentTaskId: "mt#1" })).toBe(true);
+    expect(isNewTaskModeDispatch({ taskId: "mt#9" })).toBe(false);
+    expect(isNewTaskModeDispatch({ title: "x", taskId: "mt#9" })).toBe(false);
+  });
+
+  it("dispatch new-task-mode parity: parentTaskId routes the same dedup as parent", () => {
+    const sibling = child("mt#2397", RAIL_TITLE, "TODO");
+    const dCreate = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      { fetchChildren: () => [sibling], overrideActive: false }
+    );
+    const dDispatch = decideTasksCreateGuard(
+      { parentTaskId: "mt#2370", title: RAIL_VARIANT_TITLE },
+      { fetchChildren: () => [sibling], overrideActive: false }
+    );
+    expect(dCreate.action).toBe("block");
+    expect(dDispatch.action).toBe("block");
+  });
+});
+
 describe("parseChildIdsFromChildrenOutput (mt#1435)", () => {
   it("parses indented child IDs and ignores the header line", () => {
     const out = "mt#2370: 3 subtask(s)\n  mt#2397\n  mt#2398\n  mt#2399\n";
@@ -262,6 +327,19 @@ describe("formatDuplicateBlockMessage (mt#1435)", () => {
     expect(msg).toContain(`--guard ${DUPLICATE_CHILD_GUARD_NAME}`);
     expect(msg).toContain("--scope mt#2370");
     expect(msg).toContain("--reason");
+  });
+
+  it("omits the discounted line when nothing was discounted", () => {
+    expect(msg).not.toContain("Discounted");
+  });
+
+  it("shows discounted parent-vocabulary tokens when present (mt#2683)", () => {
+    const withDiscount = formatDuplicateBlockMessage("mt#2581", "some title", {
+      child: child("mt#2582", "sibling title", "DONE"),
+      tokens: ["archive", "object"],
+      discounted: ["storage"],
+    });
+    expect(withDiscount).toContain("Discounted (parent-title vocabulary, not counted): storage");
   });
 });
 
@@ -366,7 +444,9 @@ describe("resolveDuplicateGuardOverride (mt#2658)", () => {
 });
 
 describe("decideTasksCreateGuard (mt#1435)", () => {
-  const children = [child("mt#2397", RAIL_TITLE, "DONE")];
+  // ACTIVE status: since mt#2683 the block path requires a non-terminal
+  // sibling — terminal (DONE/CLOSED/COMPLETED) siblings warn instead.
+  const children = [child("mt#2397", RAIL_TITLE, "TODO")];
   const fetchOk = () => children;
   const fetchNull = () => null;
 
@@ -397,7 +477,7 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 
   it("permits when no child overlaps", () => {
     const d = decideTasksCreateGuard(
-      { parent: "mt#2370", title: "Embeddings reindex throughput probe" },
+      { parent: "mt#2370", title: NON_OVERLAPPING_TITLE },
       { fetchChildren: fetchOk, overrideActive: false }
     );
     expect(d.action).toBe("permit");
@@ -422,7 +502,7 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 
   it("override reports 'none' when there is no would-be duplicate", () => {
     const d = decideTasksCreateGuard(
-      { parent: "mt#2370", title: "Embeddings reindex throughput probe" },
+      { parent: "mt#2370", title: NON_OVERLAPPING_TITLE },
       { fetchChildren: fetchOk, overrideActive: true }
     );
     expect(d.action).toBe("override");
@@ -447,6 +527,165 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
   });
 });
 
+describe("decideTasksCreateGuard terminal-sibling WARN (mt#2683)", () => {
+  it("warns (not blocks) when the only match is a terminal sibling", () => {
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      { fetchChildren: () => [child("mt#2397", RAIL_TITLE, "DONE")], overrideActive: false }
+    );
+    expect(d.action).toBe("warn");
+    if (d.action === "warn") {
+      expect(d.message).toContain("mt#2397");
+      expect(d.message).toContain("[DONE]");
+      expect(d.message).toContain("does NOT block");
+    }
+  });
+
+  it("an ACTIVE match takes precedence over a terminal one", () => {
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      {
+        fetchChildren: () => [
+          child("mt#2397", RAIL_TITLE, "DONE"),
+          child("mt#2399", RAIL_TITLE, "IN-PROGRESS"),
+        ],
+        overrideActive: false,
+      }
+    );
+    expect(d.action).toBe("block");
+    if (d.action === "block") expect(d.message).toContain("mt#2399");
+  });
+
+  it("CLOSED and COMPLETED are terminal too", () => {
+    for (const status of ["CLOSED", "COMPLETED"]) {
+      const d = decideTasksCreateGuard(
+        { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+        { fetchChildren: () => [child("mt#2397", RAIL_TITLE, status)], overrideActive: false }
+      );
+      expect(d.action).toBe("warn");
+    }
+  });
+});
+
+describe("lazy parent-title fetch (mt#2683)", () => {
+  it("does not fetch the parent title when no candidate match exists", () => {
+    let calls = 0;
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: NON_OVERLAPPING_TITLE },
+      {
+        fetchChildren: () => [child("mt#2397", RAIL_TITLE, "TODO")],
+        overrideActive: false,
+        fetchParentTitle: () => {
+          calls++;
+          return "anything";
+        },
+      }
+    );
+    expect(d.action).toBe("permit");
+    expect(calls).toBe(0);
+  });
+
+  it("fetches at most once even when both pools have candidates", () => {
+    let calls = 0;
+    const d = decideTasksCreateGuard(
+      { parent: "mt#2370", title: RAIL_VARIANT_TITLE },
+      {
+        fetchChildren: () => [
+          child("mt#2397", RAIL_TITLE, "TODO"),
+          child("mt#2398", RAIL_TITLE, "DONE"),
+        ],
+        overrideActive: false,
+        fetchParentTitle: () => {
+          calls++;
+          return null;
+        },
+      }
+    );
+    expect(d.action).toBe("block");
+    expect(calls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2683 incident replays — the REAL titles from the two 2026-07-08 false
+// positives that motivated the matcher tuning.
+// ---------------------------------------------------------------------------
+
+describe("mt#2683 incident replay: mt#2581 decomposition vs DONE ADR sibling", () => {
+  const PARENT_TITLE =
+    "Transcript storage: derive-don't-duplicate (on-disk JSONL = system of record, DB = rebuildable derived index)";
+  const DONE_ADR_SIBLING = child(
+    "mt#2582",
+    "Author ADR: transcript storage — object-store raw archive is system-of-record, Postgres is derived index",
+    "DONE"
+  );
+  const deps = {
+    fetchChildren: () => [DONE_ADR_SIBLING],
+    overrideActive: false,
+    fetchParentTitle: () => PARENT_TITLE,
+  };
+  const ARCHIVE_TITLE =
+    "Transcript raw archive: private Supabase Storage bucket + domain archive client (ADR-025 foundation)";
+  const INGEST_TITLE = "Transcript ingest rewrite: upload-then-parse (archive-first capture)";
+  const BACKFILL_TITLE =
+    "Backfill: archive existing agent_transcripts blobs to object storage (pre-drop gate)";
+  const BLOCKED_TITLES = [ARCHIVE_TITLE, INGEST_TITLE, BACKFILL_TITLE];
+
+  it("none of the three genuinely-distinct children BLOCK anymore", () => {
+    for (const title of BLOCKED_TITLES) {
+      const d = decideTasksCreateGuard({ parent: "mt#2581", title }, deps);
+      expect(d.action).not.toBe("block");
+    }
+  });
+
+  it("the backfill title (2 counted tokens vs the DONE sibling) warns instead of blocking", () => {
+    const d = decideTasksCreateGuard({ parent: "mt#2581", title: BACKFILL_TITLE }, deps);
+    expect(d.action).toBe("warn");
+    if (d.action === "warn") {
+      expect(d.message).toContain("mt#2582");
+      expect(d.message).toContain("[DONE]");
+    }
+  });
+
+  it("a true near-duplicate of an ACTIVE sibling still blocks despite the discount", () => {
+    const activeSibling = child("mt#2680", ARCHIVE_TITLE, "TODO");
+    const d = decideTasksCreateGuard(
+      {
+        parent: "mt#2581",
+        title: "Transcript raw archive: Supabase Storage bucket + archive client",
+      },
+      { ...deps, fetchChildren: () => [activeSibling] }
+    );
+    expect(d.action).toBe("block");
+    if (d.action === "block") expect(d.message).toContain("mt#2680");
+  });
+});
+
+describe("mt#2683 incident replay: mt#2686 filing vs TODO sibling mt#2523", () => {
+  it("only 'code' survives the parent discount ('conversation' is epic vocabulary) — permits", () => {
+    const d = decideTasksCreateGuard(
+      {
+        parent: "mt#2522",
+        title:
+          "ADR-022 stage 1: workspace/conversation vocabulary in new code, docs convention, and cockpit routes (+ ADR flip to Accepted)",
+      },
+      {
+        fetchChildren: () => [
+          child(
+            "mt#2523",
+            "Find and resume a past Claude Code conversation (content search to --resume id)",
+            "TODO"
+          ),
+        ],
+        overrideActive: false,
+        fetchParentTitle: () =>
+          "Epic: session vs. conversation — findability, id-safety, and terminology",
+      }
+    );
+    expect(d.action).toBe("permit");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Acceptance test (mt#2658 spec): full pipeline — resolveDuplicateGuardOverride
 // (real checkOverride) -> decideTasksCreateGuard, backed by an in-memory grant
@@ -457,7 +696,9 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
 describe("mt#2658 acceptance test: fresh grant permits, expired grant denies", () => {
   const PARENT = "mt#2581";
   const NEW_TITLE = RAIL_VARIANT_TITLE; // token-overlapping-but-distinct
-  const children = [child("mt#2397", RAIL_TITLE, "DONE")]; // RAIL_TITLE shares >=2 tokens
+  // ACTIVE status: the expired-grant case asserts the BLOCK path, which since
+  // mt#2683 requires a non-terminal sibling.
+  const children = [child("mt#2397", RAIL_TITLE, "TODO")]; // RAIL_TITLE shares >=2 tokens
   const fetchOk = () => children;
   const REASON = "concurrent decomposition — distinct sibling, not a duplicate";
 
