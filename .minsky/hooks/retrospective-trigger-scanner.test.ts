@@ -3,6 +3,7 @@ import {
   detectTriggerPhrases,
   detectUserCorrection,
   hasRetrospectiveSkillInvocation,
+  isDetectorMetaDiscussion,
   OVERRIDE_ENV_VAR,
   run,
 } from "./retrospective-trigger-scanner";
@@ -552,5 +553,94 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quote/meta-discussion suppression (mt#2672) — the 2026-07-08 calibration
+// review window's 5 FPs and 3 real positives, reproduced verbatim from
+// .minsky/retrospective-trigger-calibration.jsonl transcript excerpts.
+// ---------------------------------------------------------------------------
+
+describe("mt#2672 — calibration-window FP fixtures do NOT fire", () => {
+  const fpExcerpts: Array<[string, string]> = [
+    [
+      "2026-06-14 (quoting rule text while discussing the calibration signal)",
+      " the agent quoting the rule text `\"that's wrong\"`, or noting `\"I did not write 'I made a mistake' in any recent turn\"`). That's exactly the calibration signal the system exists",
+    ],
+    [
+      "2026-06-15 (quoting the calibration-log fire, nested escaped quotes)",
+      ' — and grounded in the calibration log, not assumed:\n\nThe fire is **family R1, "I should have caught"**, excerpt: *"...the retrospective hook never saw "I should have caught it" "*',
+    ],
+    [
+      "2026-06-16 (describing the documented FP)",
+      'n false positive** as last turn — the regex matched my *quoting* of the phrase "I should have caught" while discussing the detector itself, not a live failure. That\'s already triag',
+    ],
+    [
+      "2026-06-18 (same documented FP again)",
+      'rospective hook fired on the same documented false positive again — me quoting "I should have caught" while discussing the detector; not re-running it, it\'s logged.)\n\nInvoking the ',
+    ],
+    [
+      "2026-06-25 (precision-axis proposal quoting the phrase)",
+      'o cost; targets the precision axis that caused both known false positives (the "I should have caught" fired-on-a-quote incidents).\n- **Rung 2** — embedding recall-widening (only if',
+    ],
+  ];
+
+  for (const [label, excerpt] of fpExcerpts) {
+    test(`FP ${label} → no fire`, () => {
+      expect(detectTriggerPhrases(excerpt).length).toBe(0);
+    });
+  }
+});
+
+describe("mt#2672 — calibration-window real positives still fire", () => {
+  const realExcerpts: Array<[string, string]> = [
+    [
+      "2026-06-19 (live 'I conflated the two surfaces')",
+      'ce to get full coverage. (The earlier "defer UUIDs" caveat never applied here — I conflated the two surfaces.)\n\n**Cockpit (mt#2518): all types via resolution, not shape-gu',
+    ],
+    [
+      "2026-06-26a (live 'I conflated them earlier')",
+      'ing to the confusion\n\nThere are **two different "agent" surfaces** in play, and I conflated them earlier:\n\n1. **Claude Code Agent View / "FleetView"** — the *harness* feat',
+    ],
+    [
+      "2026-06-26b (live compound admission)",
+      'rse, not better: I misread the subagent state (stale output-file mtime ≠ done), I conflated FleetView vs. the cockpit, and I used "FleetView" as if I knew it when I was gu',
+    ],
+  ];
+
+  for (const [label, excerpt] of realExcerpts) {
+    test(`real positive ${label} → fires R1`, () => {
+      const matches = detectTriggerPhrases(excerpt);
+      expect(matches.some((m) => m.family === "R1")).toBe(true);
+    });
+  }
+});
+
+describe("mt#2672 — suppression mechanics", () => {
+  test("double-quoted trigger phrase in ordinary prose does not fire", () => {
+    const matches = detectTriggerPhrases(
+      'The log shows the phrase "I made a mistake" appearing twice this week.'
+    );
+    expect(matches.length).toBe(0);
+  });
+
+  test("meta-discussion marker alone suppresses an unquoted phrase echo", () => {
+    expect(isDetectorMetaDiscussion("reviewing the calibration data now")).toBe(true);
+    const matches = detectTriggerPhrases(
+      "While reviewing the calibration data, the phrase I should have caught appears in record 3."
+    );
+    expect(matches.length).toBe(0);
+  });
+
+  test("ordinary work turn is NOT meta-discussion", () => {
+    expect(isDetectorMetaDiscussion("I conflated the two surfaces during the refactor.")).toBe(
+      false
+    );
+  });
+
+  test("user-correction: quoted phrase does not fire, live phrase does", () => {
+    expect(detectUserCorrection('the doc says users type "that\'s wrong" here').length).toBe(0);
+    expect(detectUserCorrection("that's wrong, the port is 4317").length).toBe(1);
   });
 });

@@ -44,6 +44,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { elideQuotedContexts } from "./elision";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -117,24 +118,10 @@ const CLASS_PATTERNS: Array<{ cls: DeferralClass; patterns: RegExp[] }> = [
 // ---------------------------------------------------------------------------
 
 /**
- * Best-effort removal of code-span / fenced-code / blockquote contexts so a
- * match inside a phrase the assistant is DESCRIBING (e.g. documenting this
- * very detector, or quoting a rule) does not fire. Mirrors the markdown-elision
- * posture of block-out-of-band-merge.ts: replace with same-length whitespace so
- * character offsets are preserved for the excerpt.
+ * Elision implementation moved to the shared `./elision` module (mt#2672) —
+ * re-exported here so this detector's public API and tests are unchanged.
  */
-export function elideQuotedContexts(text: string): string {
-  let out = text;
-  // Fenced code blocks (``` or ~~~).
-  out = out.replace(/(^|\n)([ \t]{0,3})(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]{0,3}\3[^\n]*/g, (m) =>
-    " ".repeat(m.length)
-  );
-  // Inline code spans (single/multi backtick).
-  out = out.replace(/`+[^`\n]+`+/g, (m) => " ".repeat(m.length));
-  // Blockquote lines.
-  out = out.replace(/(^|\n)[ \t]{0,3}>+[^\n]*/g, (m) => " ".repeat(m.length));
-  return out;
-}
+export { elideQuotedContexts };
 
 // ---------------------------------------------------------------------------
 // Detection (exported for testing)
