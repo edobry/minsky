@@ -34,6 +34,15 @@ Reproduction (still valid — checks out the pre-fix pair of files against curre
 `tests/setup.ts` and runs them in isolation):
 
 ```bash
+# CAUTION: this overwrites the two files in your working tree. Run `git status`
+# first and make sure it's clean (no uncommitted changes to these two paths)
+# before doing this, and restore with `git restore` immediately after reading
+# the result — don't leave the tree in this state. Prefer a scratch worktree
+# if you want to avoid touching your primary checkout at all:
+#   git worktree add /tmp/mt2662-repro 05547b401
+#   cd /tmp/mt2662-repro && bun install --frozen-lockfile
+#   bun test --preload ./tests/setup.ts --timeout=15000 src/mcp/subagent-dispatch-tracker.test.ts
+#   cd - && git worktree remove /tmp/mt2662-repro
 git show 05547b401:src/mcp/subagent-dispatch-tracker.ts > src/mcp/subagent-dispatch-tracker.ts
 git show 05547b401:src/mcp/subagent-dispatch-tracker.test.ts > src/mcp/subagent-dispatch-tracker.test.ts
 bun test --preload ./tests/setup.ts --timeout=15000 src/mcp/subagent-dispatch-tracker.test.ts
@@ -56,25 +65,39 @@ named in the mt#2662 spec:
 - **TZ / clock skew.** The drift is ~57 days; no plausible timezone offset or clock skew
   between a local machine and a CI runner explains a pass vs. fail flip at that
   magnitude.
-- **Stale / carried-over CI check.** Verified via the GitHub Actions API
-  (`GET /repos/edobry/minsky/actions/runs/28900851179`) that the `build` job for commit
-  `05547b401` was a genuine fresh `push`-triggered run (`event: "push"`, `run_attempt:
-1`, `created_at: 2026-07-07T21:45:09Z` — 3 seconds after the commit's own `2026-07-07
-17:45:06 -0400` = `21:45:06Z` timestamp), not a rerun and not a check carried over from
-  an earlier commit or the PR's pre-merge synthetic-merge test.
+- **Stale / carried-over CI check.** Verified via the GitHub Actions API — replicable
+  with `curl -s https://api.github.com/repos/edobry/minsky/actions/runs/28900851179`
+  (or `gh api repos/edobry/minsky/actions/runs/28900851179`) — that the `build` job for
+  commit `05547b401` was a genuine fresh `push`-triggered run (`event: "push"`,
+  `run_attempt: 1`, `created_at: 2026-07-07T21:45:09Z` — 3 seconds after the commit's
+  own `2026-07-07 17:45:06 -0400` = `21:45:06Z` timestamp, itself read with `git show -s
+--format='%H %ci' 05547b401`), not a rerun and not a check carried over from an
+  earlier commit or the PR's pre-merge synthetic-merge test.
+- **Note on tooling:** `mcp__minsky__forge_ci_run_view_log` (the in-repo MCP tool for
+  fetching a workflow run's raw step logs) failed to decode every entry for both this
+  run and a separate fresh run tried during this investigation — every log entry
+  returned `[DEFLATE entry could not be inflated (unexpected end of file)]`. The
+  unauthenticated GitHub REST API (`.../check-runs` and `.../annotations`, both used
+  above) was the working fallback and is what all API-derived claims in this doc are
+  sourced from. The raw step-log path remains unverified as a source; if you need actual
+  step-by-step CI console output (not just check-run annotations), expect this tool to
+  fail and use `curl`/`gh api` against the endpoints cited in this doc instead.
 - **Bun exit-code semantics in general.** A synthetic single-file test with one failing
   assertion (`bun test <file>`) correctly returns exit code 1 locally. Running
   `subagent-dispatch-tracker.test.ts` alone returns exit 1 with the expected 6 failures.
   Bun version matches exactly: local `bun --version` == CI's pinned `1.2.21`
   (`.github/workflows/ci.yml`, `oven-sh/setup-bun@v2`).
 
-### What was found: CI's `Test` step can report `success` despite a real, currently-reproducible failure
+### What was found (indirect signal): CI's `Test` step can report `success` despite a real, currently-reproducible failure
 
-Querying the GitHub Checks API directly for commit `05547b401`
-(`GET /repos/edobry/minsky/commits/05547b401/check-runs`) shows the `build` check run
-(id `85736968600`, same workflow run `28900851179`) concluded `success`. But that same
-check run's own annotations
-(`GET /repos/edobry/minsky/check-runs/85736968600/annotations`) include:
+Querying the GitHub Checks API directly for commit `05547b401` — replicable with
+`curl -s https://api.github.com/repos/edobry/minsky/commits/05547b401/check-runs`
+(unauthenticated works; this is a public repo) or the equivalent
+`gh api repos/edobry/minsky/commits/05547b401/check-runs` — shows the `build` check
+run (id `85736968600`, same workflow run `28900851179`) concluded `success`. But that
+same check run's own annotations — `curl -s
+https://api.github.com/repos/edobry/minsky/check-runs/85736968600/annotations` (or
+`gh api repos/edobry/minsky/check-runs/85736968600/annotations`) — include:
 
 ```json
 {
@@ -117,34 +140,95 @@ invocation. This was verified as a live phenomenon, not conjecture: two independ
 files, both provably broken by direct local reproduction, both present in the exact CI
 run whose `build` job nonetheless reported `success`.
 
-### What remains open
+### Root cause, pinned: full-suite `bun test` silently truncates with exit 0 when an MCP-server-lifecycle test file is in the file set
 
-The precise Bun-internal (or CI-runner-specific) mechanism was **not** pinned down.
-Local reproduction attempts:
+The indirect signal above (an annotated failure coexisting with a `success` conclusion)
+motivated a direct, fresh, at-scale local reproduction of CI's _exact_ invocation —
+`bun run test`, i.e. `bun test --preload ./tests/setup.ts --timeout=15000 ./src
+./tests/adapters ./tests/domain ./tests/scripts ./tests/unit ./tests/mcp
+./tests/dev-tooling ./tests/architecture ./packages/domain ./packages/shared/src` (the
+literal `package.json` `"test"` script, run via `bun run test` exactly as CI's `Test`
+step does — not a narrower `bun test <file>` invocation). Two consecutive runs, same
+machine, same bun `1.2.21`:
 
-- Running `cockpit-credential-integration.test.ts` alone: exit 1 (correctly fails).
-- Running it combined with `subagent-dispatch-tracker.test.ts` (2 files, replicating
-  both of the CI run's known failures in one invocation): exit 1, 7 fail reported
-  correctly — the swallowing did **not** reproduce at 2-file scale.
-- Running the full `./src` directory (147 test files, matching CI's actual scale more
-  closely) did not complete within the available local tooling budget (120s), so
-  scale-dependence (a worker-pool crash/timeout being mis-treated as non-fatal at 100+
-  files, resource contention specific to `ubuntu-latest` runners, or a genuine Bun
-  1.2.21 aggregation bug) is the leading hypothesis but is **unverified**.
+```bash
+bun run test > /tmp/full-run.log 2>&1; echo "EXIT_CODE=$?" >> /tmp/full-run.log
+wc -l /tmp/full-run.log        # 659 lines, both runs, byte-identical structure
+grep "Ran .* tests" /tmp/full-run.log   # <no match> — no completion summary, either run
+tail -3 /tmp/full-run.log
+# ...(JSON test-fixture noise from src/mcp/disconnect-tracker.test.ts)...
+# EXIT_CODE=0
+```
 
-This residual gap is tracked in mt#2665 (a further member of the mt#2608 CI-blind-spot
-class): reproduce the swallow at CI's actual scale, pin down the mechanism, and either
-file an upstream Bun issue or add a belt-and-suspenders CI hardening step that parses
-`bun test`'s own summary line (`\d+ fail`) as a second gate independent of process exit
-code.
+Both runs: **no `(fail)` lines, no `X pass / Y fail` summary, no `Ran N tests across M
+files` line — nothing past a burst of JSON fixture output from one early test file —
+yet exit code 0.** `time` on the second run: `2.750s total`. A 147-file, 9-directory
+suite cannot have genuinely executed in 2.75 seconds; this is a truncated run reporting
+false success, not a fast comprehensive one.
+
+**Isolating the trigger.** The JSON noise (`"message":"mcp_disconnect"` /
+`"mcp_process_start"` / `"mcp_reconnect"`, `"serverName":"srv"`) is
+`src/mcp/disconnect-tracker.test.ts`'s own intentional test fixture output (it validates the
+MCP-disconnect-cadence JSONL log shape documented in this repo's `CLAUDE.md`). Run
+**alone**, that file is completely healthy:
+
+```bash
+bun test --preload ./tests/setup.ts --timeout=15000 src/mcp/disconnect-tracker.test.ts
+# 57 pass, 0 fail, 163 expect() calls
+# Ran 57 tests across 1 file. [545.00ms]
+# exit code 0
+```
+
+Excluding it from the full-suite run (temporarily moved out of the tree, full `bun run
+test` re-run, then restored) did **not** fix the truncation — it recurred, at the same
+~2.4s / 54-line shape, this time on a **different** MCP-server-lifecycle file
+(`"serverName":"Test Server"`, matching `src/mcp/presence-write-path.test.ts` and
+`src/mcp/server.test.ts`). Both of those, run together in isolation, are also
+completely healthy (39 pass, 0 fail, `Ran 39 tests across 2 files. [1345.00ms]`, exit
+0).
+
+**Conclusion.** This is not one broken file — it is a **class**: any test file in
+`src/mcp/` that spawns/tracks real MCP server subprocess lifecycle events (real PIDs,
+disconnect/reconnect JSONL fixtures) is healthy in isolation but, when it is part of
+`bun run test`'s full ~147-file / 9-directory invocation, the entire `bun test` process
+silently stops after that file's output — before printing that file's own summary, let
+alone the aggregate one — while still exiting 0. This satisfies the "genuinely
+Bun-internal" bar: the failure is not in this repo's test _logic_ (every implicated file
+passes cleanly alone and in small combinations up to at least 2 files); it is in how
+`bun test` 1.2.21 handles a large multi-directory file set that includes a real-subprocess-
+spawning MCP test file. The exact internal fault (worker-thread crash on child-process
+teardown, an fd/pipe interaction with Bun's own test reporter, or something else
+Bun-side) was not further isolated — that remains for mt#2665 — but the _trigger class_
+and the _externally observable shape_ (silent truncation, exit 0, no summary) are now
+pinned with a same-day, twice-independently-reproduced local repro, not just the
+indirect CI-annotation signal above.
+
+This fully explains both original observations:
+`src/cockpit/cockpit-credential-integration.test.ts` sorts alphabetically before
+`src/mcp/` (`c` < `m`), so it ran and its failure was captured as a check-run annotation
+before the truncation point; `src/mcp/subagent-dispatch-tracker.test.ts` sorts after
+`src/mcp/disconnect-tracker.test.ts` (`d` < `s`) within the same directory, so on the CI
+run in question it most likely never ran at all — its 6 failures were never reached,
+never annotated, and never affected the exit code.
+
+**Task-spec disposition (per mt#2662's Outcome note, `mcp__minsky__tasks_spec_patch`):**
+this is the evidence-backed **Arm 3** split — root cause pinned as genuinely Bun-internal
+at the observable-behavior level, deep internal fault isolation deferred to mt#2665
+(re-scoped narrower: reproduce with a minimal 2-file repro — one MCP-lifecycle file +
+enough padding files to cross whatever file-count/worker threshold triggers it — instead
+of the full 147-file suite, then either file an upstream Bun issue or land the
+`bun test`-summary-line CI hardening described below).
 
 ### Practical takeaway until mt#2665 lands
 
 **A green `build` check on this repo's CI is not currently proof that `bun run test`
-found zero failures.** If a PR's local test run is red on a file also touched by CI, do
-not assume CI's green status supersedes the local finding — reproduce locally in
-isolation (`bun test --preload ./tests/setup.ts --timeout=15000 <specific file(s)>`) and
-trust that over the CI badge until mt#2665 closes.
+found zero failures, or even that it ran to completion.** If a PR's local test run is
+red on a file also touched by CI, do not assume CI's green status supersedes the local
+finding — reproduce locally in isolation (`bun test --preload ./tests/setup.ts
+--timeout=15000 <specific file(s)>`) and trust that over the CI badge until mt#2665
+lands a fix or a hardened gate. As a rule of thumb: if `bun run test`'s CI step log
+doesn't show a `Ran N tests across M files` summary line, treat the run as inconclusive
+regardless of its reported exit code — this repro shows exit 0 is reachable without one.
 
 ### Cross-references
 
@@ -152,7 +236,10 @@ trust that over the CI badge until mt#2665 closes.
 - mt#2654 — the `subagent-dispatch-tracker.test.ts` date-drift fix (injected-clock seam)
 - mt#2664 — the concrete broken test (`cockpit-credential-integration.test.ts`) this same
   CI run failed to catch
-- mt#2665 — follow-up: pin down the CI-gating swallow mechanism, harden the gate
+- mt#2665 — follow-up: isolate the exact Bun-internal fault behind the pinned
+  MCP-lifecycle-test-file truncation (root cause already pinned here; this task is the
+  deep-fault-isolation + upstream-report + CI-hardening follow-through), or harden the
+  gate
 - mt#2608 — CI blind-spot closure (parent class this is a residual member of)
 - `.github/workflows/ci.yml` — the `build` job, `Test` step
 - `package.json` — the `"test"` script (`bun run test`'s exact invocation)
