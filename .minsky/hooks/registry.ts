@@ -121,6 +121,16 @@ export interface GuardOutcome {
    * silently ignored otherwise.
    */
   calibration?: Record<string, unknown>;
+  /**
+   * UserPromptSubmit-only: sets the session's display title. Added for
+   * `auto-session-title.ts` (ADR-028 Phase 2b, mt#2687) — the one guard in
+   * the family whose output is a scalar session label rather than additive
+   * `additionalContext`. Unlike `additionalContext` (concatenated across
+   * every matched guard), `sessionTitle` is last-write-wins across the
+   * matched set — in practice only one guard in any registered family sets
+   * it, so ordering is moot.
+   */
+  sessionTitle?: string;
 }
 
 export type GuardRunResult = GuardOutcome | null | undefined | void;
@@ -223,6 +233,24 @@ export interface GuardRegistration {
  * `Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|...`), not
  * `UserPromptSubmit`. Left as an independent PreToolUse registration per the
  * task's scope-precision instruction; recorded as a spec discrepancy.
+ *
+ * Phase 2b (mt#2687) adds the remaining UserPromptSubmit hooks: the 8 named
+ * by the ADR's "auto-session-title through mcp-daemon-staleness-detector"
+ * span (`auto-session-title`, `inject-current-time`, `inject-git-state`,
+ * `inject-prod-state`, `inject-dispatch-watchdog`, `memory-search`,
+ * `skill-staleness-detector`, `mcp-daemon-staleness-detector`) PLUS
+ * `calibration-review-cadence-detector` — ground-truth inspection of
+ * `.claude/settings.json` found NINE standalone UserPromptSubmit entries
+ * remaining, not seven: the ADR text under-counts by one (mirroring Phase
+ * 2a's own `policy-coverage-detector` discrepancy), and Phase 2a's own
+ * "guards NOT migrated" comment (in `dispatch-userpromptsubmit.ts`, written
+ * before `inject-dispatch-watchdog.ts` existed) separately omitted that
+ * hook. Migrating all nine is required for this task's own acceptance test
+ * ("ONE UserPromptSubmit process spawn... where 14 existed pre-ADR") to
+ * literally hold — any leftover standalone hook would mean more than one
+ * spawn. None of the nine needs transcript access (`needsTranscript`
+ * omitted for all) — none reads `transcript_path`/`ctx.transcriptLines`,
+ * unlike the Phase 2a detector family above.
  */
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
@@ -285,6 +313,72 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "ask-routing-deferral",
     denyCapable: false,
     needsTranscript: true,
+  },
+  // -------------------------------------------------------------------------
+  // Phase 2b (mt#2687) — remaining UserPromptSubmit hooks
+  // -------------------------------------------------------------------------
+  {
+    name: "auto-session-title",
+    event: "UserPromptSubmit",
+    module: () => import("./auto-session-title").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "inject-current-time",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "inject-git-state",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "inject-prod-state",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "inject-dispatch-watchdog",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "memory-search",
+    event: "UserPromptSubmit",
+    module: () => import("./memory-search").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    denyCapable: false,
+  },
+  {
+    name: "skill-staleness-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "mcp-daemon-staleness-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
+  {
+    name: "calibration-review-cadence-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    denyCapable: false,
   },
 ];
 

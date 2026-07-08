@@ -32,6 +32,7 @@ import * as os from "os";
 import * as path from "path";
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 export const PROD_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_PROD_STATE_INJECTION";
 
@@ -194,6 +195,34 @@ function readCache(cachePath: string): ProdStateCacheRecord | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687). Mirrors
+ * `main()`'s orchestration but returns a `GuardOutcome` instead of writing to
+ * stdout / calling `process.exit`.
+ *
+ * @see .minsky/hooks/registry.ts — the guard-dispatcher registration
+ * @see .minsky/hooks/dispatch-userpromptsubmit.ts — the dispatcher entrypoint
+ */
+export function run(input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
+  if (isOverrideTruthy(process.env[PROD_STATE_INJECTION_OVERRIDE_ENV])) {
+    return {
+      auditLines: [
+        `[inject-prod-state] override active: ${PROD_STATE_INJECTION_OVERRIDE_ENV}=${process.env[PROD_STATE_INJECTION_OVERRIDE_ENV]} at ${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") return null;
+
+  let record: ProdStateCacheRecord | null;
+  try {
+    record = readCache(getProdStateCachePath());
+  } catch {
+    return null;
+  }
+
+  return { additionalContext: formatProdState(record, Date.now()) };
 }
 
 async function main(): Promise<void> {

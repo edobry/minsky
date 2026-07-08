@@ -38,6 +38,7 @@ import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { emitBraintrustEvent } from "../../packages/domain/src/observability/braintrust";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -695,6 +696,144 @@ export function runMemorySearch(
   }
 
   return { response: parsed, latencyMs, warning: derivationWarning };
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout / calling `process.exit` —
+ * the dispatcher owns stdout and aggregates every matched guard's output
+ * (D1). Logging (`writeLog`) and Braintrust telemetry (`emitBraintrust`) are
+ * preserved as side effects on every branch, matching `main()` exactly; this
+ * guard has no calibration log — `additionalContext` only.
+ */
+export async function run(
+  input: ClaudeHookInput,
+  _ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  const promptInput = input as UserPromptSubmitInput;
+  const sessionId = input.session_id ?? "unknown";
+  const prompt = promptInput.prompt ?? "";
+  const promptPrefix = prompt.slice(0, 80).replace(/\s+/g, " ").trim();
+
+  const logAndReturn = async (
+    entry: LogEntry,
+    outcome: GuardOutcome | null
+  ): Promise<GuardOutcome | null> => {
+    writeLog(entry);
+    await emitBraintrust(entry);
+    return outcome;
+  };
+
+  if (isTrivialPrompt(prompt)) {
+    return logAndReturn(
+      {
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "trivial",
+      },
+      null
+    );
+  }
+
+  const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
+
+  if (!response) {
+    return logAndReturn(
+      {
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: error ?? "search-failed",
+        latencyMs,
+        warning,
+      },
+      null
+    );
+  }
+
+  if (response.degraded) {
+    const degradedWarning =
+      `[memory-search] Embeddings subsystem is degraded (backend: ${response.backend ?? "none"}). ` +
+      `Memory search returned no results because the embedding provider is unavailable. ` +
+      `This may be caused by OpenAI API quota exhaustion. ` +
+      `Run \`minsky config doctor\` or check \`debug_systemInfo\` → embeddingsHealth for details.`;
+    return logAndReturn(
+      {
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "degraded",
+        degraded: true,
+        backend: response.backend,
+        latencyMs,
+        warning,
+      },
+      { additionalContext: degradedWarning }
+    );
+  }
+
+  if (response.results.length === 0) {
+    return logAndReturn(
+      {
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "empty",
+        backend: response.backend,
+        latencyMs,
+        warning,
+      },
+      null
+    );
+  }
+
+  const injection = buildInjection(response.results);
+  if (!injection) {
+    return logAndReturn(
+      {
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "no-fit",
+        backend: response.backend,
+        latencyMs,
+        warning,
+      },
+      null
+    );
+  }
+
+  return logAndReturn(
+    {
+      ts: new Date().toISOString(),
+      sessionId,
+      promptPrefix,
+      promptLength: prompt.length,
+      skipped: false,
+      k: DEFAULT_K,
+      injectedTokens: injection.tokens,
+      injectedCount: injection.included,
+      backend: response.backend,
+      latencyMs,
+      warning,
+    },
+    { additionalContext: injection.text }
+  );
 }
 
 // ---------------------------------------------------------------------------
