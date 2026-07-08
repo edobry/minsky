@@ -47,8 +47,9 @@ const tasksDispatchParams = {
     description:
       "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's " +
       "current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and " +
-      "generates the prompt. Mutually exclusive with `title`/`parentTaskId`/`description`, " +
-      "which only apply to new-task creation.",
+      "generates the prompt. Mutually exclusive with `title` (exactly one of the two is " +
+      "required) and with `parentTaskId` (rejected — existing tasks don't get a new parent " +
+      "edge here). `description` is ignored in this mode (the task's spec already exists).",
     required: false,
   },
   instructions: {
