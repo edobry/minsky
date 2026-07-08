@@ -11,10 +11,16 @@
  *   7. Multiple conclude_review calls → use LAST one
  *   8. Pipe escaping in spec-verification table cells
  *   9. side: LEFT annotated; default RIGHT not annotated
+ *
+ * Also covers mt#2655's chunk-review label reconciliation: a lingering
+ * BLOCKING finding forces the terminal event to REQUEST_CHANGES regardless
+ * of what the model's own (or the last chunk's) conclude_review call said.
+ * See the "reconcileEventWithBlockingCount" and "chunk-review label
+ * reconciliation" describe blocks below.
  */
 
 import { describe, test, expect } from "bun:test";
-import { composeReviewBody } from "./compose-review";
+import { composeReviewBody, reconcileEventWithBlockingCount } from "./compose-review";
 import type { ReviewToolCall } from "./output-tools";
 
 // Tool name constants — prevents magic-string-duplication lint warnings.
@@ -38,12 +44,21 @@ const DOC_IMPACT_NO_UPDATE_NEEDED = "no-update-needed" as const;
 // Adoption-sweep classification constants — referenced across multiple test cases.
 const ADOPTION_MISSING_CONSUMERS = "Missing consumers";
 
+// Reconciliation notice phrases (mt#2655) — referenced across multiple test cases.
+const RECONCILIATION_NOTICE_PREFIX = "Event reconciled from";
+const RECONCILIATION_APPROVE_TO_REQUEST_CHANGES = `${RECONCILIATION_NOTICE_PREFIX} \`APPROVE\` to \`REQUEST_CHANGES\``;
+
 // ---------------------------------------------------------------------------
 // Test 1: Three findings + conclude APPROVE → body has summary, ordered
 //         findings (BLOCKING, NON-BLOCKING, PRE-EXISTING), event APPROVE
 // ---------------------------------------------------------------------------
 describe("composeReviewBody", () => {
-  test("1: three findings with different severities + conclude APPROVE", () => {
+  // Originally "conclude APPROVE" with a BLOCKING finding still present and
+  // result.event asserted APPROVE — that was exactly the mt#2655 bug class
+  // (#1812 R2, #1819 R2: APPROVE events carrying [BLOCKING]-labeled
+  // findings). Updated to assert the reconciled REQUEST_CHANGES event; the
+  // severity-ordering assertions this test also covers are unchanged.
+  test("1: three findings with different severities + conclude APPROVE → reconciled to REQUEST_CHANGES (mt#2655, BLOCKING present)", () => {
     const approvalSummary = "Overall the PR looks good.";
     const toolCalls: ReviewToolCall[] = [
       {
@@ -87,22 +102,33 @@ describe("composeReviewBody", () => {
 
     const result = composeReviewBody(toolCalls);
 
-    expect(result.event).toBe("APPROVE");
+    // BLOCKING finding present → reconciled to REQUEST_CHANGES regardless of
+    // the model's own APPROVE verdict (mt#2655).
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(true);
+    expect(result.body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
     expect(result.body).toContain(approvalSummary);
     expect(result.body).toContain("## Findings");
 
-    // Check severity order in the output: BLOCKING must appear before NON-BLOCKING,
-    // which must appear before PRE-EXISTING
-    const blockingPos = result.body.indexOf("[BLOCKING]");
-    const nonBlockingPos = result.body.indexOf("[NON-BLOCKING]");
-    const preExistingPos = result.body.indexOf("[PRE-EXISTING]");
+    // Check severity order WITHIN THE FINDINGS LIST: BLOCKING must appear
+    // before NON-BLOCKING, which must appear before PRE-EXISTING. Search
+    // starts after the "## Findings" heading — the reconciliation notice
+    // above it also contains the literal substring "[BLOCKING]" (in
+    // backticks), which would otherwise be matched first.
+    const findingsHeadingPos = result.body.indexOf("## Findings");
+    const blockingPos = result.body.indexOf("[BLOCKING]", findingsHeadingPos);
+    const nonBlockingPos = result.body.indexOf("[NON-BLOCKING]", findingsHeadingPos);
+    const preExistingPos = result.body.indexOf("[PRE-EXISTING]", findingsHeadingPos);
 
     expect(blockingPos).toBeLessThan(nonBlockingPos);
     expect(nonBlockingPos).toBeLessThan(preExistingPos);
 
-    // Summary is the opening content
+    // Reconciliation notice appears before the executive summary, which in
+    // turn appears before the findings list.
+    const reconciliationPos = result.body.indexOf(RECONCILIATION_NOTICE_PREFIX);
     const summaryPos = result.body.indexOf(approvalSummary);
-    expect(summaryPos).toBeLessThan(blockingPos);
+    expect(reconciliationPos).toBeLessThan(summaryPos);
+    expect(summaryPos).toBeLessThan(findingsHeadingPos);
   });
 
   // -------------------------------------------------------------------------
@@ -444,9 +470,12 @@ describe("composeReviewBody", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 3d: conclude_review present → derived path NOT taken; event from conclude_review
+  // Test 3d: conclude_review present → derived (no-conclude_review) path NOT
+  // taken, but a BLOCKING finding still reconciles the event to
+  // REQUEST_CHANGES (mt#2655) — distinct from the "no conclude_review at
+  // all" severity-derivation path exercised by test 3.
   // -------------------------------------------------------------------------
-  test("3d: conclude_review present with BLOCKING findings → derived path not taken, conclude_review.event wins", () => {
+  test("3d: conclude_review present with BLOCKING findings → derived (no-conclude) path not taken, but event reconciled to REQUEST_CHANGES", () => {
     const toolCalls: ReviewToolCall[] = [
       {
         name: TOOL_SUBMIT_FINDING,
@@ -469,10 +498,14 @@ describe("composeReviewBody", () => {
 
     const result = composeReviewBody(toolCalls);
 
-    // conclude_review.event must win, NOT the derived REQUEST_CHANGES
-    expect(result.event).toBe("APPROVE");
+    // conclude_review.event alone does NOT win when a BLOCKING finding is
+    // present — reconciliation forces REQUEST_CHANGES (mt#2655).
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(true);
     expect(result.body).toContain("Reviewer explicitly approved despite findings.");
-    // Must NOT contain the severity-derived warning
+    expect(result.body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
+    // Must NOT contain the no-conclude_review severity-derived warning — that
+    // is a distinct code path (test 3) from reconciliation (this test).
     expect(result.body).not.toContain("Event derived from severity counts");
     expect(result.body).not.toContain("⚠️ **Reviewer did not emit");
   });
@@ -996,5 +1029,186 @@ describe("composeReviewBody", () => {
 
     expect(sweepIdx).toBeGreaterThan(specIdx);
     expect(docIdx).toBeGreaterThan(sweepIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconcileEventWithBlockingCount + chunk-review label reconciliation
+// (mt#2655)
+//
+// Originating incident: in chunked-review mode, each chunk emits its own
+// conclude_review call, and composeReviewBody used only the LAST chunk's
+// verdict to derive the terminal event. An earlier chunk's BLOCKING finding
+// then survived into the aggregated findings list even when the last
+// chunk's own verdict was APPROVE or COMMENT — producing APPROVE events
+// carrying [BLOCKING]-labeled findings (#1812 R2, #1819 R2) and
+// event/label/provenance disagreements (#1821 R1: body said "1 blocking + 4
+// non-blocking", embedded provenance said "0/0").
+// ---------------------------------------------------------------------------
+describe("reconcileEventWithBlockingCount (mt#2655)", () => {
+  test("APPROVE + blockingCount > 0 → reconciled to REQUEST_CHANGES", () => {
+    const result = reconcileEventWithBlockingCount("APPROVE", 1);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBe("APPROVE");
+  });
+
+  test("COMMENT + blockingCount > 0 → reconciled to REQUEST_CHANGES", () => {
+    const result = reconcileEventWithBlockingCount("COMMENT", 3);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBe("COMMENT");
+  });
+
+  test("REQUEST_CHANGES + blockingCount > 0 → already consistent, no reconciliation", () => {
+    const result = reconcileEventWithBlockingCount("REQUEST_CHANGES", 2);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBeNull();
+  });
+
+  test("APPROVE + blockingCount == 0 → no reconciliation", () => {
+    const result = reconcileEventWithBlockingCount("APPROVE", 0);
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciledFrom).toBeNull();
+  });
+
+  test("COMMENT + blockingCount == 0 → no reconciliation", () => {
+    const result = reconcileEventWithBlockingCount("COMMENT", 0);
+    expect(result.event).toBe("COMMENT");
+    expect(result.reconciledFrom).toBeNull();
+  });
+});
+
+describe("composeReviewBody — chunk-review label reconciliation (mt#2655)", () => {
+  test("simulated 2-chunk aggregation: chunk 1 BLOCKING finding + chunk 2 conclude APPROVE → REQUEST_CHANGES with reconciliation notice", () => {
+    // Simulates the aggregated toolCalls array review-worker.ts assembles
+    // across chunks: chunk 1's finding, then chunk 2's own conclude_review
+    // (the LAST one, which composeReviewBody's raw derivation would use).
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/chunk1-file.ts",
+          line: 12,
+          summary: "chunk 1 blocking issue",
+          details: "Found while reviewing chunk 1's files.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Chunk 2's files look fine." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(true);
+    expect(result.body).toContain("[BLOCKING] src/chunk1-file.ts:12");
+    expect(result.body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
+    expect(result.body).toContain("1 outstanding `[BLOCKING]` finding(s)");
+  });
+
+  test("no BLOCKING findings, conclude APPROVE → event untouched, no reconciliation notice", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "a nit",
+          details: "cosmetic only",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Looks good." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciled).toBe(false);
+    expect(result.body).not.toContain(RECONCILIATION_NOTICE_PREFIX);
+  });
+
+  test("BLOCKING finding + conclude REQUEST_CHANGES already agreeing → no reconciliation notice", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "a real bug",
+          details: "must fix before merge",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Blocking issue found." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(false);
+    expect(result.body).not.toContain(RECONCILIATION_NOTICE_PREFIX);
+  });
+
+  test("PRE-EXISTING findings alone do NOT force reconciliation (only BLOCKING does)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "PRE-EXISTING",
+          file: "src/moved.ts",
+          line: 4,
+          summary: "pre-existing issue in moved content",
+          details: "Content unchanged by this PR — predates the move.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Only pre-existing content flagged." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciled).toBe(false);
+    expect(result.body).not.toContain(RECONCILIATION_NOTICE_PREFIX);
+  });
+
+  test("reconciliation notice appears before the executive summary and the Findings section", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "blocking issue",
+          details: "details",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "COMMENT", summary: "The executive summary text." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const reconciliationPos = result.body.indexOf(RECONCILIATION_NOTICE_PREFIX);
+    const summaryPos = result.body.indexOf("The executive summary text.");
+    const findingsPos = result.body.indexOf("## Findings");
+
+    expect(reconciliationPos).toBeGreaterThan(-1);
+    expect(reconciliationPos).toBeLessThan(summaryPos);
+    expect(summaryPos).toBeLessThan(findingsPos);
   });
 });

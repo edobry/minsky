@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ReviewToolCall } from "./output-tools";
+import { reconcileEventWithBlockingCount } from "./compose-review";
 
 export const PROVENANCE_MARKER_START = "<!-- minsky-review-provenance:";
 export const PROVENANCE_MARKER_END = " -->";
@@ -90,6 +91,20 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
         });
         break;
     }
+  }
+
+  // Chunk-review / label reconciliation (mt#2655): reconcile the recorded
+  // conclusion event against the finding severities using the SAME
+  // deterministic rule composeReviewBody applies to the posted review body.
+  // Both functions are fed the identical toolCalls array by the caller, so
+  // reconciling here independently (rather than trusting the raw
+  // conclude_review event) keeps the embedded provenance blob from
+  // disagreeing with the review body's terminal event and findings labels
+  // (#1821 R1: body said "1 blocking + 4 non-blocking", provenance said
+  // "0/0" — an event/label/provenance disagreement of exactly this shape).
+  if (conclusion !== null) {
+    const { event } = reconcileEventWithBlockingCount(conclusion.event, blocking);
+    conclusion = { ...conclusion, event };
   }
 
   return {
