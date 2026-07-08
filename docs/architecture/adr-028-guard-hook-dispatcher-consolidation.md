@@ -255,6 +255,10 @@ entries to 1, and — because `checkOverride()` is a framework service, not a pe
 function — also fixes the redundant-truthy-parser problem inside the already-consolidated
 `src/hooks/pre-commit.ts` (D3 has payoff independent of the process-model migration).
 
+`checkOverride()` later grows a second, complementary channel — an optional `scope` parameter
+that additionally consults a mid-session-reachable grant file — see D8 below (Phase-7 adjunct,
+mt#2658).
+
 ### D4 — Calibration logging as a framework service
 
 One function, `logCalibrationRecord(guardName: string, record: CalibrationRecord)`, replaces
@@ -367,6 +371,67 @@ HookOutput`-shaped result, with no bespoke process-level side effects beyond wha
 registry entry itself, reviewed against a lint for schema completeness, is the actual gate;
 "a new `.ts` file plus a new `settings.json` block plus a new env var" stops being a unit of
 friction that makes people hesitate (correctly or not) to add a check.
+
+### D8 — Guard-override reachability: file-based grant channel (Phase-7 adjunct, mt#2658)
+
+Every guard override today — including D3's own unified `MINSKY_HOOK_OVERRIDE` — is an
+environment variable read by the hook subprocess, which inherits the **harness's launch-time
+env**. An agent mid-session structurally cannot self-serve any such override for
+MCP-tool-matched guards: setting the var via a `Bash` call does not propagate to the sibling
+harness subprocess the guard hook actually runs in. This was hit twice on 2026-07-07 —
+`MINSKY_FORCE_DUPLICATE_OK` unreachable when the duplicate-child matcher false-positived on
+generic shared tokens ("dispatcher", "phase") during this very ADR's own child-task filing
+(the workaround at the time was retitling the child to dodge the heuristic — the exact
+anti-pattern `feedback_use_sanctioned_cli_override_for_mcp_scoped_guards_dont_retitle_to_dodge`
+warns against), and mt#2637's spec independently documenting the same unreachability for
+`MINSKY_SKIP_SPEC_READ_CHECK`.
+
+mt#2651's D5 capability-grant store (`.minsky/hooks/merge-grant-store.ts`) already proved the
+reachable alternative: a small, auditable, TTL-bound JSON file the guard reads at decision
+time, writable mid-session via a script call. mt#2658 generalizes that ONE-guard-scoped
+pattern (`session_pr_merge` capability, implicitly scoped to `taskId`) into a store any guard
+can use, explicitly keyed by `(guardName, scope)`:
+
+- **`.minsky/hooks/guard-grant-store.ts`** — the generalized store:
+  `GuardGrant { guardName, scope, issuedAt, ttlMs, issuedBy?, reason }`. `reason` is
+  **mandatory** — every issuance is necessarily an audit record, preserving the
+  deliberate-friction property env vars accidentally provided (a grant can never be issued
+  silently, matching this ADR's Success-Criteria framing for mt#2658).
+- **`checkOverride()` (D3) grows an optional `scope` parameter.** When supplied, and the env
+  var didn't already override the guard, `checkOverride` additionally consults the grant store
+  for a valid, unexpired `(guardName, scope)` match before returning `overridden: false`.
+  Guards that never pass `scope` see zero behavior change — this is purely additive, verified
+  by running all pre-existing `checkOverride`/`buildOverrideAuditLine`/`runDispatcher` tests
+  unmodified against the extended implementation.
+- **`scripts/grant-guard-override.ts`** — the mid-session issuance surface (mirrors
+  `scripts/grant-subagent-merge.ts`'s CLI shape exactly):
+  `--guard <name> --scope <qualifier> --reason <note> [--ttl-minutes 30] [--issued-by <note>]
+[--dry-run]`. `--reason` is required; the script refuses to build (and therefore write) a
+  grant without one.
+- **The duplicate-child matcher adopts the channel first**
+  (`parallel-work-guard.ts`'s `tasks_create` path) — it is the guard that motivated this task
+  and is NOT itself dispatcher-migrated (it remains a standalone `PreToolUse` registration in
+  `.claude/settings.json`, matched directly rather than through `runDispatcher()`),
+  demonstrating that `checkOverride()` — and therefore the grant-file channel — is usable by
+  any guard, independent of whether that guard has completed the D1 dispatcher migration.
+  This also gives the matcher unified-override support (`MINSKY_HOOK_OVERRIDE=duplicate-child-
+matcher`) as a side effect, alongside its pre-existing bespoke `MINSKY_FORCE_DUPLICATE_OK`
+  var, which is retained unchanged.
+
+**Env vars remain the operator-level channel** — set before a session starts, in
+`.claude/settings.local.json` or the shell profile, for a standing override that covers every
+subsequent invocation for the life of the process. The grant-file channel is the
+**agent-reachable, mid-session, single-scope** channel; it does not replace env vars, it fills
+the reachability gap env vars structurally cannot close: an env var set via `Bash` mid-session
+never reaches the sibling hook subprocess, no matter how the operator or agent expresses it.
+This task explicitly does **not** migrate every legacy per-guard env var onto the grant-store
+pattern — that remains Phase 7's scope (see Migration Plan below, "deprecation-shim removal");
+mt#2658 adds the reachable channel alongside the existing ones for guards that need
+mid-session override capability, and records this two-channel split (env var = operator-level
+standing override; grant file = agent-reachable mid-session override) as the intended
+**override end-state** — Phase 7's eventual retirement is of the 33 remaining _bespoke_
+per-guard env vars in favor of the unified `MINSKY_HOOK_OVERRIDE`, not of the env-var channel
+itself.
 
 ## Consequences
 
@@ -520,6 +585,12 @@ Migration Plan phases above.
 9. **Audit and close the mt#2637 transcript-resolution bug class across all guards** (folds
    into Phase 2/5/6 as each guard migrates, but tracked as an explicit completeness check
    against every guard that reads `transcript_path`, not just the one instance already fixed).
+10. **Guard-override reachability: file-based grant channel** (D8, mt#2658) — SHIPPED, ahead
+    of the Migration Plan's own sequencing: independent of the Phase 1–7 dispatcher migration
+    (mirroring D5's independence), generalizes mt#2651's merge-grant store into
+    `.minsky/hooks/guard-grant-store.ts`, extends `checkOverride()` with the optional `scope`
+    parameter, adds `scripts/grant-guard-override.ts`, and wires the duplicate-child matcher
+    onto the channel as the first (and motivating) consumer.
 
 ## Cross-references
 
@@ -529,10 +600,14 @@ Migration Plan phases above.
 - **Sequenced after:** mt#2617 (shared PR-fetch across the merge-gate stack — Phase 4
   dependency).
 - **Adopts:** mt#2263 / ADR-024 (detection-mechanism ladder for the guidance-hook family — the
-  matching-logic layer this ADR's process layer wraps).
+  matching-logic layer this ADR's process layer wraps); mt#2651 (D5 merge-grant store — the
+  narrower, single-guard-scoped precedent D8 generalizes).
 - **Originating incidents:** mt#2607 (July 2026 holistic audit — findings F1/F2/F4/F9, the
   "organizational scar tissue" framing); mt#2612 PR #1792 and mt#2615 PR #1795 (subagent
-  bypass-merge instances motivating D5); mt#2637 (transcript-resolution bug motivating D6).
+  bypass-merge instances motivating D5); mt#2637 (transcript-resolution bug motivating D6);
+  the 2026-07-07 `MINSKY_FORCE_DUPLICATE_OK` unreachability during this ADR's own child-task
+  filing, and mt#2637's independent documentation of the same unreachability for
+  `MINSKY_SKIP_SPEC_READ_CHECK` (both motivating D8).
 - **In-repo precedent:** `src/hooks/pre-commit.ts` (the single-dispatcher, pluggable-pure-
   checks counter-example this ADR generalizes to the Claude Code hook family).
 - **Distinct-but-adjacent:** `packages/domain/src/detectors/` (mt#1035/mt#1543 — the
@@ -541,4 +616,8 @@ Migration Plan phases above.
   `readInput`, `writeOutput`), `.claude/hooks/transcript.ts` (`resolveTranscriptCandidates`,
   `parseTranscript`, `extractLastAssistantTurn`), `.claude/hooks/block-subagent-bypass-
 merge.ts` (the D5 structural template), `.claude/hooks/SPEC.md` (behavioral-spec precedent
-  for the typecheck/workflow hook subsystems).
+  for the typecheck/workflow hook subsystems), `.claude/hooks/guard-grant-store.ts` (D8's
+  generalized grant store), `.claude/hooks/merge-grant-store.ts` (D5's narrower precedent),
+  `scripts/grant-guard-override.ts` (D8's issuance surface), `scripts/grant-subagent-merge.ts`
+  (D5's issuance surface — the shape D8's script mirrors).
+- **Implementation task:** mt#2658 — D8's tracking task.

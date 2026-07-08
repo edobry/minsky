@@ -96,6 +96,27 @@ would-be duplicate match. The override env var is registered in `HOOK_ONLY_ENV_V
 (`packages/domain/src/configuration/sources/environment.ts`) per the
 `custom/no-unregistered-minsky-env-var` rule (mt#1788).
 
+**Mid-session-reachable override (mt#2658, ADR-028 D8):** the env var above is read from the
+harness's launch-time process env — a value set via `Bash` mid-session never reaches this
+hook's sibling subprocess, so an agent that hits a false-positive DURING a session cannot
+self-serve `MINSKY_FORCE_DUPLICATE_OK=1` (the originating incident below hit exactly this and
+worked around it by retitling the child, which is an anti-pattern — see
+`feedback_use_sanctioned_cli_override_for_mcp_scoped_guards_dont_retitle_to_dodge`). The
+reachable alternative is a TTL-bound, reason-mandatory grant file:
+
+```bash
+bun scripts/grant-guard-override.ts --guard duplicate-child-matcher \
+  --scope mt#2370 --reason "distinct sibling, not a concurrent duplicate" [--ttl-minutes 30]
+```
+
+The guard consults this channel (via `.minsky/hooks/dispatcher.ts`'s `checkOverride()`, scoped
+to the parent task id) whenever `MINSKY_FORCE_DUPLICATE_OK` isn't already set; a matching,
+unexpired grant bypasses with the same audit-line shape, additionally naming
+`source=grant reason="<the grant's reason>"`. See `.minsky/hooks/guard-grant-store.ts` for the
+grant schema and `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md` §D8 for the
+design rationale (generalizes mt#2651's merge-grant store from a single guard/scope pair to
+any `(guardName, scope)` pair).
+
 **Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
 umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent
 agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
