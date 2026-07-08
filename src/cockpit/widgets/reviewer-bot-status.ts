@@ -270,16 +270,19 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
        WHERE outcome = 'review_submitted' AND received_at >= $1`,
       [window24hIso]
     ),
-    // Failure count: any failed_at_* outcomes in the last 24h
+    // Failure count: any failed_at_* outcomes in the last 24h. `outcome` is the
+    // webhook_outcome ENUM — Postgres has no LIKE operator for enums, so the
+    // column must be cast to text for the pattern match (without the cast the
+    // query errors and allSettled silently zeroes the field, breaking A3).
     queryRows(
       `SELECT COUNT(*) AS count FROM reviewer_webhook_events
-       WHERE outcome LIKE 'failed_at_%' AND received_at >= $1`,
+       WHERE outcome::text LIKE 'failed_at_%' AND received_at >= $1`,
       [window24hIso]
     ),
-    // Last error: most recent failed event details
+    // Last error: most recent failed event details (same enum::text cast)
     queryRows(
       `SELECT error_details, received_at FROM reviewer_webhook_events
-       WHERE outcome LIKE 'failed_at_%' AND received_at >= $1
+       WHERE outcome::text LIKE 'failed_at_%' AND received_at >= $1
        ORDER BY received_at DESC LIMIT 1`,
       [window24hIso]
     ),
@@ -313,15 +316,15 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
       [staleThresholdIso]
     ),
     // Rate-limit hits: count 'rate_limited' entries across all rows'
-    // retry_outcomes (text[]) in the window. A lateral unnest cross-join is the
-    // valid form — the prior `SELECT unnest(...) WHERE unnest = ...` was invalid
-    // SQL (can't reference the set-returning fn output by name in WHERE), which
-    // rejected the query and zeroed the field. retry_outcomes is NOT NULL
-    // DEFAULT '{}', so an empty array contributes 0 rows (correctly 0 hits).
+    // retry_outcomes (text[]) in the window, via explicit CROSS JOIN LATERAL
+    // with a named column alias — unambiguous set-returning-function form.
+    // retry_outcomes is NOT NULL DEFAULT '{}', so an empty array contributes
+    // 0 rows (correctly 0 hits).
     queryRows(
       `SELECT COUNT(*) AS count
-       FROM review_timing rt, unnest(rt.retry_outcomes) AS ro
-       WHERE rt.created_at >= $1 AND ro = 'rate_limited'`,
+       FROM review_timing rt
+       CROSS JOIN LATERAL unnest(rt.retry_outcomes) AS ro(outcome)
+       WHERE rt.created_at >= $1 AND ro.outcome = 'rate_limited'`,
       [window24hIso]
     ),
     // Last webhook received
