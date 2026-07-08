@@ -308,7 +308,7 @@ section headers below is left as-is pending a future corpus pass.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
-A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event entrypoints
+A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` + per-event entrypoints
 `dispatch-pretooluse.ts` / `dispatch-userpromptsubmit.ts`) letting multiple guards share ONE spawned
 Bun process per lifecycle event. Ships inert; only guards with a `GUARD_REGISTRY` entry run through
 it. Migrated: `check-guessed-session-path` (Phase 1) + six Phase 2a UserPromptSubmit detectors
@@ -515,7 +515,7 @@ Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `tasks_status_set`(READY)/`session_start`: blocks when the target task's spec was never
+PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start`: blocks when the target task's spec was never
 surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the session transcript. On
 hit: read the spec in full before retrying. Hook: `check-task-spec-read.ts`. Override:
 `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error/missing transcript/unresolvable id.
