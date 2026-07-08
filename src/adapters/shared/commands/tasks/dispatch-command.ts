@@ -186,6 +186,13 @@ export function createTasksDispatchCommand(
         falsifier: premise.falsifier,
       });
 
+      // Mode selection (mt#2657): `taskId` dispatches an EXISTING task; `title` creates a new
+      // one. Exactly one must be supplied — the two modes' remaining params don't compose.
+      // Validated before the harness check (like the evidence gate above) so input-shape errors
+      // are deterministic regardless of environment/harness capability.
+      validateDispatchMode(p);
+      const isExistingTaskMode = Boolean(p.taskId);
+
       const harness = detectAgentHarness();
 
       if (!hasNativeSubagentSupport()) {
@@ -198,11 +205,6 @@ export function createTasksDispatchCommand(
           harness,
         };
       }
-
-      // Mode selection (mt#2657): `taskId` dispatches an EXISTING task; `title` creates a new
-      // one. Exactly one must be supplied — the two modes' remaining params don't compose.
-      validateDispatchMode(p);
-      const isExistingTaskMode = Boolean(p.taskId);
 
       let taskId: string;
       const statusWalk: string[] = [];
