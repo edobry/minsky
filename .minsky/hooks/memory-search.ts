@@ -711,6 +711,13 @@ export async function run(
   input: ClaudeHookInput,
   _ctx: DispatchContext
 ): Promise<GuardOutcome | null> {
+  // Explicit event guard, matching the sibling injection hooks
+  // (inject-current-time, inject-git-state, inject-prod-state,
+  // inject-dispatch-watchdog) — in practice the dispatcher only invokes
+  // UserPromptSubmit-registered guards for the UserPromptSubmit event, but
+  // this keeps `run()` safe if ever called directly / matched differently.
+  if (input.hook_event_name !== "UserPromptSubmit") return null;
+
   const promptInput = input as UserPromptSubmitInput;
   const sessionId = input.session_id ?? "unknown";
   const prompt = promptInput.prompt ?? "";

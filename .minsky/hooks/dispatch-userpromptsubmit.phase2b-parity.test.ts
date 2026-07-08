@@ -352,7 +352,7 @@ describe("Phase 2b parity: mcp-daemon-staleness-detector", () => {
     const cliResult = await invokeHookCli("mcp-daemon-staleness-detector.ts", input, {
       [OPT_OUT_ENV]: "1",
     });
-    const outcome = run(input, makeCtx());
+    const outcome = await withEnv({ [OPT_OUT_ENV]: "1" }, () => run(input, makeCtx()));
 
     expect(outcome).toBeNull();
     expect(cliResult.stdout.trim()).toBe("");
