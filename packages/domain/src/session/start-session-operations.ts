@@ -208,10 +208,19 @@ Navigate to your main workspace and try again:
     throw new MinskyError(`Session '${sessionId}' already exists`);
   }
 
-  // Check if a session already exists for this task
+  // Check if a session already exists for this task.
+  //
+  // mt#2697: pushes the taskId filter down to sessionDB.listSessions({ taskId })
+  // (same normalization codepath, same storage-layer query builder) instead of
+  // fetching every session and matching in JS with strict equality. This is
+  // deliberately UNSCOPED by project (no projectScope passed) — "is this task
+  // already in use" is a global collision check, not a project-scoped browse.
+  // session.list's task-filtered query (basic-commands.ts createSessionListCommand)
+  // mirrors this same unscoped-when-task-filtered behavior so the two surfaces
+  // can never structurally diverge on which rows count as "active" for a task.
   if (taskId) {
-    const existingSessions = await deps.sessionDB.listSessions();
-    const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
+    const existingSessions = await deps.sessionDB.listSessions({ taskId });
+    const taskSession = existingSessions[0];
 
     if (taskSession) {
       // Merged PR — always hard-block (session is frozen)
@@ -359,23 +368,73 @@ async function executeMutations(
 
   // ADR-021 / mt#2416: resolve the current project so the new session row is
   // stamped with project_id. Mirrors resolveCurrentProjectId in taskService.ts.
-  // Best-effort: never throws — when the DB is absent or resolution fails,
+  // Best-effort: never throws — when no DB is resolvable or resolution fails,
   // projectId stays undefined and the insert stays nullable (the hosted/cockpit
   // no-single-repo case, or test doubles without a real DB connection).
+  //
+  // mt#2697: some callers (e.g. tasks.dispatch's internally-constructed
+  // SessionService) don't wire deps.db even though a DB IS resolvable in their
+  // process. Fixing this here — rather than in each caller's dep wiring — means
+  // every caller gets stamping whenever a DB is reachable: when deps.db is
+  // absent, fall back to a self-contained, one-shot PersistenceProvider
+  // (open -> resolve scope -> close) instead of skipping stamping outright.
+  // Unstamped rows are invisible to session.list's default project-scoped
+  // query (project_id IS NULL never matches `project_id = $scope`), which was
+  // the root cause of dispatch-created CREATED sessions disappearing from
+  // `session_list task:"mt#X"` while still blocking a new dispatch.
   let resolvedProjectId: string | undefined;
-  if (deps.db) {
+  let dbForScopeResolution: ScopeResolverDb | undefined = deps.db;
+  let ownedPersistenceProvider: import("../persistence/types").PersistenceProvider | undefined;
+  if (!dbForScopeResolution) {
+    try {
+      // Cheap, silent short-circuit: if configuration was never initialized
+      // (hermetic tests, or a process that genuinely has no DB), there is
+      // nothing to resolve — skip straight past rather than letting
+      // resolvePersistenceProvider()'s initialize() log a noisy top-level
+      // error for an outcome we already know.
+      const { isConfigurationInitialized } = await import("../configuration/index");
+      const { resolvePersistenceProvider } = await import("../persistence/factory");
+      const provider = isConfigurationInitialized() ? await resolvePersistenceProvider() : null;
+      if (provider) {
+        const rawDb = await provider.getDatabaseConnection?.();
+        if (rawDb) {
+          dbForScopeResolution = rawDb as ScopeResolverDb;
+          ownedPersistenceProvider = provider;
+        } else {
+          await provider.close();
+        }
+      }
+    } catch (err: unknown) {
+      log.debug(
+        "[session.start] Fallback DB resolution for project-scope stamping failed; " +
+          "session.project_id will be NULL",
+        { error: err instanceof Error ? err.message : String(err) }
+      );
+    }
+  }
+  if (dbForScopeResolution) {
     try {
       const { resolveProjectIdentity } = await import("../project/identity");
       const { resolveProjectScope } = await import("../project/scope-resolver");
       const { isAllProjects } = await import("../project/scope");
       const identity = resolveProjectIdentity({ repoPath: sessionDir });
-      const scope = await resolveProjectScope(identity, deps.db);
+      const scope = await resolveProjectScope(identity, dbForScopeResolution);
       resolvedProjectId = isAllProjects(scope) ? undefined : scope;
     } catch (err: unknown) {
       log.debug(
         "[session.start] Project scope resolution failed; session.project_id will be NULL",
         { error: err instanceof Error ? err.message : String(err) }
       );
+    } finally {
+      if (ownedPersistenceProvider) {
+        try {
+          await ownedPersistenceProvider.close();
+        } catch (closeErr: unknown) {
+          log.debug("[session.start] Failed to close fallback persistence provider", {
+            error: closeErr instanceof Error ? closeErr.message : String(closeErr),
+          });
+        }
+      }
     }
   }
 

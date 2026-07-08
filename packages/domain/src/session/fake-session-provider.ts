@@ -14,7 +14,12 @@
  *
  * Default behavior mirrors the former `createMockSessionProvider` factory
  * from `src/utils/test-utils/dependencies.ts` (now deleted):
- *   - listSessions → returns all stored sessions
+ *   - listSessions → returns all stored sessions, honoring the same filter
+ *     options the real DrizzleSessionRepository applies (taskId, repoName,
+ *     statusNotIn, projectScope, createdAfter/createdBefore, limit/offset —
+ *     mt#2697; previously `options` was silently ignored, which masked the
+ *     project-scope-vs-unscoped divergence between session.list and the
+ *     session.start "already in use" check in every test using this fake)
  *   - getSession → looks up by exact session name match
  *   - getSessionByTaskId → uses validateQualifiedTaskId normalization
  *   - addSession → stores the record in memory
@@ -27,8 +32,9 @@
  * @see src/domain/tasks/fake-task-service.ts
  */
 
-import type { SessionProviderInterface, SessionRecord } from "./types";
+import type { SessionProviderInterface, SessionRecord, SessionListOptions } from "./types";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
+import { isAllProjects } from "../project/scope";
 
 export class FakeSessionProvider implements SessionProviderInterface {
   private readonly store = new Map<string, SessionRecord>();
@@ -49,8 +55,53 @@ export class FakeSessionProvider implements SessionProviderInterface {
     }
   }
 
-  async listSessions(): Promise<SessionRecord[]> {
-    return Array.from(this.store.values());
+  async listSessions(options?: SessionListOptions): Promise<SessionRecord[]> {
+    let results = Array.from(this.store.values());
+
+    if (options?.taskId) {
+      let normalizedTaskId: string;
+      try {
+        normalizedTaskId = validateQualifiedTaskId(options.taskId) ?? options.taskId;
+      } catch {
+        normalizedTaskId = options.taskId;
+      }
+      results = results.filter((r) => r.taskId === normalizedTaskId);
+    }
+
+    if (options?.repoName) {
+      results = results.filter((r) => r.repoName === options.repoName);
+    }
+
+    if (options?.statusNotIn && options.statusNotIn.length > 0) {
+      const excluded = new Set(options.statusNotIn);
+      results = results.filter((r) => !r.status || !excluded.has(r.status));
+    }
+
+    if (options?.projectScope && !isAllProjects(options.projectScope)) {
+      // Mirrors the real Postgres `eq(project_id, scope)` condition: rows with
+      // a null/undefined project_id never match a specific scope.
+      results = results.filter((r) => r.projectId === options.projectScope);
+    }
+
+    if (options?.createdAfter) {
+      const after = new Date(options.createdAfter).getTime();
+      results = results.filter((r) => new Date(r.createdAt).getTime() >= after);
+    }
+
+    if (options?.createdBefore) {
+      const before = new Date(options.createdBefore).getTime();
+      results = results.filter((r) => new Date(r.createdAt).getTime() <= before);
+    }
+
+    if (typeof options?.offset === "number" && options.offset > 0) {
+      results = results.slice(options.offset);
+    }
+
+    if (typeof options?.limit === "number") {
+      results = results.slice(0, options.limit);
+    }
+
+    return results;
   }
 
   async getSession(session: string): Promise<SessionRecord | null> {
