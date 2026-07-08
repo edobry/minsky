@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-07-08 — the recorded decision was principal-confirmed 2026-07-01 via ask `8bec2e60`; independent advisor critique incorporated before merge)
+**ACCEPTED** — 2026-07-08
 
 ## Context
 
@@ -172,5 +172,6 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
   clears), `70b595dc` (search index is derived data), `115c8a59` (require-Postgres / single-store).
 - **Decision record:** ask `8bec2e60` (the principal decision this ADR formalizes). Independent advisor
   critique (2026-07-01) informed the context-inspector-latency, policy-framing, and legacy-format
-  corrections.
+  corrections. Status flipped Proposed → Accepted on 2026-07-08; the recorded decision was
+  principal-confirmed 2026-07-01.
 - **Origin:** 2026-06-30 transcript-size investigation + mt#2584 spike; principal direction 2026-07-01.
