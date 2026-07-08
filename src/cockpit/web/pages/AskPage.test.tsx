@@ -11,6 +11,8 @@
  *     not the old generic "no longer pending".
  *   - Unknown id: "not found" only after the per-id fetch settles.
  *   - Seeded cache: a live ask already in the list cache renders immediately.
+ *   - Responded ask: NOT terminal per the domain state machine — renders the
+ *     actionable detail view, not a banner (PR #1848 R1 regression).
  *
  * Run via:
  *   bun test --preload ./tests/dom-setup.ts src/cockpit/web/pages/AskPage.test.tsx
