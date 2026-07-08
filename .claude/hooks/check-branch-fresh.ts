@@ -29,13 +29,17 @@
 //     "something the operator should know," and operators should always learn
 //     about staleness.
 //   - Override: MINSKY_SKIP_FRESHNESS=1 bypasses with an audit log entry.
+//   - The repo ROOT is resolved from input.cwd by walking up to the first
+//     `.git` entry (mt#2700): the shell cwd is routinely a repo SUBDIRECTORY,
+//     which git subprocesses tolerate but the fs-only mid-merge probe and the
+//     CAS-marker write do not.
 //
 // @see mt#1483 — structural hook for the branch-behind-main pattern
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -103,6 +107,16 @@ export interface BranchFreshnessResult {
    * R1 BLOCKING #6 fix.
    */
   comparisonRan?: boolean;
+  /**
+   * The EXACT branch ref the commits-ahead comparison used as the left side
+   * of the `branchRef..mainRef` range (e.g. `"origin/task/mt-2700"`). Set
+   * only when the comparison ran. The entrypoint derives the denial
+   * message's branch name from THIS value (via `denialBranchName`) rather
+   * than re-deriving from `currentBranch`, so the message can never name a
+   * ref other than the one the ahead-count was computed against (PR #1851
+   * R1 BLOCKING #1).
+   */
+  branchRef?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +316,74 @@ export function detectMergeInProgress(
     }
   }
   return null;
+}
+
+/**
+ * Resolve the repository ROOT for `startDir`: walk parent directories until
+ * one contains a `.git` entry (directory OR `gitdir:`-file — `resolveGitDir`
+ * handles the indirection afterwards), falling back to `startDir` when no
+ * `.git` exists anywhere up the tree (missing-repo case; downstream probes
+ * then fail closed-to-allow exactly as before).
+ *
+ * Why this exists (mt#2700): the entrypoint passed `input.cwd` straight into
+ * `detectMergeInProgress` and `writeFreshnessMarker`, but `input.cwd` tracks
+ * the harness SHELL's working directory, which is routinely a SUBDIRECTORY
+ * of the repo (e.g. `<session>/cockpit-tray/src-tauri` during a build). The
+ * git subprocess probes (`git -C <dir>`) walk up to the repo root on their
+ * own, so the freshness comparison stayed correct — but the fs-only marker
+ * probe does NOT walk up, so a genuine in-progress merge at the repo root
+ * was invisible and the mt#1739 carve-out silently failed to fire,
+ * reintroducing the merge-completion deadlock it exists to close (observed
+ * 2026-07-08, mt#2675 convergence). Same class: the mt#1522 CAS marker was
+ * written under the subdirectory instead of the repo root, silently
+ * bypassing session_commit's push-time CAS read.
+ *
+ * fs-only by design (no subprocess): mid-merge detection runs BEFORE the
+ * wall-clock budget guard, which is safe only while it stays fs probes.
+ * Cost is a few probes per path segment.
+ *
+ * A candidate directory is accepted ONLY when its `.git` entry is a real
+ * git anchor — a DIRECTORY, or a FILE whose `gitdir:` indirection resolves
+ * to an existing directory (PR #1851 R1 BLOCKING #2: a stray non-git `.git`
+ * file in an ancestor must not stop the walk early, or every downstream
+ * consumer runs against a pseudo-root). Invalid candidates are skipped and
+ * the walk continues upward.
+ */
+function isRepoRootCandidate(dir: string, fs: MergeDetectFs): boolean {
+  const dotGit = join(dir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return false;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return true;
+    }
+    // `.git` is a file — accept only a parseable `gitdir:` indirection
+    // (resolveGitDir returns dotGit itself when the file is unparseable)
+    // whose target exists and is a directory.
+    const resolved = resolveGitDir(dir, fs);
+    return resolved !== dotGit && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+  } catch {
+    // Any stat/read error means this candidate can't be validated — skip it
+    // and let the walk continue.
+    return false;
+  }
+}
+
+export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (isRepoRootCandidate(dir, fs)) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      // Filesystem root reached without finding a repo — fall back to the
+      // original directory so callers' downstream probes fail naturally.
+      return resolve(startDir);
+    }
+    dir = parent;
+  }
 }
 
 /**
@@ -587,6 +669,7 @@ export function checkBranchFreshness(
       silent: true,
       currentBranch,
       comparisonRan: true,
+      branchRef,
     };
   }
 
@@ -594,16 +677,32 @@ export function checkBranchFreshness(
     blocked: true,
     aheadCount: count,
     aheadSubjects: subjects,
-    reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
+    reason: `${mainRef} is ${count} commit(s) ahead of ${branchRef}`,
     mainRef,
     currentBranch,
     comparisonRan: true,
+    branchRef,
   };
 }
 
 // ---------------------------------------------------------------------------
 // Message formatting
 // ---------------------------------------------------------------------------
+
+/**
+ * Derive the branch NAME the denial message should render, from the EXACT
+ * ref the comparison used (`result.branchRef`), falling back to
+ * `currentBranch` only for results that never reached the comparison.
+ * Centralized so the message can never drift from the compared ref
+ * (PR #1851 R1 BLOCKING #1). The entrypoint always calls
+ * `checkBranchFreshness` with `branch: undefined` (detection inside the
+ * budget guard — round-5 fix); this helper keeps the message honest even
+ * if a future caller passes an override.
+ */
+export function denialBranchName(result: BranchFreshnessResult): string {
+  const ref = result.branchRef ?? `origin/${result.currentBranch ?? "unknown"}`;
+  return ref.replace(/^origin\//, "");
+}
 
 export function formatBlockMessage(
   branch: string,
@@ -668,7 +767,19 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const repoDir = input.cwd;
+  // Resolve the repo ROOT from the shell cwd (mt#2700): `input.cwd` is
+  // routinely a subdirectory of the repo, which the `git -C` probes tolerate
+  // (git walks up) but the fs-only mid-merge detection and the CAS-marker
+  // write do not. All downstream consumers get the root.
+  //
+  // Nested-repo intent (PR #1851 R2): `findRepoRoot` stops at the NEAREST
+  // enclosing `.git`, which is exactly the repo `git -C <input.cwd>` would
+  // have discovered by its own upward walk — so handing the same nearest
+  // root to the git subprocesses changes nothing for nested checkouts
+  // (inner repo wins in both worlds); it only anchors the fs probes and
+  // marker write to that same repo. Pinned by the nested-repo test in
+  // check-branch-fresh.test.ts.
+  const repoDir = findRepoRoot(input.cwd);
 
   // Read host cap from settings.json and apply derived budgets BEFORE
   // hookStart capture so the OVERALL_BUDGET_MS guard inside
@@ -774,13 +885,13 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Blocked: format and emit denial. Reuse `result.mainRef` and
-  // `result.currentBranch` (set by checkBranchFreshness) instead of
-  // re-detecting — re-detection could yield different values under flaky
-  // probes, AND re-detection would run outside the budget guard.
+  // Blocked: format and emit denial. Reuse `result.mainRef` and the EXACT
+  // compared ref via `denialBranchName(result)` (PR #1851 R1 BLOCKING #1)
+  // instead of re-detecting — re-detection could yield different values
+  // under flaky probes, AND re-detection would run outside the budget guard.
   const mainRef = result.mainRef ?? "origin/main";
   const message = formatBlockMessage(
-    result.currentBranch ?? "unknown",
+    denialBranchName(result),
     mainRef,
     result.aheadCount,
     result.aheadSubjects

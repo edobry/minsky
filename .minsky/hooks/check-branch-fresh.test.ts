@@ -2,7 +2,9 @@ import { describe, test, expect } from "bun:test";
 import {
   formatBlockMessage,
   checkBranchFreshness,
+  denialBranchName,
   detectMergeInProgress,
+  findRepoRoot,
   resolveGitDir,
   MERGE_IN_PROGRESS_MARKERS,
   refreshRemoteRefs,
@@ -42,6 +44,33 @@ const FIXTURE_COMMITS_MANY = [
   "def5678 fix: repair something",
   "ghi9012 chore: update deps",
 ];
+
+describe("denialBranchName (PR #1851 R1 BLOCKING #1 — message pins to the compared ref)", () => {
+  const base = { blocked: true, aheadCount: 1, aheadSubjects: [], reason: "" };
+
+  test("uses branchRef verbatim when set — even if currentBranch disagrees", () => {
+    // Forced mismatch: the comparison ran against origin/task/mt-2700 but
+    // currentBranch (e.g. re-detected after a concurrent checkout) differs.
+    // The message MUST reflect the ref the ahead-count was computed against.
+    const name = denialBranchName({
+      ...base,
+      branchRef: "origin/task/mt-2700",
+      currentBranch: "some-other-branch",
+    });
+    expect(name).toBe("task/mt-2700");
+    const msg = formatBlockMessage(name, "origin/main", 1, ["abc fix"]);
+    expect(msg).toContain("origin/main is 1 commit(s) ahead of origin/task/mt-2700");
+    expect(msg).not.toContain("some-other-branch");
+  });
+
+  test("falls back to currentBranch when the comparison never ran (no branchRef)", () => {
+    expect(denialBranchName({ ...base, currentBranch: "task/mt-1483" })).toBe("task/mt-1483");
+  });
+
+  test("falls back to 'unknown' when neither branchRef nor currentBranch is set", () => {
+    expect(denialBranchName({ ...base })).toBe("unknown");
+  });
+});
 
 describe("formatBlockMessage", () => {
   test("includes ahead count and branch name", () => {
@@ -502,6 +531,108 @@ describe("checkBranchFreshness (exported)", () => {
         files: { [`${FAKE_REPO_DIR}/.git`]: "junk content with no gitdir line\n" },
       });
       expect(resolveGitDir(FAKE_REPO_DIR, fs)).toBe(`${FAKE_REPO_DIR}/.git`);
+    });
+  });
+
+  describe("mt#2700 findRepoRoot (cwd below repo root)", () => {
+    test("returns startDir unchanged when it contains .git (repo root case)", () => {
+      const fs = makeFakeFs({ directories: [`${FAKE_REPO_DIR}/.git`] });
+      expect(findRepoRoot(FAKE_REPO_DIR, fs)).toBe(FAKE_REPO_DIR);
+    });
+
+    test("walks up from a nested subdirectory to the dir containing .git", () => {
+      // The incident shape: shell cwd at <session>/cockpit-tray/src-tauri
+      // while the merge markers live under <session>/.git (mt#2700).
+      const fs = makeFakeFs({ directories: [`${FAKE_REPO_DIR}/.git`] });
+      expect(findRepoRoot(`${FAKE_REPO_DIR}/cockpit-tray/src-tauri`, fs)).toBe(FAKE_REPO_DIR);
+    });
+
+    test("stops at a dir whose .git is a FILE (worktree gitdir indirection, target present)", () => {
+      const fs = makeFakeFs({
+        directories: [RESOLVED_WORKTREE_GITDIR],
+        files: {
+          [`${FAKE_WORKTREE_REPO_DIR}/.git`]: `gitdir: ${RESOLVED_WORKTREE_GITDIR}\n`,
+        },
+      });
+      expect(findRepoRoot(`${FAKE_WORKTREE_REPO_DIR}/deep/nested`, fs)).toBe(
+        FAKE_WORKTREE_REPO_DIR
+      );
+    });
+
+    test("falls back to startDir when no .git exists anywhere up the tree", () => {
+      const fs = makeFakeFs({});
+      expect(findRepoRoot("/mock/no-repo/anywhere", fs)).toBe("/mock/no-repo/anywhere");
+    });
+
+    test("nearest .git wins for nested checkouts (stops at the first hit)", () => {
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`, `${FAKE_REPO_DIR}/vendor/inner/.git`],
+      });
+      expect(findRepoRoot(`${FAKE_REPO_DIR}/vendor/inner/src`, fs)).toBe(
+        `${FAKE_REPO_DIR}/vendor/inner`
+      );
+    });
+
+    test("nested repos: the single repoDir handed to ALL consumers is the INNER repo (PR #1851 R2)", () => {
+      // The entrypoint computes ONE `repoDir = findRepoRoot(input.cwd)` and
+      // passes it verbatim to the fs-only mid-merge probe AND the `git -C`
+      // helpers (detectCurrentBranch / refreshRemoteRefs / listCommitsAhead
+      // all receive `repoDir` unchanged). Nearest-root selection matches
+      // git's own upward discovery from the cwd, so for a nested checkout
+      // both the git side and the fs side operate on the INNER repo — the
+      // same repo `git -C <cwd>` used before mt#2700. Pin that: the inner
+      // repo's mid-merge marker is seen; the outer repo's is NOT.
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`, `${FAKE_REPO_DIR}/vendor/inner/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/MERGE_HEAD`],
+      });
+      const repoDir = findRepoRoot(`${FAKE_REPO_DIR}/vendor/inner/src`, fs);
+      expect(repoDir).toBe(`${FAKE_REPO_DIR}/vendor/inner`);
+      // Outer repo is mid-merge, inner is not: the probe run against the
+      // resolved repoDir must answer for the INNER repo only.
+      expect(detectMergeInProgress(repoDir, fs)).toBeNull();
+      // And when the INNER repo is mid-merge, the same repoDir sees it.
+      const fsInnerMerging = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`, `${FAKE_REPO_DIR}/vendor/inner/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/vendor/inner/.git/MERGE_HEAD`],
+      });
+      expect(detectMergeInProgress(repoDir, fsInnerMerging)).toBe("MERGE_HEAD");
+    });
+
+    test("skips an ancestor whose .git is a stray NON-git file and keeps walking (PR #1851 R1 BLOCKING #2)", () => {
+      // /mock has a real repo; /mock/repo/junk-parent/.git is a malformed
+      // file (no gitdir: line). The walk must NOT stop at junk-parent.
+      const fs = makeFakeFs({
+        directories: [`/mock/.git`],
+        files: { [`/mock/junk-parent/.git`]: "not a gitdir file\n" },
+      });
+      expect(findRepoRoot("/mock/junk-parent/child", fs)).toBe("/mock");
+    });
+
+    test("falls back to startDir when the ONLY ancestor .git is a malformed non-git file", () => {
+      const fs = makeFakeFs({
+        files: { [`/mock/ancestor/.git`]: "not a gitdir file\n" },
+      });
+      expect(findRepoRoot("/mock/ancestor/child/repo", fs)).toBe("/mock/ancestor/child/repo");
+    });
+
+    test("rejects a gitdir:-file candidate whose target does not exist", () => {
+      const fs = makeFakeFs({
+        files: { [`/mock/stale-worktree/.git`]: "gitdir: /mock/deleted-main/.git/worktrees/x\n" },
+      });
+      expect(findRepoRoot("/mock/stale-worktree/sub", fs)).toBe("/mock/stale-worktree/sub");
+    });
+
+    test("INCIDENT REGRESSION: detectMergeInProgress finds MERGE_HEAD from a subdirectory cwd via findRepoRoot", () => {
+      // Direct probe from the subdirectory misses (the mt#2700 bug) ...
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/MERGE_HEAD`],
+      });
+      const subdirCwd = `${FAKE_REPO_DIR}/cockpit-tray/src-tauri`;
+      expect(detectMergeInProgress(subdirCwd, fs)).toBeNull();
+      // ... while the entrypoint's root resolution finds the marker.
+      expect(detectMergeInProgress(findRepoRoot(subdirCwd, fs), fs)).toBe("MERGE_HEAD");
     });
   });
 
