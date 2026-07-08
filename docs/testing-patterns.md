@@ -314,6 +314,61 @@ independently verified against a minimal _non-Minsky_ Bun reproduction (e.g. syn
 files using only `Bun.spawn` without this repo's disconnect-tracker logic) within this
 task's scope.
 
+**Detection alone was not sufficient — the full suite truncates near-deterministically,
+so a fix (not just a gate) was required.** Repeated local runs (3/3) and the first live
+CI run (1/1, see below) of the literal, unmodified `bun run test` ALL truncated — no
+observed passing run of the full ~552-file invocation as originally composed. Landing
+detection-only hardening on top of a near-100%-failure-rate step would have made the
+`build` check permanently red, blocking every future merge to `main` regardless of code
+correctness — an unacceptable regression discovered mid-implementation. `git status`
+being clean was necessary but not sufficient here; the actual fix required avoiding the
+trigger condition, not just detecting it.
+
+**The fix: explicit file enumeration instead of directory-arg scanning, plus per-file
+isolation for `src/mcp`.** Two more findings from mt#2665, on top of the pinned trigger
+class above:
+
+- **`bunfig.toml`'s `pathIgnorePatterns` does not reliably exclude a subdirectory once a
+  CLI arg explicitly targets its parent.** `bun test ./src` still recurses into
+  `src/mcp` even with `"src/mcp/**"` (and several other pattern variants —
+  `"src/mcp/*"`, `"src/mcp"`, `"**/src/mcp/**"` — all tried) listed in
+  `pathIgnorePatterns`. This contradicts the working `src/cockpit/web/**` exclusion,
+  which turned out to hold only because nothing explicitly targets `src/cockpit/web` or
+  `src/cockpit` as a bare directory arg elsewhere in this repo's scripts — passing
+  `src/cockpit` explicitly (as tried during this investigation) also leaked `web/**`
+  through, recursing past the ignore pattern the same way `src/mcp` did. Directory-arg
+  scanning's interaction with `pathIgnorePatterns` should be treated as unreliable
+  in general, not just for this one case.
+- **An EXPLICIT FILE LIST does reliably respect an exclusion**, in every combination
+  tried (verified up to 537 files). This is the mechanism `scripts/run-tests-main.ts`
+  (mt#2665) uses instead of bun's own directory/glob exclusion: it walks the same 9
+  target directories itself, in-process, and excludes `src/mcp/**` (plus
+  `src/cockpit/web/**` and `services/**`, mirroring `bunfig.toml`) before handing bun an
+  explicit file list. `package.json`'s `"test"` script now runs this wrapper
+  (`bun scripts/run-tests-main.ts`) instead of `bun test <9 directory args>` directly.
+- **`src/mcp/**.test.ts`truncates even entirely on its own** (all 11 files, nothing
+else) — so simply moving it into its own CI step (mirroring the existing`test:hooks`/`test:components`/`test:eslint-rules`pattern) would not have avoided
+the bug, only relocated it.`scripts/run-tests-mcp-isolated.ts`(mt#2665,`bun run test:mcp-isolated`) instead runs each `src/mcp/\*.test.ts`file in its own
+separate`bun test`process — every single-file combination tried during this
+investigation was healthy — and applies the same completion-summary hardening
+per-file internally (a single-file run always prints singular`"1 file"`, not
+`"1 files"`— the regex needs`files?`, a bug this script's own first run caught).
+`.github/workflows/ci.yml`gained a new`Test (src/mcp, isolated per file)` step
+(`if: ${{ always() }}`, matching the existing sibling steps) that runs it.
+
+**This surfaced genuine, previously-hidden test failures.** Once the full suite
+actually ran to completion for probably the first time in a while, several tests outside
+`src/mcp` and outside the already-tracked `cockpit-credential-integration.test.ts`
+(mt#2664) failed for real — `createDomainContainer`'s architectural-boundary check,
+`detectAgentHarness`/`hasNativeSubagentSupport` (two divergent copies of this test exist,
+one under `tests/domain/runtime/` and one under `packages/domain/src/runtime/` — likely a
+residual duplicate from the mt#2108 extraction), `generateSubagentPrompt`'s operating-
+envelope checkpoint-cadence assertions, and an `Asks — FakeAskRepository` projectScope
+case. These were never actually passing; the truncation bug just prevented CI from ever
+reporting them. Tracked in mt#2712 rather than fixed here — mt#2665's scope is the CI
+infrastructure, not these specific pre-existing test bugs, and fixing them is a
+substantively separate, non-trivial body of work.
+
 **Live confirmation on GitHub's hosted `ubuntu-latest` runner (not just local macOS).**
 The acceptance-test demonstration run for this task ([run
 28975783280](https://github.com/edobry/minsky/actions/runs/28975783280), job
@@ -346,7 +401,12 @@ mt#2662 incident.
 - mt#2662 — the original investigation (parent task) that pinned the trigger class and
   the indirect CI-annotation evidence
 - mt#2665 — this follow-up: minimal 4-file repro, refined trigger condition (multiple
-  specific `src/mcp` files required, not "any one"), CI-hardening landed
+  specific `src/mcp` files required, not "any one"), CI-hardening landed, and (once
+  detection alone proved insufficient — the full suite truncates near-deterministically)
+  an actual fix via explicit-file-enumeration + per-file `src/mcp` isolation
+- mt#2712 — fix (or triage) the genuine pre-existing test failures mt#2665's fix
+  unmasked (`createDomainContainer`, `detectAgentHarness`/`hasNativeSubagentSupport`,
+  `generateSubagentPrompt` operating-envelope checks, `Asks — FakeAskRepository`)
 - mt#2654 — the `subagent-dispatch-tracker.test.ts` date-drift fix (injected-clock seam)
 - mt#2664 — the concrete broken test (`cockpit-credential-integration.test.ts`) this same
   CI run failed to catch
@@ -354,7 +414,12 @@ mt#2662 incident.
 - mt#2678 — parallel investigation into `forge_ci_run_view_log`'s DEFLATE decode failure
   (the same tooling gap noted above under "Note on tooling"); unrelated to this bug but
   discovered via the same CI-log-fetching path
-- `.github/workflows/ci.yml` — the `build` job, `Test` step (now hardened per mt#2665)
-- `package.json` — the `"test"` script (`bun run test`'s exact invocation)
+- `.github/workflows/ci.yml` — the `build` job, `Test` step (hardened) and the new
+  `Test (src/mcp, isolated per file)` step (both mt#2665)
+- `package.json` — the `"test"` script now runs `scripts/run-tests-main.ts`; the new
+  `"test:mcp-isolated"` script runs `scripts/run-tests-mcp-isolated.ts` (mt#2665)
+- `scripts/run-tests-main.ts` / `scripts/run-tests-mcp-isolated.ts` — the mt#2665
+  explicit-file-enumeration mitigation (see above)
 - `bunfig.toml` — `[test]` defaults (`preload`, `randomize`, `pathIgnorePatterns`) used by
-  bare `bun test`
+  bare `bun test`; see the note in the file itself on why `src/mcp` is excluded via the
+  wrapper scripts rather than `pathIgnorePatterns`

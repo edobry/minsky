@@ -77,24 +77,34 @@ jobs:
         if: ${{ always() }}
         run: bun services/reviewer/scripts/smoke-image-module-resolution.ts
 
-      # mt#2665: `bun test` 1.2.21 can silently truncate this step's large
+      # mt#2665: `bun test` 1.2.21 can silently truncate a large
       # multi-directory/many-file invocation — exiting 0 with NO completion
       # summary line — when several MCP-lifecycle test files (files under
       # src/mcp that spawn/track real MCP server subprocesses) run together.
       # See docs/testing-patterns.md "Root cause, pinned" for the
-      # investigation and a minimal 4-file repro. This step hardens against
-      # that (and any other silent-truncation class, e.g. an older/pinned
-      # Bun version) by treating the run as failed whenever bun's own
-      # completion summary ("Ran N tests across M files") is missing, or
-      # whenever its own "<N> fail" summary line reports N > 0 — both
-      # independent of the process exit code.
+      # investigation and a minimal 4-file repro. Confirmed (mt#2665) that
+      # even ALL 11 files under src/mcp together, with nothing else, trigger
+      # it, and that directory-arg-based exclusion (bunfig.toml
+      # pathIgnorePatterns) does not reliably prevent it once a parent
+      # directory is explicitly targeted -- so the "test" script
+      # (scripts/run-tests-main.ts) now excludes src/mcp/** via explicit file
+      # enumeration instead, and src/mcp is tested separately below, one file
+      # per `bun test` process (scripts/run-tests-mcp-isolated.ts). This step
+      # additionally hardens the main run against that class (and any other
+      # silent-truncation class, e.g. an older/pinned Bun version) by
+      # treating the run as failed whenever bun's own completion summary
+      # ("Ran N tests across M file(s)") is missing, or whenever its own
+      # "<N> fail" summary line reports N > 0 — both independent of the
+      # process exit code.
       - name: Test
         run: |
           set -o pipefail
           bun run test 2>&1 | tee test-output.log
           TEST_EXIT=${PIPESTATUS[0]}
 
-          if ! grep -qE "Ran [0-9]+ tests across [0-9]+ files" test-output.log; then
+          # Note: bun prints singular "1 file" (no trailing "s") when exactly
+          # one file ran -- "files?" is load-bearing, not decorative.
+          if ! grep -qE "Ran [0-9]+ tests across [0-9]+ files?" test-output.log; then
             echo "::error::bun test did not print a completion summary line (\"Ran N tests across M files\") — the run may have silently truncated (see docs/testing-patterns.md). Treating as a failure regardless of exit code ($TEST_EXIT)."
             exit 1
           fi
@@ -106,6 +116,18 @@ jobs:
           fi
 
           exit "$TEST_EXIT"
+
+      # mt#2665: src/mcp/**.test.ts is excluded from the "Test" step above
+      # (see the comment there) because bun test 1.2.21 silently truncates
+      # when several of these real-MCP-subprocess files run together --
+      # confirmed true even for all 11 files alone, with nothing else in the
+      # invocation. scripts/run-tests-mcp-isolated.ts runs each file in its
+      # own separate `bun test` process (every combination tried during the
+      # mt#2665 investigation was healthy at n=1) and applies the same
+      # completion-summary hardening per file internally.
+      - name: Test (src/mcp, isolated per file)
+        if: ${{ always() }}
+        run: bun run test:mcp-isolated
 
       # mt#2608: the guard system (.claude/hooks/*.test.ts, ~39 files) had no
       # CI wiring at all before this step existed — hook regressions merged
