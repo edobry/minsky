@@ -18,7 +18,12 @@ import {
 } from "@minsky/domain/deployment";
 // Side-effect import registers built-in adapters with the registry.
 import "@minsky/domain/deployment";
-import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  defineCommand,
+  type CommandExecutionContext,
+} from "../command-registry";
 import { log } from "@minsky/shared/logger";
 import { emitSystemEventBestEffort } from "./system-event-emit";
 
@@ -84,13 +89,11 @@ const deploymentLogsParams = {
  * system-event shape. Pure function — extracted from the `wait-for-latest`
  * execute handler for direct unit testing.
  *
- * v1 scope: only the terminal record is observed (no per-phase build/smoke
- * callback exists on the platform-neutral wrapper), so `deploy.build` /
- * `deploy.smoke` are not emitted from this seam — see the payload-shape doc
- * block in `system-events-schema.ts` and the mt#2537 spec's v1-scope
- * amendment. Their bridge is tracked as follow-up task mt#2599. SUCCESS →
- * `deploy.live`; every other terminal status (FAILED, CANCELLED, CRASHED) →
- * `deploy.fail`.
+ * SUCCESS → `deploy.live`; every other terminal status (FAILED, CANCELLED,
+ * CRASHED) → `deploy.fail`. `deploy.build`'s bridge (mt#2599) uses a separate
+ * per-call observer — see `makeDeployBuildObserver` below — because it needs
+ * to react to a NON-terminal (BUILDING) status observed mid-wait, which this
+ * function (invoked once, on the final record) cannot see.
  */
 export function mapDeploymentRecordToEvent(
   result: DeploymentRecord,
@@ -104,6 +107,45 @@ export function mapDeploymentRecordToEvent(
   return {
     eventType: isLive ? "deploy.live" : "deploy.fail",
     payload: { phase, service, status: result.status },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// deploy.build event bridge (mt#2599)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `WaitForLatestOptions.onStatusObserved` callback that emits a
+ * best-effort `deploy.build` system event the first time a `BUILDING` status
+ * is observed during ONE `waitForLatestDeployment` call.
+ *
+ * Invocation path (mt#2599, per CLAUDE.md "Invocation path required for
+ * event/poll mechanisms"): this factory is called once per
+ * `deployment.wait-for-latest` execute invocation (below); the returned
+ * closure is threaded into `adapter.waitForLatestDeployment({ onStatusObserved
+ * })`. `RailwayDeploymentAdapter.waitForLatestDeployment`
+ * (`packages/domain/src/deployment/railway/adapter.ts`) invokes it for EVERY
+ * observed record (initial poll + each subsequent tick) — the adapter's
+ * internal loop already discovers BUILDING/DEPLOYING transitions; this
+ * closure is what turns the first BUILDING observation into a persisted row.
+ *
+ * The `emitted` flag is scoped to the closure (i.e., to one wait call), so a
+ * build phase spanning many poll ticks emits exactly one `deploy.build` row,
+ * not one per tick. A fresh closure is created per call, so the next deploy's
+ * wait gets its own fresh flag.
+ */
+export function makeDeployBuildObserver(
+  container: CommandExecutionContext["container"],
+  service: string | undefined
+): (record: DeploymentRecord) => Promise<void> {
+  let emitted = false;
+  return async (record: DeploymentRecord): Promise<void> => {
+    if (emitted || record.status !== "BUILDING") return;
+    emitted = true;
+    await emitSystemEventBestEffort(container, {
+      eventType: "deploy.build",
+      payload: { phase: "build", service, status: record.status },
+    });
   };
 }
 
@@ -135,6 +177,7 @@ export function registerDeploymentCommands(): void {
         const result = await adapter.waitForLatestDeployment({
           timeoutSeconds: params.timeoutSeconds as number,
           pollIntervalSeconds: params.pollIntervalSeconds as number,
+          onStatusObserved: makeDeployBuildObserver(ctx?.container, service),
         });
         log.info("deployment.wait-for-latest: complete", {
           service,
