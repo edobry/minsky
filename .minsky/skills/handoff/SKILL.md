@@ -177,6 +177,32 @@ For shorter conversations (1-2 PRs, no retrospectives), compress to:
 - **Cite durable artifacts by path.** "memory entry `feedback_X`" not "the memory we updated." "CLAUDE.md `Recovery layer spec discipline` section" not "the new rule."
 - **Recommendation, not menu.** "Start with `/implement-task mt#1310`" is actionable. "Here are the open tasks" is a tasks-list copy.
 
+## Citing uuid-keyed records (mt#2696)
+
+Memories and Asks are keyed by Postgres `uuid` primary keys, not by a stable name
+like a task ID or a rule section. When a handoff cites one — a memory entry
+without a `feedback_*`/`project_*` name, or an open/pending Ask — the id form
+used in the citation determines whether the next agent can actually
+dereference it:
+
+- **MUST** carry either the **full UUID** or an **id form the get/lookup
+  tools resolve** — post-mt#2696, that means an **unambiguous prefix of at
+  least 8 hex characters** (git-short-SHA style, e.g. `d8591800`).
+  `memory_get`, `asks_respond`, `asks_edit`, and `asks_wait-for-response` all
+  resolve such a prefix to the full record (unique match), a clean
+  not-found error (no match), or an ambiguity error listing candidates (2+
+  matches) — never a raw Postgres `invalid input syntax for type uuid`
+  crash. A prefix shorter than 8 characters is NOT guaranteed to resolve.
+- **SHOULD** carry the record's **name alongside** the id (a memory's `name`
+  field, an Ask's `title`) as a search fallback — if the id somehow doesn't
+  resolve (rotated, deleted, or the prefix collides after this skill was
+  read), the name lets the next agent fall back to `memory_search` /
+  `asks_list` instead of a cold-start dead end.
+
+Example: `memory d8591800 (wave-orchestration-pattern)` — resolvable id +
+name fallback — not the bare `memory d8591800` this skill produced before
+mt#2696, and not just `the wave-orchestration memory` (no id at all).
+
 ## Origin
 
 Filed 2026-05-05 as mt#1580 from a long working session (2026-05-02 → 2026-05-05 reviewer-outage cluster) where the user asked for a handoff summary 4-5 times ad-hoc. The patterns above were the ones that converged after iteration. The skill standardizes them so future requests don't require re-prompting for the same shape.
