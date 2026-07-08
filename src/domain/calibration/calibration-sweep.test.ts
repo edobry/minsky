@@ -12,6 +12,7 @@ import {
   computeLogResult,
   advanceWatermarks,
   clearResolvedAskIds,
+  selectAckablePaths,
   runSweep,
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
@@ -646,7 +647,7 @@ describe("advanceWatermarks", () => {
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
   });
 
-  test("omits openAskId on advanced watermarks when askId is not provided", () => {
+  test("omits openAskId on advanced watermarks when askId is not provided and none existed before", () => {
     const current: WatermarkStore = {};
     const results = [
       computeLogResult(
@@ -659,6 +660,61 @@ describe("advanceWatermarks", () => {
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
     const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
+  });
+
+  test("PRESERVES a pre-existing openAskId when askId is not provided (mt#2659 review fix, BLOCKING 1)", () => {
+    // A prior pass recorded an open disposition ask on this watermark. A later
+    // --ack call (e.g. re-acking a DIFFERENT log in the same sweep) must not
+    // silently drop that reference — only clearResolvedAskIds() may clear it.
+    const current: WatermarkStore = {
+      [CAUSAL_ENTRY.path]: {
+        lastReviewedCount: 5,
+        lastReviewedAt: "2026-06-01T00:00:00Z",
+        openAskId: TEST_ASK_ID,
+      },
+    };
+    const results = [
+      computeLogResult(
+        CAUSAL_ENTRY,
+        buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+        true,
+        current[CAUSAL_ENTRY.path]
+      ),
+    ];
+    const ackedPaths = new Set([CAUSAL_ENTRY.path]);
+    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
+    // lastReviewedCount/At still advance normally.
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedCount).toBe(FIRES_THRESHOLD);
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+  });
+
+  test("OVERRIDES a pre-existing openAskId when a new askId is explicitly provided", () => {
+    const otherAskId = "11111111-1111-1111-1111-111111111111";
+    const current: WatermarkStore = {
+      [CAUSAL_ENTRY.path]: {
+        lastReviewedCount: 5,
+        lastReviewedAt: "2026-06-01T00:00:00Z",
+        openAskId: otherAskId,
+      },
+    };
+    const results = [
+      computeLogResult(
+        CAUSAL_ENTRY,
+        buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+        true,
+        current[CAUSAL_ENTRY.path]
+      ),
+    ];
+    const ackedPaths = new Set([CAUSAL_ENTRY.path]);
+    const updated = advanceWatermarks(
+      current,
+      results,
+      ackedPaths,
+      "2026-06-10T00:00:00Z",
+      TEST_ASK_ID
+    );
+    expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
   });
 });
 
@@ -718,6 +774,73 @@ describe("clearResolvedAskIds", () => {
     };
     clearResolvedAskIds(current, new Set([TEST_ASK_ID]));
     expect(current[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectAckablePaths (mt#2659 review fix, BLOCKING 2)
+// ---------------------------------------------------------------------------
+
+describe("selectAckablePaths", () => {
+  test("BLOCKING scenario: ack without askId SKIPS a past-threshold log that already has an open ask", () => {
+    const openResult = computeLogResult(
+      CAUSAL_ENTRY,
+      buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+      true,
+      { lastReviewedCount: 0, lastReviewedAt: "2026-06-01T00:00:00Z", openAskId: TEST_ASK_ID }
+    );
+    const { ackablePaths, skippedOpenAskPaths } = selectAckablePaths([openResult]);
+    expect(ackablePaths.has(CAUSAL_ENTRY.path)).toBe(false);
+    expect(skippedOpenAskPaths).toEqual([CAUSAL_ENTRY.path]);
+  });
+
+  test("BLOCKING scenario: ack without askId still advances a past-threshold log with NO open ask", () => {
+    const cleanResult = computeLogResult(
+      RETRO_ENTRY,
+      buildLines(FIRES_THRESHOLD, (i) => makeRetroRecord([{ family: "R1", phrase: `p${i}` }])),
+      true,
+      undefined
+    );
+    const { ackablePaths, skippedOpenAskPaths } = selectAckablePaths([cleanResult]);
+    expect(ackablePaths.has(RETRO_ENTRY.path)).toBe(true);
+    expect(skippedOpenAskPaths).toHaveLength(0);
+  });
+
+  test("a mixed batch skips only the open-ask log, advances the rest", () => {
+    const openResult = computeLogResult(
+      CAUSAL_ENTRY,
+      buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+      true,
+      { lastReviewedCount: 0, lastReviewedAt: "2026-06-01T00:00:00Z", openAskId: TEST_ASK_ID }
+    );
+    const cleanResult = computeLogResult(
+      RETRO_ENTRY,
+      buildLines(FIRES_THRESHOLD, (i) => makeRetroRecord([{ family: "R1", phrase: `p${i}` }])),
+      true,
+      undefined
+    );
+    const { ackablePaths, skippedOpenAskPaths } = selectAckablePaths([openResult, cleanResult]);
+    expect(ackablePaths.has(CAUSAL_ENTRY.path)).toBe(false);
+    expect(ackablePaths.has(RETRO_ENTRY.path)).toBe(true);
+    expect(skippedOpenAskPaths).toEqual([CAUSAL_ENTRY.path]);
+  });
+
+  test("providing askId ackables EVERY past-threshold log, including ones with a pre-existing openAskId", () => {
+    const openResult = computeLogResult(
+      CAUSAL_ENTRY,
+      buildLines(FIRES_THRESHOLD, (i) => makeCausalRecord([`p${i}`])),
+      true,
+      { lastReviewedCount: 0, lastReviewedAt: "2026-06-01T00:00:00Z", openAskId: TEST_ASK_ID }
+    );
+    const { ackablePaths, skippedOpenAskPaths } = selectAckablePaths([openResult], TEST_ASK_ID);
+    expect(ackablePaths.has(CAUSAL_ENTRY.path)).toBe(true);
+    expect(skippedOpenAskPaths).toHaveLength(0);
+  });
+
+  test("returns empty ackablePaths/skippedOpenAskPaths for an empty input", () => {
+    const { ackablePaths, skippedOpenAskPaths } = selectAckablePaths([]);
+    expect(ackablePaths.size).toBe(0);
+    expect(skippedOpenAskPaths).toHaveLength(0);
   });
 });
 

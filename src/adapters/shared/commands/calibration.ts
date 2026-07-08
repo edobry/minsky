@@ -34,6 +34,7 @@ import {
   runSweep,
   advanceWatermarks,
   clearResolvedAskIds,
+  selectAckablePaths,
   type CalibrationLogResult,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
@@ -191,17 +192,27 @@ export function registerCalibrationCommands(): void {
           "ID of the disposition Ask just filed for the past-threshold logs in this pass " +
           "(mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on " +
           "every watermark advanced by this call so the cadence-detector hook suppresses its " +
-          "per-turn warning for these logs until the ask is resolved.",
+          "per-turn warning for these logs until the ask is resolved. A past-threshold log " +
+          "whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is " +
+          "NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather " +
+          "than silently advanced — per the /calibration-review skill's Step 1a, a log with a " +
+          "still-open disposition ask must not be re-classified or re-acked until that ask " +
+          "resolves (via `clearAskId`).",
         required: false,
       },
-      clearAskIds: {
-        schema: z.array(z.string()),
+      clearAskId: {
+        schema: z.string(),
         description:
-          "Ask IDs to clear from any watermark's `openAskId` field (mt#2659). Pass the id(s) " +
-          "once `asks_list` confirms a previously-filed disposition ask has reached a terminal " +
+          "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once " +
+          "`asks_list` confirms a previously-filed disposition ask has reached a terminal " +
           "state (responded/closed/cancelled/expired) — clearing resumes the cadence " +
           "detector's normal per-turn warning for the affected log(s). Independent of ack; " +
-          "applied before the sweep result is computed.",
+          "applied before the sweep result is computed. Single ask ID (not an array) because " +
+          "one /calibration-review pass files exactly ONE ask covering all past-threshold logs " +
+          "in that pass, so exactly one id is ever cleared at a time in practice — this also " +
+          "sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that " +
+          "the shared command-registry's CLI bridge does not currently resolve for array-typed " +
+          "Zod schemas.",
         required: false,
       },
     },
@@ -217,31 +228,44 @@ export function registerCalibrationCommands(): void {
 
         let watermarks = await loadWatermarks(workspacePath);
 
-        // Clear any resolved disposition-ask references first (mt#2659) — this
+        // Clear a resolved disposition-ask reference first (mt#2659) — this
         // is independent of --ack and does not touch lastReviewedCount/At.
-        let clearedAskIds = false;
-        if (params.clearAskIds && params.clearAskIds.length > 0) {
-          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set(params.clearAskIds));
+        let clearedAskId = false;
+        if (params.clearAskId) {
+          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
           if (clearedWatermarks !== watermarks) {
             watermarks = clearedWatermarks;
             await saveWatermarks(workspacePath, watermarks);
-            clearedAskIds = true;
+            clearedAskId = true;
           }
         }
 
         const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
 
-        // Advance watermarks for past-threshold logs when --ack is set
+        // Advance watermarks for past-threshold logs when --ack is set.
+        //
+        // mt#2659 review fix (BLOCKING 2): a past-threshold log whose watermark
+        // ALREADY carries an `openAskId` must NOT be silently re-acked when this
+        // call doesn't also supply `askId` — per the /calibration-review skill's
+        // Step 1a, a log with a still-open disposition ask is skipped entirely
+        // (no re-classification, no re-ack) until the ask resolves via
+        // `clearAskId`. Advancing its watermark anyway would falsely mark THIS
+        // batch of fires as "reviewed" even though nobody looked at them — the
+        // operator's outstanding decision covers an earlier snapshot, not
+        // whatever accumulated since. When `askId` IS supplied, the caller is
+        // explicitly (re)affirming an ask for every past-threshold log this
+        // call, so no log is skipped on that basis.
         let watermarkAdvanced = false;
+        let skippedOpenAskPaths: string[] = [];
         if (params.ack) {
-          const pastThresholdPaths = new Set(
-            results.filter((r) => r.pastThreshold).map((r) => r.entry.path)
-          );
-          if (pastThresholdPaths.size > 0) {
+          const pastThresholdResults = results.filter((r) => r.pastThreshold);
+          const selection = selectAckablePaths(pastThresholdResults, params.askId);
+          skippedOpenAskPaths = selection.skippedOpenAskPaths;
+          if (selection.ackablePaths.size > 0) {
             const updated = advanceWatermarks(
               watermarks,
               results,
-              pastThresholdPaths,
+              selection.ackablePaths,
               new Date().toISOString(),
               params.askId
             );
@@ -270,24 +294,31 @@ export function registerCalibrationCommands(): void {
               openAskId: r.openAskId,
             })),
             watermarkAdvanced,
-            clearedAskIds,
+            clearedAskId,
+            skippedOpenAskPaths,
           };
         }
 
         const text = formatResult(results);
         const suffix = watermarkAdvanced
           ? "\nWatermarks advanced for past-threshold logs."
-          : params.ack
+          : params.ack && skippedOpenAskPaths.length === 0
             ? "\nNo past-threshold logs to advance."
             : "";
-        const clearedSuffix = clearedAskIds ? "\nCleared resolved ask(s) from watermark(s)." : "";
+        const clearedSuffix = clearedAskId ? "\nCleared resolved ask from watermark(s)." : "";
+        const skippedSuffix =
+          skippedOpenAskPaths.length > 0
+            ? `\nSkipped ${skippedOpenAskPaths.length} log(s) with a still-open disposition ask ` +
+              `(no askId supplied): ${skippedOpenAskPaths.join(", ")}`
+            : "";
 
         return {
           success: true,
           json: false,
-          message: text + suffix + clearedSuffix,
+          message: text + suffix + clearedSuffix + skippedSuffix,
           watermarkAdvanced,
-          clearedAskIds,
+          clearedAskId,
+          skippedOpenAskPaths,
         };
       } catch (error) {
         return {

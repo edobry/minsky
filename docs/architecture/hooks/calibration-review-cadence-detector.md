@@ -70,8 +70,12 @@ ask `<id>`" line, at most once per `session_id` (tracked via
 `pendingAskWarnedSessionId`) — re-running the skill while the prior
 flip/tune/keep decision is still awaiting the operator would otherwise just
 reproduce the same pending question. The `openAskId` reference is cleared by
-the skill (via `clearAskIds`) once it confirms via `asks_list` that the ask
-has reached a terminal state, at which point normal cadence resumes.
+the skill (via `clearAskId`) once it confirms via `asks_list` that the ask
+has reached a terminal state, at which point normal cadence resumes. The
+`observability.calibration-review` command also refuses to silently `--ack`
+(and thereby mark "reviewed") a past-threshold log whose watermark already
+carries an `openAskId` when the call doesn't also supply `askId` — belt-and-
+suspenders against the skill's own Step 1a skip being missed.
 
 **On fire:** injects `additionalContext` naming each due log (fire counts,
 distinct-phrase count, and which of the two conditions fired) and instructing

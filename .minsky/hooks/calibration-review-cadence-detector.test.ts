@@ -10,6 +10,7 @@ import type {
   CalibrationLogResult,
 } from "../../src/domain/calibration/calibration-sweep";
 import {
+  buildPendingAskRecord,
   computeReviewDueLogs,
   formatCadenceWarning,
   formatPendingAskLines,
@@ -17,6 +18,7 @@ import {
   shouldReWarn,
   STALE_DAYS_MS,
   COOLDOWN_MS,
+  type LastWarnedRecord,
   type LastWarnedStore,
   type ReviewDueLog,
 } from "./calibration-review-cadence-detector";
@@ -408,6 +410,33 @@ describe("formatPendingAskLines", () => {
     expect(msg).toContain(TEST_ASK_ID);
     expect(msg).toContain("disposition pending");
     expect(msg).not.toContain("/calibration-review");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildPendingAskRecord (mt#2659 review fix, non-blocking b)
+// ---------------------------------------------------------------------------
+
+describe("buildPendingAskRecord", () => {
+  test("preserves the PRIOR lastWarnedFireCount rather than bumping to the current total", () => {
+    const priorRecord: LastWarnedRecord = {
+      lastWarnedAt: new Date(NOW - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      lastWarnedFireCount: 1000,
+    };
+    const record = buildPendingAskRecord(priorRecord, TEST_SESSION_A, NOW_ISO);
+    expect(record.lastWarnedFireCount).toBe(1000);
+    expect(record.lastWarnedAt).toBe(NOW_ISO);
+    expect(record.pendingAskWarnedSessionId).toBe(TEST_SESSION_A);
+  });
+
+  test("defaults lastWarnedFireCount to 0 when the log has never been warned about before", () => {
+    const record = buildPendingAskRecord(undefined, TEST_SESSION_A, NOW_ISO);
+    expect(record.lastWarnedFireCount).toBe(0);
+  });
+
+  test("stamps the given session id, enabling the once-per-session gate", () => {
+    const record = buildPendingAskRecord(undefined, TEST_SESSION_B, NOW_ISO);
+    expect(record.pendingAskWarnedSessionId).toBe(TEST_SESSION_B);
   });
 });
 

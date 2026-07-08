@@ -276,6 +276,32 @@ export function selectPendingAskLogs(
   });
 }
 
+/**
+ * Build the `LastWarnedRecord` to persist when showing the "disposition
+ * pending" line for a log this turn (mt#2659 review fix, non-blocking b).
+ *
+ * Deliberately does NOT bump `lastWarnedFireCount` to the log's current
+ * `totalFires` — the pending line is not a full warning, and stamping the
+ * (possibly much higher) current count as the new baseline would raise the
+ * fire-growth bar `shouldReWarn` checks against once the ask resolves and
+ * `openAskId` is cleared, silently absorbing fires that accrued while the ask
+ * was pending — and therefore never actually reviewed — into that bar.
+ * `lastWarnedFireCount` instead carries forward from whatever the last REAL
+ * warning recorded (0 if this log has never been warned about before), so
+ * normal cadence resumes correctly post-resolution.
+ */
+export function buildPendingAskRecord(
+  priorRecord: LastWarnedRecord | undefined,
+  sessionId: string,
+  nowIso: string
+): LastWarnedRecord {
+  return {
+    lastWarnedAt: nowIso,
+    lastWarnedFireCount: priorRecord?.lastWarnedFireCount ?? 0,
+    pendingAskWarnedSessionId: sessionId,
+  };
+}
+
 /** Build the additionalContext warning message for a set of due logs. */
 export function formatCadenceWarning(due: ReviewDueLog[]): string {
   const lines: string[] = [
@@ -407,16 +433,13 @@ export async function main(): Promise<void> {
     if (pendingToShow.length === 0 && normalToWarn.length === 0) process.exit(0);
 
     const updated: LastWarnedStore = { ...lastWarned };
+    const nowIso = new Date(now).toISOString();
     for (const d of pendingToShow) {
-      updated[d.path] = {
-        lastWarnedAt: new Date(now).toISOString(),
-        lastWarnedFireCount: d.totalFires,
-        pendingAskWarnedSessionId: input.session_id,
-      };
+      updated[d.path] = buildPendingAskRecord(lastWarned[d.path], input.session_id, nowIso);
     }
     for (const d of normalToWarn) {
       updated[d.path] = {
-        lastWarnedAt: new Date(now).toISOString(),
+        lastWarnedAt: nowIso,
         lastWarnedFireCount: d.totalFires,
       };
     }

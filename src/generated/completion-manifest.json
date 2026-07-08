@@ -4647,12 +4647,12 @@
             },
             {
               "flags": ["--ask-id"],
-              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved.",
+              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A past-threshold log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
               "takesValue": true
             },
             {
-              "flags": ["--clear-ask-ids"],
-              "description": "Ask IDs to clear from any watermark's `openAskId` field (mt#2659). Pass the id(s) once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed.",
+              "flags": ["--clear-ask-id"],
+              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all past-threshold logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
               "takesValue": true
             }
           ]

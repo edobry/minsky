@@ -45,9 +45,11 @@ set:
 2. If the ask's `state` is terminal (`responded`, `closed`, `cancelled`,
    `expired`) — the operator has already decided. Clear the stale reference so
    the cadence detector resumes normal per-turn warnings for this log:
-   `mcp__minsky__observability_calibration-review` with
-   `clearAskIds: ["<id>"]`. Then proceed to classify this log's NEW fires (if
-   any) normally in Step 2 onward.
+   `mcp__minsky__observability_calibration-review` with `clearAskId: "<id>"`
+   (a single ask id, not an array — one review pass always files exactly one
+   ask covering every past-threshold log in that pass, so there is only ever
+   one id to clear at a time). Then proceed to classify this log's NEW fires
+   (if any) normally in Step 2 onward.
 3. If the ask's `state` is still open (`detected`, `classified`, `routed`,
    `suspended`) — the operator hasn't responded yet. **Skip this log entirely**
    for this pass: do not classify its new fires, do not emit a second Ask for
@@ -55,7 +57,9 @@ set:
    already suppresses the per-turn nag for this log while `openAskId` is set —
    re-running this skill on a schedule must not re-surface the same pending
    question. Only logs WITHOUT an open ask (or whose ask was just cleared in
-   step 2 above) continue to Step 2.
+   step 2 above) continue to Step 2. (The command itself also refuses to
+   silently `--ack` a still-open-ask log when `askId` isn't supplied — see
+   Step 5 — so skipping here is belt-and-suspenders, not the only guard.)
 
 If **no** log has `pastThreshold: true` (after excluding still-open-ask logs
 per step 3 above), stop — nothing to review. Do not emit an Ask, do not
@@ -137,6 +141,16 @@ records `openAskId` on every past-threshold log's watermark. This makes the
 loop idempotent: a re-run with no new fires emits no Ask, and a re-run while
 the ask is still open (Step 1a) skips straight past without re-asking.
 
+**Command-level guard (belt-and-suspenders).** If Step 1a's skip is ever
+missed, the command itself refuses to help: `--ack` WITHOUT `askId` never
+silently advances the watermark of a past-threshold log whose watermark
+already carries an `openAskId` — that log is left untouched (surfaced in the
+result as `skippedOpenAskPaths`) instead of being marked reviewed. Passing
+`askId` on the ack call always advances every past-threshold log regardless
+of any pre-existing `openAskId` (an explicit reaffirmation), and an `--ack`
+call that omits `askId` entirely never drops a pre-existing `openAskId` on
+the logs it DOES advance — only `clearAskId` clears it.
+
 ## Cross-references
 
 - Tracking task: mt#2483. Migration target for the recurring trigger: mt#2322
@@ -149,7 +163,7 @@ the ask is still open (Step 1a) skips straight past without re-asking.
 - mt#2619 — the calibration-review-cadence-detector hook this skill's warning
   points at.
 - mt#2659 — ask-aware suppression: `openAskId` watermark field (Step 1a),
-  `direction.decide` kind fix (Step 4), `askId`/`clearAskIds` wiring (Step 5).
+  `direction.decide` kind fix (Step 4), `askId`/`clearAskId` wiring (Step 5).
   Fixes the 2026-07-07 incident where the policy-coverage cadence warning
   fired on nearly every turn AND kept demanding a re-review already blocked on
   an open disposition ask.
