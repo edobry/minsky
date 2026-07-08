@@ -3,9 +3,12 @@
  * server.ts, mt#1853).
  *
  * Houses the shared SSE broker (one per cockpit-server process),
- * initialised eagerly at server startup via {@link initServerSseBroker} so
- * the broker's channel subscriptions are live before the first client
- * connects.
+ * initialised as a background warmup right AFTER the server binds its port
+ * via {@link initServerSseBroker} (mt#2699 — the init awaits the full
+ * persistence/DB connect, ~5 s network-bound, and gating the bind on it was
+ * the dominant share of the cockpit's cold-boot latency). The /api/events
+ * route awaits the SAME cached init promise, so a client connecting during
+ * warmup waits for channel subscriptions instead of missing them.
  */
 import { randomUUID } from "crypto";
 import type express from "express";
@@ -82,6 +85,30 @@ export const COCKPIT_SSE_CHANNELS: readonly string[] = [
 // ---------------------------------------------------------------------------
 
 let _cachedSseBroker: SseBroker | null = null;
+/**
+ * In-flight init promise (mt#2699). Callers share ONE initialisation:
+ * without this, the post-bind background warmup racing an early /api/events
+ * client would each run a full init and the loser would leak a Postgres
+ * LISTEN connection. A FAILED init (resolved null) clears the slot so the
+ * next caller retries — preserving the pre-mt#2699 retry-on-failure
+ * semantics.
+ */
+let _sseBrokerInitPromise: Promise<SseBroker | null> | null = null;
+
+/**
+ * Test-only provider-factory seam (mt#2699). Same convention as
+ * shared-persistence.test.ts: no `mock.module` (it persists across bun:test
+ * files and would poison other suites) — tests inject a factory here instead.
+ * Null = use the real `getCachedPersistenceProvider`.
+ */
+let _providerFactoryOverride: (() => Promise<unknown>) | null = null;
+
+/** Test-only: override the persistence-provider factory. Never call outside tests. */
+export function __setSseBrokerProviderFactoryForTests(
+  factory: (() => Promise<unknown>) | null
+): void {
+  _providerFactoryOverride = factory;
+}
 
 /**
  * Exported accessor for the shared SSE broker — used by the attention widget's
@@ -106,12 +133,28 @@ export async function getServerSseBrokerForWidget(): Promise<SseBroker | null> {
  * Returns null only when the entire init path throws unexpectedly (e.g. a
  * Postgres provider that fails to connect). In that case `/api/events` returns
  * 503.
+ *
+ * Concurrency (mt#2699): all callers share one in-flight init; a failed init
+ * (null) is not cached, so later callers retry.
  */
-async function getServerSseBroker(): Promise<SseBroker | null> {
-  if (_cachedSseBroker) return _cachedSseBroker;
+function getServerSseBroker(): Promise<SseBroker | null> {
+  if (_cachedSseBroker) return Promise.resolve(_cachedSseBroker);
+  if (_sseBrokerInitPromise) return _sseBrokerInitPromise;
+  _sseBrokerInitPromise = initSseBrokerOnce().then((broker) => {
+    if (broker === null) {
+      // Failed init: clear the slot so the next caller retries.
+      _sseBrokerInitPromise = null;
+    }
+    return broker;
+  });
+  return _sseBrokerInitPromise;
+}
 
+async function initSseBrokerOnce(): Promise<SseBroker | null> {
   try {
-    const provider = await getCachedPersistenceProvider();
+    const provider = _providerFactoryOverride
+      ? await _providerFactoryOverride()
+      : await getCachedPersistenceProvider();
 
     // Require getListenCapableSqlConnection — only the Postgres provider has
     // it. Guard the `in` check with an object test first (R2 review): a
@@ -151,18 +194,29 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
 }
 
 /**
- * Eagerly initialise the SSE broker at server startup.
+ * Initialise the SSE broker (idempotent; all callers share one in-flight
+ * init).
  *
- * Called by the cockpit server entry-point before any HTTP requests are
- * served. Ensures channels are pre-subscribed before the first client
- * connects, avoiding the race condition where a client subscribes to
- * `attention.*` while the broker is still initialising.
- *
- * Safe to call multiple times — subsequent calls are no-ops once the broker
- * is cached.
+ * Called by the cockpit server entry-point as a BACKGROUND warmup right
+ * after the port binds (mt#2699 — it awaits the full persistence/DB init,
+ * which dominated cold-boot latency when it gated the bind). The /api/events
+ * route awaits the same cached promise, so a client connecting during the
+ * warmup window waits for channel subscriptions rather than missing them.
+ * Events firing before the LISTEN registrations complete are not captured —
+ * identical in kind to the pre-bind window when the process wasn't up yet.
  */
 export async function initServerSseBroker(): Promise<void> {
   await getServerSseBroker();
+}
+
+/**
+ * Test-only: reset the module-level broker cache so init-concurrency and
+ * retry semantics can be exercised across test cases. Never call outside
+ * tests.
+ */
+export function __resetServerSseBrokerForTests(): void {
+  _cachedSseBroker = null;
+  _sseBrokerInitPromise = null;
 }
 
 // ---------------------------------------------------------------------------

@@ -43,3 +43,22 @@ export function isMcpStartStdio(cmd: Command): boolean {
 export function isCompletionInvocation(cmd: Command): boolean {
   return cmd.name() === "completion-server" && cmd.parent?.name() === "minsky";
 }
+
+/**
+ * mt#2699: detect any `minsky cockpit <subcommand>` invocation. Used by the
+ * preAction hook in `src/cli.ts` to skip eager DI initialization: the
+ * cockpit is a standalone Express server with NO tsyringe container —
+ * `createCockpitCommand(_container?)` discards the parameter, and every
+ * cockpit data path bootstraps its own lazy PersistenceService singleton
+ * (agents.ts / attention.ts / shared-persistence.ts pattern). The eager
+ * `container.initialize()` (~2.6 s, network-bound DB connect) was the
+ * dominant share of the cockpit daemon's cold-boot latency after the SSE
+ * broker init moved post-bind.
+ *
+ * Matches the whole cockpit family (start / stop / status / install /
+ * uninstall), since none of them can consume the container it would have
+ * initialized. Walks one parent level only — cockpit subcommands are flat.
+ */
+export function isCockpitInvocation(cmd: Command): boolean {
+  return cmd.parent?.name() === "cockpit" || cmd.name() === "cockpit";
+}
