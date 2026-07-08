@@ -5,7 +5,7 @@ import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
 import { createCockpitServer } from "../../cockpit/server";
-import { initServerSseBroker } from "../../cockpit/routes/events";
+import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
   startProdStateRefreshSweeper,
@@ -135,11 +135,6 @@ export function createStartCommand(): Command {
         process.exit(1);
       }
 
-      // Eagerly initialise the SSE broker so all canonical channels are
-      // pre-subscribed before the first /api/events client connects.
-      // initServerSseBroker() is idempotent — subsequent calls are no-ops.
-      await initServerSseBroker();
-
       const app = createCockpitServer({ dev: isDev });
 
       // In dev mode, attach Vite middleware for frontend HMR.
@@ -241,6 +236,16 @@ export function createStartCommand(): Command {
       // through `cleanupSync` which removes the state file unconditionally
       // before exit. State file moved from a single-global path to the
       // per-workspace lifecycle module in mt#1904.
+      // SSE broker warmup (mt#2699): started AFTER the bind, as a background
+      // retry loop with logging (PR #1860 R1). It awaits the full
+      // persistence/DB init (~5 s, network-bound) — awaiting it BEFORE the
+      // bind was the dominant share of the cockpit's 6.5 s cold boot (the
+      // white-window window for deeplink cold starts). The /api/events route
+      // awaits the same cached init promise, so clients connecting during
+      // warmup wait instead of missing channels; /api/health reports
+      // db:"unreachable" until init completes (documented pre-init state,
+      // tolerated by the tray watchdog's 24-poll threshold).
+      startSseBrokerWarmup();
       // Ask advancement sweep (mt#2265): advance `detected` asks (route or
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
