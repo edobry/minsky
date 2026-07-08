@@ -28,6 +28,7 @@ import { loadAllPolicySources, isCovered } from "./policy";
 import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
 import type { ClientCapabilityRegistry } from "../client-capabilities";
+import type { SystemEventInput } from "../storage/schemas/system-events-schema";
 
 // ---------------------------------------------------------------------------
 // Service-window: page threshold constant
@@ -504,4 +505,46 @@ export function isSuspendedAsk(result: RouterResult): result is SuspendedAsk {
 /** Returns true when a RouterResult is a RoutedAsk (immediate dispatch or policy-closed). */
 export function isRoutedAsk(result: RouterResult): result is RoutedAsk {
   return result.state === "routed" || result.state === "closed";
+}
+
+// ---------------------------------------------------------------------------
+// Policy-closure audit event (mt#2666 SC4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the `ask.policy_closed` audit event for a phase-1 policy closure.
+ *
+ * A policy-closed Ask never reaches any queue, so without a persisted event
+ * the closure is visible only in the closed row itself — indistinguishable
+ * from "missing" to an operator scanning open asks (the c26eca0a incident:
+ * a disposition Ask silently closed at creation with an irrelevant
+ * citation). The `asks.create` command layer persists this event alongside
+ * `ask.created`; closures become reviewable via `events_list`.
+ *
+ * Returns `null` when the result is not a policy closure.
+ */
+export function buildPolicyClosedEvent(
+  // Structural parameter: accepts any Ask-derived route outcome (RouterResult
+  // members AND ElicitationClosedAsk, whose state union includes "cancelled")
+  // — the discrimination below is what matters.
+  result: Ask & { routingTarget: AgentId | "operator" | "policy" }
+): SystemEventInput | null {
+  if (result.state !== "closed" || result.routingTarget !== "policy") return null;
+  const citation =
+    result.response?.responder === "policy"
+      ? (result.response.payload as { citation?: PolicyCitation }).citation
+      : undefined;
+  return {
+    eventType: "ask.policy_closed",
+    payload: {
+      askId: result.id,
+      kind: result.kind,
+      title: result.title,
+      citationSource: citation?.source ?? "unknown",
+      ...(citation?.lineRange ? { citationLines: citation.lineRange } : {}),
+    },
+    actor: result.requestor,
+    relatedTaskId: result.parentTaskId,
+    relatedSessionId: result.parentSessionId,
+  };
 }

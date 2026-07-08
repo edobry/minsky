@@ -48,6 +48,7 @@ import {
 import { DrizzleWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
 import {
   policyFirstRoute,
+  buildPolicyClosedEvent,
   type RoutedAsk,
   type SuspendedAsk,
   type PolicyFirstRouteOptions,
@@ -1057,6 +1058,12 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
                   relatedTaskId: (params.parentTaskId as string) ?? undefined,
                   relatedSessionId: (params.parentSessionId as string) ?? undefined,
                 });
+                // Audit surfacing for phase-1 policy closures (mt#2666 SC4):
+                // reviewable via events_list — see buildPolicyClosedEvent.
+                const policyClosedEvent = buildPolicyClosedEvent(result);
+                if (policyClosedEvent) {
+                  await eventEmitter.emit(policyClosedEvent);
+                }
               }
             }
           } catch (err: unknown) {
