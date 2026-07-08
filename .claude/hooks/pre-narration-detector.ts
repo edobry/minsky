@@ -51,6 +51,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
+  isRealUserPrompt,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -66,6 +67,28 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ACK_PRE_NARRATION";
 
 /** Calibration log path (relative to cwd), sibling to retrospective-trigger-calibration.jsonl. */
 const CALIBRATION_LOG = ".minsky/pre-narration-calibration.jsonl";
+
+/**
+ * Trailing-window size in TURNS for cross-turn suppression (mt#2671).
+ *
+ * A "turn" is a segment delimited by real user prompts (`isRealUserPrompt`,
+ * the mt#2255 discrimination — tool_result lines do not split turns). When a
+ * completion-shaped claim has no backing tool call in the SAME turn, the
+ * detector scans this many trailing turns for the category's requiredTools;
+ * a hit suppresses the fire entirely (no injection, no calibration record —
+ * suppressed fires are the legitimate-back-reference FP class confirmed in
+ * the 2026-07-08 calibration review, and logging them would keep polluting
+ * FP math, same principle as mt#2670's exception-only logging).
+ *
+ * Why 12: the observed FP range is a verdict fetched 1-10 turns before the
+ * back-reference (disposition analysis on ask 0147caa5), plus 2 boundary
+ * segments the backwards prompt-count spends before reaching prior turns
+ * (the current in-progress prompt segment and the claim turn itself). Large
+ * enough to cover a full convergence sequence (wait-for-review → fix → push
+ * → back-reference); small enough that a stale approval from a much earlier
+ * workstream does not suppress a genuinely fresh unbacked claim.
+ */
+export const TRAILING_WINDOW_TURNS = 12;
 
 // ---------------------------------------------------------------------------
 // Outcome-claim categories
@@ -191,6 +214,35 @@ export function elideMarkdownContexts(text: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Collect tool_use names appearing in the trailing window of the transcript:
+ * the last `windowTurns` turns (segments delimited by real user prompts),
+ * INCLUDING the current turn. Walks backwards counting real-user-prompt
+ * boundaries and extracts tool_use names from everything after the cutoff.
+ *
+ * Used for cross-turn suppression (mt#2671): a claim whose backing tool call
+ * ran in a recent prior turn is a legitimate back-reference, not
+ * pre-narration.
+ */
+export function extractWindowToolUseNames(
+  lines: TranscriptLine[],
+  windowTurns: number
+): Set<string> {
+  let boundaries = 0;
+  let start = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line !== undefined && isRealUserPrompt(line)) {
+      boundaries++;
+      if (boundaries >= windowTurns) {
+        start = i;
+        break;
+      }
+    }
+  }
+  return new Set(extractToolUseNames(lines.slice(start)));
+}
+
+/**
  * Detect pre-narrated tool outcomes in an assistant turn.
  *
  * For each outcome category, if a completion-shaped claim pattern matches the
@@ -198,9 +250,19 @@ export function elideMarkdownContexts(text: string): string {
  * tool_use names, the category fires. Quoted/code-span text is elided first to
  * reduce false positives on pasted tool output.
  *
+ * Cross-turn suppression (mt#2671): when `windowToolNames` is provided (the
+ * tool_use names from the trailing TRAILING_WINDOW_TURNS turns), a category
+ * whose requiredTools appear anywhere in that window is also treated as
+ * backed — a legitimate back-reference to a result fetched in a recent prior
+ * turn ("the bot APPROVED", summarizing an earlier session_pr_wait-for-review)
+ * must not fire. Omitting the parameter preserves same-turn-only semantics.
+ *
  * Returns one ClaimMatch per fired category (deduplicated by category).
  */
-export function detectPreNarration(turnLines: TranscriptLine[]): ClaimMatch[] {
+export function detectPreNarration(
+  turnLines: TranscriptLine[],
+  windowToolNames?: ReadonlySet<string>
+): ClaimMatch[] {
   const rawText = extractAssistantText(turnLines);
   if (!rawText) return [];
 
@@ -209,8 +271,10 @@ export function detectPreNarration(turnLines: TranscriptLine[]): ClaimMatch[] {
 
   const matches: ClaimMatch[] = [];
   for (const category of OUTCOME_CATEGORIES) {
-    const hasRequiredTool = category.requiredTools.some((t) => toolNames.has(t));
-    if (hasRequiredTool) continue; // claim was backed by a real tool call
+    const hasRequiredTool = category.requiredTools.some(
+      (t) => toolNames.has(t) || (windowToolNames?.has(t) ?? false)
+    );
+    if (hasRequiredTool) continue; // claim was backed by a real tool call (this turn or in-window)
 
     for (const pattern of category.patterns) {
       const m = pattern.exec(text);
@@ -315,7 +379,10 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length === 0) return null;
-    matches = detectPreNarration(turnLines);
+    // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
+    // per the guard-module contract (mt#2637) — never re-derived.
+    const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
+    matches = detectPreNarration(turnLines, windowToolNames);
   } catch (err) {
     process.stderr.write(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -396,7 +463,10 @@ export async function main(): Promise<void> {
     if (turnLines.length === 0) {
       process.exit(0);
     }
-    matches = detectPreNarration(turnLines);
+    // Cross-turn suppression (mt#2671): scan the trailing window for backing
+    // tool calls so legitimate back-references don't fire.
+    const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
+    matches = detectPreNarration(turnLines, windowToolNames);
   } catch (err) {
     console.error(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
