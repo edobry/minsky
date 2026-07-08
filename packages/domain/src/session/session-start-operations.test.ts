@@ -135,3 +135,34 @@ describe("startSessionImpl - actively-in-use check (mt#2697)", () => {
     // No throw — succeeded, session for md#999 was created (not blocked by md#111's row).
   });
 });
+
+// mt#2697 acceptance test (spec §Acceptance Tests, "Repro first"): a session
+// created via the SAME code path tasks.dispatch uses (SessionService
+// constructed without deps.db) must be visible to session.list's
+// task-filtered query. This chains startSessionImpl (dispatch shape) directly
+// into a session.list-equivalent listSessions({ taskId }) call against the
+// SAME FakeSessionProvider instance — reproducing the incident's exact
+// create-then-list flow end to end.
+describe("startSessionImpl -> session.list integration (mt#2697 acceptance test)", () => {
+  it("a session created via the dispatch code path (no deps.db) is visible to a task-filtered session.list query", async () => {
+    // Real FakeSessionProvider, untouched addSession (createDeps() normally
+    // overrides addSession with a non-persisting spy — that's fine for the
+    // backendType suite above, but this test needs the record to actually
+    // land in the shared store so the follow-up listSessions() call can see it).
+    const sessionDB = new FakeSessionProvider();
+    const deps: StartSessionDependencies = {
+      ...createDeps("https://github.com/owner/repo.git"),
+      sessionDB,
+    };
+    const params = { task: "md#999" } as unknown as SessionStartParameters;
+
+    await startSessionImpl(params, deps);
+
+    // Mirrors session.list's task-filtered query (basic-commands.ts, mt#2697):
+    // unscoped when a task filter is present — the same predicate pinned by
+    // the "actively-in-use check" suite above, now exercised end to end.
+    const found = await sessionDB.listSessions({ taskId: "md#999" });
+    expect(found).toHaveLength(1);
+    expect(found[0]?.taskId).toBe("md#999");
+  });
+});
