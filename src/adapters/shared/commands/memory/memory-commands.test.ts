@@ -209,9 +209,13 @@ describe("Memory Commands", () => {
 
       const cmd = registry.getCommand(GET_CMD);
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      await expect(cmd!.execute({ id: "d8591800" }, {})).rejects.toThrow(
-        'Memory not found for id prefix "d8591800"'
+      const err = await cmd!.execute({ id: "d8591800" }, {}).then(
+        () => null,
+        (e: unknown) => e as Error
       );
+      // Exact match (not substring): the pass-through path must NOT claim
+      // "(resolved to ...)" — no resolution occurred (mt#2696 R2).
+      expect(err?.message).toBe('Memory not found for id prefix "d8591800"');
     });
   });
 

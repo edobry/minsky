@@ -768,9 +768,14 @@ export function registerMemoryCommands(
         // very differently from a syntactically full UUID that never
         // existed, and the diagnostic should say which happened.
         const classification = classifyIdInput(params.id);
+        // Only claim a resolution happened when one actually did — when no DB
+        // was available, resolveMemoryIdInput passes the prefix through
+        // unchanged, and "(resolved to <the same prefix>)" would be false.
         const message =
           classification.kind === "prefix"
-            ? `Memory not found for id prefix "${params.id}" (resolved to "${id}")`
+            ? id !== params.id
+              ? `Memory not found for id prefix "${params.id}" (resolved to "${id}")`
+              : `Memory not found for id prefix "${params.id}"`
             : `Memory not found with id "${id}"`;
         throw new Error(message);
       }
