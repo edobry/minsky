@@ -207,6 +207,31 @@ describe("parseCalibrationRecord", () => {
     expect(result.hadSameTurnRead).toBe(false);
   });
 
+  test("mixed old/new-shape code-mechanism records parse identically (mt#2673 additive backedClaimCount)", () => {
+    const oldShape = JSON.stringify({
+      timestamp: "2026-06-01T00:00:00Z",
+      session_id: "old-session",
+      claims: [{ symbol: "executeCommand", predicate: "clamps" }],
+      hadSameTurnRead: false,
+    });
+    const newShape = JSON.stringify({
+      timestamp: "2026-07-08T00:00:00Z",
+      session_id: "new-session",
+      claims: [{ symbol: "session_pr_drive", predicate: "returns" }],
+      hadSameTurnRead: true,
+      backedClaimCount: 2,
+    });
+    const oldResult = parseCalibrationRecord(oldShape, CODE_MECHANISM_KIND);
+    const newResult = parseCalibrationRecord(newShape, CODE_MECHANISM_KIND);
+    expect(oldResult).not.toBeNull();
+    expect(newResult).not.toBeNull();
+    if (!oldResult || !("claims" in oldResult) || !newResult || !("claims" in newResult)) {
+      throw new Error("wrong type");
+    }
+    expect(oldResult.claims).toHaveLength(1);
+    expect(newResult.claims).toEqual([{ symbol: "session_pr_drive", predicate: "returns" }]);
+  });
+
   test("parses a policy-coverage record (mt#1575, registered mt#2619)", () => {
     const line = JSON.stringify({
       timestamp: "2026-06-01T00:00:00Z",
