@@ -71,6 +71,16 @@ describe("triggerDeploySmokeSweep", () => {
     };
   }
 
+  /** SQL-capable fake provider whose emit path succeeds — dedup only advances
+   * on confirmed persistence, so tests exercising the dedup flag need one. */
+  function fakeSuccessfulProvider(): any {
+    return {
+      getDatabaseConnection: async () => ({
+        insert: () => ({ values: () => Promise.resolve() }),
+      }),
+    };
+  }
+
   test("no-ops when there is no commit SHA to check", async () => {
     let fetchCalled = false;
     const deps = fakeDeps({
@@ -102,10 +112,33 @@ describe("triggerDeploySmokeSweep", () => {
         return [checkRun()];
       },
     });
-    await triggerDeploySmokeSweep(undefined, deps);
-    await triggerDeploySmokeSweep(undefined, deps);
-    await triggerDeploySmokeSweep(undefined, deps);
+    const provider = fakeSuccessfulProvider();
+    await triggerDeploySmokeSweep(provider, deps);
+    await triggerDeploySmokeSweep(provider, deps);
+    await triggerDeploySmokeSweep(provider, deps);
     expect(fetchCount).toBe(1);
+  });
+
+  test("does NOT advance dedup when the emit no-ops — retries next tick and emits once persistence is back", async () => {
+    let fetchCount = 0;
+    const deps = fakeDeps({
+      fetchChecksForSha: async () => {
+        fetchCount++;
+        return [checkRun()];
+      },
+    });
+    // Tick 1: undefined provider → emit is a no-op → dedup must NOT advance.
+    await triggerDeploySmokeSweep(undefined, deps);
+    // Tick 2: still no provider → the sweep retries the fetch (not deduped).
+    await triggerDeploySmokeSweep(undefined, deps);
+    expect(fetchCount).toBe(2);
+    // Tick 3: persistence is back → emit succeeds → dedup advances.
+    const provider = fakeSuccessfulProvider();
+    await triggerDeploySmokeSweep(provider, deps);
+    expect(fetchCount).toBe(3);
+    // Tick 4: now deduped.
+    await triggerDeploySmokeSweep(provider, deps);
+    expect(fetchCount).toBe(3);
   });
 
   test("retries on the next tick when the check hasn't completed yet", async () => {
@@ -131,9 +164,10 @@ describe("triggerDeploySmokeSweep", () => {
         return [checkRun()];
       },
     });
-    await triggerDeploySmokeSweep(undefined, deps);
+    const provider = fakeSuccessfulProvider();
+    await triggerDeploySmokeSweep(provider, deps);
     sha = "commit-2";
-    await triggerDeploySmokeSweep(undefined, deps);
+    await triggerDeploySmokeSweep(provider, deps);
     expect(seenShas).toEqual(["commit-1", "commit-2"]);
   });
 

@@ -54,6 +54,12 @@
  * process boot always has a fresh (or absent) SHA to track, so there is
  * nothing to recover across a restart: the module-level flag naturally
  * resets exactly when it should.
+ *
+ * The flag advances ONLY on confirmed persistence:
+ * `emitSystemEventFromProvider` returns whether a row was actually written,
+ * and a no-op emit (provider absent / non-SQL / DB down, e.g. a boot race)
+ * leaves the flag unset so the next tick retries instead of permanently
+ * dropping the event for that commit.
  */
 import { log } from "@minsky/shared/logger";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
@@ -193,10 +199,20 @@ export async function triggerDeploySmokeSweep(
       return; // not completed (or not present) yet — retry next tick
     }
 
-    await emitSystemEventFromProvider(persistenceProvider, {
+    const emitted = await emitSystemEventFromProvider(persistenceProvider, {
       eventType: "deploy.smoke",
       payload: { phase: "smoke", sha, status },
     });
+    if (!emitted) {
+      // Do NOT advance the dedup flag on a no-op emit (provider absent /
+      // non-SQL / DB unavailable) — advancing it would permanently suppress
+      // deploy.smoke for this commit. Leaving it unset retries next tick.
+      log.warn("deploy-smoke-sweep: deploy.smoke emit no-oped, will retry next tick", {
+        sha,
+        status,
+      });
+      return;
+    }
     lastEmittedSha = sha;
     log.debug("deploy-smoke-sweep: emitted deploy.smoke", { sha, status });
   } catch (err) {

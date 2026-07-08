@@ -58,7 +58,18 @@ export interface EventEmitter {
 export class DrizzleEventEmitter implements EventEmitter {
   constructor(private readonly db: PostgresJsDatabase) {}
 
-  async emit(event: SystemEventInput): Promise<void> {
+  /**
+   * Emit with a persistence signal: resolves `true` when the row was actually
+   * written, `false` when the insert failed (error logged and swallowed —
+   * same never-throws contract as `emit`). Callers holding their own
+   * dedup/retry state (e.g. the deploy.smoke sweep's once-per-commit flag)
+   * gate state advancement on this; fire-and-forget callers use `emit()`.
+   *
+   * Note the postgres.js connection is lazy — a down DB typically surfaces
+   * HERE (at first insert), not at connection-handle acquisition, which is
+   * why the signal must come from the insert itself.
+   */
+  async tryEmit(event: SystemEventInput): Promise<boolean> {
     try {
       await this.db.insert(systemEventsTable).values({
         eventType: event.eventType,
@@ -67,6 +78,7 @@ export class DrizzleEventEmitter implements EventEmitter {
         relatedTaskId: event.relatedTaskId ?? null,
         relatedSessionId: event.relatedSessionId ?? null,
       });
+      return true;
     } catch (err: unknown) {
       // Best-effort: log the failure but never propagate it.
       // A dead DB should not prevent asks from being created, PRs from being
@@ -75,7 +87,12 @@ export class DrizzleEventEmitter implements EventEmitter {
         eventType: event.eventType,
         error: err instanceof Error ? err.message : String(err),
       });
+      return false;
     }
+  }
+
+  async emit(event: SystemEventInput): Promise<void> {
+    await this.tryEmit(event);
   }
 }
 
