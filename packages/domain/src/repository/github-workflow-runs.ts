@@ -328,6 +328,22 @@ const EOCD_FIXED_SIZE = 22;
 /** Max comment length a conformant EOCD record can carry (uint16). */
 const MAX_EOCD_COMMENT_LENGTH = 65535;
 
+/**
+ * Decode bytes as latin1 (one byte -> U+00xx). Used for filenames when GPBF
+ * bit 11 is unset: the ZIP spec mandates IBM CP437 there, which has no
+ * TextDecoder label — latin1 shares its full ASCII range (all GitHub run-log
+ * filenames), so high bytes decode approximately rather than as U+FFFD noise.
+ * Hand-rolled instead of `new TextDecoder("latin1")` because stricter
+ * TextDecoder `Encoding` typings (services/reviewer's tsc) reject that label.
+ */
+function decodeLatin1(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    out += String.fromCharCode(bytes[i] as number);
+  }
+  return out;
+}
+
 interface CentralDirEntry {
   fileName: string;
   compressionMethod: number;
@@ -375,11 +391,6 @@ function readCentralDirectoryEntries(
   totalEntries: number
 ): CentralDirEntry[] {
   const utf8Decoder = new TextDecoder("utf-8");
-  // When GPBF bit 11 is unset the ZIP spec mandates IBM CP437 filenames. No
-  // TextDecoder label exists for CP437; latin1 shares its full ASCII range
-  // (all GitHub run-log filenames), so high bytes decode approximately rather
-  // than as U+FFFD replacement noise.
-  const legacyDecoder = new TextDecoder("latin1");
   const entries: CentralDirEntry[] = [];
   let offset = centralDirOffset;
 
@@ -400,7 +411,10 @@ function readCentralDirectoryEntries(
       offset + CENTRAL_DIR_ENTRY_FIXED_SIZE + fileNameLength
     );
     entries.push({
-      fileName: (gpFlag & GPBF_FILENAME_UTF8 ? utf8Decoder : legacyDecoder).decode(fileNameBytes),
+      fileName:
+        gpFlag & GPBF_FILENAME_UTF8
+          ? utf8Decoder.decode(fileNameBytes)
+          : decodeLatin1(fileNameBytes),
       compressionMethod,
       compressedSize,
       localHeaderOffset,
