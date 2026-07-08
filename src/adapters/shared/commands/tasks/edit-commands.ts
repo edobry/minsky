@@ -331,7 +331,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       if (!params.json) {
         const errorMsg = getErrorMessage(error);
         let errorMessage = "";
-        if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
+        if (errorMsg.includes("Backend") && errorMsg.includes("does not support kind editing")) {
+          // Kind-edit capability failures must not be coerced into the
+          // specification-editing message below (mt#2661 review finding).
+          errorMessage = chalk.red(`❌ Failed to update task: ${errorMsg}`);
+          errorMessage += `\n${chalk.yellow(
+            "   Tip: Some backends may have limited editing capabilities. Check backend documentation."
+          )}`;
+        } else if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
           errorMessage = chalk.red(
             `❌ Failed to update task specification: Backend does not support specification editing`
           );
