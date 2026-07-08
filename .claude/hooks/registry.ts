@@ -256,6 +256,15 @@ export interface GuardRegistration {
  * omitted for all) — none reads `transcript_path`/`ctx.transcriptLines`,
  * unlike the Phase 2a detector family above.
  */
+// Registry order for UserPromptSubmit entries below is LOAD-BEARING (Success
+// Criterion 3): it must byte-preserve the pre-migration `.claude/settings.json`
+// block's relative order — auto-session-title .. mcp-daemon-staleness-detector
+// (Phase 2b's 8), THEN the Phase 2a dispatcher's original slot (the six
+// guidance detectors, which took `substrate-bypass-detector`'s position when
+// Phase 2a folded them in), THEN calibration-review-cadence-detector (which
+// sat AFTER the Phase 2a dispatcher slot in settings.json). `runDispatcher`
+// concatenates `additionalContext` fragments in registry-array order, so
+// resorting this array resorts what operators see.
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
     name: "check-guessed-session-path",
@@ -265,61 +274,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     denyCapable: true,
   },
-  {
-    name: "substrate-bypass-detector",
-    event: "UserPromptSubmit",
-    module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 15000,
-    denyCapable: false,
-    needsTranscript: true,
-  },
-  {
-    name: "retrospective-trigger-scanner",
-    event: "UserPromptSubmit",
-    module: () => import("./retrospective-trigger-scanner").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    calibrationLog: "retrospective-trigger",
-    denyCapable: false,
-    needsTranscript: true,
-  },
-  {
-    name: "pre-narration-detector",
-    event: "UserPromptSubmit",
-    module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    calibrationLog: "pre-narration",
-    denyCapable: false,
-    needsTranscript: true,
-  },
-  {
-    name: "causal-premise-detector",
-    event: "UserPromptSubmit",
-    module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    calibrationLog: "causal-premise",
-    denyCapable: false,
-    needsTranscript: true,
-  },
-  {
-    name: "code-mechanism-assertion-detector",
-    event: "UserPromptSubmit",
-    module: () => import("./code-mechanism-assertion-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    calibrationLog: "code-mechanism-assertion",
-    denyCapable: false,
-    needsTranscript: true,
-  },
-  {
-    name: "ask-routing-deferral-detector",
-    event: "UserPromptSubmit",
-    module: () => import("./ask-routing-deferral-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    calibrationLog: "ask-routing-deferral",
-    denyCapable: false,
-    needsTranscript: true,
-  },
   // -------------------------------------------------------------------------
-  // Phase 2b (mt#2687) — remaining UserPromptSubmit hooks
+  // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
+  // Phase 2a dispatcher slot in the pre-migration settings.json order.
   // -------------------------------------------------------------------------
   {
     name: "auto-session-title",
@@ -377,6 +334,67 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     denyCapable: false,
   },
+  // -------------------------------------------------------------------------
+  // Phase 2a (mt#2652) — the six guidance detectors, in the Phase 2a
+  // dispatcher entry's original settings.json slot.
+  // -------------------------------------------------------------------------
+  {
+    name: "substrate-bypass-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./substrate-bypass-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 15000,
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "retrospective-trigger-scanner",
+    event: "UserPromptSubmit",
+    module: () => import("./retrospective-trigger-scanner").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "retrospective-trigger",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "pre-narration-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "pre-narration",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "causal-premise-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "causal-premise",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "code-mechanism-assertion-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./code-mechanism-assertion-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "code-mechanism-assertion",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  {
+    name: "ask-routing-deferral-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./ask-routing-deferral-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "ask-routing-deferral",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  // -------------------------------------------------------------------------
+  // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
+  // Phase 2a dispatcher slot in the pre-migration settings.json order.
+  // -------------------------------------------------------------------------
   {
     name: "calibration-review-cadence-detector",
     event: "UserPromptSubmit",

@@ -25,6 +25,38 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
+
+/** Shared literal — the lifecycle event these fixtures all target. */
+const USER_PROMPT_SUBMIT_EVENT = "UserPromptSubmit";
+
+// ---------------------------------------------------------------------------
+// 0. Registry order — LOAD-BEARING for Success Criterion 3 (byte-preserved
+// injection order/shape). Guards against re-sorting GUARD_REGISTRY.
+// ---------------------------------------------------------------------------
+
+describe("Phase 2b parity: UserPromptSubmit registry order", () => {
+  test("matches the pre-migration settings.json UserPromptSubmit block's relative order", () => {
+    const names = getGuardsForEvent(GUARD_REGISTRY, USER_PROMPT_SUBMIT_EVENT).map((r) => r.name);
+    expect(names).toEqual([
+      "auto-session-title",
+      "inject-current-time",
+      "inject-git-state",
+      "inject-prod-state",
+      "inject-dispatch-watchdog",
+      "memory-search",
+      "skill-staleness-detector",
+      "mcp-daemon-staleness-detector",
+      "substrate-bypass-detector",
+      "retrospective-trigger-scanner",
+      "pre-narration-detector",
+      "causal-premise-detector",
+      "code-mechanism-assertion-detector",
+      "ask-routing-deferral-detector",
+      "calibration-review-cadence-detector",
+    ]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Shared fixture helpers
@@ -32,7 +64,7 @@ import type { DispatchContext } from "./registry";
 
 function makeCtx(): DispatchContext {
   return {
-    event: "UserPromptSubmit",
+    event: USER_PROMPT_SUBMIT_EVENT,
     hostCapSec: 15,
     budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
     transcriptCandidates: [],
@@ -44,7 +76,7 @@ function makeInput(overrides: Partial<ClaudeHookInput> = {}): ClaudeHookInput {
   return {
     session_id: "phase2b-parity-session",
     cwd: tmpdir(),
-    hook_event_name: "UserPromptSubmit",
+    hook_event_name: USER_PROMPT_SUBMIT_EVENT,
     ...overrides,
   };
 }
