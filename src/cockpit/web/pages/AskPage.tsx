@@ -14,26 +14,47 @@
  * The Back affordance is plain navigation — the ask was not consumed, so
  * its tab stays in the working set like any other entity tab.
  *
- * Data: the same GET /api/asks list query the list page uses (shared query
- * key → cache hit on row click); the ask is found by id. A missing id —
- * resolved ask, expired deep link — renders a graceful empty state.
+ * Data (mt#2669): a dedicated per-id query (GET /api/asks/:id), seeded from
+ * the shared pending-list cache per TanStack's initialData-from-list pattern
+ * (initialDataUpdatedAt carries the seed's real age, so a stale seed still
+ * refetches). The per-id endpoint returns terminal asks too, so this page
+ * distinguishes three end states instead of one generic message: a terminal
+ * ask says what happened (with the recorded response), an unknown id says
+ * "not found" — and neither verdict renders before a fresh fetch settles.
+ * Previously the page resolved the id by find-in-list over the pending
+ * snapshot, which declared live asks "no longer pending" whenever the
+ * snapshot was empty or stale (deeplink into a fresh cockpit boot).
  */
 import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AskDetail,
-  fetchAsks,
+  fetchAskById,
   resolveAsk,
   deferAsk,
   escalateAsk,
+  AskNotFoundError,
   type AskItem,
+  type AskState,
   type AsksListResponse,
 } from "../widgets/AskDetail";
+import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useState } from "react";
 import { shortenId } from "../lib/format";
 import { useTabs } from "../lib/tabs";
+
+/** Human phrasing for a terminal state. Terminal-vs-open classification itself
+ * comes from the domain state machine's `isTerminal` (the single source of
+ * truth — note "responded" is NOT terminal: the response is recorded but the
+ * ask has not closed, so it still renders the actionable detail view).
+ */
+function terminalLabel(state: AskState): string {
+  if (state === "expired") return "expired";
+  if (state === "cancelled") return "cancelled";
+  return "resolved";
+}
 
 export function AskPage() {
   const { id } = useParams<{ id: string }>();
@@ -44,14 +65,18 @@ export function AskPage() {
   const queryClient = useQueryClient();
   const [resolving, setResolving] = useState(false);
 
-  const query = useQuery<AsksListResponse, Error>({
-    queryKey: ["asks"],
-    queryFn: fetchAsks,
-    staleTime: 10_000,
+  const query = useQuery<AskItem, Error>({
+    queryKey: ["asks", askId],
+    queryFn: () => fetchAskById(askId),
+    enabled: askId !== "",
+    initialData: () =>
+      queryClient.getQueryData<AsksListResponse>(["asks"])?.asks.find((a) => a.id === askId),
+    initialDataUpdatedAt: () => queryClient.getQueryState(["asks"])?.dataUpdatedAt,
   });
 
-  const asks = query.data?.asks ?? [];
-  const ask = asks.find((a) => a.id === askId) ?? null;
+  const ask = query.data ?? null;
+  const notFound = query.isError && query.error instanceof AskNotFoundError;
+  const terminal = ask !== null && isTerminal(ask.state);
 
   /** Consumable-entity settle: close this ask's tab, landing on /asks. */
   function settle() {
@@ -109,10 +134,35 @@ export function AskPage() {
         </span>
       </nav>
 
-      {query.isError ? (
-        <ErrorState prefix="Failed to load ask" error={query.error} />
-      ) : query.isPending ? (
+      {query.isPending ? (
         <LoadingState message="Loading ask…" />
+      ) : notFound ? (
+        <div className="flex flex-col gap-1 py-8 text-center">
+          <p className="text-sm text-muted-foreground">No ask with this id was found.</p>
+          <p className="text-xs text-muted-foreground/70">
+            The link may be malformed, or the ask belongs to a different workspace.
+          </p>
+        </div>
+      ) : query.isError ? (
+        <ErrorState prefix="Failed to load ask" error={query.error} />
+      ) : ask && terminal ? (
+        <div className="flex flex-col gap-2 py-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            This ask was {terminalLabel(ask.state)}.
+          </p>
+          <p className="text-xs text-muted-foreground/70">{ask.title}</p>
+          {ask.response ? (
+            <div className="mx-auto mt-2 max-w-lg text-left">
+              <p className="text-xs text-muted-foreground mb-1">
+                Response{ask.response.responder ? ` — by ${ask.response.responder}` : ""}
+                {ask.respondedAt ? ` on ${new Date(ask.respondedAt).toLocaleString()}` : ""}:
+              </p>
+              <pre className="text-xs bg-card border border-border rounded p-2 overflow-x-auto">
+                {JSON.stringify(ask.response.payload, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+        </div>
       ) : ask ? (
         <AskDetail
           ask={ask}
@@ -123,12 +173,7 @@ export function AskPage() {
           onClose={() => navigate("/asks")}
         />
       ) : (
-        <div className="flex flex-col gap-1 py-8 text-center">
-          <p className="text-sm text-muted-foreground">This ask is no longer pending.</p>
-          <p className="text-xs text-muted-foreground/70">
-            It may have been resolved, expired, or the link is stale.
-          </p>
-        </div>
+        <LoadingState message="Loading ask…" />
       )}
     </div>
   );
