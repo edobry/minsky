@@ -24,7 +24,13 @@ import { describe, it, expect, afterEach } from "bun:test";
 // The prior local copy held the wrong (no `-production`) URL and "passed" while
 // validating the wrong value — the SoT-duplication-masks-the-bug failure. The
 // fallback-URL assertion below is now anchored to the real default the command uses.
-import { resolveReviewerEndpoint, DEFAULT_REVIEWER_URL } from "./reviewer-retrigger";
+import {
+  resolveReviewerEndpoint,
+  postReviewCommentFallback,
+  runReviewerRetrigger,
+  DEFAULT_REVIEWER_URL,
+} from "./reviewer-retrigger";
+import { CustomConfigFactory, initializeConfiguration } from "@minsky/domain/configuration/index";
 import {
   environmentMappings,
   loadEnvironmentConfiguration,
@@ -139,5 +145,144 @@ describe("reviewer retrigger env-override end-to-end (mt#2346)", () => {
     const resolved = resolveReviewerEndpoint(loaded.reviewer, loaded.mcp?.auth?.token);
     expect(resolved.authToken).toBe(ENV_TOKEN);
     expect(resolved.url).toBe(ENV_URL);
+  });
+});
+
+describe("postReviewCommentFallback (mt#2679 GitHub-auth fallback)", () => {
+  it("posts a /review comment and reports the review-comment path", async () => {
+    const calls: Array<{ owner: string; repo: string; issue_number: number; body: string }> = [];
+    const client = {
+      async createComment(args: {
+        owner: string;
+        repo: string;
+        issue_number: number;
+        body: string;
+      }) {
+        calls.push(args);
+        return { data: { html_url: "https://github.com/o/r/pull/7#issuecomment-1" } };
+      },
+    };
+
+    const result = await postReviewCommentFallback(client, { pr: 7, owner: "o", repo: "r" });
+
+    expect(result.ok).toBe(true);
+    expect(result.path).toBe("review-comment");
+    expect(result.commentUrl).toBe("https://github.com/o/r/pull/7#issuecomment-1");
+    // The reviewer's REVIEW_COMMAND_RE matches the FIRST LINE as exactly /review.
+    expect(calls).toEqual([{ owner: "o", repo: "r", issue_number: 7, body: "/review" }]);
+    // The note names the async semantics and the turnkey remediation.
+    expect(result.note).toContain("asynchronously");
+    expect(result.note).toContain("config doctor --fix");
+  });
+
+  it("surfaces a comment-post failure as a non-ok result on the fallback path", async () => {
+    const client = {
+      async createComment(): Promise<{ data: { html_url?: string } }> {
+        throw new Error("403 Forbidden");
+      },
+    };
+
+    const result = await postReviewCommentFallback(client, { pr: 9, owner: "o", repo: "r" });
+
+    expect(result.ok).toBe(false);
+    expect(result.path).toBe("review-comment");
+    expect(result.error).toContain("403 Forbidden");
+  });
+});
+
+describe("runReviewerRetrigger credential branching (mt#2679)", () => {
+  it("prefers the direct endpoint when BOTH credentials are present", async () => {
+    const savedToken = process.env[TOKEN_ENV];
+    const savedXdg = process.env["XDG_CONFIG_HOME"];
+    delete process.env[TOKEN_ENV];
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    process.env["XDG_CONFIG_HOME"] = join(
+      tmpdir(),
+      `minsky-retrigger-test-isolated-${process.pid}-${Math.random().toString(36).slice(2)}`
+    );
+    const savedFetch = globalThis.fetch;
+    const fetched: string[] = [];
+    try {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          github: { token: "gh-token-present" },
+          mcp: { auth: { token: "mcp-token-present" } },
+          reviewer: { url: "https://reviewer.example.test" },
+        },
+        skipValidation: true,
+      });
+
+      // Stub fetch: capture the direct-endpoint call, return a success body.
+      globalThis.fetch = (async (url: unknown) => {
+        fetched.push(String(url));
+        return new Response(JSON.stringify({ ok: true, pr: 5, deliveryId: "d-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const result = await runReviewerRetrigger({ pr: 5, owner: "o", repo: "r" });
+
+      expect(result.ok).toBe(true);
+      expect(result.path).toBe("direct");
+      expect(result.deliveryId).toBe("d-1");
+      // The direct endpoint was hit; no comment fallback involved.
+      expect(fetched).toEqual(["https://reviewer.example.test/retrigger"]);
+    } finally {
+      globalThis.fetch = savedFetch;
+      if (savedToken !== undefined) {
+        process.env[TOKEN_ENV] = savedToken;
+      } else {
+        delete process.env[TOKEN_ENV];
+      }
+      if (savedXdg !== undefined) {
+        process.env["XDG_CONFIG_HOME"] = savedXdg;
+      } else {
+        delete process.env["XDG_CONFIG_HOME"];
+      }
+    }
+  });
+
+  it("errors naming BOTH remediation paths when mcp.auth.token AND github.token are absent", async () => {
+    // Isolate from the operator's real user config (which post-mt#2679 is
+    // EXPECTED to carry mcp.auth.token) and from env overrides — same
+    // hermeticity approach as validate-doctor-commands.test.ts.
+    const savedToken = process.env[TOKEN_ENV];
+    const savedXdg = process.env["XDG_CONFIG_HOME"];
+    delete process.env[TOKEN_ENV];
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    process.env["XDG_CONFIG_HOME"] = join(
+      tmpdir(),
+      `minsky-retrigger-test-isolated-${process.pid}-${Math.random().toString(36).slice(2)}`
+    );
+    try {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          github: {},
+          mcp: { auth: {} },
+        },
+        skipValidation: true,
+      });
+
+      await expect(runReviewerRetrigger({ pr: 1, owner: "o", repo: "r" })).rejects.toThrow(
+        /mcp\.auth\.token.*github\.token|no usable credential/
+      );
+      await expect(runReviewerRetrigger({ pr: 1, owner: "o", repo: "r" })).rejects.toThrow(
+        "config doctor --fix"
+      );
+    } finally {
+      if (savedToken !== undefined) {
+        process.env[TOKEN_ENV] = savedToken;
+      } else {
+        delete process.env[TOKEN_ENV];
+      }
+      if (savedXdg !== undefined) {
+        process.env["XDG_CONFIG_HOME"] = savedXdg;
+      } else {
+        delete process.env["XDG_CONFIG_HOME"];
+      }
+    }
   });
 });
