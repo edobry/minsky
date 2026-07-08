@@ -13,8 +13,15 @@ import { first } from "@minsky/shared/array-safety";
 function createDeps(repoUrl: string): StartSessionDependencies & {
   addSessionSpy: ReturnType<typeof mock>;
 } {
-  const addSessionSpy = vi.fn(async (_record: SessionRecord) => {});
   const sessionDB = new FakeSessionProvider();
+  // Wrap (call-through), don't replace: preserve FakeSessionProvider's real
+  // persistence behavior (the record actually lands in the in-memory store)
+  // while still letting tests assert on calls via addSessionSpy.mock.calls.
+  // Replacing addSession outright silently breaks any assertion — present or
+  // future — that depends on the session actually being retrievable after
+  // startSessionImpl() returns (e.g. via sessionDB.getSession/listSessions).
+  const originalAddSession = sessionDB.addSession.bind(sessionDB);
+  const addSessionSpy = vi.fn(async (record: SessionRecord) => originalAddSession(record));
   sessionDB.addSession = addSessionSpy;
 
   const gitService = new FakeGitService();

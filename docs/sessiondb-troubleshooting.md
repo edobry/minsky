@@ -26,6 +26,15 @@ minsky sessiondb test-connection
 minsky sessiondb verify --repair
 ```
 
+### `session list` and project scoping
+
+`minsky session list` scopes results to the current project by default
+(ADR-021 / mt#2416) — pass `--all-projects` to see sessions from every
+project. A `--task <id>` filter always bypasses project scoping (mt#2697):
+it consults the exact same unscoped predicate `session start`/`tasks
+dispatch` uses to decide whether a task already has an active session, so a
+task-filtered query never disagrees with what would block a new dispatch.
+
 ### Log Analysis
 
 ```bash

@@ -385,8 +385,18 @@ async function executeMutations(
   let resolvedProjectId: string | undefined;
   let dbForScopeResolution: ScopeResolverDb | undefined = deps.db;
   let ownedPersistenceProvider: import("../persistence/types").PersistenceProvider | undefined;
-  if (!dbForScopeResolution) {
-    try {
+
+  // Single try/catch/finally spans acquisition AND use of the fallback
+  // provider, so every exit path — acquisition throw, getDatabaseConnection
+  // throw, scope-resolution throw, or plain success — routes through the
+  // same finally and closes the provider exactly once. `ownedPersistenceProvider`
+  // is assigned the moment a provider is acquired (before calling
+  // getDatabaseConnection()), specifically so a throw from
+  // getDatabaseConnection() itself can't leak the connection — the earlier
+  // shape assigned ownership only after a successful getDatabaseConnection()
+  // call, which left that one throw path unclosed.
+  try {
+    if (!dbForScopeResolution) {
       // Cheap, silent short-circuit: if configuration was never initialized
       // (hermetic tests, or a process that genuinely has no DB), there is
       // nothing to resolve — skip straight past rather than letting
@@ -396,44 +406,43 @@ async function executeMutations(
       const { resolvePersistenceProvider } = await import("../persistence/factory");
       const provider = isConfigurationInitialized() ? await resolvePersistenceProvider() : null;
       if (provider) {
+        ownedPersistenceProvider = provider;
         const rawDb = await provider.getDatabaseConnection?.();
         if (rawDb) {
           dbForScopeResolution = rawDb as ScopeResolverDb;
-          ownedPersistenceProvider = provider;
-        } else {
-          await provider.close();
         }
       }
-    } catch (err: unknown) {
-      log.debug(
-        "[session.start] Fallback DB resolution for project-scope stamping failed; " +
-          "session.project_id will be NULL",
-        { error: err instanceof Error ? err.message : String(err) }
-      );
     }
-  }
-  if (dbForScopeResolution) {
-    try {
+
+    if (dbForScopeResolution) {
       const { resolveProjectIdentity } = await import("../project/identity");
       const { resolveProjectScope } = await import("../project/scope-resolver");
       const { isAllProjects } = await import("../project/scope");
       const identity = resolveProjectIdentity({ repoPath: sessionDir });
       const scope = await resolveProjectScope(identity, dbForScopeResolution);
       resolvedProjectId = isAllProjects(scope) ? undefined : scope;
-    } catch (err: unknown) {
-      log.debug(
-        "[session.start] Project scope resolution failed; session.project_id will be NULL",
-        { error: err instanceof Error ? err.message : String(err) }
-      );
-    } finally {
-      if (ownedPersistenceProvider) {
-        try {
-          await ownedPersistenceProvider.close();
-        } catch (closeErr: unknown) {
-          log.debug("[session.start] Failed to close fallback persistence provider", {
-            error: closeErr instanceof Error ? closeErr.message : String(closeErr),
-          });
-        }
+    }
+  } catch (err: unknown) {
+    // dbForScopeResolution being set at catch-time means the throw happened
+    // during identity/scope resolution (stage 2); unset means it happened
+    // while acquiring the fallback DB (stage 1) — kept for debug legibility,
+    // not behaviorally different (both leave resolvedProjectId undefined).
+    const stage = dbForScopeResolution ? "project-scope resolution" : "fallback DB resolution";
+    log.debug(`[session.start] ${stage} failed; session.project_id will be NULL`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    if (ownedPersistenceProvider) {
+      try {
+        await ownedPersistenceProvider.close();
+      } catch (closeErr: unknown) {
+        // Best-effort: a close failure must never mask resolvedProjectId
+        // (already settled above) or escape as an unhandled rejection — log
+        // and swallow.
+        log.debug(
+          "[session.start] Failed to close fallback persistence provider (best-effort, swallowed)",
+          { error: closeErr instanceof Error ? closeErr.message : String(closeErr) }
+        );
       }
     }
   }
