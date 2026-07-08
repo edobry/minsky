@@ -2700,12 +2700,16 @@
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
+                  "description": "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches (exclusive lower bound, mt#2656 — an exactly-equal submittedAt does not re-match, so you can safely pass a previous review's exact submittedAt to wait for its successor). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
                   "takesValue": true
                 },
                 {
                   "flags": ["--require-current-head"],
                   "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full review (raw markdown body, spec-verification table, embedded provenance JSON comment) instead of the default trimmed payload (mt#2656: state, submittedAt, reviewer, blocking/non-blocking finding counts, and a findings list of severity + file:line + one-sentence summary). Defaults to false."
                 }
               ]
             },
@@ -2743,12 +2747,16 @@
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches. Pass the previous terminal result's review.submittedAt when re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT. Defaults to the PR's created_at timestamp. Ignored in postMerge mode.",
+                  "description": "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches (exclusive lower bound, mt#2656). Pass the previous terminal result's review.submittedAt when re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT — the exact same review will not re-match. Defaults to the PR's created_at timestamp. Ignored in postMerge mode.",
                   "takesValue": true
                 },
                 {
                   "flags": ["--require-current-head"],
                   "description": "When true (default), only a review of the PR's current HEAD commit counts as a match (mt#2586). Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full review body and full per-check breakdown instead of the default trimmed payloads (mt#2656). Defaults to false. Ignored in postMerge mode."
                 },
                 {
                   "flags": ["--review-timeout-seconds"],

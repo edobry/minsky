@@ -748,10 +748,12 @@ export const sessionPrWaitForReviewCommandParams = {
   since: {
     schema: z.string(),
     description:
-      "ISO-8601 timestamp; only reviews submitted at or after this time count as matches " +
-      "(inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing " +
-      "reviews on the PR match by default. Pass an explicit value to narrow the window " +
-      "(e.g., wait only for reviews newer than a known stale one).",
+      "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches " +
+      "(exclusive lower bound, mt#2656 — an exactly-equal submittedAt does not re-match, so " +
+      "you can safely pass a previous review's exact submittedAt to wait for its successor). " +
+      "Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by " +
+      "default. Pass an explicit value to narrow the window (e.g., wait only for reviews " +
+      "newer than a known stale one).",
     required: false,
   },
   requireCurrentHead: {
@@ -763,6 +765,16 @@ export const sessionPrWaitForReviewCommandParams = {
       "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support.",
     required: false,
     defaultValue: true,
+  },
+  fullBody: {
+    schema: z.boolean(),
+    description:
+      "When true, return the full review (raw markdown body, spec-verification table, " +
+      "embedded provenance JSON comment) instead of the default trimmed payload (mt#2656: " +
+      "state, submittedAt, reviewer, blocking/non-blocking finding counts, and a findings " +
+      "list of severity + file:line + one-sentence summary). Defaults to false.",
+    required: false,
+    defaultValue: false,
   },
 };
 
@@ -804,9 +816,10 @@ export const sessionPrDriveCommandParams = {
   since: {
     schema: z.string(),
     description:
-      "ISO-8601 timestamp; only reviews submitted at or after this time count as " +
-      "matches. Pass the previous terminal result's review.submittedAt when " +
-      "re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT. Defaults to " +
+      "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as " +
+      "matches (exclusive lower bound, mt#2656). Pass the previous terminal result's " +
+      "review.submittedAt when re-invoking after pushing a fix for " +
+      "CHANGES_REQUESTED/COMMENT — the exact same review will not re-match. Defaults to " +
       "the PR's created_at timestamp. Ignored in postMerge mode.",
     required: false,
   },
@@ -817,6 +830,14 @@ export const sessionPrDriveCommandParams = {
       "as a match (mt#2586). Ignored in postMerge mode.",
     required: false,
     defaultValue: true,
+  },
+  fullBody: {
+    schema: z.boolean(),
+    description:
+      "When true, return the full review body and full per-check breakdown instead of " +
+      "the default trimmed payloads (mt#2656). Defaults to false. Ignored in postMerge mode.",
+    required: false,
+    defaultValue: false,
   },
   reviewTimeoutSeconds: {
     schema: z.number().int().min(1).max(1800),
