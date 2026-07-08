@@ -24,7 +24,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
-import { isSessionsPayload } from "../lib/sessions-source";
+import { isConversationsPayload } from "../lib/conversations-source";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
@@ -252,7 +252,7 @@ function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {
   if (sessionsQuery.data.state === "degraded") {
     return <p className="text-muted-foreground text-sm">{sessionsQuery.data.reason}</p>;
   }
-  if (!isSessionsPayload(sessionsQuery.data.payload)) {
+  if (!isConversationsPayload(sessionsQuery.data.payload)) {
     return <ErrorState message="Unexpected payload shape" />;
   }
 

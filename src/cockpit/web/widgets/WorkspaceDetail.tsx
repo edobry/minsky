@@ -1,15 +1,16 @@
 /**
- * SessionDetail widget frontend (mt#1919)
+ * WorkspaceDetail widget frontend (mt#1919, renamed from SessionDetail per
+ * ADR-022 stage 1, mt#2686)
  *
- * Self-fetching via TanStack Query. Renders a single WORKSPACE session's
- * detail view: meta header (status, liveness, branch, agent), linked task,
- * conversation link (when the workspace resolves to an ingested transcript),
- * recent commits, and PR state. Read-only; session-action affordances are
- * out of scope for v0.
+ * Self-fetching via TanStack Query. Renders a single WORKSPACE's detail view:
+ * meta header (status, liveness, branch, agent), linked task, conversation
+ * link (when the workspace resolves to an ingested transcript), recent
+ * commits, and PR state. Read-only; workspace-action affordances are out of
+ * scope for v0.
  *
  * Keyed by the Minsky workspace sessionId — NOT the harness agentSessionId
- * that /session/:id (ConversationView) takes. The `conversation` field of the
- * payload carries the bridge between the two id-spaces.
+ * that /conversation/:id (ConversationView) takes. The `conversation` field
+ * of the payload carries the bridge between the two id-spaces.
  */
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
@@ -41,7 +42,7 @@ export interface SessionPrRef {
   approved: boolean | null;
 }
 
-export interface SessionDetailPayload {
+export interface WorkspaceDetailPayload {
   session: {
     sessionId: WorkspaceId;
     taskId: string | null;
@@ -65,9 +66,9 @@ export interface SessionDetailPayload {
 
 const LIVENESS_VALUES = ["healthy", "idle", "stale", "orphaned"] as const;
 
-function isSessionDetailPayload(v: unknown): v is SessionDetailPayload {
+function isWorkspaceDetailPayload(v: unknown): v is WorkspaceDetailPayload {
   if (typeof v !== "object" || v === null) return false;
-  const p = v as Partial<SessionDetailPayload>;
+  const p = v as Partial<WorkspaceDetailPayload>;
   if (typeof p.session !== "object" || p.session === null) return false;
   if (typeof p.session.sessionId !== "string") return false;
   if (!LIVENESS_VALUES.includes(p.session.liveness as (typeof LIVENESS_VALUES)[number])) {
@@ -89,14 +90,14 @@ function isSessionDetailPayload(v: unknown): v is SessionDetailPayload {
 // Fetch
 // ---------------------------------------------------------------------------
 
-async function fetchSessionDetail(sessionId: WorkspaceId): Promise<SessionDetailPayload> {
+async function fetchWorkspaceDetail(sessionId: WorkspaceId): Promise<WorkspaceDetailPayload> {
   const encoded = encodeURIComponent(sessionId);
   const res = await fetch(`/api/agents/${encoded}`);
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `HTTP ${res.status}`);
   }
-  return res.json() as Promise<SessionDetailPayload>;
+  return res.json() as Promise<WorkspaceDetailPayload>;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,15 +138,15 @@ function MetaItem({ label, children }: { label: string; children: ReactNode }) {
 // Body
 // ---------------------------------------------------------------------------
 
-function SessionDetailBody({
+function WorkspaceDetailBody({
   sessionId,
   query,
 }: {
   sessionId: WorkspaceId;
-  query: UseQueryResult<SessionDetailPayload, Error>;
+  query: UseQueryResult<WorkspaceDetailPayload, Error>;
 }) {
   if (query.isPending) {
-    return <LoadingState message={`Loading session ${sessionId}…`} />;
+    return <LoadingState message={`Loading workspace ${sessionId}…`} />;
   }
 
   if (query.isError) {
@@ -153,8 +154,8 @@ function SessionDetailBody({
   }
 
   const data = query.data;
-  if (!isSessionDetailPayload(data)) {
-    return <p className="text-sm text-muted-foreground">Malformed session payload.</p>;
+  if (!isWorkspaceDetailPayload(data)) {
+    return <p className="text-sm text-muted-foreground">Malformed workspace payload.</p>;
   }
 
   const { session, commits, pr, conversation } = data;
@@ -203,7 +204,7 @@ function SessionDetailBody({
       {conversation && (
         <section aria-label="Conversation">
           <Link
-            to={`/session/${encodeURIComponent(conversation.agentSessionId)}`}
+            to={`/conversation/${encodeURIComponent(conversation.agentSessionId)}`}
             className="text-sm text-primary hover:underline"
           >
             View conversation →
@@ -283,17 +284,17 @@ function SessionDetailBody({
 // Main widget export — self-fetching via TanStack Query (mt#2373 seam)
 // ---------------------------------------------------------------------------
 
-interface SessionDetailProps {
+interface WorkspaceDetailProps {
   /** Minsky workspace sessionId (NOT the harness agentSessionId). */
   sessionId: WorkspaceId;
   /** Render-context variant; defaults to the full-page card frame. */
   variant?: WidgetVariant;
 }
 
-export function SessionDetail({ sessionId, variant = "card" }: SessionDetailProps) {
-  const query = useQuery<SessionDetailPayload, Error>({
+export function WorkspaceDetail({ sessionId, variant = "card" }: WorkspaceDetailProps) {
+  const query = useQuery<WorkspaceDetailPayload, Error>({
     queryKey: ["session-detail", sessionId],
-    queryFn: () => fetchSessionDetail(sessionId),
+    queryFn: () => fetchWorkspaceDetail(sessionId),
     staleTime: 30_000,
     retry: 1,
   });
@@ -302,13 +303,13 @@ export function SessionDetail({ sessionId, variant = "card" }: SessionDetailProp
   // Agents list's primary-label precedence), sessionId prefix otherwise.
   const shortId = shortenId(sessionId);
   const title =
-    query.data && isSessionDetailPayload(query.data)
+    query.data && isWorkspaceDetailPayload(query.data)
       ? (query.data.session.branch ?? shortId)
       : shortId;
 
   return (
     <WidgetShell variant={variant} title={title}>
-      <SessionDetailBody sessionId={sessionId} query={query} />
+      <WorkspaceDetailBody sessionId={sessionId} query={query} />
     </WidgetShell>
   );
 }

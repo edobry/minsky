@@ -50,14 +50,17 @@ const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
  * tab descriptor for entity routes, null for list/page routes.
  *
  * Registry (PR1): tasks (`/tasks/:id`, excluding the literal `graph` sibling)
- * and sessions (`/session/:id`). PR/ask/memory kinds join as their detail
- * routes land (mt#2398 PR2 + later). Workspace sessions (`/agents/:id`,
- * kind "agent") joined via mt#1919 — distinct id-space from "session"
- * (harness agentSessionId vs Minsky workspace sessionId). Asks (`/ask/:id`)
- * and memories (`/memory/:id`) joined via mt#2410 (mt#2398's PR2).
+ * and conversations (`/conversation/:id`, path renamed from `/session/:id`
+ * per ADR-022 stage 1, mt#2686 — the tab `kind` stays "session" for now,
+ * unrenamed pending a broader tab-kind sweep out of this task's bounded
+ * scope). PR/ask/memory kinds join as their detail routes land (mt#2398 PR2
+ * + later). Workspace sessions (`/agents/:id`, kind "agent") joined via
+ * mt#1919 — distinct id-space from "session" (harness agentSessionId vs
+ * Minsky workspace sessionId). Asks (`/ask/:id`) and memories (`/memory/:id`)
+ * joined via mt#2410 (mt#2398's PR2).
  */
 export function matchEntityRoute(pathname: string): EntityTab | null {
-  const session = pathname.match(/^\/session\/([^/]+)$/);
+  const session = pathname.match(/^\/conversation\/([^/]+)$/);
   if (session?.[1]) {
     const id = decodeURIComponent(session[1]);
     return {

@@ -5,8 +5,8 @@ import { describe, test, expect } from "bun:test";
 import { matchEntityRoute, isAcceptedTabKind } from "./tabs";
 
 describe("matchEntityRoute", () => {
-  test("matches /session/:id as kind session (harness agentSessionId)", () => {
-    const tab = matchEntityRoute("/session/4d44d12b-58f0-433e-95b3-8b914693fa39");
+  test("matches /conversation/:id as kind session (harness agentSessionId)", () => {
+    const tab = matchEntityRoute("/conversation/4d44d12b-58f0-433e-95b3-8b914693fa39");
     expect(tab?.kind).toBe("session");
     expect(tab?.entityId).toBe("4d44d12b-58f0-433e-95b3-8b914693fa39");
     expect(tab?.label).toBe("4d44d12b…");
@@ -67,7 +67,7 @@ describe("matchEntityRoute", () => {
 
   test("list routes do not create tabs", () => {
     expect(matchEntityRoute("/agents")).toBeNull();
-    expect(matchEntityRoute("/sessions")).toBeNull();
+    expect(matchEntityRoute("/conversations")).toBeNull();
     expect(matchEntityRoute("/tasks")).toBeNull();
     expect(matchEntityRoute("/asks")).toBeNull();
     expect(matchEntityRoute("/memories")).toBeNull();
@@ -79,7 +79,7 @@ describe("matchEntityRoute", () => {
 
   test("nested paths under an entity do not match", () => {
     expect(matchEntityRoute("/agents/abc/def")).toBeNull();
-    expect(matchEntityRoute("/session/abc/def")).toBeNull();
+    expect(matchEntityRoute("/conversation/abc/def")).toBeNull();
   });
 });
 
