@@ -644,3 +644,37 @@ describe("mt#2672 — suppression mechanics", () => {
     expect(detectUserCorrection("that's wrong, the port is 4317").length).toBe(1);
   });
 });
+
+describe("mt#2672 — codified boundaries (PR #1834 R1)", () => {
+  test("boundary: >200-char single-line double-quoted span is NOT elided — documented residual, still fires", () => {
+    const padding = "x".repeat(210);
+    const text = `The log contains "${padding} I made a mistake ${padding}" as one entry.`;
+    const matches = detectTriggerPhrases(text);
+    expect(matches.some((m) => m.family === "R1")).toBe(true);
+  });
+
+  test("boundary: multiline double-quoted material is NOT elided by quote elision — still fires (markdown quoting uses blockquotes, which ARE elided)", () => {
+    const text = 'She wrote: "first line of quote\nI made a mistake on the config\nlast line" end.';
+    const matches = detectTriggerPhrases(text);
+    expect(matches.some((m) => m.family === "R1")).toBe(true);
+  });
+
+  test("boundary: the same multiline material as a blockquote IS elided — no fire", () => {
+    const text =
+      "She wrote:\n> first line of quote\n> I made a mistake on the config\n> last line\nend.";
+    expect(detectTriggerPhrases(text).length).toBe(0);
+  });
+
+  test("policy lock: meta-marked turn with a live UNQUOTED admission is suppressed whole-turn (deliberate FN tradeoff)", () => {
+    const text =
+      "Reviewing the calibration data now. Separately: I conflated the two surfaces during the refactor — that one was a genuine live admission.";
+    expect(isDetectorMetaDiscussion(text)).toBe(true);
+    expect(detectTriggerPhrases(text).length).toBe(0);
+  });
+
+  test("policy lock: user-correction is NOT meta-suppressed even in a calibration-discussion prompt", () => {
+    const matches = detectUserCorrection("that's wrong — the calibration data shows 5 FPs, not 3");
+    expect(matches.length).toBe(1);
+    expect(matches[0]?.family).toBe("user-correction");
+  });
+});
