@@ -272,6 +272,11 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
   "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
   "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
+  // mt#2076 — cockpit reviewer-bot-status widget: URL override for the reviewer
+  // /health endpoint probe. Read by src/cockpit/widgets/reviewer-bot-status.ts
+  // at module-load time. Not a config-schema field; registering here so the
+  // env-var-to-config dot-path parser skips it at boot.
+  "MINSKY_REVIEWER_HEALTH_URL", // src/cockpit/widgets/reviewer-bot-status.ts (health probe URL override)
   "MINSKY_SKIP_CALIBRATION_CADENCE", // .claude/hooks/calibration-review-cadence-detector.ts (mt#2619) — skip calibration-review-due warning injection
   "MINSKY_SKIP_MERGE_GRANT_CHECK", // .claude/hooks/block-subagent-merge-without-grant.ts (mt#2651) — override for the ADR-028 D5 subagent merge-capability-grant guard
   "MINSKY_HOOK_OVERRIDE", // .claude/hooks/dispatcher.ts (mt#2650) — ADR-028 D3 unified guard-dispatcher override (comma-separated guard names, or "all")
