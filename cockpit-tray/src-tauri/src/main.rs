@@ -69,9 +69,15 @@ fn main() {
             // Register the minsky:// URL-scheme handler (mt#2528, ADR-023).
             deeplink::register(app, &handle);
 
-            // Keep the app out of the Dock even though it can open a window
-            // (mt#2219). mt#2202 owns the Info.plist LSUIElement path; the Tauri
-            // activation policy achieves the same accessory behavior here.
+            // Keep the app out of the Dock at launch (mt#2219). This is the
+            // SOLE owner of the menu-bar-only launch state: the declarative
+            // Info.plist LSUIElement flag (mt#2202) was removed in mt#2675
+            // because it pinned the app out of Cmd-Tab/Dock even after a
+            // runtime Regular switch. tao applies this policy at
+            // applicationDidFinishLaunching — before any window can exist —
+            // so there is no Dock-icon flash. menu::set_dock_presence
+            // (mt#2675) flips to Regular while the cockpit window is visible
+            // so it is reachable via Cmd-Tab, and back to Accessory on hide.
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -97,16 +103,32 @@ fn main() {
 
     app.run(move |_app_handle, event| {
         match event {
-            // A window-close (Cmd+W or the red close button) requests exit with
-            // code None. This is a menu-bar app: closing the cockpit window must
-            // NOT kill the tray app or the daemon — keep running headless so the
-            // window can be reopened via "Open Cockpit". Only an explicit
-            // app.exit() (code Some — the Quit path) proceeds to teardown.
+            // Backstop for window-close-driven exit requests (code None). The
+            // normal close path never gets here since mt#2675: CloseRequested is
+            // intercepted in menu.rs (hide-on-close), so the window survives and
+            // no exit is requested. Should a close slip through anyway (e.g. a
+            // destroy path that bypasses CloseRequested), this keeps the tray
+            // app and the daemon alive — this is a menu-bar app; only an
+            // explicit app.exit() (code Some — the Quit path) proceeds to
+            // teardown.
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
             RunEvent::Exit => {
                 // Synchronous teardown of the daemon we spawned. Idempotent, so
                 // it's safe to fire here on the explicit-quit path.
                 supervisor::teardown(&spawned);
+            }
+            // Dock-icon click / app reactivation with no visible window
+            // (mt#2675): while the cockpit window is visible the app has Dock
+            // presence (Regular activation policy), so the Dock icon is
+            // clickable; if the window was hidden in the meantime, bring it
+            // back. With a visible window macOS fronts it natively — no action
+            // needed here.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => {
+                menu::ensure_cockpit_window_visible(_app_handle);
             }
             _ => {}
         }

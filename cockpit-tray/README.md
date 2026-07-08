@@ -254,6 +254,21 @@ to that entity's page. If the tray app is closed, macOS Launch Services
   (JSON-encoded; retried until the webview is ready so a cold start doesn't drop
   the link). No Tauri IPC / `remote` capability is granted to the SPA — see
   `docs/architecture/adr-023-cockpit-ui-delivery-native-boundary.md`.
+- **Cold-start / dead-window recovery (mt#2688):** on a cold start the window
+  is created before the daemon is listening, so the initial page load fails
+  (connection refused) and the document is blank. The recovery loop behind
+  every deep link (and behind the menu's Open Cockpit) TCP-probes the daemon
+  port each tick, **DOM-probes the document** (`eval_with_callback` asking
+  whether the SPA shell's `#root` exists — `WebviewWindow::url()` is NOT
+  usable here: WKWebView keeps reporting the requested URL for a failed
+  load), and once the daemon accepts, **re-navigates** dead documents via
+  `WebviewWindow::navigate` — `location.reload()` is NOT used for recovery,
+  because reloading a never-loaded document just reloads the blank page. The
+  deep link is delivered only after the window is on a live cockpit document;
+  a live SPA is never gratuitously reloaded. The tray menu's Open Cockpit
+  applies the same probe: reload for a live document (daemon-restart
+  refresh), recovery loop for a dead one. Verify with
+  `cockpit-tray/scripts/verify-deeplink-coldstart.sh`.
 - **macOS-only:** registration uses `CFBundleURLTypes` / Launch Services
   (auto-generated from `tauri.conf.json` → `plugins.deep-link.desktop.schemes`).
   Windows/Linux scheme registration differs and is a follow-up.
