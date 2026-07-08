@@ -1687,6 +1687,10 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Auto-walked transitions** (chain forward unless an explicit halt condition holds):
 
+- `/create-task` → `/plan-task` when the task was filed as **incident response** — a problem the
+  user reported in the live conversation, or one discovered during this conversation's work
+  (mt#2689). Filing the task is not the deliverable; the fix is. Background/tracking tasks filed
+  for later by design are exempt — say so explicitly when stopping there.
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)
