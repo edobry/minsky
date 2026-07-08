@@ -191,6 +191,59 @@ describe("postReviewCommentFallback (mt#2679 GitHub-auth fallback)", () => {
 });
 
 describe("runReviewerRetrigger credential branching (mt#2679)", () => {
+  it("prefers the direct endpoint when BOTH credentials are present", async () => {
+    const savedToken = process.env[TOKEN_ENV];
+    const savedXdg = process.env["XDG_CONFIG_HOME"];
+    delete process.env[TOKEN_ENV];
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    process.env["XDG_CONFIG_HOME"] = join(
+      tmpdir(),
+      `minsky-retrigger-test-isolated-${process.pid}-${Math.random().toString(36).slice(2)}`
+    );
+    const savedFetch = globalThis.fetch;
+    const fetched: string[] = [];
+    try {
+      await initializeConfiguration(new CustomConfigFactory(), {
+        overrides: {
+          github: { token: "gh-token-present" },
+          mcp: { auth: { token: "mcp-token-present" } },
+          reviewer: { url: "https://reviewer.example.test" },
+        },
+        skipValidation: true,
+      });
+
+      // Stub fetch: capture the direct-endpoint call, return a success body.
+      globalThis.fetch = (async (url: unknown) => {
+        fetched.push(String(url));
+        return new Response(JSON.stringify({ ok: true, pr: 5, deliveryId: "d-1" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch;
+
+      const result = await runReviewerRetrigger({ pr: 5, owner: "o", repo: "r" });
+
+      expect(result.ok).toBe(true);
+      expect(result.path).toBe("direct");
+      expect(result.deliveryId).toBe("d-1");
+      // The direct endpoint was hit; no comment fallback involved.
+      expect(fetched).toEqual(["https://reviewer.example.test/retrigger"]);
+    } finally {
+      globalThis.fetch = savedFetch;
+      if (savedToken !== undefined) {
+        process.env[TOKEN_ENV] = savedToken;
+      } else {
+        delete process.env[TOKEN_ENV];
+      }
+      if (savedXdg !== undefined) {
+        process.env["XDG_CONFIG_HOME"] = savedXdg;
+      } else {
+        delete process.env["XDG_CONFIG_HOME"];
+      }
+    }
+  });
+
   it("errors naming BOTH remediation paths when mcp.auth.token AND github.token are absent", async () => {
     // Isolate from the operator's real user config (which post-mt#2679 is
     // EXPECTED to carry mcp.auth.token) and from env overrides — same

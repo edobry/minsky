@@ -207,23 +207,30 @@ export const configDoctorRegistration = defineCommand({
       const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const reachability = checkReviewerRetriggerReachability(config.mcp?.auth?.token);
-      diagnostics.push(reachability);
 
       // --fix: provision mcp.auth.token from the local railway-secrets store
       // instead of telling the operator to edit config by hand (the deferral
       // that kept mt#2679's four incidents recurring). The fix never prints
-      // the secret value.
+      // the secret value. On a SUCCESSFUL fix the pass-shaped fix diagnostic
+      // REPLACES the initial warning (one coherent signal per check — PR
+      // #1855 R1); on a failed/unavailable fix both surface so the operator
+      // sees the gap AND why the auto-fix couldn't close it.
       if (params.fix && reachability.status === "warning") {
         const { fixMcpAuthTokenFromSecretsFile } = await import("./doctor-fixes");
         const { createConfigWriter } = await import("@minsky/domain/configuration/config-writer");
         const { readFileSync } = await import("fs");
-        diagnostics.push(
-          await fixMcpAuthTokenFromSecretsFile({
-            configDir: getUserConfigDir(),
-            readFile: (p: string): string => readFileSync(p, { encoding: "utf-8" }).toString(),
-            writer: createConfigWriter({ createBackup: true, format: "yaml", validate: true }),
-          })
-        );
+        const fixOutcome = await fixMcpAuthTokenFromSecretsFile({
+          configDir: getUserConfigDir(),
+          readFile: (p: string): string => readFileSync(p, { encoding: "utf-8" }).toString(),
+          writer: createConfigWriter({ createBackup: true, format: "yaml", validate: true }),
+        });
+        if (fixOutcome.status === "pass") {
+          diagnostics.push(fixOutcome);
+        } else {
+          diagnostics.push(reachability, fixOutcome);
+        }
+      } else {
+        diagnostics.push(reachability);
       }
     } catch (e) {
       diagnostics.push({

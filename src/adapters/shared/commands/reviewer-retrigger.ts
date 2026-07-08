@@ -59,7 +59,7 @@ const reviewerRetriggerParams = {
   },
 };
 
-interface RetriggerResult {
+export interface RetriggerResult {
   ok: boolean;
   pr: number;
   /**
@@ -286,8 +286,21 @@ export async function runReviewerRetrigger(args: {
   try {
     body = (await response.json()) as RetriggerResult;
   } catch {
+    // Non-JSON error body (proxy HTML, plain-text 502s): sanitize before it
+    // lands in the result — strip control chars, collapse whitespace, and cap
+    // length so a full error page doesn't flood the caller (PR #1855 R1).
     const text = await response.text().catch(() => "");
-    body = { ok: false, pr, error: text || `HTTP ${response.status}` };
+    const { safeTruncate } = await import("../../../utils/safe-truncate");
+    const sanitized = safeTruncate(
+      text
+        // eslint-disable-next-line no-control-regex -- deliberately stripping control chars from untrusted error bodies
+        .replace(/[\x00-\x1f\x7f]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+      300,
+      "head"
+    );
+    body = { ok: false, pr, error: sanitized || `HTTP ${response.status}` };
   }
 
   if (!response.ok) {

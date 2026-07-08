@@ -142,6 +142,19 @@ describe("fixMcpAuthTokenFromSecretsFile", () => {
     expect(diag.message).toContain("disk full");
   });
 
+  test("rejects a token with interior whitespace or control characters (corrupted secrets entry)", async () => {
+    const { writer, calls } = makeWriter({ success: true });
+    const diag = await fixMcpAuthTokenFromSecretsFile({
+      configDir: CONFIG_DIR,
+      readFile: readFileReturning(JSON.stringify({ [MCP_AUTH_TOKEN_SECRET_KEY]: "abc defghi" })),
+      writer,
+    });
+
+    expect(diag.status).toBe("warning");
+    expect(diag.message).toContain("non-printable");
+    expect(calls).toHaveLength(0);
+  });
+
   test("trims whitespace around the token before writing", async () => {
     const { writer, calls } = makeWriter({ success: true });
     await fixMcpAuthTokenFromSecretsFile({

@@ -109,7 +109,23 @@ export async function fixMcpAuthTokenFromSecretsFile(
     };
   }
 
-  const result = await deps.writer.setConfigValue(MCP_AUTH_TOKEN_CONFIG_KEY, token.trim());
+  // Sanity-gate the token shape (PR #1855 R1 — token sanitation robustness):
+  // a bearer token is printable non-whitespace ASCII. Interior whitespace or
+  // control characters indicate a corrupted/mispasted secrets entry — writing
+  // it through would produce confusing 401s at use time far from the cause.
+  const trimmedToken = token.trim();
+  if (!/^[\x21-\x7e]+$/.test(trimmedToken)) {
+    return {
+      check: "Reviewer Retrigger Reachability (fix)",
+      status: "warning",
+      message:
+        `Cannot auto-provision \`${MCP_AUTH_TOKEN_CONFIG_KEY}\`: the ` +
+        `\`${MCP_AUTH_TOKEN_SECRET_KEY}\` entry in ${secretsPath} contains whitespace or ` +
+        `non-printable characters — fix the secrets file entry first.`,
+    };
+  }
+
+  const result = await deps.writer.setConfigValue(MCP_AUTH_TOKEN_CONFIG_KEY, trimmedToken);
   if (!result.success) {
     return {
       check: "Reviewer Retrigger Reachability (fix)",
