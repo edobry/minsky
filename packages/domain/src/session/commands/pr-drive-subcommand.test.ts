@@ -337,4 +337,104 @@ describe("sessionPrDrive", () => {
     expect(result.state).toBe("UNRECOGNIZED_REVIEW_STATE");
     expect(deps.checksCalls).toBe(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // mt#2677 regression tests — the two real incident shapes reported against
+  // session_pr_drive:
+  //   (2) `since` set + no qualifying review at call start -> the poll picked
+  //       up a review submitted AFTER poll start, but two live instances hung
+  //       to the harness's unrelated 1800s idle abort instead of returning it.
+  //   (3) an explicit small `reviewTimeoutSeconds` did not fire AT ALL — the
+  //       underlying I/O (a stalled GitHub fetch with no timeout of its own)
+  //       hung the whole wait past its configured deadline.
+  // ---------------------------------------------------------------------------
+  describe("mt#2677 regressions", () => {
+    test("since set + review submitted after poll start is picked up within one poll interval (incident #2 shape)", async () => {
+      const since = "2026-07-08T03:23:45.000Z";
+      // Submitted well after `since` AND after the poll loop's start — the
+      // exact incident #2 shape (qualifying review lands ~13 min into a wait
+      // that should have surfaced it on its next poll, or timed out at 600s;
+      // it did neither).
+      const lateReview = mkReview({
+        reviewId: 99,
+        state: "APPROVED",
+        submittedAt: "2026-07-08T03:57:44.000Z",
+      });
+      const deps = makeDeps({ reviewsQueue: [[], [lateReview]] });
+
+      const result = await sessionPrDrive(
+        {
+          sessionId: SESSION_ID,
+          since,
+          reviewTimeoutSeconds: 600,
+          reviewIntervalSeconds: 15,
+          skipChecks: true,
+        },
+        deps
+      );
+
+      expect(result.state).toBe("READY_TO_MERGE");
+      if (result.state === "READY_TO_MERGE") {
+        expect(result.review.reviewId).toBe(99);
+      }
+    });
+
+    test("a stalled/never-resolving review fetch still returns REVIEW_TIMEOUT at reviewTimeoutSeconds wall-clock (incident #3 shape)", async () => {
+      // No fake clock here on purpose: `reviewTimeoutSeconds` is bounded by a
+      // REAL setTimeout inside withDeadline (mt#2677), independent of any
+      // injected now/sleep test seam — exactly the wall-clock guarantee the
+      // fix provides. A small real timeout (2s, well under the project's
+      // 15s test-runner timeout) keeps this fast while still exercising a
+      // genuine real timer, mirroring octokit-timeout.test.ts's established
+      // "never-resolving base + small real timeout" pattern.
+      const sessionRecord: SessionRecord = {
+        session: SESSION_ID,
+        repoName: "edobry-minsky",
+        repoUrl: "https://github.com/edobry/minsky.git",
+        createdAt: new Date().toISOString(),
+        pullRequest: { number: PR_NUMBER, branch: "task/mt-test", baseBranch: "main" },
+        taskId: "mt#2677",
+      } as unknown as SessionRecord;
+
+      const sessionDB = {
+        getSession: async (id: string) => (id === SESSION_ID ? sessionRecord : null),
+      } as unknown as SessionProviderInterface;
+
+      const backend: RepositoryBackend = {
+        review: {
+          // Simulates a stalled GitHub fetch (e.g. the unbounded token-mint
+          // call fixed in github-app-token-provider.ts) — never settles.
+          listReviews: async () => new Promise<ReviewListEntry[]>(() => {}),
+        },
+      } as unknown as RepositoryBackend;
+
+      const deps: SessionPrDriveDependencies = {
+        sessionDB,
+        createBackend: async () => backend,
+        // Real clock/sleep — the whole point is to prove the REAL deadline
+        // (not a fake-clock-simulated one) bounds the stalled call.
+      };
+
+      const start = performance.now();
+      const result = await sessionPrDrive(
+        // reviewTimeoutSeconds: 1 is the schema's clamp floor (see
+        // `clamp(params.timeoutSeconds ?? 600, 1, 1800)` in
+        // pr-wait-for-review-subcommand.ts) — the smallest legal real wait,
+        // keeping this test's wall-clock cost minimal and reducing CI-timing
+        // flakiness surface vs. a longer real sleep.
+        { sessionId: SESSION_ID, reviewTimeoutSeconds: 1, reviewIntervalSeconds: 5 },
+        deps
+      );
+      const elapsedMs = performance.now() - start;
+
+      expect(result.state).toBe("REVIEW_TIMEOUT");
+      // Bounded by the configured 1s deadline, not the caller's real 1800s
+      // MCP idle-timeout (the actual failure mode in all three live hangs).
+      // Generous 3x margin (1000ms nominal -> 3000ms cap) absorbs CI
+      // scheduling jitter without weakening what the test proves (a real
+      // setTimeout-based deadline, not the fake now/sleep seams elsewhere
+      // in this suite, genuinely bounds the stalled call).
+      expect(elapsedMs).toBeLessThan(1000 + 2000);
+    });
+  });
 });

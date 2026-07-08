@@ -6,6 +6,7 @@
  */
 
 import type { CommandMapper } from "../../mcp/command-mapper";
+import type { ToolProgressReporter } from "../../mcp/server";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -388,7 +389,11 @@ export function registerSharedCommandsWithMcp(
         description,
         parameters: convertParametersToZodSchema(command.parameters),
         mutating: command.mutating,
-        handler: async (args: Record<string, unknown>) => {
+        handler: async (
+          args: Record<string, unknown>,
+          _projectContext,
+          progress?: ToolProgressReporter
+        ) => {
           const startTime = Date.now();
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args: redact(args) });
 
@@ -402,6 +407,12 @@ export function registerSharedCommandsWithMcp(
               debug: args?.debug === true || args?.debug === "true",
               format: "json",
               container: config.container,
+              // mt#2677: threaded only when the calling client requested
+              // progress notifications for this request (see
+              // src/mcp/server.ts's buildProgressReporter — undefined
+              // otherwise, so poll loops' `context.onProgress?.(...)` calls
+              // are unconditionally safe no-ops when absent).
+              onProgress: progress,
             };
             // Omit `container` from debug logs: it holds the full DI container,
             // which is expensive to walk and produces huge [Circular]-laden output.

@@ -8,6 +8,7 @@ import { GitHubAppTokenProvider } from "./github-app-token-provider";
 import { createTokenProvider } from "./index";
 import type { GitHubConfig } from "../configuration/schemas/github";
 import { githubServiceAccountSchema } from "../configuration/schemas/github";
+import { createTimeoutFetch, GitHubRequestTimeoutError } from "../github/octokit-timeout";
 
 // ---------------------------------------------------------------------------
 // Test RSA private key (PKCS#1) — generated for testing only
@@ -767,6 +768,66 @@ describe("GitHubAppTokenProvider", () => {
         const reviewerIdentity = await provider.getServiceIdentity("reviewer");
         expect(reviewerIdentity).toEqual({ login: "minsky-ai[bot]", type: "app" });
       });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bounded fetch (mt#2677 root cause): before this fix, fetchInstallationToken
+  // and getAppInfo called the raw global `fetch` with no timeout, so a stalled
+  // GitHub call (network stall, DNS hang, etc.) hung the token-mint step
+  // forever. `session_pr_wait-for-review` calls `gh.getToken()` on every poll
+  // iteration, so an unbounded token-mint call inside the loop hung the whole
+  // wait past its configured `reviewTimeoutSeconds` — exactly the mt#2677
+  // incident shape (three hangs killed only by the harness's unrelated 1800s
+  // MCP idle timeout, never by the wait's own configured timeout).
+  // ---------------------------------------------------------------------------
+  describe("bounded fetch (mt#2677)", () => {
+    it("getServiceToken rejects within the configured bound instead of hanging when the token-mint fetch stalls", async () => {
+      const neverResolvingFetch: typeof fetch = () => new Promise<Response>(() => {});
+      const provider = makeProvider({
+        fetchImpl: createTimeoutFetch(50, neverResolvingFetch),
+      });
+
+      const start = performance.now();
+      let caught: unknown;
+      try {
+        await provider.getServiceToken();
+      } catch (err) {
+        caught = err;
+      }
+      const elapsedMs = performance.now() - start;
+
+      expect(caught).toBeInstanceOf(GitHubRequestTimeoutError);
+      expect(elapsedMs).toBeLessThan(50 + 1000);
+    });
+
+    it("getServiceIdentity rejects within the configured bound instead of hanging when the app-info fetch stalls", async () => {
+      const neverResolvingFetch: typeof fetch = () => new Promise<Response>(() => {});
+      const provider = makeProvider({
+        fetchImpl: createTimeoutFetch(50, neverResolvingFetch),
+      });
+
+      const start = performance.now();
+      let caught: unknown;
+      try {
+        await provider.getServiceIdentity();
+      } catch (err) {
+        caught = err;
+      }
+      const elapsedMs = performance.now() - start;
+
+      expect(caught).toBeInstanceOf(GitHubRequestTimeoutError);
+      expect(elapsedMs).toBeLessThan(50 + 1000);
+    });
+
+    it("a fast response still passes through unchanged with a bounded fetchImpl in place", async () => {
+      const fastFetch: typeof fetch = async () =>
+        new Response(JSON.stringify({ token: "ghs_bounded_ok" }), { status: 201 });
+      const provider = makeProvider({
+        fetchImpl: createTimeoutFetch(10_000, fastFetch),
+      });
+
+      expect(await provider.getServiceToken()).toBe("ghs_bounded_ok");
     });
   });
 });
