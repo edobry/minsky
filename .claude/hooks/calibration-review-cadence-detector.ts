@@ -86,6 +86,7 @@ import {
   type CalibrationLogResult,
   type WatermarkStore,
 } from "../../src/domain/calibration/calibration-sweep";
+import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -382,6 +383,83 @@ function isOverrideTruthy(value: string | undefined): boolean {
   if (!value) return false;
   const v = value.toLowerCase();
   return v === "1" || v === "true" || v === "yes";
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 Phase 2b, mt#2687)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout / calling `process.exit` —
+ * the dispatcher owns stdout and aggregates every matched guard's output
+ * (D1). Legacy bespoke override var (`MINSKY_SKIP_CALIBRATION_CADENCE`) is
+ * still honored here, independent of the dispatcher's unified
+ * `MINSKY_HOOK_OVERRIDE` check (D3). Side effects (`writeLastWarnedStore`)
+ * are preserved exactly as `main()` performs them.
+ */
+export async function run(
+  input: ClaudeHookInput,
+  _ctx: DispatchContext
+): Promise<GuardOutcome | null> {
+  if (isOverrideTruthy(process.env[OVERRIDE_ENV_VAR])) {
+    return {
+      auditLines: [
+        `[calibration-review-cadence-detector] override active: ${OVERRIDE_ENV_VAR}=${process.env[OVERRIDE_ENV_VAR]} at ${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  const repoRoot = resolve(input.cwd ?? process.cwd());
+  const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
+  const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
+
+  try {
+    const watermarks = readJsonOrDefault<WatermarkStore>(watermarkPath, {});
+    const readContent = async (relPath: string): Promise<string | null> => {
+      try {
+        return readFileSync(join(repoRoot, relPath), "utf-8");
+      } catch {
+        return null;
+      }
+    };
+    const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+
+    const now = Date.now();
+    const due = computeReviewDueLogs(results, watermarks, now);
+    if (due.length === 0) return null;
+
+    const lastWarned = readJsonOrDefault<LastWarnedStore>(lastWarnedPath, {});
+
+    const pendingCandidates = due.filter((d) => d.openAskId);
+    const normalDue = due.filter((d) => !d.openAskId);
+
+    const pendingToShow = selectPendingAskLogs(pendingCandidates, lastWarned, input.session_id);
+    const normalToWarn = normalDue.filter((d) => shouldReWarn(d, lastWarned, now));
+
+    if (pendingToShow.length === 0 && normalToWarn.length === 0) return null;
+
+    const updated: LastWarnedStore = { ...lastWarned };
+    const nowIso = new Date(now).toISOString();
+    for (const d of pendingToShow) {
+      updated[d.path] = buildPendingAskRecord(lastWarned[d.path], input.session_id, nowIso);
+    }
+    for (const d of normalToWarn) {
+      updated[d.path] = { lastWarnedAt: nowIso, lastWarnedFireCount: d.totalFires };
+    }
+    writeLastWarnedStore(lastWarnedPath, updated);
+
+    const parts: string[] = [];
+    if (normalToWarn.length > 0) parts.push(formatCadenceWarning(normalToWarn));
+    if (pendingToShow.length > 0) parts.push(formatPendingAskLines(pendingToShow));
+
+    return { additionalContext: parts.join("\n\n") };
+  } catch (err) {
+    process.stderr.write(
+      `[calibration-review-cadence-detector] error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
