@@ -68,8 +68,13 @@ for (const file of files) {
     ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", file],
     { stdout: "pipe", stderr: "pipe" }
   );
-  const stdout = proc.stdout.toString();
-  const stderr = proc.stderr.toString();
+  // Decode explicitly rather than relying on .toString(): under Bun,
+  // spawnSync's stdout/stderr are Node Buffers (utf-8 .toString() is
+  // correct), but a plain Uint8Array's .toString() would yield comma-joined
+  // bytes and silently break the summary regex. TextDecoder handles both.
+  const decoder = new TextDecoder();
+  const stdout = decoder.decode(proc.stdout);
+  const stderr = decoder.decode(proc.stderr);
   process.stdout.write(stdout);
   process.stderr.write(stderr);
 
