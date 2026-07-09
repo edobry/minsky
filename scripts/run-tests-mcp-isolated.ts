@@ -19,7 +19,7 @@
  * treated as a failure regardless of exit code (the exact silent-truncation
  * signature this script exists to route around).
  */
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const MCP_DIR = "./src/mcp";
@@ -44,7 +44,11 @@ function walk(dir: string, out: string[]): void {
 }
 
 const files: string[] = [];
-walk(MCP_DIR, files);
+// Guard the root call: a missing src/mcp should hit the same fail-loud
+// refusal below (R3 non-blocking nit), not a raw readdirSync ENOENT throw.
+if (existsSync(MCP_DIR)) {
+  walk(MCP_DIR, files);
+}
 files.sort();
 
 if (files.length === 0) {
