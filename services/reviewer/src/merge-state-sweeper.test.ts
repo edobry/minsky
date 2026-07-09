@@ -794,12 +794,16 @@ const EVENT_CYCLE_END = "merge_state_sweeper.cycle_end";
  * + listSessions()), so a flat `setTimeout` wait would be sensitive to
  * CI/scheduler jitter. In practice this resolves within a couple of `stepMs`
  * ticks since the underlying work here is already-resolved fake promises;
- * `maxMs` is a generous ceiling, not the expected wait.
+ * `maxMs` is a generous ceiling, not the expected wait — widened to 3000ms
+ * (from an initial 500ms) per reviewer non-blocking nit: 500ms left little
+ * headroom for scheduler jitter under CI load. Early-exit polling (5ms
+ * steps) means a healthy run still returns in a couple ticks; only a truly
+ * stalled cycle pays the full ceiling.
  */
 async function waitForLogEvent(
   logs: string[],
   eventName: string,
-  maxMs = 500
+  maxMs = 3_000
 ): Promise<Record<string, unknown> | null> {
   const stepMs = 5;
   for (let waited = 0; waited < maxMs; waited += stepMs) {
