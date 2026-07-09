@@ -22,13 +22,14 @@ import {
   runMergeStateSweep,
   loadMergeStateSweeperConfig,
   startMergeStateSweeper,
+  type MergeStateSweeperConfig,
   type MergeStateSweeperDeps,
 } from "./merge-state-sweeper";
 import type { ReviewerConfig } from "./config";
 import type { Octokit } from "@octokit/rest";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session";
 import type { TaskServiceInterface } from "@minsky/domain/tasks";
-import { silenceConsoleLogs } from "./test-helpers/log-capture";
+import { silenceConsoleLogs, captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -721,6 +722,9 @@ describe("startMergeStateSweeper", () => {
       ownerDefaulted: false,
       repoDefaulted: false,
       githubTimeoutMs: GITHUB_TIMEOUT_MS,
+      // mt#2684: off here — this test never reaches the boot catch-up branch
+      // (the `enabled` guard returns first), but the field is required.
+      bootCatchupEnabled: false,
     });
     expect(handle).toBeNull();
   });
@@ -738,6 +742,9 @@ describe("startMergeStateSweeper", () => {
         ownerDefaulted: false,
         repoDefaulted: false,
         githubTimeoutMs: GITHUB_TIMEOUT_MS,
+        // mt#2684: off here — this test never reaches the boot catch-up
+        // branch (the missing-deps guard returns first).
+        bootCatchupEnabled: false,
       }
       // deps intentionally omitted — should return null
     );
@@ -755,6 +762,11 @@ describe("startMergeStateSweeper", () => {
         ownerDefaulted: false,
         repoDefaulted: false,
         githubTimeoutMs: GITHUB_TIMEOUT_MS,
+        // mt#2684: off here — no octokitOverride is supplied in this test, so
+        // a boot catch-up cycle would call the real createOctokit() (a live
+        // GitHub App auth handshake) in the background. Dedicated boot
+        // catch-up tests below opt back in explicitly with an octokitOverride.
+        bootCatchupEnabled: false,
       },
       {
         sessionProvider: makeSessionProvider([]),
@@ -765,5 +777,184 @@ describe("startMergeStateSweeper", () => {
     expect(handle).not.toBeNull();
     // Clean up the interval so the test process can exit cleanly.
     if (handle) clearInterval(handle);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startMergeStateSweeper — boot catch-up sweep (mt#2684)
+// ---------------------------------------------------------------------------
+
+const EVENT_CYCLE_END = "merge_state_sweeper.cycle_end";
+
+/**
+ * Poll `logs` until `findLogEvent` finds `eventName` or `maxMs` elapses.
+ *
+ * Mirrors sweeper.test.ts's mt#2660 boot-catch-up polling helper: the boot
+ * catch-up cycle is fire-and-forget (chained off the octokitOverride promise
+ * + listSessions()), so a flat `setTimeout` wait would be sensitive to
+ * CI/scheduler jitter. In practice this resolves within a couple of `stepMs`
+ * ticks since the underlying work here is already-resolved fake promises;
+ * `maxMs` is a generous ceiling, not the expected wait.
+ */
+async function waitForLogEvent(
+  logs: string[],
+  eventName: string,
+  maxMs = 500
+): Promise<Record<string, unknown> | null> {
+  const stepMs = 5;
+  for (let waited = 0; waited < maxMs; waited += stepMs) {
+    const found = findLogEvent(logs, eventName);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return findLogEvent(logs, eventName);
+}
+
+describe("loadMergeStateSweeperConfig — boot catch-up opt-out (mt#2684)", () => {
+  const BOOT_CATCHUP_ENV_VAR = "MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED";
+
+  it("bootCatchupEnabled defaults to true when env var is not set", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    delete process.env[BOOT_CATCHUP_ENV_VAR];
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(true);
+    } finally {
+      if (saved !== undefined) process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+    }
+  });
+
+  it("bootCatchupEnabled=false when env var is explicitly false", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    process.env[BOOT_CATCHUP_ENV_VAR] = "false";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(false);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      } else {
+        delete process.env[BOOT_CATCHUP_ENV_VAR];
+      }
+    }
+  });
+
+  it("bootCatchupEnabled=true when env var is explicitly true", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    process.env[BOOT_CATCHUP_ENV_VAR] = "true";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      } else {
+        delete process.env[BOOT_CATCHUP_ENV_VAR];
+      }
+    }
+  });
+});
+
+describe("startMergeStateSweeper — boot catch-up sweep (mt#2684)", () => {
+  // Long interval — if the immediate boot cycle didn't fire, no
+  // merge_state_sweeper.cycle_end would ever appear within a test's lifetime.
+  const BASE_BOOT_SWEEPER_CONFIG: MergeStateSweeperConfig = {
+    enabled: true,
+    intervalMs: 3_600_000,
+    owner: OWNER,
+    repo: REPO,
+    ownerDefaulted: false,
+    repoDefaulted: false,
+    githubTimeoutMs: GITHUB_TIMEOUT_MS,
+    bootCatchupEnabled: true,
+  };
+
+  it("bootCatchupEnabled=true: runs a sweep cycle immediately at boot, without waiting for the interval", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const octokit = makeFakeOctokit({ prResponses: {} });
+      handle = startMergeStateSweeper(
+        BASE_REVIEWER_CONFIG,
+        BASE_BOOT_SWEEPER_CONFIG,
+        makeDeps([]),
+        octokit
+      );
+
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "merge_state_sweeper.boot_catchup_start")).not.toBeNull();
+    expect(findLogEvent(logs, "merge_state_sweeper.cycle_start")).not.toBeNull();
+    expect(findLogEvent(logs, EVENT_CYCLE_END)).not.toBeNull();
+  });
+
+  it("bootCatchupEnabled=false: does NOT run a sweep cycle at boot; only the periodic tick would", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const octokit = makeFakeOctokit({ prResponses: {} });
+      handle = startMergeStateSweeper(
+        BASE_REVIEWER_CONFIG,
+        { ...BASE_BOOT_SWEEPER_CONFIG, bootCatchupEnabled: false },
+        makeDeps([]),
+        octokit
+      );
+
+      // No wait needed here: with bootCatchupEnabled=false, runCycle() is
+      // never called from startMergeStateSweeper — there is no async work in
+      // flight to wait for, so asserting immediately is both correct and
+      // non-flaky.
+      expect(findLogEvent(logs, "merge_state_sweeper.boot_catchup_skipped")).not.toBeNull();
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "merge_state_sweeper.boot_catchup_start")).toBeNull();
+    expect(findLogEvent(logs, "merge_state_sweeper.cycle_start")).toBeNull();
+  });
+
+  it("boot catch-up detects and syncs a missed merge immediately (mt#2684 acceptance scenario)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    const sessions = [
+      makePrOpenSession({ sessionId: "s_boot", taskId: "mt#2684", prNumber: 2684 }),
+    ];
+    const syncCalledFor: string[] = [];
+    try {
+      const octokit = makeFakeOctokit({
+        prResponses: {
+          2684: {
+            merged: true,
+            merged_at: "2026-07-08T00:00:00Z",
+            merge_commit_sha: "boot1234",
+          },
+        },
+      });
+      handle = startMergeStateSweeper(
+        BASE_REVIEWER_CONFIG,
+        BASE_BOOT_SWEEPER_CONFIG,
+        makeDeps(sessions, async (params) => {
+          syncCalledFor.push(params.sessionId);
+        }),
+        octokit
+      );
+
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    // The boot cycle fires immediately, without waiting for the (1-hour)
+    // interval, and processes the missed merge in one pass.
+    expect(syncCalledFor).toEqual(["s_boot"]);
+    const cycleEnd = findLogEvent(logs, EVENT_CYCLE_END);
+    expect(cycleEnd?.syncsTriggered).toBe(1);
+    expect(cycleEnd?.missedSyncs).toBe(1);
   });
 });
