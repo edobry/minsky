@@ -19,7 +19,7 @@ import { mkdtemp, writeFile, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
-import { policyFirstRoute } from "./router";
+import { policyFirstRoute, buildPolicyClosedEvent } from "./router";
 import type { Ask } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ describe("policyFirstRoute", () => {
         "utf-8"
       );
 
-      const ask = makeAsk(KIND_AUTH_APPROVE, "Approve running tests");
+      const ask = makeAsk(KIND_AUTH_APPROVE, "Approve test runs");
       const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
 
       expect(result.closedAt).toBeTruthy();
@@ -121,6 +121,77 @@ describe("policyFirstRoute", () => {
       expect(result.state).toBe("closed");
       const responseCitation = (result.response?.payload as { citation?: unknown })?.citation;
       expect(responseCitation).toBeDefined();
+    });
+
+    it("AT3 (mt#2666): a quality.review disposition Ask is NOT policy-closed even when CLAUDE.md pairs 'review' with authority keywords (c26eca0a reproducer)", async () => {
+      // The incident paragraph shape: "review" + "silent-allow" in one statement.
+      await writeFile(
+        join(tmpDir, "CLAUDE.md"),
+        `
+## Branch Freshness Guard
+
+PreToolUse on session_commit: blocks when origin/main has commits the branch lacks.
+On block: rebase, review for overlap, retry. Fail: silent-allow on 4 routine paths.
+`,
+        "utf-8"
+      );
+
+      const ask: Ask = {
+        ...makeAsk(
+          KIND_QUALITY_REVIEW,
+          "Calibration review: per-detector flip/tune/retire disposition"
+        ),
+        options: [
+          { label: "Approve all", value: "approve-all" },
+          { label: "Custom", value: "custom" },
+        ],
+      };
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+
+      expect(result.routingTarget).not.toBe("policy");
+      expect(result.state).not.toBe("closed");
+    });
+
+    it("mt#2666: an options-bearing authorization.approve Ask skips phase 1", async () => {
+      await writeFile(
+        join(tmpDir, "CLAUDE.md"),
+        "- auto-approve formatter commits: pre-approved without manual review.",
+        "utf-8"
+      );
+
+      const ask: Ask = {
+        ...makeAsk(KIND_AUTH_APPROVE, "Approve formatter commit changes"),
+        options: [{ label: "Approve", value: "yes" }],
+      };
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+
+      expect(result.routingTarget).not.toBe("policy");
+    });
+  });
+
+  describe("buildPolicyClosedEvent (mt#2666 SC4)", () => {
+    it("builds the audit event from a policy closure, carrying the citation", async () => {
+      await writeFile(
+        join(tmpDir, "CLAUDE.md"),
+        "policy: lint fixes are auto-approved without operator sign-off.",
+        "utf-8"
+      );
+      const ask = makeAsk(KIND_AUTH_APPROVE, "Approve lint fix");
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+      expect(result.state).toBe("closed");
+
+      const event = buildPolicyClosedEvent(result);
+      expect(event).not.toBeNull();
+      expect(event?.eventType).toBe("ask.policy_closed");
+      expect(event?.payload["askId"]).toBe(ask.id);
+      expect(event?.payload["citationSource"]).toBe("CLAUDE.md");
+    });
+
+    it("returns null for a routed (non-policy) result", async () => {
+      await writeFile(join(tmpDir, "CLAUDE.md"), "# Nothing relevant\n", "utf-8");
+      const ask = makeAsk(KIND_DIR_DECIDE, "Decide the migration strategy");
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+      expect(buildPolicyClosedEvent(result)).toBeNull();
     });
   });
 
@@ -344,12 +415,15 @@ The following steps are permitted: approve and run the CI test suite at any time
 
     it("policy coverage takes precedence over elicitation routing", async () => {
       // Phase 1 (policy) runs before Phase 2 (capability-aware kind dispatch).
-      // A direction.decide Ask whose context is policy-covered should close,
-      // even when elicitation is available.
+      // A policy-eligible (authorization.approve, mt#2666) Ask whose context
+      // is policy-covered should close, even when elicitation is available.
+      // (Pre-mt#2666 this used direction.decide — that kind is no longer
+      // policy-eligible precisely because policy-closing operator decisions
+      // was the c26eca0a failure mode.)
       const claudeMdPath = join(tmpDir, "CLAUDE.md");
-      await writeFile(claudeMdPath, "Policy: auto-approve direction.decide on test scope.\n");
+      await writeFile(claudeMdPath, "Policy: auto-approve formatter commits on test scope.\n");
 
-      const ask = makeAsk(KIND_DIR_DECIDE, "Some routine choice");
+      const ask = makeAsk(KIND_AUTH_APPROVE, "Approve formatter commit");
       const result = await policyFirstRoute(ask, {
         workspaceRoot: tmpDir,
         capabilityRegistry: makeRegistry(true),

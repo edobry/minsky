@@ -45,7 +45,7 @@ import { exit } from "@minsky/shared/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "@minsky/domain/schemas/error";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import { isMcpStartStdio, isCompletionInvocation } from "./cli-discriminators";
+import { isMcpStartStdio, isCompletionInvocation, isCockpitInvocation } from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 
 /**
@@ -106,6 +106,18 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     if (isCompletionInvocation(actionCommand)) {
       profileCheckpoint("preaction_skipped_for_completions_complete");
       log.debug("Container init skipped for completions complete (mt#1892)");
+      return;
+    }
+
+    // mt#2699: the cockpit is a standalone Express server with no tsyringe
+    // container (createCockpitCommand discards the parameter; cockpit data
+    // paths bootstrap their own lazy PersistenceService singleton). The eager
+    // init here (~2.6 s network-bound DB connect) was the dominant share of
+    // the cockpit daemon's cold-boot latency — the deeplink white-window gap
+    // (mt#2688). Skip outright; nothing on the cockpit path awaits it.
+    if (isCockpitInvocation(actionCommand)) {
+      profileCheckpoint("preaction_skipped_for_cockpit");
+      log.debug("Container init skipped for cockpit commands (mt#2699)");
       return;
     }
 

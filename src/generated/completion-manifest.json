@@ -3745,6 +3745,10 @@
             {
               "flags": ["--verbose"],
               "description": "Show detailed diagnostic results"
+            },
+            {
+              "flags": ["--fix"],
+              "description": "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)"
             }
           ]
         },
@@ -4233,7 +4237,7 @@
             },
             {
               "name": "respond",
-              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error.",
+              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--message"],
@@ -4319,7 +4323,7 @@
             },
             {
               "name": "wait-for-response",
-              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status.",
+              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
@@ -4335,7 +4339,7 @@
             },
             {
               "name": "edit",
-              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata.",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--title"],
@@ -4516,7 +4520,7 @@
             },
             {
               "name": "retrigger",
-              "description": "Trigger a fresh review on a PR's current HEAD. Calls the reviewer service's /retrigger endpoint.",
+              "description": "Trigger a fresh review on a PR's current HEAD. Uses the reviewer service's /retrigger endpoint (mcp.auth.token), falling back to a GitHub-auth `/review` comment when only github.token is available (mt#2679).",
               "options": [
                 {
                   "flags": ["--owner"],
@@ -4823,7 +4827,7 @@
         },
         {
           "name": "get",
-          "description": "Fetch a single memory record by its identifier."
+          "description": "Fetch a single memory record by its identifier. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff."
         },
         {
           "name": "list",
@@ -5010,7 +5014,7 @@
         },
         {
           "name": "similar",
-          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results.",
+          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
           "options": [
             {
               "flags": ["--limit"],
@@ -5089,7 +5093,7 @@
         },
         {
           "name": "lineage",
-          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata."
+          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) for `id`."
         }
       ]
     },
@@ -5523,7 +5527,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -5544,7 +5548,8 @@
                 "deploy.build",
                 "deploy.smoke",
                 "deploy.live",
-                "deploy.fail"
+                "deploy.fail",
+                "ask.policy_closed"
               ]
             },
             {

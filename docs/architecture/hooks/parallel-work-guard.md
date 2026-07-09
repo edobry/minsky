@@ -23,7 +23,10 @@ the guard for the collapsed dispatch path. The fix mirrors the bind/advance spec
 resolves a `taskId` for `session_start` (its `task`/`taskId` field) OR for `tasks_dispatch`
 existing-task mode (its `taskId` field), and "" for anything else — including `tasks_dispatch`
 new-task mode (`title`, no `taskId`), which creates a fresh task in-call with nothing
-pre-existing to collide with, so it is intentionally NOT covered by this sweep. The denial
+pre-existing to collide with, so it is intentionally NOT covered by this sweep — but it IS
+covered by the duplicate-child matcher since mt#2683 (see below): new-task mode creates the
+subtask in-process, so no top-level `tasks_create` call ever fires, and the matcher runs on
+the dispatch call itself when `parentTaskId` is present. The denial
 message names the actual action (`session_start` vs `one-call-dispatching`) via
 `formatBlockMessage`'s `actionLabel` parameter.
 
@@ -69,7 +72,10 @@ section, the hook emits a warning to stdout and allows the session_start to proc
 ### Duplicate-child matcher (mt#1435)
 
 The same hook ALSO fires on `mcp__minsky__tasks_create` when the `parent` argument is set —
-the upstream-of-session*start variant of the same guard. The session_start sweep and the
+the upstream-of-session*start variant of the same guard — and, since mt#2683, on
+`mcp__minsky__tasks_dispatch` in **new-task mode** (`title` + `parentTaskId`, no `taskId`),
+which creates the subtask in-process without any `tasks_create` call (the mt#2657-round-3
+coverage gap). The session_start sweep and the
 `/plan-task` gate (g) both run at the \_planning* boundary; when an umbrella is decomposed,
 minutes-to-hours can pass between the gate read and the actual `tasks_create` calls, during
 which a concurrent agent's children can land. This matcher fires at the _mutating action_,
@@ -77,7 +83,9 @@ so it catches the concurrent-decomposition case regardless of that time gap.
 
 **How it works:**
 
-1. On a `tasks_create` with `parent` set, enumerate the parent's children via a
+1. On a `tasks_create` with `parent` set (or a new-task-mode `tasks_dispatch` with
+   `parentTaskId` — `resolveDuplicateGuardParent` reads whichever is present), enumerate the
+   parent's children via a
    **hybrid** strategy that avoids a per-child N+1 (each `minsky tasks get` costs
    ~2s of CLI startup): `minsky tasks children <parent>` for the IDs, then ONE
    bulk `minsky tasks list --json` call to resolve every **active** child
@@ -90,15 +98,39 @@ so it catches the concurrent-decomposition case regardless of that time gap.
    cold-start), AND a
    `DUP_GUARD_OVERALL_BUDGET_MS = 20000` wall-clock budget that hard-breaks the
    per-child fallback early (visible warning + partial-set check —
-   fail-open-on-budget). **ALL statuses** are enumerated
-   (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
-   decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
-   terminal-status-only filter would miss exactly the case this exists to catch.
+   fail-open-on-budget). Enumeration covers **all** existing children regardless
+   of status — a concurrent decomposition's children are typically still
+   TODO/IN-PROGRESS at file-time, so skipping any status class at enumeration
+   time would lose signal. The **decision** then buckets the enumerated children
+   by status (mt#2683): ACTIVE siblings (TODO / PLANNING / READY / IN-PROGRESS /
+   IN-REVIEW / BLOCKED) are BLOCK candidates (step 3); TERMINAL siblings
+   (DONE / CLOSED / COMPLETED) are WARN candidates only (step 4).
 2. Tokenize the new title and each child title into lowercase 4+-char non-stopword tokens
-   (domain nouns are deliberately NOT stopworded — they are the duplicate signal).
-3. If the new title shares ≥ `DUPLICATE_TOKEN_THRESHOLD` (2) substantive tokens with any
-   existing child, BLOCK with a structured message naming the offending child's id, status,
-   and the overlapping tokens.
+   (domain nouns are deliberately NOT stopworded — they are the duplicate signal). Tokens
+   that appear in the **parent's own title** are discounted from the count (mt#2683): an
+   epic's children legitimately share the epic's vocabulary, so parent-title tokens carry no
+   sibling-duplicate signal. The parent title is fetched lazily (one budget-bounded
+   `minsky tasks get <parent> --json`, via `fetchTaskTitle`) only when an undiscounted
+   candidate match exists — the common permit path pays no extra CLI call; a failed fetch
+   means no discount (conservative).
+3. If the new title shares ≥ `DUPLICATE_TOKEN_THRESHOLD` (2) **counted** (non-discounted)
+   tokens with an **ACTIVE** sibling, BLOCK with a structured message naming the offending
+   child's id, status, the counted tokens, and any discounted parent-vocabulary tokens.
+4. If the only such match is a **TERMINAL** sibling (DONE/CLOSED/COMPLETED —
+   `TERMINAL_TASK_STATUSES`), emit a **non-blocking WARN** instead (mt#2683): a terminal
+   sibling cannot be a concurrent agent mid-decomposition, which is the failure mode this
+   matcher blocks on. The traded-away coverage — re-filing already-shipped work — is owned
+   at planning time by `/plan-task` gate (g)(3), which explicitly enumerates terminal
+   siblings; the WARN line points there.
+
+**Matcher-tuning rationale (mt#2683).** Two 2026-07-08 false positives motivated the
+status-aware matching and the parent-vocabulary discount: (a) the mt#2581 re-plan filed three
+genuinely-distinct children that were all blocked against the DONE ADR sibling mt#2582 on the
+epic's own nouns ("transcript"/"storage"/"archive"); (b) the mt#2686 filing under mt#2522 was
+blocked against the TODO sibling mt#2523 on two generic shared tokens ("conversation"/"code"),
+where "conversation" is the epic's own vocabulary. Both incidents are regression-tested with
+their real titles in `.minsky/hooks/parallel-work-guard-dedup.test.ts`; a true near-duplicate
+of an ACTIVE sibling still blocks despite the discount.
 
 **Fail-open posture:** a no-parent create is a no-op; an unreadable children list is
 warn-and-permit; an individual unreadable/malformed child is skipped (not fatal); a
@@ -132,6 +164,15 @@ unexpired grant bypasses with the same audit-line shape, additionally naming
 grant schema and `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md` §D8 for the
 design rationale (generalizes mt#2651's merge-grant store from a single guard/scope pair to
 any `(guardName, scope)` pair).
+
+**No in-band `tool_input` override (mt#2683 decision record).** mt#2683's planning considered
+adding an in-band override field on the `tasks_create` call itself (`duplicateOk: true`, or
+honoring the existing `force` param) on top of the grant channel, and decided against it: the
+grant channel is already mid-session-reachable with reason/TTL/audit discipline an in-band
+flag would lack, the guard's recorded block history at decision time was 4 blocks / 4 false
+positives / 0 true positives (so precision belonged in the matcher, not in a softer override),
+and a new schema field would propagate to MCP/CLI consumers. If mt#1637's generalized
+in-band-override convention ships later, this guard can adopt it then.
 
 **Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
 umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent

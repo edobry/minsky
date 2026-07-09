@@ -50,8 +50,21 @@ export function createSessionListCommand(
       // ADR-021 / mt#2416: resolve project scope so list returns only this
       // project's sessions by default. When allProjects=true, skip scope
       // resolution and let the repository return all rows.
+      //
+      // mt#2697: also skip project-scope resolution when a task filter is
+      // supplied. `session_list task:"mt#X"` is the collision-probe predicate
+      // (session_start / tasks_dispatch's "is this task already in use" check
+      // consults sessionDB.listSessions({ taskId }) UNSCOPED by project — see
+      // start-session-operations.ts). Applying project scope on top of an
+      // explicit task filter would make session_list silently disagree with
+      // that check for any session whose project_id doesn't match the caller's
+      // current project scope (including legitimately unstamped rows), which is
+      // exactly the divergence that broke the probe protocol during the
+      // 2026-07-08 incident. A task-filtered query is already maximally
+      // specific — project scoping adds no precision, only a false-negative risk.
+      const hasTaskFilter = typeof params.task === "string" && params.task.length > 0;
       let projectScope: string | undefined;
-      if (!allProjects) {
+      if (!allProjects && !hasTaskFilter) {
         const provider = getPersistenceProvider?.();
         const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
         if (sqlProvider?.getDatabaseConnection) {

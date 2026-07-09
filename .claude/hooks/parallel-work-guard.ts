@@ -18,7 +18,10 @@
 // `resolveSessionStartLikeTaskId`) is how the one-call dispatch path composes this open-PR
 // sweep rather than silently bypassing it, mirroring `check-task-spec-read.ts`'s
 // DISPATCH_TOOL approach for the bind/advance spec-read guard. New-task mode (`title`, no
-// `taskId`) is not covered by this sweep — nothing pre-existing to collide with.
+// `taskId`) is not covered by this sweep — nothing pre-existing to collide with — but it
+// IS covered by the duplicate-child matcher (mt#2683): new-task mode creates the subtask
+// in-process, so no top-level `tasks_create` call ever fires, and the matcher must run on
+// the dispatch call itself when `parentTaskId` is present.
 //
 // Two checks are run:
 //   A. Open-PR sweep (BLOCKING): any open PR whose changed files overlap the task's
@@ -1409,11 +1412,20 @@ export function deriveRepoFromGit(repoDir: string): string | null {
 // read and the actual `tasks_create` calls, during which a concurrent agent's
 // children can land (R6, 2026-06-10: mt#2403-2406 duplicated mt#2397/2398/2399
 // under mt#2370). This guard fires at the *mutating action*, so it catches
-// concurrent children regardless of that time gap.
+// concurrent children regardless of that time gap. Also fires on
+// `mcp__minsky__tasks_dispatch` in new-task mode (`title` + `parentTaskId`,
+// no `taskId`) — the one-call dispatch path creates the subtask in-process,
+// bypassing `tasks_create` entirely (mt#2683, mt#2657-round-3 coverage gap).
 //
-// Enumerates ALL existing children (any status) — a concurrent decomposition's
-// children are typically still TODO/IN-PROGRESS, not DONE, at file-time, so a
-// terminal-status-only filter would miss exactly this case.
+// Enumerates ALL existing children, but treats them by status (mt#2683):
+// ACTIVE children (a concurrent decomposition's children are typically still
+// TODO/IN-PROGRESS at file-time) can BLOCK; TERMINAL children (DONE/CLOSED/
+// COMPLETED — cannot be a concurrent decomposition in flight) only WARN,
+// pointing at the re-filing-shipped-work hazard that /plan-task gate (g)(3)
+// owns at planning time. Tokens that appear in the PARENT's own title are
+// discounted from the overlap count — an epic's children legitimately share
+// the epic's vocabulary (mt#2581 FP: "transcript/storage"; mt#2686 FP:
+// "conversation"), so parent-title tokens carry no sibling-duplicate signal.
 // ---------------------------------------------------------------------------
 
 /** One existing child of the parent being filed under. */
@@ -1426,11 +1438,23 @@ export interface ChildTask {
 /** A title-overlap hit between the new task and an existing child. */
 export interface DuplicateMatch {
   child: ChildTask;
+  /** Shared substantive tokens that COUNT toward the threshold. */
   tokens: string[];
+  /**
+   * Shared tokens discounted as parent-title vocabulary (mt#2683) — reported
+   * for transparency in the block message, but not counted.
+   */
+  discounted?: string[];
 }
 
 /** Minimum shared substantive tokens to flag a duplicate. */
 export const DUPLICATE_TOKEN_THRESHOLD = 2;
+
+/**
+ * Statuses that cannot represent a concurrent decomposition in flight
+ * (mt#2683). A terminal sibling match warns instead of blocking.
+ */
+export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
 
 // Latency bounds for the N+1 `tasks get` fetch. The PreToolUse host cap for this
 // hook is 30s (.claude/settings.json); blowing it gets the hook SIGTERM'd
@@ -1545,20 +1569,26 @@ export function titleOverlapTokens(a: string, b: string): string[] {
 }
 
 /**
- * Return the strongest duplicate match (most shared tokens) among `children`,
- * or null if none shares ≥ DUPLICATE_TOKEN_THRESHOLD substantive tokens with
- * `newTitle`. Pure — children are passed in.
+ * Return the strongest duplicate match (most counted shared tokens) among
+ * `children`, or null if none shares ≥ DUPLICATE_TOKEN_THRESHOLD substantive
+ * tokens with `newTitle`. Tokens appearing in `opts.parentTitle` are
+ * discounted from the count (mt#2683) — epic children legitimately share the
+ * epic's vocabulary. Pure — children are passed in.
  */
 export function detectDuplicateChild(
   newTitle: string,
-  children: ChildTask[]
+  children: ChildTask[],
+  opts: { parentTitle?: string } = {}
 ): DuplicateMatch | null {
+  const parentTokens = tokenizeTitle(opts.parentTitle ?? "");
   let best: DuplicateMatch | null = null;
   for (const child of children) {
-    const tokens = titleOverlapTokens(newTitle, child.title);
+    const shared = titleOverlapTokens(newTitle, child.title);
+    const tokens = shared.filter((t) => !parentTokens.has(t));
     if (tokens.length >= DUPLICATE_TOKEN_THRESHOLD) {
       if (best === null || tokens.length > best.tokens.length) {
-        best = { child, tokens };
+        const discounted = shared.filter((t) => parentTokens.has(t));
+        best = discounted.length > 0 ? { child, tokens, discounted } : { child, tokens };
       }
     }
   }
@@ -1703,6 +1733,24 @@ export function fetchTaskChildren(
   return children;
 }
 
+/**
+ * Fetch a task's title for the parent-vocabulary discount (mt#2683). One
+ * budget-bounded CLI call; null on any failure — no discount, i.e. the
+ * conservative pre-mt#2683 matching behavior.
+ */
+export function fetchTaskTitle(taskId: string): string | null {
+  const got = execWithPath(["minsky", "tasks", "get", taskId, "--json"], {
+    timeout: DUP_GUARD_CLI_TIMEOUT_MS,
+  });
+  if (got.exitCode !== 0) return null;
+  try {
+    const parsed = JSON.parse(got.stdout) as { task?: { title?: unknown } };
+    return typeof parsed.task?.title === "string" ? parsed.task.title : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Structured block message naming the colliding child + overlapping tokens. */
 export function formatDuplicateBlockMessage(
   parent: string,
@@ -1719,6 +1767,11 @@ export function formatDuplicateBlockMessage(
     `  Existing child: ${match.child.id} [${match.child.status}] — "${match.child.title}"`
   );
   lines.push(`  Shared tokens:  ${match.tokens.join(", ")}`);
+  if (match.discounted && match.discounted.length > 0) {
+    lines.push(
+      `  Discounted (parent-title vocabulary, not counted): ${match.discounted.join(", ")}`
+    );
+  }
   lines.push("");
   lines.push("A concurrent agent may have already decomposed this parent. Before filing, run");
   lines.push(`  minsky tasks children ${parent}`);
@@ -1738,22 +1791,75 @@ export function formatDuplicateBlockMessage(
   return lines.join("\n");
 }
 
+/**
+ * Non-blocking advisory for a token-overlap hit against a TERMINAL sibling
+ * (mt#2683). A DONE/CLOSED/COMPLETED sibling cannot be a concurrent agent
+ * mid-decomposition — the failure mode this guard blocks on — but the overlap
+ * may still mean the new task re-files already-shipped work, which /plan-task
+ * gate (g)(3) owns at planning time.
+ */
+export function formatTerminalSiblingWarning(
+  parent: string,
+  newTitle: string,
+  match: DuplicateMatch
+): string {
+  return (
+    `[parallel-work-guard] NOTE: new child of ${parent} ("${newTitle}") shares tokens ` +
+    `[${match.tokens.join(", ")}] with TERMINAL sibling ${match.child.id} ` +
+    `[${match.child.status}] — "${match.child.title}". A terminal sibling cannot be a ` +
+    `concurrent decomposition, so this does NOT block — but confirm the new task is not ` +
+    `re-filing already-shipped work (see /plan-task gate (g)(3)).`
+  );
+}
+
 /** The decision a tasks_create call resolves to (pure; I/O injected). */
 export type DuplicateGuardDecision =
   | { action: "skip"; reason: string }
   | { action: "permit" }
+  | { action: "warn"; message: string }
   | { action: "override"; auditMatch: string }
   | { action: "block"; message: string };
 
 /**
+ * Parent id for the duplicate-child sweep: `parent` (tasks_create) or
+ * `parentTaskId` (tasks_dispatch new-task mode, mt#2683). The two params never
+ * co-occur: tasks_create has no `parentTaskId`, and tasks_dispatch rejects
+ * `parentTaskId` outside new-task mode. Returns "" when neither is present.
+ */
+export function resolveDuplicateGuardParent(toolInput: Record<string, unknown>): string {
+  if (typeof toolInput["parent"] === "string" && toolInput["parent"]) {
+    return toolInput["parent"] as string;
+  }
+  if (typeof toolInput["parentTaskId"] === "string" && toolInput["parentTaskId"]) {
+    return toolInput["parentTaskId"] as string;
+  }
+  return "";
+}
+
+/**
+ * tasks_dispatch new-task mode: `title` present, no `taskId` (mt#2683).
+ * Existing-task mode (`taskId`) is the open-PR sweep's concern instead.
+ */
+export function isNewTaskModeDispatch(toolInput: Record<string, unknown>): boolean {
+  return typeof toolInput["title"] === "string" && typeof toolInput["taskId"] !== "string";
+}
+
+/**
  * Pure decision for the tasks_create duplicate-child guard. `deps.fetchChildren`
  * is injected so this is hermetically testable without invoking the CLI.
+ * `deps.fetchParentTitle` (optional) backs the parent-vocabulary discount
+ * (mt#2683); it is called LAZILY — only when an undiscounted candidate match
+ * exists — so the common permit path pays no extra CLI call.
  */
 export function decideTasksCreateGuard(
   toolInput: Record<string, unknown>,
-  deps: { fetchChildren: (parent: string) => ChildTask[] | null; overrideActive: boolean }
+  deps: {
+    fetchChildren: (parent: string) => ChildTask[] | null;
+    overrideActive: boolean;
+    fetchParentTitle?: (parent: string) => string | null;
+  }
 ): DuplicateGuardDecision {
-  const parent = typeof toolInput["parent"] === "string" ? (toolInput["parent"] as string) : "";
+  const parent = resolveDuplicateGuardParent(toolInput);
   if (!parent) {
     return { action: "skip", reason: "no parent — top-level create, nothing to dedup" };
   }
@@ -1762,7 +1868,28 @@ export function decideTasksCreateGuard(
     return { action: "skip", reason: `tasks_create under ${parent} has no title` };
   }
 
+  // Lazy, memoized parent-title lookup: only paid on the rare would-match path.
+  let parentTitleFetched = false;
+  let parentTitle: string | undefined;
+  const getParentTitle = (): string | undefined => {
+    if (!parentTitleFetched) {
+      parentTitleFetched = true;
+      parentTitle = deps.fetchParentTitle
+        ? (deps.fetchParentTitle(parent) ?? undefined)
+        : undefined;
+    }
+    return parentTitle;
+  };
+  const detect = (pool: ChildTask[]): DuplicateMatch | null => {
+    if (detectDuplicateChild(title, pool) === null) return null;
+    return detectDuplicateChild(title, pool, { parentTitle: getParentTitle() });
+  };
+
   if (deps.overrideActive) {
+    // Audit-only path (PR #1859 R1 BLOCKING): no parent-title fetch, no
+    // discount — a single undiscounted detection keeps the override
+    // side-effect-free (no extra CLI call) and the audited match id
+    // deterministic regardless of parent-title availability.
     const children = deps.fetchChildren(parent) ?? [];
     const match = detectDuplicateChild(title, children);
     return { action: "override", auditMatch: match ? match.child.id : "none" };
@@ -1773,10 +1900,16 @@ export function decideTasksCreateGuard(
     return { action: "skip", reason: `could not enumerate children of ${parent}` };
   }
 
-  const match = detectDuplicateChild(title, children);
-  if (match) {
-    return { action: "block", message: formatDuplicateBlockMessage(parent, title, match) };
+  const activeMatch = detect(children.filter((c) => !TERMINAL_TASK_STATUSES.has(c.status)));
+  if (activeMatch) {
+    return { action: "block", message: formatDuplicateBlockMessage(parent, title, activeMatch) };
   }
+
+  const terminalMatch = detect(children.filter((c) => TERMINAL_TASK_STATUSES.has(c.status)));
+  if (terminalMatch) {
+    return { action: "warn", message: formatTerminalSiblingWarning(parent, title, terminalMatch) };
+  }
+
   return { action: "permit" };
 }
 
@@ -1886,14 +2019,12 @@ function runTasksCreateGuard(input: ToolHookInput): void {
 }
 
 function runTasksCreateGuardInner(input: ToolHookInput): void {
-  const parentForScope =
-    typeof input.tool_input["parent"] === "string"
-      ? (input.tool_input["parent"] as string)
-      : undefined;
+  const parentForScope = resolveDuplicateGuardParent(input.tool_input) || undefined;
   const overrideResolution = resolveDuplicateGuardOverride(parentForScope, process.env);
   const decision = decideTasksCreateGuard(input.tool_input, {
     fetchChildren: (parent) => fetchTaskChildren(parent),
     overrideActive: overrideResolution.active,
+    fetchParentTitle: (parent) => fetchTaskTitle(parent),
   });
 
   switch (decision.action) {
@@ -1902,9 +2033,20 @@ function runTasksCreateGuardInner(input: ToolHookInput): void {
         `[parallel-work-guard] tasks_create dedup skipped — ${decision.reason}\n`
       );
       return;
+    case "warn":
+      // stdout for log-grep compatibility; additionalContext so host UIs
+      // that only surface hookSpecificOutput content still see the advisory
+      // (mirrors the open-PR sweep's permit-with-warnings path, PR #1859 R1).
+      process.stdout.write(`${decision.message}\n`);
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: decision.message,
+        },
+      });
+      return;
     case "override": {
-      const parent =
-        typeof input.tool_input["parent"] === "string" ? input.tool_input["parent"] : "";
+      const parent = parentForScope ?? "";
       const title = typeof input.tool_input["title"] === "string" ? input.tool_input["title"] : "";
       const ts = new Date().toISOString();
       const source = overrideResolution.active ? overrideResolution.source : "env";
@@ -1989,6 +2131,17 @@ if (import.meta.main) {
   // tasks_create with a parent → duplicate-child guard (mt#1435). Fires at the
   // mutating action, upstream of where session_start would catch it.
   if (input.tool_name === "mcp__minsky__tasks_create") {
+    runTasksCreateGuard(input);
+    process.exit(0);
+  }
+
+  // tasks_dispatch NEW-TASK mode (`title`, no `taskId`) creates the subtask
+  // IN-PROCESS — no top-level tasks_create call ever fires, so the duplicate-
+  // child matcher must run on the dispatch call itself (mt#2683, closing the
+  // mt#2657-round-3 coverage gap). `resolveDuplicateGuardParent` reads
+  // `parentTaskId`; without it the guard skips (root create, nothing to dedup).
+  // Existing-task mode falls through to the open-PR sweep below.
+  if (input.tool_name === DISPATCH_TOOL_NAME && isNewTaskModeDispatch(input.tool_input)) {
     runTasksCreateGuard(input);
     process.exit(0);
   }

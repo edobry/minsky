@@ -40,6 +40,8 @@ import type {
 import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
 import { emitSystemEventBestEffort } from "../system-event-emit";
+import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
+import { classifyIdInput, resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
@@ -637,6 +639,64 @@ async function resolveMemoryProjectScope(
   }
 }
 
+// ─── mt#2696: id-prefix resolution ────────────────────────────────────────────
+
+/**
+ * Resolve the raw Postgres connection for a prefix-resolution lookup, without
+ * building a full MemoryService. Fails soft (returns null) on any resolution
+ * problem — the caller falls back to passing the raw input through, letting
+ * `resolveMemoryService` (called immediately after in every command) surface
+ * its own descriptive "persistence provider required" error.
+ */
+async function resolveMemoryDbForPrefix(
+  ctx: CommandExecutionContext
+): Promise<MemoryServiceDb | null> {
+  const persistence = ctx?.container?.has("persistence")
+    ? ctx.container.get("persistence")
+    : undefined;
+  if (!persistence) return null;
+
+  try {
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    return connection ? (connection as MemoryServiceDb) : null;
+  } catch (err: unknown) {
+    log.debug("[memory] DB resolution for id-prefix lookup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Resolve a caller-supplied memory id (full UUID or unambiguous prefix, mt#2696)
+ * to the full UUID `memories.id` before it reaches any `eq(memoriesTable.id, ...)`
+ * comparison. A full UUID passes through unchanged with no query. A short/no-match/
+ * ambiguous prefix throws a clean tool-level error (never a raw Postgres
+ * "invalid input syntax for type uuid" error).
+ *
+ * When no DB connection is resolvable here, the raw input is passed through —
+ * the immediately-following `resolveMemoryService` call in every command
+ * surfaces the "persistence provider required" error instead.
+ */
+async function resolveMemoryIdInput(id: string, ctx: CommandExecutionContext): Promise<string> {
+  const db = await resolveMemoryDbForPrefix(ctx);
+  if (!db) return id;
+
+  return resolveIdPrefixOrThrow({
+    db,
+    table: memoriesTable,
+    idColumn: memoriesTable.id,
+    labelColumn: memoriesTable.name,
+    input: id,
+    entityName: "memory",
+  });
+}
+
 // ─── Registration function ────────────────────────────────────────────────────
 
 export function registerMemoryCommands(
@@ -686,16 +746,38 @@ export function registerMemoryCommands(
     id: "memory.get",
     category: CommandCategory.MEMORY,
     name: "get",
-    description: "Fetch a single memory record by its identifier.",
+    description:
+      "Fetch a single memory record by its identifier. Accepts a full UUID or an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff.",
     parameters: memoryGetParams,
     execute: async (params: MemoryGetParams, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.get", { id: params.id });
 
+      // mt#2696: resolve a short-prefix citation to the full uuid before it
+      // ever reaches a Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const record = await service.get(params.id);
+      const record = await service.get(id);
 
       if (!record) {
-        throw new Error(`Memory not found: "${params.id}"`);
+        // mt#2696 R1: name both what the caller passed AND how it was
+        // interpreted (full UUID vs prefix) rather than echoing the raw
+        // input unconditionally — a resolved prefix that no longer matches
+        // a live row (e.g. deleted between resolution and this read) reads
+        // very differently from a syntactically full UUID that never
+        // existed, and the diagnostic should say which happened.
+        const classification = classifyIdInput(params.id);
+        // Only claim a resolution happened when one actually did — when no DB
+        // was available, resolveMemoryIdInput passes the prefix through
+        // unchanged, and "(resolved to <the same prefix>)" would be false.
+        const message =
+          classification.kind === "prefix"
+            ? id !== params.id
+              ? `Memory not found for id prefix "${params.id}" (resolved to "${id}")`
+              : `Memory not found for id prefix "${params.id}"`
+            : `Memory not found with id "${id}"`;
+        throw new Error(message);
       }
 
       return record;
@@ -858,13 +940,18 @@ export function registerMemoryCommands(
     name: "similar",
     description:
       "Find memory records semantically similar to an existing one. " +
-      "Excludes the source memory from results.",
+      "Excludes the source memory from results. Accepts a full UUID or an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
     parameters: memorySimilarParams,
     execute: async (params: MemorySimilarParams, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.similar", { id: params.id, limit: params.limit });
 
+      // mt#2696: resolve a short-prefix citation before it reaches a
+      // Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const results: MemorySearchResult[] = await service.similar(params.id, {
+      const results: MemorySearchResult[] = await service.similar(id, {
         limit: params.limit ?? 10,
         threshold: params.threshold,
       });
@@ -917,13 +1004,18 @@ export function registerMemoryCommands(
     name: "lineage",
     description:
       "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. " +
-      "Each step carries the supersession_reason in its metadata.",
+      "Each step carries the supersession_reason in its metadata. Accepts a full UUID or " +
+      "an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
     parameters: memoryLineageParams,
     execute: async (params: MemoryLineageParams, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.lineage", { id: params.id });
 
+      // mt#2696: resolve a short-prefix citation before it reaches a
+      // Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const result = await service.lineage(params.id);
+      const result = await service.lineage(id);
       return result;
     },
   });

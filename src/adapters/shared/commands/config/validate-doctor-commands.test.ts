@@ -34,7 +34,14 @@ const MCP_AUTH_TOKEN_ENV_VAR = "MINSKY_MCP_AUTH_TOKEN";
 /** Minimal valid params for configDoctorRegistration.execute — none of these
  * values are read by the handler's body (only params.json/params.verbose
  * are), so throwaway values satisfy the zod-inferred param type. */
-const DOCTOR_EXEC_PARAMS = { repo: "", workspace: "", json: false, sources: false, verbose: false };
+const DOCTOR_EXEC_PARAMS = {
+  repo: "",
+  workspace: "",
+  json: false,
+  sources: false,
+  verbose: false,
+  fix: false,
+};
 
 /** Restores (or clears) MINSKY_MCP_AUTH_TOKEN to its pre-test value. */
 function restoreMcpAuthToken(saved: string | undefined): void {
@@ -71,16 +78,43 @@ describe("checkReviewerRetriggerReachability", () => {
 });
 
 describe("config.doctor execute — reviewer retrigger reachability (production wiring, mt#2660 reviewer R1)", () => {
-  // quarantined: pre-existing failure, tracked in mt#2712. Suspected test-
-  // isolation issue (global config singleton / process.env mutation not
-  // fully reset between test files) rather than a real logic bug -- see
-  // mt#2712 for the order-sensitivity hypothesis. Unmasked by mt#2665's CI
-  // fix, not caused by it; unrelated to this PR's scope.
-  // eslint-disable-next-line custom/no-skipped-tests -- genuine quarantine of a pre-existing failure (mt#2712), not a placeholder; see comment above.
-  test.skip("reviewer service configured, mcp.auth.token absent → doctor diagnostics include the warning", async () => {
+  /**
+   * Hermeticity (mt#2679): the real configuration provider merges the
+   * OPERATOR's user config (~/.config/minsky/config.yaml) underneath the test
+   * overrides, and `mcp: { auth: {} }` does not null out a token merged from
+   * below. On a machine where the operator HAS set mcp.auth.token (the
+   * mt#2679 fix makes that the expected steady state), the token-absent test
+   * would read the real token and fail. Redirect XDG_CONFIG_HOME to an empty
+   * temp dir for the duration of each test so the user source loads nothing.
+   */
+  const XDG_ENV_VAR = "XDG_CONFIG_HOME";
+
+  async function withIsolatedUserConfig<T>(fn: () => Promise<T>): Promise<T> {
     const savedToken = process.env[MCP_AUTH_TOKEN_ENV_VAR];
+    const savedXdg = process.env[XDG_ENV_VAR];
     delete process.env[MCP_AUTH_TOKEN_ENV_VAR];
+    const { tmpdir } = await import("os");
+    const { join } = await import("path");
+    // A NONEXISTENT dir suffices — the user source existsSync-checks each
+    // candidate config file and loads nothing. No real fs writes needed.
+    process.env[XDG_ENV_VAR] = join(
+      tmpdir(),
+      `minsky-doctor-test-isolated-${process.pid}-${Math.random().toString(36).slice(2)}`
+    );
     try {
+      return await fn();
+    } finally {
+      restoreMcpAuthToken(savedToken);
+      if (savedXdg !== undefined) {
+        process.env[XDG_ENV_VAR] = savedXdg;
+      } else {
+        delete process.env[XDG_ENV_VAR];
+      }
+    }
+  }
+
+  test("reviewer service configured, mcp.auth.token absent → doctor diagnostics include the warning", async () => {
+    await withIsolatedUserConfig(async () => {
       // Real configuration provider (not a module mock) with the reviewer
       // service explicitly configured (reviewer.url set) and mcp.auth.token
       // deliberately absent — the exact scenario named in the finding.
@@ -100,15 +134,11 @@ describe("config.doctor execute — reviewer retrigger reachability (production 
       expect(diag).toBeDefined();
       expect(diag?.status).toBe("warning");
       expect(diag?.message).toContain("mcp.auth.token");
-    } finally {
-      restoreMcpAuthToken(savedToken);
-    }
+    });
   });
 
   test("mcp.auth.token present → doctor diagnostics report reachable (pass)", async () => {
-    const savedToken = process.env[MCP_AUTH_TOKEN_ENV_VAR];
-    delete process.env[MCP_AUTH_TOKEN_ENV_VAR];
-    try {
+    await withIsolatedUserConfig(async () => {
       await initializeConfiguration(new CustomConfigFactory(), {
         overrides: {
           reviewer: { url: "https://example-reviewer.example.com" },
@@ -124,8 +154,6 @@ describe("config.doctor execute — reviewer retrigger reachability (production 
       const diag = result.diagnostics.find((d) => d.check === REACHABILITY_CHECK_NAME);
       expect(diag).toBeDefined();
       expect(diag?.status).toBe("pass");
-    } finally {
-      restoreMcpAuthToken(savedToken);
-    }
+    });
   });
 });

@@ -60,6 +60,7 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "deploy.smoke",
   "deploy.live",
   "deploy.fail",
+  "ask.policy_closed",
 ] as const;
 
 /**
@@ -115,6 +116,14 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       webhook — see that module's doc block for why (no webhook-receiver
  *       surface is in scope for this bridge; see mt#2599's hard boundary on
  *       `services/reviewer/**`).
+ *   - `ask.policy_closed` → `{ askId: string; kind: string; citationSource: string;
+ *       citationLines?: [number, number]; title: string }`
+ *       (mt#2666) emitted by the `asks.create` command layer when the
+ *       policy-first router closes an Ask at creation (phase-1 coverage,
+ *       `routingTarget: "policy"`). Audit surfacing for the closure class
+ *       that previously lived only in a `log.debug` nobody consumed — the
+ *       c26eca0a incident (a disposition Ask silently policy-closed with an
+ *       irrelevant citation) was indistinguishable from a missing record.
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -161,6 +170,7 @@ export const eventCategory = {
   "deploy.smoke": "informational",
   "deploy.live": "informational",
   "deploy.fail": "informational",
+  "ask.policy_closed": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
