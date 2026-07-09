@@ -96,6 +96,10 @@ import {
   type FlatPriorFinding,
 } from "./severity-recovery";
 import {
+  applyEmptyFindingsRecovery,
+  type EmptyFindingsRecoveryResult,
+} from "./empty-findings-recovery";
+import {
   applyCompositionConvergenceDowngrade,
   type ConvergenceDowngradeAuditEntry,
   type ConvergenceDetectionResult,
@@ -511,6 +515,13 @@ export interface ComposeWithRecoveryResult {
    * priorReviewsMarkdown is empty (R1), or when no downgrades fired.
    */
   diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry>;
+  /**
+   * Result of the empty-findings coherence recovery pass (mt#2685). Always
+   * present (unlike the feature-flagged passes above) — this pass runs
+   * unconditionally since it repairs a model-output defect (REQUEST_CHANGES
+   * with zero submit_finding calls), not a tunable recovery heuristic.
+   */
+  emptyFindingsRecovery: EmptyFindingsRecoveryResult;
 }
 
 export interface ApplyRecoveryAndComposeOptions {
@@ -564,11 +575,24 @@ export function applyRecoveryAndCompose(
     (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
   ).length;
 
+  // Step 0: empty-findings coherence recovery (mt#2685). Runs FIRST, on the
+  // RAW toolCalls (unconditionally — not gated by recoveryEnabled), and
+  // is keyed on originalBlockingCount semantics (a REQUEST_CHANGES
+  // conclusion with zero of the model's OWN submit_finding calls), never on
+  // a post-downgrade count. This ordering is load-bearing: running it before
+  // the downgrade passes below means that when it fires, blockingCount is
+  // already >= 1 by the time Step 3's crossed-zero check runs, so that check
+  // (which exists to reconcile a DIFFERENT case — a downgrade pass reducing
+  // an originally-nonzero BLOCKING count to zero) never contradicts this
+  // pass's synthesized finding. See empty-findings-recovery.ts's module doc
+  // for the full incoherence + design-alternatives writeup.
+  const emptyFindingsRecovery = applyEmptyFindingsRecovery(toolCalls);
+
   // Step 1: optionally recover (mt#1496 monotonicity recovery).
-  let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = toolCalls;
+  let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = emptyFindingsRecovery.toolCalls;
   let downgrades: ReadonlyArray<DowngradeAuditEntry> = [];
   if (recoveryEnabled && priorFindings.length > 0) {
-    const recovery = applyMonotonicityRecovery(toolCalls, priorFindings, diffText);
+    const recovery = applyMonotonicityRecovery(toolCallsForComposition, priorFindings, diffText);
     toolCallsForComposition = recovery.toolCalls;
     downgrades = recovery.downgrades;
   }
@@ -675,6 +699,7 @@ export function applyRecoveryAndCompose(
     convergenceDetection,
     convergenceDowngrades,
     diffScopeBoundedDowngrades,
+    emptyFindingsRecovery,
   };
 }
 
@@ -1612,6 +1637,19 @@ async function runReviewBody(
     );
     const composed = recoveryResult.composed;
     const blockingCount = recoveryResult.postRecoveryBlockingCount;
+
+    // Empty-findings coherence recovery logging (mt#2685): always check —
+    // unlike the feature-flagged passes below, this pass runs unconditionally,
+    // so its own `applied` flag is the only gate for whether to log.
+    if (recoveryResult.emptyFindingsRecovery.applied) {
+      log.info("reviewer.empty_findings_recovery", {
+        event: "reviewer.empty_findings_recovery",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        synthesizedFile: recoveryResult.emptyFindingsRecovery.synthesizedFinding?.file,
+        synthesizedSummary: recoveryResult.emptyFindingsRecovery.synthesizedFinding?.summary,
+      });
+    }
 
     // Emit one log event per downgrade so operators can audit the recovery
     // layer's decisions and identify false positives. Aggregated count is
