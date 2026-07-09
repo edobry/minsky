@@ -38,6 +38,7 @@ describe("event category classification", () => {
         "session.started",
         "memory.created",
         "ask.answered",
+        "ask.policy_closed",
         "changeset.created",
         "hook.fired",
         "mcp.disconnect",

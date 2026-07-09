@@ -218,7 +218,8 @@ export async function runReviewerRetrigger(args: {
         "mcp.auth.token is not set — falling back to the GitHub-auth `/review` comment path (mt#2679)."
       );
       const { Octokit } = await import("@octokit/rest");
-      const octokit = new Octokit({ auth: githubToken });
+      const { createTimeoutFetch } = await import("@minsky/domain/github/octokit-timeout");
+      const octokit = new Octokit({ auth: githubToken, request: { fetch: createTimeoutFetch() } });
       const result = await postReviewCommentFallback(octokit.rest.issues, {
         pr,
         owner,
