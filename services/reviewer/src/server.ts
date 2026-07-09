@@ -1528,6 +1528,19 @@ if (import.meta.main) {
   // Uses domain imports (mt#2121) via SessionProviderInterface + applyPostMergeStateSync.
   // Configurable via MERGE_STATE_SWEEPER_ENABLED, MERGE_STATE_SWEEPER_INTERVAL_MS.
   // **Enabled by default (mt#1811)**: set MERGE_STATE_SWEEPER_ENABLED=false to opt out.
+  // mt#2684: startMergeStateSweeper also KICKS OFF one boot catch-up sweep
+  // cycle synchronously at this call site (same pattern as startSweeper
+  // above, mt#2660) — called here after applyMigrations (line ~1372) and the
+  // bootDomainContainer() attempt (line ~1389) have both resolved, so the
+  // immediate cycle never blocks or competes with service startup. Gated by
+  // MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED (default true). See
+  // merge-state-sweeper.ts module-header "Boot catch-up sweep" for the
+  // diagnosis. The 4th parameter (`octokitOverride`) is intentionally
+  // omitted here — it is a test-only seam (see its doc comment at the
+  // `startMergeStateSweeper` declaration) so tests can exercise the boot
+  // catch-up path without a real GitHub App auth handshake; production always
+  // falls through to the lazy `createOctokit(config)` path, identical to how
+  // `startSweeper` above omits its own test-only `depsOverride` parameter.
   startMergeStateSweeper(
     config,
     loadMergeStateSweeperConfig(),

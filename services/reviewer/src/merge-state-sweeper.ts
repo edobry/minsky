@@ -60,6 +60,39 @@
  * 5–43 hours each despite the sweeper running every 10 min, because the
  * predicate trusted stored state.
  *
+ * ## Boot catch-up sweep (mt#2684)
+ *
+ * Same structural gap as sweeper.ts's boot catch-up fix (mt#2660): `setInterval`
+ * fires its first tick only after a full `intervalMs` elapses — NOT immediately
+ * at boot. The reviewer service auto-redeploys on every merge to main that
+ * touches its own source (mt#2345/mt#2352 scoped `watchPatterns` to the
+ * reviewer's own paths, not off entirely), so the process restarts frequently.
+ * Each restart resets the `setInterval` clock, so a merge whose post-merge
+ * webhook delivery the outgoing process missed (bypass-merge, GitHub-UI merge
+ * during a restart, etc.) is not caught by the periodic sweep until a FULL
+ * `intervalMs` (10 min default) elapses with NO further redeploy in
+ * between — unbounded under a burst of closely-spaced merges, exactly
+ * mirroring mt#2660's diagnosis for the missed-review sweeper.
+ *
+ * This gap was identified during mt#2660's convergence but was explicitly out
+ * of that task's scope — its spec's `### Does NOT cover` recorded "no owner
+ * task filed yet" for this file. mt#2684 is that owner.
+ *
+ * ### Invocation path
+ *
+ * Wired into `startMergeStateSweeper` (this file): when
+ * `sweeperConfig.enabled=true` (gate 1) AND `sweeperConfig.bootCatchupEnabled`
+ * resolves true (gate 2; env var `MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED`,
+ * default `"true"` — explicit opt-out via
+ * `MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED=false`), `startMergeStateSweeper`
+ * invokes one sweep cycle synchronously at call time (fired from
+ * `services/reviewer/src/server.ts`'s boot sequence, at the same call site as
+ * the sibling `startSweeper` — AFTER migrations + domain-container boot have
+ * already completed), before the `setInterval` handle is created. The
+ * immediate cycle and the periodic ticks share the same `runCycle` closure
+ * (same reentrancy guard `isRunning`, same cached-Octokit promise), so the
+ * boot catch-up cannot race a periodic tick.
+ *
  * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 
@@ -118,6 +151,15 @@ export interface MergeStateSweeperConfig {
    * (same baseline as `REVIEWER_GITHUB_TIMEOUT_MS` in `github-client.ts`).
    */
   githubTimeoutMs: number;
+  /**
+   * Whether `startMergeStateSweeper` runs one sweep cycle immediately at
+   * boot, in addition to the periodic `setInterval` ticks (mt#2684 — see
+   * module-header "Boot catch-up sweep"; mirrors sweeper.ts's mt#2660 fix).
+   * Default true; explicit opt-out via
+   * `MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED=false` for operators who want
+   * to avoid the extra GitHub API + domain-service calls on every boot.
+   */
+  bootCatchupEnabled: boolean;
 }
 
 export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
@@ -146,6 +188,11 @@ export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
     // parse so misconfiguration produces a clear boot-time error rather than NaN/Infinity
     // flowing into the AbortController.
     githubTimeoutMs: parsePositiveIntEnv("MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS", 30_000),
+    // mt#2684: see module-header "Boot catch-up sweep". Default on so the
+    // redeploy-window webhook-miss class is closed by default here too
+    // (mirrors sweeper.ts's mt#2660 default); explicit opt-out available.
+    bootCatchupEnabled:
+      (process.env["MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED"] ?? "true") === "true",
   };
 }
 
@@ -385,12 +432,30 @@ export async function runMergeStateSweep(
  * Octokit client is created lazily on the first cycle to keep startup
  * non-blocking, then reused across cycles.
  *
+ * mt#2684: a boot catch-up cycle now runs immediately at call time (before
+ * the first `setInterval` tick), gated by `sweeperConfig.bootCatchupEnabled`.
+ * Prior to mt#2684 the first sweep ran only after one full interval had
+ * elapsed, which left an unbounded miss window under closely-spaced
+ * redeploys (see module-header "Boot catch-up sweep" for the diagnosis).
+ * `startMergeStateSweeper` is called from `server.ts` AFTER migrations have
+ * applied and the domain-container boot attempt has resolved, so the
+ * immediate cycle does not block or compete with service startup.
+ *
+ * A reentrancy guard (isRunning) prevents overlapping sweeps if a cycle takes
+ * longer than the interval, and also prevents the boot catch-up cycle from
+ * racing the first periodic tick.
+ *
  * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 export function startMergeStateSweeper(
   config: ReviewerConfig,
   sweeperConfig: MergeStateSweeperConfig,
-  deps?: MergeStateSweeperDeps
+  deps?: MergeStateSweeperDeps,
+  // mt#2684: test seam only — production callers never pass this. When
+  // provided, both the boot catch-up cycle and every periodic tick reuse this
+  // Octokit instead of calling createOctokit (a real GitHub App auth
+  // handshake). Mirrors sweeper.ts's depsOverride test seam (mt#2660).
+  octokitOverride?: Octokit
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
     log.info("merge_state_sweeper.disabled", {
@@ -441,10 +506,19 @@ export function startMergeStateSweeper(
   // Lazy Octokit creation — first cycle pays the auth-handshake cost;
   // subsequent cycles reuse the client. createOctokit returns short-lived
   // installation tokens that refresh internally, so a single instance is
-  // safe across many cycles.
-  let octokitPromise: Promise<Octokit> | null = null;
+  // safe across many cycles. mt#2684: octokitOverride (test seam) pre-seeds
+  // the promise so the boot catch-up cycle below never calls the real
+  // createOctokit.
+  let octokitPromise: Promise<Octokit> | null = octokitOverride
+    ? Promise.resolve(octokitOverride)
+    : null;
 
-  const handle = setInterval(() => {
+  /**
+   * Run one sweep cycle, guarded by the reentrancy flag. Shared by both the
+   * boot catch-up call (mt#2684) and every periodic `setInterval` tick, so
+   * the two paths cannot race each other or double-sweep.
+   */
+  const runCycle = (): void => {
     if (isRunning) {
       log.warn("merge_state_sweeper.skip_reentrant", {
         event: "merge_state_sweeper.skip_reentrant",
@@ -475,14 +549,50 @@ export function startMergeStateSweeper(
         });
         // Reset octokitPromise on auth-class errors so the next cycle re-authenticates.
         // (createOctokit throws if the app credentials are invalid; we let it retry.)
-        if (/auth|credentials|401|403/i.test(message)) {
+        // Never clear a test-injected octokitOverride — it has no "rebuild"
+        // path and clearing would make the next tick call the real
+        // createOctokit in tests that only provided a fake.
+        if (/auth|credentials|401|403/i.test(message) && !octokitOverride) {
           octokitPromise = null;
         }
       })
       .finally(() => {
         isRunning = false;
       });
-  }, sweeperConfig.intervalMs);
+  };
+
+  // mt#2684: boot catch-up sweep. Run one cycle immediately (not waiting for
+  // the first setInterval tick) so a merge whose webhook delivery lands
+  // during a redeploy window self-heals right away, instead of depending on
+  // this process surviving uninterrupted for a full intervalMs. See
+  // module-header "Boot catch-up sweep" for the full diagnosis (mt#2684,
+  // mirroring sweeper.ts's mt#2660).
+  if (sweeperConfig.bootCatchupEnabled) {
+    log.info("merge_state_sweeper.boot_catchup_start", {
+      event: "merge_state_sweeper.boot_catchup_start",
+      message:
+        "Running an immediate merge-state sweep cycle at boot to catch post-merge " +
+        "state syncs missed during this process's own redeploy window.",
+    });
+    runCycle();
+  } else {
+    // mt#2684: without this line, an operator scanning Railway logs after a
+    // redeploy sees no `merge_state_sweeper.boot_catchup_start` and has no
+    // way to distinguish "boot catch-up is intentionally disabled" from
+    // "something is silently broken". Only reachable when the sweeper itself
+    // is enabled and domain services are present — the two early-return
+    // paths above (disabled / missing_domain_services) have their own
+    // dedicated log lines.
+    log.info("merge_state_sweeper.boot_catchup_skipped", {
+      event: "merge_state_sweeper.boot_catchup_skipped",
+      message:
+        "Boot catch-up sweep is disabled (MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED=false) — " +
+        "this boot will not self-heal a redeploy-window webhook miss until the " +
+        "next periodic sweep tick.",
+    });
+  }
+
+  const handle = setInterval(runCycle, sweeperConfig.intervalMs);
 
   return handle;
 }
