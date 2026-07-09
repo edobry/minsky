@@ -1709,12 +1709,26 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
       expect(result.composed.body).toContain("[BLOCKING]");
       expect(result.postRecoveryBlockingCount).toBe(1);
 
+      // Observability (mt#2685 review R1): the model emitted ZERO of its own
+      // BLOCKING findings — originalBlockingCount must stay 0 (never silently
+      // absorb the synthesized finding), while synthesizedBlockingCount makes
+      // the 1-finding gap explicit, and postRecoveryBlockingCount (1) is their
+      // sum. A log/metric reader must be able to tell "the model found 0" from
+      // "the pipeline is now reporting 1" without reading this module's source.
+      expect(result.originalBlockingCount).toBe(0);
+      expect(result.synthesizedBlockingCount).toBe(1);
+      expect(result.postRecoveryBlockingCount).toBe(
+        result.originalBlockingCount + result.synthesizedBlockingCount
+      );
+
       // Provenance consistency: the SAME toolCalls the worker forwards to
       // extractProvenance (recoveryResult.toolCalls, per annotateReviewBody's
       // call site) must reflect the synthesized finding too — not just the
-      // rendered body.
+      // rendered body. And provenance itself must distinguish the synthesized
+      // finding from a model-emitted one (mt#2685 review R1).
       const provenance = extractProvenance(result.toolCalls);
       expect(provenance.findings.blocking).toBe(1);
+      expect(provenance.findings.synthesizedBlocking).toBe(1);
       expect(provenance.conclusion?.event).toBe("REQUEST_CHANGES");
     });
 
@@ -1726,6 +1740,10 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
       const result = applyRecoveryAndCompose(toolCalls, [], "", false);
       expect(result.emptyFindingsRecovery.applied).toBe(false);
       expect(result.postRecoveryBlockingCount).toBe(1);
+      expect(result.synthesizedBlockingCount).toBe(0);
+
+      const provenance = extractProvenance(result.toolCalls);
+      expect(provenance.findings.synthesizedBlocking).toBe(0);
     });
 
     test("does not fight legitimate crossed-zero downgrade reconciliation", () => {

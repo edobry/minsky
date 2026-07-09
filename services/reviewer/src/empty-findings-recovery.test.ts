@@ -8,7 +8,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { applyEmptyFindingsRecovery, SYNTHESIZED_FINDING_FILE } from "./empty-findings-recovery";
+import {
+  applyEmptyFindingsRecovery,
+  MAX_SYNTHESIZED_SUMMARY_CHARS,
+  SYNTHESIZED_FINDING_FILE,
+  truncateSummaryForDetails,
+} from "./empty-findings-recovery";
 import type { ReviewToolCall } from "./output-tools";
 
 // ---------------------------------------------------------------------------
@@ -145,5 +150,46 @@ describe("applyEmptyFindingsRecovery (mt#2685)", () => {
     const result = applyEmptyFindingsRecovery([]);
     expect(result.applied).toBe(false);
     expect(result.toolCalls).toHaveLength(0);
+  });
+});
+
+describe("truncateSummaryForDetails (mt#2685 review R1)", () => {
+  test("short summary passes through unchanged", () => {
+    const summary = "A short conclusion summary.";
+    expect(truncateSummaryForDetails(summary)).toBe(summary);
+  });
+
+  test("summary exactly at the budget passes through unchanged", () => {
+    const summary = "x".repeat(MAX_SYNTHESIZED_SUMMARY_CHARS);
+    expect(truncateSummaryForDetails(summary)).toBe(summary);
+  });
+
+  test("summary over budget is truncated with a marker recording the original length", () => {
+    const summary = "x".repeat(MAX_SYNTHESIZED_SUMMARY_CHARS + 500);
+    const result = truncateSummaryForDetails(summary);
+    expect(result.length).toBeLessThan(summary.length);
+    expect(result).toContain("[truncated");
+    expect(result).toContain(`original summary was ${summary.length} chars`);
+    expect(result.startsWith("x".repeat(MAX_SYNTHESIZED_SUMMARY_CHARS))).toBe(true);
+  });
+});
+
+describe("applyEmptyFindingsRecovery — bounded details (mt#2685 review R1)", () => {
+  test("synthesized finding's details field is bounded even for an oversized summary", () => {
+    const hugeSummary = "blocking issue described at length. ".repeat(200); // ~7400 chars
+    const toolCalls: ReviewToolCall[] = [conclude("REQUEST_CHANGES", hugeSummary)];
+
+    const result = applyEmptyFindingsRecovery(toolCalls);
+
+    expect(result.applied).toBe(true);
+    const details = result.synthesizedFinding?.details ?? "";
+    // The embedded (possibly truncated) summary portion must not exceed the
+    // budget by more than the fixed explanatory preamble + truncation marker
+    // — bound the whole details field generously so an oversized review body
+    // regression (details growing unboundedly with the model's summary) is
+    // caught, without coupling this test to the preamble's exact wording.
+    expect(details.length).toBeLessThan(MAX_SYNTHESIZED_SUMMARY_CHARS + 700);
+    expect(details).not.toContain(hugeSummary); // full untruncated summary must not appear
+    expect(details).toContain("[truncated");
   });
 });

@@ -492,10 +492,27 @@ export interface ComposeWithRecoveryResult {
   composed: ComposeReviewResult;
   /** Audit log entries for downgrades that fired. Empty when no recovery. */
   downgrades: ReadonlyArray<DowngradeAuditEntry>;
-  /** BLOCKING count BEFORE recovery (always derived from input toolCalls). */
+  /**
+   * BLOCKING count from the MODEL'S OWN `submit_finding` calls only — captured
+   * BEFORE Step 0 (mt#2685 synthesis) and before downgrade recovery. Excludes
+   * any Step-0 synthesized finding (mt#2685 review R1: made explicit after
+   * this field's ambiguity was flagged). See `synthesizedBlockingCount`.
+   */
   originalBlockingCount: number;
-  /** BLOCKING count AFTER recovery. */
+  /**
+   * BLOCKING count AFTER the full pipeline (Step 0 synthesis, then downgrade
+   * recovery). Includes the Step-0 synthesized finding when
+   * `synthesizedBlockingCount > 0` — compare against `originalBlockingCount`
+   * to see the pipeline's net effect (mt#2685 review R1).
+   */
   postRecoveryBlockingCount: number;
+  /**
+   * BLOCKING findings synthesized by Step 0 (mt#2685) — 0 or 1 (at most one
+   * per review). Lets log/metric consumers distinguish "the model found N"
+   * (`originalBlockingCount`) from "M of the N now reported were synthesized"
+   * without re-deriving it from `emptyFindingsRecovery.applied` (review R1).
+   */
+  synthesizedBlockingCount: number;
   /** True when the conclude_review tool call was rewritten REQUEST_CHANGES → COMMENT. */
   reconcileApplied: boolean;
   /**
@@ -695,6 +712,13 @@ export function applyRecoveryAndCompose(
     downgrades,
     originalBlockingCount,
     postRecoveryBlockingCount,
+    // 1 when Step 0 synthesized a finding, 0 otherwise (mt#2685 review R1:
+    // the pass only ever synthesizes at most one finding per review, so
+    // `applied` boolean and this count carry identical information — this
+    // field exists to make that information available under a name that
+    // reads correctly next to originalBlockingCount/postRecoveryBlockingCount
+    // in logs, without requiring the reader to know the pass's internals).
+    synthesizedBlockingCount: emptyFindingsRecovery.applied ? 1 : 0,
     reconcileApplied,
     convergenceDetection,
     convergenceDowngrades,
@@ -1648,6 +1672,12 @@ async function runReviewBody(
         sha: pr.headSha,
         synthesizedFile: recoveryResult.emptyFindingsRecovery.synthesizedFinding?.file,
         synthesizedSummary: recoveryResult.emptyFindingsRecovery.synthesizedFinding?.summary,
+        // mt#2685 review R1: unconditional (unlike severity_downgrade_summary
+        // below), so this is where operators always see the model's own
+        // BLOCKING count vs. the synthesized one — effective count is their
+        // sum (== postRecoveryBlockingCount) without needing another field.
+        modelBlockingCount: recoveryResult.originalBlockingCount,
+        synthesizedBlockingCount: recoveryResult.synthesizedBlockingCount,
       });
     }
 
@@ -1699,8 +1729,15 @@ async function runReviewBody(
         sha: pr.headSha,
         downgradeCount: recoveryResult.downgrades.length,
         totalFindingCount,
+        // originalBlockingCount is the MODEL's own count (pre-Step-0,
+        // pre-downgrade); postRecoveryBlockingCount is after the full
+        // pipeline including any Step-0 synthesis — see
+        // synthesizedBlockingCount below when they disagree (mt#2685 review
+        // R1: distinguishes "the model found N" from "the pipeline
+        // synthesized M of the N now reported").
         originalBlockingCount: recoveryResult.originalBlockingCount,
         postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
+        synthesizedBlockingCount: recoveryResult.synthesizedBlockingCount,
         // Pre- and post-recovery breakdowns for the non-BLOCKING tiers
         // so dashboards can distinguish "downgraded from BLOCKING" vs.
         // "originally non-blocking" without reconstructing from logs

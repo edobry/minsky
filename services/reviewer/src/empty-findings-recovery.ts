@@ -67,9 +67,35 @@
  */
 
 import type { ReviewToolCall, SubmitFindingArgs } from "./output-tools";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /** The sentinel `file` value used for the synthesized finding's location. */
 export const SYNTHESIZED_FINDING_FILE = "(review summary)";
+
+/**
+ * Max characters of the `conclude_review` summary embedded verbatim in the
+ * synthesized finding's `details` field. `summary` is unbounded model output
+ * (`ConcludeReviewArgsSchema.summary` has no `max()`), so without a cap a
+ * verbose conclusion could inflate the posted review body. 1500 is generous
+ * for the 2-5 sentence summary the prompt asks for while bounding worst case.
+ */
+export const MAX_SYNTHESIZED_SUMMARY_CHARS = 1500;
+
+/**
+ * Truncate `summary` to {@link MAX_SYNTHESIZED_SUMMARY_CHARS}, appending a
+ * marker that records the original length when truncation occurs. Returns
+ * `summary` unchanged (same reference) when already within budget.
+ */
+export function truncateSummaryForDetails(summary: string): string {
+  if (summary.length <= MAX_SYNTHESIZED_SUMMARY_CHARS) {
+    return summary;
+  }
+  // Surrogate-pair-safe (mt#1615/mt#1681): a naive .slice(0, N) can sever a
+  // UTF-16 surrogate pair (e.g. an emoji in the model's summary), producing
+  // an unpaired surrogate that a downstream JSON re-parser rejects.
+  const truncated = safeTruncate(summary, MAX_SYNTHESIZED_SUMMARY_CHARS, "head");
+  return `${truncated}\n\n… [truncated — original summary was ${summary.length} chars]`;
+}
 
 export interface EmptyFindingsRecoveryResult {
   /**
@@ -130,9 +156,9 @@ export function applyEmptyFindingsRecovery(
       `Synthesized by the empty-findings coherence recovery pass (mt#2685): the reviewer ` +
       `model called conclude_review with event=REQUEST_CHANGES but zero submit_finding calls, ` +
       `so the structured findings channel was empty even though the conclusion summary ` +
-      `describes blocking issue(s) in prose. Original conclusion summary:\n\n${
+      `describes blocking issue(s) in prose. Original conclusion summary:\n\n${truncateSummaryForDetails(
         concludeCall.args.summary
-      }`,
+      )}`,
   };
 
   const synthesizedCall: ReviewToolCall = { name: "submit_finding", args: synthesizedFinding };

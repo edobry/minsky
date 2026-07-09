@@ -119,6 +119,47 @@ describe("extractProvenance", () => {
     const result = extractProvenance(toolCalls);
     expect(result.findings.blocking).toBe(2);
     expect(result.findings.nonBlocking).toBe(2);
+    expect(result.findings.synthesizedBlocking).toBe(0);
+  });
+
+  test("counts a synthesized BLOCKING finding separately (mt#2685 review R1)", () => {
+    // The empty-findings recovery pass (empty-findings-recovery.ts) tags its
+    // synthesized finding with SYNTHESIZED_FINDING_FILE. extractProvenance
+    // must detect that sentinel and report it under findings.synthesizedBlocking
+    // WITHOUT requiring a separate "was this synthesized" parameter — the pass
+    // pre-pends the synthesized submit_finding into the same toolCalls array
+    // real findings live in (see applyRecoveryAndCompose Step 0), so this is
+    // the only signal extractProvenance has to work with.
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/real.ts",
+          line: 10,
+          summary: "A real model-emitted finding",
+          details: "Details",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "(review summary)",
+          line: 1,
+          summary: "Reviewer concluded REQUEST_CHANGES but emitted no structured findings",
+          details: "Synthesized details",
+        },
+      },
+    ];
+
+    const result = extractProvenance(toolCalls);
+    // Total blocking count includes BOTH the real and synthesized finding —
+    // this is intentional (see empty-findings-recovery.ts's module doc:
+    // synthesis preserves REQUEST_CHANGES semantics for the merge gate,
+    // which reads the total blocking count).
+    expect(result.findings.blocking).toBe(2);
+    expect(result.findings.synthesizedBlocking).toBe(1);
   });
 
   test("extracts conclusion", () => {
@@ -137,7 +178,7 @@ describe("extractProvenance", () => {
     const result = extractProvenance([]);
     expect(result.specVerification).toEqual([]);
     expect(result.docImpact).toBeNull();
-    expect(result.findings).toEqual({ blocking: 0, nonBlocking: 0 });
+    expect(result.findings).toEqual({ blocking: 0, nonBlocking: 0, synthesizedBlocking: 0 });
     expect(result.conclusion).toBeNull();
     expect(result.adoptionSweep).toBeNull();
   });
@@ -157,7 +198,7 @@ describe("extractProvenance", () => {
     const result = extractProvenance(toolCalls);
     expect(result.specVerification).toEqual([]);
     expect(result.docImpact).toBeNull();
-    expect(result.findings).toEqual({ blocking: 0, nonBlocking: 0 });
+    expect(result.findings).toEqual({ blocking: 0, nonBlocking: 0, synthesizedBlocking: 0 });
     expect(result.conclusion).toBeNull();
   });
 
@@ -256,7 +297,7 @@ describe("serializeProvenance", () => {
     const provenance: ReviewProvenance = {
       specVerification: [{ criterion: "SC1", status: "Met", evidence: "OK" }],
       docImpact: { kind: DOC_IMPACT_NO_UPDATE, evidence: "Internal" },
-      findings: { blocking: 0, nonBlocking: 1 },
+      findings: { blocking: 0, nonBlocking: 1, synthesizedBlocking: 0 },
       conclusion: { event: "APPROVE", summary: "Good" },
       adoptionSweep: null,
     };
@@ -280,7 +321,7 @@ describe("parseProvenance", () => {
     const provenance: ReviewProvenance = {
       specVerification: [{ criterion: "SC1", status: "Met", evidence: "OK" }],
       docImpact: { kind: DOC_IMPACT_NO_UPDATE, evidence: "Internal" },
-      findings: { blocking: 0, nonBlocking: 0 },
+      findings: { blocking: 0, nonBlocking: 0, synthesizedBlocking: 0 },
       conclusion: { event: "APPROVE", summary: "Good" },
       adoptionSweep: null,
     };
@@ -329,7 +370,7 @@ describe("parseProvenance", () => {
         evidence: "Updated docs",
         affectedDocs: ["docs/a.md", "docs/b.md"],
       },
-      findings: { blocking: 1, nonBlocking: 3 },
+      findings: { blocking: 1, nonBlocking: 3, synthesizedBlocking: 0 },
       conclusion: { event: "REQUEST_CHANGES", summary: "One blocker" },
       adoptionSweep: null,
     };
@@ -343,7 +384,7 @@ describe("parseProvenance", () => {
     const original: ReviewProvenance = {
       specVerification: [{ criterion: "SC1", status: "Met", evidence: "OK" }],
       docImpact: { kind: DOC_IMPACT_NO_UPDATE, evidence: "Internal" },
-      findings: { blocking: 0, nonBlocking: 0 },
+      findings: { blocking: 0, nonBlocking: 0, synthesizedBlocking: 0 },
       conclusion: { event: "APPROVE", summary: "Good" },
       adoptionSweep: [
         {
