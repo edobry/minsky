@@ -76,6 +76,16 @@ describe("isSensitiveKey", () => {
     expect(isSensitiveKey("access_token")).toBe(true);
   });
 
+  // mt#2680: Supabase service-role secret for the transcript archive
+  test("'serviceRoleKey' IS sensitive (camelCase compound match)", () => {
+    expect(isSensitiveKey("serviceRoleKey")).toBe(true);
+  });
+
+  test("'service_role_key' and 'SERVICE-ROLE-KEY' ARE sensitive (separator variants)", () => {
+    expect(isSensitiveKey("service_role_key")).toBe(true);
+    expect(isSensitiveKey("SERVICE-ROLE-KEY")).toBe(true);
+  });
+
   // mt#1181 R4 Finding B: hyphenated HTTP-header style keys (native regex, no normalization)
   test("x-api-key is sensitive (native regex, hyphen as separator)", () => {
     expect(isSensitiveKey("x-api-key")).toBe(true);

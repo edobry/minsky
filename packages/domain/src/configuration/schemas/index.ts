@@ -41,6 +41,7 @@ import {
   type KnowledgeReconciliationConfig,
 } from "./knowledge-reconciliation";
 import { supabaseConfigSchema, type SupabaseConfig } from "./supabase";
+import { transcriptArchiveConfigSchema, type TranscriptArchiveConfig } from "./transcript-archive";
 import { railwayConfigSchema, type RailwayConfig } from "./railway";
 import { reviewerConfigSchema, type ReviewerConfig } from "./reviewer";
 import {
@@ -126,6 +127,9 @@ export const configurationSchema = z.object({
   // Supabase Management API credentials (developer-local; consumed by `just supabase-usage`)
   supabase: supabaseConfigSchema,
 
+  // Transcript raw-archive settings (ADR-025 / mt#2680 — private Storage bucket)
+  transcriptArchive: transcriptArchiveConfigSchema,
+
   // Railway API token for Pulumi IaC management (mt#2124 / mt#2138)
   railway: railwayConfigSchema,
 
@@ -189,6 +193,7 @@ export type {
   MemoryLoadingMode,
   KnowledgeReconciliationConfig,
   SupabaseConfig,
+  TranscriptArchiveConfig,
   RailwayConfig,
   ReviewerConfig,
   OAuthConfig,
@@ -218,6 +223,7 @@ export {
   memoryConfigSchema,
   knowledgeReconciliationSchema,
   supabaseConfigSchema,
+  transcriptArchiveConfigSchema,
   railwayConfigSchema,
   reviewerConfigSchema,
   oauthConfigSchema,

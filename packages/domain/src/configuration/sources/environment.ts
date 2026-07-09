@@ -78,6 +78,15 @@ export const environmentMappings = {
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
   MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
 
+  // Supabase Storage credentials for the transcript raw archive (ADR-025 /
+  // mt#2680). Explicit mappings are required: the dot-path auto-conversion
+  // would route MINSKY_SUPABASE_SERVICE_ROLE_KEY to
+  // `supabase.service.role.key` (a rejected path) and crash the loader at
+  // boot when the var is set on a deployed environment.
+  MINSKY_SUPABASE_URL: "supabase.url",
+  MINSKY_SUPABASE_SERVICE_ROLE_KEY: "supabase.serviceRoleKey",
+  MINSKY_TRANSCRIPT_ARCHIVE_BUCKET: "transcriptArchive.bucket",
+
   // Reviewer webhook-service configuration (mt#2269). Consumed by the
   // `reviewer.retrigger` command to authenticate against the reviewer
   // service's /retrigger endpoint. Explicit mappings are required so a value
