@@ -12,6 +12,12 @@
  * already fires exactly once per review at the right paths.
  *
  * Never throws and never blocks the review path (instrumentation discipline).
+ *
+ * NB (mt#2723 review): `output.outcome` + `input.tier` are intentionally NOT on
+ * this event yet — threading them into the four review-worker timing sites
+ * breaches review-worker.ts's 1500 max-lines ceiling. Deferred to mt#2720 (the
+ * review-worker split), which can enrich these blocks. The lean event still
+ * fully serves cost visibility; outcome also overlaps mt#1839 (verdict).
  */
 
 import { emitBraintrustEvent, type BraintrustEvent } from "@minsky/domain/observability/braintrust";
