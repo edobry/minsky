@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
 /**
- * Smoke / live-verification for mt#2288 — per-review token + USD cost persistence.
+ * Smoke / live-verification for mt#2288 + mt#2721 — per-review token + USD cost
+ * persistence, including cached-input tokens and the cache discount.
  *
  * Structural change verified (per implement-task §7a): the review_timing schema
- * migration (0006) plus the recordReviewTiming write path now carry
- * input_tokens/output_tokens/reasoning_tokens/cost_usd, and the cockpit widget
- * medians them via PERCENTILE_CONT.
+ * migrations (0006 token/cost, 0007 cached_tokens) plus the recordReviewTiming
+ * write path carry input/output/reasoning/cached tokens + cost_usd; the cockpit
+ * widget medians cost via PERCENTILE_CONT and computes a cache-hit ratio.
  *
  * Two tiers:
- *   1. DEFAULT (read-only): assert the four new columns exist on review_timing
- *      (information_schema) — confirms migration 0006 applied. Safe against any
+ *   1. DEFAULT (read-only): assert the new columns exist on review_timing
+ *      (information_schema) — confirms migrations applied. Safe against any
  *      database, including production.
  *   2. OPT-IN (SMOKE_TOKEN_COST_WRITE=1): also exercise the full round-trip —
  *      insert a synthetic MARKER-owned row via the real recordReviewTiming writer,
@@ -43,7 +44,13 @@ if (!url) {
 }
 
 const MARKER_OWNER = "smoke-mt2288";
-const NEW_COLUMNS = ["input_tokens", "output_tokens", "reasoning_tokens", "cost_usd"];
+const NEW_COLUMNS = [
+  "input_tokens",
+  "output_tokens",
+  "reasoning_tokens",
+  "cached_tokens",
+  "cost_usd",
+];
 const doWrite = process.env["SMOKE_TOKEN_COST_WRITE"] === "1";
 
 const sql = postgres(url);
@@ -61,7 +68,7 @@ try {
   const missing = NEW_COLUMNS.filter((c) => !present.has(c));
   if (missing.length === 0) {
     console.log(
-      `PASS: all 4 token/cost columns present on review_timing (${NEW_COLUMNS.join(", ")})`
+      `PASS: all ${NEW_COLUMNS.length} token/cost columns present on review_timing (${NEW_COLUMNS.join(", ")})`
     );
   } else {
     console.log(`FAIL: missing columns on review_timing: ${missing.join(", ")}`);
@@ -77,10 +84,16 @@ try {
   if (doWrite) {
     const db = createDb();
     const fields = timingTokenFields({
-      model: "claude-sonnet-4-6",
-      usage: { promptTokens: 30_000, completionTokens: 3_000, reasoningTokens: 500 },
+      model: "gpt-5",
+      usage: {
+        promptTokens: 30_000,
+        completionTokens: 3_000,
+        reasoningTokens: 500,
+        cachedTokens: 20_000,
+      },
     });
-    // 30000*3/1e6 + 3000*15/1e6 = 0.09 + 0.045 = 0.135
+    // gpt-5 with cache: (30000-20000)*1.25 + 20000*0.125 + 3000*10, all /1e6
+    //   = (12500 + 2500 + 30000)/1e6 = 0.045
     const prNumber = 990_000 + (Date.now() % 1000);
     await recordReviewTiming(db, {
       prOwner: MARKER_OWNER,
@@ -95,13 +108,13 @@ try {
       retryOutcomes: [],
       scopeClassification: null,
       toolUseActive: false,
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      provider: "openai",
+      model: "gpt-5",
       ...fields,
     });
 
     const rows = await sql`
-      SELECT input_tokens, output_tokens, reasoning_tokens, cost_usd
+      SELECT input_tokens, output_tokens, reasoning_tokens, cached_tokens, cost_usd
       FROM review_timing
       WHERE pr_owner = ${MARKER_OWNER} AND pr_number = ${prNumber}
       LIMIT 1`;
@@ -112,6 +125,7 @@ try {
       Number(row.input_tokens) === 30_000 &&
       Number(row.output_tokens) === 3_000 &&
       Number(row.reasoning_tokens) === 500 &&
+      Number(row.cached_tokens) === 20_000 &&
       row.cost_usd != null &&
       Math.abs(Number(row.cost_usd) - Number(fields.costUsd)) < 1e-6;
     if (!roundTripOk) failed = true;
@@ -135,6 +149,22 @@ try {
         : "FAIL: median-cost SQL returned null"
     );
     if (!medianOk) failed = true;
+
+    // mt#2721: exercise the cockpit cache-hit-ratio SQL against real PG.
+    const cacheRows = await sql`
+      SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
+      FROM review_timing
+      WHERE input_tokens IS NOT NULL AND pr_owner = ${MARKER_OWNER}`;
+    const cacheHit = cacheRows[0]?.cache_hit_ratio;
+    results["cacheHitRatio"] = cacheHit ?? null;
+    // 20000 cached / 30000 input ≈ 0.6667
+    const cacheOk = cacheHit != null && Math.abs(Number(cacheHit) - 20_000 / 30_000) < 1e-6;
+    console.log(
+      cacheOk
+        ? `PASS: cache-hit-ratio SQL returned ${Number(cacheHit).toFixed(4)}`
+        : "FAIL: cache-hit-ratio SQL wrong"
+    );
+    if (!cacheOk) failed = true;
 
     const deleted = await sql`DELETE FROM review_timing WHERE pr_owner = ${MARKER_OWNER}`;
     console.log(`cleanup: deleted ${deleted.count} synthetic smoke row(s)`);

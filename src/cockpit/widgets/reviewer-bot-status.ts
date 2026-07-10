@@ -127,6 +127,8 @@ export interface ReviewerDbStats {
   medianCostUsd24h: number | null;
   /** Median USD cost per priced review, last 7d. */
   medianCostUsd7d: number | null;
+  /** Aggregate cache-hit ratio (SUM cached / SUM input tokens) over model-invoking reviews, 24h (mt#2721). */
+  cacheHitRatio24h: number | null;
 }
 
 export interface ReviewerBotStatusPayload {
@@ -393,6 +395,15 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
        WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
       [window7dIso]
     ),
+    // mt#2721: aggregate cache-hit ratio (cached/input) over model-invoking
+    // reviews in 24h. SUM/SUM (not avg-of-ratios) reflects how much of the
+    // real input volume was served from cache. NULLIF guards divide-by-zero.
+    queryRows(
+      `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
+       FROM review_timing
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL`,
+      [window24hIso]
+    ),
   ]);
 
   // Extract rows from each settled result — rejected results fall back to [].
@@ -411,6 +422,7 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
   const medianTokens7dRows = settled[9] ?? [];
   const medianCost24hRows = settled[10] ?? [];
   const medianCost7dRows = settled[11] ?? [];
+  const cacheHitRows = settled[12] ?? [];
 
   const reviewCount24h = Number(throughputRows[0]?.["count"] ?? 0);
   const failureCount24h = Number(failureRows[0]?.["count"] ?? 0);
@@ -471,6 +483,10 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     medianCost7dRows[0]?.["median_cost"] != null
       ? Number(medianCost7dRows[0]["median_cost"])
       : null;
+  const cacheHitRatio24h =
+    cacheHitRows[0]?.["cache_hit_ratio"] != null
+      ? Number(cacheHitRows[0]["cache_hit_ratio"])
+      : null;
 
   return {
     reviewCount24h,
@@ -486,6 +502,7 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     medianTokens7d,
     medianCostUsd24h,
     medianCostUsd7d,
+    cacheHitRatio24h,
   };
 }
 

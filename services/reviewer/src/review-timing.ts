@@ -33,6 +33,7 @@ export interface ReviewTimingInput {
   inputTokens?: number | null;
   outputTokens?: number | null;
   reasoningTokens?: number | null;
+  cachedTokens?: number | null;
   costUsd?: number | null;
 }
 
@@ -56,6 +57,7 @@ export async function recordReviewTiming(db: ReviewerDb, input: ReviewTimingInpu
       inputTokens: input.inputTokens ?? null,
       outputTokens: input.outputTokens ?? null,
       reasoningTokens: input.reasoningTokens ?? null,
+      cachedTokens: input.cachedTokens ?? null,
       // numeric(12,6) drizzle column takes a string; fixed 6dp avoids float
       // representation surprises. null when unpriced.
       costUsd: input.costUsd == null ? null : input.costUsd.toFixed(6),

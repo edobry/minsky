@@ -20,6 +20,7 @@ interface ReviewerDbStats {
   medianTokens7d: number | null;
   medianCostUsd24h: number | null;
   medianCostUsd7d: number | null;
+  cacheHitRatio24h: number | null;
 }
 
 interface ReviewerBotStatusPayload {
@@ -77,6 +78,11 @@ function formatCost(n: number | null): string {
   if (n === null) return "—";
   // Small per-review costs (typically <$1); show more precision below $1.
   return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
+}
+
+function formatPercent(ratio: number | null): string {
+  if (ratio === null) return "—";
+  return `${(ratio * 100).toFixed(1)}%`;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -345,6 +351,9 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
 
         {/* Field 18: Median cost per review (7d) — mt#2288 */}
         <Row label="Median cost (7d)">{db !== null ? formatCost(db.medianCostUsd7d) : "—"}</Row>
+
+        {/* Field 19: Cache-hit ratio (24h) — mt#2721. Cached input / total input. */}
+        <Row label="Cache-hit (24h)">{db !== null ? formatPercent(db.cacheHitRatio24h) : "—"}</Row>
       </dl>
     </>
   );
