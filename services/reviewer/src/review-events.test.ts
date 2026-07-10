@@ -113,6 +113,17 @@ describe("emitReviewPostedEvent — payload shape (mt#2725)", () => {
   });
 });
 
+describe("emitReviewPostedEvent — bounded timeout (mt#2725 R2)", () => {
+  test("passes a timeout well below callMcp's 15s default (review-path tail-latency guard)", async () => {
+    const callMcpFn = okCallMcp();
+    await emitReviewPostedEvent(CONFIGURED, baseEvent, callMcpFn);
+    const call = callMcpFn.mock.calls[0];
+    if (!call) throw new Error("expected callMcp to be called");
+    const options = call[3];
+    expect(options?.timeoutMs).toBe(5_000);
+  });
+});
+
 describe("emitReviewPostedEvent — best-effort guards (mt#2725)", () => {
   test("skips the emit entirely when MCP is unconfigured", async () => {
     const callMcpFn = okCallMcp();

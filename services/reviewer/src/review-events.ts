@@ -45,6 +45,16 @@ const EVENT_TO_STATE: Record<ReviewSubmitEvent, "APPROVED" | "CHANGES_REQUESTED"
 };
 
 /**
+ * Timeout for the emit's MCP round-trip. This emit is awaited on the review's
+ * critical path, so it is bounded well below callMcp's 15s default to cap the
+ * added tail latency when the hosted MCP is slow/unavailable — the emit is
+ * best-effort observability, so dropping it under a slow MCP is the right
+ * trade against stalling review completion. A healthy initialize + tools/call
+ * round-trip is well under this bound.
+ */
+const EMIT_TIMEOUT_MS = 5_000;
+
+/**
  * Emit a `pr.review_posted` system event via the hosted Minsky MCP.
  *
  * Payload matches the documented shape in
@@ -84,7 +94,7 @@ export async function emitReviewPostedEvent(
         ...(ev.taskId ? { relatedTaskId: ev.taskId } : {}),
       },
       { mcpUrl, mcpToken },
-      { logPrefix: "reviewer.review_posted_event" }
+      { logPrefix: "reviewer.review_posted_event", timeoutMs: EMIT_TIMEOUT_MS }
     );
     if (!result.ok) {
       log.warn("reviewer.review_posted_event_failed", {
