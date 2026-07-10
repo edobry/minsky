@@ -86,7 +86,7 @@ export class DefaultAICompletionService implements AICompletionService {
         model,
         prompt: request.prompt,
         system: request.systemPrompt,
-        temperature: request.temperature,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         maxTokens: request.maxTokens,
         tools,
         maxSteps: request.maxSteps,
@@ -171,7 +171,7 @@ export class DefaultAICompletionService implements AICompletionService {
         model,
         prompt: request.prompt,
         system: request.systemPrompt,
-        temperature: request.temperature,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
         maxTokens: request.maxTokens,
         tools,
         maxSteps: request.maxSteps,
@@ -242,7 +242,7 @@ export class DefaultAICompletionService implements AICompletionService {
         model,
         messages: request.messages as import("ai").CoreMessage[],
         schema: jsonSchema(schemaJson as Record<string, unknown>),
-        temperature: request.temperature || 0.3,
+        ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
       });
 
       // Post-parse validation: the AI may return a shape the JSON Schema
