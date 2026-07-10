@@ -7,7 +7,16 @@
  * mt#2088.
  */
 
-import { pgTable, uuid, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  boolean,
+  timestamp,
+  numeric,
+  index,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const reviewTimingTable = pgTable(
@@ -40,6 +49,16 @@ export const reviewTimingTable = pgTable(
     toolUseActive: boolean("tool_use_active"),
     provider: text("provider"),
     model: text("model"),
+
+    // mt#2288: per-review token spend + computed USD cost. Nullable because the
+    // two pre-model skip paths (routing-skip, concurrent-inflight) write a
+    // timing row with no model call. cost_usd is frozen at write time from a
+    // static per-model pricing map (see token-cost.ts); NULL when the model is
+    // unpriced.
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    reasoningTokens: integer("reasoning_tokens"),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
 
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

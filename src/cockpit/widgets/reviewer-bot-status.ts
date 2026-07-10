@@ -44,6 +44,9 @@ const PROBE_TIMEOUT_MS = 5_000;
 /** Window for throughput, failure-rate, and latency queries. */
 const WINDOW_24H_MS = 24 * 60 * 60 * 1_000;
 
+/** Window for 7-day token/cost medians (mt#2288). */
+const WINDOW_7D_MS = 7 * 24 * 60 * 60 * 1_000;
+
 /** A2 — stale in-flight: acquired_at older than this many ms. */
 const A2_STALE_INFLIGHT_TTL_MS = 10 * 60 * 1_000; // 10 min
 
@@ -58,6 +61,10 @@ const A3_MIN_SAMPLE_SIZE = 5;
 
 /** A4 — latency regression: P95 exceeding this fires A4. */
 const A4_LATENCY_P95_MS_THRESHOLD = 120_000; // 120 s
+
+/** A5 — cost trend: 24h median cost diverging from the 7d median by more than
+ * this fraction fires A5 (mt#2288). */
+const A5_COST_TREND_THRESHOLD = 0.5; // 50 %
 
 /** Number of recent mt# task IDs to surface. */
 const RECENT_TASKS_LIMIT = 5;
@@ -112,6 +119,14 @@ export interface ReviewerDbStats {
   rateLimitHitCount24h: number;
   /** ISO timestamp of the last received webhook event, or null. */
   lastWebhookReceivedAt: string | null;
+  /** Median total tokens (input+output) per model-invoking review, last 24h (mt#2288). */
+  medianTokens24h: number | null;
+  /** Median total tokens per model-invoking review, last 7d. */
+  medianTokens7d: number | null;
+  /** Median USD cost per priced review, last 24h. */
+  medianCostUsd24h: number | null;
+  /** Median USD cost per priced review, last 7d. */
+  medianCostUsd7d: number | null;
 }
 
 export interface ReviewerBotStatusPayload {
@@ -137,6 +152,8 @@ export interface ReviewerBotStatusPayload {
     a3FailureRateSpike: boolean;
     /** A4 — latency regression (P95 > 120s in last 24h). */
     a4LatencyRegression: boolean;
+    /** A5 — cost trend: 24h median cost diverged >50% from 7d median cost (mt#2288). */
+    a5CostTrend: boolean;
   };
 }
 
@@ -209,6 +226,16 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
         const a4LatencyRegression =
           db !== null && db.p95LatencyMs !== null && db.p95LatencyMs > A4_LATENCY_P95_MS_THRESHOLD;
 
+        // A5 — cost trend: 24h median cost diverged >50% from the 7d median (mt#2288).
+        // Requires both medians present and a non-zero 7d baseline.
+        const a5CostTrend =
+          db !== null &&
+          db.medianCostUsd24h !== null &&
+          db.medianCostUsd7d !== null &&
+          db.medianCostUsd7d > 0 &&
+          Math.abs(db.medianCostUsd24h - db.medianCostUsd7d) / db.medianCostUsd7d >
+            A5_COST_TREND_THRESHOLD;
+
         const payload: ReviewerBotStatusPayload = {
           health: {
             ok: health.ok,
@@ -225,6 +252,7 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
             a2StaleInflight,
             a3FailureRateSpike,
             a4LatencyRegression,
+            a5CostTrend,
           },
         };
 
@@ -261,6 +289,7 @@ function windowStartIso(nowMs: number, windowMs: number): string {
  */
 async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<ReviewerDbStats> {
   const window24hIso = windowStartIso(nowMs, WINDOW_24H_MS);
+  const window7dIso = windowStartIso(nowMs, WINDOW_7D_MS);
   const staleThresholdIso = windowStartIso(nowMs, A2_STALE_INFLIGHT_TTL_MS);
 
   const results = await Promise.allSettled([
@@ -332,6 +361,38 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
       `SELECT received_at FROM reviewer_webhook_events
        ORDER BY received_at DESC LIMIT 1`
     ),
+    // mt#2288: median total tokens (input+output) per model-invoking review, 24h.
+    // Filter to rows with token data — the two pre-model skip paths write NULL
+    // tokens and must not skew the median. PERCENTILE_DISC returns an actual
+    // observed integer token total (no interpolation → no fractional/cast surprise).
+    queryRows(
+      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
+       FROM review_timing
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
+      [window24hIso]
+    ),
+    // mt#2288: median total tokens per model-invoking review, 7d.
+    queryRows(
+      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
+       FROM review_timing
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
+      [window7dIso]
+    ),
+    // mt#2288: median USD cost per priced review, 24h (cost_usd NULL when the
+    // model is unpriced — excluded so the median reflects only priced reviews).
+    queryRows(
+      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
+       FROM review_timing
+       WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
+      [window24hIso]
+    ),
+    // mt#2288: median USD cost per priced review, 7d.
+    queryRows(
+      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
+       FROM review_timing
+       WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
+      [window7dIso]
+    ),
   ]);
 
   // Extract rows from each settled result — rejected results fall back to [].
@@ -346,6 +407,10 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
   const staleInflightRows = settled[5] ?? [];
   const rateLimitRows = settled[6] ?? [];
   const lastWebhookRows = settled[7] ?? [];
+  const medianTokens24hRows = settled[8] ?? [];
+  const medianTokens7dRows = settled[9] ?? [];
+  const medianCost24hRows = settled[10] ?? [];
+  const medianCost7dRows = settled[11] ?? [];
 
   const reviewCount24h = Number(throughputRows[0]?.["count"] ?? 0);
   const failureCount24h = Number(failureRows[0]?.["count"] ?? 0);
@@ -388,6 +453,25 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
   const lastWebhookReceivedAt =
     lastWebhookRow?.["received_at"] != null ? String(lastWebhookRow["received_at"]) : null;
 
+  // mt#2288: token/cost medians. PERCENTILE_CONT over an empty/all-NULL set
+  // returns NULL, which parses to null (no data → "—" in the widget).
+  const medianTokens24h =
+    medianTokens24hRows[0]?.["median_tokens"] != null
+      ? Number(medianTokens24hRows[0]["median_tokens"])
+      : null;
+  const medianTokens7d =
+    medianTokens7dRows[0]?.["median_tokens"] != null
+      ? Number(medianTokens7dRows[0]["median_tokens"])
+      : null;
+  const medianCostUsd24h =
+    medianCost24hRows[0]?.["median_cost"] != null
+      ? Number(medianCost24hRows[0]["median_cost"])
+      : null;
+  const medianCostUsd7d =
+    medianCost7dRows[0]?.["median_cost"] != null
+      ? Number(medianCost7dRows[0]["median_cost"])
+      : null;
+
   return {
     reviewCount24h,
     failureCount24h,
@@ -398,6 +482,10 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     staleInflightCount,
     rateLimitHitCount24h,
     lastWebhookReceivedAt,
+    medianTokens24h,
+    medianTokens7d,
+    medianCostUsd24h,
+    medianCostUsd7d,
   };
 }
 

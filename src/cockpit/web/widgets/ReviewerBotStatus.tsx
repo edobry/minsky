@@ -16,6 +16,10 @@ interface ReviewerDbStats {
   staleInflightCount: number;
   rateLimitHitCount24h: number;
   lastWebhookReceivedAt: string | null;
+  medianTokens24h: number | null;
+  medianTokens7d: number | null;
+  medianCostUsd24h: number | null;
+  medianCostUsd7d: number | null;
 }
 
 interface ReviewerBotStatusPayload {
@@ -34,6 +38,7 @@ interface ReviewerBotStatusPayload {
     a2StaleInflight: boolean;
     a3FailureRateSpike: boolean;
     a4LatencyRegression: boolean;
+    a5CostTrend: boolean;
   };
 }
 
@@ -59,6 +64,19 @@ function formatLatencyMs(ms: number | null): string {
   const sec = ms / 1000;
   if (sec < 60) return `${sec.toFixed(1)}s`;
   return `${(sec / 60).toFixed(1)}m`;
+}
+
+function formatTokens(n: number | null): string {
+  if (n === null) return "—";
+  // Defensive: medians are integer by construction (PERCENTILE_DISC), but round
+  // so a fractional value never renders as e.g. "45,000.5".
+  return Math.round(n).toLocaleString();
+}
+
+function formatCost(n: number | null): string {
+  if (n === null) return "—";
+  // Small per-review costs (typically <$1); show more precision below $1.
+  return n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -101,9 +119,7 @@ interface ReviewerBotStatusBodyProps {
 
 function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
   if (query.isError) {
-    return (
-      <p className="text-muted-foreground text-sm">Failed to load: {query.error.message}</p>
-    );
+    return <p className="text-muted-foreground text-sm">Failed to load: {query.error.message}</p>;
   }
 
   if (query.isLoading || !query.data) {
@@ -131,9 +147,7 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         <span
           className={cn(
             "text-xs px-1.5 py-0.5 rounded",
-            health.ok
-              ? "bg-emerald-500/10 text-emerald-500"
-              : "bg-destructive/10 text-destructive"
+            health.ok ? "bg-emerald-500/10 text-emerald-500" : "bg-destructive/10 text-destructive"
           )}
         >
           {health.ok ? "Healthy" : "Unreachable"}
@@ -163,6 +177,12 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
           variant="warning"
         />
       )}
+      {anomalies.a5CostTrend && db && (
+        <AnomalyBanner
+          message={`A5 — Cost trend: 24h median ${formatCost(db.medianCostUsd24h)} vs 7d median ${formatCost(db.medianCostUsd7d)} (>50% divergence).`}
+          variant="warning"
+        />
+      )}
 
       {/* Field rows — 14 v1 fields */}
       <dl>
@@ -174,10 +194,7 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
             ) : (
               <span className="text-destructive">{health.statusCode ?? "no response"}</span>
             )}
-            <span
-              className="text-xs text-muted-foreground"
-              title={health.lastProbeAt}
-            >
+            <span className="text-xs text-muted-foreground" title={health.lastProbeAt}>
               probed {formatRelative(health.lastProbeAt)}
             </span>
           </span>
@@ -198,9 +215,7 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         </Row>
 
         {/* Field 4: Model */}
-        <Row label="Model">
-          {health.model ?? <span className="text-muted-foreground">—</span>}
-        </Row>
+        <Row label="Model">{health.model ?? <span className="text-muted-foreground">—</span>}</Row>
 
         {/* Field 5: Tier 2 enabled */}
         <Row label="Tier 2 enabled">
@@ -275,20 +290,18 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
 
         {/* Field 12: Failure rate */}
         <Row label="Failure rate (24h)">
-          {db !== null ? (
-            (() => {
-              const total = db.reviewCount24h + db.failureCount24h;
-              if (total === 0) return <span className="text-muted-foreground">no data</span>;
-              const pct = (db.failureCount24h / total) * 100;
-              return (
-                <span className={anomalies.a3FailureRateSpike ? "text-destructive" : undefined}>
-                  {pct.toFixed(1)}%
-                </span>
-              );
-            })()
-          ) : (
-            "—"
-          )}
+          {db !== null
+            ? (() => {
+                const total = db.reviewCount24h + db.failureCount24h;
+                if (total === 0) return <span className="text-muted-foreground">no data</span>;
+                const pct = (db.failureCount24h / total) * 100;
+                return (
+                  <span className={anomalies.a3FailureRateSpike ? "text-destructive" : undefined}>
+                    {pct.toFixed(1)}%
+                  </span>
+                );
+              })()
+            : "—"}
         </Row>
 
         {/* Field 13: Rate-limit hit count */}
@@ -305,13 +318,33 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         {/* Field 14: Last webhook received */}
         <Row label="Last webhook">
           {db !== null && db.lastWebhookReceivedAt ? (
-            <span title={db.lastWebhookReceivedAt}>
-              {formatRelative(db.lastWebhookReceivedAt)}
-            </span>
+            <span title={db.lastWebhookReceivedAt}>{formatRelative(db.lastWebhookReceivedAt)}</span>
           ) : (
             <span className="text-muted-foreground">—</span>
           )}
         </Row>
+
+        {/* Field 15: Median tokens per review (24h) — mt#2288 */}
+        <Row label="Median tokens (24h)">
+          {db !== null ? formatTokens(db.medianTokens24h) : "—"}
+        </Row>
+
+        {/* Field 16: Median tokens per review (7d) — mt#2288 */}
+        <Row label="Median tokens (7d)">{db !== null ? formatTokens(db.medianTokens7d) : "—"}</Row>
+
+        {/* Field 17: Median cost per review (24h) — mt#2288 */}
+        <Row label="Median cost (24h)">
+          {db !== null ? (
+            <span className={anomalies.a5CostTrend ? "text-amber-500" : undefined}>
+              {formatCost(db.medianCostUsd24h)}
+            </span>
+          ) : (
+            "—"
+          )}
+        </Row>
+
+        {/* Field 18: Median cost per review (7d) — mt#2288 */}
+        <Row label="Median cost (7d)">{db !== null ? formatCost(db.medianCostUsd7d) : "—"}</Row>
       </dl>
     </>
   );

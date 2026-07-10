@@ -60,6 +60,7 @@ import type { ReviewerDb } from "./db/client";
 import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
 import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
+import { timingTokenFields } from "./token-cost";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -929,9 +930,8 @@ export async function runReview(
   const routing = decideRouting(tier, config.tier2Enabled);
   if (!routing.shouldReview) {
     // mt#2088: timing on routing-skip path.
-    const skipTimingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await skipTimingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber,
@@ -985,8 +985,7 @@ export async function runReview(
           delivery_id: deliveryId,
         });
         // mt#2088: timing on concurrent-inflight skip path.
-        const inflightTimingWriter = deps.timingRecorder ?? recordReviewTiming;
-        await inflightTimingWriter(deps.db, {
+        await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
           prOwner: owner,
           prRepo: repo,
           prNumber,
@@ -1469,9 +1468,8 @@ async function runReviewBody(
       );
     }
     // mt#2088: timing on empty-output error path.
-    const emptyTimingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await emptyTimingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
@@ -1486,6 +1484,7 @@ async function runReviewBody(
         toolUseActive: outputToolsActive,
         provider: output.provider,
         model: output.model,
+        ...timingTokenFields(output),
       });
     }
     return {
@@ -1950,9 +1949,8 @@ async function runReviewBody(
     );
 
     // mt#2088: persist per-review timing data.
-    const timingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await timingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
@@ -1967,6 +1965,7 @@ async function runReviewBody(
         toolUseActive: outputToolsActive,
         provider: output.provider,
         model: output.model,
+        ...timingTokenFields(output),
       });
     }
 
@@ -2060,9 +2059,8 @@ async function runReviewBody(
       );
     }
     // mt#2088: timing on CoT-leakage error path.
-    const cotTimingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await cotTimingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
@@ -2077,6 +2075,7 @@ async function runReviewBody(
         toolUseActive: outputToolsActive,
         provider: output.provider,
         model: output.model,
+        ...timingTokenFields(output),
       });
     }
     return {
@@ -2167,9 +2166,8 @@ async function runReviewBody(
   }
 
   // mt#2088: persist per-review timing data (prose path).
-  const timingWriterProse = deps.timingRecorder ?? recordReviewTiming;
   if (deps.db !== undefined) {
-    await timingWriterProse(deps.db, {
+    await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
       prOwner: owner,
       prRepo: repo,
       prNumber: pr.number,
@@ -2184,6 +2182,7 @@ async function runReviewBody(
       toolUseActive: outputToolsActive,
       provider: output.provider,
       model: output.model,
+      ...timingTokenFields(output),
     });
   }
 
