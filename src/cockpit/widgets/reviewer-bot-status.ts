@@ -66,6 +66,14 @@ const A4_LATENCY_P95_MS_THRESHOLD = 120_000; // 120 s
  * this fraction fires A5 (mt#2288). */
 const A5_COST_TREND_THRESHOLD = 0.5; // 50 %
 
+/** A6 — verdict drift: any verdict's 24h ratio diverging from its 7d ratio by
+ * more than this many percentage points fires A6 (mt#2287). */
+const A6_VERDICT_DRIFT_THRESHOLD = 0.2; // 20 percentage points
+
+/** A6 minimum sample size (per window) to avoid trivial zero/one-event drift
+ * on low-volume windows — mirrors the A3_MIN_SAMPLE_SIZE pattern. */
+const A6_MIN_SAMPLE_SIZE = 3;
+
 /** Number of recent mt# task IDs to surface. */
 const RECENT_TASKS_LIMIT = 5;
 
@@ -99,6 +107,17 @@ export interface ReviewerHealthProbeResult {
   tier2Enabled: boolean | null;
 }
 
+/**
+ * Verdict counts, keyed by GitHub review event (lowercased, camelCase for
+ * request_changes). Mirrors the `verdict` column's accepted values on
+ * reviewer_convergence_metrics (mt#2287).
+ */
+export interface VerdictCounts {
+  approve: number;
+  requestChanges: number;
+  comment: number;
+}
+
 /** DB-backed statistics (from direct Postgres queries). */
 export interface ReviewerDbStats {
   /** Review count in the last 24h (throughput). */
@@ -129,6 +148,10 @@ export interface ReviewerDbStats {
   medianCostUsd7d: number | null;
   /** Aggregate cache-hit ratio (SUM cached / SUM input tokens) over model-invoking reviews, 24h (mt#2721). */
   cacheHitRatio24h: number | null;
+  /** Verdict counts (approve / requestChanges / comment) in the last 24h (mt#2287). */
+  verdictCounts24h: VerdictCounts;
+  /** Verdict counts (approve / requestChanges / comment) in the last 7d (mt#2287). */
+  verdictCounts7d: VerdictCounts;
 }
 
 export interface ReviewerBotStatusPayload {
@@ -156,6 +179,8 @@ export interface ReviewerBotStatusPayload {
     a4LatencyRegression: boolean;
     /** A5 — cost trend: 24h median cost diverged >50% from 7d median cost (mt#2288). */
     a5CostTrend: boolean;
+    /** A6 — verdict drift: any verdict's 24h ratio diverged >20pp from its 7d ratio (mt#2287). */
+    a6VerdictDrift: boolean;
   };
 }
 
@@ -238,6 +263,21 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
           Math.abs(db.medianCostUsd24h - db.medianCostUsd7d) / db.medianCostUsd7d >
             A5_COST_TREND_THRESHOLD;
 
+        // A6 — verdict drift: any verdict's 24h ratio diverged >20pp from its
+        // 7d ratio (mt#2287). Gated on both windows having >= A6_MIN_SAMPLE_SIZE
+        // verdicts total, mirroring A3's min-sample gate — otherwise a single
+        // review in an otherwise-empty window trivially "drifts" 100pp.
+        const a6VerdictDrift =
+          db !== null &&
+          verdictTotal(db.verdictCounts24h) >= A6_MIN_SAMPLE_SIZE &&
+          verdictTotal(db.verdictCounts7d) >= A6_MIN_SAMPLE_SIZE &&
+          (["approve", "requestChanges", "comment"] as const).some(
+            (key) =>
+              Math.abs(
+                verdictRatio(db.verdictCounts24h, key) - verdictRatio(db.verdictCounts7d, key)
+              ) > A6_VERDICT_DRIFT_THRESHOLD
+          );
+
         const payload: ReviewerBotStatusPayload = {
           health: {
             ok: health.ok,
@@ -255,6 +295,7 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
             a3FailureRateSpike,
             a4LatencyRegression,
             a5CostTrend,
+            a6VerdictDrift,
           },
         };
 
@@ -277,6 +318,17 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
  */
 function windowStartIso(nowMs: number, windowMs: number): string {
   return new Date(nowMs - windowMs).toISOString();
+}
+
+/** Total verdict count across all three classes (mt#2287). */
+function verdictTotal(counts: VerdictCounts): number {
+  return counts.approve + counts.requestChanges + counts.comment;
+}
+
+/** Ratio of one verdict class within its window's total. 0 when the window has no verdicts. */
+function verdictRatio(counts: VerdictCounts, key: keyof VerdictCounts): number {
+  const total = verdictTotal(counts);
+  return total > 0 ? counts[key] / total : 0;
 }
 
 /**
@@ -407,6 +459,22 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND cached_tokens IS NOT NULL`,
       [window24hIso]
     ),
+    // mt#2287: verdict distribution, 24h. Nullable `verdict` column (mt#2287
+    // migration) — rows written before that migration retain NULL and are
+    // excluded so the distribution reflects only reviews with a known verdict.
+    queryRows(
+      `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
+       WHERE verdict IS NOT NULL AND created_at >= $1
+       GROUP BY verdict`,
+      [window24hIso]
+    ),
+    // mt#2287: verdict distribution, 7d (baseline for the drift comparison).
+    queryRows(
+      `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
+       WHERE verdict IS NOT NULL AND created_at >= $1
+       GROUP BY verdict`,
+      [window7dIso]
+    ),
   ]);
 
   // Extract rows from each settled result — rejected results fall back to [].
@@ -426,6 +494,8 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
   const medianCost24hRows = settled[10] ?? [];
   const medianCost7dRows = settled[11] ?? [];
   const cacheHitRows = settled[12] ?? [];
+  const verdictRows24h = settled[13] ?? [];
+  const verdictRows7d = settled[14] ?? [];
 
   const reviewCount24h = Number(throughputRows[0]?.["count"] ?? 0);
   const failureCount24h = Number(failureRows[0]?.["count"] ?? 0);
@@ -491,6 +561,12 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
       ? Number(cacheHitRows[0]["cache_hit_ratio"])
       : null;
 
+  // mt#2287: verdict distribution. Each row is { verdict: "approve" |
+  // "request_changes" | "comment", count: <n> }; unrecognized verdict values
+  // (defensive — schema comment documents the accepted set) are ignored.
+  const verdictCounts24h = extractVerdictCounts(verdictRows24h);
+  const verdictCounts7d = extractVerdictCounts(verdictRows7d);
+
   return {
     reviewCount24h,
     failureCount24h,
@@ -506,7 +582,28 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     medianCostUsd24h,
     medianCostUsd7d,
     cacheHitRatio24h,
+    verdictCounts24h,
+    verdictCounts7d,
   };
+}
+
+/**
+ * Build a VerdictCounts object from GROUP-BY-verdict query rows.
+ * Unrecognized verdict values are ignored defensively — the schema comment
+ * on reviewer_convergence_metrics.verdict documents the accepted set
+ * (approve / request_changes / comment / NULL); NULL rows are already
+ * excluded by the query's WHERE clause.
+ */
+function extractVerdictCounts(rows: Record<string, unknown>[]): VerdictCounts {
+  const counts: VerdictCounts = { approve: 0, requestChanges: 0, comment: 0 };
+  for (const row of rows) {
+    const verdict = row["verdict"];
+    const count = Number(row["count"] ?? 0);
+    if (verdict === "approve") counts.approve = count;
+    else if (verdict === "request_changes") counts.requestChanges = count;
+    else if (verdict === "comment") counts.comment = count;
+  }
+  return counts;
 }
 
 // ---------------------------------------------------------------------------
