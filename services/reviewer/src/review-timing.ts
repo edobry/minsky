@@ -28,6 +28,12 @@ export interface ReviewTimingInput {
   toolUseActive: boolean;
   provider: string;
   model: string;
+  // mt#2288: per-review token spend + computed USD cost. Optional — the two
+  // pre-model skip paths omit them, so they persist as NULL.
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  reasoningTokens?: number | null;
+  costUsd?: number | null;
 }
 
 export async function recordReviewTiming(db: ReviewerDb, input: ReviewTimingInput): Promise<void> {
@@ -47,6 +53,11 @@ export async function recordReviewTiming(db: ReviewerDb, input: ReviewTimingInpu
       toolUseActive: input.toolUseActive,
       provider: input.provider,
       model: input.model,
+      inputTokens: input.inputTokens ?? null,
+      outputTokens: input.outputTokens ?? null,
+      reasoningTokens: input.reasoningTokens ?? null,
+      // numeric(12,6) drizzle column takes a string; null when unpriced.
+      costUsd: input.costUsd == null ? null : input.costUsd.toString(),
     });
   } catch (err: unknown) {
     log.error("review_timing_write_error", {
