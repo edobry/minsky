@@ -68,7 +68,9 @@ function formatLatencyMs(ms: number | null): string {
 
 function formatTokens(n: number | null): string {
   if (n === null) return "—";
-  return n.toLocaleString();
+  // Defensive: medians are integer by construction (PERCENTILE_DISC), but round
+  // so a fractional value never renders as e.g. "45,000.5".
+  return Math.round(n).toLocaleString();
 }
 
 function formatCost(n: number | null): string {

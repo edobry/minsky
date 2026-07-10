@@ -363,16 +363,17 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     ),
     // mt#2288: median total tokens (input+output) per model-invoking review, 24h.
     // Filter to rows with token data — the two pre-model skip paths write NULL
-    // tokens and must not skew the median.
+    // tokens and must not skew the median. PERCENTILE_DISC returns an actual
+    // observed integer token total (no interpolation → no fractional/cast surprise).
     queryRows(
-      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens))::bigint AS median_tokens
+      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
       [window24hIso]
     ),
     // mt#2288: median total tokens per model-invoking review, 7d.
     queryRows(
-      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens))::bigint AS median_tokens
+      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
       [window7dIso]

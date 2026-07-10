@@ -56,8 +56,9 @@ export async function recordReviewTiming(db: ReviewerDb, input: ReviewTimingInpu
       inputTokens: input.inputTokens ?? null,
       outputTokens: input.outputTokens ?? null,
       reasoningTokens: input.reasoningTokens ?? null,
-      // numeric(12,6) drizzle column takes a string; null when unpriced.
-      costUsd: input.costUsd == null ? null : input.costUsd.toString(),
+      // numeric(12,6) drizzle column takes a string; fixed 6dp avoids float
+      // representation surprises. null when unpriced.
+      costUsd: input.costUsd == null ? null : input.costUsd.toFixed(6),
     });
   } catch (err: unknown) {
     log.error("review_timing_write_error", {
