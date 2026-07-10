@@ -1417,26 +1417,15 @@ export class PreCommitHook {
       return { success: false, message: result.message, exitCode: 1 };
     }
 
-    try {
-      // Prettier-format the regenerated manifest before diff/stage: the
-      // generator's raw output is not prettier-styled, and the lint-staged
-      // formatting step (step 1) has already run by the time this step
-      // re-stages the file — without this pass, CI's `format:check` fails on
-      // the freshly staged manifest. Fully literal command string (no
-      // interpolation), consistent with the R1 no-shell-interpolation finding.
-      await execAsync("bunx prettier --write src/generated/completion-manifest.json", {
-        cwd: this.projectRoot,
-        timeout: 15000,
-      });
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      log.cli(`❌ Could not format the regenerated completion manifest: ${errMsg}`);
-      return {
-        success: false,
-        message: `Could not format the regenerated completion manifest: ${errMsg}`,
-        exitCode: 1,
-      };
-    }
+    // The generator (scripts/build-completion-manifest.ts) now formats its own
+    // output with the project's Prettier config, so the regenerated manifest is
+    // already canonical — no separate `bunx prettier --write` pass is needed
+    // here before diff/stage (mt#2732). This removes the redundant format
+    // subprocess the mt#2622 R2 review added back when the generator still
+    // emitted raw JSON.stringify output that diverged from the committed copy.
+    // Regression backstop: the generator uses the same .prettierrc.json config
+    // as CI's `format:check` (which globs the committed manifest), so any future
+    // format drift fails loudly at the CI gate — no local check needed here.
 
     // Compare the regenerated working-tree copy against the index. `git diff`
     // (no --quiet) always exits 0 and simply prints nothing when there is no
