@@ -23,6 +23,7 @@ import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-s
 import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
   createOctokit,
+  createAppIdentityOctokit,
   fetchPriorReviews,
   fetchListFiles,
   MAX_FILES_FETCHED,
@@ -845,6 +846,29 @@ describe("createOctokit (mt#2717)", () => {
     const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
     expect(appAuth.type).toBe("app");
     // A JWT is three dot-separated base64url segments.
+    expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+describe("createAppIdentityOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // Same property as createOctokit: the pre-mt#2717 getAppIdentity path
+    // extracted a static App JWT at construction (`await auth({ type: "app" })`)
+    // and threw on a malformed key. The authStrategy form defers auth to the
+    // first request, so construction must not throw.
+    const octokit = createAppIdentityOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = createAppIdentityOctokit(testConfig(privateKey));
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
     expect(appAuth.token.split(".")).toHaveLength(3);
   });
 });

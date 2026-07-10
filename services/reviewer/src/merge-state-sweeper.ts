@@ -399,8 +399,9 @@ export async function runMergeStateSweep(
             error: msg,
           });
           // mt#2717: feed the shared auth-health tracker. Only auth-class
-          // failures (401/403/"Bad credentials") move its counter; a timeout or
-          // other error is ignored. When a sustained credential failure crosses
+          // failures (401 / "Bad credentials" / "unauthorized") move its
+          // counter; a timeout or other error is ignored. When a sustained
+          // credential failure crosses
           // the threshold the tracker emits a distinct `reviewer.auth_health_failing`
           // alert instead of leaving this per-session `session_error` spam as the
           // only signal (the 1,730-error state that motivated mt#2717).

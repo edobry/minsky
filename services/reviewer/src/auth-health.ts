@@ -17,10 +17,11 @@
  * ## Design
  *
  * A single process-wide {@link AuthHealthTracker} is fed by both sweepers'
- * GitHub error/success paths. Only **auth-class** failures (`401`/`403` /
- * `"Bad credentials"`) move the counter; a success resets it; a non-auth
- * failure (timeout, 5xx, network) is ignored so transient blips neither trip
- * the alert nor mask a real credential failure. When `>= threshold` consecutive
+ * GitHub error/success paths. Only **auth-class** failures (HTTP 401 /
+ * `"Bad credentials"` / `"unauthorized"`) move the counter; a success resets it;
+ * a non-auth failure (timeout, 5xx, network, a bare 403 permission/rate-limit)
+ * is ignored so transient blips neither trip the alert nor mask a real
+ * credential failure. When `>= threshold` consecutive
  * auth failures accumulate, `onTrip` fires exactly ONCE (deduped via the
  * `tripped` flag, mirroring the circuit-breaker one-shot pattern in
  * `sweeper.ts`) — emitting a distinct `reviewer.auth_health_failing` error log
@@ -50,18 +51,29 @@ function getStatus(err: unknown): number | undefined {
 }
 
 /**
- * Classify an error as a GitHub auth-credential failure.
+ * Classify an error as a GitHub credential (token mint/refresh) failure.
  *
- * True for HTTP 401/403 and for the `"Bad credentials"` / `"unauthorized"`
- * message families GitHub returns for an expired or invalid installation token.
- * False for timeouts, 5xx, and network errors — those are not credential
- * problems and must not trip the auth-health alert.
+ * True for HTTP 401 and the `"Bad credentials"` / `"unauthorized"` message
+ * families GitHub returns for an expired or invalid installation token. A bare
+ * 403 is deliberately NOT auth-class: GitHub uses 403 for per-repo permission
+ * denials ("Resource not accessible by integration") and for rate limiting /
+ * abuse detection — none of which are token-refresh failures — so classifying
+ * all 403s would page the global auth-health alert on transient rate limits or
+ * expected per-repo access denials. Rate-limit / abuse messages are excluded
+ * outright. False for timeouts, 5xx, and network errors.
  */
 export function isAuthError(err: unknown): boolean {
-  const status = getStatus(err);
-  if (status === 401 || status === 403) return true;
   const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return /bad credentials|unauthorized|\b401\b|\b403\b/.test(message);
+  // GitHub returns 403 (not 401) for rate limiting / abuse detection. Exclude
+  // those first so a rate-limit burst can never trip the auth-health page.
+  if (/rate limit|abuse detection|secondary rate/.test(message)) return false;
+  // 401 is the definitive expired/invalid installation-token signal — GitHub
+  // returns 401 "Bad credentials" for an aged-out token (the mt#2717 signature).
+  if (getStatus(err) === 401) return true;
+  // Message-only classification for wrapped errors without a numeric status.
+  // Intentionally excludes bare 403 (permission denial / rate limit) — only a
+  // token mint/refresh failure should page the global auth-health alert.
+  return /bad credentials|unauthorized/.test(message);
 }
 
 /** Injected side effects, so the tracker itself is pure and unit-testable. */
@@ -196,9 +208,9 @@ export const githubAuthHealth = new AuthHealthTracker(DEFAULT_AUTH_HEALTH_THRESH
       configuredAlertSink?.notify(
         "error",
         "Reviewer GitHub auth failing",
-        `${consecutiveFailures} consecutive "Bad credentials"/401 failures (>= ${threshold}) ` +
+        `${consecutiveFailures} consecutive GitHub credential failures (>= ${threshold}) ` +
           `across the reviewer sweepers (latest source: ${source}). The GitHub App installation ` +
-          `token is not authenticating. Operator action required (mt#2717).`
+          `token is not authenticating. Latest error: ${lastError}. Operator action required (mt#2717).`
       )
     ).catch((sinkErr: unknown) => {
       log.warn("reviewer.auth_health_alert_sink_unhandled", {

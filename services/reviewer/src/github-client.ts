@@ -904,20 +904,39 @@ export async function dismissReview(
  */
 let cachedAppIdentity: { login: string } | null = null;
 
+/**
+ * Construct the App-JWT-authed Octokit used to read the reviewer App's own
+ * identity (`GET /app`).
+ *
+ * mt#2717: installs `createAppAuth` as the `authStrategy` so the App-level JWT
+ * is minted and refreshed per request, rather than extracting a static JWT
+ * string (`new Octokit({ auth: token })`) — the same static-token anti-pattern
+ * the sweepers' `createOctokit` hit. Only `appId`/`privateKey` are needed for
+ * the App-level `/app` route (no `installationId`); `@octokit/auth-app` supplies
+ * a JWT automatically for App-level endpoints. Exported for tests.
+ */
+export function createAppIdentityOctokit(config: ReviewerConfig): Octokit {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+    },
+  });
+}
+
+/** TEST-ONLY: reset the cached App identity so a test can re-exercise the fetch. */
+export function _resetAppIdentityCacheForTests(): void {
+  cachedAppIdentity = null;
+}
+
 export async function getAppIdentity(config: ReviewerConfig): Promise<{ login: string }> {
   if (cachedAppIdentity) return cachedAppIdentity;
 
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
-  });
-
-  // `type: "app"` returns an App-level JWT (not an installation token), which
-  // is required for `/app` endpoints.
-  const { token } = await auth({ type: "app" });
-
-  const appOctokit = new Octokit({ auth: token });
+  // mt#2717: authStrategy-based client (see createAppIdentityOctokit) so the
+  // App JWT mints/refreshes per request. `apps.getAuthenticated` (GET /app) is
+  // an App-level route, so @octokit/auth-app supplies a fresh JWT automatically.
+  const appOctokit = createAppIdentityOctokit(config);
   const response = await appOctokit.rest.apps.getAuthenticated();
   if (!response.data) {
     throw new Error(

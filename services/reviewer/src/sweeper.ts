@@ -523,6 +523,12 @@ export async function runSweep(
 
   // 1. List all open PRs.
   const openPRs = await listOpenPRs(octokit, owner, repo);
+  // mt#2717 (reviewer R1 NB): listOpenPRs is the cycle's first auth-bearing
+  // GitHub call, so its success proves the App installation token authenticated.
+  // Record the success HERE — at the precise auth-bearing call — rather than
+  // after the whole cycle resolves, so a later internally-caught failure can't
+  // reset the shared auth-health streak on a partial-failure cycle.
+  githubAuthHealth.recordSuccess();
   const prsScanned = openPRs.length;
 
   // 2. Detect missing reviews, respecting tier routing.
@@ -915,21 +921,17 @@ export function startSweeper(
     }
     cachedDeps
       .then((deps) => runSweep(config, sweeperConfig, deps))
-      .then(() => {
-        // mt#2717: the cycle's GitHub calls (listOpenPRs / listReviews, and any
-        // buildSweeperDeps auth handshake) authenticated — reset the shared
-        // auth-health failure streak.
-        githubAuthHealth.recordSuccess();
-      })
       .catch((err) => {
         log.error("sweeper.cycle_error", {
           event: "sweeper.cycle_error",
           ...extractPgErrorContext(err),
         });
         // mt#2717: feed the shared auth-health tracker. Only auth-class errors
-        // (401/403/"Bad credentials") move its counter, so a PG/network cycle
-        // error here is ignored; a sustained credential failure trips the
-        // distinct `reviewer.auth_health_failing` alert.
+        // (401 / "Bad credentials" / "unauthorized") move its counter, so a
+        // PG/network cycle error here is ignored; a sustained credential failure
+        // trips the distinct `reviewer.auth_health_failing` alert. The success
+        // side is recorded inside runSweep at the listOpenPRs call (the precise
+        // auth-bearing success point), not here.
         githubAuthHealth.recordFailure("sweeper", err);
         // Clear cached deps on error so next cycle retries building them.
         // Never clear a test-injected depsOverride — it has no "rebuild"

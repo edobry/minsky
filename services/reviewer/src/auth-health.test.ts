@@ -37,8 +37,17 @@ describe("isAuthError", () => {
     expect(isAuthError(httpError("Something", 401))).toBe(true);
   });
 
-  test("classifies HTTP 403 as an auth error", () => {
-    expect(isAuthError(httpError("Resource not accessible", 403))).toBe(true);
+  test("does NOT classify a bare 403 (permission denial) as an auth error", () => {
+    // 403 "Resource not accessible by integration" is a per-repo permission
+    // problem, not a token mint/refresh failure — it must not page auth-health.
+    expect(isAuthError(httpError("Resource not accessible by integration", 403))).toBe(false);
+  });
+
+  test("does NOT classify a 403 rate-limit / abuse response as an auth error", () => {
+    expect(isAuthError(httpError("API rate limit exceeded", 403))).toBe(false);
+    expect(isAuthError(httpError("You have triggered an abuse detection mechanism", 403))).toBe(
+      false
+    );
   });
 
   test("classifies the GitHub 'Bad credentials' message as an auth error", () => {
