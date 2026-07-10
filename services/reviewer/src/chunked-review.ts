@@ -16,6 +16,15 @@ import {
 } from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import type { ReviewerConfig } from "./config";
+import type { ReviewerToolContext } from "./tools";
+import { callReviewer, type ReviewOutput } from "./providers";
+import {
+  callReviewerWithRetry,
+  validateReviewOutput,
+  type CallWithRetryResult,
+} from "./review-output-validation";
+import { log } from "./logger";
 
 export const CHUNKED_REVIEW_FILE_THRESHOLD = 20;
 export const CHUNKED_REVIEW_LINE_THRESHOLD = 2000;
@@ -319,4 +328,161 @@ ${chunkDiff}
 ---
 
 Review the files in this chunk per the Critic Constitution. Focus on the files listed above — other files are reviewed in separate chunks.`;
+}
+
+/**
+ * Inputs for {@link runChunkedReview}. All pre-computed by the caller
+ * (`runReviewBody`) so this stays a pure orchestrator over the chunk math +
+ * the per-chunk model call.
+ */
+export interface RunChunkedReviewInput {
+  config: ReviewerConfig;
+  systemPrompt: string;
+  /** Single-pass user prompt, used only on the empty-file-list fallback path. */
+  userPrompt: string;
+  /** Prompt input WITHOUT the diff — buildChunkedReviewPrompt adds each chunk's diff. */
+  basePromptInput: Omit<ReviewPromptInput, "diff">;
+  /** Tool context, already gated by the caller (`toolsActive ? toolContext : undefined`). */
+  tools?: ReviewerToolContext;
+  outputToolsActive: boolean;
+  fileEntries: PrFileEntry[];
+  /** Full PR diff, sliced per-chunk by buildChunkDiff. */
+  diff: string;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  totalDiffLines: number;
+}
+
+/**
+ * Run a chunked review (mt#2120): split the PR's files into chunks, review each
+ * chunk in its own model call, and aggregate the per-chunk tool calls + usage +
+ * timing into one ReviewOutput. Falls back to a single-pass call when the file
+ * list is empty (chunkFiles returns []). Returns the same shape as
+ * callReviewerWithRetry so the caller's post-model-call flow is unchanged.
+ *
+ * Extracted verbatim from runReviewBody (mt#2731); behavior-preserving.
+ */
+export async function runChunkedReview(input: RunChunkedReviewInput): Promise<CallWithRetryResult> {
+  const {
+    config,
+    systemPrompt,
+    userPrompt,
+    basePromptInput,
+    tools,
+    outputToolsActive,
+    fileEntries,
+    diff,
+    owner,
+    repo,
+    prNumber,
+    totalDiffLines,
+  } = input;
+
+  const chunks = chunkFiles(fileEntries);
+
+  // Fallback: if fileEntries was empty (listFiles error/cap) but diff
+  // was large, chunks is []. Fall through to single-pass rather than
+  // hard-failing with a skip notice.
+  if (chunks.length === 0) {
+    log.info("reviewer.chunked_review_fallback_single_pass", {
+      event: "reviewer.chunked_review_fallback_single_pass",
+      owner,
+      repo,
+      pr: prNumber,
+      reason: "zero_chunks_from_empty_file_entries",
+      totalDiffLines,
+    });
+    return callReviewerWithRetry(
+      config,
+      systemPrompt,
+      userPrompt,
+      tools,
+      callReviewer,
+      outputToolsActive
+    );
+  }
+
+  log.info("reviewer.chunked_review_start", {
+    event: "reviewer.chunked_review_start",
+    owner,
+    repo,
+    pr: prNumber,
+    totalFiles: fileEntries.length,
+    totalDiffLines,
+    chunkCount: chunks.length,
+    filesPerChunk: chunks.map((c) => c.files.length),
+  });
+
+  const allToolCalls: ReviewOutput["toolCalls"] = [];
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalReasoningTokens = 0;
+  let lastText = "";
+  const allRoundLatencies: number[] = [];
+  let totalTimeoutCount = 0;
+  const allRetryOutcomes: string[] = [];
+
+  for (const chunk of chunks) {
+    const chunkDiff = buildChunkDiff(chunk, diff);
+    const chunkPrompt = buildChunkedReviewPrompt(basePromptInput, chunk, chunkDiff);
+
+    const chunkResult = await callReviewerWithRetry(
+      config,
+      systemPrompt,
+      chunkPrompt,
+      tools,
+      callReviewer,
+      outputToolsActive
+    );
+
+    allToolCalls.push(...chunkResult.output.toolCalls);
+    totalPromptTokens += chunkResult.output.usage?.promptTokens ?? 0;
+    totalCompletionTokens += chunkResult.output.usage?.completionTokens ?? 0;
+    totalReasoningTokens += chunkResult.output.usage?.reasoningTokens ?? 0;
+    lastText = chunkResult.output.text || lastText;
+
+    if (chunkResult.output.timing) {
+      allRoundLatencies.push(...chunkResult.output.timing.roundLatenciesMs);
+      totalTimeoutCount += chunkResult.output.timing.timeoutCount;
+      allRetryOutcomes.push(...chunkResult.output.timing.retryOutcomes);
+    }
+
+    log.info("reviewer.chunked_review_chunk_complete", {
+      event: "reviewer.chunked_review_chunk_complete",
+      owner,
+      repo,
+      pr: prNumber,
+      chunkIndex: chunk.index,
+      totalChunks: chunk.totalChunks,
+      toolCalls: chunkResult.output.toolCalls.length,
+      promptTokens: chunkResult.output.usage?.promptTokens ?? 0,
+    });
+  }
+
+  const totalTokens = totalPromptTokens + totalCompletionTokens;
+  const output: ReviewOutput = {
+    text: lastText,
+    tokensUsed: totalTokens,
+    usage: {
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      reasoningTokens: totalReasoningTokens,
+      totalTokens,
+    },
+    provider: config.provider,
+    model: config.providerModel,
+    toolCalls: allToolCalls,
+    timing: {
+      roundLatenciesMs: allRoundLatencies,
+      timeoutCount: totalTimeoutCount,
+      retryOutcomes: allRetryOutcomes,
+    },
+  };
+  return {
+    output,
+    validation: validateReviewOutput(output, outputToolsActive),
+    attempt: "first-attempt-success",
+    retryAttempted: false,
+  };
 }
