@@ -45,6 +45,7 @@ describe("buildReviewCostEvent", () => {
       pr_owner: "edobry",
       pr_repo: "minsky",
       pr_number: 1867,
+      head_sha: "abc123",
       model: "gpt-5",
       provider: "openai",
     });

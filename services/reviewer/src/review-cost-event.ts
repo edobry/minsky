@@ -43,6 +43,7 @@ export function buildReviewCostEvent(input: ReviewTimingInput): BraintrustEvent 
       pr_owner: input.prOwner,
       pr_repo: input.prRepo,
       pr_number: input.prNumber,
+      head_sha: input.headSha,
       model: input.model,
       provider: input.provider,
     },
