@@ -1534,13 +1534,17 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Emit a notifications/message at level=alert and schedule a clean process.exit(0)
-   * after 200ms to give the notification time to flush to the client.
+   * Begin a staleness-driven shutdown (mt#1315 mechanism, mt#2701 drain): emit a
+   * notifications/message at level=alert, tag the upcoming exit as
+   * `staleness_exit`, mark the server `draining` (rejecting new calls), then wait
+   * for in-flight tool calls to DRAIN before scheduling `process.exit(0)` after a
+   * 200ms flush buffer. A hard cap (`staleDrainCapMs`) force-exits a wedged request.
    *
    * Only fires once per process lifetime (guarded by hasTriggeredStaleSignal).
-   * The tool call's response/error is already returned to the caller by the
-   * time this method runs — the 200ms delay is the spike-derived buffer from
-   * mt#1315 (response → exit measured at ~102ms at delayMs=100).
+   * Draining before exit is what prevents a sibling call in a parallel batch from
+   * being orphaned: the detecting call is itself in flight until its `finally`
+   * runs, so the drain waits for it and every concurrent sibling to respond first.
+   * See scheduleStaleExitAfterDrain.
    */
   private triggerStaleSignal(server: Server): void {
     if (this.hasTriggeredStaleSignal) return;

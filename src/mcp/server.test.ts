@@ -806,17 +806,33 @@ describe("MCP Server", () => {
     await server.close();
   });
 
-  test("staleness drain: exit waits for an in-flight request before firing (mt#2701)", async () => {
-    // Regression for the orphaned-parallel-call hang: triggerStaleSignal must
-    // NOT exit while another tool call is still in flight. Seeds the private
-    // in-flight map to simulate a concurrent sibling call, then asserts the exit
-    // holds until it clears.
+  test("staleness drain: a concurrent sibling call's response is delivered before exit (mt#2701)", async () => {
+    // Acceptance Test 1: two concurrent tool calls; a fast one detects staleness
+    // and triggers the exit while a slow sibling is still executing. The drain
+    // must let the slow sibling's response come back (not orphan it) and only
+    // then exit. Drives the REAL tools/call handler so in-flight accounting,
+    // response delivery, and drain interact exactly as in production.
     const { MinskyMCPServer } = await import("./server");
     const server = new MinskyMCPServer({
       name: "Test Server",
       version: "1.0.0",
       transportType: "stdio",
       projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // A slow tool (still in flight when staleness triggers) and a fast one.
+    server.addTool({
+      name: "slow",
+      description: "Slow tool",
+      handler: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        return "slow-done";
+      },
+    });
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
     });
 
     const fakeStaleMessage =
@@ -837,23 +853,39 @@ describe("MCP Server", () => {
     const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
     sdkServer.sendLoggingMessage = mock(async () => {});
 
-    // Simulate one in-flight tool call by seeding the private in-flight map.
-    const inFlight = (server as unknown as { inFlightRequests: Map<number, number> })
-      .inFlightRequests;
-    inFlight.set(1, Date.now());
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
 
-    const triggerStaleSignal = (
-      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
-    ).triggerStaleSignal.bind(server);
-    triggerStaleSignal(sdkServer as any);
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
 
-    // While the sibling call is still in flight, the exit must NOT fire — this is
-    // the orphan window the fix closes (previously a 200ms fuse would have fired).
-    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    // Start the slow sibling first so it is past the draining gate and registered
+    // in-flight before staleness triggers.
+    const slowPromise = toolsCallHandler(
+      { method: "tools/call", params: { name: "slow", arguments: {} } },
+      {}
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+    // The quick call completes and detects staleness → triggers drain-then-exit.
+    const quickRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(quickRes)).toBe("quick-done");
+
+    // Slow sibling is still running: the exit must be held by the drain.
     expect(exitCalls.length).toBe(0);
 
-    // Complete the in-flight call; drain converges and exit fires after the buffer.
-    inFlight.delete(1);
+    // The sibling response is DELIVERED (not orphaned) — the core of AT1.
+    const slowRes = await slowPromise;
+    expect(textOf(slowRes)).toBe("slow-done");
+
+    // Only after the sibling drained does the exit fire (drain + 200ms flush).
     await new Promise<void>((resolve) => setTimeout(resolve, 400));
     expect(exitCalls.length).toBe(1);
     expect(exitCalls[0]).toBe(0);
