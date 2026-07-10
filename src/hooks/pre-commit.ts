@@ -1423,6 +1423,9 @@ export class PreCommitHook {
     // here before diff/stage (mt#2732). This removes the redundant format
     // subprocess the mt#2622 R2 review added back when the generator still
     // emitted raw JSON.stringify output that diverged from the committed copy.
+    // Regression backstop: the generator uses the same .prettierrc.json config
+    // as CI's `format:check` (which globs the committed manifest), so any future
+    // format drift fails loudly at the CI gate — no local check needed here.
 
     // Compare the regenerated working-tree copy against the index. `git diff`
     // (no --quiet) always exits 0 and simply prints nothing when there is no

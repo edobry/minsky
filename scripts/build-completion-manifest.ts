@@ -261,8 +261,12 @@ async function main() {
     // paths (build / pre-commit / manual) emit identical output — no downstream
     // re-formatting pass is needed (the mt#2622 pre-commit prettier pass was
     // removed as redundant alongside this change).
-    const rawJson = `${JSON.stringify(wrapped, null, 2)}\n`;
-    const prettierConfig = await resolveConfig(outPath);
+    //
+    // Prettier normalizes the trailing newline, so `JSON.stringify` alone (no
+    // manual "\n") suffices. `resolveConfig` returns null when no config file is
+    // found — coalesce to {} so the options spread is always well-defined.
+    const rawJson = JSON.stringify(wrapped, null, 2);
+    const prettierConfig = (await resolveConfig(outPath)) ?? {};
     const formatted = await prettierFormat(rawJson, { ...prettierConfig, parser: "json" });
     writeFileSync(outPath, formatted);
 
