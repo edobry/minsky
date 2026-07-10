@@ -22,6 +22,7 @@ import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
+import { configureGithubAuthHealthAlertSink } from "./auth-health";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -1417,6 +1418,11 @@ if (import.meta.main) {
   // single instance with both createApp (the /alert-test route) and startSweeper.
   // Null when ALERT_SINK_TYPE is unset/off; both consumers degrade gracefully.
   const alertSink = buildAlertSink(loadAlertSinkConfig());
+
+  // mt#2717: wire the same shared alert sink into the GitHub auth-health tracker
+  // so a sustained credential failure across the sweepers pages off-cockpit
+  // (in addition to the distinct `reviewer.auth_health_failing` error log).
+  configureGithubAuthHealthAlertSink(alertSink);
 
   const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices, alertSink);
 
