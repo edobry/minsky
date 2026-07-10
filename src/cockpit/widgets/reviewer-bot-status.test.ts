@@ -73,6 +73,7 @@ function makeQueryRows(overrides: {
   lastWebhookAt?: string | null;
   medianTokens?: number | null;
   medianCostUsd?: number | null;
+  cacheHitRatio?: number | null;
 }): QueryRows {
   const {
     throughputCount = 10,
@@ -86,6 +87,7 @@ function makeQueryRows(overrides: {
     lastWebhookAt = "2026-06-04T11:55:00Z",
     medianTokens = 42_000,
     medianCostUsd = 0.15,
+    cacheHitRatio = 0.6,
   } = overrides;
 
   return async (sql: string, _params?: unknown[]): Promise<Record<string, unknown>[]> => {
@@ -96,6 +98,10 @@ function makeQueryRows(overrides: {
     }
     if (sql.includes("median_cost")) {
       return [{ median_cost: medianCostUsd }];
+    }
+    // mt#2721 cache-hit ratio (SUM/SUM, no PERCENTILE — distinct branch).
+    if (sql.includes("cache_hit_ratio")) {
+      return [{ cache_hit_ratio: cacheHitRatio }];
     }
     // Throughput query
     if (sql.includes("review_submitted") && sql.includes("COUNT")) {
@@ -180,6 +186,8 @@ describe("createReviewerBotStatusWidget — healthy", () => {
     expect(db.medianTokens7d).toBe(42_000);
     expect(db.medianCostUsd24h).toBe(0.15);
     expect(db.medianCostUsd7d).toBe(0.15);
+    // Cache-hit ratio (mt#2721)
+    expect(db.cacheHitRatio24h).toBe(0.6);
 
     // All anomalies false
     expect(payload.anomalies.a1ServiceUnreachable).toBe(false);

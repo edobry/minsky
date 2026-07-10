@@ -58,6 +58,9 @@ export const reviewTimingTable = pgTable(
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     reasoningTokens: integer("reasoning_tokens"),
+    // mt#2721: cached input tokens (OpenAI prompt_tokens_details.cached_tokens);
+    // a per-review cache-hit ratio is cached_tokens / input_tokens.
+    cachedTokens: integer("cached_tokens"),
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
 
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

@@ -50,6 +50,13 @@
       "when": 1783654370899,
       "tag": "0006_thin_jetstream",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783665791938,
+      "tag": "0007_oval_enchantress",
+      "breakpoints": true
     }
   ]
 }

@@ -116,6 +116,8 @@ export interface ReviewUsage {
   promptTokens?: number;
   completionTokens?: number;
   reasoningTokens?: number;
+  /** Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721. */
+  cachedTokens?: number;
   totalTokens?: number;
 }
 
@@ -410,6 +412,7 @@ async function forceConcludeReview(
   promptTokens: number;
   completionTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   emitted: boolean;
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
@@ -424,7 +427,13 @@ async function forceConcludeReview(
       provider: "openai",
       severity: "error",
     });
-    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      emitted: false,
+    };
   }
 
   // Build a shallow-copied messages array for the forced call so the parent
@@ -464,6 +473,7 @@ async function forceConcludeReview(
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
     reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
   };
 
   const message = response.choices[0]?.message;
@@ -527,6 +537,7 @@ async function forceDocumentationImpact(
   promptTokens: number;
   completionTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   emitted: boolean;
 }> {
   if (!DOC_IMPACT_TOOL_DEF) {
@@ -535,7 +546,13 @@ async function forceDocumentationImpact(
       provider: "openai",
       severity: "error",
     });
-    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      emitted: false,
+    };
   }
 
   const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -567,6 +584,7 @@ async function forceDocumentationImpact(
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
     reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
   };
 
   const message = response.choices[0]?.message;
@@ -675,6 +693,7 @@ export async function callOpenAIWithClient(
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
         reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+        cachedTokens: usage?.prompt_tokens_details?.cached_tokens,
         totalTokens: usage?.total_tokens,
       },
       provider: "openai",
@@ -692,6 +711,7 @@ export async function callOpenAIWithClient(
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
+  let totalCachedTokens = 0;
 
   /** Accumulated output tool calls parsed during the loop. */
   const accumulatedToolCalls: ReviewToolCall[] = [];
@@ -780,6 +800,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += usage.prompt_tokens ?? 0;
       totalCompletionTokens += usage.completion_tokens ?? 0;
       totalReasoningTokens += usage.completion_tokens_details?.reasoning_tokens ?? 0;
+      totalCachedTokens += usage.prompt_tokens_details?.cached_tokens ?? 0;
     }
 
     const message = response.choices[0]?.message;
@@ -918,6 +939,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += forced.promptTokens;
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
+      totalCachedTokens += forced.cachedTokens;
 
       log.info("reviewer.doc_impact_reminder", {
         event: "reviewer.doc_impact_reminder",
@@ -989,6 +1011,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += forced.promptTokens;
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
+      totalCachedTokens += forced.cachedTokens;
 
       log.info("reviewer.conclude_review_reminder", {
         event: "reviewer.conclude_review_reminder",
@@ -1025,6 +1048,7 @@ export async function callOpenAIWithClient(
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
       reasoningTokens: totalReasoningTokens,
+      cachedTokens: totalCachedTokens,
       totalTokens,
     },
     provider: "openai",
