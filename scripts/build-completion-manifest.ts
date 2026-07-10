@@ -32,6 +32,7 @@ import { writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import type { Command } from "commander";
 import { z } from "zod";
+import { format as prettierFormat, resolveConfig } from "prettier";
 
 // Force the `needsAll` path inside createCli — this loads every lazy-loaded
 // heavy command (mcp, github, context, lint, init, setup, compile, cockpit)
@@ -249,7 +250,21 @@ async function main() {
 
     const outPath = join(import.meta.dir, "..", "src", "generated", "completion-manifest.json");
     mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, `${JSON.stringify(wrapped, null, 2)}\n`);
+
+    // Format the serialized manifest with the project's Prettier (resolving the
+    // same .prettierrc.json config that `format:check` uses) so the generator's
+    // own output byte-matches the committed copy. Without this, the raw
+    // `JSON.stringify` output (expanded short arrays, etc.) diverges from the
+    // Prettier-formatted committed file, so every `bun run build` re-dirties the
+    // tracked file and blocks `git pull --ff-only` (mt#2732). Making the
+    // generator the single source of canonical format means all invocation
+    // paths (build / pre-commit / manual) emit identical output — no downstream
+    // re-formatting pass is needed (the mt#2622 pre-commit prettier pass was
+    // removed as redundant alongside this change).
+    const rawJson = `${JSON.stringify(wrapped, null, 2)}\n`;
+    const prettierConfig = await resolveConfig(outPath);
+    const formatted = await prettierFormat(rawJson, { ...prettierConfig, parser: "json" });
+    writeFileSync(outPath, formatted);
 
     console.log(
       `Wrote completion manifest: ${outPath}\n` +
