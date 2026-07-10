@@ -605,8 +605,9 @@ describe("MCP Server", () => {
     expect(data.startupHead).toBe(fakeStartupHead);
     expect(data.currentHead).toBe(fakeCurrentHead);
 
-    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Wait for the staleness exit to fire: in-flight drain + 200ms flush buffer (mt#2701 —
+    // exit is scheduled after the request's finally clears the in-flight map, not immediately).
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     expect(exitCalls.length).toBe(1);
 
     await server.close();
@@ -688,8 +689,9 @@ describe("MCP Server", () => {
     expect(call.level).toBe("alert");
     expect(call.logger).toBe(STALENESS_LOGGER);
 
-    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Wait for the staleness exit to fire: in-flight drain + 200ms flush buffer (mt#2701 —
+    // exit is scheduled after the request's finally clears the in-flight map, not immediately).
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     expect(exitCalls.length).toBe(1);
 
     await server.close();
@@ -801,6 +803,114 @@ describe("MCP Server", () => {
     if (firstExitCode === undefined) throw new Error("Expected exitCalls[0] to be defined");
     expect(firstExitCode).toBe(0);
 
+    await server.close();
+  });
+
+  test("staleness drain: exit waits for an in-flight request before firing (mt#2701)", async () => {
+    // Regression for the orphaned-parallel-call hang: triggerStaleSignal must
+    // NOT exit while another tool call is still in flight. Seeds the private
+    // in-flight map to simulate a concurrent sibling call, then asserts the exit
+    // holds until it clears.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const fakeStaleMessage =
+      "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
+      "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    // Simulate one in-flight tool call by seeding the private in-flight map.
+    const inFlight = (server as unknown as { inFlightRequests: Map<number, number> })
+      .inFlightRequests;
+    inFlight.set(1, Date.now());
+
+    const triggerStaleSignal = (
+      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
+    ).triggerStaleSignal.bind(server);
+    triggerStaleSignal(sdkServer as any);
+
+    // While the sibling call is still in flight, the exit must NOT fire — this is
+    // the orphan window the fix closes (previously a 200ms fuse would have fired).
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    expect(exitCalls.length).toBe(0);
+
+    // Complete the in-flight call; drain converges and exit fires after the buffer.
+    inFlight.delete(1);
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    await server.close();
+  });
+
+  test("staleness drain: hard cap force-exits when a request is wedged (mt#2701)", async () => {
+    // A request that never completes must not keep a stale server alive forever;
+    // the drain cap force-exits. Shrinks staleDrainCapMs so the test runs fast.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const fakeStaleMessage =
+      "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
+      "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    // Shrink the drain cap and seed a wedged (never-clearing) in-flight request.
+    (server as unknown as { staleDrainCapMs: number }).staleDrainCapMs = 150;
+    const inFlight = (server as unknown as { inFlightRequests: Map<number, number> })
+      .inFlightRequests;
+    inFlight.set(1, Date.now());
+
+    const triggerStaleSignal = (
+      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
+    ).triggerStaleSignal.bind(server);
+    triggerStaleSignal(sdkServer as any);
+
+    // Before the cap elapses, no exit yet.
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+    expect(exitCalls.length).toBe(0);
+
+    // After cap (150ms) + flush buffer (200ms), the exit fires despite the wedge.
+    await new Promise<void>((resolve) => setTimeout(resolve, 450));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    inFlight.delete(1);
     await server.close();
   });
 
