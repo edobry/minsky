@@ -1087,11 +1087,13 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       function: { name: "conclude_review" },
     });
 
-    // The conclude forced call only registers conclude_review.
+    // mt#2722: the forced pass now passes the FULL tools array (was a single-
+    // tool [conclude_review] substitution) so the cached prefix is preserved;
+    // tool_choice above still pins conclude_review regardless of array width.
     const forcedTools = forcedCallParams?.tools as Array<{ function: { name: string } }>;
     expect(Array.isArray(forcedTools)).toBe(true);
-    expect(forcedTools).toHaveLength(1);
-    expect(forcedTools[0]?.function.name).toBe("conclude_review");
+    expect(forcedTools.length).toBeGreaterThan(1);
+    expect(forcedTools.some((t) => t.function.name === "conclude_review")).toBe(true);
 
     // The doc-impact forced call (index 2) constrains to submit_documentation_impact.
     const docImpactCallParams = capturedParams[2];
@@ -1337,11 +1339,12 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       function: { name: "conclude_review" },
     });
 
-    // Forced pass uses conclude_review-only tool list.
+    // mt#2722: forced pass now passes the FULL tools array (was conclude_review-
+    // only) to preserve the cached prefix; tool_choice above still pins it.
     const forcedTools = forcedCallParams?.tools as Array<{ function: { name: string } }>;
     expect(Array.isArray(forcedTools)).toBe(true);
-    expect(forcedTools).toHaveLength(1);
-    expect(forcedTools[0]?.function.name).toBe("conclude_review");
+    expect(forcedTools.length).toBeGreaterThan(1);
+    expect(forcedTools.some((t) => t.function.name === "conclude_review")).toBe(true);
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1904,5 +1907,183 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(log["reminder_count"]).toBe(1);
     expect(log["fired_at_turn"]).toBe(2);
     expect(log["error"]).toBe("simulated network error on forced call");
+  });
+});
+
+// ----- prompt-cache hygiene (mt#2722) -----
+//
+// Lever 2 of the reviewer cost-reduction umbrella (mt#2718). Two changes:
+//   (a) every OpenAI call carries prompt_cache_key + prompt_cache_retention:"24h"
+//   (b) the post-loop forced passes no longer swap the tools array to a single
+//       tool — they pass the FULL tools array (same as the main loop) so the
+//       cached prefix is preserved, while tool_choice still pins the forced tool.
+// AT 1 (cache params present), AT 2 (forced passes use the full array + pin).
+
+describe("callOpenAIWithClient prompt-cache hygiene (mt#2722)", () => {
+  const MODEL = "gpt-5";
+  const KEY_RE = /^reviewer:[0-9a-f]{16}$/;
+  // Field/tool-name literals extracted to satisfy no-magic-string-duplication.
+  const KEY_FIELD = "prompt_cache_key";
+  const RETENTION_FIELD = "prompt_cache_retention";
+  const TOOL_DOC_IMPACT = "submit_documentation_impact";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+    prompt_tokens_details: { cached_tokens: 0 },
+  });
+
+  function makeOutputToolCall(id: string, name: string, argsJson: string) {
+    return { id, type: "function", function: { name, arguments: argsJson } };
+  }
+
+  /** Fake OpenAI client that captures the FULL params object of each request. */
+  function makeCaptureClient(
+    responses: Array<{
+      choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
+      usage?: ReturnType<typeof makeUsage>;
+    }>
+  ): { client: OpenAI; capturedParams: Array<Record<string, unknown>> } {
+    let callCount = 0;
+    const capturedParams: Array<Record<string, unknown>> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            capturedParams.push({ ...params });
+            return responses[callCount++];
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client, capturedParams };
+  }
+
+  const defaultTools: ReviewerToolContext = {
+    readFile: mock(async () => null),
+    listDirectory: mock(async () => null),
+  };
+
+  const VALID_CONCLUDE_ARGS = JSON.stringify({
+    event: "APPROVE",
+    summary: "No blocking issues.",
+  });
+  const VALID_DOC_IMPACT_ARGS = JSON.stringify({
+    kind: "no-update-needed",
+    evidence: "Internal change, no docs affected.",
+  });
+
+  // Response sequence: round 0 exits with no tool calls (main loop ends
+  // immediately), which fires BOTH post-loop forced passes — doc-impact first
+  // (mt#2115), then conclude (mt#1471). Captured order:
+  //   [0] main-loop round 0, [1] forced doc-impact, [2] forced conclude.
+  function forcedPassSequence() {
+    return [
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("di1", TOOL_DOC_IMPACT, VALID_DOC_IMPACT_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("cr1", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ];
+  }
+
+  // AT 1 — cache params present on the no-tools (single-turn) path.
+  test("AT1: no-tools call carries prompt_cache_key + prompt_cache_retention", async () => {
+    const { client, capturedParams } = makeCaptureClient([
+      { choices: [{ message: { content: "review text" } }], usage: makeUsage() },
+    ]);
+    await callOpenAIWithClient(client, MODEL, "system prompt A", "user");
+    expect(capturedParams).toHaveLength(1);
+    expect(capturedParams[0]?.[KEY_FIELD]).toMatch(KEY_RE);
+    expect(capturedParams[0]?.[RETENTION_FIELD]).toBe("24h");
+  });
+
+  // AT 1 — cache params present on EVERY call of a tools-active review,
+  // including both forced passes.
+  test("AT1: every call in a tools-active review carries the cache params", async () => {
+    const { client, capturedParams } = makeCaptureClient(forcedPassSequence());
+    await callOpenAIWithClient(client, MODEL, "system prompt B", "user", defaultTools);
+    expect(capturedParams).toHaveLength(3);
+    for (const params of capturedParams) {
+      expect(params[KEY_FIELD]).toMatch(KEY_RE);
+      expect(params[RETENTION_FIELD]).toBe("24h");
+    }
+    // The whole review shares ONE cache key (main loop + both forced passes).
+    const keys = new Set(capturedParams.map((p) => p[KEY_FIELD]));
+    expect(keys.size).toBe(1);
+  });
+
+  // AT 2 — forced passes use the FULL tools array (no substitution) and pin the
+  // forced tool via tool_choice.
+  test("AT2: forced passes pass the full tools array (same as main loop) + pin tool_choice", async () => {
+    const { client, capturedParams } = makeCaptureClient(forcedPassSequence());
+    await callOpenAIWithClient(client, MODEL, "system prompt C", "user", defaultTools);
+    expect(capturedParams).toHaveLength(3);
+
+    const mainLoopTools = capturedParams[0]?.["tools"] as Array<{ function: { name: string } }>;
+    const docImpactParams = capturedParams[1];
+    const concludeParams = capturedParams[2];
+    const docImpactTools = docImpactParams?.["tools"] as Array<{ function: { name: string } }>;
+    const concludeTools = concludeParams?.["tools"] as Array<{ function: { name: string } }>;
+
+    // Main loop offers the full multi-tool array.
+    expect(mainLoopTools.length).toBeGreaterThan(1);
+
+    // Forced passes pass the SAME full array (not a single-tool substitution):
+    // same length as the main loop, and > 1.
+    expect(docImpactTools.length).toBe(mainLoopTools.length);
+    expect(concludeTools.length).toBe(mainLoopTools.length);
+    expect(docImpactTools.length).toBeGreaterThan(1);
+
+    // The forced tool is present in the widened array...
+    expect(docImpactTools.some((t) => t.function.name === TOOL_DOC_IMPACT)).toBe(true);
+    expect(concludeTools.some((t) => t.function.name === "conclude_review")).toBe(true);
+
+    // ...and tool_choice still pins exactly that tool.
+    expect(docImpactParams?.["tool_choice"]).toEqual({
+      type: "function",
+      function: { name: TOOL_DOC_IMPACT },
+    });
+    expect(concludeParams?.["tool_choice"]).toEqual({
+      type: "function",
+      function: { name: "conclude_review" },
+    });
+  });
+
+  // Key derivation: stable for identical systemPrompt, distinct for different
+  // systemPrompt (the cache-prefix variant discriminator).
+  test("cache key is stable per systemPrompt and differs across variants", async () => {
+    const run = async (systemPrompt: string) => {
+      const { client, capturedParams } = makeCaptureClient([
+        { choices: [{ message: { content: "t" } }], usage: makeUsage() },
+      ]);
+      await callOpenAIWithClient(client, MODEL, systemPrompt, "user");
+      return capturedParams[0]?.[KEY_FIELD];
+    };
+    const a1 = await run("variant one");
+    const a2 = await run("variant one");
+    const b = await run("variant two — different tier/principles");
+    expect(a1).toBe(a2);
+    expect(a1).not.toBe(b);
   });
 });
