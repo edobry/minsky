@@ -32,6 +32,14 @@
  *   bun services/reviewer/scripts/verify-prompt-cache.ts --attempts=10 --model=gpt-5
  *
  * Skips gracefully (exit 0) when OPENAI_API_KEY is absent.
+ *
+ * CI posture: this is an on-demand OPERATOR verification tool, NOT a CI gate — it
+ * makes real (paid) model calls and needs a provider secret, so wiring it into CI
+ * is deliberately out of scope (same posture as the sibling
+ * scripts/replay-structural-output.ts). The publishing path for its results is the
+ * PR body's "Live verification" section (mirroring the mt#1399 / mt#1403
+ * live-verification-gap pattern), plus the local verify-prompt-cache-results.json
+ * for inspection.
  */
 
 import OpenAI from "openai";
