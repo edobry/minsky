@@ -15,7 +15,7 @@ import type { DefaultAIConfigurationService } from "./config-service";
 /** Default model IDs keyed by provider name */
 const DEFAULT_MODELS: Record<string, string> = {
   openai: "gpt-4o",
-  anthropic: "claude-sonnet-5",
+  anthropic: "claude-3-5-sonnet-20241022",
   google: "gemini-1.5-pro-latest",
   morph: "morph-v3-large",
 };

@@ -29,6 +29,24 @@
  * No `mock.module()` is used (banned outside tests/setup.ts); `spyOn` on
  * the "ai" module's own export object is a narrower, module-registry-safe
  * technique.
+ *
+ * Reliability of this seam (addressing PR review feedback that a
+ * namespace-object spy might not reliably intercept a named import):
+ * completion-service.ts imports `generateText`/`generateObject`/`streamText`
+ * as `import { generateText, streamText, generateObject, ... } from "ai"`
+ * — under Bun's ESM live-binding semantics, a named import and the
+ * corresponding property on the namespace object obtained via
+ * `import * as aiModule from "ai"` reference the SAME underlying export
+ * slot, so `spyOn(aiModule, "generateText")` patches what
+ * completion-service.ts's `generateText` reference resolves to as well.
+ * This isn't asserted only by inspection: every test below configures the
+ * fake `AnyConfigService` with a placeholder (non-functional) API key and
+ * NO network mocking exists anywhere in this suite — if the spy failed to
+ * intercept, the real `generateText`/`generateObject`/`streamText` would
+ * run and either attempt a real network call (which would fail fast on
+ * the placeholder key, or hang past the 15s test timeout) instead of
+ * returning the spy's synchronous mock value. All tests pass in well
+ * under a second, which is only possible if interception is working.
  */
 
 import { describe, it, expect, spyOn, afterEach } from "bun:test";
