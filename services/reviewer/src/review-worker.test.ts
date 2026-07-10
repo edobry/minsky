@@ -12,6 +12,7 @@ import {
   buildSubmitFailureLog,
   serializeSubmitError,
   applyRecoveryAndCompose,
+  persistConvergenceMetric,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
@@ -1143,6 +1144,45 @@ describe("RunReviewDeps.metricsRecorder slot (mt#1306)", () => {
         acknowledgedAddressedCount: 0,
       })
     ).rejects.toThrow("metric write failure");
+  });
+});
+
+// ----- persistConvergenceMetric — shared success-path helper (mt#2725) -----
+//
+// Both review success paths (output-tools + prose) now route their convergence
+// write through this helper. Verifies the db-guard and recorder delegation in
+// isolation. (The full output-tools-path invocation — i.e. that the production
+// path actually calls this — is owned by the mt#1263 runReview integration
+// harness / the mt#2731 finalize-tail extraction, which the reviewer suite's
+// no-mock.module convention defers.)
+
+describe("persistConvergenceMetric (mt#2725)", () => {
+  const input: ConvergenceMetricInput = {
+    prOwner: "edobry",
+    prRepo: "minsky",
+    prNumber: 1234,
+    headSha: "abc123",
+    iterationIndex: 2,
+    priorBlockerCount: 3,
+    newBlockerCount: 1,
+    acknowledgedAddressedCount: 2,
+    headRef: "task/mt-1234",
+  };
+
+  test("delegates to the injected metricsRecorder with the exact input when db is present", async () => {
+    const captured: ConvergenceMetricInput[] = [];
+    const recorder = mock(async (_db: ReviewerDb, i: ConvergenceMetricInput) => {
+      captured.push(i);
+    });
+    await persistConvergenceMetric({ db: {} as ReviewerDb, metricsRecorder: recorder }, input);
+    expect(recorder).toHaveBeenCalledTimes(1);
+    expect(captured).toEqual([input]);
+  });
+
+  test("is a no-op when no db is configured (recorder not called)", async () => {
+    const recorder = mock(async (_db: ReviewerDb, _i: ConvergenceMetricInput) => {});
+    await persistConvergenceMetric({ metricsRecorder: recorder }, input);
+    expect(recorder).toHaveBeenCalledTimes(0);
   });
 });
 

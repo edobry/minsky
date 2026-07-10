@@ -57,6 +57,7 @@ import {
 import type { ReviewerDb } from "./db/client";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
 import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
+import { emitReviewPostedEvent, type ReviewPostedEvent } from "./review-events";
 import { timingTokenFields } from "./token-cost";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
@@ -240,6 +241,15 @@ export interface RunReviewDeps {
   timingRecorder?: (db: ReviewerDb, input: ReviewTimingInput) => Promise<void>;
 
   /**
+   * Test seam for the `pr.review_posted` system-event emit (mt#2725).
+   * When provided, replaces the real `emitReviewPostedEvent` call. Injected in
+   * tests to assert the emitter is called (with the right event/payload) on the
+   * success paths and NOT on the error/skip paths, and to verify emit errors do
+   * not propagate. Defaults to the real MCP-backed emit (best-effort).
+   */
+  eventEmitter?: (ev: ReviewPostedEvent) => Promise<void>;
+
+  /**
    * Domain TaskService for task-spec fetch (mt#2121 direct domain import).
    * When absent, resolveTaskSpec returns status: "disabled".
    */
@@ -251,6 +261,25 @@ export interface RunReviewDeps {
    * the PR-body marker or the hybrid default.
    */
   persistenceProvider?: BasePersistenceProvider | null;
+}
+
+/**
+ * Persist one convergence-metric row via the injected recorder (test seam) or
+ * the real `recordConvergenceMetric`. No-op when no db is configured; errors are
+ * swallowed inside the recorder (reviews never fail on a metric write).
+ *
+ * Extracted (mt#2725) so BOTH review success paths — output-tools (production
+ * default) and prose — persist the metric. Previously only the prose path
+ * called the recorder, so on the production output-tools path the convergence
+ * row was a dead write path (computed for the stdout log, never persisted).
+ */
+export async function persistConvergenceMetric(
+  deps: RunReviewDeps,
+  input: ConvergenceMetricInput
+): Promise<void> {
+  if (deps.db === undefined) return;
+  const recorder = deps.metricsRecorder ?? recordConvergenceMetric;
+  await recorder(deps.db, input);
 }
 
 export async function runReview(
@@ -467,6 +496,12 @@ async function runReviewBody(
   // API responses can return inconsistent casing.
   const reviewerIdentity = await getAppIdentity(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
+
+  // pr.review_posted emitter (mt#2725): injected seam in tests, real MCP-backed
+  // emit in production. Called from the two success paths below (output-tools +
+  // prose), never from the empty-output / CoT-leakage error paths.
+  const emitReviewPosted: (ev: ReviewPostedEvent) => Promise<void> =
+    deps.eventEmitter ?? ((ev) => emitReviewPostedEvent(config, ev));
 
   // Fetch the task spec via the domain TaskService if configured. Never blocks —
   // missing service, missing task, or PR with no mt# reference all produce
@@ -1319,6 +1354,22 @@ async function runReviewBody(
       )
     );
 
+    // mt#2725: persist the convergence metric on the PRODUCTION (output-tools)
+    // path too — previously only the prose path called the recorder, so on this
+    // path the row was a dead write (computed for the stdout log, never stored).
+    // Every field is already computed above for the log line.
+    await persistConvergenceMetric(deps, {
+      prOwner: owner,
+      prRepo: repo,
+      prNumber: pr.number,
+      headSha: pr.headSha,
+      iterationIndex: priorReviewIngestion.iterationCount + 1,
+      priorBlockerCount: priorBlockerTotal,
+      newBlockerCount: blockingCount,
+      acknowledgedAddressedCount: acknowledgedCount,
+      headRef: pr.branchName,
+    });
+
     // mt#2088: persist per-review timing data.
     if (deps.db !== undefined) {
       await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
@@ -1341,6 +1392,17 @@ async function runReviewBody(
     }
 
     const reviewerLogin = reviewerIdentity.login;
+
+    // mt#2725: emit pr.review_posted on the production (output-tools) success path.
+    await emitReviewPosted({
+      owner,
+      repo,
+      prNumber: pr.number,
+      reviewerLogin,
+      event,
+      taskId: taskSpecFetch.taskId,
+    });
+
     return {
       status: "reviewed",
       review,
@@ -1519,22 +1581,19 @@ async function runReviewBody(
   // Uses injected metricsRecorder if provided (test seam), falls back to
   // real recordConvergenceMetric. Skipped entirely when no db is injected
   // in production the db handle is passed from server.ts via RunReviewDeps.
-  const recorder = deps.metricsRecorder ?? recordConvergenceMetric;
-  if (deps.db !== undefined) {
-    const metricInput: ConvergenceMetricInput = {
-      prOwner: owner,
-      prRepo: repo,
-      prNumber: pr.number,
-      headSha: pr.headSha,
-      iterationIndex,
-      priorBlockerCount: priorBlockerTotal,
-      newBlockerCount: blockingCount,
-      acknowledgedAddressedCount: acknowledgedCount,
-      headRef: pr.branchName,
-    };
-    // Fire-and-forget: await but errors are swallowed inside recordConvergenceMetric.
-    await recorder(deps.db, metricInput);
-  }
+  // mt#2725: route through the shared helper (also used by the output-tools
+  // path). No-op when no db; errors swallowed inside the recorder.
+  await persistConvergenceMetric(deps, {
+    prOwner: owner,
+    prRepo: repo,
+    prNumber: pr.number,
+    headSha: pr.headSha,
+    iterationIndex,
+    priorBlockerCount: priorBlockerTotal,
+    newBlockerCount: blockingCount,
+    acknowledgedAddressedCount: acknowledgedCount,
+    headRef: pr.branchName,
+  });
 
   // mt#2088: persist per-review timing data (prose path).
   if (deps.db !== undefined) {
@@ -1556,6 +1615,16 @@ async function runReviewBody(
       ...timingTokenFields(output),
     });
   }
+
+  // mt#2725: emit pr.review_posted on the prose success path.
+  await emitReviewPosted({
+    owner,
+    repo,
+    prNumber: pr.number,
+    reviewerLogin: reviewerIdentity.login,
+    event: outcome.event,
+    taskId: taskSpecFetch.taskId,
+  });
 
   return {
     status: outcome.status,
