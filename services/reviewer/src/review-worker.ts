@@ -43,7 +43,6 @@
 import type { ReviewerConfig } from "./config";
 import {
   createOctokit,
-  fetchPriorReviews,
   fetchPullRequestContext,
   fetchReviewThreads,
   getAppIdentity,
@@ -62,7 +61,7 @@ import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { shouldChunkReview, runChunkedReview } from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
-import { countBlockingFindings, summarizePriorReviews } from "./prior-review-summary";
+import { countBlockingFindings } from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import type { TaskServiceInterface } from "@minsky/domain/tasks";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
@@ -74,7 +73,6 @@ import {
 } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog } from "./sanitize";
-import { parsePriorReviewFindings, type FlatPriorFinding } from "./severity-recovery";
 import { extractFixCommitDiff, type FixCommitLineRangeMap } from "./diff-scoper";
 import { submitReviewWithGuards } from "./guarded-submit";
 import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
@@ -111,6 +109,7 @@ import {
   type ReviewRunContext,
 } from "./review-finalize";
 import { logRecoveryOutcomes } from "./review-recovery-logging";
+import { ingestPriorReviews } from "./prior-review-ingestion";
 
 export {
   buildEmptyOutputSkipNotice,
@@ -500,54 +499,23 @@ async function runReviewBody(
     taskService: deps.taskService ?? null,
   });
 
-  // Fetch prior bot reviews on this PR. Non-blocking — errors produce an empty
-  // summary with error logged, review continues without prior context.
-  const priorReviewFetcherFn = deps.priorReviewFetcher ?? fetchPriorReviews;
-  let priorReviewIngestion: PriorReviewIngestionResult;
-  let priorReviewsMarkdown = "";
-  // Flat list of prior findings (file + severity + line range) used by the
-  // mt#1496 monotonicity-recovery layer when REVIEWER_MONOTONICITY_RECOVERY_ENABLED
-  // is set. Empty when the feature flag is off OR when no prior reviews were
-  // fetched. Computed alongside priorReviewsMarkdown so we don't pay the parse
-  // cost twice.
-  let priorFlatFindings: FlatPriorFinding[] = [];
-  try {
-    const rawPriorReviews = await priorReviewFetcherFn(
-      octokit,
-      owner,
-      repo,
-      prNumber,
-      config.githubTimeoutMs
-    );
-    // SC-2 (mt#1189): sanitize each prior review body before ingestion so that
-    // CoT scratch leaked into a prior review cannot contaminate this iteration's
-    // prompt. sanitizeReviewBody is non-throwing — it always returns a result.
-    const priorReviews = rawPriorReviews.map((r) => ({
-      ...r,
-      body: sanitizeReviewBody(r.body).body,
-    }));
-    const summary = summarizePriorReviews(priorReviews, pr.headSha);
-    priorReviewIngestion = {
-      iterationCount: summary.iterationCount,
-      staleCount: summary.reviews.filter((r) => r.isStale).length,
-      priorBlockingCounts: priorReviews.map((r) => countBlockingFindings(r.body)),
-    };
-    priorReviewsMarkdown = summary.markdown;
-    // mt#1496: extract flat findings from prior bodies for the monotonicity-
-    // recovery layer. Always computed (cheap) regardless of the feature flag,
-    // so the wiring is symmetric across flag states.
-    priorFlatFindings = parsePriorReviewFindings(priorReviews.map((r) => r.body));
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log.warn(`[mt#1189] Prior-review fetch failed, continuing without context: ${errorMessage}`);
-    priorReviewIngestion = {
-      iterationCount: 0,
-      staleCount: 0,
-      priorBlockingCounts: [],
-      error: errorMessage,
-    };
-    priorFlatFindings = [];
-  }
+  // Fetch prior bot reviews on this PR (mt#2731: extracted to ingestPriorReviews).
+  // Non-blocking — errors produce an empty ingestion with the error logged, and
+  // the review continues without prior context. priorFlatFindings feeds the
+  // mt#1496 monotonicity-recovery layer; priorReviewsMarkdown feeds the prompt.
+  const {
+    ingestion: priorReviewIngestion,
+    markdown: priorReviewsMarkdown,
+    flatFindings: priorFlatFindings,
+  } = await ingestPriorReviews({
+    fetcher: deps.priorReviewFetcher,
+    octokit,
+    owner,
+    repo,
+    prNumber,
+    timeoutMs: config.githubTimeoutMs,
+    headSha: pr.headSha,
+  });
 
   // Fetch review threads (mt#1345): provides existing inline thread state to
   // the model so it can reply to existing threads rather than opening duplicates.
