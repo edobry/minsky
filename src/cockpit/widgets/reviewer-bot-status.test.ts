@@ -71,6 +71,8 @@ function makeQueryRows(overrides: {
   staleInflightCount?: number;
   rateLimitCount?: number;
   lastWebhookAt?: string | null;
+  medianTokens?: number | null;
+  medianCostUsd?: number | null;
 }): QueryRows {
   const {
     throughputCount = 10,
@@ -82,9 +84,19 @@ function makeQueryRows(overrides: {
     staleInflightCount = 0,
     rateLimitCount = 0,
     lastWebhookAt = "2026-06-04T11:55:00Z",
+    medianTokens = 42_000,
+    medianCostUsd = 0.15,
   } = overrides;
 
   return async (sql: string, _params?: unknown[]): Promise<Record<string, unknown>[]> => {
+    // mt#2288 median queries — MUST be routed before the latency PERCENTILE_CONT
+    // branch below (both hit review_timing + PERCENTILE_CONT).
+    if (sql.includes("median_tokens")) {
+      return [{ median_tokens: medianTokens }];
+    }
+    if (sql.includes("median_cost")) {
+      return [{ median_cost: medianCostUsd }];
+    }
     // Throughput query
     if (sql.includes("review_submitted") && sql.includes("COUNT")) {
       return [{ count: throughputCount }];
@@ -163,12 +175,18 @@ describe("createReviewerBotStatusWidget — healthy", () => {
     expect(db.staleInflightCount).toBe(0);
     expect(db.rateLimitHitCount24h).toBe(0);
     expect(db.lastWebhookReceivedAt).toBe("2026-06-04T11:55:00Z");
+    // Cost fields (mt#2288) — same value for 24h and 7d → no cost trend
+    expect(db.medianTokens24h).toBe(42_000);
+    expect(db.medianTokens7d).toBe(42_000);
+    expect(db.medianCostUsd24h).toBe(0.15);
+    expect(db.medianCostUsd7d).toBe(0.15);
 
     // All anomalies false
     expect(payload.anomalies.a1ServiceUnreachable).toBe(false);
     expect(payload.anomalies.a2StaleInflight).toBe(false);
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
+    expect(payload.anomalies.a5CostTrend).toBe(false);
   });
 });
 
@@ -330,6 +348,56 @@ describe("createReviewerBotStatusWidget — A4 latency regression", () => {
     if (payload.db === null) throw new Error("expected db to be non-null");
     expect(payload.db.p95LatencyMs).toBeNull();
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5b. Cost trend → A5 (mt#2288)
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — A5 cost trend", () => {
+  const WINDOW_7D_ISO = new Date(FIXED_NOW - 7 * 24 * 60 * 60 * 1_000).toISOString();
+
+  test("a5CostTrend fires when 24h median cost diverges >50% from 7d median", async () => {
+    // 24h median $0.20 is 100% above the 7d median $0.10 → >50% divergence.
+    const costTrendQueryRows: QueryRows = async (sql, params) => {
+      if (sql.includes("median_cost")) {
+        const is7d = params?.[0] === WINDOW_7D_ISO;
+        return [{ median_cost: is7d ? 0.1 : 0.2 }];
+      }
+      if (sql.includes("median_tokens")) {
+        return [{ median_tokens: 40_000 }];
+      }
+      return makeQueryRows({})(sql, params);
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: costTrendQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.medianCostUsd24h).toBe(0.2);
+    expect(payload.db.medianCostUsd7d).toBe(0.1);
+    expect(payload.anomalies.a5CostTrend).toBe(true);
+  });
+
+  test("a5CostTrend is false when both median-cost windows are null (no priced reviews)", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeQueryRows({ medianCostUsd: null }),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.medianCostUsd24h).toBeNull();
+    expect(payload.anomalies.a5CostTrend).toBe(false);
   });
 });
 
