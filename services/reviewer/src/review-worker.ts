@@ -1,13 +1,3 @@
-/* eslint-disable max-lines */
-// mt#2435: review-worker.ts was already at the max-lines limit before this
-// task's check-run wiring was added. The four publishCheckRun call sites
-// (output-tools success, prose success, empty-output error, CoT-leakage error)
-// add ~34 non-blank/non-comment lines of necessary integration wiring. A full
-// extraction refactor (splitting runReviewBody into sub-functions, a separate
-// module, etc.) is out of scope for mt#2435 and is tracked in mt#2499 (the file
-// was already over the max-lines threshold before this task's ~34 lines of
-// wiring). See also the pre-existing comment on file size in the function header below.
-
 /**
  * Review worker: fetches PR context, runs the adversarial review, posts result.
  *
