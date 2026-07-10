@@ -11,6 +11,7 @@
  *   4. Failure-rate spike (A3) → a3FailureRateSpike:true
  *   5. Latency regression (A4) → a4LatencyRegression:true
  *   6. extractTaskIdFromBranch unit tests
+ *   7. Verdict distribution + A6 drift (mt#2287)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -74,6 +75,11 @@ function makeQueryRows(overrides: {
   medianTokens?: number | null;
   medianCostUsd?: number | null;
   cacheHitRatio?: number | null;
+  /** Verdict counts — used for BOTH the 24h and 7d GROUP BY verdict queries
+   * (mirrors the medianTokens/medianCostUsd single-value-for-both-windows
+   * pattern), so the default healthy fixture has equal 24h/7d ratios and
+   * a6VerdictDrift stays false. */
+  verdictCounts?: { approve: number; requestChanges: number; comment: number };
 }): QueryRows {
   const {
     throughputCount = 10,
@@ -88,6 +94,7 @@ function makeQueryRows(overrides: {
     medianTokens = 42_000,
     medianCostUsd = 0.15,
     cacheHitRatio = 0.6,
+    verdictCounts = { approve: 7, requestChanges: 2, comment: 1 },
   } = overrides;
 
   return async (sql: string, _params?: unknown[]): Promise<Record<string, unknown>[]> => {
@@ -138,8 +145,31 @@ function makeQueryRows(overrides: {
     if (sql.includes("reviewer_webhook_events") && sql.includes("received_at")) {
       return lastWebhookAt ? [{ received_at: lastWebhookAt }] : [];
     }
+    // mt#2287 verdict distribution (24h and 7d — same stub value for both,
+    // see the verdictCounts doc comment above).
+    if (sql.includes("GROUP BY verdict")) {
+      return verdictCountsToRows(verdictCounts);
+    }
     return [];
   };
+}
+
+/** Convert a { approve, requestChanges, comment } counts object into
+ * GROUP-BY-verdict-shaped rows, matching the real query's row shape
+ * (`{ verdict: "approve" | "request_changes" | "comment", count: n }`).
+ * Zero-count classes are omitted, matching a real GROUP BY (mt#2287). */
+function verdictCountsToRows(counts: {
+  approve: number;
+  requestChanges: number;
+  comment: number;
+}): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [];
+  if (counts.approve > 0) rows.push({ verdict: "approve", count: counts.approve });
+  if (counts.requestChanges > 0) {
+    rows.push({ verdict: "request_changes", count: counts.requestChanges });
+  }
+  if (counts.comment > 0) rows.push({ verdict: "comment", count: counts.comment });
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +218,9 @@ describe("createReviewerBotStatusWidget — healthy", () => {
     expect(db.medianCostUsd7d).toBe(0.15);
     // Cache-hit ratio (mt#2721)
     expect(db.cacheHitRatio24h).toBe(0.6);
+    // Verdict distribution (mt#2287) — same counts for 24h and 7d → no drift
+    expect(db.verdictCounts24h).toEqual({ approve: 7, requestChanges: 2, comment: 1 });
+    expect(db.verdictCounts7d).toEqual({ approve: 7, requestChanges: 2, comment: 1 });
 
     // All anomalies false
     expect(payload.anomalies.a1ServiceUnreachable).toBe(false);
@@ -195,6 +228,7 @@ describe("createReviewerBotStatusWidget — healthy", () => {
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
     expect(payload.anomalies.a5CostTrend).toBe(false);
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
   });
 });
 
@@ -441,10 +475,14 @@ describe("createReviewerBotStatusWidget — DB failure degrades gracefully", () 
     expect(payload.db.avgLatencyMs).toBeNull();
     expect(payload.db.p95LatencyMs).toBeNull();
     expect(payload.db.staleInflightCount).toBe(0);
+    // Verdict distribution defaults to zero counts on every query rejecting (mt#2287)
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
+    expect(payload.db.verdictCounts7d).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
     // Anomalies that require DB data must be false when all queries produce empty results
     expect(payload.anomalies.a2StaleInflight).toBe(false);
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
   });
 });
 
@@ -532,5 +570,157 @@ describe("extractTaskIdFromBranch", () => {
   test("returns null for null and undefined inputs", () => {
     expect(extractTaskIdFromBranch(null)).toBeNull();
     expect(extractTaskIdFromBranch(undefined)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Verdict distribution + A6 drift (mt#2287)
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — verdict distribution (mt#2287)", () => {
+  const WINDOW_7D_ISO_VERDICT = new Date(FIXED_NOW - 7 * 24 * 60 * 60 * 1_000).toISOString();
+
+  /**
+   * Build a QueryRowsFn where the 24h and 7d GROUP BY verdict queries can be
+   * given independent counts (distinguished via the window-start param, same
+   * technique as the "5b. Cost trend" describe block above). All other
+   * queries fall back to the standard makeQueryRows({}) stub.
+   */
+  function makeVerdictDriftQueryRows(
+    counts24h: { approve: number; requestChanges: number; comment: number },
+    counts7d: { approve: number; requestChanges: number; comment: number }
+  ): QueryRows {
+    const fallback = makeQueryRows({});
+    return async (sql, params) => {
+      if (sql.includes("GROUP BY verdict")) {
+        const is7d = params?.[0] === WINDOW_7D_ISO_VERDICT;
+        return verdictCountsToRows(is7d ? counts7d : counts24h);
+      }
+      return fallback(sql, params);
+    };
+  }
+
+  test("parses GROUP BY verdict rows into counts keyed by camelCase class", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 8, requestChanges: 4, comment: 2 },
+        { approve: 8, requestChanges: 4, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 8, requestChanges: 4, comment: 2 });
+    expect(payload.db.verdictCounts7d).toEqual({ approve: 8, requestChanges: 4, comment: 2 });
+  });
+
+  test("a verdict class with zero rows in the GROUP BY result parses to a zero count", async () => {
+    // No request_changes or comment rows at all — GROUP BY only returns the
+    // classes with >= 1 matching row (mirrors real Postgres GROUP BY behavior).
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 5, requestChanges: 0, comment: 0 },
+        { approve: 5, requestChanges: 0, comment: 0 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 5, requestChanges: 0, comment: 0 });
+  });
+
+  test("a6VerdictDrift fires when a verdict's 24h ratio diverges >20pp from its 7d ratio", async () => {
+    // 24h: 9 approve / 10 total = 90% approve.
+    // 7d: 5 approve / 10 total = 50% approve. Divergence = 40pp > 20pp threshold.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 9, requestChanges: 1, comment: 0 },
+        { approve: 5, requestChanges: 3, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 9, requestChanges: 1, comment: 0 });
+    expect(payload.db.verdictCounts7d).toEqual({ approve: 5, requestChanges: 3, comment: 2 });
+    expect(payload.anomalies.a6VerdictDrift).toBe(true);
+  });
+
+  test("a6VerdictDrift is false when ratios diverge <= 20pp", async () => {
+    // 24h: 6/10 = 60% approve. 7d: 5/10 = 50% approve. Divergence = 10pp <= threshold.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 6, requestChanges: 3, comment: 1 },
+        { approve: 5, requestChanges: 3, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+
+  test("a6VerdictDrift is false when the 24h sample is below the minimum size, even with a huge ratio gap", async () => {
+    // 24h: 2 approve / 2 total = 100% approve, but total < A6_MIN_SAMPLE_SIZE (3).
+    // 7d: 5 approve / 10 total = 50% approve — would be a 50pp gap if not gated.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 2, requestChanges: 0, comment: 0 },
+        { approve: 5, requestChanges: 3, comment: 2 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+
+  test("a6VerdictDrift is false when the 7d baseline sample is below the minimum size", async () => {
+    // 7d total = 2 (below A6_MIN_SAMPLE_SIZE), even though 24h has ample volume.
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 9, requestChanges: 1, comment: 0 },
+        { approve: 2, requestChanges: 0, comment: 0 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+
+  test("a6VerdictDrift is false when both windows have zero verdict data", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: makeVerdictDriftQueryRows(
+        { approve: 0, requestChanges: 0, comment: 0 },
+        { approve: 0, requestChanges: 0, comment: 0 }
+      ),
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+    expect(payload.db.verdictCounts24h).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
+    expect(payload.anomalies.a6VerdictDrift).toBe(false);
   });
 });
