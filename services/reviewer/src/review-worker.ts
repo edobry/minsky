@@ -49,16 +49,14 @@ import {
   getAppIdentity,
   listDirectoryAtRef,
   readFileAtRef,
-  resolveThread,
   submitReview,
   type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
 import type { ReviewerDb } from "./db/client";
-import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
+import type { ConvergenceMetricInput } from "./metrics";
 import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
 import { emitReviewPostedEvent, type ReviewPostedEvent } from "./review-events";
-import { timingTokenFields } from "./token-cost";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -69,11 +67,7 @@ import {
   buildChunkedReviewPrompt,
 } from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
-import {
-  countAcknowledgedFindings,
-  countBlockingFindings,
-  summarizePriorReviews,
-} from "./prior-review-summary";
+import { countBlockingFindings, summarizePriorReviews } from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import type { TaskServiceInterface } from "@minsky/domain/tasks";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
@@ -92,7 +86,7 @@ import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { log } from "./logger";
 import { extractPgErrorContext } from "./webhook-events";
-import { publishCheckRun, type PublishCheckRunOptions } from "./check-run-publisher";
+import type { PublishCheckRunOptions } from "./check-run-publisher";
 
 // ---------------------------------------------------------------------------
 // mt#2720: pure helpers relocated to sibling modules for max-lines headroom.
@@ -114,10 +108,14 @@ import {
 } from "./review-decisions";
 import {
   annotateReviewBody,
-  buildConvergenceMetricLog,
   buildRunReviewStartLog,
   buildSubmitFailureLog,
 } from "./review-log-builders";
+import {
+  finalizeReviewError,
+  finalizeReviewSuccess,
+  type ReviewRunContext,
+} from "./review-finalize";
 
 export {
   buildEmptyOutputSkipNotice,
@@ -146,6 +144,10 @@ export {
   parseReviewEvent,
   serializeSubmitError,
 } from "./review-log-builders";
+// mt#2731: persistConvergenceMetric moved to review-finalize.ts (alongside the
+// finalize stages that call it); re-exported here so consumers/tests importing
+// it from "./review-worker" keep working.
+export { persistConvergenceMetric } from "./review-finalize";
 
 /** Result of prior-review ingestion. Logged per review for convergence observability. */
 export interface PriorReviewIngestionResult {
@@ -271,25 +273,6 @@ export interface RunReviewDeps {
    * When absent, defaults to the real `publishCheckRun` from check-run-publisher.ts.
    */
   checkRunPublisher?: (options: PublishCheckRunOptions) => Promise<unknown>;
-}
-
-/**
- * Persist one convergence-metric row via the injected recorder (test seam) or
- * the real `recordConvergenceMetric`. No-op when no db is configured; errors are
- * swallowed inside the recorder (reviews never fail on a metric write).
- *
- * Extracted (mt#2725) so BOTH review success paths — output-tools (production
- * default) and prose — persist the metric. Previously only the prose path
- * called the recorder, so on the production output-tools path the convergence
- * row was a dead write path (computed for the stdout log, never persisted).
- */
-export async function persistConvergenceMetric(
-  deps: RunReviewDeps,
-  input: ConvergenceMetricInput
-): Promise<void> {
-  if (deps.db === undefined) return;
-  const recorder = deps.metricsRecorder ?? recordConvergenceMetric;
-  await recorder(deps.db, input);
 }
 
 export async function runReview(
@@ -845,6 +828,29 @@ async function runReviewBody(
   }
   const totalWallClockMs = Date.now() - reviewStartTime;
 
+  // mt#2731: invariant per-review context shared by every terminal path
+  // (empty-output error, output-tools success, CoT-leakage error, prose
+  // success). Built once here — all its fields are known after the model call —
+  // and handed to finalizeReviewSuccess / finalizeReviewError below.
+  const reviewRunContext: ReviewRunContext = {
+    deps,
+    octokit,
+    owner,
+    repo,
+    pr,
+    tier,
+    prScope,
+    output,
+    attempt,
+    retryAttempted,
+    taskSpecFetch,
+    priorReviewIngestion,
+    totalWallClockMs,
+    outputToolsActive,
+    reviewerLogin: reviewerIdentity.login,
+    emitReviewPosted,
+  };
+
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.
   // Posting that empty content as an adversarial review would look like
@@ -883,55 +889,9 @@ async function runReviewBody(
         })
       );
     }
-    // mt#2088: timing on empty-output error path.
-    if (deps.db !== undefined) {
-      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
-        prOwner: owner,
-        prRepo: repo,
-        prNumber: pr.number,
-        headSha: pr.headSha,
-        iterationIndex: priorReviewIngestion.iterationCount + 1,
-        totalWallClockMs,
-        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
-        timeoutCount: output.timing?.timeoutCount ?? 0,
-        retryCount: retryAttempted ? 1 : 0,
-        retryOutcomes: output.timing?.retryOutcomes ?? [],
-        scopeClassification: prScope ?? null,
-        toolUseActive: outputToolsActive,
-        provider: output.provider,
-        model: output.model,
-        ...timingTokenFields(output),
-      });
-    }
-    // mt#2435: post a liveness-failure check run so the PR surface shows the
-    // failure rather than staying silent (mt#1596 complement).
-    const emptyOutputCheckRunPublisher = deps.checkRunPublisher ?? publishCheckRun;
-    await emptyOutputCheckRunPublisher({
-      octokit,
-      owner,
-      repo,
-      headSha: pr.headSha,
-      prNumber,
-      toolCalls: [],
-      convergenceState: {
-        roundNumber: priorReviewIngestion.iterationCount + 1,
-        blockingCount: 0,
-      },
-      failureSummary: validation.reason,
-    });
-    return {
-      status: "error",
-      reason: validation.reason,
-      tier,
-      providerUsed: output.provider,
-      providerModel: output.model,
-      usage: output.usage,
-      attempt,
-      retryAttempted,
-      taskSpecFetch,
-      scope: prScope,
-      priorReviewIngestion,
-    };
+    // mt#2088 timing + mt#2435 liveness-failure check run + error return
+    // (mt#2731: shared with the CoT-leakage error path).
+    return finalizeReviewError(reviewRunContext, validation.reason);
   }
 
   // -------------------------------------------------------------------------
@@ -1312,158 +1272,21 @@ async function runReviewBody(
       db: deps.db,
     });
 
-    // mt#2435: post a GitHub check run on the PR HEAD with convergence state +
-    // findings as annotations. Wrapped in try/catch via publishCheckRun — any
-    // error (including fork-PR checks:write permission failures) logs a warning
-    // and falls back without blocking the review result.
-    const checkRunPublisherFn = deps.checkRunPublisher ?? publishCheckRun;
-    await checkRunPublisherFn({
-      octokit,
-      owner,
-      repo,
-      headSha: pr.headSha,
-      prNumber,
-      toolCalls: recoveryResult.toolCalls,
-      convergenceState: {
-        roundNumber: priorReviewIngestion.iterationCount + 1,
-        blockingCount,
-      },
-    });
-
-    // Thread-resolve loop (mt#1345): after posting the review, resolve threads
-    // that the model marked as fixed. Guard: only resolve threads whose first
-    // comment was authored by the reviewer bot itself — never auto-resolve
-    // threads opened by humans. The guard is applied here (not in the model
-    // prompt alone) as a structural safety net.
-    if (composed.threadResolves.length > 0) {
-      const reviewerBotLogin = reviewerIdentity.login;
-      // Build a lookup from threadId → first-comment author from the fetched threads.
-      const threadAuthorMap = new Map<string, string | null>();
-      for (const t of reviewThreads) {
-        threadAuthorMap.set(t.id, t.comments[0]?.author ?? null);
-      }
-
-      for (const entry of composed.threadResolves) {
-        const firstAuthor = threadAuthorMap.get(entry.threadId);
-        // Allow resolve only when the first comment is ours.
-        if (firstAuthor !== reviewerBotLogin) {
-          log.info("reviewer.thread_resolve_skipped", {
-            event: "reviewer.thread_resolve_skipped",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            threadId: entry.threadId,
-            firstAuthor,
-            reason: "human-thread guard: first comment not from reviewer bot",
-          });
-          continue;
-        }
-
-        try {
-          await resolveThread(octokit, entry.threadId);
-          log.info("reviewer.thread_resolved", {
-            event: "reviewer.thread_resolved",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            threadId: entry.threadId,
-            modelReason: entry.reason,
-          });
-        } catch (resolveErr: unknown) {
-          const message = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
-          log.info("reviewer.thread_resolve_failed", {
-            event: "reviewer.thread_resolve_failed",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            threadId: entry.threadId,
-            error: message,
-          });
-          // Non-fatal: resolve failure should not abort the review result.
-        }
-      }
-    }
-
-    const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce(
-      (acc, n) => acc + n,
-      0
-    );
-    const acknowledgedCount = countAcknowledgedFindings(composed.body);
-    log.info(
-      "reviewer.convergence_metric",
-      buildConvergenceMetricLog(
-        pr.number,
-        pr.headSha,
-        priorReviewIngestion.iterationCount + 1,
-        priorBlockerTotal,
-        blockingCount,
-        acknowledgedCount
-      )
-    );
-
-    // mt#2725: persist the convergence metric on the PRODUCTION (output-tools)
-    // path too — previously only the prose path called the recorder, so on this
-    // path the row was a dead write (computed for the stdout log, never stored).
-    // Every field is already computed above for the log line.
-    await persistConvergenceMetric(deps, {
-      prOwner: owner,
-      prRepo: repo,
-      prNumber: pr.number,
-      headSha: pr.headSha,
-      iterationIndex: priorReviewIngestion.iterationCount + 1,
-      priorBlockerCount: priorBlockerTotal,
-      newBlockerCount: blockingCount,
-      acknowledgedAddressedCount: acknowledgedCount,
-      headRef: pr.branchName,
-      // mt#2287: per-review verdict distribution for the reviewer-bot cockpit widget.
-      verdict: event.toLowerCase(),
-    });
-
-    // mt#2088: persist per-review timing data.
-    if (deps.db !== undefined) {
-      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
-        prOwner: owner,
-        prRepo: repo,
-        prNumber: pr.number,
-        headSha: pr.headSha,
-        iterationIndex: priorReviewIngestion.iterationCount + 1,
-        totalWallClockMs,
-        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
-        timeoutCount: output.timing?.timeoutCount ?? 0,
-        retryCount: retryAttempted ? 1 : 0,
-        retryOutcomes: output.timing?.retryOutcomes ?? [],
-        scopeClassification: prScope ?? null,
-        toolUseActive: outputToolsActive,
-        provider: output.provider,
-        model: output.model,
-        ...timingTokenFields(output),
-      });
-    }
-
-    const reviewerLogin = reviewerIdentity.login;
-
-    // mt#2725: emit pr.review_posted on the production (output-tools) success path.
-    await emitReviewPosted({
-      owner,
-      repo,
-      prNumber: pr.number,
-      reviewerLogin,
-      event,
-      taskId: taskSpecFetch.taskId,
-    });
-
-    return {
-      status: "reviewed",
+    // mt#2731: shared success finalize — publishCheckRun (with the recovered
+    // tool calls as annotations) -> thread-resolve loop (mt#1345) -> convergence
+    // stdout log -> persistConvergenceMetric (mt#2725, verdict per mt#2287) ->
+    // timing write (mt#2088) -> emit pr.review_posted (mt#2725) -> return.
+    return finalizeReviewSuccess(reviewRunContext, {
       review,
-      reason: `Posted ${event} review as ${reviewerLogin} (provider=${output.provider}, model=${output.model}, attempt=${attempt}) [output-tools]`,
-      tier,
-      providerUsed: output.provider,
-      providerModel: output.model,
-      usage: output.usage,
-      attempt,
-      retryAttempted,
-      taskSpecFetch,
-      scope: prScope,
-      priorReviewIngestion,
+      event,
       blockingCount,
-    };
+      acknowledgedBody: composed.body,
+      checkRunToolCalls: recoveryResult.toolCalls,
+      threadResolves: composed.threadResolves,
+      reviewThreads,
+      status: "reviewed",
+      reason: `Posted ${event} review as ${reviewerIdentity.login} (provider=${output.provider}, model=${output.model}, attempt=${attempt}) [output-tools]`,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -1537,54 +1360,9 @@ async function runReviewBody(
         })
       );
     }
-    // mt#2088: timing on CoT-leakage error path.
-    if (deps.db !== undefined) {
-      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
-        prOwner: owner,
-        prRepo: repo,
-        prNumber: pr.number,
-        headSha: pr.headSha,
-        iterationIndex: priorReviewIngestion.iterationCount + 1,
-        totalWallClockMs,
-        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
-        timeoutCount: output.timing?.timeoutCount ?? 0,
-        retryCount: retryAttempted ? 1 : 0,
-        retryOutcomes: output.timing?.retryOutcomes ?? [],
-        scopeClassification: prScope ?? null,
-        toolUseActive: outputToolsActive,
-        provider: output.provider,
-        model: output.model,
-        ...timingTokenFields(output),
-      });
-    }
-    // mt#2435: post a liveness-failure check run on the CoT-leakage error path.
-    const cotCheckRunPublisher = deps.checkRunPublisher ?? publishCheckRun;
-    await cotCheckRunPublisher({
-      octokit,
-      owner,
-      repo,
-      headSha: pr.headSha,
-      prNumber,
-      toolCalls: [],
-      convergenceState: {
-        roundNumber: priorReviewIngestion.iterationCount + 1,
-        blockingCount: 0,
-      },
-      failureSummary: outcome.reason,
-    });
-    return {
-      status: "error",
-      reason: outcome.reason,
-      tier,
-      providerUsed: output.provider,
-      providerModel: output.model,
-      usage: output.usage,
-      attempt,
-      retryAttempted,
-      taskSpecFetch,
-      scope: prScope,
-      priorReviewIngestion,
-    };
+    // mt#2088 timing + mt#2435 liveness-failure check run + error return
+    // (mt#2731: shared with the empty-output error path).
+    return finalizeReviewError(reviewRunContext, outcome.reason);
   }
 
   // mt#2350 PR #1621 R2: route the prose-path final submission through the same
@@ -1611,114 +1389,18 @@ async function runReviewBody(
   // Shares countBlockingFindings with the prior-review counts above.
   const blockingCount: number = countBlockingFindings(sanitized.body);
 
-  // mt#2435: post a GitHub check run on the PR HEAD with convergence state.
-  // On the prose path there are no structured tool calls, so annotations are empty.
-  // The check-run summary still carries the convergence state (round N, K blocking remain).
-  const checkRunPublisherFnProse = deps.checkRunPublisher ?? publishCheckRun;
-  await checkRunPublisherFnProse({
-    octokit,
-    owner,
-    repo,
-    headSha: pr.headSha,
-    prNumber,
-    toolCalls: [],
-    convergenceState: {
-      roundNumber: priorReviewIngestion.iterationCount + 1,
-      blockingCount,
-    },
-  });
-
-  // SC-5 (mt#1189): emit structured convergence metric per review.
-  // Fields: PR number, head SHA, iteration index (this is iteration N+1 where N
-  // is the count of prior reviews), prior-blocker count (sum of all prior BLOCKING
-  // counts), new-blocker count (BLOCKING count in current review body),
-  // acknowledged-as-addressed count (best-effort from review body text).
-  const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce((acc, n) => acc + n, 0);
-  const acknowledgedCount = countAcknowledgedFindings(sanitized.body);
-  const iterationIndex = priorReviewIngestion.iterationCount + 1;
-  log.info(
-    "reviewer.convergence_metric",
-    buildConvergenceMetricLog(
-      pr.number,
-      pr.headSha,
-      iterationIndex,
-      priorBlockerTotal,
-      blockingCount,
-      acknowledgedCount
-    )
-  );
-
-  // Convergence metric is intentionally only emitted on the successful-review path.
-  // Earlier early-returns (routing skip, empty output, sanitize-errored) do NOT
-  // invoke the recorder because they don't have meaningful prior/new/acknowledged
-  // blocker counts to record — writing zero-row metrics for service-level failures
-  // would contaminate the calibration trajectory we're trying to measure.
-  // See PR #849 iter-2 review (mt#1306) for context.
-  //
-  // mt#1306: persist convergence metric to Postgres alongside stdout log.
-  // Uses injected metricsRecorder if provided (test seam), falls back to
-  // real recordConvergenceMetric. Skipped entirely when no db is injected
-  // in production the db handle is passed from server.ts via RunReviewDeps.
-  // mt#2725: route through the shared helper (also used by the output-tools
-  // path). No-op when no db; errors swallowed inside the recorder.
-  await persistConvergenceMetric(deps, {
-    prOwner: owner,
-    prRepo: repo,
-    prNumber: pr.number,
-    headSha: pr.headSha,
-    iterationIndex,
-    priorBlockerCount: priorBlockerTotal,
-    newBlockerCount: blockingCount,
-    acknowledgedAddressedCount: acknowledgedCount,
-    headRef: pr.branchName,
-    // mt#2287: per-review verdict distribution for the reviewer-bot cockpit widget.
-    verdict: outcome.event.toLowerCase(),
-  });
-
-  // mt#2088: persist per-review timing data (prose path).
-  if (deps.db !== undefined) {
-    await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
-      prOwner: owner,
-      prRepo: repo,
-      prNumber: pr.number,
-      headSha: pr.headSha,
-      iterationIndex,
-      totalWallClockMs,
-      perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
-      timeoutCount: output.timing?.timeoutCount ?? 0,
-      retryCount: retryAttempted ? 1 : 0,
-      retryOutcomes: output.timing?.retryOutcomes ?? [],
-      scopeClassification: prScope ?? null,
-      toolUseActive: outputToolsActive,
-      provider: output.provider,
-      model: output.model,
-      ...timingTokenFields(output),
-    });
-  }
-
-  // mt#2725: emit pr.review_posted on the prose success path.
-  await emitReviewPosted({
-    owner,
-    repo,
-    prNumber: pr.number,
-    reviewerLogin: reviewerIdentity.login,
-    event: outcome.event,
-    taskId: taskSpecFetch.taskId,
-  });
-
-  return {
-    status: outcome.status,
+  // mt#2731: shared success finalize — no structured tool calls on the prose
+  // path (empty check-run annotations) and no thread-resolve directives, so the
+  // check-run annotations and the thread-resolve loop are both no-ops here.
+  return finalizeReviewSuccess(reviewRunContext, {
     review,
-    reason: outcome.reason,
-    tier,
-    providerUsed: output.provider,
-    providerModel: output.model,
-    usage: output.usage,
-    attempt,
-    retryAttempted,
-    taskSpecFetch,
-    scope: prScope,
-    priorReviewIngestion,
+    event: outcome.event,
     blockingCount,
-  };
+    acknowledgedBody: sanitized.body,
+    checkRunToolCalls: [],
+    threadResolves: [],
+    reviewThreads: [],
+    status: outcome.status,
+    reason: outcome.reason,
+  });
 }
