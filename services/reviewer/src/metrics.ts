@@ -28,6 +28,10 @@ export interface ConvergenceMetricInput {
   acknowledgedAddressedCount: number;
   /** PR head branch name (e.g. "task/mt-2076"). Nullable — omit for back-compat. (mt#2076) */
   headRef?: string | null;
+  /**
+   * APPROVE/REQUEST_CHANGES/COMMENT lowercased; nullable for back-compat, mt#2287.
+   */
+  verdict?: string | null;
 }
 
 /**
@@ -54,6 +58,7 @@ export async function recordConvergenceMetric(
       newBlockerCount: input.newBlockerCount,
       acknowledgedAddressedCount: input.acknowledgedAddressedCount,
       headRef: input.headRef ?? null,
+      verdict: input.verdict ?? null,
     });
   } catch (err: unknown) {
     log.error("metric_write_error", {

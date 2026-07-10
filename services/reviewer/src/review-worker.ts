@@ -1412,6 +1412,8 @@ async function runReviewBody(
       newBlockerCount: blockingCount,
       acknowledgedAddressedCount: acknowledgedCount,
       headRef: pr.branchName,
+      // mt#2287: per-review verdict distribution for the reviewer-bot cockpit widget.
+      verdict: event.toLowerCase(),
     });
 
     // mt#2088: persist per-review timing data.
@@ -1669,6 +1671,8 @@ async function runReviewBody(
     newBlockerCount: blockingCount,
     acknowledgedAddressedCount: acknowledgedCount,
     headRef: pr.branchName,
+    // mt#2287: per-review verdict distribution for the reviewer-bot cockpit widget.
+    verdict: outcome.event.toLowerCase(),
   });
 
   // mt#2088: persist per-review timing data (prose path).
