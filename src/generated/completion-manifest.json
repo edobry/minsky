@@ -3948,6 +3948,11 @@
               "flags": ["--system"],
               "description": "System prompt",
               "takesValue": true
+            },
+            {
+              "flags": ["--timeout-ms"],
+              "description": "Timeout in milliseconds for the provider call (default 60000). The call fails fast with an actionable error instead of hanging when exceeded.",
+              "takesValue": true
             }
           ]
         },
