@@ -9,7 +9,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
-import { createOctokit, readFileAtRef, type PullRequestContext } from "./github-client";
+import { readFileAtRef, type PullRequestContext, type createOctokit } from "./github-client";
 import type { SanitizeResult } from "./sanitize";
 import type { ReviewAttemptTrace } from "./review-output-validation";
 import { parseReviewEvent } from "./review-log-builders";
