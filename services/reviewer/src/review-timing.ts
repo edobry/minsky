@@ -5,6 +5,9 @@
  * Errors are swallowed — timing write failures MUST NOT propagate to the
  * review path (same fire-and-forget pattern as convergence metrics, mt#1306).
  *
+ * Also emits a per-review LLM cost event to Braintrust (mt#2723) — the single
+ * per-review choke — fire-and-forget, independent of the Postgres write.
+ *
  * mt#2088.
  */
 
@@ -12,6 +15,7 @@ import type { ReviewerDb } from "./db/client";
 import { reviewTimingTable } from "./db/schemas/review-timing-schema";
 import { extractPgErrorContext } from "./webhook-events";
 import { log } from "./logger";
+import { emitReviewCostEvent } from "./review-cost-event";
 
 export interface ReviewTimingInput {
   prOwner: string;
@@ -38,6 +42,10 @@ export interface ReviewTimingInput {
 }
 
 export async function recordReviewTiming(db: ReviewerDb, input: ReviewTimingInput): Promise<void> {
+  // mt#2723: emit per-review cost to Braintrust (fire-and-forget; no-op on the
+  // pre-model skip paths where inputTokens is null; independent of the Postgres
+  // write below so it lands even if the DB is unavailable). Never blocks.
+  void emitReviewCostEvent(input);
   try {
     await db.insert(reviewTimingTable).values({
       prOwner: input.prOwner,
