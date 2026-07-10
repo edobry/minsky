@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, mock } from "bun:test";
-import { recordConvergenceMetric, type ConvergenceMetricInput } from "./metrics";
+import { recordConvergenceMetric, normalizeVerdict, type ConvergenceMetricInput } from "./metrics";
 import type { ReviewerDb } from "./db/client";
 
 // ---------------------------------------------------------------------------
@@ -182,6 +182,31 @@ describe("recordConvergenceMetric - verdict field (mt#2287)", () => {
     const row = captured[0];
     if (row === undefined) throw new Error("expected a captured row");
     expect(row[COL_VERDICT]).toBeNull();
+  });
+
+  test.each(["APPROVE", "REQUEST_CHANGES", "merged", "bogus", ""] as const)(
+    "coerces out-of-set verdict %p to NULL at the write boundary (mt#2287 R1)",
+    async (bad) => {
+      const captured: InsertValues[] = [];
+      const db = makeFakeDb((values) => captured.push(values));
+
+      await recordConvergenceMetric(db, { ...SAMPLE_INPUT, verdict: bad });
+
+      const row = captured[0];
+      if (row === undefined) throw new Error("expected a captured row");
+      expect(row[COL_VERDICT]).toBeNull();
+    }
+  );
+
+  test("normalizeVerdict passes the accepted set and NULLs everything else", () => {
+    expect(normalizeVerdict("approve")).toBe("approve");
+    expect(normalizeVerdict("request_changes")).toBe("request_changes");
+    expect(normalizeVerdict("comment")).toBe("comment");
+    expect(normalizeVerdict("APPROVE")).toBeNull();
+    expect(normalizeVerdict("bogus")).toBeNull();
+    expect(normalizeVerdict("")).toBeNull();
+    expect(normalizeVerdict(null)).toBeNull();
+    expect(normalizeVerdict(undefined)).toBeNull();
   });
 });
 

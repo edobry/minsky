@@ -14,6 +14,30 @@ import { extractPgErrorContext } from "./webhook-events";
 import { log } from "./logger";
 
 /**
+ * Accepted `verdict` values (mt#2287): the GitHub review event lowercased.
+ * The DB column is unconstrained `text`, so this set — not the column type — is
+ * the enforced contract; `recordConvergenceMetric` coerces anything outside it
+ * to NULL before the write.
+ */
+export type ReviewVerdict = "approve" | "request_changes" | "comment";
+
+const VALID_VERDICTS: ReadonlySet<string> = new Set<ReviewVerdict>([
+  "approve",
+  "request_changes",
+  "comment",
+]);
+
+/**
+ * Normalize an incoming verdict to the accepted set, or NULL. Guards the DB
+ * write so an unexpected string can never reach the column (the `text` type
+ * does not enforce the constraint on its own — trust-boundary coverage).
+ */
+export function normalizeVerdict(raw: string | null | undefined): ReviewVerdict | null {
+  if (raw == null) return null;
+  return VALID_VERDICTS.has(raw) ? (raw as ReviewVerdict) : null;
+}
+
+/**
  * Input shape for recording a convergence metric.
  * Maps directly to reviewer_convergence_metrics columns.
  */
@@ -30,6 +54,8 @@ export interface ConvergenceMetricInput {
   headRef?: string | null;
   /**
    * APPROVE/REQUEST_CHANGES/COMMENT lowercased; nullable for back-compat, mt#2287.
+   * Values outside the accepted set (see {@link ReviewVerdict}) are coerced to
+   * NULL at write time by {@link normalizeVerdict}.
    */
   verdict?: string | null;
 }
@@ -48,6 +74,16 @@ export async function recordConvergenceMetric(
   input: ConvergenceMetricInput
 ): Promise<void> {
   try {
+    const verdict = normalizeVerdict(input.verdict);
+    if (input.verdict != null && verdict === null) {
+      log.warn("metric_verdict_invalid", {
+        event: "metric_verdict_invalid",
+        verdict: input.verdict,
+        prOwner: input.prOwner,
+        prRepo: input.prRepo,
+        prNumber: input.prNumber,
+      });
+    }
     await db.insert(convergenceMetricsTable).values({
       prOwner: input.prOwner,
       prRepo: input.prRepo,
@@ -58,7 +94,7 @@ export async function recordConvergenceMetric(
       newBlockerCount: input.newBlockerCount,
       acknowledgedAddressedCount: input.acknowledgedAddressedCount,
       headRef: input.headRef ?? null,
-      verdict: input.verdict ?? null,
+      verdict,
     });
   } catch (err: unknown) {
     log.error("metric_write_error", {

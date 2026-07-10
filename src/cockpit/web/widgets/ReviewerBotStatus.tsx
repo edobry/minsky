@@ -405,8 +405,17 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
             ).map(([label, key]) => {
               const ratio24h = verdictRatio(db.verdictCounts24h, key);
               const ratio7d = verdictRatio(db.verdictCounts7d, key);
+              // Gate the per-row amber highlight on the SAME sample-size gate as
+              // the global A6 anomaly (mt#2287 R1): when a6VerdictDrift is
+              // suppressed (e.g. both windows below A6_MIN_SAMPLE_SIZE), no row
+              // should light up either — otherwise a single low-volume review
+              // trivially "drifts" 100pp and highlights while the header badge
+              // (correctly) stays hidden.
               const diverged =
-                ratio24h !== null && ratio7d !== null && Math.abs(ratio24h - ratio7d) > 0.2;
+                anomalies.a6VerdictDrift &&
+                ratio24h !== null &&
+                ratio7d !== null &&
+                Math.abs(ratio24h - ratio7d) > 0.2;
               return (
                 <Row key={key} label={label}>
                   <span
