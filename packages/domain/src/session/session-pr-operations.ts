@@ -10,19 +10,19 @@ import { updateSessionImpl, extractPrDescription } from "./session-update-operat
 import {
   createRepositoryBackendFromSessionUrl,
   getRepositoryBackendFromConfig,
-  extractGitHubInfoFromUrl,
+  createRepositoryBackendFromSession,
 } from "./repository-backend-detection";
 
-import {
-  createRepositoryBackend,
-  RepositoryBackendType,
-  type RepositoryBackend,
-  type RepositoryBackendConfig,
-} from "../repository/index";
-import type { SessionRecord } from "./types";
+import { type RepositoryBackend } from "../repository/index";
 import { assertSessionMutable } from "./session-mutability";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
 import { ProvenanceService, computePreliminaryTier } from "../provenance/provenance-service";
+import { emitSystemEventFromProvider } from "../events/emit-best-effort";
+
+// Re-exported for backward compatibility: external consumers (session/commands/*.ts)
+// import createRepositoryBackendFromSession from this module. The canonical
+// implementation now lives in ./repository-backend-detection (mt#2614).
+export { createRepositoryBackendFromSession } from "./repository-backend-detection";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -138,31 +138,6 @@ export async function applyInReviewTransition(
       reason,
     };
   }
-}
-
-/**
- * Create repository backend from session record's stored configuration.
- * Only GitHub is supported; all sessions use the GitHub backend.
- */
-export async function createRepositoryBackendFromSession(
-  sessionRecord: SessionRecord,
-  sessionDB: SessionProviderInterface
-): Promise<RepositoryBackend> {
-  const config: RepositoryBackendConfig = {
-    type: RepositoryBackendType.GITHUB,
-    repoUrl: sessionRecord.repoUrl,
-  };
-
-  // Parse GitHub owner/repo from URL
-  const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
-  if (githubInfo) {
-    config.github = {
-      owner: githubInfo.owner,
-      repo: githubInfo.repo,
-    };
-  }
-
-  return await createRepositoryBackend(config, sessionDB);
 }
 
 /**
@@ -489,6 +464,23 @@ Please provide a title for your pull request:
         );
       }
     }
+
+    // Emit changeset.created system event (best-effort, informational — mt#2537).
+    // Mirrors the pr.merged emit in session-merge-operations.ts (mt#2487) via
+    // the shared `emitSystemEventFromProvider` helper. This is the mt#2537
+    // "item 0" fold-in of the DB-resident type mt#2489 descoped mid-flight (no
+    // clean command-layer provider seam existed there — this seam already
+    // holds `deps.persistenceProvider` for the provenance record above).
+    await emitSystemEventFromProvider(deps.persistenceProvider, {
+      eventType: "changeset.created",
+      payload: {
+        prNumber: prInfo.number,
+        taskId: sessionRecord?.taskId ?? undefined,
+        title: titleToUse,
+      },
+      relatedTaskId: sessionRecord?.taskId ?? undefined,
+      relatedSessionId: sessionId,
+    });
 
     // Apply the IN-REVIEW transition and capture a verifiable receipt for
     // every code path so callers can detect skipped or failed transitions

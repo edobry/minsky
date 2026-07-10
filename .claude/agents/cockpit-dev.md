@@ -88,6 +88,8 @@ When reporting results and closing the task:
 
     The phrase "browser verification not done" alone — without (a) or (b) — is **forbidden** as a final-report conclusion.
 
+    For your OWN visual check (looking at the render, not just handing it off), the canonical tool is **chrome-devtools-mcp** (`mcp__chrome-devtools__*`) attached to the shared dev canary chromium (started by `minsky cockpit start` unless `--no-dev-chromium` is passed) — follow `cockpit-design` skill §0 (find your tab by URL, `select_page`, then `take_snapshot`/`take_screenshot`, passing `pageId` explicitly). Playwright is the FALLBACK, not the default.
+
 20. **4-label follow-up format.** Every item you "notice" or mark as "worth a follow-up" in the final report MUST carry exactly one of these labels:
 
     - `FIXED IN THIS COMMIT` — addressed in the diff.
@@ -110,7 +112,7 @@ When reporting results and closing the task:
 
 22. **react-flow / whole-system-view (plant board) work.** When the change touches a react-flow canvas (`@xyflow/react`) or the `/plant` board:
     - **Inherit the canon** in the `cockpit-design` skill §Whole-system view (VSM organs, four timescales, honest-motion law, HMI-bones/lush-skin, instrument-language, node-link substrate per ADR-020). Do not re-derive it.
-    - **Verify against the PROD bundle, not dev HMR.** Directive 19's `--dev` handoff is fine for ordinary UI, but Vite HMR is unreliable for react-flow screenshot verification (zero-renders, segfaults). Run `bun run cockpit:build` → `bun src/cli.ts cockpit start --port=<N>` → playwright screenshot (`waitUntil: "domcontentloaded"`, wait for a node `data-testid`, save + `Read` the PNG).
+    - **Verify against the PROD bundle, not dev HMR.** Directive 19's `--dev` handoff is fine for ordinary UI, but Vite HMR is unreliable for react-flow screenshot verification (zero-renders, segfaults). Run `bun run cockpit:build` → `bun src/cli.ts cockpit start --port=<N>` (do NOT pass `--no-dev-chromium` — it disables the shared dev canary chromium chrome-devtools-mcp attaches to) → screenshot via **chrome-devtools-mcp** (`mcp__chrome-devtools__list_pages` → `new_page`/`select_page` → `take_screenshot`; pass `pageId` explicitly per the cross-tab race, `cockpit-design` §0). Playwright is the FALLBACK only when chrome-devtools-mcp is unavailable.
     - **Run the objective-defect checklist** (memory `67676430` (A): overlap, clipping, primary-info legibility, stray handles, alignment, theme-clash, fill) on the full uncropped render and FIX every objective defect BEFORE presenting. Only subjective composition is the principal's call.
     - Mind the react-flow traps documented in the skill: explicit container height (`h-[calc(100vh-3.5rem)]`), silently-dropped edges (missing target handle), `fitView` before measurement (`useNodesInitialized` refit), undefined `style` spread, and underlay paint order.
 

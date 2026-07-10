@@ -153,8 +153,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_BUNDLE_SMOKE", // .claude/hooks/require-review-before-merge.ts (mt#1787)
   "MINSKY_SKIP_REQUIRED_CHECKS", // .claude/hooks/require-review-before-merge.ts (mt#1938)
   "MINSKY_SKIP_SMOKE_CHECK", // .claude/hooks/require-review-before-merge.ts (mt#2060)
+  "MINSKY_SKIP_DEPLOY_VERIFY", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
   "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
-  "MINSKY_SKIP_WORKSPACE_COPY_CHECK", // src/hooks/pre-commit.ts (mt#1984) — workspace-COPY check override
   "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
   "MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
@@ -224,7 +224,10 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
   "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
+  "MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", // src/cockpit/server.ts (mt#2321) — cockpit transcript sweep-backstop cadence override (positive integer ms)
   "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
+  "MINSKY_SKIP_PROD_STATE_INJECTION", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
+  "MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION", // .claude/hooks/inject-dispatch-watchdog.ts (mt#2646) — skip dispatch-watchdog injection
   "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
   // mt#2324 — process-only overrides read via the BRACKET form
   // (process.env["MINSKY_*"]) in src/. They surfaced once the
@@ -242,6 +245,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
   "MINSKY_ACK_CODE_MECHANISM_ASSERTION", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
   "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
+  "MINSKY_SKIP_SPEC_READ_CHECK", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
+  "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
   // packages/domain/src/project/identity.ts at identity-resolution time (not
   // via the config-schema path). Placing it here so the env-var-to-config
@@ -267,6 +272,14 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
   "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
   "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
+  // mt#2076 — cockpit reviewer-bot-status widget: URL override for the reviewer
+  // /health endpoint probe. Read by src/cockpit/widgets/reviewer-bot-status.ts
+  // at module-load time. Not a config-schema field; registering here so the
+  // env-var-to-config dot-path parser skips it at boot.
+  "MINSKY_REVIEWER_HEALTH_URL", // src/cockpit/widgets/reviewer-bot-status.ts (health probe URL override)
+  "MINSKY_SKIP_CALIBRATION_CADENCE", // .claude/hooks/calibration-review-cadence-detector.ts (mt#2619) — skip calibration-review-due warning injection
+  "MINSKY_SKIP_MERGE_GRANT_CHECK", // .claude/hooks/block-subagent-merge-without-grant.ts (mt#2651) — override for the ADR-028 D5 subagent merge-capability-grant guard
+  "MINSKY_HOOK_OVERRIDE", // .claude/hooks/dispatcher.ts (mt#2650) — ADR-028 D3 unified guard-dispatcher override (comma-separated guard names, or "all")
 ]);
 
 /**

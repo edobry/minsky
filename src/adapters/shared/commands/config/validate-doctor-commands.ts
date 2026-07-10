@@ -10,6 +10,62 @@ import { CommandCategory, defineCommand } from "../../command-registry";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
 
 /**
+ * A single config.doctor diagnostic entry.
+ */
+export interface DoctorDiagnostic {
+  check: string;
+  status: "pass" | "warning" | "error";
+  message: string;
+  suggestion?: string;
+}
+
+/**
+ * Reviewer-retrigger reachability check (mt#2660).
+ *
+ * `reviewer.retrigger` (src/adapters/shared/commands/reviewer-retrigger.ts)
+ * authenticates against the reviewer service's `/retrigger` endpoint using
+ * `mcp.auth.token` (← `MINSKY_MCP_AUTH_TOKEN`), NOT the webhook HMAC secret
+ * (mt#2346). `reviewer.url` always resolves to a usable target — when unset
+ * it falls back to the Minsky-hosted default (DEFAULT_REVIEWER_URL) — so the
+ * reviewer service is effectively always "configured" for retrigger purposes.
+ * The token is the one precondition that can silently be missing.
+ *
+ * Without this token, `resolveReviewerEndpoint` throws at CALL time — which
+ * historically was only discovered mid-incident, exactly when an operator
+ * needed the tool most (mt#2660 / PR #1812: `reviewer.retrigger` errored
+ * with "requires MINSKY_MCP_AUTH_TOKEN / mcp.auth.token" during the recovery
+ * attempt, forcing a manual retrigger commit instead). Surfacing the gap
+ * here, at setup-diagnostic time, lets an operator catch it before it's
+ * needed.
+ *
+ * Exported as a pure function (config in, diagnostic out) so it's unit
+ * testable without mocking the config-provider module loader.
+ */
+export function checkReviewerRetriggerReachability(
+  mcpAuthToken: string | undefined
+): DoctorDiagnostic {
+  if (!mcpAuthToken) {
+    return {
+      check: "Reviewer Retrigger Reachability",
+      status: "warning",
+      message:
+        "`mcp.auth.token` is not set — `reviewer.retrigger` will fail with " +
+        '"requires the Minsky MCP auth token" when invoked. This is the ' +
+        "on-demand recovery path for a review the reviewer-service sweeper " +
+        "hasn't yet caught (see mt#2660).",
+      suggestion:
+        "Set mcp.auth.token in your Minsky config, or export MINSKY_MCP_AUTH_TOKEN, " +
+        "to make reviewer.retrigger usable.",
+    };
+  }
+  return {
+    check: "Reviewer Retrigger Reachability",
+    status: "pass",
+    message: "`mcp.auth.token` is set — `reviewer.retrigger` is reachable.",
+  };
+}
+
+/**
  * Shared parameters for config commands (eliminates duplication)
  */
 const configCommandParams = composeParams(
@@ -83,6 +139,13 @@ export const configDoctorRegistration = defineCommand({
       required: false as const,
       defaultValue: false,
     },
+    fix: {
+      schema: z.boolean(),
+      description:
+        "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)",
+      required: false as const,
+      defaultValue: false,
+    },
   }),
   execute: async (params, ctx) => {
     // Perform lightweight diagnostics without external calls
@@ -136,6 +199,44 @@ export const configDoctorRegistration = defineCommand({
         check: "Configuration Validation",
         status: "error",
         message: `Validation check failed: ${getErrorMessage(e)}`,
+      });
+    }
+
+    // Reviewer retrigger reachability (mt#2660) + turnkey auto-fix (mt#2679).
+    try {
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const reachability = checkReviewerRetriggerReachability(config.mcp?.auth?.token);
+
+      // --fix: provision mcp.auth.token from the local railway-secrets store
+      // instead of telling the operator to edit config by hand (the deferral
+      // that kept mt#2679's four incidents recurring). The fix never prints
+      // the secret value. On a SUCCESSFUL fix the pass-shaped fix diagnostic
+      // REPLACES the initial warning (one coherent signal per check — PR
+      // #1855 R1); on a failed/unavailable fix both surface so the operator
+      // sees the gap AND why the auto-fix couldn't close it.
+      if (params.fix && reachability.status === "warning") {
+        const { fixMcpAuthTokenFromSecretsFile } = await import("./doctor-fixes");
+        const { createConfigWriter } = await import("@minsky/domain/configuration/config-writer");
+        const { readFileSync } = await import("fs");
+        const fixOutcome = await fixMcpAuthTokenFromSecretsFile({
+          configDir: getUserConfigDir(),
+          readFile: (p: string): string => readFileSync(p, { encoding: "utf-8" }).toString(),
+          writer: createConfigWriter({ createBackup: true, format: "yaml", validate: true }),
+        });
+        if (fixOutcome.status === "pass") {
+          diagnostics.push(fixOutcome);
+        } else {
+          diagnostics.push(reachability, fixOutcome);
+        }
+      } else {
+        diagnostics.push(reachability);
+      }
+    } catch (e) {
+      diagnostics.push({
+        check: "Reviewer Retrigger Reachability",
+        status: "error",
+        message: `Reviewer retrigger reachability check failed: ${getErrorMessage(e)}`,
       });
     }
 

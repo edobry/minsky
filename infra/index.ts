@@ -101,6 +101,11 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   MINSKY_REVIEWER_TIER2_ENABLED: plain("true"),
   REVIEWER_PROVIDER: plain("openai"),
   OPENAI_API_KEY: sealed("openai-api-key"),
+  // mt#2724: Braintrust observability credential — enables the reviewer's
+  // per-review cost event emission (mt#2723, source="minsky.reviewer.cost") in
+  // production. Without it, the shared emitBraintrustEvent gracefully no-ops.
+  // Project name defaults to "minsky" (no BRAINTRUST_PROJECT_NAME needed).
+  BRAINTRUST_API_KEY: sealed("braintrust-api-key"),
   SWEEPER_ENABLED: plain("true"),
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),

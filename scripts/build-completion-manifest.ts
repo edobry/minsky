@@ -18,6 +18,14 @@
  *
  * Trigger: `bun run scripts/build-completion-manifest.ts` (also wired into
  * `bun run build` via the `build:completion-manifest` script in package.json).
+ *
+ * Auto-regeneration (mt#2622): `src/hooks/pre-commit.ts`'s
+ * `runCompletionManifestRegen` step runs `bun run build:completion-manifest`
+ * on every commit and re-stages the output if it changed, so the committed
+ * manifest never drifts from the CLI tree it describes. Manual invocation is
+ * only needed for local inspection — the pre-commit hook keeps it correct
+ * automatically, and `bun run build` regenerates it again defensively before
+ * bundling (covers commits made with `--no-verify` or predating this fix).
  */
 import "reflect-metadata";
 import { writeFileSync, mkdirSync } from "fs";

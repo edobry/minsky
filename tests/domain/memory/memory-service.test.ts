@@ -477,6 +477,25 @@ describe("MemoryService", () => {
       const result = await service.get("nonexistent-id");
       expect(result).toBeNull();
     });
+
+    // mt#2663: create() without an explicit scope must default to "project"
+    // rather than passing `undefined` through to the insert (which would hit
+    // the memories.scope NOT NULL constraint against a real Postgres DB).
+    it("defaults scope to 'project' when omitted from the input", async () => {
+      const record = await service.create({
+        type: "user",
+        name: "No scope supplied",
+        description: "Regression test for mt#2663",
+        content: "content",
+      } as Parameters<MemoryService["create"]>[0]);
+
+      expect(record.scope).toBe("project");
+    });
+
+    it("respects an explicit scope when provided", async () => {
+      const record = await service.create(makeInput({ scope: "cross_project" }));
+      expect(record.scope).toBe("cross_project");
+    });
   });
 
   // ── search: semantic neighbors ─────────────────────────────────────────────

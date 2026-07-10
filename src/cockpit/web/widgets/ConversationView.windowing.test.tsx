@@ -8,11 +8,39 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConversationView } from "./ConversationView";
 import type {
   SessionContextSnapshot,
   SessionContextSnapshotBlock,
 } from "@minsky/domain/context/types";
+
+// ConversationView renders assistant/user text via <Prose>, which builds its
+// entity-index through useEntityIndex (TanStack useQueries) — so a QueryClient
+// must be in scope. The synthetic snapshots contain no entity refs, so the
+// index stays empty and the queries' (failed) fetches are inert. Mirrors
+// ConversationView.errors.test.tsx's provider wrapper.
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
+function renderCV(snapshot: SessionContextSnapshot) {
+  const client = createTestQueryClient();
+  const utils = render(
+    <QueryClientProvider client={client}>
+      <ConversationView snapshot={snapshot} />
+    </QueryClientProvider>
+  );
+  return {
+    ...utils,
+    rerenderCV: (next: SessionContextSnapshot) =>
+      utils.rerender(
+        <QueryClientProvider client={client}>
+          <ConversationView snapshot={next} />
+        </QueryClientProvider>
+      ),
+  };
+}
 
 function turnBlock(i: number, role: "user" | "assistant"): SessionContextSnapshotBlock {
   return {
@@ -46,14 +74,14 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
   afterEach(cleanup);
 
   test("small transcript renders fully with no windowing control", () => {
-    render(<ConversationView snapshot={syntheticSnapshot(10)} />);
+    renderCV(syntheticSnapshot(10));
     expect(screen.getByText("turn-0 body")).toBeDefined();
     expect(screen.getByText("turn-9 body")).toBeDefined();
     expect(screen.queryByText(/Show older/)).toBeNull();
   });
 
   test("large transcript renders only the tail window initially", () => {
-    render(<ConversationView snapshot={syntheticSnapshot(120)} />);
+    renderCV(syntheticSnapshot(120));
     // Newest turns are rendered…
     expect(screen.getByText("turn-119 body")).toBeDefined();
     expect(screen.getByText("turn-70 body")).toBeDefined();
@@ -64,7 +92,7 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
   });
 
   test("Show older reveals an additional chunk", () => {
-    render(<ConversationView snapshot={syntheticSnapshot(120)} />);
+    renderCV(syntheticSnapshot(120));
     fireEvent.click(screen.getByText("Show older (70 more)"));
     // 50 + 100 > 120 → everything is now visible and the control disappears.
     expect(screen.getByText("turn-0 body")).toBeDefined();
@@ -72,7 +100,7 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
   });
 
   test("Show all reveals the entire transcript", () => {
-    render(<ConversationView snapshot={syntheticSnapshot(300)} />);
+    renderCV(syntheticSnapshot(300));
     expect(screen.queryByText("turn-0 body")).toBeNull();
     fireEvent.click(screen.getByText("Show all"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
@@ -83,11 +111,11 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
     // A refetch within the same agentSessionId adds turns; a fixed visible
     // count would silently re-clip the oldest turns and resurface the control
     // (PR #1667 R1 BLOCKING). showAll must track growth.
-    const { rerender } = render(<ConversationView snapshot={syntheticSnapshot(120)} />);
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
     fireEvent.click(screen.getByText("Show all"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
 
-    rerender(<ConversationView snapshot={syntheticSnapshot(180)} />);
+    rerenderCV(syntheticSnapshot(180));
     // Oldest turn still visible, newest growth visible, no control reappears.
     expect(screen.getByText("turn-0 body")).toBeDefined();
     expect(screen.getByText("turn-179 body")).toBeDefined();
@@ -95,19 +123,19 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
   });
 
   test("window resets to the tail when the session changes", () => {
-    const { rerender } = render(<ConversationView snapshot={syntheticSnapshot(120)} />);
+    const { rerenderCV } = renderCV(syntheticSnapshot(120));
     fireEvent.click(screen.getByText("Show all"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
 
     const other = { ...syntheticSnapshot(120), agentSessionId: "agent-test-windowing-2" };
-    rerender(<ConversationView snapshot={other} />);
+    rerenderCV(other);
     // New session → back to the clipped tail window.
     expect(screen.queryByText("turn-0 body")).toBeNull();
     expect(screen.getByText("Show older (70 more)")).toBeDefined();
   });
 
   test("chunked expansion decrements the hidden count", () => {
-    render(<ConversationView snapshot={syntheticSnapshot(300)} />);
+    renderCV(syntheticSnapshot(300));
     // 300 - 50 = 250 hidden initially.
     fireEvent.click(screen.getByText("Show older (250 more)"));
     // +100 → 150 hidden.

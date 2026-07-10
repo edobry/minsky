@@ -68,6 +68,39 @@ workspace:
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
 
+## Task Backend Configuration
+
+### `tasks.githubBackend.enabled` (default: `false`)
+
+Controls whether the GitHub Issues task backend is registered at startup. The github backend
+is **disabled by default** — the Minsky DB (`mt#`) backend is the operational default.
+
+```yaml
+tasks:
+  githubBackend:
+    enabled: false # default — github-issues backend disabled
+```
+
+**When `false` (default):**
+
+- `tasks_create` with no explicit backend → Minsky (`mt#`) backend (unchanged)
+- `minsky tasks list` → Minsky tasks only
+- Explicit `--backend github` or `--backend github-issues` → throws:
+  ```
+  GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+  ```
+- Multi-backend registration silently skips the github backend with an info-level log
+
+**When `true`:**
+
+- GitHub backend registers alongside Minsky when GitHub credentials (`GITHUB_TOKEN`,
+  owner, repo) are configured
+- `gh#` prefixed tasks become accessible
+- This restores the behavior from before the gate was introduced
+
+See [GitHub Issues Backend Guide](./github-issues-backend-guide.md) for full setup
+instructions and prerequisites.
+
 ## Embeddings Configuration
 
 The `embeddings` section controls the embedding provider and optional fallback chain.
@@ -135,10 +168,24 @@ reviewer:
   url: "https://minsky-reviewer-webhook-production.up.railway.app"
 ```
 
-- `mcp.auth.token` — required to run `reviewer.retrigger`. When absent the command errors.
-  Environment override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
+- `mcp.auth.token` — required for `reviewer.retrigger`'s direct endpoint path. Environment
+  override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
 - `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment
   override: `MINSKY_REVIEWER_URL` → `reviewer.url`.
+- **`minsky config doctor` surfaces a warning when `mcp.auth.token` is absent, and
+  `minsky config doctor --fix` provisions it automatically** (mt#2660 detection; mt#2679
+  turnkey fix). The fix reads `MINSKY_MCP_AUTH_TOKEN` from
+  `~/.config/minsky/railway-secrets.json` (the deploy synthesizer's secret store, which
+  already holds it on any machine set up for deploys) and writes `mcp.auth.token` through the
+  standard config writer — no hand-editing, and the secret value is never printed. Long-lived
+  processes cache config at boot (mt#1427), so reconnect the MCP server (`/mcp`) after fixing.
+- **GitHub-auth fallback (mt#2679):** when `mcp.auth.token` is absent but `github.token` is
+  configured, `reviewer.retrigger` does not error — it posts a `/review` comment on the PR via
+  the GitHub credential (the reviewer service treats a first-line `/review` comment from an
+  OWNER/MEMBER/COLLABORATOR author as a retrigger command, mt#2127). The result names the path
+  used (`direct` vs `review-comment`); the fallback is asynchronous and applies to open PRs
+  only. Only when BOTH credentials are absent does the command error, naming both remediation
+  paths.
 - `reviewer.webhookSecret` (`MINSKY_REVIEWER_WEBHOOK_SECRET`) — **deprecated for retrigger
   (mt#2346)**; no longer read by the command. The config key + env mapping are retained only
   so a lingering value still parses safely at boot. The reviewer service reads its webhook

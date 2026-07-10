@@ -16,10 +16,14 @@
  */
 
 import { describe, test, expect, mock } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import type { Octokit } from "@octokit/rest";
+import type { ReviewerConfig } from "./config";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
 import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
+  createOctokit,
+  createAppIdentityOctokit,
   fetchPriorReviews,
   fetchListFiles,
   MAX_FILES_FETCHED,
@@ -787,5 +791,84 @@ describe("submitReview", () => {
 
     const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
     expect(args.comments).toBeUndefined();
+  });
+});
+
+// ── createOctokit (mt#2717) ──────────────────────────────────────────────────
+
+/**
+ * Minimal ReviewerConfig for createOctokit — only appId/privateKey/installationId
+ * are read; the remaining fields are filler to satisfy the type.
+ */
+function testConfig(privateKey: string): ReviewerConfig {
+  return {
+    appId: 12345,
+    privateKey,
+    installationId: 67890,
+    webhookSecret: "test-secret",
+    provider: "openai",
+    providerApiKey: "test-key",
+    providerModel: "gpt-5",
+    tier2Enabled: false,
+    mcpUrl: undefined,
+    mcpToken: undefined,
+    port: 3000,
+    logLevel: "info",
+    modelTimeoutMs: 120_000,
+    githubTimeoutMs: 30_000,
+  };
+}
+
+describe("createOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // The pre-mt#2717 body signed a JWT and minted an installation token AT
+    // CONSTRUCTION (`const { token } = await auth({ type: "installation" })`),
+    // so a malformed private key threw here. The authStrategy form defers all
+    // auth to the first request, so construction must succeed regardless of key
+    // validity — the property that makes the reused, self-refreshing client
+    // correct (it never re-extracts a stale token).
+    const octokit = await createOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the refreshing App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = await createOctokit(testConfig(privateKey));
+
+    // With authStrategy: createAppAuth, requesting an APP-level JWT is a purely
+    // LOCAL RS256 signing operation (no network) — only possible when the
+    // app-auth strategy is installed. A static-token Octokit could not satisfy
+    // `{ type: "app" }`.
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    // A JWT is three dot-separated base64url segments.
+    expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+describe("createAppIdentityOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // Same property as createOctokit: the pre-mt#2717 getAppIdentity path
+    // extracted a static App JWT at construction (`await auth({ type: "app" })`)
+    // and threw on a malformed key. The authStrategy form defers auth to the
+    // first request, so construction must not throw.
+    const octokit = createAppIdentityOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = createAppIdentityOctokit(testConfig(privateKey));
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    expect(appAuth.token.split(".")).toHaveLength(3);
   });
 });

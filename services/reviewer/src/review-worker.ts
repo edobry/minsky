@@ -61,15 +61,13 @@ import {
   readFileAtRef,
   resolveThread,
   submitReview,
-  type PullRequestContext,
   type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
-import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
-import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
 import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
+import { timingTokenFields } from "./token-cost";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -95,42 +93,68 @@ import {
   type TierRoutingDecision,
 } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
-import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
-import { composeReviewBody, type ComposeReviewResult } from "./compose-review";
-import type { ReviewToolCall } from "./output-tools";
-import { extractProvenance, serializeProvenance } from "./review-provenance";
-import {
-  applyMonotonicityRecovery,
-  parsePriorReviewFindings,
-  type DowngradeAuditEntry,
-  type FlatPriorFinding,
-} from "./severity-recovery";
-import {
-  applyCompositionConvergenceDowngrade,
-  type ConvergenceDowngradeAuditEntry,
-  type ConvergenceDetectionResult,
-} from "./convergence-detector";
-import {
-  extractFixCommitDiff,
-  applyDiffScopeBoundedDowngrade,
-  type DiffScopeDowngradeAuditEntry,
-  type FixCommitLineRangeMap,
-} from "./diff-scoper";
+import { sanitizeReviewBody, redactForLog } from "./sanitize";
+import { parsePriorReviewFindings, type FlatPriorFinding } from "./severity-recovery";
+import { extractFixCommitDiff, type FixCommitLineRangeMap } from "./diff-scoper";
 import { submitReviewWithGuards } from "./guarded-submit";
 import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { log } from "./logger";
-import { TimeoutError } from "./with-timeout";
 import { extractPgErrorContext } from "./webhook-events";
 import { publishCheckRun, type PublishCheckRunOptions } from "./check-run-publisher";
 
-/**
- * Which attempt produced the final (or failing) output. Used for observability
- * — tells the caller whether the result came from the first model call, a
- * successful retry with reduced reasoning effort, or a failed retry.
- */
-export type ReviewAttemptTrace = "first-attempt-success" | "retry-success" | "retry-failed";
+// ---------------------------------------------------------------------------
+// mt#2720: pure helpers relocated to sibling modules for max-lines headroom.
+// review-worker.ts imports what runReview/runReviewBody use internally and
+// re-exports every moved symbol so external consumers (server.ts, sweeper.ts,
+// status-comment.ts, review-worker.test.ts) keep importing from ./review-worker.
+// ---------------------------------------------------------------------------
+import {
+  buildEmptyOutputSkipNotice,
+  callReviewerWithRetry,
+  validateReviewOutput,
+  type ReviewAttemptTrace,
+} from "./review-output-validation";
+import { applyRecoveryAndCompose, fetchPriorBlockingCountsFromDb } from "./recovery-compose";
+import {
+  decidePostSanitizeOutcome,
+  decideToolsActive,
+  defaultForkAccessProbe,
+} from "./review-decisions";
+import {
+  annotateReviewBody,
+  buildConvergenceMetricLog,
+  buildRunReviewStartLog,
+  buildSubmitFailureLog,
+} from "./review-log-builders";
+
+export {
+  buildEmptyOutputSkipNotice,
+  callReviewerWithRetry,
+  validateReviewOutput,
+  type CallReviewerFn,
+  type CallWithRetryResult,
+  type ReviewAttemptTrace,
+} from "./review-output-validation";
+export {
+  applyRecoveryAndCompose,
+  fetchPriorBlockingCountsFromDb,
+  type ApplyRecoveryAndComposeOptions,
+  type ComposeWithRecoveryResult,
+} from "./recovery-compose";
+export {
+  decidePostSanitizeOutcome,
+  decideToolsActive,
+  defaultForkAccessProbe,
+} from "./review-decisions";
+export {
+  annotateReviewBody,
+  buildConvergenceMetricLog,
+  buildRunReviewStartLog,
+  buildSubmitFailureLog,
+  parseReviewEvent,
+  serializeSubmitError,
+} from "./review-log-builders";
 
 /** Result of prior-review ingestion. Logged per review for convergence observability. */
 export interface PriorReviewIngestionResult {
@@ -195,609 +219,6 @@ export interface ReviewResult {
    * null when extraction failed or review was not posted (error/skipped paths).
    */
   blockingCount?: number | null;
-}
-
-/**
- * Check whether a model output is suitable for posting. Reviewer-posted reviews
- * must have non-empty content — otherwise GitHub shows what looks like an
- * "approved with no issues" review that is actually "model produced no content".
- *
- * When `outputToolsActive` is true (OpenAI + output-tools path), a review with
- * empty text but non-empty toolCalls is treated as successful — the model
- * emitted structured output via tool calls, which is the expected behavior on
- * that path (gpt-5 emits tool calls with output.text === "").
- *
- * Exported for tests; runReview calls this right after the model response.
- */
-export function validateReviewOutput(
-  output: ReviewOutput,
-  outputToolsActive: boolean = false
-): { ok: true } | { ok: false; reason: string } {
-  if (output.text.trim().length > 0) return { ok: true };
-  // On the output-tools-active path, non-empty toolCalls is also a success signal.
-  if (outputToolsActive && output.toolCalls.length > 0) return { ok: true };
-  const u = output.usage;
-  const tokenBreakdown = u
-    ? `prompt=${u.promptTokens ?? "?"} completion=${u.completionTokens ?? "?"} reasoning=${u.reasoningTokens ?? "?"} total=${u.totalTokens ?? "?"}`
-    : `tokensUsed=${output.tokensUsed ?? "?"}`;
-  return {
-    ok: false,
-    reason:
-      `Model ${output.provider}:${output.model} returned empty content (${tokenBreakdown}). ` +
-      `Not posting. Likely cause: reasoning tokens consumed the output budget.`,
-  };
-}
-
-/**
- * Build the user-facing skip-notice that the reviewer posts as a COMMENT when
- * the model returns empty content. Separate from `validateReviewOutput.reason`
- * so the log-facing and user-facing strings can drift independently.
- *
- * Exported for tests.
- */
-export function buildEmptyOutputSkipNotice(output: ReviewOutput): string {
-  const u = output.usage;
-  const reasoningHint =
-    u && u.reasoningTokens !== undefined && u.completionTokens === 0
-      ? ` Likely cause: the model's reasoning phase exhausted the output budget (${u.reasoningTokens} reasoning tokens, 0 completion tokens).`
-      : "";
-  return (
-    `⚠️ **Automated review skipped** — the reviewer (${output.provider}:${output.model}) ` +
-    `returned no content for this PR.${reasoningHint}\n\n` +
-    `This is **not** an approval or a rejection. Manual review is recommended. ` +
-    `Diagnostic details are available in the reviewer service logs.`
-  );
-}
-
-/**
- * Injectable callReviewer function signature, for test seams.
- */
-export type CallReviewerFn = typeof callReviewer;
-
-/**
- * Result of a single-retry review call.
- */
-export interface CallWithRetryResult {
-  output: ReviewOutput;
-  validation: { ok: true } | { ok: false; reason: string };
-  attempt: ReviewAttemptTrace;
-  /** False when the first call was non-empty OR when provider has no retry knob. */
-  retryAttempted: boolean;
-}
-
-/**
- * Call the reviewer with single-retry semantics for both empty output
- * (mt#1131) and timeout (mt#2083).
- *
- * Two retry triggers, same shape — exactly one retry, no backoff:
- *
- *   1) Empty output: reasoning model exhausts its output budget on hidden
- *      reasoning tokens. Retry with `reasoningEffort: "low"` to shift
- *      the budget toward visible output. OpenAI only.
- *
- *   2) TimeoutError: transient provider-side latency caused the tool-loop
- *      per-round timeout to fire. Retry with the same config — transient
- *      slowness usually clears on the second attempt. All providers.
- *      mt#2083 originating incident: PR #1252 (1-line bunfig.toml change)
- *      timed out twice on the webhook path; sweeper succeeded ~100s later.
- *
- * Tool context (mt#1126) passes through to both attempts when provided, so
- * the retry gets the same file-access capabilities as the first call.
- *
- * When `outputToolsActive` is true, passes that flag through to
- * `validateReviewOutput` so non-empty toolCalls count as a success signal.
- *
- * @param callReviewerFn test seam; defaults to the real `callReviewer` from `./providers`
- */
-export async function callReviewerWithRetry(
-  config: ReviewerConfig,
-  systemPrompt: string,
-  userPrompt: string,
-  tools?: ReviewerToolContext,
-  callReviewerFn: CallReviewerFn = callReviewer,
-  outputToolsActive: boolean = false
-): Promise<CallWithRetryResult> {
-  let first: ReviewOutput;
-  try {
-    first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
-  } catch (err) {
-    if (!(err instanceof TimeoutError)) throw err;
-    log.warn("callReviewerWithRetry.timeout_retry", {
-      event: "callReviewerWithRetry.timeout_retry",
-      op: err.op,
-      timeoutMs: err.timeoutMs,
-      provider: config.provider,
-    });
-    const retryOptions =
-      config.provider === "openai" ? { reasoningEffort: "low" as const } : undefined;
-    const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, retryOptions);
-    const retryValidation = validateReviewOutput(retry, outputToolsActive);
-    return {
-      output: retry,
-      validation: retryValidation,
-      attempt: retryValidation.ok ? "retry-success" : "retry-failed",
-      retryAttempted: true,
-    };
-  }
-
-  const firstValidation = validateReviewOutput(first, outputToolsActive);
-  if (firstValidation.ok) {
-    return {
-      output: first,
-      validation: firstValidation,
-      attempt: "first-attempt-success",
-      retryAttempted: false,
-    };
-  }
-
-  // Only OpenAI supports the reasoning_effort override. For other providers
-  // the first empty output is the final answer.
-  if (first.provider !== "openai") {
-    return {
-      output: first,
-      validation: firstValidation,
-      attempt: "retry-failed",
-      retryAttempted: false,
-    };
-  }
-
-  const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, {
-    reasoningEffort: "low",
-  });
-  const retryValidation = validateReviewOutput(retry, outputToolsActive);
-  return {
-    output: retry,
-    validation: retryValidation,
-    attempt: retryValidation.ok ? "retry-success" : "retry-failed",
-    retryAttempted: true,
-  };
-}
-
-/**
- * Map a SanitizeResult to the (event, status, reason) tuple the worker posts
- * and returns. Pure function — extracted from runReview (mt#1212) so the
- * stripped / errored / passthrough branches can be tested without mocking
- * octokit and the App-auth flow.
- *
- * Exported for tests.
- */
-export function decidePostSanitizeOutcome(
-  sanitized: SanitizeResult,
-  isSelfReview: boolean,
-  ctx: {
-    reviewerLogin: string;
-    provider: string;
-    model: string;
-    attempt: ReviewAttemptTrace;
-  }
-): {
-  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
-  status: "reviewed" | "error";
-  reason: string;
-} {
-  if (sanitized.action === "errored") {
-    return {
-      event: "COMMENT",
-      status: "error",
-      reason:
-        `Posted service-error notice as ${ctx.reviewerLogin} ` +
-        `(provider=${ctx.provider}, model=${ctx.model}, attempt=${ctx.attempt}): ` +
-        `CoT leakage with no recoverable review body (${sanitized.meta.reason})`,
-    };
-  }
-
-  const event = parseReviewEvent(sanitized.body, isSelfReview);
-  const leakSuffix = sanitized.action === "stripped" ? " [cot-leakage: stripped]" : "";
-  return {
-    event,
-    status: "reviewed",
-    reason: `Posted ${event} review as ${ctx.reviewerLogin} (provider=${ctx.provider}, model=${ctx.model}, attempt=${ctx.attempt})${leakSuffix}`,
-  };
-}
-
-/**
- * Decide whether tool-use is active for a given PR + provider combination.
- *
- * Gates on two axes (mt#1126 MVP + mt#1216 fork-access probe):
- *
- *   1) Provider capability — only OpenAI has a tool-use loop wired up.
- *      Gemini and Anthropic fall back to the no-tools path with a warning
- *      log at the caller site.
- *
- *   2) Fork accessibility — the reviewer App is installed on the base repo;
- *      it may not have read access to forks. Public forks are typically
- *      readable via `contents: read` on the head repo, so we probe at
- *      review start (one `readFile` for a known file like README.md or
- *      package.json). If the probe succeeds, enable tools on the fork; if
- *      it 403s or 404s, disable and fall back to the no-tools prompt.
- *
- * The probe callback is injected for testability — callers wire it up
- * against the octokit + head coords; tests pass a fake.
- *
- * Exported for tests.
- */
-export async function decideToolsActive(
-  config: ReviewerConfig,
-  pr: Pick<PullRequestContext, "number" | "isForkedPR">,
-  probeForkAccess: () => Promise<boolean>
-): Promise<{ toolsActive: boolean; reason?: string }> {
-  if (config.provider !== "openai") {
-    return {
-      toolsActive: false,
-      reason: `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`,
-    };
-  }
-  if (!pr.isForkedPR) {
-    return { toolsActive: true };
-  }
-  const accessible = await probeForkAccess();
-  if (!accessible) {
-    return {
-      toolsActive: false,
-      reason: `fork-access probe failed for PR ${pr.number} (App lacks read access to fork, OR both README.md and package.json are absent at HEAD)`,
-    };
-  }
-  return { toolsActive: true };
-}
-
-/**
- * Default fork-access probe used by `runReview`: attempt to read a known
- * file (README.md, then package.json as fallback) from the PR head repo at
- * HEAD. Returns true iff at least one probe succeeds.
- *
- * Exported for tests so integration tests can verify probe fall-through
- * behavior without having to mock octokit at the usage site.
- */
-export async function defaultForkAccessProbe(
-  octokit: Awaited<ReturnType<typeof createOctokit>>,
-  pr: Pick<PullRequestContext, "headOwner" | "headRepo" | "headSha">
-): Promise<boolean> {
-  for (const path of ["README.md", "package.json"]) {
-    try {
-      const result = await readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha);
-      if (result !== null) return true;
-    } catch {
-      // 403/permission or other error — continue to the next probe file.
-    }
-  }
-  return false;
-}
-
-/**
- * Pure helper: apply monotonicity recovery and conclude_review reconciliation
- * to a list of tool calls, then compose the review body. Extracted from
- * runReview's outputToolsActive branch so the recovery+reconciliation+
- * composition flow can be unit-tested without mocking GitHub/OpenAI/MCP.
- *
- * PR #922 R7-R13 catch: the bot persistently flagged the lack of unit tests
- * for the runReview integration path. Full integration tests (mocking
- * octokit, callReviewer, getAppIdentity, fetchPriorReviews, MCP) are
- * substantial work deferred to mt#1497. This pure helper covers the
- * core recovery+reconciliation+composition logic that runReview now
- * delegates to it, addressing the test gap at the unit level.
- *
- * Behavior:
- *   1. If recoveryEnabled AND priorFindings.length > 0, apply
- *      applyMonotonicityRecovery to downgrade BLOCKING findings whose file
- *      matched a prior NON-BLOCKING/PRE-EXISTING finding (per the spec in
- *      severity-recovery.ts).
- *   2. Count post-recovery BLOCKING findings.
- *   3. If recovery crossed zero (BLOCKING > 0 → BLOCKING == 0) AND a
- *      conclude_review with event=REQUEST_CHANGES was emitted, rewrite that
- *      conclude_review tool call to event=COMMENT before composition. This
- *      keeps the body's executive summary and the GitHub event consistent.
- *   4. Compose the review body from the (possibly reconciled) tool calls.
- *
- * Pure function — no I/O, no async, no logging. The caller is responsible
- * for emitting per-downgrade and summary log events using the returned
- * `downgrades` array and counts.
- */
-export interface ComposeWithRecoveryResult {
-  /** The (possibly recovered + reconciled) tool calls used for composition. */
-  toolCalls: ReadonlyArray<ReviewToolCall>;
-  /** The composed review body and event. */
-  composed: ComposeReviewResult;
-  /** Audit log entries for downgrades that fired. Empty when no recovery. */
-  downgrades: ReadonlyArray<DowngradeAuditEntry>;
-  /** BLOCKING count BEFORE recovery (always derived from input toolCalls). */
-  originalBlockingCount: number;
-  /** BLOCKING count AFTER recovery. */
-  postRecoveryBlockingCount: number;
-  /** True when the conclude_review tool call was rewritten REQUEST_CHANGES → COMMENT. */
-  reconcileApplied: boolean;
-  /**
-   * Result of the composition-side convergence detection pass (mt#1867 Fix 2).
-   * Present only when convergenceEnabled=true. Absent (undefined) when the
-   * feature flag is off so callers can conditionally log it.
-   */
-  convergenceDetection?: ConvergenceDetectionResult;
-  /**
-   * Audit entries for BLOCKINGs downgraded by the convergence detection pass.
-   * Empty when convergenceEnabled=false or no downgrades fired.
-   */
-  convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry>;
-  /**
-   * Audit entries for BLOCKINGs downgraded by the diff-scope-bounded pass
-   * (mt#1875 Fix 3). Empty when diffScopeBoundedEnabled=false, when
-   * priorReviewsMarkdown is empty (R1), or when no downgrades fired.
-   */
-  diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry>;
-}
-
-export interface ApplyRecoveryAndComposeOptions {
-  /** Whether to run the mt#1496 severity-monotonicity recovery pass. */
-  recoveryEnabled: boolean;
-  /**
-   * Whether to run the mt#1867 composition-side convergence detection pass.
-   * Default: false (feature-flagged until empirical verification).
-   */
-  convergenceEnabled?: boolean;
-  /**
-   * Pre-parsed flat findings from all prior rounds (any severity), for the
-   * convergence evidence-novelty comparison. Oldest-first. When absent but
-   * convergenceEnabled=true, the convergence detector uses an empty list
-   * (equivalent to "all evidence is new" — conservative, will not fire).
-   */
-  priorFindingsForConvergence?: ReadonlyArray<import("./convergence-detector").FindingForDetection>;
-  /**
-   * BLOCKING counts from each prior round (oldest first) for convergence
-   * strictly-decreasing check. Required when convergenceEnabled=true.
-   */
-  priorBlockingCounts?: ReadonlyArray<number>;
-  /**
-   * 1-based current iteration index (R1=1, R4=4, etc.) for convergence
-   * threshold gating. Required when convergenceEnabled=true.
-   */
-  iterationIndex?: number;
-  /**
-   * Whether to run the mt#1875 diff-scope-bounded downgrade pass (Fix 3).
-   * Default: false (feature-flagged until empirical verification).
-   * Only fires when priorReviewsMarkdown is non-empty (R≥2).
-   */
-  diffScopeBoundedEnabled?: boolean;
-  /**
-   * Fix-commit-diff line range map. When supplied and non-empty, BLOCKING
-   * findings outside this range are downgraded to NON-BLOCKING.
-   * Produced by extractFixCommitDiff from the diff-scoper module.
-   * When absent or empty, the downgrade pass is a no-op (conservative).
-   */
-  fixCommitLineRange?: FixCommitLineRangeMap;
-}
-
-export function applyRecoveryAndCompose(
-  toolCalls: ReadonlyArray<ReviewToolCall>,
-  priorFindings: ReadonlyArray<FlatPriorFinding>,
-  diffText: string,
-  recoveryEnabled: boolean,
-  options?: ApplyRecoveryAndComposeOptions
-): ComposeWithRecoveryResult {
-  const originalBlockingCount = toolCalls.filter(
-    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-  ).length;
-
-  // Step 1: optionally recover (mt#1496 monotonicity recovery).
-  let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = toolCalls;
-  let downgrades: ReadonlyArray<DowngradeAuditEntry> = [];
-  if (recoveryEnabled && priorFindings.length > 0) {
-    const recovery = applyMonotonicityRecovery(toolCalls, priorFindings, diffText);
-    toolCallsForComposition = recovery.toolCalls;
-    downgrades = recovery.downgrades;
-  }
-
-  // Step 2: count post-recovery BLOCKING.
-  let postRecoveryBlockingCount = toolCallsForComposition.filter(
-    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-  ).length;
-
-  // Step 3: reconcile conclude_review if recovery crossed zero.
-  const shouldReconcile =
-    recoveryEnabled &&
-    postRecoveryBlockingCount === 0 &&
-    toolCallsForComposition.some(
-      (tc) => tc.name === "conclude_review" && tc.args.event === "REQUEST_CHANGES"
-    );
-  let reconcileApplied = false;
-  if (shouldReconcile) {
-    reconcileApplied = true;
-    toolCallsForComposition = toolCallsForComposition.map((tc) => {
-      if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
-        return tc;
-      }
-      return {
-        name: "conclude_review" as const,
-        args: {
-          event: "COMMENT" as const,
-          summary: tc.args.summary,
-        },
-      };
-    });
-  }
-
-  // Step 3b: composition-side convergence detection (mt#1867 Fix 2).
-  // Runs AFTER monotonicity recovery so the convergence check sees already-
-  // recovered tool calls (prevents double-downgrade of the same finding).
-  let convergenceDetection: ConvergenceDetectionResult | undefined;
-  let convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry> = [];
-  const opts = options ?? { recoveryEnabled };
-  const convergenceEnabled = opts.convergenceEnabled ?? false;
-  if (convergenceEnabled && postRecoveryBlockingCount > 0) {
-    // Use pre-parsed findings if provided; otherwise empty list (conservative:
-    // empty priorFindingsForConvergence means all evidence is "new", so no
-    // stagnation fires — safe default).
-    const priorFindingsForConvergence = opts.priorFindingsForConvergence ?? [];
-    const priorCounts = opts.priorBlockingCounts ?? [];
-    const iterIdx = opts.iterationIndex ?? 1;
-
-    const convergenceResult = applyCompositionConvergenceDowngrade(
-      toolCallsForComposition,
-      priorFindingsForConvergence,
-      priorCounts,
-      iterIdx
-    );
-
-    convergenceDetection = convergenceResult.detectionResult;
-    convergenceDowngrades = convergenceResult.downgrades;
-
-    if (convergenceResult.downgradeApplied) {
-      toolCallsForComposition = convergenceResult.toolCalls;
-      // Recount post-convergence-downgrade BLOCKINGs.
-      postRecoveryBlockingCount = toolCallsForComposition.filter(
-        (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-      ).length;
-    }
-  }
-
-  // Step 3c: diff-scope-bounded downgrade (mt#1875 Fix 3).
-  // Runs AFTER convergence detection (Step 3b) so the scope check sees
-  // already-convergence-downgraded tool calls (prevents double-audit of
-  // the same finding). Fires only when diffScopeBoundedEnabled=true AND
-  // fixCommitLineRange is non-empty (the caller gates on priorReviewsMarkdown
-  // non-empty before supplying a non-empty lineRange — R1 path gets empty map
-  // and the downgrade is a no-op by construction).
-  let diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry> = [];
-  const diffScopeBoundedEnabled = opts.diffScopeBoundedEnabled ?? false;
-  if (diffScopeBoundedEnabled) {
-    const fixCommitLineRange = opts.fixCommitLineRange ?? new Map();
-    const diffScopeResult = applyDiffScopeBoundedDowngrade(
-      toolCallsForComposition,
-      fixCommitLineRange
-    );
-    diffScopeBoundedDowngrades = diffScopeResult.downgrades;
-    if (diffScopeResult.downgradeApplied) {
-      toolCallsForComposition = diffScopeResult.toolCalls;
-      // Recount post-diff-scope-bounded BLOCKINGs.
-      postRecoveryBlockingCount = toolCallsForComposition.filter(
-        (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-      ).length;
-    }
-  }
-
-  // Step 4: compose. Spread to coerce the readonly local to the mutable
-  // signature expected by composeReviewBody (which only reads).
-  const composed = composeReviewBody([...toolCallsForComposition]);
-
-  return {
-    toolCalls: toolCallsForComposition,
-    composed,
-    downgrades,
-    originalBlockingCount,
-    postRecoveryBlockingCount,
-    reconcileApplied,
-    convergenceDetection,
-    convergenceDowngrades,
-    diffScopeBoundedDowngrades,
-  };
-}
-
-/**
- * Build the structured log object emitted at the start of each review.
- * Extracted as a pure function so tests can assert the log shape without
- * module-level mocking (mt#1256).
- *
- * Exported for tests.
- */
-export function buildRunReviewStartLog(
-  deliveryId: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  sha: string
-): Record<string, unknown> {
-  return {
-    event: "runReview_start",
-    delivery_id: deliveryId,
-    owner,
-    repo,
-    pr: prNumber,
-    sha,
-  };
-}
-
-/**
- * Build the structured convergence-metric log object emitted after each
- * successful review (SC-5, mt#1189).
- *
- * Extracted as a pure function so tests can assert the 6-field shape without
- * mocking the full runReview stack.
- *
- * Fields per spec:
- *   - pr: PR number
- *   - sha: HEAD commit SHA
- *   - iterationIndex: current iteration number (priorCount + 1)
- *   - priorBlockerCount: sum of BLOCKING findings across all prior reviews
- *   - newBlockerCount: BLOCKING findings in the current review body
- *   - acknowledgedAsAddressedCount: best-effort count from review body text
- *
- * Exported for tests.
- */
-export function buildConvergenceMetricLog(
-  prNumber: number,
-  headSha: string,
-  iterationIndex: number,
-  priorBlockerCount: number,
-  newBlockerCount: number,
-  acknowledgedAsAddressedCount: number
-): Record<string, unknown> {
-  return {
-    event: "reviewer.convergence_metric",
-    pr: prNumber,
-    sha: headSha,
-    iterationIndex,
-    priorBlockerCount,
-    newBlockerCount,
-    acknowledgedAsAddressedCount,
-  };
-}
-
-/**
- * Read prior-round BLOCKING counts from the mt#1306 substrate
- * (reviewer_convergence_metrics table).
- *
- * Returns an array of new_blocker_count values, one per prior review row,
- * ordered oldest-first (ascending iteration_index). Excludes the current
- * round's row (rows with iteration_index >= currentIterationIndex).
- *
- * This is the authoritative source for the convergence detection path per
- * the mt#1867 spec ("reads prior-round convergence metrics from the mt#1306
- * substrate"). The fallback (parsed from GitHub review bodies) is used only
- * when the DB is unavailable.
- *
- * Errors are swallowed — the caller falls back to the review-body-parsed
- * counts. This mirrors the metrics-write swallow-on-error pattern.
- *
- * @param db                    Drizzle DB instance.
- * @param owner                 GitHub repository owner.
- * @param repo                  GitHub repository name.
- * @param prNumber              Pull request number.
- * @param currentIterationIndex 1-based index of the current review round.
- *                              Only rows with iteration_index < currentIterationIndex
- *                              are returned.
- */
-export async function fetchPriorBlockingCountsFromDb(
-  db: ReviewerDb,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  currentIterationIndex: number
-): Promise<number[]> {
-  try {
-    const rows = await db
-      .select({ newBlockerCount: convergenceMetricsTable.newBlockerCount })
-      .from(convergenceMetricsTable)
-      .where(
-        and(
-          eq(convergenceMetricsTable.prOwner, owner),
-          eq(convergenceMetricsTable.prRepo, repo),
-          eq(convergenceMetricsTable.prNumber, prNumber),
-          lt(convergenceMetricsTable.iterationIndex, currentIterationIndex)
-        )
-      )
-      .orderBy(asc(convergenceMetricsTable.iterationIndex));
-    return rows.map((r) => r.newBlockerCount);
-  } catch {
-    // Swallow — caller falls back to review-body-parsed counts.
-    return [];
-  }
 }
 
 /**
@@ -900,9 +321,8 @@ export async function runReview(
   const routing = decideRouting(tier, config.tier2Enabled);
   if (!routing.shouldReview) {
     // mt#2088: timing on routing-skip path.
-    const skipTimingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await skipTimingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber,
@@ -956,8 +376,7 @@ export async function runReview(
           delivery_id: deliveryId,
         });
         // mt#2088: timing on concurrent-inflight skip path.
-        const inflightTimingWriter = deps.timingRecorder ?? recordReviewTiming;
-        await inflightTimingWriter(deps.db, {
+        await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
           prOwner: owner,
           prRepo: repo,
           prNumber,
@@ -1440,9 +859,8 @@ async function runReviewBody(
       );
     }
     // mt#2088: timing on empty-output error path.
-    const emptyTimingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await emptyTimingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
@@ -1457,6 +875,7 @@ async function runReviewBody(
         toolUseActive: outputToolsActive,
         provider: output.provider,
         model: output.model,
+        ...timingTokenFields(output),
       });
     }
     // mt#2435: post a liveness-failure check run so the PR surface shows the
@@ -1649,6 +1068,25 @@ async function runReviewBody(
     const composed = recoveryResult.composed;
     const blockingCount = recoveryResult.postRecoveryBlockingCount;
 
+    // Empty-findings coherence recovery logging (mt#2685): always check —
+    // unlike the feature-flagged passes below, this pass runs unconditionally,
+    // so its own `applied` flag is the only gate for whether to log.
+    if (recoveryResult.emptyFindingsRecovery.applied) {
+      log.info("reviewer.empty_findings_recovery", {
+        event: "reviewer.empty_findings_recovery",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        synthesizedFile: recoveryResult.emptyFindingsRecovery.synthesizedFinding?.file,
+        synthesizedSummary: recoveryResult.emptyFindingsRecovery.synthesizedFinding?.summary,
+        // mt#2685 review R1: unconditional (unlike severity_downgrade_summary
+        // below), so this is where operators always see the model's own
+        // BLOCKING count vs. the synthesized one — effective count is their
+        // sum (== postRecoveryBlockingCount) without needing another field.
+        modelBlockingCount: recoveryResult.originalBlockingCount,
+        synthesizedBlockingCount: recoveryResult.synthesizedBlockingCount,
+      });
+    }
+
     // Emit one log event per downgrade so operators can audit the recovery
     // layer's decisions and identify false positives. Aggregated count is
     // also useful for dashboards.
@@ -1697,8 +1135,15 @@ async function runReviewBody(
         sha: pr.headSha,
         downgradeCount: recoveryResult.downgrades.length,
         totalFindingCount,
+        // originalBlockingCount is the MODEL's own count (pre-Step-0,
+        // pre-downgrade); postRecoveryBlockingCount is after the full
+        // pipeline including any Step-0 synthesis — see
+        // synthesizedBlockingCount below when they disagree (mt#2685 review
+        // R1: distinguishes "the model found N" from "the pipeline
+        // synthesized M of the N now reported").
         originalBlockingCount: recoveryResult.originalBlockingCount,
         postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
+        synthesizedBlockingCount: recoveryResult.synthesizedBlockingCount,
         // Pre- and post-recovery breakdowns for the non-BLOCKING tiers
         // so dashboards can distinguish "downgraded from BLOCKING" vs.
         // "originally non-blocking" without reconstructing from logs
@@ -1929,9 +1374,8 @@ async function runReviewBody(
     );
 
     // mt#2088: persist per-review timing data.
-    const timingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await timingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
@@ -1946,6 +1390,7 @@ async function runReviewBody(
         toolUseActive: outputToolsActive,
         provider: output.provider,
         model: output.model,
+        ...timingTokenFields(output),
       });
     }
 
@@ -2039,9 +1484,8 @@ async function runReviewBody(
       );
     }
     // mt#2088: timing on CoT-leakage error path.
-    const cotTimingWriter = deps.timingRecorder ?? recordReviewTiming;
     if (deps.db !== undefined) {
-      await cotTimingWriter(deps.db, {
+      await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
         prOwner: owner,
         prRepo: repo,
         prNumber: pr.number,
@@ -2056,6 +1500,7 @@ async function runReviewBody(
         toolUseActive: outputToolsActive,
         provider: output.provider,
         model: output.model,
+        ...timingTokenFields(output),
       });
     }
     // mt#2435: post a liveness-failure check run on the CoT-leakage error path.
@@ -2171,15 +1616,15 @@ async function runReviewBody(
       priorBlockerCount: priorBlockerTotal,
       newBlockerCount: blockingCount,
       acknowledgedAddressedCount: acknowledgedCount,
+      headRef: pr.branchName,
     };
     // Fire-and-forget: await but errors are swallowed inside recordConvergenceMetric.
     await recorder(deps.db, metricInput);
   }
 
   // mt#2088: persist per-review timing data (prose path).
-  const timingWriterProse = deps.timingRecorder ?? recordReviewTiming;
   if (deps.db !== undefined) {
-    await timingWriterProse(deps.db, {
+    await (deps.timingRecorder ?? recordReviewTiming)(deps.db, {
       prOwner: owner,
       prRepo: repo,
       prNumber: pr.number,
@@ -2194,6 +1639,7 @@ async function runReviewBody(
       toolUseActive: outputToolsActive,
       provider: output.provider,
       model: output.model,
+      ...timingTokenFields(output),
     });
   }
 
@@ -2212,147 +1658,4 @@ async function runReviewBody(
     priorReviewIngestion,
     blockingCount,
   };
-}
-
-export function parseReviewEvent(
-  text: string,
-  isSelfReview: boolean
-): "APPROVE" | "REQUEST_CHANGES" | "COMMENT" {
-  if (isSelfReview) return "COMMENT";
-
-  // Look for an explicit event marker in the last 400 chars — the prompt asks
-  // the model to conclude with one.
-  const tail = safeTruncate(text, 400, "tail").toUpperCase();
-  if (/\bREQUEST_CHANGES\b/.test(tail)) return "REQUEST_CHANGES";
-  if (/\bAPPROVE\b/.test(tail)) return "APPROVE";
-  return "COMMENT";
-}
-
-function annotateReviewBody(
-  text: string,
-  output: { provider: string; model: string },
-  tier: AuthorshipTier,
-  isSelfReview: boolean,
-  toolCalls?: ReadonlyArray<ReviewToolCall>
-): string {
-  const header =
-    `**Independent adversarial review (Chinese-wall)**\n` +
-    `Reviewer: \`minsky-reviewer[bot]\` via \`${output.provider}:${output.model}\`\n` +
-    `Tier: ${tier ?? "unknown"}${
-      isSelfReview
-        ? `\n\n⚠️ Reviewer identity matches PR author (same App). Event forced to COMMENT per GitHub self-approval restriction. This is a misconfiguration — Sprint A's architecture requires distinct implementer and reviewer Apps.`
-        : ""
-    }\n\n---\n\n`;
-
-  const body = header + text;
-
-  if (toolCalls && toolCalls.length > 0) {
-    const provenance = extractProvenance(toolCalls);
-    return `${body}\n${serializeProvenance(provenance)}`;
-  }
-
-  return body;
-}
-
-/**
- * Build the structured-log payload for a defensive submitReview failure
- * (mt#1370). One builder serves both event variants:
- *
- *   - `reviewer.submit_skip_notice_failed` (empty-output guard catch)
- *   - `reviewer.submit_error_notice_failed` (CoT-leakage error guard catch)
- *
- * The two events share the same field set except for `sanitizeReason`, which
- * is only meaningful in the CoT-error path (the empty-output path doesn't run
- * the sanitizer). Pass `sanitizeReason` only in that case.
- *
- * Both catch blocks call this builder and pass the returned payload to
- * `log.info` (matching reviewer.cot_leak_detected and reviewer.convergence_metric
- * in the same file).
- *
- * Exported so the payload shape is unit-testable independent of the catch
- * blocks themselves (round-4 review BLOCKING).
- */
-export function buildSubmitFailureLog(
-  eventName: "reviewer.submit_skip_notice_failed" | "reviewer.submit_error_notice_failed",
-  args: {
-    prCoords: { owner: string; repo: string; prNumber: number; sha: string };
-    primaryReason: string;
-    sanitizeReason?: string;
-    submitErr: unknown;
-    provider: string;
-    model: string;
-  }
-): Record<string, unknown> {
-  const { prCoords, primaryReason, sanitizeReason, submitErr, provider, model } = args;
-  const payload: Record<string, unknown> = {
-    event: eventName,
-    prUrl: `https://github.com/${prCoords.owner}/${prCoords.repo}/pull/${prCoords.prNumber}`,
-    sha: prCoords.sha, // canonical field name (aligned with reviewer.cot_leak_detected)
-    commitSha: prCoords.sha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
-    primaryReason,
-    submitError: serializeSubmitError(submitErr),
-    provider,
-    model,
-  };
-  if (sanitizeReason !== undefined) {
-    payload.sanitizeReason = sanitizeReason;
-  }
-  return payload;
-}
-
-/**
- * Serialize a submitReview error into a structured-log-safe payload.
- *
- * Octokit errors carry diagnostically valuable fields beyond `.message`:
- *   - `status` — HTTP status (rate limit signals as 403 + specific body, 5xx
- *     transient, 401/403 auth scope, etc.)
- *   - `name` — usually "HttpError" or similar; helps distinguish thrown class
- *   - `code` — node error code if the throw originated below octokit
- *   - `stack` — truncated to STACK_MAX_LEN to bound log line size
- *
- * Reducing every catch to `.message` loses these. This helper picks them out
- * when present and falls back to `String(err)` otherwise. Output is bounded by
- * letting the caller's `JSON.stringify` cap natural object size; the fields
- * we extract are all small primitives + a truncated stack.
- *
- * Exported for unit testing (mt#1370 R3 BLOCKING).
- */
-const STACK_MAX_LEN = 1024;
-
-export function serializeSubmitError(err: unknown): {
-  name?: string;
-  message: string;
-  status?: number | string;
-  code?: string;
-  stack?: string;
-} {
-  if (err instanceof Error) {
-    const out: {
-      name?: string;
-      message: string;
-      status?: number | string;
-      code?: string;
-      stack?: string;
-    } = {
-      name: err.name,
-      message: err.message,
-    };
-    // Octokit attaches `status` (number) and sometimes `code` to the error
-    // object; check via narrow object access without changing the static type.
-    const errObj = err as Error & { status?: unknown; code?: unknown };
-    if (typeof errObj.status === "number" || typeof errObj.status === "string") {
-      out.status = errObj.status;
-    }
-    if (typeof errObj.code === "string") {
-      out.code = errObj.code;
-    }
-    if (typeof err.stack === "string" && err.stack.length > 0) {
-      out.stack =
-        err.stack.length > STACK_MAX_LEN
-          ? `${err.stack.slice(0, STACK_MAX_LEN)}...[truncated]`
-          : err.stack;
-    }
-    return out;
-  }
-  return { message: String(err) };
 }

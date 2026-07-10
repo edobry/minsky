@@ -6,8 +6,9 @@
  * primitive that mt#1180's Ask subsystem composes for its `quality.review`
  * resolution.
  *
- * Resolution criteria: a review on the PR with `submittedAt >= since`,
- * optionally filtered by reviewer login.
+ * Resolution criteria: a review on the PR with `submittedAt > since`
+ * (strictly after — an exactly-equal `submittedAt` counts as already-seen,
+ * mt#2656), optionally filtered by reviewer login.
  *
  * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
  * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
@@ -19,6 +20,14 @@
  * with per-entry `rejectionReason`) and `sinceUsed` (the resolved
  * threshold) so callers can diagnose the miss class without a separate
  * forensics round-trip (mt#2043).
+ *
+ * By default (mt#2656) a matched review is returned TRIMMED — state,
+ * submittedAt, reviewer, blocking/non-blocking finding counts, and a
+ * findings list (severity + file:line + one-sentence summary each) —
+ * stripping the raw markdown body (spec-verification tables, the embedded
+ * provenance JSON comment, full finding prose), which otherwise runs
+ * 5-10KB per review. Pass `params.fullBody: true` to restore the full
+ * `ReviewListEntry` (pre-mt#2656 behavior).
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
@@ -33,6 +42,7 @@ import { log } from "@minsky/shared/logger";
 import type { RepositoryBackend, ReviewListEntry } from "../../repository/index";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import type { TokenProvider, TokenRole } from "../../auth/token-provider";
+import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
 
 export interface SessionPrWaitForReviewDependencies {
   sessionDB: SessionProviderInterface;
@@ -52,6 +62,17 @@ export interface SessionPrWaitForReviewDependencies {
    * builds one. Pure literal-login filters do not consult this seam.
    */
   getTokenProvider?: () => Promise<TokenProvider>;
+  /**
+   * mt#2677: optional progress callback, invoked once per poll iteration
+   * (right before sleeping, when no match was found on that poll). Lets a
+   * long review-wait produce MCP transport activity — via the caller's
+   * `context.onProgress` (see `src/mcp/server.ts`'s progress-notification
+   * wiring) — so a legitimate multi-minute wait doesn't look identical, from
+   * the harness's idle-timeout perspective, to a genuine hang. A no-op when
+   * omitted (the CLI interface, or an MCP caller that didn't request
+   * progress notifications via `_meta.progressToken`).
+   */
+  onProgress?: (message: string) => void;
 }
 
 export interface SessionPrWaitForReviewParams {
@@ -84,26 +105,162 @@ export interface SessionPrWaitForReviewParams {
    */
   reviewer?: string;
   /**
-   * Optional ISO timestamp; reviews with submittedAt earlier than this are
-   * ignored. Defaults to the PR's `created_at` timestamp (mt#2043), so
+   * Optional ISO timestamp; reviews with submittedAt earlier than OR EQUAL
+   * TO this are ignored (strictly-after semantics, mt#2656) — passing a
+   * prior review's exact `submittedAt` as `since` will not re-match that
+   * same review. Defaults to the PR's `created_at` timestamp (mt#2043), so
    * pre-existing reviews on the PR match by default. Pass an explicit value
    * to narrow the window (e.g., wait only for reviews newer than a known
-   * stale one).
+   * stale one — the standard re-invoke pattern after a CHANGES_REQUESTED
+   * fix: pass the previous review's `submittedAt` and the wait will not
+   * re-match it).
    *
    * Backwards-compat note: prior to mt#2043 the default was the call's
    * start time, which silently excluded reviews posted before the wait was
    * invoked. The new default is structurally more useful for the typical
    * post-PR-create wait pattern. Backends that don't implement
    * `ReviewOperations.getPullRequestCreatedAt` fall back to call-start.
+   *
+   * Boundary note (mt#2656): prior to mt#2656 the comparison was inclusive
+   * (`submittedAt >= since`), so passing a previous review's exact
+   * `submittedAt` as `since` re-matched that same review — hit live on
+   * PR #1811, worked around with a manual `+1s` adjustment. The comparison
+   * is now strictly-after.
    */
   since?: string;
+  /**
+   * When true, return the full `ReviewListEntry` (raw markdown body,
+   * including the spec-verification table and embedded provenance JSON
+   * comment) instead of the default trimmed payload (mt#2656). Defaults to
+   * false — most callers only need state/counts/findings to decide the next
+   * step; use this when you need the full review prose (e.g. to quote it
+   * back to a human).
+   */
+  fullBody?: boolean;
+  /**
+   * When true (the default), only a review whose commit SHA matches the PR's
+   * current HEAD satisfies the wait. A stale review of a superseded commit is
+   * skipped, so a re-review cycle (pushing a fix after `CHANGES_REQUESTED`)
+   * waits for the fresh verdict instead of immediately returning the pre-fix
+   * one (mt#2586). Set `false` to accept any review regardless of commit (the
+   * pre-mt#2586 behavior). Ignored on backends that don't implement
+   * `getPullRequestHeadSha` (the wait falls back to the `since` filter).
+   */
+  requireCurrentHead?: boolean;
 }
 
 export interface SessionPrWaitForReviewMatch {
   matched: true;
-  review: ReviewListEntry;
+  /**
+   * By default (mt#2656) a `TrimmedReview` — see that type's doc comment.
+   * Pass `params.fullBody: true` to get the full `ReviewListEntry` instead.
+   * Discriminate the two shapes structurally: `TrimmedReview` has a
+   * `findings` array; `ReviewListEntry` has a `body` string. Neither type
+   * has both.
+   */
+  review: ReviewListEntry | TrimmedReview;
   elapsedMs: number;
   pollCount: number;
+}
+
+/**
+ * A single finding extracted from the review body's rendered `## Findings`
+ * section (see `services/reviewer/src/compose-review.ts`
+ * `composeReviewBody`, which renders each finding as a two-line entry:
+ * `- [SEVERITY] file:line — summary` followed by a details line). This
+ * module only reads the already-rendered markdown — it does not depend on
+ * the reviewer service's output-tools schema (mt#2656 scope: consuming-side
+ * payload trimming, not reviewer output format).
+ */
+export interface TrimmedReviewFinding {
+  severity: "BLOCKING" | "NON-BLOCKING" | "PRE-EXISTING";
+  /** `file:line` (or `file:line-lineEnd`), optionally suffixed ` (LEFT)`. */
+  location: string;
+  /** One-sentence finding summary (the `submit_finding` tool's `summary` arg). */
+  summary: string;
+}
+
+/**
+ * Trimmed review payload (mt#2656): the default shape `session_pr_wait-for-review`
+ * / `session_pr_drive` return in place of the full `ReviewListEntry`. The raw
+ * `body` (spec-verification table, embedded `minsky-review-provenance` JSON
+ * comment, full finding prose — often 5-10KB) is stripped; the fields below
+ * carry everything a caller needs to decide the next step. Pass
+ * `params.fullBody: true` to get the full `ReviewListEntry` instead.
+ */
+export interface TrimmedReview {
+  reviewId: number;
+  state: ReviewListEntry["state"];
+  submittedAt?: string;
+  reviewerLogin: string | null;
+  htmlUrl?: string;
+  commitId?: string;
+  blockingCount: number;
+  nonBlockingCount: number;
+  findings: TrimmedReviewFinding[];
+}
+
+/**
+ * Matches a rendered finding line from `composeReviewBody`:
+ *   `- [SEVERITY] location — summary`
+ * Non-greedy on `location` so the ` — ` separator (an em dash, matching the
+ * reviewer's exact rendering) anchors correctly even if `summary` itself
+ * contains a hyphen or dash. The details line that follows each finding
+ * does not start with `- [` and is skipped without needing to be matched.
+ */
+const FINDING_LINE_RE = /^- \[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\] (.+?) — (.+)$/gm;
+
+/**
+ * Parse the finding entries out of a rendered review body. Returns an empty
+ * array when the body has no `## Findings` section (e.g. a clean APPROVE
+ * with zero findings) or isn't in the expected format (e.g. a legacy/manual
+ * review body that predates the structured output-tools format).
+ *
+ * Exported for unit tests.
+ */
+export function parseReviewFindings(body: string): TrimmedReviewFinding[] {
+  const findings: TrimmedReviewFinding[] = [];
+  for (const match of body.matchAll(FINDING_LINE_RE)) {
+    const [, severity, location, summary] = match;
+    if (severity === undefined || location === undefined || summary === undefined) continue;
+    findings.push({
+      severity: severity as TrimmedReviewFinding["severity"],
+      location,
+      summary,
+    });
+  }
+  return findings;
+}
+
+/**
+ * Trim a full `ReviewListEntry` down to the mt#2656 default payload. Finding
+ * counts are derived from the parsed findings list (BLOCKING vs. everything
+ * else — NON-BLOCKING + PRE-EXISTING — mirroring the convention already
+ * used by `services/reviewer/src/review-provenance.ts`'s
+ * `extractProvenance`), not from the embedded provenance JSON comment, so
+ * this function works even on review bodies without a provenance block.
+ *
+ * Exported for unit tests and reuse by `pr-drive-subcommand.ts`.
+ */
+export function trimReview(review: ReviewListEntry): TrimmedReview {
+  const findings = parseReviewFindings(review.body);
+  let blockingCount = 0;
+  let nonBlockingCount = 0;
+  for (const finding of findings) {
+    if (finding.severity === "BLOCKING") blockingCount++;
+    else nonBlockingCount++;
+  }
+  return {
+    reviewId: review.reviewId,
+    state: review.state,
+    submittedAt: review.submittedAt,
+    reviewerLogin: review.reviewerLogin,
+    htmlUrl: review.htmlUrl,
+    commitId: review.commitId,
+    blockingCount,
+    nonBlockingCount,
+    findings,
+  };
 }
 
 /**
@@ -121,7 +278,9 @@ export interface AnnotatedReview extends ReviewListEntry {
    *   - `"state-pending"` — review is in PENDING (draft) state.
    *   - `"missing-submittedAt"` — review has no `submittedAt` timestamp.
    *   - `"unparseable-submittedAt: <value>"` — `submittedAt` could not be parsed.
-   *   - `"since: submittedAt <iso> < threshold <iso>"` — review predates the `since` filter.
+   *   - `"since: submittedAt <iso> <relation> threshold <iso>"` — review does not
+   *     post-date the `since` filter; `<relation>` is `<` (predates) or `==`
+   *     (exact boundary — excluded since mt#2656 made `since` strictly-after).
    *   - `"reviewer-mismatch: reviewerLogin <login> != filter <filter>"` — reviewer filter excluded it.
    *
    * `null` is intentionally not possible here — if a review matched, it would
@@ -306,11 +465,18 @@ async function defaultGetTokenProvider(): Promise<TokenProvider> {
  * (`state-pending`, `missing-submittedAt`, `unparseable-submittedAt`,
  * `since`, `reviewer-mismatch`) followed by the relevant evidence.
  * Agents can string-match on the tag for programmatic dispatch.
+ *
+ * `since` comparison is strictly-after (mt#2656): a review whose
+ * `submittedAt` exactly equals `since` is rejected as already-seen, not
+ * matched. This closes the inclusive-boundary bug where passing a previous
+ * review's exact `submittedAt` as `since` re-matched that same review
+ * (hit live on PR #1811; the workaround was a manual `+1s` adjustment).
  */
 export function explainReviewRejection(
   review: ReviewListEntry,
   since: number,
-  reviewer: string | undefined
+  reviewer: string | undefined,
+  headSha?: string
 ): string | null {
   // Exclude PENDING — those are draft reviews the reviewer hasn't submitted
   // yet; they don't count as "a review has been posted" for waiter purposes.
@@ -322,9 +488,19 @@ export function explainReviewRejection(
   if (Number.isNaN(submittedMs)) {
     return `unparseable-submittedAt: ${review.submittedAt}`;
   }
-  if (submittedMs < since) {
+  // mt#2656: strictly-after — `<=` (not `<`) so an exactly-equal
+  // submittedAt is treated as already-seen rather than re-matched.
+  if (submittedMs <= since) {
     const sinceIso = new Date(since).toISOString();
-    return `since: submittedAt ${review.submittedAt} < threshold ${sinceIso}`;
+    const relation = submittedMs === since ? "==" : "<";
+    return `since: submittedAt ${review.submittedAt} ${relation} threshold ${sinceIso}`;
+  }
+  // mt#2586: reject a review submitted against a superseded commit. Only
+  // enforced when the caller resolved a HEAD sha (the backend supports
+  // getPullRequestHeadSha AND requireCurrentHead is not false); an undefined
+  // headSha means "no HEAD filter" — the fallback path for backends/opt-outs.
+  if (headSha !== undefined && review.commitId !== headSha) {
+    return `stale-head: review commit_id ${review.commitId ?? "<none>"} != HEAD ${headSha}`;
   }
   if (reviewer !== undefined) {
     // GitHub logins are case-insensitive at the platform level; the
@@ -349,10 +525,11 @@ export function explainReviewRejection(
 export function findMatchingReview(
   reviews: ReviewListEntry[],
   since: number,
-  reviewer: string | undefined
+  reviewer: string | undefined,
+  headSha?: string
 ): ReviewListEntry | undefined {
   for (const review of reviews) {
-    if (explainReviewRejection(review, since, reviewer) === null) {
+    if (explainReviewRejection(review, since, reviewer, headSha) === null) {
       return review;
     }
   }
@@ -374,12 +551,13 @@ export function findMatchingReview(
 export function annotateReviewRejections(
   reviews: ReviewListEntry[],
   since: number,
-  reviewer: string | undefined
+  reviewer: string | undefined,
+  headSha?: string
 ): AnnotatedReview[] {
   return reviews.map((review) => ({
     ...review,
     rejectionReason:
-      explainReviewRejection(review, since, reviewer) ??
+      explainReviewRejection(review, since, reviewer, headSha) ??
       "matched: review satisfies all filter criteria (annotation defensive fallback)",
   }));
 }
@@ -502,6 +680,20 @@ export async function sessionPrWaitForReview(
     }
 
     const sinceIso = new Date(since).toISOString();
+
+    // The PR's current HEAD sha (mt#2586), REFRESHED on every poll below — not
+    // resolved once — so that if HEAD advances during the wait (a quick
+    // re-push in a re-review cycle) a review of the PRIOR head keeps being
+    // rejected until a review of the NEW head lands. Declared here so
+    // `buildTimeoutResult`'s closure always reflects the latest poll's value.
+    // Stays undefined (no HEAD filter, `since`-only) when the caller opts out
+    // (requireCurrentHead === false) or the backend lacks getPullRequestHeadSha.
+    let headSha: string | undefined;
+    // Capture the HEAD-sha resolver (or undefined) so the poll loop can call it
+    // without a non-null assertion; requireCurrentHead === false disables it.
+    const getHeadSha =
+      params.requireCurrentHead !== false ? backend.review.getPullRequestHeadSha : undefined;
+
     const deadline = start + timeoutMs;
     let pollCount = 0;
     // Track the most recent poll's reviews so the timeout payload can
@@ -512,7 +704,7 @@ export async function sessionPrWaitForReview(
       matched: false,
       elapsedMs: now() - start,
       pollCount,
-      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer),
+      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer, headSha),
       sinceUsed: sinceIso,
     });
 
@@ -527,16 +719,49 @@ export async function sessionPrWaitForReview(
       }
 
       pollCount += 1;
-      const reviews = await backend.review.listReviews(prNumber);
-      lastReviews = reviews;
-      const match = findMatchingReview(reviews, since, resolvedReviewer);
-      if (match) {
-        return {
-          matched: true,
-          review: match,
-          elapsedMs: now() - start,
-          pollCount,
-        };
+
+      // mt#2677: bound EVERY async call made within a single poll iteration
+      // to the wait's own overall deadline, not just the interval between
+      // polls. Without this, a stalled call with no timeout of its own (the
+      // token-mint fetch fixed in github-app-token-provider.ts was one
+      // instance; any future unbounded call inside listReviews/getHeadSha
+      // would be another) hangs the ENTIRE function past its configured
+      // timeoutSeconds — the deadline check below only runs BETWEEN
+      // iterations, so it never fires while an iteration's own I/O is stuck.
+      // DeadlineExceededError is caught below and treated exactly like a
+      // normal poll-loop timeout.
+      const ioDeadlineMs = Math.max(0, deadline - now());
+
+      try {
+        // mt#2586: refresh HEAD each poll so a mid-wait HEAD advance keeps
+        // rejecting reviews of the prior head (getHeadSha captured once above).
+        if (getHeadSha) {
+          headSha = await withDeadline(getHeadSha(prNumber), ioDeadlineMs);
+        }
+
+        const reviews = await withDeadline(backend.review.listReviews(prNumber), ioDeadlineMs);
+        lastReviews = reviews;
+        const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
+        if (match) {
+          return {
+            matched: true,
+            // mt#2656: trimmed by default; params.fullBody: true restores the
+            // full ReviewListEntry (raw body, provenance comment, tables).
+            review: params.fullBody ? match : trimReview(match),
+            elapsedMs: now() - start,
+            pollCount,
+          };
+        }
+      } catch (ioError) {
+        if (ioError instanceof DeadlineExceededError) {
+          log.debug(
+            `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} I/O exceeded the ` +
+              `wait's overall deadline (a stalled fetch with no bound of its own); ` +
+              `returning REVIEW_TIMEOUT instead of hanging further`
+          );
+          return buildTimeoutResult();
+        }
+        throw ioError;
       }
 
       const remaining = deadline - now();
@@ -548,6 +773,12 @@ export async function sessionPrWaitForReview(
       log.debug(
         `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} no match; ` +
           `sleeping ${Math.round(sleepMs / 1000)}s (${Math.round(remaining / 1000)}s remaining)`
+      );
+      // mt#2677: once per poll interval so a legitimate long wait produces
+      // MCP transport activity — see SessionPrWaitForReviewDependencies.onProgress.
+      deps.onProgress?.(
+        `Waiting for review on PR #${prNumber} (poll ${pollCount}, ` +
+          `${Math.round(remaining / 1000)}s remaining)`
       );
       await sleep(sleepMs);
     }

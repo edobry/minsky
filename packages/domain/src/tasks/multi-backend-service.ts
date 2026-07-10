@@ -376,8 +376,27 @@ export class TaskServiceImpl implements TaskService {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
-    // Use default backend for title/spec creation
-    const backend = this.defaultBackend;
+    // If the caller requested a specific backend, route there instead of using the
+    // configured default.  This is the fix for mt#2572 Bug 4: when the minsky DB
+    // backend is down, GitHub becomes the effective defaultBackend, so tasks_create
+    // with backend:"minsky" would silently create gh# issues.  Now we look up the
+    // requested backend explicitly and throw a clear error if it isn't registered.
+    let backend: (typeof this.backends)[number] | null | undefined = this.defaultBackend;
+
+    if (options?.backend) {
+      const requestedName = options.backend;
+      backend = this.backends.find((b) => b.name === requestedName || b.prefix === requestedName);
+      if (!backend) {
+        const available = this.backends.map((b) => `${b.name}(${b.prefix}#)`).join(", ");
+        throw new Error(
+          `Requested backend '${requestedName}' is not registered. ` +
+            `Available backends: ${available || "none"}. ` +
+            `If you expected '${requestedName}' to be available, check the database ` +
+            `connection and backend configuration.`
+        );
+      }
+    }
+
     if (!backend) {
       throw new Error("No backends registered");
     }

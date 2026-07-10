@@ -299,7 +299,11 @@ describe("drizzle journal registration for 0033_subagent_invocations", () => {
   });
 
   test("schema is registered in drizzle.pg.config.ts", () => {
-    const configPath = join(import.meta.dir, "../../../..", "drizzle.pg.config.ts");
+    // mt#2108 moved this file from src/domain/storage/schemas to
+    // packages/domain/src/storage/schemas — one directory level deeper, so
+    // reaching the repo-root drizzle.pg.config.ts now needs one more ".."
+    // (mt#2608).
+    const configPath = join(import.meta.dir, "../../../../..", "drizzle.pg.config.ts");
     const cfg = readFileSync(configPath).toString();
     expect(cfg).toContain("subagent-invocations-schema.ts");
   });

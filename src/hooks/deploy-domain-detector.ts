@@ -62,7 +62,7 @@ import { join, relative } from "path";
 /**
  * Env var that, when truthy (`1` / `true` / `yes`), skips the deploy-domain
  * ownership check. Follows the override-with-audit pattern of
- * `MINSKY_SKIP_NUL_CHECK`, `MINSKY_SKIP_WORKSPACE_COPY_CHECK`, etc.
+ * `MINSKY_SKIP_NUL_CHECK`, `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK`, etc.
  *
  * Registered in `HOOK_ONLY_ENV_VARS` at
  * `packages/domain/src/configuration/sources/environment.ts` per the mt#1788

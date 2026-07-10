@@ -77,8 +77,110 @@ jobs:
         if: ${{ always() }}
         run: bun services/reviewer/scripts/smoke-image-module-resolution.ts
 
+      # mt#2665: `bun test` 1.2.21 can silently truncate a large
+      # multi-directory/many-file invocation — exiting 0 with NO completion
+      # summary line — when several MCP-lifecycle test files (files under
+      # src/mcp that spawn/track real MCP server subprocesses) run together.
+      # See docs/testing-patterns.md "Root cause, pinned" for the
+      # investigation and a minimal 4-file repro. Confirmed (mt#2665) that
+      # even ALL 11 files under src/mcp together, with nothing else, trigger
+      # it, and that directory-arg-based exclusion (bunfig.toml
+      # pathIgnorePatterns) does not reliably prevent it once a parent
+      # directory is explicitly targeted -- so the "test" script
+      # (scripts/run-tests-main.ts) now excludes src/mcp/** via explicit file
+      # enumeration instead, and src/mcp is tested separately below, one file
+      # per `bun test` process (scripts/run-tests-mcp-isolated.ts). This step
+      # additionally hardens the main run against that class (and any other
+      # silent-truncation class, e.g. an older/pinned Bun version) by
+      # treating the run as failed whenever bun's own completion summary
+      # ("Ran N tests across M file(s)") is missing, or whenever its own
+      # "<N> fail" summary line reports N > 0 — both independent of the
+      # process exit code.
       - name: Test
-        run: bun run test
+        run: |
+          set -o pipefail
+          bun run test 2>&1 | tee test-output.log
+          TEST_EXIT=${PIPESTATUS[0]}
+
+          # Note: bun prints singular "1 file" (no trailing "s") when exactly
+          # one file ran -- "files?" is load-bearing, not decorative.
+          if ! grep -qE "Ran [0-9]+ tests across [0-9]+ files?" test-output.log; then
+            echo "::error::bun test did not print a completion summary line (\"Ran N tests across M files\") — the run may have silently truncated (see docs/testing-patterns.md). Treating as a failure regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          # Verified against real captured `bun test` 1.2.21 output (mt#2665 R1
+          # review: both local macOS runs and a live GitHub Actions
+          # ubuntu-latest run's raw log bytes, via `gh api .../logs`,
+          # inspected with `od -c` for hidden CR/ANSI). The summary block is
+          # exactly:
+          #   N pass
+          #   M fail
+          #   K expect() calls
+          #   Ran <total> tests across <files> file(s). [<duration>]
+          # -- one leading space before the digit, no ANSI escapes, no
+          # trailing CR, even though OTHER lines in the same GitHub Actions
+          # log (the echoed step-script source) DO carry ANSI color codes;
+          # bun's own reporter output is unaffected because it correctly
+          # detects the non-TTY pipe and disables color.
+          #
+          # Fail CLOSED, not open: if the completion summary line was found
+          # (checked above) but the "<N> fail" line can't be located or its
+          # count can't be parsed, do NOT default to 0 -- that would silently
+          # pass on an unparseable/malformed summary, recreating exactly the
+          # "failures reported success" class this task exists to close.
+          FAIL_LINE=$(grep -E "^ *[0-9]+ fail$" test-output.log | tail -1)
+          if [ -z "$FAIL_LINE" ]; then
+            echo "::error::bun test printed a completion summary but its \"<N> fail\" line could not be found — refusing to assume 0 failures. Treating as a failure (fail-closed) regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          FAIL_COUNT=$(echo "$FAIL_LINE" | grep -oE "[0-9]+")
+          if [ -z "$FAIL_COUNT" ]; then
+            echo "::error::bun test's \"<N> fail\" line was found (\"$FAIL_LINE\") but its count could not be parsed — refusing to assume 0 failures. Treating as a failure (fail-closed) regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          if [ "$FAIL_COUNT" -gt 0 ]; then
+            echo "::error::bun test reported $FAIL_COUNT failing test(s) in its summary. Treating as a failure regardless of exit code ($TEST_EXIT)."
+            exit 1
+          fi
+
+          exit "$TEST_EXIT"
+
+      # mt#2665: src/mcp/**.test.ts is excluded from the "Test" step above
+      # (see the comment there) because bun test 1.2.21 silently truncates
+      # when several of these real-MCP-subprocess files run together --
+      # confirmed true even for all 11 files alone, with nothing else in the
+      # invocation. scripts/run-tests-mcp-isolated.ts runs each file in its
+      # own separate `bun test` process (every combination tried during the
+      # mt#2665 investigation was healthy at n=1) and applies the same
+      # completion-summary hardening per file internally.
+      - name: Test (src/mcp, isolated per file)
+        if: ${{ always() }}
+        run: bun run test:mcp-isolated
+
+      # mt#2608: the guard system (.claude/hooks/*.test.ts, ~39 files) had no
+      # CI wiring at all before this step existed — hook regressions merged
+      # undetected. if: always() mirrors the other independent test gates
+      # above (services/reviewer, eslint-rules) so this always runs
+      # regardless of earlier-step outcome.
+      - name: Test (.claude/hooks)
+        if: ${{ always() }}
+        run: bun run test:hooks
+
+      # mt#2608: src/cockpit/web (33 files) is excluded from the default
+      # `bun run test` via bunfig.toml's pathIgnorePatterns and had no CI
+      # step invoking test:components. It needs its own step (not just
+      # folding into `test`) because it requires an EXTRA, separate
+      # `--preload ./tests/dom-setup.ts` (happy-dom globals for
+      # @testing-library/react) that must load before ./tests/setup.ts and
+      # is deliberately NOT part of the global bunfig.toml preload chain —
+      # see the `test:components` script (package.json) and the docblock
+      # atop tests/dom-setup.ts for why it stays isolated to this one path.
+      - name: Test (cockpit components)
+        if: ${{ always() }}
+        run: bun run test:components
 
       - name: Test (ESLint rules)
         if: ${{ always() }}

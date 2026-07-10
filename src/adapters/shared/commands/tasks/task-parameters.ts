@@ -111,6 +111,12 @@ export const taskFilterParams = {
       "Include per-task attention cost rollup in the output (ADR-008 §Attention accounting)",
     required: false,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return tasks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 /**
@@ -161,6 +167,7 @@ export const taskEditParams = {
       "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
+  kind: TaskParameters.kind,
   execute: {
     schema: z.boolean().default(false),
     description: "Execute the changes (default is dry-run preview)",

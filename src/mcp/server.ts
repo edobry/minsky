@@ -10,6 +10,7 @@ import {
   GetPromptRequestSchema,
   isInitializeRequest,
   McpError,
+  type ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
@@ -34,6 +35,10 @@ import {
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
 import type { InitController } from "./init-retry";
+import {
+  type PresenceClaimRepository,
+  normalizeTaskSubjectId,
+} from "@minsky/domain/presence/index";
 
 /**
  * Transport type for MCP server
@@ -140,6 +145,21 @@ const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.systemInfo",
 ]);
 
+/**
+ * mt#2677: reports a human-readable progress message for a long-running tool
+ * call. Bound (by `buildProgressReporter` below) to the MCP transport's
+ * `notifications/progress` mechanism when the CALLER requested it (a
+ * `_meta.progressToken` on the originating request) — a no-op function is
+ * NOT passed when the caller didn't ask for progress, so tool handlers can
+ * unconditionally call `progress?.("...")` without checking for support.
+ *
+ * Kept as a plain `(message: string) => void` (not the raw MCP SDK
+ * notification shape) so nothing below this layer — command-mapper,
+ * shared-command-integration, domain poll loops — needs to know about
+ * `RequestHandlerExtra` or JSON-RPC notification framing.
+ */
+export type ToolProgressReporter = (message: string) => void;
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -147,8 +167,18 @@ export interface ToolDefinition {
   /**
    * Eager (legacy) handler. At least one of `handler` or `getHandler` must be
    * provided. When both are present, `handler` takes precedence.
+   *
+   * The optional second argument (mt#2677) is a progress reporter, present
+   * only when the calling client requested progress notifications for this
+   * request. Long-running tools (poll loops in particular) call it once per
+   * poll interval so a legitimate multi-minute wait produces MCP transport
+   * activity instead of total silence — see
+   * `packages/domain/src/session/commands/pr-wait-for-review-subcommand.ts`
+   * for the originating case (a harness-side 1800s MCP idle timeout killed
+   * connections that were still correctly polling within their own
+   * server-side timeout).
    */
-  handler?: (args: Record<string, unknown>) => Promise<unknown>;
+  handler?: (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>;
   /**
    * mt#1792: lazy handler thunk — defers handler-module loading until first
    * invocation. Mutually exclusive with `handler` at registration time: provide
@@ -159,7 +189,9 @@ export interface ToolDefinition {
    * When both are provided, the legacy `handler` takes precedence and
    * `getHandler` is ignored — backward-compatible coexistence.
    */
-  getHandler?: () => Promise<(args: Record<string, unknown>) => Promise<unknown>>;
+  getHandler?: () => Promise<
+    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+  >;
   /**
    * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
    * call when `getHandler` resolution starts; subsequent concurrent first
@@ -167,7 +199,9 @@ export interface ToolDefinition {
    * Cleared on success (resolved value cached on `handler`) and on rejection
    * (so retry can occur). Internal; not part of the registration API.
    */
-  __resolving?: Promise<(args: Record<string, unknown>) => Promise<unknown>>;
+  __resolving?: Promise<
+    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+  >;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
    * create/edit/merge, force-push, session-update). The server will refuse
@@ -187,6 +221,40 @@ export interface ToolDefinition {
    * runtime error on first call before background init completes.
    */
   requiresInit?: boolean;
+}
+
+/**
+ * Build a `ToolProgressReporter` bound to this request's MCP transport
+ * (mt#2677), or `undefined` when the calling client did not request progress
+ * notifications for this request (no `_meta.progressToken`). Per the MCP
+ * spec, progress notifications are only sent when the caller opts in with a
+ * `progressToken` — sending them unconditionally would be protocol-incorrect
+ * for clients that never asked.
+ *
+ * `progress` is a monotonically increasing counter (the `progress` field is
+ * required by `notifications/progress`); callers only care about `message`,
+ * so the counter is purely internal bookkeeping to satisfy the schema.
+ *
+ * Notification failures are logged and swallowed — a progress notification
+ * is best-effort UX, never a reason to fail the underlying tool call.
+ */
+export function buildProgressReporter(
+  progressToken: string | number | undefined,
+  sendNotification: (notification: ServerNotification) => Promise<void>
+): ToolProgressReporter | undefined {
+  if (progressToken === undefined) return undefined;
+  let progress = 0;
+  return (message: string) => {
+    progress += 1;
+    void sendNotification({
+      method: "notifications/progress",
+      params: { progressToken, progress, message },
+    } satisfies ServerNotification).catch((err) => {
+      log.debug("mt#2677: progress notification failed (non-blocking)", {
+        error: getErrorMessage(err),
+      });
+    });
+  };
 }
 
 interface ResourceDefinition {
@@ -285,6 +353,14 @@ export class MinskyMCPServer {
    * (symmetric mutual exclusivity).
    */
   private initController: InitController | null = null;
+
+  /**
+   * mt#2562: PresenceClaimRepository for task-grain agent presence.
+   * When set, every tool call with args.task/args.taskId fires a
+   * session-independent upsertClaim (fire-and-forget). When absent, the
+   * write path is a no-op (graceful degradation).
+   */
+  private presenceClaimRepo: PresenceClaimRepository | undefined;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -992,11 +1068,26 @@ export class MinskyMCPServer {
             throw new Error(`Tool '${request.params.name}' has no handler or getHandler`);
           }
 
-          const result = await tool.handler(request.params.arguments || {});
+          // mt#2677: build a progress reporter bound to this request's
+          // transport when the caller opted in via _meta.progressToken.
+          const progressToken = (request.params as { _meta?: { progressToken?: string | number } })
+            ._meta?.progressToken;
+          const progress = buildProgressReporter(progressToken, extra.sendNotification);
+
+          const result = await tool.handler(request.params.arguments || {}, progress);
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
           this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {
             log.debug("agentId session update failed (non-blocking)", {
+              error: getErrorMessage(err),
+              tool: request.params.name,
+            });
+          });
+
+          // mt#2562: Write task-grain presence claim (fire-and-forget, session-independent).
+          // Fires whenever args.task or args.taskId is present — no Minsky session required.
+          this.writeTaskClaim(request.params.arguments || {}, agentId).catch((err) => {
+            log.debug("presence claim write failed (non-blocking)", {
               error: getErrorMessage(err),
               tool: request.params.name,
             });
@@ -1333,6 +1424,108 @@ export class MinskyMCPServer {
     ) as import("@minsky/domain/session/types").SessionProviderInterface;
     await sessionProvider.updateSession(sessionName, { agentId });
     log.debug("agentId written to session record", { session: sessionName, agentId });
+  }
+
+  /**
+   * mt#2562: Set the presence claim repository. Called from the MCP start command
+   * after the persistence provider resolves. When unset, `writeTaskClaim` is a no-op.
+   */
+  setPresenceClaimRepository(repo: PresenceClaimRepository): void {
+    this.presenceClaimRepo = repo;
+  }
+
+  /**
+   * mt#2562: Write a task-grain presence claim for the current actor.
+   * Session-independent: fires whenever args.task or args.taskId is present,
+   * regardless of whether a Minsky workspace session exists.
+   *
+   * Runs fire-and-forget (caller catches errors). Failures are logged at debug
+   * level and never surface to the MCP caller — presence tracking is best-effort.
+   *
+   * mt#2567: builds the presence repo per-call from the container when the
+   * one-shot setPresenceClaimRepository() fast-path was not fired (e.g. on
+   * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
+   */
+  private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
+    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
+    // or build per-call from the container (resilient fallback — mirrors
+    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
+    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
+    // servers, leaving presenceClaimRepo unset and making every call a no-op.
+    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
+    if (!repo) {
+      if (!this.container?.has("persistence")) return;
+      try {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (!persistence.getDatabaseConnection) return;
+        const db = await persistence.getDatabaseConnection();
+        if (!db) return;
+        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+        repo = buildPresenceClaimRepository(db);
+        if (!repo) return;
+      } catch {
+        return; // fail silently — presence tracking is best-effort
+      }
+    }
+
+    const taskId =
+      (typeof args.task === "string" ? args.task : undefined) ||
+      (typeof args.taskId === "string" ? args.taskId : undefined);
+
+    if (!taskId) return;
+
+    // Canonicalize the task id so the write path and the read path
+    // (tasks.claims.list) key on the SAME subject_id — `mt#2562`, `2562`, and
+    // `MT-2562` must not fragment into distinct rows (PR #1755 R1).
+    const subjectId = normalizeTaskSubjectId(taskId);
+    if (!subjectId) return;
+
+    // Resolve project scope (best-effort; fail silently on error)
+    let projectId: string | undefined;
+    try {
+      const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+      const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+      if (identity.kind === "resolved" && this.container?.has("persistence")) {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (persistence.getDatabaseConnection) {
+          const rawDb = await persistence.getDatabaseConnection();
+          if (rawDb) {
+            const scope = await resolveProjectScope(
+              identity,
+              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+            );
+            const { isAllProjects } = await import("@minsky/domain/project/scope");
+            // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
+            if (!isAllProjects(scope)) {
+              projectId = scope;
+            }
+          }
+        }
+      }
+    } catch {
+      // Fail silently — project scope is informational for presence
+    }
+
+    // Capture the caller's CC conversation id (best-effort from environment)
+    const ccConversationId =
+      typeof process.env.CC_CONVERSATION_ID === "string"
+        ? process.env.CC_CONVERSATION_ID
+        : undefined;
+
+    await repo.upsertClaim({
+      subjectKind: "task",
+      subjectId,
+      actorId,
+      ccConversationId,
+      projectId,
+    });
+
+    log.debug("presence claim written", { taskId, actorId });
   }
 
   /**

@@ -14,7 +14,15 @@
  *
  * Default behavior mirrors the former `createMockSessionProvider` factory
  * from `src/utils/test-utils/dependencies.ts` (now deleted):
- *   - listSessions → returns all stored sessions
+ *   - listSessions → returns all stored sessions, honoring the same filter
+ *     options the real DrizzleSessionRepository applies (taskId, repoName,
+ *     statusNotIn, projectScope, createdAfter/createdBefore, orderBy,
+ *     limit/offset — mt#2697; previously `options` was silently ignored,
+ *     which masked the project-scope-vs-unscoped divergence between
+ *     session.list and the session.start "already in use" check in every
+ *     test using this fake). orderBy is applied before limit/offset, same
+ *     evaluation order as the real SQL query, so pagination tests see the
+ *     same rows the real repository would return.
  *   - getSession → looks up by exact session name match
  *   - getSessionByTaskId → uses validateQualifiedTaskId normalization
  *   - addSession → stores the record in memory
@@ -27,8 +35,9 @@
  * @see src/domain/tasks/fake-task-service.ts
  */
 
-import type { SessionProviderInterface, SessionRecord } from "./types";
+import type { SessionProviderInterface, SessionRecord, SessionListOptions } from "./types";
 import { validateQualifiedTaskId } from "../tasks/task-id-utils";
+import { isAllProjects } from "../project/scope";
 
 export class FakeSessionProvider implements SessionProviderInterface {
   private readonly store = new Map<string, SessionRecord>();
@@ -49,8 +58,89 @@ export class FakeSessionProvider implements SessionProviderInterface {
     }
   }
 
-  async listSessions(): Promise<SessionRecord[]> {
-    return Array.from(this.store.values());
+  async listSessions(options?: SessionListOptions): Promise<SessionRecord[]> {
+    let results = Array.from(this.store.values());
+
+    if (options?.taskId) {
+      let normalizedTaskId: string;
+      try {
+        normalizedTaskId = validateQualifiedTaskId(options.taskId) ?? options.taskId;
+      } catch {
+        normalizedTaskId = options.taskId;
+      }
+      results = results.filter((r) => r.taskId === normalizedTaskId);
+    }
+
+    if (options?.repoName) {
+      results = results.filter((r) => r.repoName === options.repoName);
+    }
+
+    if (options?.statusNotIn && options.statusNotIn.length > 0) {
+      const excluded = new Set(options.statusNotIn);
+      results = results.filter((r) => !r.status || !excluded.has(r.status));
+    }
+
+    if (options?.projectScope && !isAllProjects(options.projectScope)) {
+      // Mirrors the real Postgres `eq(project_id, scope)` condition: rows with
+      // a null/undefined project_id never match a specific scope.
+      results = results.filter((r) => r.projectId === options.projectScope);
+    }
+
+    if (options?.createdAfter) {
+      const after = new Date(options.createdAfter).getTime();
+      results = results.filter((r) => new Date(r.createdAt).getTime() >= after);
+    }
+
+    if (options?.createdBefore) {
+      const before = new Date(options.createdBefore).getTime();
+      results = results.filter((r) => new Date(r.createdAt).getTime() <= before);
+    }
+
+    if (options?.orderBy && options.orderBy.length > 0) {
+      // Mirrors DrizzleSessionRepository.listSessions's orderBy handling:
+      // accepts both camelCase and snake_case field names, and — critically
+      // for pagination parity — sorts BEFORE limit/offset is applied below
+      // (matching real SQL's select -> where -> order by -> limit -> offset
+      // evaluation order). NULLS LAST regardless of direction, mirroring the
+      // real repo's explicit `NULLS LAST` override on both ASC and DESC so
+      // never-touched rows don't crowd out recently-active ones.
+      const fieldMap: Record<string, keyof SessionRecord> = {
+        lastActivityAt: "lastActivityAt",
+        last_activity_at: "lastActivityAt",
+        createdAt: "createdAt",
+        created_at: "createdAt",
+        session: "sessionId",
+        sessionId: "sessionId",
+        taskId: "taskId",
+        task_id: "taskId",
+      };
+      const orderBy = options.orderBy;
+      results = [...results].sort((a, b) => {
+        for (const spec of orderBy) {
+          const key = fieldMap[spec.field];
+          if (!key) continue;
+          const av = a[key] as string | number | undefined;
+          const bv = b[key] as string | number | undefined;
+          if (av == null && bv == null) continue;
+          if (av == null) return 1;
+          if (bv == null) return -1;
+          if (av === bv) continue;
+          const cmp = av < bv ? -1 : 1;
+          return spec.direction === "desc" ? -cmp : cmp;
+        }
+        return 0;
+      });
+    }
+
+    if (typeof options?.offset === "number" && options.offset > 0) {
+      results = results.slice(options.offset);
+    }
+
+    if (typeof options?.limit === "number") {
+      results = results.slice(0, options.limit);
+    }
+
+    return results;
   }
 
   async getSession(session: string): Promise<SessionRecord | null> {

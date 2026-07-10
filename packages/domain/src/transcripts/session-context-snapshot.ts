@@ -19,6 +19,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
+import type { AgentSessionId } from "./transcript-source";
 import type {
   ContextElement,
   SessionContextSnapshot,
@@ -112,12 +113,20 @@ export function assistantContentKind(message: unknown): "text" | "thinking" {
 }
 
 /**
- * Convert a raw turn line (from the `transcript` jsonb array) to a snapshot
- * block. The turn array stores user/assistant JSONL lines verbatim; this
- * function pulls the timestamp + parentUuid + content into the unified block
- * shape and resolves the assistant kind via `assistantContentKind`.
+ * Convert a raw turn line (from the `transcript` jsonb array OR a live-tail
+ * JSONL read) to a snapshot block.
+ *
+ * Exported for the Rung-1 live-tail renderer (mt#2232): the live-tail SSE
+ * endpoint reads raw JSONL lines via `JsonlTailer` and uses this function to
+ * convert them to the unified `SessionContextSnapshotBlock` shape before
+ * streaming them to the SPA — reusing the exact same conversion as the DB
+ * snapshot path.
+ *
+ * The turn array stores user/assistant JSONL lines verbatim; this function
+ * pulls the timestamp + parentUuid + content into the unified block shape
+ * and resolves the assistant kind via `assistantContentKind`.
  */
-function turnLineToBlock(
+export function turnLineToBlock(
   agentSessionId: string,
   turnIndex: number,
   line: unknown
@@ -159,7 +168,7 @@ function turnLineToBlock(
  */
 export async function assembleSessionContextSnapshot(
   db: PostgresJsDatabase,
-  agentSessionId: string
+  agentSessionId: AgentSessionId
 ): Promise<SessionContextSnapshot | null> {
   // 1. Fetch the parent transcripts row (provides turn jsonb + harness).
   const transcriptRows = await db

@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { vector } from "drizzle-orm/pg-core";
+import type { ConversationId } from "../../ids";
 
 /**
  * Agent transcripts table — stores harness-agnostic agent session transcripts.
@@ -15,7 +16,7 @@ import { vector } from "drizzle-orm/pg-core";
  * @see mt#1324 — Foundation schema migration
  */
 export const agentTranscriptsTable = pgTable("agent_transcripts", {
-  agentSessionId: text("agent_session_id").primaryKey(),
+  agentSessionId: text("agent_session_id").primaryKey().$type<ConversationId>(),
 
   // Source harness — discriminator for adapter routing
   harness: text("harness").notNull(), // 'claude_code' | 'cursor' | 'minsky_native'

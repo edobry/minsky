@@ -1,10 +1,24 @@
-import { describe, it, expect, beforeEach, beforeAll } from "bun:test";
+import { describe, it, expect, beforeEach, beforeAll, afterEach, afterAll } from "bun:test";
 import { ToolSimilarityService } from "./tool-similarity-service";
 
 // Ensure embeddings path does not short-circuit core behavior in test
 import { EmbeddingsSimilarityBackend } from "../../similarity/backends/embeddings-backend";
 import { first } from "@minsky/shared/array-safety";
 import { FakePersistenceProvider } from "../../persistence/fake-persistence-provider";
+
+// mt#2665 R2 review fix: EmbeddingsSimilarityBackend.prototype.isAvailable is a SHARED,
+// module-level mutable (not per-instance) -- monkey-patching it here without restoring
+// leaked into whichever *other* test file's suite happened to run afterward in the same
+// bun test process (bunfig.toml's randomize: true makes the order non-deterministic),
+// permanently forcing every other suite's embeddings backend "unavailable" too. This
+// broke packages/domain/src/similarity/task-similarity-service.core.test.ts's third
+// describe block (which relies on the ORIGINAL isAvailable behaving normally) whenever
+// bun happened to run this file first -- reproduced live on CI
+// (https://github.com/edobry/minsky/actions/runs/28986550374/job/86016883605) but not
+// locally, because the random seed differed. Capture the original and restore it in
+// BOTH afterEach (defense against a mid-suite failure) and afterAll, mirroring the
+// already-correct pattern in task-similarity-service.core.test.ts.
+const ORIGINAL_EMBEDDINGS_IS_AVAILABLE = EmbeddingsSimilarityBackend.prototype.isAvailable;
 
 describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)", () => {
   beforeAll(async () => {
@@ -22,6 +36,16 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
     (
       EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: () => Promise<boolean> }
     ).isAvailable = async () => false;
+  });
+
+  afterEach(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  afterAll(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
   });
 
   it("searchByText returns top-k ordered results via core", async () => {

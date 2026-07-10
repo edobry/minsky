@@ -27,6 +27,7 @@
 import { injectable } from "tsyringe";
 import { eq, and, gte, lte, sql, notInArray, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { isAllProjects } from "../project/scope";
 import { join } from "path";
 
 import { log } from "@minsky/shared/logger";
@@ -44,6 +45,7 @@ import {
 import { withPgPoolRetry } from "../persistence/postgres-retry";
 import type { PersistenceProvider } from "../persistence/types";
 import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provider";
+import type { WorkspaceId } from "../ids";
 
 // Re-export the interface for use by extracted modules that historically
 // imported it from `session-db-adapter` (now deleted).
@@ -84,7 +86,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       const result = await this.db
         .select()
         .from(postgresSessions)
-        .where(eq(postgresSessions.sessionId, sessionId))
+        .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
         .limit(1);
       return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
     }, "drizzle-session-repository.getSession");
@@ -127,6 +129,10 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
       }
       if (options?.createdBefore) {
         conditions.push(lte(postgresSessions.createdAt, new Date(options.createdBefore)));
+      }
+      // Project scope filter (ADR-021, mt#2416)
+      if (options?.projectScope && !isAllProjects(options.projectScope)) {
+        conditions.push(eq(postgresSessions.projectId, options.projectScope));
       }
 
       const orderBy = (options?.orderBy ?? []).map((spec) => {
@@ -221,7 +227,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
         await this.db
           .update(postgresSessions)
           .set(toPostgresInsert(merged as SessionRecord))
-          .where(eq(postgresSessions.sessionId, sessionId));
+          .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId));
         return merged;
       }, "drizzle-session-repository.updateSession");
       if (!updated) {
@@ -242,7 +248,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     const deleted = await withPgPoolRetry(async () => {
       const rows = await this.db
         .delete(postgresSessions)
-        .where(eq(postgresSessions.sessionId, sessionId))
+        .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
         .returning({ sessionId: postgresSessions.sessionId });
       return rows.length > 0;
     }, "drizzle-session-repository.deleteSession");
@@ -283,7 +289,7 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     const result = await this.db
       .select()
       .from(postgresSessions)
-      .where(eq(postgresSessions.sessionId, sessionId))
+      .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
       .limit(1);
     return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
   }

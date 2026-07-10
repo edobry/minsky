@@ -18,7 +18,7 @@ import { conflictsCommandParams } from "@minsky/domain/git/commands/subcommands/
 import { log } from "@minsky/shared/logger";
 import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
-import { execAsync } from "@minsky/shared/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
@@ -247,6 +247,65 @@ const logCommandParams = composeParams(
     },
   }
 ) satisfies CommandParameterMap;
+
+/**
+ * Build the argv-shaped `git log` command for the `git.log` command's
+ * execute handler. Every dynamic (caller-controlled) segment is wrapped
+ * with `safeShellQuote` before being joined into the shell command string
+ * passed to `execAsync` — repoPath, author, since, until, grep, ref, and
+ * path are all attacker/operator-controlled strings that may contain shell
+ * metacharacters or embedded spaces (mt#2624 R2). Exported for direct unit
+ * testing without mocking `execAsync`.
+ */
+export function buildGitLogArgs(params: {
+  repo?: string;
+  limit?: number;
+  author?: string;
+  since?: string;
+  until?: string;
+  path?: string;
+  grep?: string;
+  format?: "oneline" | "short" | "medium" | "full";
+  ref?: string;
+}): string[] {
+  const repoPath = params.repo || process.cwd();
+  const limit = params.limit ?? 20;
+  const format = params.format ?? "oneline";
+
+  const args: string[] = ["git", "-C", safeShellQuote(repoPath), "log"];
+
+  // Format flag
+  if (format === "oneline") {
+    args.push("--oneline");
+  } else {
+    args.push(`--format=${format}`);
+  }
+
+  // Limit
+  args.push(`-n`, String(limit));
+
+  // Optional filters
+  if (params.author) {
+    args.push(`--author=${safeShellQuote(params.author)}`);
+  }
+  if (params.since) {
+    args.push(`--since=${safeShellQuote(params.since)}`);
+  }
+  if (params.until) {
+    args.push(`--until=${safeShellQuote(params.until)}`);
+  }
+  if (params.grep) {
+    args.push(`--grep=${safeShellQuote(params.grep)}`);
+  }
+  if (params.ref) {
+    args.push(safeShellQuote(params.ref));
+  }
+  if (params.path) {
+    args.push("--", safeShellQuote(params.path));
+  }
+
+  return args;
+}
 
 /**
  * Parameters for the git search command
@@ -518,6 +577,52 @@ const resetCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Parameters for the git stats command (churn-by-path analytics, mt#2624)
+ */
+const statsCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    since: {
+      schema: z.string(),
+      description:
+        "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')",
+      required: false,
+    },
+    until: {
+      schema: z.string(),
+      description: "Show commits older than a specific date",
+      required: false,
+    },
+    path: {
+      schema: z.string(),
+      description: "Restrict the query to commits touching this path (file or directory)",
+      required: false,
+    },
+    author: {
+      schema: z.string(),
+      description: "Filter commits by author name or email",
+      required: false,
+    },
+    nameOnly: {
+      schema: z.boolean(),
+      description:
+        "List distinct paths touched in the window without computing insertion/deletion counts (lighter-weight than the default churn aggregation)",
+      required: false,
+      defaultValue: false,
+    },
+    limit: {
+      schema: z.number(),
+      description:
+        "Cap the number of files returned, sorted by total churn (insertions + deletions) descending",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
  * Helper to resolve session to repo path at the adapter boundary.
  * Uses the container's sessionProvider if available.
  */
@@ -776,41 +881,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     execute: async (params, _context) => {
       log.debug("Executing git.log command", { params });
 
-      const repoPath = params.repo || process.cwd();
-      const limit = params.limit ?? 20;
-      const format = params.format ?? "oneline";
-
-      const args: string[] = ["git", "-C", repoPath, "log"];
-
-      // Format flag
-      if (format === "oneline") {
-        args.push("--oneline");
-      } else {
-        args.push(`--format=${format}`);
-      }
-
-      // Limit
-      args.push(`-n`, String(limit));
-
-      // Optional filters
-      if (params.author) {
-        args.push(`--author=${params.author}`);
-      }
-      if (params.since) {
-        args.push(`--since=${params.since}`);
-      }
-      if (params.until) {
-        args.push(`--until=${params.until}`);
-      }
-      if (params.grep) {
-        args.push(`--grep=${params.grep}`);
-      }
-      if (params.ref) {
-        args.push(params.ref);
-      }
-      if (params.path) {
-        args.push("--", params.path);
-      }
+      const args = buildGitLogArgs(params);
 
       try {
         const { stdout } = await execAsync(args.join(" "));
@@ -1216,6 +1287,46 @@ export function registerGitCommands(container?: AppContainerInterface): void {
         reset: result.reset,
         mode: result.mode,
         target: result.target,
+      };
+    },
+  });
+
+  // Register git stats command (churn-by-path analytics, mt#2624)
+  sharedCommandRegistry.registerCommand({
+    id: "git.stats",
+    category: CommandCategory.GIT,
+    name: "stats",
+    description:
+      "Compute per-path churn (commit count + insertions/deletions) over a window via " +
+      "`git log --numstat` — the sanctioned path for repo-analytics queries the " +
+      "block-git-gh-cli hook denies on Bash. Set nameOnly to list touched paths without " +
+      "computing insertion/deletion counts.",
+    parameters: statsCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.stats command", { params });
+      const { gitStatsFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await gitStatsFromParams({
+        repo,
+        since: params.since,
+        until: params.until,
+        path: params.path,
+        author: params.author,
+        nameOnly: params.nameOnly,
+        limit: params.limit,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        since: result.since,
+        until: result.until,
+        path: result.path,
+        nameOnly: result.nameOnly,
+        totalCommits: result.totalCommits,
+        files: result.files,
       };
     },
   });

@@ -29,7 +29,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { shortenId } from "./format";
 
-export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory";
+export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory" | "changeset";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -50,14 +50,17 @@ const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
  * tab descriptor for entity routes, null for list/page routes.
  *
  * Registry (PR1): tasks (`/tasks/:id`, excluding the literal `graph` sibling)
- * and sessions (`/session/:id`). PR/ask/memory kinds join as their detail
- * routes land (mt#2398 PR2 + later). Workspace sessions (`/agents/:id`,
- * kind "agent") joined via mt#1919 — distinct id-space from "session"
- * (harness agentSessionId vs Minsky workspace sessionId). Asks (`/ask/:id`)
- * and memories (`/memory/:id`) joined via mt#2410 (mt#2398's PR2).
+ * and conversations (`/conversation/:id`, path renamed from `/session/:id`
+ * per ADR-022 stage 1, mt#2686 — the tab `kind` stays "session" for now,
+ * unrenamed pending a broader tab-kind sweep out of this task's bounded
+ * scope). PR/ask/memory kinds join as their detail routes land (mt#2398 PR2
+ * + later). Workspace sessions (`/agents/:id`, kind "agent") joined via
+ * mt#1919 — distinct id-space from "session" (harness agentSessionId vs
+ * Minsky workspace sessionId). Asks (`/ask/:id`) and memories (`/memory/:id`)
+ * joined via mt#2410 (mt#2398's PR2).
  */
 export function matchEntityRoute(pathname: string): EntityTab | null {
-  const session = pathname.match(/^\/session\/([^/]+)$/);
+  const session = pathname.match(/^\/conversation\/([^/]+)$/);
   if (session?.[1]) {
     const id = decodeURIComponent(session[1]);
     return {
@@ -101,6 +104,17 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
     };
   }
 
+  const changeset = pathname.match(/^\/changeset\/([^/]+)$/);
+  if (changeset?.[1]) {
+    const id = decodeURIComponent(changeset[1]);
+    return {
+      kind: "changeset",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
+    };
+  }
+
   const task = pathname.match(/^\/tasks\/([^/]+)$/);
   if (task?.[1] && task[1] !== "graph") {
     const id = decodeURIComponent(task[1]);
@@ -125,6 +139,21 @@ interface TabsContextValue {
 
 const TabsContext = createContext<TabsContextValue | null>(null);
 
+/**
+ * Predicate for the set of entity tab kinds accepted by the persistence
+ * loader. Exported for test-time verification without mocking localStorage.
+ */
+export function isAcceptedTabKind(kind: unknown): kind is EntityTabKind {
+  return (
+    kind === "task" ||
+    kind === "session" ||
+    kind === "agent" ||
+    kind === "ask" ||
+    kind === "memory" ||
+    kind === "changeset"
+  );
+}
+
 function loadTabs(): EntityTab[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -137,11 +166,7 @@ function loadTabs(): EntityTab[] {
         t !== null &&
         typeof (t as EntityTab).path === "string" &&
         typeof (t as EntityTab).label === "string" &&
-        ((t as EntityTab).kind === "task" ||
-          (t as EntityTab).kind === "session" ||
-          (t as EntityTab).kind === "agent" ||
-          (t as EntityTab).kind === "ask" ||
-          (t as EntityTab).kind === "memory")
+        isAcceptedTabKind((t as EntityTab).kind)
     );
   } catch {
     return [];

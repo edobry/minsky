@@ -8,7 +8,10 @@
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerGitCommands } from "./git";
 import { registerRepoCommands } from "./repo";
-import { registerTasksCommands } from "./tasks";
+// Redirected from the deleted "./tasks" delegation shim (mt#2610 dead-code sweep) —
+// this was the shim's one real caller; `tasks-modular.ts` is the module the shim
+// delegated to.
+import { registerTasksCommands } from "./tasks-modular";
 import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";

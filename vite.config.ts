@@ -18,6 +18,10 @@ export default defineConfig({
           router: ["react-router-dom"],
           tanstack: ["@tanstack/react-query"],
           icons: ["lucide-react"],
+          // Markdown rendering (mt#2550): react-markdown + remark/rehype/unified
+          // toolchain. Isolated so the ~60-80KB gz pipeline is a long-cached chunk
+          // loaded only on pages that render prose.
+          markdown: ["react-markdown", "remark-gfm"],
         },
       },
     },

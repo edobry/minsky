@@ -89,6 +89,7 @@ export {
   stashDropFromParams,
   restoreFromParams,
   resetFromParams,
+  gitStatsFromParams,
 } from "./git/git-params-facade";
 
 /**
@@ -241,8 +242,13 @@ export class GitService implements GitServiceInterface {
     return stageFilesImpl(execAsync, files, repoPath);
   }
 
-  async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
-    return commitImpl(execAsync, message, repoPath, amend);
+  async commit(
+    message: string,
+    repoPath?: string,
+    amend: boolean = false,
+    allowEmpty: boolean = false
+  ): Promise<string> {
+    return commitImpl(execAsync, message, repoPath, amend, allowEmpty);
   }
 
   async stashChanges(workdir: string): Promise<StashResult> {

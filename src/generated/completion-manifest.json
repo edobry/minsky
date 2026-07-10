@@ -643,6 +643,51 @@
               "values": ["true"]
             }
           ]
+        },
+        {
+          "name": "stats",
+          "description": "Compute per-path churn (commit count + insertions/deletions) over a window via `git log --numstat` — the sanctioned path for repo-analytics queries the block-git-gh-cli hook denies on Bash. Set nameOnly to list touched paths without computing insertion/deletion counts.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--since"],
+              "description": "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Show commits older than a specific date",
+              "takesValue": true
+            },
+            {
+              "flags": ["--path"],
+              "description": "Restrict the query to commits touching this path (file or directory)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--author"],
+              "description": "Filter commits by author name or email",
+              "takesValue": true
+            },
+            {
+              "flags": ["--name-only"],
+              "description": "List distinct paths touched in the window without computing insertion/deletion counts (lighter-weight than the default churn aggregation)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Cap the number of files returned, sorted by total churn (insertions + deletions) descending",
+              "takesValue": true
+            }
+          ]
         }
       ]
     },
@@ -989,6 +1034,10 @@
               "description": "Include per-task attention cost rollup in the output (ADR-008 §Attention accounting)"
             },
             {
+              "flags": ["--all-projects"],
+              "description": "Return tasks from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+            },
+            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true
@@ -1147,6 +1196,12 @@
               "flags": ["--tag"],
               "description": "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
               "takesValue": true
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
             },
             {
               "flags": ["--execute"],
@@ -1630,18 +1685,28 @@
           "description": "Create a subtask, start a session, and generate a subagent prompt — all in one call",
           "options": [
             {
+              "flags": ["--title"],
+              "description": "Title for a new subtask. Required unless `taskId` is provided (existing-task mode).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task-id"],
+              "description": "ID of an EXISTING task to dispatch (mt#2657). Alternative to `title`: walks the task's current status to READY (TODO -> PLANNING -> READY as needed), starts a session, and generates the prompt. Mutually exclusive with `title` (exactly one of the two is required — supplying both is rejected), with `parentTaskId` (rejected — existing tasks don't get a new parent edge here), and with `description` (rejected — existing-task mode targets a task whose spec already exists; passing `description` here would be silently ignored, so it's rejected instead). Crash-safety (mt#2695): if a PRIOR dispatch for this same taskId crashed after starting a session but before finishing, re-calling with the same taskId RESUMES that stranded session (detected via task IN-PROGRESS + an untouched/CREATED session) instead of erroring — see the result's `resumed` field.",
+              "takesValue": true
+            },
+            {
               "flags": ["--instructions"],
               "description": "Work instructions for the subagent",
               "takesValue": true
             },
             {
               "flags": ["--parent-task-id"],
-              "description": "Parent task ID — creates a subtask. Omit for a root task.",
+              "description": "Parent task ID — creates a subtask. Omit for a root task. Only valid in new-task (`title`) mode.",
               "takesValue": true
             },
             {
               "flags": ["--type"],
-              "description": "Prompt type for the subagent",
+              "description": "Prompt type for the subagent. Defaults to \"implementation\" when omitted.",
               "takesValue": true,
               "values": ["implementation", "refactor", "review", "cleanup", "audit"]
             },
@@ -1652,7 +1717,22 @@
             },
             {
               "flags": ["--description"],
-              "description": "Task description/spec content",
+              "description": "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — rejected when passed together with `taskId` (existing-task mode).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--premise-claim"],
+              "description": "Evidence gate (mt#2488): the load-bearing premise this dispatch rests on — the assumption that, if false, means the dispatch is misdirected. For premise-free / greenfield work, state that as the claim. Required: dispatching a subagent on an unverified premise (e.g. a fix on a misdiagnosed cause) is the R7 failure this gate retires.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--premise-falsifier"],
+              "description": "Evidence gate (mt#2488): the CHEAPEST check that would disprove `premiseClaim` if it were false (e.g. 'is this CI check red on main too?').",
+              "takesValue": true
+            },
+            {
+              "flags": ["--premise-evidence"],
+              "description": "Evidence gate (mt#2488): the result of actually running `premiseFalsifier` — not an assertion that you would, the actual outcome.",
               "takesValue": true
             }
           ]
@@ -1698,6 +1778,27 @@
               "flags": ["--similar-limit"],
               "description": "Maximum number of similar tasks to include",
               "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "claims",
+          "description": "claims commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List active presence claims for a task — who is actively working on it right now.",
+              "options": [
+                {
+                  "flags": ["--stale-threshold-ms"],
+                  "description": "Age in milliseconds past which a claim is considered stale (default: 900000 = 15 min)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--include-stale"],
+                  "description": "Include stale claims in the result (default: false)"
+                }
+              ]
             }
           ]
         }
@@ -1748,6 +1849,10 @@
             {
               "flags": ["-v", "--verbose"],
               "description": "Show detailed session information"
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return sessions from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
           ]
         },
@@ -2611,7 +2716,101 @@
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
+                  "description": "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches (exclusive lower bound, mt#2656 — an exactly-equal submittedAt does not re-match, so you can safely pass a previous review's exact submittedAt to wait for its successor). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--require-current-head"],
+                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full review (raw markdown body, spec-verification table, embedded provenance JSON comment) instead of the default trimmed payload (mt#2656: state, submittedAt, reviewer, blocking/non-blocking finding counts, and a findings list of severity + file:line + one-sentence summary). Defaults to false."
+                }
+              ]
+            },
+            {
+              "name": "drive",
+              "description": "Drive an in-review session PR through the convergence tail (review-wait -> checks-wait), returning a terminal state (READY_TO_MERGE / CHANGES_REQUESTED / COMMENT / CHECKS_FAILED / CHECKS_TIMEOUT / REVIEW_TIMEOUT). Never merges — call session.pr.merge yourself on READY_TO_MERGE so every merge-gate hook still fires. Pass postMerge: true to instead run the post-merge deploy-watch mode (call this AFTER your own merge succeeds).",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--post-merge"],
+                  "description": "When true, switch to the post-merge deploy-watch mode: run deployment.wait-for-latest for every deploy service the merged PR's changed files affect (or an explicit `services` override), and report results. Call this AFTER your own session.pr.merge call succeeds — it does not merge anything. When false (default), run the review-wait + checks-wait convergence-tail mode."
+                },
+                {
+                  "flags": ["--reviewer"],
+                  "description": "Only match reviews from this reviewer. Accepts a TokenRole identifier (\"reviewer\" or \"implementer\") or a literal GitHub login (e.g. minsky-reviewer[bot]). See session.pr.wait-for-review's `reviewer` param for full precedence rules. Defaults to any reviewer. Ignored in postMerge mode.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--since"],
+                  "description": "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches (exclusive lower bound, mt#2656). Pass the previous terminal result's review.submittedAt when re-invoking after pushing a fix for CHANGES_REQUESTED/COMMENT — the exact same review will not re-match. Defaults to the PR's created_at timestamp. Ignored in postMerge mode.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--require-current-head"],
+                  "description": "When true (default), only a review of the PR's current HEAD commit counts as a match (mt#2586). Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--full-body"],
+                  "description": "When true, return the full review body and full per-check breakdown instead of the default trimmed payloads (mt#2656). Defaults to false. Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--review-timeout-seconds"],
+                  "description": "Maximum seconds to wait for a matching review (default 600, max 1800).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--review-interval-seconds"],
+                  "description": "Review polling interval in seconds (default 15, min 5, max 60).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--checks-timeout-seconds"],
+                  "description": "Maximum seconds to wait for CI checks to complete (default 600).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--checks-interval-seconds"],
+                  "description": "Checks polling interval in seconds (default 30).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--skip-checks"],
+                  "description": "Skip the checks-wait step entirely (e.g. the repo has no CI configured). An APPROVED review alone resolves to READY_TO_MERGE. Ignored in postMerge mode."
+                },
+                {
+                  "flags": ["--services"],
+                  "description": "postMerge mode only: explicit list of deploy services to watch, overriding auto-detection from the merged PR's changed files. Pass `[]` to explicitly watch nothing. When omitted, services are auto-detected via the deploy-surface pattern list against the services that declare a deploy.config.ts.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--deploy-timeout-seconds"],
+                  "description": "postMerge mode only: maximum seconds to wait for each service's deployment (default 600).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--deploy-interval-seconds"],
+                  "description": "postMerge mode only: poll cadence for each deployment wait (default 10).",
                   "takesValue": true
                 }
               ]
@@ -3004,421 +3203,16 @@
               "description": "Create parent directories if they don't exist"
             },
             {
+              "flags": ["--full-replace"],
+              "description": "Override the marker-less fail-closed guard (mt#2400) to intentionally replace an existing file's entire content"
+            },
+            {
               "flags": ["--json"],
               "description": "Output in JSON format"
             },
             {
               "flags": ["--debug"],
               "description": "Enable debug output"
-            }
-          ]
-        },
-        {
-          "name": "changeset",
-          "description": "changeset commands",
-          "subcommands": [
-            {
-              "name": "list",
-              "description": "List changesets for current session (alias for session pr list)",
-              "options": [
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                },
-                {
-                  "flags": ["--status"],
-                  "takesValue": true,
-                  "values": ["open", "merged", "closed", "draft"]
-                },
-                {
-                  "flags": ["--limit"],
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--all"]
-                }
-              ]
-            },
-            {
-              "name": "get",
-              "description": "Get current session's changeset details (alias for session pr)",
-              "options": [
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                },
-                {
-                  "flags": ["--id"],
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--details"]
-                }
-              ]
-            },
-            {
-              "name": "create",
-              "description": "Create a changeset for current session (alias for session pr create)",
-              "options": [
-                {
-                  "flags": ["--type"],
-                  "description": "Conventional commit type to generate title prefix",
-                  "takesValue": true,
-                  "values": [
-                    "feat",
-                    "fix",
-                    "docs",
-                    "style",
-                    "refactor",
-                    "perf",
-                    "test",
-                    "chore",
-                    "ci",
-                    "build",
-                    "revert",
-                    "merge"
-                  ]
-                },
-                {
-                  "flags": ["--body"],
-                  "description": "PR body content",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--body-path"],
-                  "description": "Path to file containing PR body",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--no-status-update"],
-                  "description": "Skip updating task status"
-                },
-                {
-                  "flags": ["--debug"],
-                  "description": "Enable debug output"
-                },
-                {
-                  "flags": ["--auto-resolve-delete-conflicts"],
-                  "description": "Automatically resolve delete conflicts"
-                },
-                {
-                  "flags": ["--skip-conflict-check"],
-                  "description": "Skip conflict detection"
-                },
-                {
-                  "flags": ["--draft"],
-                  "description": "Create draft PR (GitHub only, skips session update)"
-                }
-              ]
-            },
-            {
-              "name": "approve",
-              "description": "Approve current session's changeset (alias for session pr approve)",
-              "options": [
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                }
-              ]
-            },
-            {
-              "name": "merge",
-              "description": "Merge current session's changeset (alias for session pr merge)",
-              "options": [
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                }
-              ]
-            },
-            {
-              "name": "edit",
-              "description": "Edit current session's changeset (alias for session pr edit)",
-              "options": [
-                {
-                  "flags": ["--title"],
-                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--type"],
-                  "description": "Conventional commit type to generate prefix when editing (optional)",
-                  "takesValue": true,
-                  "values": [
-                    "feat",
-                    "fix",
-                    "docs",
-                    "style",
-                    "refactor",
-                    "perf",
-                    "test",
-                    "chore",
-                    "ci",
-                    "build",
-                    "revert",
-                    "merge"
-                  ]
-                },
-                {
-                  "flags": ["--body"],
-                  "description": "PR body content (to update)",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--body-path"],
-                  "description": "Path to file containing PR body (to update)",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--debug"],
-                  "description": "Enable debug output"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "name": "cs",
-          "description": "cs commands",
-          "subcommands": [
-            {
-              "name": "list",
-              "description": "List changesets for current session (short alias)",
-              "options": [
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                },
-                {
-                  "flags": ["--status"],
-                  "takesValue": true,
-                  "values": ["open", "merged", "closed", "draft"]
-                },
-                {
-                  "flags": ["--limit"],
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--all"]
-                }
-              ]
-            },
-            {
-              "name": "get",
-              "description": "Get current session's changeset details (short alias)",
-              "options": [
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                },
-                {
-                  "flags": ["--id"],
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--details"]
-                }
-              ]
-            },
-            {
-              "name": "create",
-              "description": "Create changeset for current session (short alias)",
-              "options": [
-                {
-                  "flags": ["--type"],
-                  "description": "Conventional commit type to generate title prefix",
-                  "takesValue": true,
-                  "values": [
-                    "feat",
-                    "fix",
-                    "docs",
-                    "style",
-                    "refactor",
-                    "perf",
-                    "test",
-                    "chore",
-                    "ci",
-                    "build",
-                    "revert",
-                    "merge"
-                  ]
-                },
-                {
-                  "flags": ["--body"],
-                  "description": "PR body content",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--body-path"],
-                  "description": "Path to file containing PR body",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--no-status-update"],
-                  "description": "Skip updating task status"
-                },
-                {
-                  "flags": ["--debug"],
-                  "description": "Enable debug output"
-                },
-                {
-                  "flags": ["--auto-resolve-delete-conflicts"],
-                  "description": "Automatically resolve delete conflicts"
-                },
-                {
-                  "flags": ["--skip-conflict-check"],
-                  "description": "Skip conflict detection"
-                },
-                {
-                  "flags": ["--draft"],
-                  "description": "Create draft PR (GitHub only, skips session update)"
-                }
-              ]
-            },
-            {
-              "name": "approve",
-              "description": "Approve current session's changeset (short alias)",
-              "options": [
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                }
-              ]
-            },
-            {
-              "name": "merge",
-              "description": "Merge current session's changeset (short alias)",
-              "options": [
-                {
-                  "flags": ["--session-id"],
-                  "description": "Session ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--task"],
-                  "description": "Task ID",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                }
-              ]
             }
           ]
         }
@@ -3951,6 +3745,10 @@
             {
               "flags": ["--verbose"],
               "description": "Show detailed diagnostic results"
+            },
+            {
+              "flags": ["--fix"],
+              "description": "Apply available auto-fixes for failed checks (e.g. provision mcp.auth.token from railway-secrets.json) instead of only reporting them (mt#2679)"
             }
           ]
         },
@@ -4149,6 +3947,11 @@
             {
               "flags": ["--system"],
               "description": "System prompt",
+              "takesValue": true
+            },
+            {
+              "flags": ["--timeout-ms"],
+              "description": "Timeout in milliseconds for the provider call (default 60000). The call fails fast with an actionable error instead of hanging when exceeded.",
               "takesValue": true
             }
           ]
@@ -4426,6 +4229,10 @@
                   "flags": ["--limit"],
                   "description": "Maximum number of results",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--all-projects"],
+                  "description": "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)"
                 }
               ]
             },
@@ -4435,7 +4242,7 @@
             },
             {
               "name": "respond",
-              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error.",
+              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--message"],
@@ -4521,7 +4328,7 @@
             },
             {
               "name": "wait-for-response",
-              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status.",
+              "description": "Block until an Ask reaches responded/closed (returns the response payload), or a cancelled/expired terminal state, or the timeout elapses. Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). Caller-managed gating: does NOT mutate task status. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
@@ -4531,6 +4338,42 @@
                 {
                   "flags": ["--interval-seconds"],
                   "description": "Polling interval in seconds (default 15; clamped to [5, 60])",
+                  "takesValue": true
+                }
+              ]
+            },
+            {
+              "name": "edit",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "Replacement title (list rendering / notifications)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--question"],
+                  "description": "Replacement question body",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--options"],
+                  "description": "Replacement decision-frame options (wholesale replace, not merge)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--context-refs"],
+                  "description": "Replacement context refs (wholesale replace, not merge)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--metadata"],
+                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--editor"],
+                  "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
                   "takesValue": true
                 }
               ]
@@ -4682,7 +4525,7 @@
             },
             {
               "name": "retrigger",
-              "description": "Trigger a fresh review on a PR's current HEAD. Calls the reviewer service's /retrigger endpoint.",
+              "description": "Trigger a fresh review on a PR's current HEAD. Uses the reviewer service's /retrigger endpoint (mcp.auth.token), falling back to a GitHub-auth `/review` comment when only github.token is available (mt#2679).",
               "options": [
                 {
                   "flags": ["--owner"],
@@ -4870,6 +4713,16 @@
             {
               "flags": ["--json"],
               "description": "Output results as JSON instead of human-readable text."
+            },
+            {
+              "flags": ["--ask-id"],
+              "description": "ID of the disposition Ask just filed for the past-threshold logs in this pass (mt#2659). Only meaningful together with ack:true — recorded as `openAskId` on every watermark advanced by this call so the cadence-detector hook suppresses its per-turn warning for these logs until the ask is resolved. A past-threshold log whose watermark ALREADY carries a DIFFERENT `openAskId` and for which this param is NOT supplied is skipped by --ack (see `skippedOpenAskPaths` in the result) rather than silently advanced — per the /calibration-review skill's Step 1a, a log with a still-open disposition ask must not be re-classified or re-acked until that ask resolves (via `clearAskId`).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--clear-ask-id"],
+              "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all past-threshold logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
+              "takesValue": true
             }
           ]
         },
@@ -4970,12 +4823,16 @@
             {
               "flags": ["--exclude-superseded"],
               "description": "When true, exclude superseded memories from results"
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
           ]
         },
         {
           "name": "get",
-          "description": "Fetch a single memory record by its identifier."
+          "description": "Fetch a single memory record by its identifier. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff."
         },
         {
           "name": "list",
@@ -5025,6 +4882,10 @@
               "flags": ["--association-target"],
               "description": "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
             }
           ]
         },
@@ -5049,7 +4910,7 @@
             },
             {
               "flags": ["--scope"],
-              "description": "Scope of the memory (project | user | cross_project)",
+              "description": "Scope of the memory (project | user | cross_project). Defaults to \"project\" when omitted (mt#2663).",
               "takesValue": true,
               "values": ["project", "user", "cross_project"]
             },
@@ -5158,7 +5019,7 @@
         },
         {
           "name": "similar",
-          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results.",
+          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
           "options": [
             {
               "flags": ["--limit"],
@@ -5237,7 +5098,7 @@
         },
         {
           "name": "lineage",
-          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata."
+          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata. Accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696) for `id`."
         }
       ]
     },
@@ -5340,15 +5201,20 @@
         },
         {
           "name": "index-embeddings",
-          "description": "Generate and store per-turn embeddings and session-level summary + summary embedding for agent transcripts. Pass --all to sweep every ingested session, or --session=<uuid> to target one. Both pipelines are idempotent.",
+          "description": "Generate and store per-turn embeddings and conversation-level summary + summary embedding for agent transcripts. Pass --all to sweep every ingested conversation, or --conversationId=<uuid> to target one (--session is a deprecated alias). Both pipelines are idempotent.",
           "options": [
             {
               "flags": ["--all"],
               "description": "Sweep and re-index all ingested sessions"
             },
             {
+              "flags": ["--conversation-id"],
+              "description": "Index a single harness conversation by its id (agent-session UUID)",
+              "takesValue": true
+            },
+            {
               "flags": ["--session"],
-              "description": "Index a single session by its agent session UUID",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             },
             {
@@ -5383,15 +5249,20 @@
               "takesValue": true
             },
             {
+              "flags": ["--conversation-id"],
+              "description": "Restrict results to a single harness conversation by its id (agent-session UUID)",
+              "takesValue": true
+            },
+            {
               "flags": ["--session"],
-              "description": "Restrict results to a single agent session by its UUID",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             }
           ]
         },
         {
           "name": "similar",
-          "description": "Find transcript turns or sessions similar to a known seed. Pass --turnId=<agentSessionId>:<turnIndex> to find similar turns, or --sessionId=<uuid> to find similar sessions by summary embedding. Exactly one of turnId or sessionId must be provided.",
+          "description": "Find transcript turns or conversations similar to a known seed. Pass --turnId=<agentSessionId>:<turnIndex> to find similar turns, or --conversationId=<uuid> to find similar conversations by summary embedding (--sessionId is a deprecated alias). Exactly one of turnId or conversationId must be provided.",
           "options": [
             {
               "flags": ["--turn-id"],
@@ -5399,8 +5270,13 @@
               "takesValue": true
             },
             {
+              "flags": ["--conversation-id"],
+              "description": "Harness conversation id (agent-session UUID) — find conversations similar to this seed",
+              "takesValue": true
+            },
+            {
               "flags": ["--session-id"],
-              "description": "Agent session UUID — find sessions similar to this seed session",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of sessionId.",
               "takesValue": true
             },
             {
@@ -5412,15 +5288,20 @@
         },
         {
           "name": "spawns-extract",
-          "description": "Extract agent spawn relationships from transcript turns where is_spawn_boundary=true and upsert into agent_spawns. Pass --all to sweep every ingested session, or --session=<uuid> to target one parent session. Idempotent.",
+          "description": "Extract agent spawn relationships from transcript turns where is_spawn_boundary=true and upsert into agent_spawns. Pass --all to sweep every ingested conversation, or --conversationId=<uuid> to target one parent conversation (--session is a deprecated alias). Idempotent.",
           "options": [
             {
               "flags": ["--all"],
               "description": "Sweep and extract spawns for all ingested sessions"
             },
             {
+              "flags": ["--conversation-id"],
+              "description": "Extract spawns for a single parent harness conversation by its id (agent-session UUID)",
+              "takesValue": true
+            },
+            {
               "flags": ["--session"],
-              "description": "Extract spawns for a single parent session by its agent session UUID",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             }
           ]
@@ -5451,16 +5332,31 @@
               "takesValue": true
             },
             {
+              "flags": ["--conversation-id"],
+              "description": "Restrict results to a single harness conversation by its id (agent-session UUID)",
+              "takesValue": true
+            },
+            {
               "flags": ["--session"],
-              "description": "Restrict results to a single agent session by its UUID",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             }
           ]
         },
         {
           "name": "get",
-          "description": "Return all turns for an agent session in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the session is not found. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
+            {
+              "flags": ["--conversation-id"],
+              "description": "The harness conversation id (agent-session UUID) to retrieve turns for",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session-id"],
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of sessionId.",
+              "takesValue": true
+            },
             {
               "flags": ["--turn-range"],
               "description": "Inclusive turn index range in 'start-end' format (e.g. '10-20'). Returns only turns with turn_index between start and end (inclusive).",
@@ -5636,7 +5532,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -5647,7 +5543,18 @@
                 "task.status_changed",
                 "pr.merged",
                 "subagent.completed",
-                "session.started"
+                "session.started",
+                "memory.created",
+                "ask.answered",
+                "changeset.created",
+                "hook.fired",
+                "mcp.disconnect",
+                "retrospective.fired",
+                "deploy.build",
+                "deploy.smoke",
+                "deploy.live",
+                "deploy.fail",
+                "ask.policy_closed"
               ]
             },
             {

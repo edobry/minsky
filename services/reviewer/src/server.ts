@@ -22,6 +22,7 @@ import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
 import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
+import { configureGithubAuthHealthAlertSink } from "./auth-health";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -1418,6 +1419,11 @@ if (import.meta.main) {
   // Null when ALERT_SINK_TYPE is unset/off; both consumers degrade gracefully.
   const alertSink = buildAlertSink(loadAlertSinkConfig());
 
+  // mt#2717: wire the same shared alert sink into the GitHub auth-health tracker
+  // so a sustained credential failure across the sweepers pages off-cockpit
+  // (in addition to the distinct `reviewer.auth_health_failing` error log).
+  configureGithubAuthHealthAlertSink(alertSink);
+
   const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices, alertSink);
 
   log.info("server_started", {
@@ -1495,6 +1501,17 @@ if (import.meta.main) {
   // mt#2363 / mt#1596 Phase 1: the domain container is forwarded so a tripped
   // circuit breaker also surfaces as an operator-routed Ask on the cockpit
   // (direct domain imports, mt#2121 — no MCP-over-HTTP).
+  // mt#2660: startSweeper also KICKS OFF one boot catch-up sweep cycle
+  // synchronously at this call site (the sweep work itself completes
+  // asynchronously afterward, via the same non-blocking runReview path the
+  // periodic ticks use), so a redeploy landing on top of an unreviewed PR
+  // self-heals without waiting a full SWEEPER_INTERVAL_MS. Gated by
+  // SWEEPER_BOOT_CATCHUP_ENABLED (default true); called here — after
+  // migrations have applied and the domain-container boot ATTEMPT above has
+  // resolved (success or graceful degradation; `domainServices` may still be
+  // `undefined`) — so it never blocks startup either way. See sweeper.ts
+  // module-header "Boot catch-up sweep" for the diagnosis of why the
+  // pre-mt#2660 sweeper missed PR #1812's webhook for 25+ minutes.
   startSweeper(config, loadSweeperConfig(), db, domainServices?.container, alertSink);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
@@ -1517,6 +1534,19 @@ if (import.meta.main) {
   // Uses domain imports (mt#2121) via SessionProviderInterface + applyPostMergeStateSync.
   // Configurable via MERGE_STATE_SWEEPER_ENABLED, MERGE_STATE_SWEEPER_INTERVAL_MS.
   // **Enabled by default (mt#1811)**: set MERGE_STATE_SWEEPER_ENABLED=false to opt out.
+  // mt#2684: startMergeStateSweeper also KICKS OFF one boot catch-up sweep
+  // cycle synchronously at this call site (same pattern as startSweeper
+  // above, mt#2660) — called here after applyMigrations (line ~1372) and the
+  // bootDomainContainer() attempt (line ~1389) have both resolved, so the
+  // immediate cycle never blocks or competes with service startup. Gated by
+  // MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED (default true). See
+  // merge-state-sweeper.ts module-header "Boot catch-up sweep" for the
+  // diagnosis. The 4th parameter (`octokitOverride`) is intentionally
+  // omitted here — it is a test-only seam (see its doc comment at the
+  // `startMergeStateSweeper` declaration) so tests can exercise the boot
+  // catch-up path without a real GitHub App auth handshake; production always
+  // falls through to the lazy `createOctokit(config)` path, identical to how
+  // `startSweeper` above omits its own test-only `depsOverride` parameter.
   startMergeStateSweeper(
     config,
     loadMergeStateSweeperConfig(),

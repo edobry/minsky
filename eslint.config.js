@@ -252,6 +252,12 @@ export default [
             "log",
             "EXEMPT_COMMANDS",
             "testConfigManager",
+            // Constant lookup tables (Set/Map), not stateful service singletons —
+            // surfaced by the ADR-026 path-filter fix (mt#2623), which restored
+            // this rule's enforcement on packages/domain/src/ post-mt#2108.
+            "HOSTED_SAFE_SESSION_COMMANDS",
+            "KNOWN_TOP_LEVEL_KEYS",
+            "HOOK_ONLY_ENV_VARS",
           ],
         },
       ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)
@@ -268,6 +274,14 @@ export default [
             "StorageErrorClassifier",
             "StorageErrorRecovery",
             "StorageErrorMonitor",
+            // Constructed directly via `new X(...)` in production code, never resolved
+            // through the tsyringe container — @injectable() would be dead weight.
+            // Surfaced by the ADR-026 path-filter fix (mt#2623), which restored this
+            // rule's enforcement on packages/domain/src/ post-mt#2108; matches the
+            // allowlist already established for the same classes in
+            // tests/architecture/di-enforcement.test.ts (mt#2608).
+            "AgentTranscriptIngestService",
+            "AgentTranscriptService",
           ],
         },
       ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)
@@ -360,8 +374,11 @@ export default [
             "**/subcommands/*.ts",
             // Cockpit widget composition roots (wire DI providers for the cockpit server)
             "**/src/cockpit/widgets/agents.ts",
-            // Cockpit server (lazy-wires session/task/ask providers for its endpoints)
-            "**/src/cockpit/server.ts",
+            // Cockpit persistence-provider composition root (mt#2615 — lazy-wires
+            // session/task/ask providers consumed by every cockpit route module;
+            // this was server.ts's job pre-split. server.ts is now composition-only
+            // and no longer needs this permission.
+            "**/src/cockpit/db-providers.ts",
             // Scripts and one-off tools (composition roots by nature)
             "**/scripts/*.ts",
             "**/debug-*.ts",
@@ -634,8 +651,10 @@ export default [
       "src/commands/**",
       // Claude Code hooks emit to stdout to inject additionalContext / audit lines.
       // The console-output pattern IS the public interface of a hook, not a debug
-      // smell. The pre-existing console usage in these files predates mt#1960.
+      // smell. .minsky/hooks/ is the canonical source (mt#2304); .claude/hooks/
+      // is the compiled output. Both share the same console-usage pattern.
       ".claude/hooks/**",
+      ".minsky/hooks/**",
       // ESLint rule files themselves use `console.warn` for diagnostic-time messages
       // that the rule emits to the developer (e.g., misconfiguration warnings). The
       // rule runtime is not equivalent to application code — keep the exemption.
@@ -668,6 +687,75 @@ export default [
           max: 1500,
           skipBlankLines: true,
           skipComments: true,
+        },
+      ],
+    },
+  },
+  // === FILE SIZE RULES — TSX/JSX parity (mt#2592) ===
+  // The two `max-lines` blocks above (warn @ 400, error @ 1500) scope only to
+  // `**/*.ts` / `**/*.js`, so React components had NO file-size guard at all
+  // (src/cockpit/web/pages/PlantFlowPage.tsx grew to 1646 lines invisibly).
+  // Mirror both tiers here, narrowly, as their own config objects — do NOT
+  // fold `.tsx`/`.jsx` into the big `**/*.ts`/`**/*.js` block above, which
+  // would pull 30+ unrelated rules (custom rules, unused-vars, etc.) into
+  // TSX/JSX scope as an unintended scope expansion (see mt#2592 spec,
+  // "Out of scope: non-size lint rules for .tsx"). Component files run
+  // longer than plain TS modules per unit of logic because JSX markup is
+  // more line-dense than typical TS syntax; the warn tier is pragmatically
+  // set higher than the .ts/.js tier (800 vs 400) so that today's largest
+  // properly-scoped cockpit widgets (e.g. Credentials.tsx at 688 lines)
+  // don't need individual disables, while still catching genuinely
+  // oversized components. The error tier stays at 1500, matching .ts/.js.
+  //
+  // NOTE on `skipComments`: unlike the `.ts`/`.js` tiers above, both `.tsx`
+  // tiers set `skipComments: false`. Two reasons: (1) the codebase's larger
+  // cockpit pages/widgets (e.g. PlantFlowPage.tsx) carry substantial
+  // architecture-rationale JSDoc headers — skipping comments would let a
+  // file's *code* bulk grow arbitrarily while its ESLint-counted size stayed
+  // artificially low, defeating the guard's purpose; (2) with
+  // `skipComments: true` mirrored exactly, PlantFlowPage.tsx's ESLint-counted
+  // line count (~1349, comments/blanks excluded) falls UNDER the 1500 error
+  // threshold despite a raw `wc -l` of 1646 — which would make the
+  // file-level `eslint-disable max-lines` comment below register as an
+  // "Unused eslint-disable directive" (itself a warning, failing the
+  // zero-warning `lint:strict` / pre-commit gate). `skipBlankLines: true` is
+  // kept since blank lines carry no content either way.
+  //
+  // NOTE on ESLint flat-config rule merging: because both tiers configure the
+  // SAME rule name (`max-lines`) with the SAME `files` glob, ESLint's flat
+  // config resolution has the LATER-declared block's rule settings entirely
+  // replace the earlier one for any file matching both — there is no
+  // independent coexistence of a "warn at 800" and "error at 1500" signal.
+  // In practice only the error tier below is ever active. This exactly
+  // mirrors the pre-existing (undocumented) behavior of the `.ts`/`.js`
+  // blocks above, where the warn-@-400 tier is likewise always superseded by
+  // the later error-@-1500 tier. Fixing that pre-existing two-tier-coexistence
+  // gap is out of scope for mt#2592 (which only extends coverage to
+  // `.tsx`/`.jsx`); the warn tier is kept here for documented intent/parity
+  // and in case a future change (e.g. a custom multi-severity rule) makes
+  // both tiers independently effective.
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    rules: {
+      "max-lines": [
+        "warn",
+        {
+          max: 800,
+          skipBlankLines: true,
+          skipComments: false,
+        },
+      ],
+    },
+  },
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    rules: {
+      "max-lines": [
+        "error",
+        {
+          max: 1500,
+          skipBlankLines: true,
+          skipComments: false,
         },
       ],
     },

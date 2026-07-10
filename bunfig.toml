@@ -10,4 +10,12 @@ randomize = true
 # Cockpit web widget tests (src/cockpit/web/**) require a DOM environment
 # (happy-dom) via tests/dom-setup.ts. They are excluded here and run via
 # the dedicated `bun run test:components` script (mt#2152).
+#
+# NOTE (mt#2665): pathIgnorePatterns was tried as the exclusion mechanism for
+# src/mcp/** (see below) but does NOT reliably prune a subdirectory when a
+# CLI arg explicitly targets its parent (e.g. `bun test ./src` still recurses
+# into src/mcp even with "src/mcp/**" listed here) -- confirmed empirically,
+# several pattern variants tried. The src/mcp exclusion is instead done via
+# explicit file enumeration in scripts/run-tests-main.ts (used by the "test"
+# script below), which is unaffected by this limitation.
 pathIgnorePatterns = ["services/**", "src/cockpit/web/**"]

@@ -226,6 +226,45 @@ function getZodSchemaType(schema: z.ZodType): string | undefined {
 }
 
 /**
+ * Returns the underlying Zod v4 structured-type name ("record" | "object")
+ * when the schema (after unwrapping optional / nullable / default) expects a
+ * structured value that has no scalar CLI representation. Such a parameter
+ * supplied on the CLI (`--flag '<json>'`) arrives as a raw JSON string and
+ * must be `JSON.parse`d before schema validation.
+ *
+ * Scoped to record + object deliberately. Arrays are EXCLUDED: they have
+ * established CLI multi-value conventions (repeated flags collected into an
+ * array, comma-split argParsers, `z.union([string, array])` patterns), and
+ * auto-JSON-parsing a bare string array value would regress those. Record and
+ * object have no scalar CLI form, so a string value is unambiguously JSON.
+ * (mt#2482)
+ *
+ * Wrapper handling (zod v4): `optional` / `nullable` / `default` unwrap to the
+ * inner schema; `.refine()` keeps `.type === "record"`/`"object"` (checks are
+ * added in place, no wrapper) so it needs no special case; `.transform()`
+ * produces a `pipe` whose INPUT side is the original schema — we recurse into
+ * `.in` so `record.transform(...)` is detected as a record while
+ * `string.pipe(...)` (string input) is correctly left alone (mt#2482 R1).
+ */
+function structuredZodType(schema: z.ZodType): "record" | "object" | undefined {
+  const schemaType = (schema as { type?: string }).type;
+  if (schemaType === "record" || schemaType === "object") return schemaType;
+  if (schemaType === "optional" || schemaType === "nullable") {
+    return structuredZodType((schema as z.ZodOptional | z.ZodNullable).unwrap() as z.ZodType);
+  }
+  if (schemaType === "default") {
+    return structuredZodType((schema as z.ZodDefault).removeDefault() as z.ZodType);
+  }
+  if (schemaType === "pipe") {
+    // A.pipe(B) and X.transform() are both `pipe`; the CLI value must match the
+    // INPUT side. `.in` is the public ZodPipe input accessor in zod v4.
+    const inSchema = (schema as z.ZodPipe).in as z.ZodType | undefined;
+    return inSchema ? structuredZodType(inSchema) : undefined;
+  }
+  return undefined;
+}
+
+/**
  * Create parameter mappings from a CommandParameterMap
  */
 export function createParameterMappings(
@@ -271,9 +310,28 @@ export function normalizeCliParameters(
       // Error for required parameters without default
       throw new Error(`Required parameter '${paramName}' is missing`);
     } else {
+      // Record/object params have no scalar CLI representation: a `--flag
+      // '<json>'` value arrives as a raw JSON string. JSON.parse it before
+      // schema validation, otherwise `schema.parse("<string>")` fails with
+      // "expected record, received string" (mt#2482). A non-string value
+      // (e.g. an object passed via the in-process/MCP path) is left as-is.
+      // Done OUTSIDE the validation try below so its error isn't re-wrapped.
+      let valueToParse = rawValue;
+      const structured = structuredZodType(paramDef.schema as z.ZodType);
+      if (structured && typeof rawValue === "string") {
+        try {
+          valueToParse = JSON.parse(rawValue);
+        } catch {
+          throw new Error(
+            `Invalid value for parameter '${paramName}': expected a JSON ${structured} ` +
+              `(e.g. '{"key":"value"}'), but the value is not valid JSON: ${rawValue}`
+          );
+        }
+      }
+
       // Parse and validate the value
       try {
-        const parsedValue = paramDef.schema.parse(rawValue);
+        const parsedValue = paramDef.schema.parse(valueToParse);
         result[paramName] = parsedValue;
       } catch (error) {
         // Use user-friendly error formatting for Zod validation errors

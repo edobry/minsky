@@ -282,6 +282,9 @@ export async function createTaskFromParams(
     const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
       force: validParams.force,
       tags: validParams.tags,
+      // Pass backend so the multi-backend service routes to the caller's requested backend
+      // instead of silently using the wrong default when the preferred backend is down (mt#2572 Bug 4).
+      backend: validParams.backend,
     });
 
     // Auto-commit functionality was removed - no backend-specific handling needed
@@ -341,7 +344,12 @@ export async function createTaskFromTitleAndSpec(
   const specContent = validParams.spec || "";
 
   // Create the task from title and spec
-  const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent);
+  const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
+    force: validParams.force,
+    // Forward backend so the multi-backend service routes to the caller's requested backend
+    // on this command-layer path too (not just createTaskFromParams) — mt#2572 Bug 4, R1.
+    backend: validParams.backend,
+  });
 
   return task;
 }

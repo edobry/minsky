@@ -291,10 +291,15 @@ Husky runs a TypeScript pre-commit hook (`src/hooks/pre-commit.ts`) that enforce
 quality gates in order from fastest to slowest:
 
 1. **Code formatting** — Prettier via lint-staged (staged files only, ~1s)
-2. **Console usage validation** — catches bare `console.log` in non-test code (~1s)
+2. **Completion-manifest regeneration** — runs `bun run build:completion-manifest`
+   and re-stages `src/generated/completion-manifest.json` if it changed (~1s). Unlike
+   the compile-staleness checks below, this step auto-fixes and re-stages instead of
+   blocking — the manifest is a mechanically derived structural artifact with no
+   editorial content, so there is nothing for a contributor to manually remediate.
 3. **Variable naming check** — underscore prefix mismatch detection (~1s)
 4. **TypeScript type checking** — `tsgo --noEmit` (~1.5s)
-5. **ESLint** — full lint with zero-error gate (~5–10s)
+5. **ESLint** — full lint with zero-error gate (~5–10s); console-usage rules
+   (`custom/no-raw-console`) are enforced here, not as a standalone pass
 6. **Secret scanning** — gitleaks (~2–3s)
 7. **Unit tests** — full test suite (~15–30s)
 8. **ESLint rule tests** — tests for the custom lint rules

@@ -257,6 +257,12 @@ function makeClaudeSkillsTarget(
     // .claude/skills/ contains both compiled and hand-authored SKILL.md files
     // (the hand-authored ones are the existing Claude Code skills in this repo).
     // Skip orphan detection so --check doesn't flag them as stale.
+    //
+    // Compiled output is emitted verbatim (NOT Prettier-formatted). To avoid a
+    // lint-staged-vs-compile-staleness deadlock when a source uses Prettier-
+    // divergent markdown, `.claude/skills/` is Prettier-ignored (see .prettierignore
+    // / mt#2555); this compile-check guard is the sole authority for compiled-skill
+    // staleness.
     sharedOutputDirectory: true,
 
     defaultOutputPath(workspacePath: string): string {

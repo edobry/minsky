@@ -23,6 +23,7 @@ const COL_ITERATION_INDEX = "iterationIndex";
 const COL_PRIOR_BLOCKER_COUNT = "priorBlockerCount";
 const COL_NEW_BLOCKER_COUNT = "newBlockerCount";
 const COL_ACKNOWLEDGED_COUNT = "acknowledgedAddressedCount";
+const COL_HEAD_REF = "headRef";
 
 // ---------------------------------------------------------------------------
 // Minimal fake DB that records insert calls.
@@ -67,6 +68,7 @@ const SAMPLE_INPUT: ConvergenceMetricInput = {
   priorBlockerCount: 3,
   newBlockerCount: 1,
   acknowledgedAddressedCount: 2,
+  headRef: "task/mt-2076",
 };
 
 // ---------------------------------------------------------------------------
@@ -74,7 +76,7 @@ const SAMPLE_INPUT: ConvergenceMetricInput = {
 // ---------------------------------------------------------------------------
 
 describe("recordConvergenceMetric - happy path", () => {
-  test("calls db.insert and passes all 8 column values correctly", async () => {
+  test("calls db.insert and passes all 9 column values correctly", async () => {
     const captured: InsertValues[] = [];
     const db = makeFakeDb((values) => captured.push(values));
 
@@ -91,12 +93,37 @@ describe("recordConvergenceMetric - happy path", () => {
     expect(row[COL_PRIOR_BLOCKER_COUNT]).toBe(3);
     expect(row[COL_NEW_BLOCKER_COUNT]).toBe(1);
     expect(row[COL_ACKNOWLEDGED_COUNT]).toBe(2);
+    // head_ref written when provided (mt#2076 — mesh-linkage field)
+    expect(row[COL_HEAD_REF]).toBe("task/mt-2076");
   });
 
   test("resolves without returning a value (void)", async () => {
     const db = makeFakeDb(() => {});
     const result = await recordConvergenceMetric(db, SAMPLE_INPUT);
     expect(result).toBeUndefined();
+  });
+
+  test("writes headRef: null when the field is omitted (back-compat)", async () => {
+    const captured: InsertValues[] = [];
+    const db = makeFakeDb((values) => captured.push(values));
+
+    // Input without headRef — should coerce to null in the insert payload
+    const inputWithoutHeadRef: ConvergenceMetricInput = {
+      prOwner: "edobry",
+      prRepo: "minsky",
+      prNumber: 770,
+      headSha: "def456abc123",
+      iterationIndex: 1,
+      priorBlockerCount: 0,
+      newBlockerCount: 0,
+      acknowledgedAddressedCount: 0,
+    };
+
+    await recordConvergenceMetric(db, inputWithoutHeadRef);
+
+    const row = captured[0];
+    if (row === undefined) throw new Error("expected a captured row");
+    expect(row[COL_HEAD_REF]).toBeNull();
   });
 
   test("passes zeroed counts correctly (first iteration with no prior reviews)", async () => {
@@ -170,9 +197,11 @@ describe("recordConvergenceMetric - payload column names", () => {
 
     // Verify the exact keys passed to .values() — these must match the
     // ConvergenceMetricInsert type inferred from the Drizzle schema.
+    // Now includes headRef (mt#2076 — additive nullable column for mesh-linkage).
     const keys = Object.keys(row).sort();
     expect(keys).toEqual([
       COL_ACKNOWLEDGED_COUNT,
+      COL_HEAD_REF,
       COL_HEAD_SHA,
       COL_ITERATION_INDEX,
       COL_NEW_BLOCKER_COUNT,

@@ -45,7 +45,86 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "pr.merged",
   "subagent.completed",
   "session.started",
+  // mt#2489 (plant board v2.1) — DB-resident domain events
+  "memory.created",
+  "ask.answered",
+  // mt#2537 (plant board v2.1 — hard cross-process bridges) — informational,
+  // each backed by a non-DB-resident source bridged into this table. See the
+  // payload-shape doc block below for each type's non-stub invocation path
+  // (CLAUDE.md "Invocation path required for event/poll mechanisms").
+  "changeset.created",
+  "hook.fired",
+  "mcp.disconnect",
+  "retrospective.fired",
+  "deploy.build",
+  "deploy.smoke",
+  "deploy.live",
+  "deploy.fail",
+  "ask.policy_closed",
 ] as const;
+
+/**
+ * Payload shapes for the mt#2489 plant-board v2.1 event types. The table's
+ * `payload` JSONB is loosely typed as `Record<string, unknown>`; these are the
+ * concrete shapes the producers emit (see `system-event-emit.ts`):
+ *
+ *   - `memory.created` → `{ memoryId: string; memoryType: string; scope: string }`
+ *       emitted by the `memory.create` command after the record is persisted.
+ *   - `ask.answered`   → `{ askId: string; responder: string | null }`
+ *       emitted by the `asks.respond` command after the Ask is answered + closed.
+ *
+ * Payload shapes for the mt#2537 plant-board v2.1 "hard bridge" event types
+ * (each sourced from a non-DB-resident producer — see the cited emit site for
+ * the concrete non-stub invocation path):
+ *
+ *   - `changeset.created` → `{ prNumber: number; taskId?: string; title?: string }`
+ *       emitted from the `session_pr_create` seam
+ *       (`packages/domain/src/session/session-pr-operations.ts`), mirroring the
+ *       `pr.merged` emit in `session-merge-operations.ts` (mt#2487).
+ *   - `hook.fired` → `{ hook: string; decision: "blocked" | "overridden"; subject?: string }`
+ *       emitted from the shared `writeOutput()` deny path in
+ *       `.claude/hooks/types.ts` (mt#2537). v1 covers `decision: "blocked"`
+ *       only — "overridden" audit lines are per-hook free-text stdout writes
+ *       with no shared choke point and are deferred (see PR body).
+ *   - `mcp.disconnect` → `{ cause: string; serverName: string; uptimeMs?: number; processRole?: string }`
+ *       emitted by a boot-time sweep of the disconnect-tracker JSONL
+ *       (`src/mcp/disconnect-tracker.ts`) run from `src/mcp/server.ts`,
+ *       HWM-gated by timestamp so repeated sweeps don't double-emit.
+ *   - `retrospective.fired` → `{ note: string; taskId?: string }`
+ *       emitted via the CLI path (`minsky events emit retrospective.fired`)
+ *       from the `/retrospective` skill's structural-fix step.
+ *   - `deploy.live` / `deploy.fail` → `{ phase: "live" | "fail"; service?: string; status: string }`
+ *       emitted from the `deployment_wait-for-latest` observation path
+ *       (`packages/domain/src/deployment/`, mapped by `mapDeploymentRecordToEvent`
+ *       in `src/adapters/shared/commands/deployment.ts`) once the deployment
+ *       reaches a terminal status.
+ *   - `deploy.build` → `{ phase: "build"; service?: string; status: "BUILDING" }`
+ *       (mt#2599) emitted from the SAME `deployment_wait-for-latest` execute
+ *       handler via a `WaitForLatestOptions.onStatusObserved` progress
+ *       callback (`makeDeployBuildObserver` in `deployment.ts`) threaded
+ *       through `RailwayDeploymentAdapter.waitForLatestDeployment`
+ *       (`packages/domain/src/deployment/railway/adapter.ts`), which invokes
+ *       it on every observed poll — non-terminal statuses included. Fires
+ *       once per wait call, on the first observed `BUILDING` status.
+ *   - `deploy.smoke` → `{ phase: "smoke"; sha: string; status: "success" | "failure" }`
+ *       (mt#2599) emitted by a periodic cockpit sweeper
+ *       (`startDeploySmokeSweeper` in `src/cockpit/sweepers.ts`, delegating to
+ *       `triggerDeploySmokeSweep` in `src/cockpit/deploy-smoke-sweep.ts`) that
+ *       polls the GitHub Checks API for the `bundle-boot-smoke` check-run
+ *       (CLAUDE.md `§Bundle-Boot Smoke Gate`) on the cockpit process's own
+ *       deployed commit (`RAILWAY_GIT_COMMIT_SHA`). This is a poll, not a
+ *       webhook — see that module's doc block for why (no webhook-receiver
+ *       surface is in scope for this bridge; see mt#2599's hard boundary on
+ *       `services/reviewer/**`).
+ *   - `ask.policy_closed` → `{ askId: string; kind: string; citationSource: string;
+ *       citationLines?: [number, number]; title: string }`
+ *       (mt#2666) emitted by the `asks.create` command layer when the
+ *       policy-first router closes an Ask at creation (phase-1 coverage,
+ *       `routingTarget: "policy"`). Audit surfacing for the closure class
+ *       that previously lived only in a `log.debug` nobody consumed — the
+ *       c26eca0a incident (a disposition Ask silently policy-closed with an
+ *       irrelevant citation) was indistinguishable from a missing record.
+ */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
 
@@ -81,6 +160,17 @@ export const eventCategory = {
   "pr.merged": "informational",
   "subagent.completed": "informational",
   "session.started": "informational",
+  "memory.created": "informational",
+  "ask.answered": "informational",
+  "changeset.created": "informational",
+  "hook.fired": "informational",
+  "mcp.disconnect": "informational",
+  "retrospective.fired": "informational",
+  "deploy.build": "informational",
+  "deploy.smoke": "informational",
+  "deploy.live": "informational",
+  "deploy.fail": "informational",
+  "ask.policy_closed": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */
@@ -108,7 +198,7 @@ export const systemEventsTable = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
 
     /**
-     * Event type enum — exactly the 4 values defined in SYSTEM_EVENT_TYPE_VALUES.
+     * Event type enum — exactly the values defined in SYSTEM_EVENT_TYPE_VALUES.
      * Enforced at DB level via pgEnum.
      */
     eventType: systemEventTypeEnum("event_type").notNull(),
@@ -129,6 +219,12 @@ export const systemEventsTable = pgTable(
      * pr.merged:                      { prUrl, prNumber, taskId? }
      * subagent.completed:             { agentType, taskId, outcome? }
      * session.started:                { sessionId, taskId? }
+     * changeset.created:              { prNumber, taskId?, title? }
+     * hook.fired:                     { hook, decision, subject? }
+     * mcp.disconnect:                 { cause, serverName, uptimeMs?, processRole? }
+     * retrospective.fired:            { note, taskId? }
+     * deploy.build/live/fail:         { phase, service?, status }
+     * deploy.smoke:                   { phase, sha, status }
      */
     payload: jsonb("payload").notNull(),
 

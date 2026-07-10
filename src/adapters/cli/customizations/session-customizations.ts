@@ -322,6 +322,11 @@ export function getSessionCustomizations(): {
             createDirs: {
               description: "Create parent directories if they don't exist",
             },
+            fullReplace: {
+              description:
+                "Override the marker-less fail-closed guard (mt#2400) to intentionally " +
+                "replace an existing file's entire content",
+            },
             json: {
               description: "Output in JSON format",
             },

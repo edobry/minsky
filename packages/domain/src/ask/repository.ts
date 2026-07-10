@@ -25,8 +25,9 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
-import type { Ask, AskState, AskKind, AgentId } from "./types";
+import type { Ask, AskState, AskKind, AgentId, AttentionCost } from "./types";
 import { guardTransition, isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } from "./state-machine";
+import { isAllProjects, type ProjectScope } from "../project/scope";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -50,6 +51,7 @@ export function toAsk(row: AskRecord): Ask {
     routingTarget: row.routingTarget ?? undefined,
     parentTaskId: row.parentTaskId ?? undefined,
     parentSessionId: row.parentSessionId ?? undefined,
+    projectId: row.projectId ?? undefined,
     title: row.title,
     question: row.question,
     options: row.options ?? undefined,
@@ -79,6 +81,12 @@ export function toAsk(row: AskRecord): Ask {
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
 function toInsert(input: CreateAskInput): AskInsert {
+  // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
+  // deferral from mt#2416). The resolved project uuid is threaded in via
+  // CreateAskInput.projectId (resolved at the asks.create execute callsite,
+  // mirroring how asks.list resolves the read-side scope). NULL when the
+  // project is unidentified (hosted server / cockpit daemon, no single-repo
+  // cwd) — an unscoped Ask, consistent with read-side fail-open.
   return {
     kind: input.kind,
     classifierVersion: input.classifierVersion,
@@ -87,6 +95,7 @@ function toInsert(input: CreateAskInput): AskInsert {
     routingTarget: input.routingTarget ?? null,
     parentTaskId: input.parentTaskId ?? null,
     parentSessionId: input.parentSessionId ?? null,
+    projectId: input.projectId ?? null,
     title: input.title,
     question: input.question,
     options: input.options ?? null,
@@ -114,6 +123,13 @@ export interface CreateAskInput {
   routingTarget?: Ask["routingTarget"];
   parentTaskId?: string;
   parentSessionId?: string;
+  /**
+   * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). Omitted
+   * when the project is unidentified — the Ask is then unscoped (NULL). Resolved
+   * at the `asks.create` execute callsite via the same path `asks.list` uses for
+   * read-side scoping.
+   */
+  projectId?: string;
   title: string;
   question: string;
   options?: Ask["options"];
@@ -140,6 +156,25 @@ export interface RespondAskInput {
   response: NonNullable<Ask["response"]>;
 }
 
+/**
+ * Editable content fields on an Ask (mt#2668).
+ *
+ * Only content-bearing fields are editable — lifecycle state, routing fields,
+ * and service-window fields are owned by their respective mechanisms (state
+ * machine, router, reaper) and are NOT reachable through `updateContent`.
+ *
+ * `metadata` here is the FINAL metadata object to persist — callers that want
+ * merge semantics (e.g. `editAskContent` in edit.ts) compute the merged object
+ * before calling the repository.
+ */
+export interface EditAskFields {
+  title?: string;
+  question?: string;
+  options?: Ask["options"];
+  contextRefs?: Ask["contextRefs"];
+  metadata?: Record<string, unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // AskRepository interface
 // ---------------------------------------------------------------------------
@@ -163,8 +198,12 @@ export interface AskRepository {
   /** List all Asks whose `parentSessionId` matches the given session ID. */
   listByParentSession(sessionId: string): Promise<Ask[]>;
 
-  /** List all Asks currently in the given state. */
-  listByState(state: AskState): Promise<Ask[]>;
+  /**
+   * List all Asks currently in the given state.
+   * When `projectScope` is a uuid, filters to Asks belonging to that project.
+   * When omitted or ALL_PROJECTS, returns cross-project rows (ADR-021, mt#2416).
+   */
+  listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]>;
 
   /** List all Asks produced by the given classifier version. */
   listByClassifierVersion(version: string): Promise<Ask[]>;
@@ -305,6 +344,33 @@ export interface AskRepository {
   updateRoutingTarget(id: string, target: string): Promise<Ask>;
 
   /**
+   * Persist edited content fields on a non-terminal Ask (mt#2668).
+   *
+   * Does NOT enforce the state machine and MUST NOT change `state` — this is
+   * a field-level content update (same family as `updateWindowMissedCount` /
+   * `updateRoutingTarget`), so a suspended Ask stays suspended and stays in
+   * the operator queue.
+   *
+   * Atomicity guarantee (Drizzle): optimistic-concurrency
+   * `WHERE id = ? AND state NOT IN (closed, cancelled, expired)`. If the Ask
+   * reached a terminal state between the caller's read and this write, the
+   * update matches zero rows and an `Error` naming the observed terminal
+   * state is thrown — terminal asks are never edited.
+   *
+   * Note: the read-merge-write on `metadata` performed by callers (edit.ts)
+   * is NOT protected against concurrent metadata writers — acceptable for
+   * the rare-edit cadence this surface serves; revisit with a jsonb-append
+   * UPDATE if concurrent editors become real.
+   *
+   * @param id     Primary key of the Ask to update.
+   * @param fields Content fields to persist (at least one must be present).
+   * @returns      The updated Ask.
+   * @throws       `Error` — Ask not found, Ask in terminal state, or no
+   *               fields provided.
+   */
+  updateContent(id: string, fields: EditAskFields): Promise<Ask>;
+
+  /**
    * Atomically persist a router outcome on a pre-routing Ask (mt#2265).
    *
    * The router (`policyFirstRoute`) computes its result in memory; this
@@ -415,6 +481,113 @@ export class ConcurrentTransitionError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// respondAndCloseAsk — shared suspended -> closed walk (mt#2615)
+// ---------------------------------------------------------------------------
+
+/** Params accepted by {@link respondAndCloseAsk}. */
+export interface RespondAndCloseAskParams {
+  /** Primary key of the Ask to respond to and close. */
+  id: string;
+  /** AgentId or `"operator"` identifier; defaults to `"operator"` when absent/blank. */
+  responder?: string;
+  /**
+   * Kind-specific response payload. Deliberately `unknown` — callers own
+   * their own payload shape (a plain `{ message }` wrapper for the CLI/MCP
+   * `respondToAsk` surface in `asks.ts`; a structured `{ option, chosen }` /
+   * `{ approved }` shape for the cockpit UI's resolve endpoint). This
+   * function does not interpret payload contents.
+   */
+  payload: unknown;
+  /**
+   * Attention cost recorded on close. Callers MUST compute this themselves
+   * (server-side for HTTP surfaces) rather than trusting untrusted input —
+   * this function does not validate or default it beyond passing it through.
+   */
+  attentionCost?: AttentionCost;
+}
+
+/**
+ * Shared suspended -> closed walk used by both `respondToAsk`
+ * (`src/adapters/shared/commands/asks.ts` — the plain-message CLI/MCP
+ * surface) and the cockpit `POST /api/asks/:id/resolve` route (the
+ * structured-payload UI surface). Extracted (mt#2615) so both callers share
+ * ONE suspended-state precondition check, ONE responder-trim rule, and ONE
+ * `ConcurrentTransitionError` handling path instead of two independently
+ * maintained implementations.
+ *
+ * Precondition: the Ask must exist and be in `"suspended"` state — earlier
+ * states (detected/classified/routed) mean no transport has dispatched yet;
+ * terminal states (closed/cancelled/expired) cannot be responded to again.
+ *
+ * Endpoint-specific policy (e.g. the cockpit resolve route's `routingTarget
+ * === "operator"` algedonic-selection gate, mt#1147 PR #1125 R1) is NOT part
+ * of this shared contract — callers apply their own additional gates before
+ * calling this function.
+ *
+ * @throws `Error` — Ask not found, or in a non-suspended state (including the
+ *         race-normalized message for a concurrent transition that lands the
+ *         Ask in a non-suspended state between the precondition check and
+ *         the atomic update).
+ */
+export async function respondAndCloseAsk(
+  repo: AskRepository,
+  params: RespondAndCloseAskParams
+): Promise<{ ask: Ask }> {
+  if (!params.id || params.id.trim() === "") {
+    throw new Error("respondAndCloseAsk: id is required and must not be empty");
+  }
+
+  const persisted = await repo.getById(params.id);
+  if (!persisted) {
+    throw new Error(`respondAndCloseAsk: Ask not found: ${params.id}`);
+  }
+  if (persisted.state !== "suspended") {
+    throw new Error(
+      `respondAndCloseAsk: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
+        `(detected/classified/routed: no transport has dispatched yet; ` +
+        `closed/cancelled/expired: terminal.)`
+    );
+  }
+
+  // Trim before constructing the payload so every caller (CLI/MCP/cockpit)
+  // sees the same normalized responder identifier.
+  const responder = params.responder?.trim() || "operator";
+
+  // Two-stage response payload, matching the Ask.response contract in
+  // types.ts: `attentionCost` is filled on close only.
+  const respondPayload = {
+    responder,
+    payload: params.payload,
+  };
+  const closePayload = {
+    responder,
+    payload: params.payload,
+    attentionCost: params.attentionCost,
+  };
+
+  // Atomic walk suspended -> closed via the repository's combined operation.
+  // Catch ConcurrentTransitionError and re-throw with the same friendly
+  // not-suspended message the pre-check above uses, so callers see ONE error
+  // shape for "Ask is not in suspended state" regardless of cause.
+  try {
+    const closed = await repo.respondAndClose(
+      params.id,
+      { response: respondPayload },
+      { response: closePayload }
+    );
+    return { ask: closed };
+  } catch (err) {
+    if (err instanceof ConcurrentTransitionError) {
+      throw new Error(
+        `respondAndCloseAsk: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
+          `(Concurrent actor transitioned the Ask between read and write.)`
+      );
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // DrizzleAskRepository — Postgres implementation
 // ---------------------------------------------------------------------------
 
@@ -456,8 +629,17 @@ export class DrizzleAskRepository implements AskRepository {
     return rows.map(toAsk);
   }
 
-  async listByState(state: AskState): Promise<Ask[]> {
-    const rows = await this.db.select().from(asksTable).where(eq(asksTable.state, state));
+  async listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [eq(asksTable.state, state)];
+    // Project scope filter (ADR-021, mt#2416)
+    if (projectScope && !isAllProjects(projectScope)) {
+      conditions.push(eq(asksTable.projectId, projectScope));
+    }
+    const rows = await this.db
+      .select()
+      .from(asksTable)
+      .where(conditions.length === 1 ? conditions[0] : and(...conditions));
     return rows.map(toAsk);
   }
 
@@ -675,6 +857,46 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async updateContent(id: string, fields: EditAskFields): Promise<Ask> {
+    const updates: Partial<AskInsert> = {};
+    if (fields.title !== undefined) updates.title = fields.title;
+    if (fields.question !== undefined) updates.question = fields.question;
+    if (fields.options !== undefined) updates.options = fields.options as AskInsert["options"];
+    if (fields.contextRefs !== undefined) {
+      updates.contextRefs = fields.contextRefs as AskInsert["contextRefs"];
+    }
+    if (fields.metadata !== undefined) updates.metadata = fields.metadata;
+    if (Object.keys(updates).length === 0) {
+      throw new Error(`Ask updateContent: no fields to update for ${id}`);
+    }
+
+    // Optimistic concurrency: only touch a row that is still non-terminal.
+    // MUST NOT change `state` — see the interface contract (mt#2668).
+    const rows = await this.db
+      .update(asksTable)
+      .set(updates)
+      .where(
+        and(eq(asksTable.id, id), notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[]))
+      )
+      .returning();
+
+    if (rows.length === 0) {
+      // Disambiguate: not-found vs. terminal-state.
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — content edits are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateContent returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
   async persistRouteOutcome(id: string, outcome: RouteOutcomeWrite): Promise<Ask> {
     // Validate the logical walk against the state-machine table first.
     guardRouteOutcomeWalk(outcome.state);
@@ -784,6 +1006,7 @@ export class FakeAskRepository implements AskRepository {
       routingTarget: input.routingTarget,
       parentTaskId: input.parentTaskId,
       parentSessionId: input.parentSessionId,
+      projectId: input.projectId,
       title: input.title,
       question: input.question,
       options: input.options,
@@ -815,8 +1038,15 @@ export class FakeAskRepository implements AskRepository {
     return this.all.filter((a) => a.parentSessionId === sessionId).map((a) => ({ ...a }));
   }
 
-  async listByState(state: AskState): Promise<Ask[]> {
-    return this.all.filter((a) => a.state === state).map((a) => ({ ...a }));
+  async listByState(state: AskState, projectScope?: ProjectScope): Promise<Ask[]> {
+    // Project-scope filter (ADR-021, mt#2563) — faithful to the Drizzle backend:
+    // when projectScope is a uuid (not ALL_PROJECTS / undefined), restrict to
+    // Asks stamped with that project_id. Unscoped Asks (projectId undefined) are
+    // excluded from a uuid-scoped read, matching the SQL `project_id = scope`.
+    const scoped = projectScope !== undefined && !isAllProjects(projectScope);
+    return this.all
+      .filter((a) => a.state === state && (!scoped || a.projectId === projectScope))
+      .map((a) => ({ ...a }));
   }
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {
@@ -961,6 +1191,48 @@ export class FakeAskRepository implements AskRepository {
     }
 
     const updated: Ask = { ...existing, routingTarget: target };
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateContent(id: string, fields: EditAskFields): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    // Mirror the Drizzle backend's non-terminal guard.
+    if (isTerminal(existing.state)) {
+      throw new Error(
+        `Ask ${id} is in terminal state "${existing.state}" — content edits are not allowed on closed/cancelled/expired asks.`
+      );
+    }
+
+    const updated: Ask = { ...existing };
+    let touched = false;
+    if (fields.title !== undefined) {
+      updated.title = fields.title;
+      touched = true;
+    }
+    if (fields.question !== undefined) {
+      updated.question = fields.question;
+      touched = true;
+    }
+    if (fields.options !== undefined) {
+      updated.options = fields.options;
+      touched = true;
+    }
+    if (fields.contextRefs !== undefined) {
+      updated.contextRefs = fields.contextRefs;
+      touched = true;
+    }
+    if (fields.metadata !== undefined) {
+      updated.metadata = fields.metadata;
+      touched = true;
+    }
+    if (!touched) {
+      throw new Error(`Ask updateContent: no fields to update for ${id}`);
+    }
+
     this.store.set(id, updated);
     return { ...updated };
   }

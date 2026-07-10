@@ -33,6 +33,12 @@ import type {
   TranscriptTurnResult,
   TranscriptSessionResult,
 } from "@minsky/domain/transcripts/transcript-similarity-service";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -54,10 +60,11 @@ export function registerTranscriptSimilarCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "similar",
     description:
-      "Find transcript turns or sessions similar to a known seed. " +
+      "Find transcript turns or conversations similar to a known seed. " +
       "Pass --turnId=<agentSessionId>:<turnIndex> to find similar turns, " +
-      "or --sessionId=<uuid> to find similar sessions by summary embedding. " +
-      "Exactly one of turnId or sessionId must be provided.",
+      "or --conversationId=<uuid> to find similar conversations by summary embedding " +
+      "(--sessionId is a deprecated alias). " +
+      "Exactly one of turnId or conversationId must be provided.",
     parameters: {
       turnId: {
         schema: z.string(),
@@ -65,11 +72,10 @@ export function registerTranscriptSimilarCommand(
           'Composite turn key "<agentSessionId>:<turnIndex>" — find turns similar to this seed turn',
         required: false,
       },
-      sessionId: {
-        schema: z.string(),
-        description: "Agent session UUID — find sessions similar to this seed session",
-        required: false,
-      },
+      conversationId: conversationIdParam(
+        "Harness conversation id (agent-session UUID) — find conversations similar to this seed"
+      ),
+      sessionId: deprecatedConversationAlias("sessionId"),
       limit: {
         schema: z.number().int().positive(),
         description: "Maximum number of results to return (default 10)",
@@ -80,21 +86,21 @@ export function registerTranscriptSimilarCommand(
 
     async execute(params, context): Promise<TranscriptTurnResult[] | TranscriptSessionResult[]> {
       const turnId = params.turnId as string | undefined;
-      const sessionId = params.sessionId as string | undefined;
+      const sessionId = resolveConversationId(params);
       const limit = (params.limit as number | undefined) ?? 10;
 
-      // ── Validate: exactly one of turnId / sessionId required ─────────────
+      // ── Validate: exactly one of turnId / conversationId required ────────
       if (!turnId && !sessionId) {
         throw new Error(
-          "transcripts.similar requires exactly one of --turnId or --sessionId. " +
+          "transcripts.similar requires exactly one of --turnId or --conversationId. " +
             "Pass --turnId=<agentSessionId>:<turnIndex> to find similar turns, " +
-            "or --sessionId=<uuid> to find similar sessions."
+            "or --conversationId=<uuid> to find similar conversations."
         );
       }
       if (turnId && sessionId) {
         throw new Error(
-          "transcripts.similar accepts only one of --turnId or --sessionId, not both. " +
-            "Pass --turnId to search by turn, or --sessionId to search by session."
+          "transcripts.similar accepts only one of --turnId or --conversationId, not both. " +
+            "Pass --turnId to search by turn, or --conversationId to search by conversation."
         );
       }
 
@@ -145,7 +151,7 @@ export function registerTranscriptSimilarCommand(
       }
 
       // sessionId is set (validated above)
-      const results = await svc.findSimilarSession(sessionId as string, { limit });
+      const results = await svc.findSimilarSession(sessionId as AgentSessionId, { limit });
       log.debug("transcripts.similar (session) complete", {
         sessionId,
         resultCount: results.length,

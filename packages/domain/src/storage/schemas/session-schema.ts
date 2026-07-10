@@ -12,13 +12,16 @@ import {
   timestamp,
   text as pgText,
   integer as pgInteger,
+  uuid,
 } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
+import { projectsTable } from "./projects-schema";
+import type { WorkspaceId } from "../../ids";
 
 // PostgreSQL Schema
 export const postgresSessions = pgTable("sessions", {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  sessionId: varchar("session", { length: 255 })!.primaryKey(),
+  sessionId: varchar("session", { length: 255 })!.primaryKey().$type<WorkspaceId>(),
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   repoName: varchar("repo_name", { length: 255 })!.notNull(),
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
@@ -42,6 +45,11 @@ export const postgresSessions = pgTable("sessions", {
   commitCount: pgInteger("commit_count"),
   status: pgText("status"),
   agentId: pgText("agent_id"),
+
+  // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
+  // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
+  // canonical; repo_name/repo_url here stay as a denormalized cache.
+  projectId: uuid("project_id").references(() => projectsTable.id),
 });
 
 // Type exports for better type inference
@@ -83,7 +91,7 @@ function coerceToDate(input: unknown): Date {
  */
 export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
   return {
-    sessionId: record.sessionId,
+    sessionId: record.sessionId as WorkspaceId,
     repoName: record.repoName,
     repoUrl: record.repoUrl || "",
     createdAt: coerceToDate(record.createdAt),
@@ -105,6 +113,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     commitCount: record.commitCount ?? null,
     status: record.status || null,
     agentId: record.agentId || null,
+
+    // Project scoping (mt#2415 / mt#2416)
+    projectId: record.projectId ?? null,
   };
 }
 
@@ -135,5 +146,8 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     commitCount: record.commitCount ?? undefined,
     status: (record.status || undefined) as import("../../session/types").SessionStatus | undefined,
     agentId: record.agentId || undefined,
+
+    // Project scoping (mt#2415 / mt#2416)
+    projectId: record.projectId ?? undefined,
   };
 }

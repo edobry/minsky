@@ -233,6 +233,17 @@ export interface Ask {
    */
   parentSessionId?: string;
 
+  /**
+   * Project scope (ADR-021, mt#2391 / mt#2563).
+   *
+   * The uuid of the `projects` row this Ask belongs to. Stamped at create time
+   * from the resolved project identity (cwd → slug → `projects.id`), mirroring
+   * how `asks.list` resolves the read-side scope filter. Absent (NULL) when the
+   * project is unidentified — e.g. the hosted server / cockpit daemon with no
+   * single-repo cwd — in which case the Ask is unscoped.
+   */
+  projectId?: string;
+
   /** Short summary line used for list rendering and notifications. */
   title: string;
 

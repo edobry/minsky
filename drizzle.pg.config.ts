@@ -48,6 +48,7 @@ function getPostgresConnectionString(): string {
 
 export default {
   schema: [
+    "./packages/domain/src/storage/schemas/projects-schema.ts",
     "./packages/domain/src/storage/schemas/session-schema.ts",
     "./packages/domain/src/storage/schemas/task-embeddings.ts",
     "./packages/domain/src/storage/schemas/rule-embeddings.ts",
@@ -67,6 +68,7 @@ export default {
     "./packages/domain/src/storage/schemas/wake-pending-schema.ts",
     "./packages/domain/src/storage/schemas/system-events-schema.ts",
     "./packages/domain/src/detectors/dismissal-store.ts",
+    "./packages/domain/src/storage/schemas/presence-claims-schema.ts",
   ],
   out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",

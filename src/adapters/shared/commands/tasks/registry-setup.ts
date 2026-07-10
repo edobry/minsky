@@ -153,6 +153,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksEstimateCommand,
     createTasksAnalyzeCommand,
   } = require("./context-commands");
+  const { createTasksClaimsListCommand } = require("./claims-command");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
@@ -207,5 +208,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDecomposeCommand(getTaskGraphService, getTaskService),
     createTasksEstimateCommand(getTaskGraphService, getTaskService),
     createTasksAnalyzeCommand(getTaskGraphService, getTaskService),
+    // Presence/claim commands (mt#2562)
+    createTasksClaimsListCommand(getPersistenceProvider),
   ];
 }

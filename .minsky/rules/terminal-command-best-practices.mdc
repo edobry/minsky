@@ -98,6 +98,44 @@ bun run lint:strict 2>&1 | tail -n 20
 bun run format:check 2>&1 | tail -n 20
 ```
 
+## Bulk / loop commands
+
+When running a command **in a loop over many items** (bulk close, bulk kill, bulk
+rename, per-file checks) whose per-item pass/fail you must read, the §Verification
+Commands interpretability discipline applies — plus two shell-mechanics traps
+specific to iteration:
+
+1. **Never `>/dev/null` a per-item command in a loop whose result you must read.**
+   Per-iteration suppression turns "3 of 40 failed" into a silent "done" and forces
+   a full re-run to discover which item failed. Append each outcome to a log and read
+   it, or echo a running tally:
+
+   **❌ Problematic (per-item result suppressed):**
+   ```bash
+   for id in $ids; do gh issue close "$id" >/dev/null 2>&1; done
+   ```
+
+   **✅ Preferred (tally + log, results readable):**
+   ```bash
+   ok=0; fail=0; : >/tmp/close.err   # pre-create the log so the final cat never errors on a clean run
+   for id in ${(f)ids}; do
+     if gh issue close "$id" 2>>/tmp/close.err; then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $id" >>/tmp/close.err; fi
+   done
+   echo "closed=$ok failed=$fail"; cat /tmp/close.err
+   ```
+
+2. **In zsh, `for x in $VAR` does NOT word-split a multiline string.** Unlike bash,
+   zsh does not split unquoted parameter expansions on whitespace/newlines, so
+   `for x in $VAR` over a multiline blob runs the body **once** with the whole blob
+   as a single `x` — e.g. `kill $pids` over a newline-separated list becomes
+   `illegal pid: 2534\n3637\n…`. Iterate by line explicitly: `for x in ${(f)VAR}`
+   (split on newlines) or `printf '%s\n' "$VAR" | while IFS= read -r x; do … done`.
+
+3. **A loop that fails where the standalone succeeds is a loop-construct bug, not a
+   sandbox/permission problem.** If `gh issue close 123` works alone but the loop
+   "does nothing" or reports one bizarre error, suspect word-splitting / the iteration
+   construct (point 2) before blaming permissions, auth, or the sandbox.
+
 ## Rationale
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.

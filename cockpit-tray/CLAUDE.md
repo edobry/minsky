@@ -19,6 +19,8 @@ cd cockpit-tray && bun install && bun run dev   # tauri dev: rebuild + relaunch 
 
 `cockpit-tray/` is a standalone package (not in the root bun workspace) — run `bun install` from inside it. `cargo check` proves it compiles, NOT that the GUI works; verify a UI change with `bun run dev` + a manual click (there is no headless WKWebView e2e — mt#2226).
 
+**Deep-link / `minsky://` scheme changes are the exception:** `tauri dev` cannot test them (macOS registers schemes from `Info.plist` at install time, not at runtime). Use the lean installer — `cockpit-tray/scripts/install-local.sh` builds APP-ONLY (`tauri build --bundles app`, no DMG / no installer-window popup), installs to `/Applications`, and registers the scheme — then `cockpit-tray/scripts/verify-deeplink-hotstart.sh`. Do NOT use a full `bun run build` for deep-link verification (it rebuilds the DMG and flashes the installer window each time — mt#2553).
+
 ## Cross-references
 
 - `cockpit-tray/README.md` — detailed reference. `cockpit-tray-dev` skill — agent mental model.

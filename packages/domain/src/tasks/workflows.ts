@@ -12,10 +12,13 @@
  * v1 kinds:
  *   - "implementation" — the existing state machine, encoded as data.
  *   - "umbrella" — simpler lifecycle for epic/metadata tasks that complete without a PR.
+ *   - "state-ops" — no-code / pure-state tasks (triage sweeps, config-only ops, decision
+ *     records) that terminate at COMPLETED without a session or a PR (mt#2661).
  *
  * Cross-references:
  *   - mt#1812 — originating task
  *   - mt#1768 — originating incident (Cockpit bundle umbrella)
+ *   - mt#2661 — "state-ops" kind (no-code tasks cannot terminate honestly)
  *   - docs/task-kinds.md — narrative documentation
  *   - CLAUDE.md §Task Lifecycle — overview of the current state machine
  */
@@ -107,8 +110,11 @@ export interface Workflow {
  *
  * "implementation" — covers all tasks that ship via a PR (the existing state machine).
  * "umbrella"       — covers epic / tracking tasks with no associated PR.
+ * "state-ops"      — covers no-code / pure-state tasks (triage sweeps, config-only ops,
+ *                    decision records) that terminate at COMPLETED without a session
+ *                    or a PR (mt#2661).
  */
-export type TaskKind = "implementation" | "umbrella";
+export type TaskKind = "implementation" | "umbrella" | "state-ops";
 
 // ---------------------------------------------------------------------------
 // Workflow Registry
@@ -249,6 +255,74 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
         stateMap: {
           TODO: "To Do",
           PLANNING: "In Planning",
+          "IN-PROGRESS": "In Progress",
+          COMPLETED: "Done",
+          CLOSED: "Canceled",
+        },
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // "state-ops" — no-code / pure-state tasks (triage sweeps, config-only ops,
+  // decision records) that terminate without a session or a PR (mt#2661).
+  //
+  // States: TODO → PLANNING → READY → IN-PROGRESS → COMPLETED | CLOSED
+  //
+  // Key difference from "implementation": READY → IN-PROGRESS is a LEGAL direct
+  // transition here (not reserved for session_start). The implementation-kind
+  // special cases in status-transitions.ts (READY→IN-PROGRESS via session_start
+  // only; PLANNING→IN-PROGRESS must go through READY) are gated on
+  // `kind === "implementation"` and do NOT apply to state-ops — see mt#2661.
+  //
+  // Key difference from "umbrella": state-ops KEEPS the READY planning gate
+  // (umbrella skips it) because state-ops tasks still go through /plan-task
+  // before work starts; it just doesn't require a session workspace to move
+  // past READY. Terminal state is COMPLETED (same success-terminal semantics
+  // as umbrella): "objective achieved without a PR-merge event."
+  // -------------------------------------------------------------------------
+  "state-ops": {
+    states: ["TODO", "PLANNING", "READY", "IN-PROGRESS", "COMPLETED", "CLOSED"],
+    transitions: {
+      TODO: ["PLANNING", "CLOSED"],
+      PLANNING: ["READY", "TODO", "CLOSED"],
+      READY: ["IN-PROGRESS", "PLANNING", "CLOSED"],
+      "IN-PROGRESS": ["COMPLETED", "PLANNING", "CLOSED"],
+      COMPLETED: ["CLOSED"],
+      CLOSED: ["TODO"],
+    },
+    terminal: ["COMPLETED", "CLOSED"],
+    mappings: {
+      githubIssue: {
+        type: "issue",
+        labels: ["state-ops"],
+        stateMap: {
+          TODO: "open",
+          PLANNING: "open",
+          READY: "open",
+          "IN-PROGRESS": "open",
+          COMPLETED: "closed",
+          CLOSED: "closed",
+        },
+      },
+      linear: {
+        type: "Issue",
+        stateMap: {
+          TODO: "Backlog",
+          PLANNING: "Todo",
+          READY: "Todo",
+          "IN-PROGRESS": "In Progress",
+          COMPLETED: "Done",
+          CLOSED: "Canceled",
+        },
+      },
+      jira: {
+        issueType: "Task",
+        workflowName: "State-Ops Workflow",
+        stateMap: {
+          TODO: "To Do",
+          PLANNING: "In Planning",
+          READY: "Ready",
           "IN-PROGRESS": "In Progress",
           COMPLETED: "Done",
           CLOSED: "Canceled",

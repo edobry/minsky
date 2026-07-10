@@ -1,11 +1,9 @@
 /**
  * Changeset Domain - Unified Abstraction for VCS Changesets
  *
- * Provides platform-agnostic interfaces for different VCS changeset concepts:
- * - GitHub Pull Requests
- * - GitLab Merge Requests
- * - Bitbucket Pull Requests
- * - Gerrit Changes
+ * Provides a platform-agnostic interface for VCS changeset concepts. Only
+ * GitHub Pull Requests are currently implemented (mt#2613); the shared types
+ * remain platform-agnostic to keep the door open for future backends.
  */
 
 // Core types and interfaces
@@ -16,15 +14,8 @@ export * from "./adapter-interface";
 import { ChangesetService, createChangesetService } from "./changeset-service";
 export { ChangesetService, createChangesetService };
 
-// Platform adapters
+// Platform adapter
 export { GitHubChangesetAdapter, GitHubChangesetAdapterFactory } from "./adapters/github-adapter";
-
-// Future platform adapters (placeholder exports)
-export { GitLabChangesetAdapter, GitLabChangesetAdapterFactory } from "./adapters/gitlab-adapter";
-export {
-  BitbucketChangesetAdapter,
-  BitbucketChangesetAdapterFactory,
-} from "./adapters/bitbucket-adapter";
 
 /**
  * Factory function to create a changeset service with auto-detection
@@ -35,23 +26,4 @@ export async function createChangesetServiceFromRepository(
   workdir?: string
 ): Promise<ChangesetService> {
   return await createChangesetService(repositoryUrl, workdir);
-}
-
-/**
- * Utility function to determine changeset platform from repository URL
- */
-export function detectChangesetPlatform(
-  repositoryUrl: string
-): import("./types").ChangesetPlatform {
-  if (repositoryUrl.includes("github.com")) {
-    return "github-pr";
-  } else if (repositoryUrl.includes("gitlab.com") || repositoryUrl.includes("gitlab.")) {
-    return "gitlab-mr";
-  } else if (repositoryUrl.includes("bitbucket.org") || repositoryUrl.includes("bitbucket.")) {
-    return "bitbucket-pr";
-  } else if (repositoryUrl.includes("gerrit")) {
-    return "gerrit-change";
-  } else {
-    return "local-git";
-  }
 }

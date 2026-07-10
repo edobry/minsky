@@ -10,8 +10,10 @@ import {
   annotateReviewRejections,
   explainReviewRejection,
   findMatchingReview,
+  parseReviewFindings,
   resolveReviewerFilter,
   sessionPrWaitForReview,
+  trimReview,
   type SessionPrWaitForReviewDependencies,
 } from "./pr-wait-for-review-subcommand";
 import type { ReviewListEntry, RepositoryBackend } from "../../repository/index";
@@ -23,13 +25,20 @@ import { MinskyError, ResourceNotFoundError, ValidationError } from "../../error
 const REVIEWER_BOT = "minsky-reviewer[bot]";
 /** Implementer App login used by mt#1911 role-resolution test fixtures. */
 const IMPLEMENTER_BOT = "minsky-ai[bot]";
+/** Shared review-state literal (extracted per custom/no-magic-string-duplication). */
+const CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED" as const;
+/** Shared fixture body text for mt#2656 fullBody/trimReview tests. */
+const RAW_REVIEW_BODY_TEXT = "raw markdown body text";
 
 describe("findMatchingReview", () => {
+  // mt#2656: strictly after `since` — one second after the `since` threshold
+  // below so tests that don't care about the boundary (e.g. reviewer-filter
+  // tests) aren't accidentally exercising the exact-equal rejection case.
   function mkReview(overrides: Partial<ReviewListEntry>): ReviewListEntry {
     return {
       reviewId: 1,
       state: "COMMENTED",
-      submittedAt: "2026-04-24T01:00:00Z",
+      submittedAt: "2026-04-24T01:00:01Z",
       reviewerLogin: "someone",
       body: "",
       ...overrides,
@@ -38,7 +47,7 @@ describe("findMatchingReview", () => {
 
   const since = Date.parse("2026-04-24T01:00:00Z");
 
-  test("returns the first review at or after since", () => {
+  test("returns the first review strictly after since", () => {
     const r = findMatchingReview(
       [
         mkReview({ reviewId: 1, submittedAt: "2026-04-24T00:59:59Z" }),
@@ -48,7 +57,32 @@ describe("findMatchingReview", () => {
       since,
       undefined
     );
-    expect(r?.reviewId).toBe(2);
+    // reviewId 2's submittedAt exactly equals `since` — mt#2656 strictly-after
+    // semantics reject an exact match as already-seen, so reviewId 3 (the
+    // first review AFTER since) is the match, not reviewId 2.
+    expect(r?.reviewId).toBe(3);
+  });
+
+  // mt#2656 boundary-pinning test: passing a previous review's exact
+  // submittedAt as `since` must never re-match that same review. This is
+  // the exact shape of the PR #1811 bug (worked around at the time with a
+  // manual `+1s` adjustment to `since`).
+  test("rejects a review whose submittedAt exactly equals since (mt#2656 inclusive-since fix)", () => {
+    const r = findMatchingReview(
+      [mkReview({ reviewId: 1, submittedAt: "2026-04-24T01:00:00Z" })],
+      since,
+      undefined
+    );
+    expect(r).toBeUndefined();
+  });
+
+  test("matches a review submitted one millisecond after since", () => {
+    const r = findMatchingReview(
+      [mkReview({ reviewId: 1, submittedAt: "2026-04-24T01:00:00.001Z" })],
+      since,
+      undefined
+    );
+    expect(r?.reviewId).toBe(1);
   });
 
   test("skips reviews without a submittedAt timestamp", () => {
@@ -445,6 +479,25 @@ describe("sessionPrWaitForReview", () => {
     expect(deps.sleepCalls[0]).toBe(5000);
   });
 
+  test("onProgress fires once per poll interval (mt#2677)", async () => {
+    const progressMessages: string[] = [];
+    const deps = {
+      ...makeDeps([[], [], [match]]),
+      onProgress: (message: string) => progressMessages.push(message),
+    };
+
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 60, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    // 3 polls, 2 of which found no match and therefore slept (and reported
+    // progress) — the poll that matched returns immediately without a final
+    // progress call, mirroring the existing sleepCalls assertion above.
+    expect(progressMessages).toHaveLength(2);
+  });
+
   test("returns matched=false on timeout with no review", async () => {
     // Queue returns empty indefinitely (makeDeps repeats last entry).
     const deps = makeDeps([[]]);
@@ -635,8 +688,10 @@ describe("sessionPrWaitForReview", () => {
         timeoutSeconds: 30,
         intervalSeconds: 5,
         // Exclude all historical 2020 reviews via an explicit since; the
-        // match's 2099 timestamp clears it comfortably.
-        since: "2099-01-01T00:00:00Z",
+        // match's 2099 timestamp clears it comfortably. One second before
+        // match.submittedAt (not equal to it) — mt#2656 strictly-after
+        // semantics reject an exact-equal submittedAt.
+        since: "2098-12-31T23:59:59Z",
       },
       deps
     );
@@ -645,6 +700,138 @@ describe("sessionPrWaitForReview", () => {
     if (result.matched) {
       expect(result.review.reviewId).toBe(42);
       expect(result.pollCount).toBe(1);
+    }
+  });
+
+  test("refreshes HEAD each poll: a review of the prior HEAD stops matching after HEAD advances (mt#2586)", async () => {
+    const HEAD_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const HEAD_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const reviewA: ReviewListEntry = {
+      reviewId: 1,
+      state: CHANGES_REQUESTED_STATE,
+      submittedAt: "2026-05-21T18:35:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: HEAD_A,
+    };
+    const reviewB: ReviewListEntry = {
+      reviewId: 2,
+      state: "APPROVED",
+      submittedAt: "2026-05-21T18:40:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: HEAD_B,
+    };
+    // HEAD advances A -> B on poll 2. reviewA (of the OLD head) surfaces on
+    // poll 2 and MUST be rejected because the refreshed HEAD is now B; a
+    // resolve-once implementation would erroneously match it here. reviewB
+    // (of the new head) surfaces on poll 3 and matches.
+    const headShaScript = [HEAD_A, HEAD_B, HEAD_B];
+    const reviewsScript: ReviewListEntry[][] = [[], [reviewA], [reviewA, reviewB]];
+    let headIdx = 0;
+    let listIdx = 0;
+    let clock = 1_000_000;
+
+    const sessionRecord = {
+      session: "s",
+      repoName: "edobry-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
+      createdAt: new Date(0).toISOString(),
+      pullRequest: { number: 123, branch: "task/mt-test", baseBranch: "main" },
+      taskId: "mt#2586",
+    } as unknown as SessionRecord;
+
+    const backend = {
+      review: {
+        listReviews: async () => reviewsScript[Math.min(listIdx++, reviewsScript.length - 1)],
+        getPullRequestCreatedAt: async () => new Date(0).toISOString(),
+        getPullRequestHeadSha: async () =>
+          headShaScript[Math.min(headIdx++, headShaScript.length - 1)],
+      },
+    } as unknown as RepositoryBackend;
+
+    const deps = {
+      sessionDB: { getSession: async () => sessionRecord } as unknown as SessionProviderInterface,
+      createBackend: async () => backend,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+    } as unknown as SessionPrWaitForReviewDependencies;
+
+    const result = await sessionPrWaitForReview(
+      { sessionId: "s", intervalSeconds: 5, timeoutSeconds: 60 },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewId).toBe(2);
+      expect(result.pollCount).toBe(3);
+    }
+  });
+
+  // ============================================================================
+  // mt#2656 — trimmed-by-default review payload
+  // ============================================================================
+
+  test("returns a trimmed review by default (mt#2656) — no body, has findings/counts", async () => {
+    const findingsReview: ReviewListEntry = {
+      ...match,
+      reviewId: 99,
+      body: [
+        "Executive summary.",
+        "",
+        "## Findings",
+        "",
+        "- [BLOCKING] src/foo.ts:42 — Null check missing on user input.",
+        "  Full explanation and suggested fix.",
+      ].join("\n"),
+    };
+    const deps = makeDeps([[findingsReview]]);
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 30, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewId).toBe(99);
+      expect("body" in result.review).toBe(false);
+      expect("findings" in result.review).toBe(true);
+      if ("findings" in result.review) {
+        expect(result.review.blockingCount).toBe(1);
+        expect(result.review.nonBlockingCount).toBe(0);
+        expect(result.review.findings).toEqual([
+          {
+            severity: "BLOCKING",
+            location: "src/foo.ts:42",
+            summary: "Null check missing on user input.",
+          },
+        ]);
+      }
+    }
+  });
+
+  test("fullBody: true restores the full ReviewListEntry (mt#2656)", async () => {
+    const findingsReview: ReviewListEntry = {
+      ...match,
+      reviewId: 100,
+      body: RAW_REVIEW_BODY_TEXT,
+    };
+    const deps = makeDeps([[findingsReview]]);
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 30, intervalSeconds: 5, fullBody: true },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect("findings" in result.review).toBe(false);
+      expect("body" in result.review).toBe(true);
+      if ("body" in result.review) {
+        expect(result.review.body).toBe(RAW_REVIEW_BODY_TEXT);
+      }
     }
   });
 });
@@ -721,6 +908,34 @@ describe("explainReviewRejection (mt#2043)", () => {
     expect(reason).toContain("2026-05-21T18:51:57");
   });
 
+  // mt#2656: strictly-after boundary. A review whose submittedAt exactly
+  // equals `since` must be rejected, not matched — the inclusive-since bug
+  // hit live on PR #1811 (passing the previous review's exact submittedAt
+  // re-matched that same review).
+  test("returns since:... when review submittedAt exactly equals the threshold (mt#2656 boundary)", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:32:55Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT);
+    expect(reason).toMatch(/^since:/);
+    expect(reason).toContain("2026-05-21T18:32:55Z");
+  });
+
+  test("returns null (matches) when review submittedAt is one millisecond after the threshold", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: new Date(since + 1).toISOString(),
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    expect(explainReviewRejection(r, since, REVIEWER_BOT)).toBeNull();
+  });
+
   test("returns reviewer-mismatch when reviewer filter excludes the entry", () => {
     const r: ReviewListEntry = {
       reviewId: 1,
@@ -746,6 +961,103 @@ describe("explainReviewRejection (mt#2043)", () => {
     const reason = explainReviewRejection(r, since, REVIEWER_BOT);
     expect(reason).toMatch(/^reviewer-mismatch:/);
     expect(reason).toContain("<null>");
+  });
+});
+
+// ============================================================================
+// mt#2586 — HEAD-freshness: reject reviews of a superseded commit
+// ============================================================================
+
+describe("explainReviewRejection — HEAD-freshness (mt#2586)", () => {
+  const since = Date.parse("2026-05-21T18:32:55Z");
+  const HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const OLD = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const CR_STATE = CHANGES_REQUESTED_STATE;
+
+  test("rejects a review submitted against a superseded commit", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT, HEAD);
+    expect(reason).toMatch(/^stale-head:/);
+    expect(reason).toContain(OLD);
+    expect(reason).toContain(HEAD);
+  });
+
+  test("matches a review submitted against the current HEAD", () => {
+    const r: ReviewListEntry = {
+      reviewId: 2,
+      state: "APPROVED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: HEAD,
+    };
+    expect(explainReviewRejection(r, since, REVIEWER_BOT, HEAD)).toBeNull();
+  });
+
+  test("reports <none> when the stale review carries no commitId", () => {
+    const r: ReviewListEntry = {
+      reviewId: 3,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT, HEAD);
+    expect(reason).toMatch(/^stale-head:/);
+    expect(reason).toContain("<none>");
+  });
+
+  test("skips the HEAD check entirely when headSha is undefined (fallback path)", () => {
+    const r: ReviewListEntry = {
+      reviewId: 4,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    // No headSha => no HEAD filter => matches (pre-mt#2586 behavior preserved).
+    expect(explainReviewRejection(r, since, REVIEWER_BOT, undefined)).toBeNull();
+  });
+
+  test("findMatchingReview skips the stale-head review and returns the fresh one", () => {
+    const stale: ReviewListEntry = {
+      reviewId: 10,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    const fresh: ReviewListEntry = {
+      reviewId: 11,
+      state: "APPROVED",
+      submittedAt: "2026-05-21T18:40:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: HEAD,
+    };
+    const match = findMatchingReview([stale, fresh], since, REVIEWER_BOT, HEAD);
+    expect(match?.reviewId).toBe(11);
+  });
+
+  test("findMatchingReview returns undefined when only a stale-head review exists (the mt#2586 stall)", () => {
+    const stale: ReviewListEntry = {
+      reviewId: 12,
+      state: CR_STATE,
+      submittedAt: "2026-05-21T18:35:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+      commitId: OLD,
+    };
+    expect(findMatchingReview([stale], since, REVIEWER_BOT, HEAD)).toBeUndefined();
   });
 });
 
@@ -809,6 +1121,130 @@ describe("annotateReviewRejections (mt#2043)", () => {
     const annotated = annotateReviewRejections(reviews, since, REVIEWER_BOT);
     const [only] = annotated;
     expect(only?.rejectionReason).toMatch(/^matched:/);
+  });
+});
+
+// ============================================================================
+// mt#2656 — review payload trimming
+// ============================================================================
+
+describe("parseReviewFindings (mt#2656)", () => {
+  test("parses severity, location, and one-sentence summary for each finding", () => {
+    const body = [
+      "Executive summary here.",
+      "",
+      "## Findings",
+      "",
+      "- [BLOCKING] src/foo.ts:42 — Null check missing on user input.",
+      "  Full explanation of the null-check issue and the suggested fix.",
+      "- [NON-BLOCKING] src/bar.ts:10 — Consider renaming this variable.",
+      "  Full explanation of the naming suggestion.",
+      "",
+      "## Documentation impact",
+      "",
+      "- **no-update-needed** — no doc surfaces touched.",
+    ].join("\n");
+
+    const findings = parseReviewFindings(body);
+    expect(findings).toHaveLength(2);
+    expect(findings[0]).toEqual({
+      severity: "BLOCKING",
+      location: "src/foo.ts:42",
+      summary: "Null check missing on user input.",
+    });
+    expect(findings[1]).toEqual({
+      severity: "NON-BLOCKING",
+      location: "src/bar.ts:10",
+      summary: "Consider renaming this variable.",
+    });
+  });
+
+  test("parses a lineEnd/LEFT-suffixed location unchanged", () => {
+    const body = "- [PRE-EXISTING] src/legacy.ts:5-9 (LEFT) — Predates this PR.\n  details here";
+    const findings = parseReviewFindings(body);
+    expect(findings).toEqual([
+      {
+        severity: "PRE-EXISTING",
+        location: "src/legacy.ts:5-9 (LEFT)",
+        summary: "Predates this PR.",
+      },
+    ]);
+  });
+
+  test("returns an empty array when there is no Findings section", () => {
+    expect(parseReviewFindings("Looks good, no notes.")).toEqual([]);
+  });
+
+  test("returns an empty array for an empty body", () => {
+    expect(parseReviewFindings("")).toEqual([]);
+  });
+
+  test("ignores the details line following each finding", () => {
+    // The details line does not start with "- [" so it must not be
+    // misparsed as a second finding.
+    const body =
+      "- [BLOCKING] a.ts:1 — one-liner.\n  This is a much longer multi-clause explanation — with its own em dash.";
+    const findings = parseReviewFindings(body);
+    expect(findings).toHaveLength(1);
+  });
+});
+
+describe("trimReview (mt#2656)", () => {
+  function mkFullReview(overrides: Partial<ReviewListEntry> = {}): ReviewListEntry {
+    return {
+      reviewId: 42,
+      state: CHANGES_REQUESTED_STATE,
+      submittedAt: "2026-07-07T00:00:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      htmlUrl: "https://github.com/edobry/minsky/pull/1#pullrequestreview-42",
+      commitId: "a".repeat(40),
+      body: "",
+      ...overrides,
+    };
+  }
+
+  test("derives blockingCount/nonBlockingCount from the parsed findings list", () => {
+    const body = [
+      "## Findings",
+      "",
+      "- [BLOCKING] a.ts:1 — first blocking issue.",
+      "  details",
+      "- [BLOCKING] b.ts:2 — second blocking issue.",
+      "  details",
+      "- [NON-BLOCKING] c.ts:3 — a nit.",
+      "  details",
+      "- [PRE-EXISTING] d.ts:4 — pre-existing issue.",
+      "  details",
+    ].join("\n");
+    const trimmed = trimReview(mkFullReview({ body }));
+    expect(trimmed.blockingCount).toBe(2);
+    // NON-BLOCKING and PRE-EXISTING both count toward nonBlockingCount,
+    // mirroring services/reviewer/src/review-provenance.ts's extractProvenance.
+    expect(trimmed.nonBlockingCount).toBe(2);
+    expect(trimmed.findings).toHaveLength(4);
+  });
+
+  test("preserves metadata fields and drops the raw body", () => {
+    const trimmed = trimReview(mkFullReview({ body: RAW_REVIEW_BODY_TEXT }));
+    expect(trimmed).toEqual({
+      reviewId: 42,
+      state: CHANGES_REQUESTED_STATE,
+      submittedAt: "2026-07-07T00:00:00Z",
+      reviewerLogin: REVIEWER_BOT,
+      htmlUrl: "https://github.com/edobry/minsky/pull/1#pullrequestreview-42",
+      commitId: "a".repeat(40),
+      blockingCount: 0,
+      nonBlockingCount: 0,
+      findings: [],
+    });
+    expect("body" in trimmed).toBe(false);
+  });
+
+  test("zero findings yields zero counts and an empty findings array", () => {
+    const trimmed = trimReview(mkFullReview({ body: "Approved, nothing to add." }));
+    expect(trimmed.blockingCount).toBe(0);
+    expect(trimmed.nonBlockingCount).toBe(0);
+    expect(trimmed.findings).toEqual([]);
   });
 });
 

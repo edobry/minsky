@@ -102,7 +102,7 @@ live in `src/utils/test-utils/`. Architecture-level docs:
 
 - **Task Backends**: `minsky`, `github-issues`
 - **Repository Backends**: `local`, `remote`, `github`
-- **Session Storage Backends**: `sqlite` (local database), `postgres` (server database)
+- **Session Storage Backends**: `postgres` only — SQLite was removed (mt#2339; see [ADR-018](./architecture/adr-018-domain-persistence-pattern.md))
 
 ### Key File Locations
 
