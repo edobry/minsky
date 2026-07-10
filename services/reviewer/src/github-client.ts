@@ -28,15 +28,31 @@ import { log } from "./logger";
 const DEFAULT_GITHUB_TIMEOUT_MS = 30_000;
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
+  // mt#2717: install `createAppAuth` as the Octokit `authStrategy` rather than
+  // extracting a static installation-token STRING. The prior form —
+  //   const { token } = await auth({ type: "installation" });
+  //   return new Octokit({ auth: token });
+  // — pinned the client to `@octokit/auth-token` (a static strategy) holding a
+  // token GitHub expires after ~60 minutes. Any client reused past that mark
+  // (both sweepers cache one for the whole process lifetime) then returns
+  // `401 "Bad credentials"` on EVERY subsequent call and never self-recovers —
+  // the merge-state sweeper alone logged 1,730 such failures in one ~15.5h
+  // deployment window. The webhook review path escaped only because it builds a
+  // fresh Octokit per review, never crossing the 1h boundary.
+  //
+  // The `authStrategy` form is the canonical `@octokit/auth-app` usage: the auth
+  // hook runs per request and `@octokit/auth-app` "transparently creates an
+  // installation access token the first time it is needed and refreshes it when
+  // it expires" (cached and reused until ~59 min, then refreshed). This makes a
+  // single long-lived reused instance correct — exactly what both sweepers want.
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+      installationId: config.installationId,
+    },
   });
-
-  const { token } = await auth({ type: "installation" });
-
-  return new Octokit({ auth: token });
 }
 
 export interface PullRequestContext {

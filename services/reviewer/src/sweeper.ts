@@ -96,6 +96,7 @@
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { createOctokit, getAppIdentity } from "./github-client";
+import { githubAuthHealth } from "./auth-health";
 import { runReview } from "./review-worker";
 import { decideRouting, extractTierFromPRBody } from "./tier-routing";
 import type { Octokit } from "@octokit/rest";
@@ -914,11 +915,22 @@ export function startSweeper(
     }
     cachedDeps
       .then((deps) => runSweep(config, sweeperConfig, deps))
+      .then(() => {
+        // mt#2717: the cycle's GitHub calls (listOpenPRs / listReviews, and any
+        // buildSweeperDeps auth handshake) authenticated — reset the shared
+        // auth-health failure streak.
+        githubAuthHealth.recordSuccess();
+      })
       .catch((err) => {
         log.error("sweeper.cycle_error", {
           event: "sweeper.cycle_error",
           ...extractPgErrorContext(err),
         });
+        // mt#2717: feed the shared auth-health tracker. Only auth-class errors
+        // (401/403/"Bad credentials") move its counter, so a PG/network cycle
+        // error here is ignored; a sustained credential failure trips the
+        // distinct `reviewer.auth_health_failing` alert.
+        githubAuthHealth.recordFailure("sweeper", err);
         // Clear cached deps on error so next cycle retries building them.
         // Never clear a test-injected depsOverride — it has no "rebuild"
         // path and clearing would make the next tick call the real
