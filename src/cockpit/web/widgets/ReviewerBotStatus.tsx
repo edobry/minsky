@@ -6,6 +6,12 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 // Mirrors ReviewerBotStatusPayload in src/cockpit/widgets/reviewer-bot-status.ts.
 // No server imports on the frontend (cockpit web is a separate module graph).
 
+interface VerdictCounts {
+  approve: number;
+  requestChanges: number;
+  comment: number;
+}
+
 interface ReviewerDbStats {
   reviewCount24h: number;
   failureCount24h: number;
@@ -21,6 +27,8 @@ interface ReviewerDbStats {
   medianCostUsd24h: number | null;
   medianCostUsd7d: number | null;
   cacheHitRatio24h: number | null;
+  verdictCounts24h: VerdictCounts;
+  verdictCounts7d: VerdictCounts;
 }
 
 interface ReviewerBotStatusPayload {
@@ -40,6 +48,7 @@ interface ReviewerBotStatusPayload {
     a3FailureRateSpike: boolean;
     a4LatencyRegression: boolean;
     a5CostTrend: boolean;
+    a6VerdictDrift: boolean;
   };
 }
 
@@ -83,6 +92,17 @@ function formatCost(n: number | null): string {
 function formatPercent(ratio: number | null): string {
   if (ratio === null) return "—";
   return `${(ratio * 100).toFixed(1)}%`;
+}
+
+/** Total verdict count across all three classes. */
+function verdictTotal(counts: VerdictCounts): number {
+  return counts.approve + counts.requestChanges + counts.comment;
+}
+
+/** Ratio of one verdict class within its window's total. Null when the window has no verdicts. */
+function verdictRatio(counts: VerdictCounts, key: keyof VerdictCounts): number | null {
+  const total = verdictTotal(counts);
+  return total > 0 ? counts[key] / total : null;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -186,6 +206,12 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
       {anomalies.a5CostTrend && db && (
         <AnomalyBanner
           message={`A5 — Cost trend: 24h median ${formatCost(db.medianCostUsd24h)} vs 7d median ${formatCost(db.medianCostUsd7d)} (>50% divergence).`}
+          variant="warning"
+        />
+      )}
+      {anomalies.a6VerdictDrift && db && (
+        <AnomalyBanner
+          message="A6 — Verdict drift: 24h verdict ratio diverged >20pp from the 7d baseline. The bot may be getting stricter or looser."
           variant="warning"
         />
       )}
@@ -355,6 +381,62 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
         {/* Field 19: Cache-hit ratio (24h) — mt#2721. Cached input / total input. */}
         <Row label="Cache-hit (24h)">{db !== null ? formatPercent(db.cacheHitRatio24h) : "—"}</Row>
       </dl>
+
+      {/* Verdict distribution (mt#2287) — 24h counts/ratios per verdict + 7d
+          baseline for comparison, with per-row amber highlighting when that
+          verdict's ratio has drifted >20pp between windows. */}
+      {db !== null && (
+        <div className="mt-3 pt-2 border-t border-border">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-xs font-medium text-muted-foreground">Verdict distribution</span>
+            {anomalies.a6VerdictDrift && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500">
+                drift
+              </span>
+            )}
+          </div>
+          <dl>
+            {(
+              [
+                ["Approve", "approve"],
+                ["Request changes", "requestChanges"],
+                ["Comment", "comment"],
+              ] as const
+            ).map(([label, key]) => {
+              const ratio24h = verdictRatio(db.verdictCounts24h, key);
+              const ratio7d = verdictRatio(db.verdictCounts7d, key);
+              // Gate the per-row amber highlight on the SAME sample-size gate as
+              // the global A6 anomaly (mt#2287 R1): when a6VerdictDrift is
+              // suppressed (e.g. both windows below A6_MIN_SAMPLE_SIZE), no row
+              // should light up either — otherwise a single low-volume review
+              // trivially "drifts" 100pp and highlights while the header badge
+              // (correctly) stays hidden.
+              const diverged =
+                anomalies.a6VerdictDrift &&
+                ratio24h !== null &&
+                ratio7d !== null &&
+                Math.abs(ratio24h - ratio7d) > 0.2;
+              return (
+                <Row key={key} label={label}>
+                  <span
+                    className={cn(
+                      "flex flex-col items-end gap-0.5",
+                      diverged ? "text-amber-500" : undefined
+                    )}
+                  >
+                    <span>
+                      {db.verdictCounts24h[key]} ({formatPercent(ratio24h)})
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      7d: {formatPercent(ratio7d)}
+                    </span>
+                  </span>
+                </Row>
+              );
+            })}
+          </dl>
+        </div>
+      )}
     </>
   );
 }

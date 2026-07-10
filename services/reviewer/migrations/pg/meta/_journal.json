@@ -57,6 +57,13 @@
       "when": 1783665791938,
       "tag": "0007_oval_enchantress",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783717381132,
+      "tag": "0008_sticky_microchip",
+      "breakpoints": true
     }
   ]
 }
