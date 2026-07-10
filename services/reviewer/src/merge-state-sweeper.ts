@@ -99,6 +99,7 @@
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { createOctokit } from "./github-client";
+import { githubAuthHealth } from "./auth-health";
 import { withTimeout, TimeoutError } from "./with-timeout";
 import type { Octokit } from "@octokit/rest";
 import { log } from "./logger";
@@ -334,6 +335,12 @@ export async function runMergeStateSweep(
               })
           );
 
+          // mt#2717: a GitHub call authenticated successfully — reset the
+          // shared auth-health failure streak. After the createOctokit refresh
+          // fix this is the steady state; a sustained streak now only
+          // accumulates on a genuine credential failure (revoked key, etc.).
+          githubAuthHealth.recordSuccess();
+
           if (!livePr.merged) {
             // PR is not merged on GitHub (still open or closed without merge). Skip.
             return;
@@ -391,6 +398,14 @@ export async function runMergeStateSweep(
             sessionId,
             error: msg,
           });
+          // mt#2717: feed the shared auth-health tracker. Only auth-class
+          // failures (401 / "Bad credentials" / "unauthorized") move its
+          // counter; a timeout or other error is ignored. When a sustained
+          // credential failure crosses
+          // the threshold the tracker emits a distinct `reviewer.auth_health_failing`
+          // alert instead of leaving this per-session `session_error` spam as the
+          // only signal (the 1,730-error state that motivated mt#2717).
+          githubAuthHealth.recordFailure("merge_state_sweeper", sessionErr);
         }
       })
     );
@@ -503,11 +518,14 @@ export function startMergeStateSweeper(
   }
 
   let isRunning = false;
-  // Lazy Octokit creation — first cycle pays the auth-handshake cost;
-  // subsequent cycles reuse the client. createOctokit returns short-lived
-  // installation tokens that refresh internally, so a single instance is
-  // safe across many cycles. mt#2684: octokitOverride (test seam) pre-seeds
-  // the promise so the boot catch-up cycle below never calls the real
+  // Lazy Octokit creation — subsequent cycles reuse the client. Since mt#2717,
+  // createOctokit installs @octokit/auth-app as the `authStrategy`, so the
+  // instance mints and TRANSPARENTLY REFRESHES its installation token per
+  // request. (Before mt#2717 it held a STATIC token that expired at ~60 min and
+  // then 401'd every subsequent call — the reuse below was the bug's blast
+  // radius, not a safe optimization.) A single long-lived instance is now
+  // genuinely safe across many cycles. mt#2684: octokitOverride (test seam)
+  // pre-seeds the promise so the boot catch-up cycle below never calls the real
   // createOctokit.
   let octokitPromise: Promise<Octokit> | null = octokitOverride
     ? Promise.resolve(octokitOverride)
@@ -547,10 +565,14 @@ export function startMergeStateSweeper(
           event: "merge_state_sweeper.cycle_error",
           error: message,
         });
-        // Reset octokitPromise on auth-class errors so the next cycle re-authenticates.
-        // (createOctokit throws if the app credentials are invalid; we let it retry.)
-        // Never clear a test-injected octokitOverride — it has no "rebuild"
-        // path and clearing would make the next tick call the real
+        // Reset octokitPromise on cycle-level auth-class errors so the next
+        // cycle rebuilds the client. Post-mt#2717 the authStrategy instance
+        // self-refreshes, so this rebuild is belt-and-suspenders rather than
+        // load-bearing (a genuine sustained credential failure is surfaced by
+        // the shared auth-health tracker's `reviewer.auth_health_failing` alert);
+        // it is retained because rebuilding is harmless and covers the rare
+        // cycle-level throw. Never clear a test-injected octokitOverride — it has
+        // no "rebuild" path and clearing would make the next tick call the real
         // createOctokit in tests that only provided a fake.
         if (/auth|credentials|401|403/i.test(message) && !octokitOverride) {
           octokitPromise = null;

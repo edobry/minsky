@@ -28,15 +28,31 @@ import { log } from "./logger";
 const DEFAULT_GITHUB_TIMEOUT_MS = 30_000;
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
+  // mt#2717: install `createAppAuth` as the Octokit `authStrategy` rather than
+  // extracting a static installation-token STRING. The prior form —
+  //   const { token } = await auth({ type: "installation" });
+  //   return new Octokit({ auth: token });
+  // — pinned the client to `@octokit/auth-token` (a static strategy) holding a
+  // token GitHub expires after ~60 minutes. Any client reused past that mark
+  // (both sweepers cache one for the whole process lifetime) then returns
+  // `401 "Bad credentials"` on EVERY subsequent call and never self-recovers —
+  // the merge-state sweeper alone logged 1,730 such failures in one ~15.5h
+  // deployment window. The webhook review path escaped only because it builds a
+  // fresh Octokit per review, never crossing the 1h boundary.
+  //
+  // The `authStrategy` form is the canonical `@octokit/auth-app` usage: the auth
+  // hook runs per request and `@octokit/auth-app` "transparently creates an
+  // installation access token the first time it is needed and refreshes it when
+  // it expires" (cached and reused until ~59 min, then refreshed). This makes a
+  // single long-lived reused instance correct — exactly what both sweepers want.
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+      installationId: config.installationId,
+    },
   });
-
-  const { token } = await auth({ type: "installation" });
-
-  return new Octokit({ auth: token });
 }
 
 export interface PullRequestContext {
@@ -888,20 +904,39 @@ export async function dismissReview(
  */
 let cachedAppIdentity: { login: string } | null = null;
 
+/**
+ * Construct the App-JWT-authed Octokit used to read the reviewer App's own
+ * identity (`GET /app`).
+ *
+ * mt#2717: installs `createAppAuth` as the `authStrategy` so the App-level JWT
+ * is minted and refreshed per request, rather than extracting a static JWT
+ * string (`new Octokit({ auth: token })`) — the same static-token anti-pattern
+ * the sweepers' `createOctokit` hit. Only `appId`/`privateKey` are needed for
+ * the App-level `/app` route (no `installationId`); `@octokit/auth-app` supplies
+ * a JWT automatically for App-level endpoints. Exported for tests.
+ */
+export function createAppIdentityOctokit(config: ReviewerConfig): Octokit {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+    },
+  });
+}
+
+/** TEST-ONLY: reset the cached App identity so a test can re-exercise the fetch. */
+export function _resetAppIdentityCacheForTests(): void {
+  cachedAppIdentity = null;
+}
+
 export async function getAppIdentity(config: ReviewerConfig): Promise<{ login: string }> {
   if (cachedAppIdentity) return cachedAppIdentity;
 
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
-  });
-
-  // `type: "app"` returns an App-level JWT (not an installation token), which
-  // is required for `/app` endpoints.
-  const { token } = await auth({ type: "app" });
-
-  const appOctokit = new Octokit({ auth: token });
+  // mt#2717: authStrategy-based client (see createAppIdentityOctokit) so the
+  // App JWT mints/refreshes per request. `apps.getAuthenticated` (GET /app) is
+  // an App-level route, so @octokit/auth-app supplies a fresh JWT automatically.
+  const appOctokit = createAppIdentityOctokit(config);
   const response = await appOctokit.rest.apps.getAuthenticated();
   if (!response.data) {
     throw new Error(
