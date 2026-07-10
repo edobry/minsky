@@ -154,7 +154,7 @@ try {
     const cacheRows = await sql`
       SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
       FROM review_timing
-      WHERE input_tokens IS NOT NULL AND pr_owner = ${MARKER_OWNER}`;
+      WHERE input_tokens IS NOT NULL AND cached_tokens IS NOT NULL AND pr_owner = ${MARKER_OWNER}`;
     const cacheHit = cacheRows[0]?.cache_hit_ratio;
     results["cacheHitRatio"] = cacheHit ?? null;
     // 20000 cached / 30000 input ≈ 0.6667

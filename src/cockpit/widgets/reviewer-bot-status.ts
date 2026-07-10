@@ -395,13 +395,16 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
        WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
       [window7dIso]
     ),
-    // mt#2721: aggregate cache-hit ratio (cached/input) over model-invoking
-    // reviews in 24h. SUM/SUM (not avg-of-ratios) reflects how much of the
-    // real input volume was served from cache. NULLIF guards divide-by-zero.
+    // mt#2721: aggregate cache-hit ratio (cached/input) over cache-reporting
+    // reviews in 24h. SUM/SUM (not avg-of-ratios) reflects how much of the real
+    // input volume was served from cache. Scoped to `cached_tokens IS NOT NULL`
+    // so providers that don't report caching (Anthropic/Google rows, where the
+    // column is NULL) don't dilute the ratio and understate OpenAI's cache
+    // effectiveness. NULLIF guards divide-by-zero.
     queryRows(
       `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
        FROM review_timing
-       WHERE created_at >= $1 AND input_tokens IS NOT NULL`,
+       WHERE created_at >= $1 AND input_tokens IS NOT NULL AND cached_tokens IS NOT NULL`,
       [window24hIso]
     ),
   ]);
