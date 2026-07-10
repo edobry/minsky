@@ -83,6 +83,18 @@ export function buildProvidersListResult(
   return { success: true, json, format, providers };
 }
 
+/**
+ * Guidance shown when `ai.models.available` finds zero models — mirrors the
+ * CLI's prior inline `log.cliWarn(...)` text exactly. `header` lines print
+ * without a bullet; `reasons` lines print with a `  - ` bullet prefix.
+ */
+export interface AiModelsAvailableEmptyGuidance {
+  header: string[];
+  reasons: string[];
+  /** Only set when no `provider` filter was given (matches prior CLI text). */
+  configHint?: string;
+}
+
 /** Result shape for `ai.models.available`. */
 export interface AiModelsAvailableResult {
   success: true;
@@ -90,8 +102,8 @@ export interface AiModelsAvailableResult {
   format: string;
   provider: string | null;
   models: AIModel[];
-  /** Populated when `models` is empty, mirroring the CLI's prior guidance text. */
-  warnings: string[];
+  /** Populated only when `models` is empty. */
+  emptyGuidance?: AiModelsAvailableEmptyGuidance;
 }
 
 export function buildModelsAvailableResult(params: {
@@ -101,24 +113,38 @@ export function buildModelsAvailableResult(params: {
   format: string;
 }): AiModelsAvailableResult {
   const { provider, models, json, format } = params;
-  const warnings: string[] =
-    models.length > 0
-      ? []
-      : provider
-        ? [
-            `No models available for provider '${provider}'. This may be because:`,
-            "The provider doesn't support model listing",
-            "The API key is not configured or invalid",
-            "The provider name is incorrect",
-          ]
-        : [
-            "No models available from any configured providers.",
-            "No API keys are configured",
-            "Providers don't support model listing",
-            "Network connectivity issues",
-          ];
 
-  return { success: true, json, format, provider: provider ?? null, models, warnings };
+  const emptyGuidance: AiModelsAvailableEmptyGuidance | undefined =
+    models.length > 0
+      ? undefined
+      : provider
+        ? {
+            header: [`No models available for provider '${provider}'. This may be because:`],
+            reasons: [
+              "The provider doesn't support model listing",
+              "The API key is not configured or invalid",
+              "The provider name is incorrect",
+            ],
+          }
+        : {
+            header: ["No models available from any configured providers.", "This may be because:"],
+            reasons: [
+              "No API keys are configured",
+              "Providers don't support model listing",
+              "Network connectivity issues",
+            ],
+            configHint:
+              "\nTo configure providers, see: https://github.com/edobry/minsky#ai-completion-backend",
+          };
+
+  return {
+    success: true,
+    json,
+    format,
+    provider: provider ?? null,
+    models,
+    ...(emptyGuidance ? { emptyGuidance } : {}),
+  };
 }
 
 /** Result shape for `ai.models.list`. */
