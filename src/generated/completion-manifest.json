@@ -1605,11 +1605,35 @@
         },
         {
           "name": "children",
-          "description": "List subtasks (children) of a parent task"
+          "description": "List subtasks (children) of a parent task",
+          "options": [
+            {
+              "flags": ["--task-id"],
+              "description": "ID of the parent task to list children for",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "parent",
-          "description": "Show the parent task of a subtask"
+          "description": "Show the parent task of a subtask",
+          "options": [
+            {
+              "flags": ["--task-id"],
+              "description": "ID of the task to find parent of",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "reparent",
