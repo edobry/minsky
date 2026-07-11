@@ -1514,8 +1514,13 @@
               "description": "Add a dependency edge (task depends on prerequisite)",
               "options": [
                 {
-                  "flags": ["--task-id"],
-                  "description": "The dependent task (the task that will depend on another)",
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--depends-on"],
+                  "description": "Task that is the dependency",
                   "takesValue": true
                 }
               ]
@@ -1525,8 +1530,13 @@
               "description": "Remove a dependency edge",
               "options": [
                 {
-                  "flags": ["--task-id"],
-                  "description": "The dependent task (the task that depends on another)",
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--depends-on"],
+                  "description": "Task that is the dependency",
                   "takesValue": true
                 }
               ]
@@ -1536,8 +1546,8 @@
               "description": "List dependencies for a task",
               "options": [
                 {
-                  "flags": ["--task-id"],
-                  "description": "ID of the task to list dependencies for",
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
                   "takesValue": true
                 },
                 {
@@ -1551,8 +1561,8 @@
               "description": "Show dependency tree for a specific task",
               "options": [
                 {
-                  "flags": ["--task-id"],
-                  "description": "ID of the task to show dependency tree for",
+                  "flags": ["--task"],
+                  "description": "Legacy alias for taskId (also accepted; prefer taskId)",
                   "takesValue": true
                 },
                 {
@@ -5244,7 +5254,7 @@
       "subcommands": [
         {
           "name": "ingest",
-          "description": "Ingest agent session transcripts into the agent_transcripts table. Pass --all to sweep every discoverable session, or --session=<uuid> to target one. Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+          "description": "Ingest agent conversation transcripts into the agent_transcripts table. Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to target one (the legacy --session alias is also accepted). Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
           "options": [
             {
               "flags": ["--all"],

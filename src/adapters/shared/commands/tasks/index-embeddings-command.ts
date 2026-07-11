@@ -9,6 +9,9 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
+  // mt#2741: canonical single-task target. `taskId` is also inherited from
+  // BaseTaskParams; declared explicitly here for clarity next to the `task` alias.
+  taskId?: string;
   task?: string;
   concurrency?: number;
 }

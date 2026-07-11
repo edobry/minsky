@@ -64,8 +64,9 @@ export function registerTranscriptCommands(
     category: CommandCategory.TRANSCRIPTS,
     name: "ingest",
     description:
-      "Ingest agent session transcripts into the agent_transcripts table. " +
-      "Pass --all to sweep every discoverable session, or --session=<uuid> to target one. " +
+      "Ingest agent conversation transcripts into the agent_transcripts table. " +
+      "Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to " +
+      "target one (the legacy --session alias is also accepted). " +
       "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
     parameters: {
       all: {
