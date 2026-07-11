@@ -32,11 +32,13 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
       this.getTaskService()
     );
 
-    // If a specific task is provided, index just that one
-    if (params.task) {
+    // If a specific task is provided (canonical `taskId`, or the `task` alias),
+    // index just that one (mt#2741). Absent => index all (below).
+    const singleTaskId = params.taskId ?? params.task;
+    if (singleTaskId) {
       const task = await getTaskFromParams(
         {
-          taskId: params.task,
+          taskId: singleTaskId,
           backend: params.backend,
           repo: params.repo,
           workspace: params.workspace,

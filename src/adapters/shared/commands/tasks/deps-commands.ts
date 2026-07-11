@@ -3,12 +3,20 @@ import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
 
-// Parameter definitions matching the CommandParameterMap interface
+// Parameter definitions matching the CommandParameterMap interface.
+// mt#2741: canonical task-id param is `taskId` (tasks_* family convention); `task`
+// is kept as a permanent back-compat alias (see resolveTaskId + the mt#2737 note
+// below). Both optional at the schema layer; resolveTaskId requires at least one.
 const tasksDepsAddParams = {
+  taskId: {
+    schema: z.string().optional(),
+    description: "The dependent task (the task that will depend on another)",
+    required: false,
+  },
   task: {
-    schema: z.string(),
-    description: "Task that will depend on another task",
-    required: true,
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
   dependsOn: {
     schema: z.string(),
@@ -18,10 +26,15 @@ const tasksDepsAddParams = {
 } satisfies CommandParameterMap;
 
 const tasksDepsRmParams = {
+  taskId: {
+    schema: z.string().optional(),
+    description: "The dependent task (the task that depends on another)",
+    required: false,
+  },
   task: {
-    schema: z.string(),
-    description: "Task that depends on another task",
-    required: true,
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
   dependsOn: {
     schema: z.string(),
@@ -31,10 +44,15 @@ const tasksDepsRmParams = {
 } satisfies CommandParameterMap;
 
 const tasksDepsListParams = {
-  task: {
-    schema: z.string(),
+  taskId: {
+    schema: z.string().optional(),
     description: "ID of the task to list dependencies for",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
   verbose: {
     schema: z.boolean().optional(),
@@ -50,12 +68,13 @@ export function createTasksDepsAddCommand(getTaskGraphService: () => TaskGraphSe
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: tasksDepsAddParams,
     execute: async (params: InferParams<typeof tasksDepsAddParams>) => {
+      const taskId = resolveTaskId(params, "tasks.deps.add");
       const service = getTaskGraphService();
-      const result = await service.addDependency(params.task, params.dependsOn);
+      const result = await service.addDependency(taskId, params.dependsOn);
 
       const output = result.created
-        ? `✅ Added dependency: ${params.task} depends on ${params.dependsOn}`
-        : `ℹ️  Dependency already exists: ${params.task} depends on ${params.dependsOn}`;
+        ? `✅ Added dependency: ${taskId} depends on ${params.dependsOn}`
+        : `ℹ️  Dependency already exists: ${taskId} depends on ${params.dependsOn}`;
 
       return { success: true, output };
     },
@@ -69,12 +88,13 @@ export function createTasksDepsRmCommand(getTaskGraphService: () => TaskGraphSer
     description: "Remove a dependency edge",
     parameters: tasksDepsRmParams,
     execute: async (params: InferParams<typeof tasksDepsRmParams>) => {
+      const taskId = resolveTaskId(params, "tasks.deps.rm");
       const service = getTaskGraphService();
-      const result = await service.removeDependency(params.task, params.dependsOn);
+      const result = await service.removeDependency(taskId, params.dependsOn);
 
       const output = result.removed
-        ? `✅ Removed dependency: ${params.task} no longer depends on ${params.dependsOn}`
-        : `ℹ️  Dependency did not exist: ${params.task} was not depending on ${params.dependsOn}`;
+        ? `✅ Removed dependency: ${taskId} no longer depends on ${params.dependsOn}`
+        : `ℹ️  Dependency did not exist: ${taskId} was not depending on ${params.dependsOn}`;
 
       return { success: true, output };
     },
@@ -88,27 +108,28 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
     description: "List dependencies for a task",
     parameters: tasksDepsListParams,
     execute: async (params: InferParams<typeof tasksDepsListParams>) => {
+      const taskId = resolveTaskId(params, "tasks.deps.list");
       const service = getTaskGraphService();
-      const dependencies = await service.listDependencies(params.task);
-      const dependents = await service.listDependents(params.task);
+      const dependencies = await service.listDependencies(taskId);
+      const dependents = await service.listDependents(taskId);
 
       const lines: string[] = [];
 
       // Use concise format by default
       if (params.verbose) {
         // Original verbose format for users who prefer it
-        lines.push(`📋 Dependencies for ${params.task}`);
+        lines.push(`📋 Dependencies for ${taskId}`);
         lines.push(`━`.repeat(40));
 
         if (dependencies.length > 0) {
-          lines.push(`\n⬅️  Dependencies (${params.task} depends on):`);
+          lines.push(`\n⬅️  Dependencies (${taskId} depends on):`);
           dependencies.forEach((dep) => {
             lines.push(`   • ${dep}`);
           });
         }
 
         if (dependents.length > 0) {
-          lines.push(`\n➡️  Dependents (tasks that depend on ${params.task}):`);
+          lines.push(`\n➡️  Dependents (tasks that depend on ${taskId}):`);
           dependents.forEach((dep) => {
             lines.push(`   • ${dep}`);
           });
@@ -119,7 +140,7 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
         }
       } else {
         // New concise format
-        lines.push(`${params.task}:`);
+        lines.push(`${taskId}:`);
 
         if (dependencies.length > 0) {
           const depList = dependencies.join(", ");
@@ -178,9 +199,13 @@ const tasksParentParams = {
 /**
  * Resolve the task id from the canonical `taskId` param or the legacy `task`
  * alias (mt#2737). Throws when neither is supplied so the caller gets a clear
- * validation error instead of an undefined DB bind (the original bug).
+ * validation error instead of an undefined DB bind (the original bug). Exported
+ * (mt#2741) for reuse by the sibling deps-visualization commands.
  */
-function resolveTaskId(params: { taskId?: string; task?: string }, commandName: string): string {
+export function resolveTaskId(
+  params: { taskId?: string; task?: string },
+  commandName: string
+): string {
   const taskId = params.taskId ?? params.task;
   if (!taskId) {
     throw new ValidationError(

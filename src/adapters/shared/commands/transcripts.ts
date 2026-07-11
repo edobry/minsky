@@ -18,6 +18,14 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "@minsky/shared/logger";
+// mt#2741: migrate transcripts_ingest onto the family's canonical conversationId
+// key (mt#2526 / ADR-022), keeping `session` as a deprecated back-compat alias —
+// matching the other 6 transcripts_* commands.
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./transcripts/conversation-id-param";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
@@ -62,15 +70,12 @@ export function registerTranscriptCommands(
     parameters: {
       all: {
         schema: z.boolean(),
-        description: "Sweep and ingest all discoverable sessions",
+        description: "Sweep and ingest all discoverable conversations",
         required: false,
         defaultValue: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Ingest a single session by its agent session UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam("Ingest a single conversation by its agent session UUID"),
+      session: deprecatedConversationAlias("session"),
       harness: {
         schema: z.string(),
         description: "Source harness label (default: claude_code)",
@@ -80,13 +85,13 @@ export function registerTranscriptCommands(
     },
     async execute(params, context): Promise<TranscriptIngestResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
       const harness = (params.harness as string | undefined) ?? "claude_code";
 
       if (!doAll && !sessionId) {
         throw new Error(
-          "transcripts.ingest requires either --all or --session=<uuid>. " +
-            "Pass --all to sweep every discoverable session."
+          "transcripts.ingest requires either --all or --conversationId=<uuid> " +
+            "(the `session` alias is also accepted). Pass --all to sweep every discoverable conversation."
         );
       }
 

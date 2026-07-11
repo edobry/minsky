@@ -179,7 +179,14 @@ export const taskEditParams = {
  * Index embeddings parameters
  */
 export const tasksIndexEmbeddingsParams = {
-  // Optional single-task target (CLI should use --task, not --task-id)
+  // Optional single-task target. mt#2741: canonical name is `taskId` (tasks_*
+  // family convention); `task` is kept as a back-compat alias. Both optional —
+  // absent => index all tasks up to `limit`. Resolved `taskId ?? task` in the handler.
+  taskId: {
+    schema: z.string(),
+    description: "Single-task target: index just this task (prefer over the `task` alias)",
+    required: false,
+  },
   task: CommonParameters.task,
   reindex: {
     schema: z.boolean().default(false),

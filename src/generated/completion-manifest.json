@@ -1384,6 +1384,11 @@
           "description": "Generate and store embeddings for tasks",
           "options": [
             {
+              "flags": ["--task-id"],
+              "description": "Single-task target: index just this task (prefer over the `task` alias)",
+              "takesValue": true
+            },
+            {
               "flags": ["--task"],
               "description": "Task identifier",
               "takesValue": true
@@ -1509,8 +1514,8 @@
               "description": "Add a dependency edge (task depends on prerequisite)",
               "options": [
                 {
-                  "flags": ["--depends-on"],
-                  "description": "Task that is the dependency",
+                  "flags": ["--task-id"],
+                  "description": "The dependent task (the task that will depend on another)",
                   "takesValue": true
                 }
               ]
@@ -1520,8 +1525,8 @@
               "description": "Remove a dependency edge",
               "options": [
                 {
-                  "flags": ["--depends-on"],
-                  "description": "Task that is the dependency",
+                  "flags": ["--task-id"],
+                  "description": "The dependent task (the task that depends on another)",
                   "takesValue": true
                 }
               ]
@@ -1530,6 +1535,11 @@
               "name": "list",
               "description": "List dependencies for a task",
               "options": [
+                {
+                  "flags": ["--task-id"],
+                  "description": "ID of the task to list dependencies for",
+                  "takesValue": true
+                },
                 {
                   "flags": ["--verbose"],
                   "description": "Use more detailed output format"
@@ -1540,6 +1550,11 @@
               "name": "tree",
               "description": "Show dependency tree for a specific task",
               "options": [
+                {
+                  "flags": ["--task-id"],
+                  "description": "ID of the task to show dependency tree for",
+                  "takesValue": true
+                },
                 {
                   "flags": ["--max-depth"],
                   "description": "Maximum depth to show in the tree",
@@ -3548,11 +3563,35 @@
         },
         {
           "name": "enable",
-          "description": "Add a rule ID to the enabled list in the project config"
+          "description": "Add a rule ID to the enabled list in the project config",
+          "options": [
+            {
+              "flags": ["--id"],
+              "description": "The rule ID to enable",
+              "takesValue": true
+            },
+            {
+              "flags": ["--rule-id"],
+              "description": "Legacy alias for id (also accepted; prefer id)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "disable",
-          "description": "Add a rule ID to the disabled list in the project config"
+          "description": "Add a rule ID to the disabled list in the project config",
+          "options": [
+            {
+              "flags": ["--id"],
+              "description": "The rule ID to disable",
+              "takesValue": true
+            },
+            {
+              "flags": ["--rule-id"],
+              "description": "Legacy alias for id (also accepted; prefer id)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "config",
@@ -5209,11 +5248,16 @@
           "options": [
             {
               "flags": ["--all"],
-              "description": "Sweep and ingest all discoverable sessions"
+              "description": "Sweep and ingest all discoverable conversations"
+            },
+            {
+              "flags": ["--conversation-id"],
+              "description": "Ingest a single conversation by its agent session UUID",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Ingest a single session by its agent session UUID",
+              "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
             },
             {
