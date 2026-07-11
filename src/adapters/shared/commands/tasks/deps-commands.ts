@@ -148,7 +148,7 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
 // undefined bind (UNDEFINED_VALUE). `task` is retained as a permanent back-compat
 // alias (Postel's law) so pre-existing `task`-name callers don't silently break;
 // `taskId` wins when both are supplied. Both are optional at the schema layer and
-// `resolveTaskId` enforces that exactly one is present.
+// `resolveTaskId` requires at least one (preferring `taskId`), throwing otherwise.
 const tasksChildrenParams = {
   taskId: {
     schema: z.string().optional(),
