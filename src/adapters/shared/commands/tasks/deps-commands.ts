@@ -140,8 +140,12 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
   };
 }
 
+// mt#2737: param is `taskId` (not `task`) to match the tasks_* family convention
+// (tasks_get / tasks_status_get / tasks_spec_get all use `taskId`). Callers
+// following that convention pass `taskId`; under the old `task` name it arrived
+// undefined and the relationship query ran with an undefined bind (UNDEFINED_VALUE).
 const tasksChildrenParams = {
-  task: {
+  taskId: {
     schema: z.string(),
     description: "ID of the parent task to list children for",
     required: true,
@@ -149,7 +153,7 @@ const tasksChildrenParams = {
 } satisfies CommandParameterMap;
 
 const tasksParentParams = {
-  task: {
+  taskId: {
     schema: z.string(),
     description: "ID of the task to find parent of",
     required: true,
@@ -164,13 +168,13 @@ export function createTasksChildrenCommand(getTaskGraphService: () => TaskGraphS
     parameters: tasksChildrenParams,
     execute: async (params: InferParams<typeof tasksChildrenParams>) => {
       const service = getTaskGraphService();
-      const children = await service.listChildren(params.task);
+      const children = await service.listChildren(params.taskId);
 
       if (children.length === 0) {
-        return { success: true, output: `${params.task}: no subtasks` };
+        return { success: true, output: `${params.taskId}: no subtasks` };
       }
 
-      const lines = [`${params.task}: ${children.length} subtask(s)`];
+      const lines = [`${params.taskId}: ${children.length} subtask(s)`];
       for (const child of children) {
         lines.push(`  ${child}`);
       }
@@ -187,13 +191,13 @@ export function createTasksParentCommand(getTaskGraphService: () => TaskGraphSer
     parameters: tasksParentParams,
     execute: async (params: InferParams<typeof tasksParentParams>) => {
       const service = getTaskGraphService();
-      const parent = await service.getParent(params.task);
+      const parent = await service.getParent(params.taskId);
 
       if (parent === null) {
-        return { success: true, output: `${params.task}: no parent (root task)` };
+        return { success: true, output: `${params.taskId}: no parent (root task)` };
       }
 
-      return { success: true, output: `${params.task}: parent is ${parent}` };
+      return { success: true, output: `${params.taskId}: parent is ${parent}` };
     },
   };
 }
