@@ -141,6 +141,8 @@ describe("finalizeReviewSuccess (mt#2731)", () => {
       toolCalls: [],
       convergenceState: { roundNumber: 2, blockingCount: 1 },
     });
+    // the publisher receives the same octokit instance carried on the context
+    expect(h.checkRunCalls[0]?.octokit).toBe(h.ctx.octokit);
 
     // convergence metric: prior blockers summed (2+1), verdict lowercased
     expect(h.metricsCalls).toHaveLength(1);

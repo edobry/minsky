@@ -24,7 +24,7 @@
  * the review is submitted (or the error is decided) live here.
  */
 
-import { createOctokit, resolveThread, type ReviewThread } from "./github-client";
+import { resolveThread, type ReviewThread } from "./github-client";
 import type { SubmittedReview } from "./github-client";
 import { publishCheckRun } from "./check-run-publisher";
 import { recordReviewTiming } from "./review-timing";
@@ -75,7 +75,10 @@ export async function persistConvergenceMetric(
  */
 export interface ReviewRunContext {
   deps: RunReviewDeps;
-  octokit: Awaited<ReturnType<typeof createOctokit>>;
+  // Typed off resolveThread's param (github-client's Octokit) rather than a
+  // value import of createOctokit — resolveThread is already a runtime import
+  // here, so this needs no extra module dependency (PR #1878 R1 BLOCKING #1).
+  octokit: Parameters<typeof resolveThread>[0];
   owner: string;
   repo: string;
   /** Only the fields the finalize stages read from the PR context. */
