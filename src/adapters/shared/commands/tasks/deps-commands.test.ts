@@ -20,12 +20,19 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { createTasksChildrenCommand, createTasksParentCommand } from "./deps-commands";
+import {
+  createTasksChildrenCommand,
+  createTasksParentCommand,
+  createTasksDepsAddCommand,
+  createTasksDepsRmCommand,
+  createTasksDepsListCommand,
+} from "./deps-commands";
 import { ValidationError } from "@minsky/domain/errors/index";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 
 const PARENT_ID = "mt#1552";
 const CHILD_ID = "mt#2739";
+const DEP_ID = "mt#100";
 
 function childrenService(calls: Array<string | undefined>, result: string[]): TaskGraphService {
   return {
@@ -120,5 +127,100 @@ describe("tasks_children / tasks_parent taskId resolution (mt#2737)", () => {
       ValidationError
     );
     expect(calls).toEqual([]);
+  });
+});
+
+/**
+ * mt#2741: the same drift affected the deps subfamily — deps.add/rm/list declared
+ * `task` (not the tasks_* `taskId` convention). Same fix (canonical `taskId` +
+ * `task` alias via the shared resolveTaskId). These assert the resolved id reaches
+ * the service from BOTH names, `dependsOn` is unaffected, and neither → ValidationError.
+ */
+describe("tasks_deps_* taskId resolution (mt#2741)", () => {
+  test("tasks.deps.add resolves taskId (and the task alias) into addDependency", async () => {
+    const addCalls: Array<[string | undefined, string | undefined]> = [];
+    const service = {
+      addDependency: async (a: string, b: string) => {
+        addCalls.push([a, b]);
+        return { created: true };
+      },
+    } as unknown as TaskGraphService;
+    const cmd = createTasksDepsAddCommand(() => service);
+
+    await cmd.execute({ taskId: CHILD_ID, task: undefined, dependsOn: DEP_ID });
+    await cmd.execute({ taskId: undefined, task: CHILD_ID, dependsOn: DEP_ID });
+
+    // both param names reach addDependency with (dependentTask, dependency)
+    expect(addCalls).toEqual([
+      [CHILD_ID, DEP_ID],
+      [CHILD_ID, DEP_ID],
+    ]);
+  });
+
+  test("tasks.deps.add rejects a call with neither taskId nor task", async () => {
+    const service = {
+      addDependency: async () => {
+        throw new Error("should not be reached");
+      },
+    } as unknown as TaskGraphService;
+    await expect(
+      createTasksDepsAddCommand(() => service).execute({
+        taskId: undefined,
+        task: undefined,
+        dependsOn: DEP_ID,
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("tasks.deps.rm resolves taskId (and the task alias) into removeDependency", async () => {
+    const rmCalls: Array<[string | undefined, string | undefined]> = [];
+    const service = {
+      removeDependency: async (a: string, b: string) => {
+        rmCalls.push([a, b]);
+        return { removed: true };
+      },
+    } as unknown as TaskGraphService;
+    const cmd = createTasksDepsRmCommand(() => service);
+
+    await cmd.execute({ taskId: CHILD_ID, task: undefined, dependsOn: DEP_ID });
+    await cmd.execute({ taskId: undefined, task: CHILD_ID, dependsOn: DEP_ID });
+
+    expect(rmCalls).toEqual([
+      [CHILD_ID, DEP_ID],
+      [CHILD_ID, DEP_ID],
+    ]);
+  });
+
+  test("tasks.deps.list resolves taskId (and the task alias) into the dependency lookups", async () => {
+    const listCalls: Array<string | undefined> = [];
+    const service = {
+      listDependencies: async (id: string) => {
+        listCalls.push(id);
+        return [];
+      },
+      listDependents: async (_id: string) => [],
+    } as unknown as TaskGraphService;
+    const cmd = createTasksDepsListCommand(() => service);
+
+    await cmd.execute({ taskId: PARENT_ID, task: undefined, verbose: undefined });
+    await cmd.execute({ taskId: undefined, task: PARENT_ID, verbose: undefined });
+
+    expect(listCalls).toEqual([PARENT_ID, PARENT_ID]);
+  });
+
+  test("tasks.deps.list rejects a call with neither taskId nor task", async () => {
+    const service = {
+      listDependencies: async () => {
+        throw new Error("should not be reached");
+      },
+      listDependents: async () => [],
+    } as unknown as TaskGraphService;
+    await expect(
+      createTasksDepsListCommand(() => service).execute({
+        taskId: undefined,
+        task: undefined,
+        verbose: undefined,
+      })
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 });
