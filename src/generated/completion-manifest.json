@@ -2600,6 +2600,11 @@
                   "takesValue": true
                 },
                 {
+                  "flags": ["--review-comment"],
+                  "description": "Optional review comment posted alongside the approval",
+                  "takesValue": true
+                },
+                {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 }
@@ -2661,6 +2666,11 @@
                 {
                   "flags": ["--repo"],
                   "description": "Repository path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--review-comment"],
+                  "description": "Optional review comment posted alongside the approval",
                   "takesValue": true
                 },
                 {

@@ -247,6 +247,10 @@ export function createSessionStartCommand(
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
         skipInstall: (params.skipInstall as boolean | undefined) ?? false,
         packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+        // mt#2742: thread the declared `recover` flag to the domain — start-session-operations
+        // honors it (delete a stale/orphaned session and start fresh). It was dropped here, so
+        // `--recover` / recover:true never fired.
+        recover: (params.recover as boolean | undefined) ?? false,
       });
 
       // Best-effort informational event (mt#2487). Never blocks session start.

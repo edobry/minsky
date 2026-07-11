@@ -15,6 +15,12 @@ interface SessionEditFileParams {
   task?: string;
   repo?: string;
   json?: boolean;
+  // mt#2742: the declared param is `sessionId` (session-parameters.ts). The
+  // handler previously read only `params.session` (never declared) so an
+  // explicit session id was silently ignored and the command always
+  // auto-detected. `sessionId` is the canonical key; `session` kept as a
+  // harmless fallback.
+  sessionId?: string;
   session?: string;
   path?: string;
   instruction?: string;
@@ -25,12 +31,17 @@ interface SessionEditFileParams {
   debug?: boolean;
 }
 
-async function resolveSessionId(
+// Exported (mt#2742) for regression testing the sessionId-resolution fix.
+export async function resolveSessionId(
   deps: SessionCommandDependencies,
   params: SessionEditFileParams
 ): Promise<string> {
-  if (params.session) {
-    return params.session;
+  // mt#2742: honor the canonical `sessionId` param (the declared key); `session`
+  // kept as a harmless fallback. Previously only `params.session` (undeclared)
+  // was read, so an explicit id was ignored and this always auto-detected.
+  const explicit = params.sessionId ?? params.session;
+  if (explicit) {
+    return explicit;
   }
 
   const currentSession = await deps.getCurrentSession(process.cwd());

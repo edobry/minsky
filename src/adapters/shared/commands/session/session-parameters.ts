@@ -270,6 +270,14 @@ export const sessionApproveCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
+  // mt#2742: review comment posted with the approval. The approve handler read
+  // `params.reviewComment` but no param declared it (always undefined) — the
+  // feature was non-functional. Declared here to restore it.
+  reviewComment: {
+    schema: z.string(),
+    description: "Optional review comment posted alongside the approval",
+    required: false,
+  },
   json: commonSessionParams.json,
 };
 
