@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
+import { ValidationError } from "@minsky/domain/errors/index";
 
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsAddParams = {
@@ -140,25 +141,54 @@ export function createTasksDepsListCommand(getTaskGraphService: () => TaskGraphS
   };
 }
 
-// mt#2737: param is `taskId` (not `task`) to match the tasks_* family convention
-// (tasks_get / tasks_status_get / tasks_spec_get all use `taskId`). Callers
-// following that convention pass `taskId`; under the old `task` name it arrived
-// undefined and the relationship query ran with an undefined bind (UNDEFINED_VALUE).
+// mt#2737: canonical param is `taskId`, matching the tasks_* family convention
+// (tasks_get / tasks_status_get / tasks_spec_get all use `taskId`). Originally
+// these two commands used `task`; callers following the family convention passed
+// `taskId`, which arrived undefined and ran the relationship query with an
+// undefined bind (UNDEFINED_VALUE). `task` is retained as a permanent back-compat
+// alias (Postel's law) so pre-existing `task`-name callers don't silently break;
+// `taskId` wins when both are supplied. Both are optional at the schema layer and
+// `resolveTaskId` enforces that exactly one is present.
 const tasksChildrenParams = {
   taskId: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description: "ID of the parent task to list children for",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
 } satisfies CommandParameterMap;
 
 const tasksParentParams = {
   taskId: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description: "ID of the task to find parent of",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
 } satisfies CommandParameterMap;
+
+/**
+ * Resolve the task id from the canonical `taskId` param or the legacy `task`
+ * alias (mt#2737). Throws when neither is supplied so the caller gets a clear
+ * validation error instead of an undefined DB bind (the original bug).
+ */
+function resolveTaskId(params: { taskId?: string; task?: string }, commandName: string): string {
+  const taskId = params.taskId ?? params.task;
+  if (!taskId) {
+    throw new ValidationError(
+      `${commandName} requires 'taskId' ('task' is accepted as a legacy alias)`
+    );
+  }
+  return taskId;
+}
 
 export function createTasksChildrenCommand(getTaskGraphService: () => TaskGraphService) {
   return {
@@ -167,14 +197,15 @@ export function createTasksChildrenCommand(getTaskGraphService: () => TaskGraphS
     description: "List subtasks (children) of a parent task",
     parameters: tasksChildrenParams,
     execute: async (params: InferParams<typeof tasksChildrenParams>) => {
+      const taskId = resolveTaskId(params, "tasks.children");
       const service = getTaskGraphService();
-      const children = await service.listChildren(params.taskId);
+      const children = await service.listChildren(taskId);
 
       if (children.length === 0) {
-        return { success: true, output: `${params.taskId}: no subtasks` };
+        return { success: true, output: `${taskId}: no subtasks` };
       }
 
-      const lines = [`${params.taskId}: ${children.length} subtask(s)`];
+      const lines = [`${taskId}: ${children.length} subtask(s)`];
       for (const child of children) {
         lines.push(`  ${child}`);
       }
@@ -190,14 +221,15 @@ export function createTasksParentCommand(getTaskGraphService: () => TaskGraphSer
     description: "Show the parent task of a subtask",
     parameters: tasksParentParams,
     execute: async (params: InferParams<typeof tasksParentParams>) => {
+      const taskId = resolveTaskId(params, "tasks.parent");
       const service = getTaskGraphService();
-      const parent = await service.getParent(params.taskId);
+      const parent = await service.getParent(taskId);
 
       if (parent === null) {
-        return { success: true, output: `${params.taskId}: no parent (root task)` };
+        return { success: true, output: `${taskId}: no parent (root task)` };
       }
 
-      return { success: true, output: `${params.taskId}: parent is ${parent}` };
+      return { success: true, output: `${taskId}: parent is ${parent}` };
     },
   };
 }
