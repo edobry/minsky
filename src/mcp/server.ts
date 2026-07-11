@@ -404,6 +404,11 @@ export class MinskyMCPServer {
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
 
+  // mt#2701: max time to wait for in-flight tool calls to drain before a
+  // staleness exit force-terminates. Overridable in tests. A wedged request
+  // cannot keep a stale server alive past this cap.
+  private staleDrainCapMs = 30_000;
+
   /**
    * Disconnect/reconnect event tracker for cadence measurement (mt#1645).
    * Records structured events to `~/.local/state/minsky/mcp-disconnect-log.json`
@@ -1529,13 +1534,17 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Emit a notifications/message at level=alert and schedule a clean process.exit(0)
-   * after 200ms to give the notification time to flush to the client.
+   * Begin a staleness-driven shutdown (mt#1315 mechanism, mt#2701 drain): emit a
+   * notifications/message at level=alert, tag the upcoming exit as
+   * `staleness_exit`, mark the server `draining` (rejecting new calls), then wait
+   * for in-flight tool calls to DRAIN before scheduling `process.exit(0)` after a
+   * 200ms flush buffer. A hard cap (`staleDrainCapMs`) force-exits a wedged request.
    *
    * Only fires once per process lifetime (guarded by hasTriggeredStaleSignal).
-   * The tool call's response/error is already returned to the caller by the
-   * time this method runs — the 200ms delay is the spike-derived buffer from
-   * mt#1315 (response → exit measured at ~102ms at delayMs=100).
+   * Draining before exit is what prevents a sibling call in a parallel batch from
+   * being orphaned: the detecting call is itself in flight until its `finally`
+   * runs, so the drain waits for it and every concurrent sibling to respond first.
+   * See scheduleStaleExitAfterDrain.
    */
   private triggerStaleSignal(server: Server): void {
     if (this.hasTriggeredStaleSignal) return;
@@ -1578,7 +1587,49 @@ export class MinskyMCPServer {
       errorMessage: staleMessage || undefined,
     });
 
-    setTimeout(() => this.exit(0), 200);
+    // mt#2701: reject NEW calls and drain in-flight ones before exiting, instead
+    // of arming a 200ms fuse that orphans concurrent siblings still executing.
+    this.draining = true;
+    this.scheduleStaleExitAfterDrain();
+  }
+
+  /**
+   * Poll until no tool call is in flight (or `staleDrainCapMs` elapses), then
+   * schedule the process exit after a short flush buffer so the final response
+   * reaches the transport before the process dies (mt#2701).
+   */
+  private scheduleStaleExitAfterDrain(): void {
+    const POLL_INTERVAL_MS = 50;
+    const FLUSH_BUFFER_MS = 200;
+    const start = Date.now();
+
+    const scheduleExit = (wedgedRequests: number): void => {
+      if (wedgedRequests > 0) {
+        log.warn("MCP staleness drain cap reached — exiting with requests still in flight", {
+          wedgedRequests,
+          capMs: this.staleDrainCapMs,
+        });
+      } else {
+        log.debug("MCP staleness drain complete — all in-flight requests finished", {
+          drainMs: Date.now() - start,
+        });
+      }
+      setTimeout(() => this.exit(0), FLUSH_BUFFER_MS);
+    };
+
+    const poll = (): void => {
+      const inFlight = this.inFlightRequests.size;
+      if (inFlight === 0) {
+        scheduleExit(0);
+        return;
+      }
+      if (Date.now() - start >= this.staleDrainCapMs) {
+        scheduleExit(inFlight);
+        return;
+      }
+      setTimeout(poll, POLL_INTERVAL_MS);
+    };
+    poll();
   }
 
   /**

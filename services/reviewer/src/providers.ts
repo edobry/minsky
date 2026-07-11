@@ -18,6 +18,7 @@ import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
 import { withTimeout, TimeoutError } from "./with-timeout";
 import { log } from "./logger";
+import { createHash } from "node:crypto";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -382,6 +383,16 @@ interface ChatCreateBaseParams {
   model: string;
   max_completion_tokens: number;
   reasoning_effort?: "low" | "medium" | "high";
+  // mt#2722 — OpenAI prompt-cache controls. Neither field is typed by the
+  // installed openai@4.104.0 (both postdate it); the OpenAI Node SDK forwards
+  // unknown body fields verbatim, so we carry them as a typed passthrough on
+  // baseParams and let the spread into `client.chat.completions.create` forward
+  // them (spread-originated properties are exempt from TS excess-property
+  // checks). `prompt_cache_key` is only a routing HINT — it can never cause an
+  // incorrect cache hit (OpenAI validates the actual prefix bytes), so a
+  // stale/colliding key is at worst a missed optimization, never wrong data.
+  prompt_cache_key: string;
+  prompt_cache_retention: "24h";
 }
 
 /**
@@ -455,7 +466,21 @@ async function forceConcludeReview(
         {
           ...baseParams,
           messages: forcedMessages,
-          tools: [CONCLUDE_REVIEW_TOOL_DEF],
+          // mt#2722 — pass the FULL tools array (was [CONCLUDE_REVIEW_TOOL_DEF])
+          // so the forced pass preserves the cached prefix shared with the main
+          // loop: swapping the `tools` array busts the prompt cache from the
+          // tools position onward. `tool_choice` below still pins the model to
+          // emit exactly conclude_review regardless of array width, so effective
+          // tool availability is unchanged. NOTE (mt#2722 AT 2b): the original
+          // single-tool narrowing was a deliberate mt#1471 choice (memory
+          // c57a9479 records that narrowing + forced tool_choice reached 15/15
+          // emission on gpt-5); widening to the full array is expected to stay
+          // quality-neutral because tool_choice removes the compliance question,
+          // but this is EMPIRICALLY GATED, not assumed — the replay emission
+          // rate must stay >= the mt#1471 baseline. If it regresses, revert to
+          // the narrow array and accept the forced-pass cache-bust (spec
+          // Contingency: change (a)/(b) separability).
+          tools: ALL_TOOL_DEFINITIONS,
           // Reference the extracted tool def's name so the constraint stays in
           // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
           // renamed there, this call updates automatically.
@@ -569,7 +594,12 @@ async function forceDocumentationImpact(
         {
           ...baseParams,
           messages: forcedMessages,
-          tools: [DOC_IMPACT_TOOL_DEF],
+          // mt#2722 — pass the FULL tools array (was [DOC_IMPACT_TOOL_DEF]) so
+          // the forced pass preserves the cached prefix shared with the main
+          // loop. `tool_choice` still pins exactly submit_documentation_impact.
+          // Empirically gated the same as the conclude_review forced pass — see
+          // that pass's comment and mt#2722 AT 2b.
+          tools: ALL_TOOL_DEFINITIONS,
           tool_choice: {
             type: "function",
             function: { name: DOC_IMPACT_TOOL_DEF.function.name },
@@ -660,9 +690,32 @@ export async function callOpenAIWithClient(
   // options.reasoningEffort always takes precedence on both paths. See mt#1232.
   const defaultReasoningEffort = tools ? ("low" as const) : ("medium" as const);
 
+  // mt#2722 — stable prompt-cache routing key. The OpenAI cached prefix is the
+  // systemPrompt + tools array; the systemPrompt (built by
+  // buildCriticConstitution) is repo-INDEPENDENT — a pure function of
+  // (toolsActive, scopeBucket, outputToolsActive, priorReviewsPresent) — so a
+  // hash of it is the correct variant discriminator, stable across reviews,
+  // across the tool-use rounds within a review, and across the forced passes
+  // (all four create call sites spread this baseParams). This DEVIATES from the
+  // spec's original `reviewer:<repo>:<variant>` shape by dropping <repo>: the
+  // repo is not part of the cacheable prefix (it lives in the per-PR user
+  // message, past the shared prefix), so keying on it would fragment cross-repo
+  // cache sharing for negligible sharding benefit (single dominant repo,
+  // sporadic cadence far under OpenAI's ~15 RPM/prefix ceiling). See the spec's
+  // "cache-key value" reconciliation note.
+  const promptCacheKey = `reviewer:${createHash("sha256")
+    .update(systemPrompt)
+    .digest("hex")
+    .slice(0, 16)}`;
+
   const baseParams = {
     model,
     max_completion_tokens: maxCompletionTokens,
+    // mt#2722 — see ChatCreateBaseParams. Applied uniformly to every OpenAI call
+    // in a review (main-loop rounds, both forced passes, and the no-tools path)
+    // so they share one cached prefix.
+    prompt_cache_key: promptCacheKey,
+    prompt_cache_retention: "24h" as const,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
     // API — so only include it when the configured model supports it. The
