@@ -397,6 +397,10 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
+          // mt#2742: session.approve shares sessionApproveCommandParams (which declares
+          // reviewComment) with session.pr.approve — thread it here too so --review-comment
+          // isn't silently dropped on this command.
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };
