@@ -46,9 +46,6 @@ export function getTasksCustomizations(): {
               asArgument: false,
               description: "Title for the task",
             },
-            description: {
-              description: "Description text for the task (DEPRECATED: use spec)",
-            },
           },
         },
         "tasks.dispatch": {

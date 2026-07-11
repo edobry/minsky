@@ -397,6 +397,10 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
+          // mt#2742: session.approve shares sessionApproveCommandParams (which declares
+          // reviewComment) with session.pr.approve — thread it here too so --review-comment
+          // isn't silently dropped on this command.
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };
@@ -540,8 +544,9 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       const reviewResult = await sessionReviewImpl(
         {
-          sessionId:
-            (params.sessionId as string | undefined) || (params.session as string | undefined),
+          // mt#2742: session_review declares `sessionId`, not `session`; the
+          // `|| params.session` fallback was dead (always undefined).
+          sessionId: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -642,8 +647,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
-          reviewComment:
-            (params.comment as string | undefined) || (params.reviewComment as string | undefined),
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };

@@ -266,11 +266,24 @@ export const sessionUpdateCommandParams = {
  * Session approve command parameters.
  * Only includes fields relevant to the approve action (not merge-only flags).
  */
-export const sessionApproveCommandParams = {
+// mt#2742: base params shared by approve + merge. `reviewComment` is approve-only
+// (a merge posts no review comment), so it lives on sessionApproveCommandParams — NOT
+// the base — otherwise sessionMergeCommandParams (which spreads the base) would inherit
+// a param its handler never reads (a declared-but-unread bug, the very class this task fixes).
+const sessionApproveBaseParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+};
+
+export const sessionApproveCommandParams = {
+  ...sessionApproveBaseParams,
+  reviewComment: {
+    schema: z.string(),
+    description: "Optional review comment posted alongside the approval",
+    required: false,
+  },
 };
 
 /**
@@ -278,7 +291,9 @@ export const sessionApproveCommandParams = {
  * Extends the approve base with merge-only flags.
  */
 export const sessionMergeCommandParams = {
-  ...sessionApproveCommandParams,
+  // mt#2742: spread the BASE (not sessionApproveCommandParams) so merge does NOT
+  // inherit the approve-only `reviewComment` param (its handler never reads it).
+  ...sessionApproveBaseParams,
   skipCleanup: {
     schema: z.boolean(),
     description: "Skip session cleanup after merge (preserves session files)",
