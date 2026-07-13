@@ -55,6 +55,7 @@ a status transition; everything else is investigation and gate-check.
   - (l) Authoritative-source check for third-party-system decisions (security surfaces,
     designing a mechanism on a third-party's internals, or how to use a named tool with docs)
   - (m) Factual-claim citation verification
+  - (n) External-system integration provisioning enumeration
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -678,6 +679,113 @@ ships, that memory's job becomes historical record + pointer here. Sibling gates
 verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
 runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
 
+#### Gate criterion (n) — External-system integration provisioning enumeration
+
+When the task introduces a **new external-system integration** — a new GitHub App permission or
+API scope, a new outbound API host/endpoint requiring a credential, or a new webhook
+subscription — the spec must (a) enumerate the required external provisioning and (b) confirm
+it is provisioned OR link an explicit provisioning task, before the task can be READY. A spec
+that names the new integration surface without enumerating and gating its external precondition
+is incomplete and must not proceed to READY.
+
+This is the external-system-contract analog of gate (h): gate (h) propagates a changed
+first-party contract to its downstream consumers; gate (n) propagates a new external-system
+dependency to the provisioning step required for it to actually function once deployed. Unlike
+the deploy-CRASH class covered by the deploy-surface merge gate (mt#2353) — which asks "will the
+container start?" — this criterion asks "will the feature actually WORK once the container
+starts?" A change can pass CI, deploy cleanly, and return healthy on \`/health\`, and still be
+INERT in production because the external precondition (a scope, a permission, a credential) was
+never provisioned. CI cannot catch this: CI runs against test credentials or fake/mocked
+clients, never the live external system.
+
+**Originating incident — mt#2435 (2026-07-10/11).** mt#2435 wired \`services/reviewer/src/*\` to
+post a GitHub check-run per review, which requires the \`minsky-reviewer[bot]\` GitHub App to
+hold the \`checks:write\` permission. That external precondition WAS tracked — as a separate
+task, mt#2500 — but mt#2500 was still TODO at merge and the spec never enumerated the
+precondition or gated on its provisioning status. The PR merged green,
+\`deployment_wait-for-latest\` returned SUCCESS, and the task was reported done. In production,
+\`POST /check-runs\` returned 403; \`publishCheckRun\` degraded silently (no crash, no alert); the
+feature was inert for a day+ until a follow-up session (mt#2736) drove a live check and the
+operator granted the permission (verified 2026-07-11, checkRunId 86533407554). Walking gate (n)
+against mt#2435's diff at plan time would have produced: (a) \`checks:write\` enumerated as a
+required precondition, (b) a gate hit linking mt#2500 (still TODO — provisioning NOT yet
+satisfied), (c) a blocking gap surfaced BEFORE merge instead of the 403 surfacing a day later.
+
+**Trigger condition.** This criterion fires when the spec describes any of:
+
+- A new GitHub App permission or API scope the integration did not previously require (e.g.
+  \`checks:write\`, \`contents:write\`, a new webhook event subscription)
+- A new outbound API host or endpoint that requires a credential, token, or API key not already
+  configured (a new \`octokit.rest.*\` call class requiring a scope the App doesn't hold, a new
+  third-party API integration, a new outbound \`fetch\` target requiring auth)
+- A new webhook subscription — either registering to receive a new webhook event type, or
+  exposing a new webhook-receiving endpoint that a third party must be configured to call
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(n) No new external-system integration — criterion passes."
+
+**Heuristic for recognizing a new external-system integration (best-effort, v1).** Grep the
+diff/spec for:
+
+- A new \`octokit.rest.<resource>.<method>\` call whose GitHub REST scope isn't already held by
+  the calling App/token (cross-check against the App's current permission set, e.g. the App's
+  manifest or its settings page)
+- A new outbound \`fetch(...)\` / HTTP client call whose target host doesn't appear in any
+  existing outbound-call site in the codebase
+- A new webhook route registration (e.g. \`app.post("/webhooks/...")\`) or a new
+  \`octokit.webhooks.on(...)\` event subscription
+
+This heuristic is a starting point for the agent to apply manually during plan-time review — it
+is NOT a mechanical/automated detector. An automated semantic detector (e.g. AST-diffing
+\`octokit.rest.*\` call sites against a known-scope table) is explicitly a stretch follow-on, not
+required for v1.
+
+**Required enumeration (when triggered).** For each identified new external-system integration:
+
+1. **Name the precondition** — the specific permission/scope/credential/webhook required (e.g.
+   "\`checks:write\` App permission", "new \`SLACK_BOT_TOKEN\` credential", "webhook subscription
+   to \`pull_request.closed\`").
+2. **State provisioning status** — one of:
+   - **Provisioned** — the precondition is already granted/configured in the target
+     environment; cite how this was verified (e.g. "confirmed via \`gh api /app\` → permissions
+     include \`checks: write\`" or "confirmed via a live API call in the target environment").
+   - **Linked to a provisioning task** — an explicit task ID that owns granting the
+     precondition, with that task's current status. If the provisioning task is not yet DONE,
+     this is a **blocking gap** — merging before provisioning is what produced the mt#2435
+     incident.
+   - **Neither** — a blocking gap. The spec must add one of the two above before READY.
+3. **Record in the spec** — the enumeration lives in the spec's \`## Scope\` → \`In scope\` section
+   (mirroring gate (h)'s placement) or a dedicated \`## External preconditions\` subsection.
+
+**Check steps:**
+
+1. Read the spec and identify whether it describes any of the trigger-condition integration
+   types. If not, record "(n) passes — no new external-system integration."
+2. If triggered, identify the specific precondition(s) using the heuristic above.
+3. For each precondition, verify the spec states provisioning status per the three-step
+   enumeration above.
+4. A provisioning-task link to a task that is NOT DONE is a blocking gap — do not accept "will
+   provision later" without either provisioning now or making the merge/READY transition
+   contingent on that task's completion being verified (not merely linked).
+5. A spec that names the new integration without stating provisioning status does not satisfy
+   this criterion — the claim must be grounded in a verified check, not an assumption.
+
+**Counter-case (no over-fire).** A pure in-repo change with no new external-system integration —
+a refactor, a logic fix, a change to an EXISTING already-provisioned integration surface —
+passes automatically with the explicit "(n) No new external-system integration — criterion
+passes" statement.
+
+**Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
+"can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
+crash-on-start) and fires on \`infra/**\`, \`services/*/Dockerfile\`, \`services/*/railway.json\`,
+etc. Gate (n) asks "will this deployed feature actually WORK?" and fires on the external-system
+integration surface regardless of whether the change touches deploy-config files at all — the
+mt#2435 diff touched only \`services/reviewer/src/*\` application code, not deploy config. Do not
+conflate the two; a change can trip one, both, or neither.
+
+Cross-reference: this task (mt#2740) formalizes the gate; bridge memory \`2de33884\`. Sibling
+verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requirement, same task).
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -833,6 +941,33 @@ producing the three-step citation-and-mapping protocol:
    or cite a different source that actually supports the direct-connection bypass.
 
 To re-run the gate after fixes: \`/plan-task mt#1852\`
+\`\`\`
+
+**Example (n) failure.** For a task (modeled on mt#2435) that wires a service to post a GitHub
+check-run per review, requiring the App's \`checks:write\` permission, without enumerating the
+precondition or gating on its provisioning status:
+
+\`\`\`
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (n) External-system integration provisioning enumeration: spec adds a new
+  \`octokit.rest.checks.create\` call requiring the \`checks:write\` App permission, but does not
+  enumerate this precondition or state its provisioning status. Cross-checking the App's current
+  permission set: \`checks:write\` is NOT currently granted. A separate provisioning task exists
+  (mt#2500) but the spec does not link it, and mt#2500 is still TODO — provisioning is not yet
+  satisfied.
+
+### Required actions before READY
+1. Add an \`## External preconditions\` subsection (or extend \`## Scope\` → \`In scope\`) naming
+   \`checks:write\` as a required App permission.
+2. Link mt#2500 as the provisioning task, and state explicitly that READY/merge is contingent on
+   mt#2500 reaching DONE (verified, not merely linked) before the check-run path is considered
+   live-functional.
+3. Per \`/implement-task\` §7a/§10, plan for a live \`POST /check-runs\` exercise post-deploy —
+   deploy-SUCCESS alone does not verify the permission is actually granted.
+
+To re-run the gate after fixes: \`/plan-task mt#XXXX\`
 \`\`\`
 
 ## State transition map
