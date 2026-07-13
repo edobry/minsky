@@ -1,0 +1,80 @@
+---
+// Co-product logo strip — "Minsky composes with"
+// Not "trusted by" — Minsky doesn't claim customer logos.
+// Per marketing-site-design/SKILL.md §6 and docs/brand-system.md.
+// Logos rendered as wordmarks (text) until real SVGs are sourced; this
+// keeps the strip honest and the brand voice consistent.
+
+const products = [
+  { name: "Claude Code", href: "https://claude.ai/code" },
+  { name: "Cursor", href: "https://cursor.com" },
+  { name: "Codex", href: "https://openai.com/codex" },
+  { name: "MCP", href: "https://modelcontextprotocol.io" },
+  { name: "GitHub", href: "https://github.com" },
+  { name: "Notion", href: "https://notion.so" },
+  { name: "Railway", href: "https://railway.com" },
+];
+---
+
+<section class="co-product-row" aria-labelledby="co-product-heading">
+  <div class="co-product-inner">
+    <p id="co-product-heading" class="eyebrow">Minsky composes with</p>
+    <ul class="logo-strip" role="list">
+      {
+        products.map((p) => (
+          <li>
+            <a href={p.href} rel="noopener noreferrer" target="_blank" class="logo-wordmark">
+              {p.name}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .co-product-row {
+    padding: 3rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 6%, transparent);
+  }
+  .co-product-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: flex-start;
+  }
+  @media (min-width: 760px) {
+    .co-product-inner {
+      flex-direction: row;
+      align-items: center;
+      gap: 3rem;
+    }
+  }
+
+  .logo-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.75rem 2.5rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .logo-wordmark {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    letter-spacing: -0.005em;
+    color: var(--color-text-muted);
+    opacity: 0.7;
+    transition: opacity 180ms ease, color 180ms ease;
+    line-height: 1.4;
+  }
+  .logo-wordmark:hover {
+    color: var(--color-text-primary);
+    opacity: 1;
+  }
+</style>

@@ -17,10 +17,18 @@ paths = [
   '''docs/.*''',
   '''README\.md''',
   '''process/tasks/.*\.md''',
-  '''.*\.test\.ts'''
+  '''.*\.test\.ts''',
+  # The .gitleaksignore file itself is scanned by protect --staged and may
+  # contain fingerprint comments that reference the patterns they suppress.
+  '''^\.gitleaksignore$'''
 ]
 regexes = [
   '''postgresql://(user|username|admin):(password|pass|secret)@(localhost|host|example\.com)''',
   '''postgresql://(team|test|mock):(password|pass)@.*''',
-  '''postgres://(user|username):(pass|password)@(host|localhost)'''
+  '''postgres://(user|username):(pass|password)@(host|localhost)''',
+  # Railway OAuth client ID — public per OAuth2 RFC 6749 (client_id is not a
+  # secret; only client_secret is, and Railway's public CLI flow has none).
+  # The value is hardcoded in the open-source Railway CLI src/oauth.rs and
+  # ships with every Railway CLI install. mt#2013.
+  '''rlwy_oaci_[A-Za-z0-9]+'''
 ]

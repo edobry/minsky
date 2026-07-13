@@ -1,0 +1,87 @@
+---
+name: Task Lifecycle — External-Deliverable Closeout
+description: Convention for closing tasks whose primary deliverable is external to the repo (Notion pages, deployed services, hosted resources) via a direct READY → DONE transition with spec-verified closeout evidence.
+alwaysApply: false
+tags:
+  - minsky
+  - tasks
+  - lifecycle
+---
+# Task Lifecycle: External-Deliverable Closeout
+
+## Why this convention exists
+
+The standard task lifecycle ends with `session_start → session_pr_create → session_pr_merge → DONE`. This
+path assumes the deliverable is a code change merged into the repo. Several legitimate task classes have
+**external-only deliverables** with no associated PR:
+
+- Notion engineering-blog posts and position papers
+- Deployed services and hosted resources
+- Configuration changes on external infrastructure (Railway, Cloudflare DNS, etc.)
+- Forms, agreements, and third-party account provisioning
+
+Without a structured closeout path, agents were forced into bad alternatives:
+- Creating a dummy stub in the repo just to satisfy the lifecycle (artificial overhead)
+- Using `CLOSED` as "lifecycle complete via external artifact" (erodes `CLOSED`'s abandoned/superseded semantics)
+- Leaving the task at `READY` indefinitely (fiction — the work is done)
+
+## The READY → DONE direct path
+
+A task in `READY` status can transition directly to `DONE` without going through
+`session_start`/`session_pr_create`/`session_pr_merge` **when the task spec contains a
+`## Closeout evidence` section with non-empty content**.
+
+The status engine enforces this structurally:
+- The heading must match `## Closeout evidence` (case-insensitive, with or without trailing punctuation).
+- The section must have at least one non-blank line of content before the next `##` heading or end-of-spec.
+- If either condition fails, the transition is refused with a clear error message.
+
+The closeout evidence section **replaces the merge-commit audit trail** that the standard PR path provides.
+Future readers find the external artifact via the spec.
+
+## What to put in the `## Closeout evidence` section
+
+The section should contain, at minimum:
+
+1. **The external artifact's verifiable reference** — a URL, ID, or other locator that can be independently verified.
+2. **A completion timestamp** — when the deliverable was published or completed.
+3. **A 1–3 sentence description** of what was delivered.
+
+### Example
+
+```markdown
+## Closeout evidence
+
+Notion page published: https://www.notion.so/Engineering-Blog-AI-Assisted-Planning-abc123
+Published: 2026-05-11
+Delivered: Engineering blog post covering the AI-assisted planning workflow shipped in mt#1720.
+The post is publicly accessible and indexed.
+```
+
+## When to use this path
+
+Use `READY → DONE` with closeout evidence when:
+- The task was planned and is `READY`
+- The deliverable exists externally
+- No code was merged (or the only merged code is structural plumbing that already reached `DONE` separately)
+
+Do **not** use this path when:
+- A PR was merged — the standard `session_pr_merge` path sets `DONE` atomically
+- The task is an umbrella/epic — those use `COMPLETED` (not `DONE`) via the `kind: "umbrella"` workflow
+- The task is still in progress — `READY` is the gate, not a free-pass to `DONE`
+
+## Retroactive closeout for pre-existing tasks
+
+Tasks that completed before this convention existed may have a `## Status` section (or similar)
+documenting the outcome. To close such a task via this path:
+
+1. Rename the section to `## Closeout evidence` (or add one if absent).
+2. Verify the content satisfies the requirements (verifiable reference, timestamp, description).
+3. Transition to `DONE` via `tasks_status_set`.
+
+## Implementation reference
+
+- State-machine enforcement: `packages/domain/src/tasks/commands/mutation-commands.ts` (READY → DONE spec check)
+- Helper: `packages/domain/src/tasks/status-transitions.ts` → `hasCloseoutEvidence()`
+- Error message: `READY_TO_DONE_MISSING_EVIDENCE_MESSAGE` (exported from `status-transitions.ts`)
+- Originating retrospective: mt#1743 (extends mt#1718 — Notion engineering-blog post closeout gap)

@@ -19,7 +19,7 @@
  * Task: mt#1212
  */
 
-import { safeTruncate } from "./utils/safe-truncate";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export type SanitizeAction = "passthrough" | "stripped" | "errored";
 

@@ -1,0 +1,20 @@
+# Gitleaks false-positive fingerprints
+#
+# These are findings that are NOT real secrets — they are test-only credentials,
+# placeholder values, or CI constructs that gitleaks cannot distinguish from
+# real credentials with its regex engine.
+#
+# See .gitleaks.toml [allowlist] for pattern-based exceptions used for common cases.
+# This file handles specific line-by-line false positives.
+
+# mt#2369 cold-start CI workflow: DATABASE_URL composed via GitHub Actions
+# format() expression so no literal URL is embedded. The credentials are
+# test-only ephemeral values scoped to the job's ephemeral postgres container.
+# Gitleaks matches the format-string template as a false positive.
+# (Line shifted 54→58 by the mt#2439 bootstrap-step additions.)
+.github/workflows/cold-start-migrate.yml:database-url-credentials:58
+
+# mt#1428: same workflow, same format() construct — MINSKY_POSTGRES_URL is the
+# config-loader-visible copy of the same test-only ephemeral DSN (the loader
+# does not read DATABASE_URL). Step-scoped on the smoke step.
+.github/workflows/cold-start-migrate.yml:database-url-credentials:114

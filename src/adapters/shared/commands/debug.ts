@@ -8,8 +8,11 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
+import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
+import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
+import { getSourceFreshness } from "../../../mcp/source-freshness";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -151,6 +154,23 @@ export function registerDebugCommands(): void {
         // server name so the call never throws.
         const disconnectSummary = DisconnectTracker.getInstance("minsky").getSummary();
 
+        // mt#1738: include subagent dispatch cadence in system info.
+        // Uses the SubagentDispatchTracker singleton. If no DB-backed instance
+        // has been set via setInstance(), the singleton returns a no-op tracker
+        // that produces zero-filled aggregates (same pattern as DisconnectTracker).
+        // Both getCadence() and getEscalation() are fail-safe (catch + log).
+        const dispatchTracker = SubagentDispatchTracker.getInstance();
+        const [dispatchCadence, dispatchEscalation] = await Promise.all([
+          dispatchTracker.getCadence(),
+          dispatchTracker.getEscalation(),
+        ]);
+
+        // mt#2265: asks count-by-state — the stuck-pipeline detector. Wired
+        // by the MCP start-command; zero-filled `available: false` on the CLI
+        // path or before the DB connection resolves. Fail-safe (never throws).
+        const { getAskStateCounts } = await import("@minsky/domain/ask/state-counts-provider");
+        const askStateCounts = await getAskStateCounts();
+
         // Return formatted system information
         return {
           nodejs: {
@@ -183,6 +203,53 @@ export function registerDebugCommands(): void {
            *   "daily"   = > 3 disconnects in last 24h — file structural-fix task
            */
           mcpDisconnects: disconnectSummary,
+          /**
+           * Subagent dispatch cadence (mt#1738).
+           *
+           * Aggregates from the `subagent_invocations` table (mt#1735/1736).
+           * Populated once the DB-backed tracker is wired by the MCP start-command.
+           * Returns zero-filled aggregates on the CLI path (no Postgres) or before
+           * the DB connection is resolved.
+           *
+           * `escalation` field values (calibrated first-week defaults):
+           *   "none"    = below all thresholds
+           *   "session" = > SESSION_PARTIAL_UNCOMMITTED_THRESHOLD (2) partial-uncommitted
+           *               outcomes in the most recent parent session
+           *   "daily"   = > DAILY_PARTIAL_UNCOMMITTED_THRESHOLD (5) partial-uncommitted
+           *               outcomes in last 24h, OR > DAILY_RATE_LIMITED_THRESHOLD (3)
+           *               rate-limited outcomes in last 24h
+           *
+           * When escalation is non-"none", file or update the structural-fix follow-up
+           * task (mt#1728 or a successor). See .minsky/rules/subagent-dispatch-cadence.mdc
+           * for threshold derivation and SQL inspection patterns.
+           */
+          subagentDispatches: {
+            ...dispatchCadence,
+            escalation: dispatchEscalation,
+          },
+          /**
+           * Asks count-by-state (mt#2265).
+           *
+           * The stuck-pipeline detector: a growing `detected` count means the
+           * advancement path (persist-at-create in `createAsk` + the cockpit
+           * advancement sweep) is not running. Before this signal, 3,195 asks
+           * sat in `detected` for 5+ weeks and were only found by manual DB
+           * probe (mt#2257). `available: false` = no DB wired in this context
+           * (CLI path) — counts are zero-filled, not meaningful.
+           */
+          asks: askStateCounts,
+          embeddingsHealth: EmbeddingsHealthTracker.getInstance().getSummary(),
+          /**
+           * Loaded-source freshness (mt#2335).
+           *
+           * Whether the running daemon's code is current with the repo HEAD.
+           * `bundleFresh: false` means a bundle rebuild is PENDING (benign
+           * latency after a merge — see memory `0e39c87e`), NOT necessarily a
+           * permanent staleness bug. Lets an agent distinguish rebuild-latency
+           * from real staleness without the multi-step `dist/.build-stamp` vs
+           * `git rev-parse HEAD` shell probe.
+           */
+          sourceFreshness: getSourceFreshness(),
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };

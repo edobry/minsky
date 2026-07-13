@@ -1,4 +1,4 @@
-import { defineAgent } from "../../../src/domain/definitions/factories";
+import { defineAgent } from "../../../packages/domain/src/definitions/factories";
 
 export default defineAgent({
   name: "fixture",

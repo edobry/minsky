@@ -199,7 +199,13 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 
 - **Class:** C (agent-driven poll, server-side)
 - **Shape:** MCP tool that polls the forge until a review appears (or timeout). Default
-  filters new reviews only; `reviewer: "minsky-reviewer[bot]"` filters identity.
+  `since` is the PR's `created_at` timestamp (mt#2043), so pre-existing reviews on the PR
+  match by default; `reviewer: "minsky-reviewer[bot]"` filters identity. On timeout the
+  result includes `lastSeenReviews` (each entry annotated with a `rejectionReason`) and
+  `sinceUsed` so the caller can diagnose the miss without a separate
+  `pull_request_read get_reviews` round-trip. Backends that don't implement
+  `ReviewOperations.getPullRequestCreatedAt` fall back to call-start (the pre-mt#2043
+  default) for the `since` threshold.
 - **Fit:** **today's correct answer for "babysit a PR through reviewer-bot iteration."**
   See worked example §6.
 - **Latency:** typical 30s–2min after push; bounded by the call's `timeoutSeconds`
@@ -207,18 +213,42 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 - **Production status:** **available (DONE).** Cited by `/implement-task §9` as the
   default mechanism.
 
+### 2.11a `mcp__minsky__session_pr_drive` — convergence-tail driver (review-wait + checks-wait)
+
+- **Class:** C (agent-driven poll, server-side) — composes two existing Class-C waiters.
+- **Shape:** MCP tool (mt#2647) that sequences `session_pr_wait-for-review` then, on an
+  APPROVED review, `session_pr_checks wait:true`, returning ONE terminal state:
+  `READY_TO_MERGE` / `CHANGES_REQUESTED` / `COMMENT` / `CHECKS_FAILED` / `CHECKS_TIMEOUT` /
+  `REVIEW_TIMEOUT` (plus `UNRECOGNIZED_REVIEW_STATE` for a forge review state neither
+  case, e.g. `DISMISSED`). `COMMENT` is never treated as approval. Reduces the ~6 manual
+  calls an orchestrator previously hand-drove per PR (wait → branch → checks wait → branch)
+  to 2: `session.pr.drive`, then — on `READY_TO_MERGE` — the orchestrator's own
+  `session.pr.merge` call.
+- **Design decision — deliberately does NOT merge.** Every merge gate in this repo
+  (bundle-boot-smoke, deploy-verification, bypass-merge guards, etc.) is a harness-side
+  Claude Code PreToolUse hook matched on the MCP tool name `mcp__minsky__session_pr_merge`.
+  A server-side driver that internally called the merge domain function would bypass every
+  one of those hooks. So this tool stops at the terminal state and the caller makes the
+  `session.pr.merge` call itself, so all gates fire normally. A server-side merge that
+  re-hosts the full gate battery is out of scope pending ADR-028's dispatcher.
+- **postMerge mode.** A second flag (`postMerge: true`) runs AFTER the caller's own merge
+  succeeds: `deployment.wait-for-latest` across every deploy service the merged PR's
+  changed files affect (via `findAffectedServices`, `@minsky/domain/deployment`;
+  auto-detected from `RepositoryBackend.review.listChangedFiles`, or an explicit `services`
+  override) and reports terminal deployment records per service.
+- **Fit:** the correct answer for "drive an APPROVED-bound PR to a mergeable/blocked
+  terminal state without hand-driving the wait → branch → wait sequence."
+- **Latency:** sum of the two composed waiters' latencies; each independently bounded by
+  its own `timeoutSeconds`.
+- **Production status:** **available (DONE, mt#2647).**
+
 ### 2.12 `mcp__minsky__pr_watch_create` + scheduler — registered PR-state watch
 
-- **Class:** C (agent-driven poll, server-side, persisted)
-- **Shape:** post-mt#1618, `pr_watch_create` registers a DB row; the scheduler invokes
-  `pr_watch_run` periodically against the production `GithubPrClient`. On match, fires
-  `operatorNotify` (Class A laptop delivery) — see §2.3.
-- **Fit:** registered PR-state watch outliving the conversation. Right shape when the
-  watch survives across session restarts. **Wrong shape for in-conversation delivery**
-  because OperatorNotify targets the laptop.
-- **Latency:** ≤ 1 polling interval.
-- **Production status:** **wired post-mt#1618** for desktop notify; **gap remains** for
-  agent-context delivery.
+- **Class:** B (pull-on-tool-call) post-mt#1725 — agent-context delivery via `WakeSignalSink`. Also fires Class A (laptop) notifications via `OperatorNotify` for operators who want desktop alerts. See §2.3 for the operator-side path.
+- **Shape:** post-mt#1618, `pr_watch_create` registers a DB row (now including the registering agent's `parentSessionId` captured at call time per mt#1725); the scheduler invokes `pr_watch_run` periodically against the production `GithubPrClient`. On match, the watcher fires both `OperatorNotify` (desktop bell + native notification) AND emits a `pr.watch`-kind row to `wake_pending` keyed on `parentSessionId`. The `enrichWakeResponse` middleware drains the row on the registering agent's next allowlisted MCP tool call (per the §5 bridge's pull-on-tool-call seam).
+- **Fit:** registered PR-state watch outliving the conversation. Right shape when the watch survives across session restarts AND for in-conversation delivery to the registering agent. Coverage profile inherits mt#1661 v0's addressing constraints — wake delivers when the next MCP call carries a session arg (`session`/`sessionId`/`task`/`taskId`) that resolves to the registering session; otherwise telemetered as `wake.enrichment.no_session_id`.
+- **Latency:** ≤ 1 polling interval for the predicate match + ≤ 1 tool-call interval for delivery to the registering agent.
+- **Production status:** **wired post-mt#1725** for both desktop notify (mt#1618) and agent-context delivery (mt#1725). mt#1506 (PLANNING — InterfaceBinding model) is the long-term retirement path for v0 addressing limitations.
 
 ### 2.13 `mcp__minsky__asks_list` — agent-driven query against Asks
 
@@ -232,6 +262,26 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 - **Example:** wrap in `/loop 30s` while waiting on a `quality.review` Ask response.
 - **Production status:** **available.** The dog-food consumer for the Ask system; works
   today without infrastructure changes.
+
+### 2.13a `mcp__minsky__asks_wait-for-response` — blocking Ask-response wait
+
+- **Class:** C (agent-driven poll, server-side)
+- **Shape:** MCP tool that blocks until an Ask reaches a response-bearing state
+  (`responded` / `closed`, returning the response payload), a non-response terminal
+  state (`cancelled` / `expired` — returns immediately without blocking to timeout), or
+  the timeout elapses (returns the still-pending state). Polls `AskRepository.getById`
+  server-side; clamps mirror `session_pr_wait-for-review` (timeout default 600s / [1, 1800];
+  interval default 15s / [5, 60]). The agent-side analogue of `session_pr_wait-for-review`
+  for the Ask system (mt#2266) — supersedes the `/loop` + `asks_list` poll workaround
+  for the "Ask responded" case.
+- **Gating semantics:** caller-managed — the tool does the wait only; it does NOT mutate
+  task status. Task↔ask linkage is the ask's `parentTaskId` (set at create time).
+- **Fit:** the correct answer for "I filed a `direction.decide` / `authorization.approve`
+  ask and need to block until the operator answers." Depends on the production advancement
+  loop (mt#2265) so the ask can actually reach `responded`.
+- **Latency:** bounded by the call's `timeoutSeconds`; sub-interval for an already-resolved
+  ask.
+- **Production status:** **available (mt#2266, DONE).**
 
 ### 2.14 `RemoteTrigger` / `PushNotification`
 
@@ -249,16 +299,18 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 
 For each event, the _right class_ first, then the _concrete mechanism_ within it.
 
-| Event                            | Class today | Mechanism today                                     | Class with bridge | Mechanism with bridge |
-| -------------------------------- | ----------- | --------------------------------------------------- | ----------------- | --------------------- |
-| Reviewer-bot review posted on PR | C           | `session_pr_wait-for-review`                        | B                 | mt#1588 + wake sink   |
-| `quality.review` Ask responded   | C           | `/loop` + `asks_list` poll                          | B                 | mt#1588 + wake sink   |
-| Sibling PR merged on `main`      | C           | `git_log` poll OR `pr_watch_create` (A laptop only) | A (mt#1001)       | mesh push subscriber  |
-| CI completed on a PR             | C           | `pull_request_read get_check_runs` poll             | A (mt#1001)       | mesh push subscriber  |
-| Long subprocess finished         | C           | `Monitor` (line-by-line)                            | (no change)       | (no change)           |
-| Sweeper output ready             | C           | `asks_list` poll                                    | B                 | mt#1588 + wake sink   |
-| Cron-fired routine               | C           | `CronCreate` / `/schedule`                          | (no change)       | (no change)           |
-| MCP server became stale          | A (limited) | `notifications/message` + exit (mt#1315)            | (no change)       | (no change)           |
+| Event                                                 | Class today | Mechanism today                                                      | Class with bridge | Mechanism with bridge |
+| ----------------------------------------------------- | ----------- | -------------------------------------------------------------------- | ----------------- | --------------------- |
+| Reviewer-bot review posted on PR                      | C           | `session_pr_wait-for-review`                                         | B                 | mt#1588 + wake sink   |
+| PR convergence tail (review -> checks -> merge-ready) | C           | `session_pr_drive` (mt#2647, composes wait-for-review + checks-wait) | B                 | mt#1588 + wake sink   |
+| `quality.review` Ask responded                        | C           | `asks_wait-for-response` (mt#2266) OR `asks_list` poll               | B                 | mt#1588 + wake sink   |
+| `direction.decide` Ask responded                      | C           | `asks_wait-for-response` (mt#2266)                                   | B                 | mt#1588 + wake sink   |
+| Sibling PR merged on `main`                           | C / B       | `git_log` poll OR `pr_watch_create` (B post-mt#1725)                 | A (mt#1001)       | mesh push subscriber  |
+| CI completed on a PR                                  | C           | `pull_request_read get_check_runs` poll                              | A (mt#1001)       | mesh push subscriber  |
+| Long subprocess finished                              | C           | `Monitor` (line-by-line)                                             | (no change)       | (no change)           |
+| Sweeper output ready                                  | C           | `asks_list` poll                                                     | B                 | mt#1588 + wake sink   |
+| Cron-fired routine                                    | C           | `CronCreate` / `/schedule`                                           | (no change)       | (no change)           |
+| MCP server became stale                               | A (limited) | `notifications/message` + exit (mt#1315)                             | (no change)       | (no change)           |
 
 **Reading the table:** the "today" columns describe what works as of 2026-05-08. The
 "with bridge" columns describe what would work after the §5 short-term bridge ships and
@@ -291,14 +343,11 @@ This section names the gap concretely so an implementer can target it.
 - **No durable replay.** If the line scrolls past or the operator restarts the terminal,
   the signal is gone.
 
-### 4.3 Post-mt#1618 residual gap on `pr_watch`
+### 4.3 Post-mt#1725 closure of the pr_watch gap (historical)
 
-- mt#1618 closed the _production wiring_ gap (real `GithubPrClient`, scheduled
-  `pr_watch_run`). On a match, `operatorNotify.bell() + operatorNotify.notify(...)` fires
-  reliably.
-- **The remaining gap is identical in shape to §4.2 above:** delivery target is the
-  operator's laptop (terminal bell + native OS notification), not the agent's conversation.
-  The agent that registered the watch has no path to the firing.
+- mt#1618 closed the _production wiring_ gap (real `GithubPrClient`, scheduled `pr_watch_run`). On a match, `operatorNotify.bell() + operatorNotify.notify(...)` fires reliably to the operator's laptop.
+- **The remaining agent-context delivery gap was identical in shape to §4.2 above** until mt#1725: the only delivery target was the operator's laptop (terminal bell + native OS notification), not the agent's conversation. The agent that registered the watch had no path to the firing.
+- **mt#1725 closed this gap** via WakeSignalSink integration. `pr_watch_create` now captures `parentSessionId` at registration; the watcher emits a `pr.watch`-kind wake-signal row to `wake_pending` alongside the existing `OperatorNotify` call; `enrichWakeResponse` drains it on the registering agent's next allowlisted MCP tool call. This is the same Class B (pull-on-tool-call) pattern §5's bridge established for Ask-mediated wakes — `pr_watch` matches now ride the same delivery infrastructure.
 
 ### 4.4 Which class closes the gap
 
@@ -409,9 +458,6 @@ radius narrow.
 - mt#1001 mesh push (separate task; this is the pre-mt#1001 bridge).
 - mt#1144 cockpit shell (separate task; this is in-context delivery, not UI).
 - Push to non-MCP transports (e.g., AG-UI clients) — the bridge is MCP-only.
-- Wake events from `pr_watch` matches — the producer side is `OperatorNotify`, not
-  `WakeSignalSink`. Subsuming `pr_watch` deliveries into `WakeSignalSink` is a separate
-  unification task. Until then, `pr_watch` continues to fire to the desktop only.
 
 ### 5.6 As-built notes (mt#1661 v0, 2026-05-08)
 
@@ -462,9 +508,12 @@ The tool blocks server-side until a matching review appears or the timeout elaps
 Returns the review payload; the agent unblocks with full context. **This is Class C
 (agent-driven poll) but server-side, so the agent doesn't burn context per poll.**
 
-If the bot has already posted on this HEAD before the call, the default `since: <call-time>`
-filter ignores the existing review. Fetch existing reviews via `session_pr_get` or
-`pull_request_read get_reviews` first.
+If the bot has already posted on this HEAD before the call, the default `since` is the
+PR's `created_at` timestamp (mt#2043) so the existing review matches on the first poll —
+no separate `session_pr_get` / `pull_request_read get_reviews` pre-fetch needed. Backends
+that don't implement `ReviewOperations.getPullRequestCreatedAt` fall back to call-start
+(the pre-mt#2043 default), in which case a manual pre-fetch is still required. Pass an
+explicit `since` to narrow the window past a known-stale review.
 
 ### 6.2 Bridged pattern (post-§5 implementation)
 
@@ -490,13 +539,25 @@ invocation → zero (signal piggybacks on tool calls already happening).
 
 ### 6.3 What about `pr_watch` for in-conversation delivery?
 
-Today: `pr_watch_create` fires `OperatorNotify` → laptop bell + native OS notification.
-**Not in agent context.** Use `session_pr_wait-for-review` instead for in-conversation
-review-wait.
+Post-mt#1725: **yes, `pr_watch_create` is a viable in-conversation mechanism.** Use it when you want fire-and-forget notification that arrives on your next MCP tool call rather than a blocking `session_pr_wait-for-review` wait. The watch persists across short context boundaries; the wake-events block is drained when you next call any allowlisted tool with the registering session's arg.
 
-After the §5 bridge ships **and** `pr_watch` is plumbed to also write `WakeSignalPayload`
-rows (separate unification task, not part of mt#1519 scope), `pr_watch_create` becomes a
-viable agent-context mechanism.
+```
+mcp__minsky__pr_watch_create({
+  owner: "edobry",
+  repo: "minsky",
+  number: 999,
+  event: "review-posted",
+  // session arg captured automatically from MCP call context
+})
+// ... do other work ...
+// On any allowlisted tool call (e.g., tasks.status.get, session.pr.get):
+//   { content: [tool-result, wake-events-block] }
+// The wake-events block surfaces the matched watch firing.
+```
+
+For PR-review-class waits where the agent intends to immediately act on the review, both `session_pr_wait-for-review` (blocking, sub-minute latency) and `pr_watch_create` + arbitrary follow-up tool call are valid. Use the wait tool when the agent will block; use the watch when the agent intends to do other work between PR-creation and review-arrival.
+
+Operator-side delivery (terminal bell + native OS notification via `OperatorNotify` — see §2.3) continues to fire alongside the agent-context delivery; both paths are wired.
 
 ---
 
@@ -516,7 +577,18 @@ viable agent-context mechanism.
   this catalog.** Skill should recommend mechanisms by class first, then by concrete tool,
   citing this doc.
 - **mt#1618** — pr-watch scheduler + production GithubPrClient (DONE). Closed the
-  pr-watch wiring gap; the residual operator-notify-only gap is named in §4.3.
+  pr-watch wiring gap; the residual operator-notify-only gap was named in §4.3 and is
+  now closed by mt#1725.
+- **mt#1725** — `pr_watch` WakeSignalSink integration (DONE). Captures `parentSessionId`
+  at registration, routes firings via `WakeSignalSink` to the registering agent's
+  conversation context. Closes the §4.3 residual gap; promotes `pr_watch_create` from
+  Class C (operator-only) to Class B (agent-context-deliverable).
+- **`feedback_event_resumption_toolkit_survey`** memory (id `557006ff`) — the
+  originating three-gaps record from 2026-05-05. Updated in mt#1725's PR #1048 with the
+  post-fix status: all three originally-named gaps (stub GitHub client, missing scheduler,
+  desktop-only delivery) are closed (gaps #1+#2 by mt#1618; gap #3 by mt#1725). Read this
+  memory when making toolkit-survey decisions about `pr_watch_create`; it is the
+  canonical operational reference and parallels this doc's §2.12 + §4.3.
 - **mt#1315** — MCP signaling spike (DONE). `notifications/message` UI render path is
   unobserved from agent-side; recommendation locks in `exit-plus-message` for staleness
   only. Cited in §2.1 as the reason Class A is mostly aspirational.

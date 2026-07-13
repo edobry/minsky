@@ -1,5 +1,5 @@
-import { resolveRepoPath as resolveRepoPathInternal } from "../domain/repo-utils";
-import type { SessionProviderInterface } from "../domain/session/index";
+import { resolveRepoPath as resolveRepoPathInternal } from "@minsky/domain/repo-utils";
+import type { SessionProviderInterface } from "@minsky/domain/session/index";
 
 export interface RepoResolutionOptions {
   session?: string;

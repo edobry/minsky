@@ -1,9 +1,6 @@
-# Minsky Architecture Overview
+# Minsky architecture overview
 
-This document describes how Minsky is structured at the system level. It covers the command dispatch
-pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection,
-configuration hierarchy, repository backend system, and the knowledge base integration. For narrower
-topics, follow the links to the referenced ADRs.
+How Minsky is structured at the system level: command dispatch pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection, configuration hierarchy, repository backend, knowledge base integration. The five-organ cybernetic substrate (VSM Systems 1–5 — operations, coordination, control, intelligence, identity) is the conceptual frame; this doc is the code-level walk-through. For narrower topics, follow the links to the referenced ADRs. For the theoretical foundation (how the cybernetic theory maps to code modules), see [theory-of-operation.md](./theory-of-operation.md).
 
 ---
 
@@ -233,14 +230,14 @@ Source: `src/domain/session/types.ts`
 `SessionService` (`src/domain/session/session-service.ts`) is a class that holds injected
 `SessionDeps` and delegates each operation to a pure function in a sub-module:
 
-| Method         | Sub-module                        |
-| -------------- | --------------------------------- |
-| `get` / `list` | `session-lifecycle-operations.ts` |
-| `start`        | `start-session-operations.ts`     |
-| `update`       | `session-update-operations.ts`    |
-| `review`       | `session-review-operations.ts`    |
-| `approve`      | `session-approval-operations.ts`  |
-| `delete`       | `session-lifecycle-operations.ts` |
+| Method         | Sub-module                          |
+| -------------- | ----------------------------------- |
+| `get` / `list` | `session-lifecycle-operations.ts`   |
+| `start`        | `start-session-operations.ts`       |
+| `update`       | `session-update-operations.ts`      |
+| `review`       | `session-review-operations.ts`      |
+| `approve`      | `session-pr-approval-operations.ts` |
+| `delete`       | `session-lifecycle-operations.ts`   |
 
 Session records are stored in PostgreSQL via `SessionProviderInterface`.
 
@@ -363,9 +360,34 @@ Service classes use tsyringe decorators:
 - `@injectable()` — marks a class for DI participation
 - `@inject("tokenName")` — injects a dependency by token on a constructor parameter
 
-All service, adapter, and storage classes in `src/domain/` are decorated. Services with
-primitive constructor params (e.g., `workspacePath: string`) use `@injectable()` only;
-services whose constructor params match registered tokens also use `@inject()`.
+Service, adapter, and storage classes (named `*Service`, `*Storage`, or `*Adapter`) in
+`src/domain/` and `packages/domain/src/` are decorated (enforced by
+`eslint-rules/require-injectable.js`). Services with primitive constructor params (e.g.,
+`workspacePath: string`) use `@injectable()` only; services whose constructor params match
+registered tokens also use `@inject()`.
+
+### Two-tier convention: tsyringe vs. required `deps` parameter (ADR-026)
+
+Not everything goes through the container. Minsky uses **two** DI idioms by design, per
+[ADR-026](architecture/adr-026-dependency-injection-convention.md):
+
+1. **Composition-root / stateful services → tsyringe.** Anything registered in
+   `AppServices`/`TOKENS`, named `*Service`/`*Storage`/`*Adapter`, or holding a resource with
+   a lifecycle (a DB connection, a long-lived client) is `@injectable()` and resolved from
+   the container — never constructed directly outside a composition root or a test fixture.
+2. **Leaf/stateless domain functions → a required `deps` parameter object.** Small functions
+   and command handlers with few (1–4) dependencies take an explicit, **required** `deps`
+   parameter (no `?`, no default) — no container, no decorators. Dependencies are visible in
+   the signature; callers (including tests) construct fakes directly.
+
+**Banned regardless of tier:** `deps?.x ?? createConfiguredX(...)` — an optional dep with a
+fallback that silently constructs a real implementation. This is neither idiom: it bypasses
+container registration AND defeats the "required, test-injectable" property of the deps-param
+pattern. New code must never introduce this shape (ADR-026 §Decision, point 3).
+
+Picking the tier for new code: is this a stateful/long-lived service that other services
+depend on, or is it a small function/handler with a handful of dependencies? The former is
+tsyringe; the latter is a required `deps` parameter.
 
 **Polyfill requirement**: `import "reflect-metadata"` must be loaded before any decorated
 class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (test preload).
@@ -390,8 +412,9 @@ class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (tes
 ```
 
 Classes are used for stateful services; pure functions for stateless logic.
-The container is wired in `src/composition/cli.ts` (CLI entry) and `src/composition/test.ts`
-(test fakes via `set()`).
+The container is wired in `src/composition/domain.ts` (portable domain bootstrap),
+`src/composition/cli.ts` (CLI entry, delegates to domain bootstrap), and
+`src/composition/test.ts` (test fakes via `set()`).
 
 ---
 
@@ -697,17 +720,25 @@ account auth. At least one auth method must be set.
 
 ## 10. ADR Index
 
-| ADR                                                                  | Title                                                                 | Status   |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------- | -------- |
-| [ADR-002](architecture/adr-002-persistence-provider-architecture.md) | Persistence Provider Architecture with Type-Safe Capability Detection | Accepted |
-| [ADR-003](architecture/adr-003-project-level-repository-backend.md)  | Project-Level Repository Backend Configuration                        | Accepted |
-| [ADR-004](architecture/adr-004-two-phase-command-execution.md)       | Two-Phase Command Execution                                           | Accepted |
-| [ADR-005](architecture/adr-005-forgebackend-subinterfaces.md)        | ForgeBackend Sub-Interfaces for Multi-Provider PR/CI/Review           | Accepted |
-| [ADR-006](architecture/adr-006-agent-identity.md)                    | Agent Identity Scheme for MCP Callers                                 | Accepted |
-| [ADR-007](architecture/adr-007-cognition-provider-abstraction.md)    | Cognition Provider Abstraction for Multi-Mode AI Operation            | Proposed |
+| ADR                                                                    | Title                                                                 | Status   |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- | -------- |
+| [ADR-002](architecture/adr-002-persistence-provider-architecture.md)   | Persistence Provider Architecture with Type-Safe Capability Detection | Accepted |
+| [ADR-003](architecture/adr-003-project-level-repository-backend.md)    | Project-Level Repository Backend Configuration                        | Accepted |
+| [ADR-004](architecture/adr-004-two-phase-command-execution.md)         | Two-Phase Command Execution                                           | Accepted |
+| [ADR-005](architecture/adr-005-forgebackend-subinterfaces.md)          | ForgeBackend Sub-Interfaces for Multi-Provider PR/CI/Review           | Accepted |
+| [ADR-006](architecture/adr-006-agent-identity.md)                      | Agent Identity Scheme for MCP Callers                                 | Accepted |
+| [ADR-007](architecture/adr-007-cognition-provider-abstraction.md)      | Cognition Provider Abstraction for Multi-Mode AI Operation            | Proposed |
+| [ADR-018](architecture/adr-018-domain-persistence-pattern.md)          | Canonical Domain-Persistence Pattern (incl. SQLite removal)           | Accepted |
+| [ADR-026](architecture/adr-026-dependency-injection-convention.md)     | Dependency Injection Convention (tsyringe vs. required deps-param)    | Accepted |
+| [ADR-027](architecture/adr-027-postgres-only-persistence-confirmed.md) | Confirm Postgres-Only Persistence Backend                             | Accepted |
+
+This table is not exhaustive — ADRs 003–025 (excluding 018) exist under `docs/architecture/`
+but predate this index's last full pass; see the directory listing for the complete set.
 
 Additional architectural context:
 
+- `docs/architecture/cockpit.md` — cockpit subsystem architecture: Locus distinction, VSM placement, widget contract, subsystem map
 - `docs/architecture/interface-agnostic-commands.md` — CLI/MCP command unification design
 - `docs/architecture/multi-backend-task-system-design.md` — task backend routing design
+- `docs/architecture/stdio-proxy.md` — Minsky stdio respawn proxy (supervisor-below pattern): opt-in via `minsky mcp proxy`; transparently absorbs the inner server's staleness-exit (mt#1322) and respawns the child without Claude Code observing a disconnect
 - `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling

@@ -7,13 +7,33 @@ import {
   type CommandDefinition,
   type CommandParameterMap,
 } from "../../command-registry";
-import { resolveWorkspacePath } from "../../../../domain/workspace";
+import { resolveWorkspacePath } from "@minsky/domain/workspace";
+import { ValidationError } from "@minsky/domain/errors/index";
 import {
   enableRule,
   disableRule,
   getRulesConfig,
   getRulesPresets,
-} from "../../../../domain/rules/rules-command-operations";
+} from "@minsky/domain/rules/rules-command-operations";
+
+/**
+ * Resolve the rule id from the canonical `id` param (rules_* family convention —
+ * rules_get/create/update use `id`) or the legacy `ruleId` alias (mt#2741). Throws
+ * when neither is supplied so a convention-following caller gets a clear error
+ * instead of a silently-dropped param.
+ */
+export function resolveRuleId(
+  params: { id?: string; ruleId?: string },
+  commandName: string
+): string {
+  const id = params.id ?? params.ruleId;
+  if (!id) {
+    throw new ValidationError(
+      `${commandName} requires 'id' ('ruleId' is accepted as a legacy alias)`
+    );
+  }
+  return id;
+}
 
 export function registerSelectionCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
@@ -24,12 +44,22 @@ export function registerSelectionCommands(targetRegistry: {
     name: "enable",
     description: "Add a rule ID to the enabled list in the project config",
     parameters: {
-      ruleId: { schema: z.string(), description: "The rule ID to enable", required: true },
+      id: {
+        schema: z.string().optional(),
+        description: "The rule ID to enable",
+        required: false,
+      },
+      ruleId: {
+        schema: z.string().optional(),
+        description: "Legacy alias for id (also accepted; prefer id)",
+        required: false,
+      },
     },
-    execute: async (params: { ruleId: string }) => {
+    execute: async (params: { id?: string; ruleId?: string }) => {
+      const ruleId = resolveRuleId(params, "rules.enable");
       const workspacePath = await resolveWorkspacePath({});
-      const result = await enableRule(workspacePath, params.ruleId);
-      return { success: true, ruleId: params.ruleId, ...result };
+      const result = await enableRule(workspacePath, ruleId);
+      return { success: true, ruleId, ...result };
     },
   });
 
@@ -39,12 +69,22 @@ export function registerSelectionCommands(targetRegistry: {
     name: "disable",
     description: "Add a rule ID to the disabled list in the project config",
     parameters: {
-      ruleId: { schema: z.string(), description: "The rule ID to disable", required: true },
+      id: {
+        schema: z.string().optional(),
+        description: "The rule ID to disable",
+        required: false,
+      },
+      ruleId: {
+        schema: z.string().optional(),
+        description: "Legacy alias for id (also accepted; prefer id)",
+        required: false,
+      },
     },
-    execute: async (params: { ruleId: string }) => {
+    execute: async (params: { id?: string; ruleId?: string }) => {
+      const ruleId = resolveRuleId(params, "rules.disable");
       const workspacePath = await resolveWorkspacePath({});
-      const result = await disableRule(workspacePath, params.ruleId);
-      return { success: true, ruleId: params.ruleId, ...result };
+      const result = await disableRule(workspacePath, ruleId);
+      return { success: true, ruleId, ...result };
     },
   });
 

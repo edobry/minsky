@@ -9,10 +9,14 @@
     "dev": "bun run --hot src/server.ts",
     "start": "bun run src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --preload ../../tests/setup.ts"
+    "test": "bun test --preload ../../tests/setup.ts",
+    "reconcile-schema": "bun scripts/reconcile-schema.ts",
+    "reconcile-schema:execute": "bun scripts/reconcile-schema.ts --execute"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
+    "@minsky/domain": "workspace:*",
+    "@minsky/shared": "workspace:*",
     "@google/generative-ai": "^0.21.0",
     "@octokit/auth-app": "^7.1.0",
     "@octokit/rest": "^21.0.0",
@@ -20,6 +24,8 @@
     "drizzle-orm": "^0.44.2",
     "openai": "^4.68.0",
     "postgres": "^3.4.8",
+    "reflect-metadata": "^0.2.2",
+    "winston": "^3.17.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

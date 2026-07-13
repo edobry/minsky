@@ -5,14 +5,14 @@
  */
 
 import { Command } from "commander";
-import { DefaultRuleSuggestionService } from "../../domain/context/rule-suggestion";
-import { RuleService } from "../../domain/rules";
-import { getConfiguration } from "../../domain/configuration";
-import type { RuleSuggestionRequest, RuleSuggestionResponse } from "../../domain/context/types";
-import { log } from "../../utils/logger";
+import { DefaultRuleSuggestionService } from "@minsky/domain/context/rule-suggestion";
+import { RuleService } from "@minsky/domain/rules";
+import { getConfiguration } from "@minsky/domain/configuration";
+import type { RuleSuggestionRequest, RuleSuggestionResponse } from "@minsky/domain/context/types";
+import { log } from "@minsky/shared/logger";
 import fs from "fs/promises";
-import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
-import { first } from "../../utils/array-safety";
+import { RuleSimilarityService } from "@minsky/domain/rules/rule-similarity-service";
+import { first } from "@minsky/shared/array-safety";
 
 interface SuggestRulesOptions {
   json?: boolean;
@@ -144,7 +144,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
     return;
   } else {
     // Fallback to existing AI-based suggestion service
-    const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+    const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
     const mockConfigService = {
       loadConfiguration: () => Promise.resolve({ resolved: config }),
     };

@@ -1,5 +1,6 @@
 /**
- * Tests for asks-reconcile-scheduler.ts.
+ * Tests for asks-reconcile-scheduler.ts (mt#2121 — migrated from MCP-over-HTTP
+ * to direct domain imports).
  *
  * Strategy:
  *   - loadAsksReconcileSchedulerConfig() reflects process.env correctly.
@@ -7,9 +8,8 @@
  *   - Reentrancy guard: a second interval tick is skipped while the first is running.
  *   - Timer is returned as a clearable handle when enabled.
  *
- * All tests avoid calling the real fetch (no HTTP calls) by patching the global
- * fetch. The scheduler's setInterval handle is cleared after each test to
- * prevent timer leaks.
+ * No HTTP calls are made — the scheduler uses domain container injection directly.
+ * The scheduler's setInterval handle is cleared after each test to prevent timer leaks.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -19,6 +19,8 @@ import {
   startAsksReconcileScheduler,
   type AsksReconcileSchedulerConfig,
 } from "./asks-reconcile-scheduler";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures
@@ -33,8 +35,8 @@ const BASE_REVIEWER_CONFIG: ReviewerConfig = {
   providerApiKey: "sk-fake",
   providerModel: "gpt-5",
   tier2Enabled: false,
-  mcpUrl: "http://localhost:4000",
-  mcpToken: "test-token",
+  mcpUrl: undefined,
+  mcpToken: undefined,
   port: 0,
   logLevel: "info",
   modelTimeoutMs: 120_000,
@@ -44,36 +46,73 @@ const BASE_REVIEWER_CONFIG: ReviewerConfig = {
 const ENABLED_SCHEDULER_CONFIG: AsksReconcileSchedulerConfig = {
   intervalMs: 30_000,
   enabled: true,
-  mcpUrl: "http://localhost:4000",
-  mcpToken: "test-token",
 };
 
 const DISABLED_SCHEDULER_CONFIG: AsksReconcileSchedulerConfig = {
   intervalMs: 30_000,
   enabled: false,
-  mcpUrl: "",
-  mcpToken: "",
 };
+
+// ---------------------------------------------------------------------------
+// Fake domain container
+// ---------------------------------------------------------------------------
+
+/**
+ * A minimal fake AppContainerInterface. The scheduler only calls `container.get()`
+ * inside `runAsksReconcileDomain` — but since those calls happen async inside the
+ * interval tick (not at schedule-time), we can provide a container that stubs
+ * the get() method for lifecycle tests without a real DB.
+ */
+function makeFakeContainer(): AppContainerInterface {
+  return {
+    get: (_token: unknown) => {
+      throw new Error("fake container: get() not implemented for tests");
+    },
+    initialize: async () => {},
+  } as unknown as AppContainerInterface;
+}
+
+/**
+ * A fake container whose get("persistence") blocks forever — used to test
+ * the reentrancy guard without a real DB connection.
+ */
+function makeBlockingContainer(): AppContainerInterface {
+  return {
+    get: (_token: unknown) => {
+      // Returns a fake persistence provider whose getDatabaseConnection never resolves.
+      return {
+        getDatabaseConnection: () => new Promise(() => {}), // never resolves
+      };
+    },
+    initialize: async () => {},
+  } as unknown as AppContainerInterface;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Capture console output for a synchronous callback, then restore. */
+/**
+ * Capture log lines emitted by the reviewer-local winston logger (`./logger`)
+ * during a synchronous callback, then restore. Lines are split on newlines
+ * before being returned; callers parse each line as JSON when needed.
+ *
+ * Wraps the shared `captureConsoleLogs()` helper to keep the existing
+ * call-site shape (single `logs` array per capture).
+ */
 function captureConsole(fn: () => void): { logs: string[]; warns: string[] } {
-  const logs: string[] = [];
-  const warns: string[] = [];
-  const origLog = console.log;
-  const origWarn = console.warn;
-  console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-  console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
+  const { logs, restore } = captureConsoleLogs();
   try {
     fn();
   } finally {
-    console.log = origLog;
-    console.warn = origWarn;
+    restore();
   }
-  return { logs, warns };
+  // The winston logger writes all levels to stdout (the reviewer-local logger
+  // sets `stderrLevels: []`), so warn-level events land in the same captured
+  // stream as info-level events. Tests that previously inspected `warns`
+  // separately can either keep that name (we return the same array) or
+  // switch to inspecting `logs` directly.
+  return { logs, warns: logs };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,8 +121,6 @@ function captureConsole(fn: () => void): { logs: string[]; warns: string[] } {
 
 const ENV_ASKS_RECONCILE_ENABLED = "ASKS_RECONCILE_ENABLED";
 const ENV_ASKS_RECONCILE_POLL_INTERVAL_MS = "ASKS_RECONCILE_POLL_INTERVAL_MS";
-const ENV_MINSKY_MCP_URL = "MINSKY_MCP_URL";
-const ENV_MINSKY_MCP_TOKEN = "MINSKY_MCP_TOKEN";
 
 // ---------------------------------------------------------------------------
 // loadAsksReconcileSchedulerConfig
@@ -97,13 +134,7 @@ describe("loadAsksReconcileSchedulerConfig", () => {
   });
 
   afterEach(() => {
-    // Restore env vars
-    for (const key of [
-      ENV_ASKS_RECONCILE_ENABLED,
-      ENV_ASKS_RECONCILE_POLL_INTERVAL_MS,
-      ENV_MINSKY_MCP_URL,
-      ENV_MINSKY_MCP_TOKEN,
-    ]) {
+    for (const key of [ENV_ASKS_RECONCILE_ENABLED, ENV_ASKS_RECONCILE_POLL_INTERVAL_MS]) {
       if (key in originalEnv) {
         process.env[key] = originalEnv[key];
       } else {
@@ -112,18 +143,14 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     }
   });
 
-  test("defaults: disabled, 30s interval, empty MCP creds", () => {
+  test("defaults: disabled, 30s interval", () => {
     delete process.env[ENV_ASKS_RECONCILE_ENABLED];
     delete process.env[ENV_ASKS_RECONCILE_POLL_INTERVAL_MS];
-    delete process.env[ENV_MINSKY_MCP_URL];
-    delete process.env[ENV_MINSKY_MCP_TOKEN];
 
     const cfg = loadAsksReconcileSchedulerConfig();
 
     expect(cfg.enabled).toBe(false);
     expect(cfg.intervalMs).toBe(30_000);
-    expect(cfg.mcpUrl).toBe("");
-    expect(cfg.mcpToken).toBe("");
   });
 
   test("reads ASKS_RECONCILE_ENABLED=true", () => {
@@ -136,14 +163,6 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     process.env[ENV_ASKS_RECONCILE_POLL_INTERVAL_MS] = "60000";
     const cfg = loadAsksReconcileSchedulerConfig();
     expect(cfg.intervalMs).toBe(60_000);
-  });
-
-  test("reads MINSKY_MCP_URL and MINSKY_MCP_TOKEN", () => {
-    process.env[ENV_MINSKY_MCP_URL] = "http://mcp.example.com";
-    process.env[ENV_MINSKY_MCP_TOKEN] = "my-token";
-    const cfg = loadAsksReconcileSchedulerConfig();
-    expect(cfg.mcpUrl).toBe("http://mcp.example.com");
-    expect(cfg.mcpToken).toBe("my-token");
   });
 });
 
@@ -163,10 +182,10 @@ describe("startAsksReconcileScheduler — disabled", () => {
 });
 
 // ---------------------------------------------------------------------------
-// startAsksReconcileScheduler — missing credentials
+// startAsksReconcileScheduler — missing domain container
 // ---------------------------------------------------------------------------
 
-describe("startAsksReconcileScheduler — missing credentials", () => {
+describe("startAsksReconcileScheduler — missing domain container", () => {
   let handle: ReturnType<typeof setInterval> | null = null;
 
   afterEach(() => {
@@ -176,25 +195,17 @@ describe("startAsksReconcileScheduler — missing credentials", () => {
     }
   });
 
-  test("returns null and warns when credentials missing", () => {
-    const noCredsCfg: AsksReconcileSchedulerConfig = {
-      ...ENABLED_SCHEDULER_CONFIG,
-      mcpUrl: "",
-      mcpToken: "",
-    };
-
-    const warns: string[] = [];
-    const origWarn = console.warn;
-    console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
+  test("returns null and warns when domain container not provided", () => {
+    const { logs, restore } = captureConsoleLogs();
     try {
-      handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, noCredsCfg);
+      // No container passed — scheduler should refuse to start.
+      handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, ENABLED_SCHEDULER_CONFIG);
       expect(handle).toBeNull();
     } finally {
-      console.warn = origWarn;
+      restore();
     }
 
-    const credWarn = warns.find((w) => w.includes("asks_reconcile_scheduler.missing_credentials"));
-    expect(credWarn).toBeDefined();
+    expect(findLogEvent(logs, "asks_reconcile_scheduler.missing_domain_container")).not.toBeNull();
   });
 });
 
@@ -204,67 +215,45 @@ describe("startAsksReconcileScheduler — missing credentials", () => {
 
 describe("startAsksReconcileScheduler — enabled", () => {
   let handle: ReturnType<typeof setInterval> | null = null;
-  let originalFetch: typeof globalThis.fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-    // Replace global fetch with a stub that returns a successful MCP response.
-    // Cast required: Bun's fetch type includes `preconnect` property not present on plain async fns.
-    globalThis.fetch = (async () => {
-      return new Response(
-        JSON.stringify({
-          result: {
-            content: [
-              {
-                text: JSON.stringify({ inspected: 2, responded: 1, errors: 0 }),
-              },
-            ],
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }) as unknown as typeof globalThis.fetch;
-  });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     if (handle) {
       clearInterval(handle);
       handle = null;
     }
   });
 
-  test("returns a non-null interval handle when enabled with credentials", () => {
-    const logs: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+  test("returns a non-null interval handle when enabled with domain container", () => {
+    const { logs, restore } = captureConsoleLogs();
     try {
-      handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, ENABLED_SCHEDULER_CONFIG);
+      handle = startAsksReconcileScheduler(
+        BASE_REVIEWER_CONFIG,
+        ENABLED_SCHEDULER_CONFIG,
+        makeFakeContainer()
+      );
       expect(handle).not.toBeNull();
     } finally {
-      console.log = origLog;
+      restore();
     }
 
-    const enabledLog = logs.find((l) => l.includes("asks_reconcile_scheduler.enabled"));
-    expect(enabledLog).toBeDefined();
+    expect(findLogEvent(logs, "asks_reconcile_scheduler.enabled")).not.toBeNull();
   });
 
-  test("logs enabled event with intervalMs and mcpUrl", () => {
-    const logs: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+  test("logs enabled event with intervalMs", () => {
+    const { logs, restore } = captureConsoleLogs();
     try {
-      handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, ENABLED_SCHEDULER_CONFIG);
+      handle = startAsksReconcileScheduler(
+        BASE_REVIEWER_CONFIG,
+        ENABLED_SCHEDULER_CONFIG,
+        makeFakeContainer()
+      );
     } finally {
-      console.log = origLog;
+      restore();
     }
 
-    const enabledLog = logs.find((l) => l.includes("asks_reconcile_scheduler.enabled"));
-    expect(enabledLog).toBeDefined();
-
-    const parsed = JSON.parse(enabledLog ?? "{}") as { intervalMs?: number; mcpUrl?: string };
-    expect(parsed.intervalMs).toBe(30_000);
-    expect(parsed.mcpUrl).toBe("http://localhost:4000");
+    const parsed = findLogEvent(logs, "asks_reconcile_scheduler.enabled");
+    expect(parsed).not.toBeNull();
+    expect(parsed?.intervalMs).toBe(30_000);
   });
 });
 
@@ -274,14 +263,8 @@ describe("startAsksReconcileScheduler — enabled", () => {
 
 describe("startAsksReconcileScheduler — reentrancy guard", () => {
   let handle: ReturnType<typeof setInterval> | null = null;
-  let originalFetch: typeof globalThis.fetch;
-
-  beforeEach(() => {
-    originalFetch = globalThis.fetch;
-  });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     if (handle) {
       clearInterval(handle);
       handle = null;
@@ -289,25 +272,9 @@ describe("startAsksReconcileScheduler — reentrancy guard", () => {
   });
 
   test("skips tick with skipped_overlap event when previous tick still running", async () => {
-    // Simulate a slow MCP call that never resolves during the test window.
-    let fetchResolve: (() => void) | null = null;
-    // Cast required: Bun's fetch type includes `preconnect` property not present on plain async fns.
-    globalThis.fetch = (async () => {
-      await new Promise<void>((resolve) => {
-        fetchResolve = resolve;
-      });
-      return new Response(JSON.stringify({ result: { content: [{ text: "{}" }] } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }) as unknown as typeof globalThis.fetch;
-
-    const warns: string[] = [];
-    const logs: string[] = [];
-    const origWarn = console.warn;
-    const origLog = console.log;
-    console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
-    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    // Use a blocking container so the first tick's domain call never completes
+    // during the test window, leaving isRunning=true when the second tick fires.
+    const { logs, restore } = captureConsoleLogs();
 
     // Use a very short interval so the second tick fires quickly.
     const fastCfg: AsksReconcileSchedulerConfig = {
@@ -316,22 +283,16 @@ describe("startAsksReconcileScheduler — reentrancy guard", () => {
     };
 
     try {
-      handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, fastCfg);
+      handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, fastCfg, makeBlockingContainer());
 
       // Wait long enough for at least two ticks to fire.
       await new Promise((resolve) => setTimeout(resolve, 80));
 
       // The second (and subsequent) ticks should be skipped because the first
-      // tick's fetch is still "running" (fetchResolve is not yet called).
-      const skippedLog = warns.find((w) =>
-        w.includes("asks_reconcile_scheduler.tick.skipped_overlap")
-      );
-      expect(skippedLog).toBeDefined();
+      // tick's domain call is still "running" (makeBlockingContainer never resolves).
+      expect(findLogEvent(logs, "asks_reconcile_scheduler.tick.skipped_overlap")).not.toBeNull();
     } finally {
-      console.warn = origWarn;
-      console.log = origLog;
-      // Resolve the pending fetch to let the scheduler clean up.
-      if (fetchResolve) (fetchResolve as () => void)();
+      restore();
     }
   });
 });

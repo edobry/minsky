@@ -1,5 +1,9 @@
 # Multi-Backend Quick Reference
 
+> **GitHub Issues backend is disabled by default.**
+> Set `tasks.githubBackend.enabled: true` in your config to enable `gh#` tasks.
+> See [GitHub Issues Backend Guide](./github-issues-backend-guide.md).
+
 ## Task ID Formats
 
 | Format    | Example  | Description                       |
@@ -34,8 +38,8 @@ minsky tasks status gh#456 DONE
 
 ```bash
 # Start session
-minsky session start mt#123          # Minsky backend task
-minsky session start gh#456          # GitHub backend issue
+minsky session start --task mt#123   # Minsky backend task
+minsky session start --task gh#456   # GitHub backend issue
 
 # List sessions
 minsky session list
@@ -53,12 +57,29 @@ minsky tasks migrate-backend --from minsky --to github --execute
 
 ## Backend Configuration
 
+### `tasks.githubBackend.enabled` (default: `false`)
+
+The GitHub Issues backend is disabled by default. Enable it explicitly:
+
+```yaml
+# ~/.config/minsky/config.yaml
+tasks:
+  githubBackend:
+    enabled: true
+```
+
+When disabled, `--backend github` or `--backend github-issues` throws:
+
+```
+GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+```
+
 ### Backend Prefixes
 
-| Backend       | Prefix | Example  |
-| ------------- | ------ | -------- |
-| Minsky DB     | `mt`   | `mt#123` |
-| GitHub Issues | `gh`   | `gh#456` |
+| Backend       | Prefix | Example  | Status              |
+| ------------- | ------ | -------- | ------------------- |
+| Minsky DB     | `mt`   | `mt#123` | Enabled (default)   |
+| GitHub Issues | `gh`   | `gh#456` | Disabled by default |
 
 ## Troubleshooting
 
@@ -92,7 +113,7 @@ minsky session validate
 ```bash
 # Explicit qualified IDs
 minsky tasks get mt#123
-minsky session start gh#456
+minsky session start --task gh#456
 ```
 
 ### Backend Selection
@@ -109,7 +130,7 @@ minsky session start gh#456
 minsky tasks list --status IN-PROGRESS --all-backends
 
 # Quick session jump
-minsky session start $(minsky tasks list --status IN-PROGRESS | head -1 | cut -d' ' -f1)
+minsky session start --task $(minsky tasks list --status IN-PROGRESS | head -1 | cut -d' ' -f1)
 ```
 
 ### Status Updates

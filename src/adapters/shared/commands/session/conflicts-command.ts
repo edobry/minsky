@@ -9,7 +9,7 @@ import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   scanSessionConflicts,
   formatSessionConflictResults,
-} from "../../../../domain/session/session-conflicts-operations";
+} from "@minsky/domain/session/session-conflicts-operations";
 
 /**
  * Parameters for the session conflicts command

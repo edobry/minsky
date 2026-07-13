@@ -8,10 +8,10 @@
  */
 
 import type { MinskyMCPServer } from "../../mcp/server";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
-import type { KnowledgeSourceConfig } from "../../domain/knowledge/types";
-import type { AppContainerInterface } from "../../composition/types";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { KnowledgeSourceConfig } from "@minsky/domain/knowledge/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Register knowledge MCP resources on the given server.
@@ -27,7 +27,7 @@ export function registerKnowledgeResources(
     description: "Lists all configured knowledge sources and their sync schedules.",
     handler: async (_uri: string) => {
       try {
-        const { getConfiguration } = await import("../../domain/configuration");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const cfg = getConfiguration();
         const sources = ((cfg.knowledgeBases as KnowledgeSourceConfig[]) ?? []).map((s) => ({
           name: s.name,
@@ -69,7 +69,7 @@ export function registerKnowledgeResources(
       const sourceName = decodeURIComponent(match[1]);
 
       try {
-        const { getConfiguration } = await import("../../domain/configuration");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const cfg = getConfiguration();
         const sources = (cfg.knowledgeBases as KnowledgeSourceConfig[]) ?? [];
         const source = sources.find((s) => s.name === sourceName);
@@ -114,7 +114,7 @@ export function registerKnowledgeResources(
       const documentId = decodeURIComponent(match[2]);
 
       try {
-        const { getConfiguration } = await import("../../domain/configuration");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const cfg = getConfiguration();
         const sources = (cfg.knowledgeBases as KnowledgeSourceConfig[]) ?? [];
         const sourceConfig = sources.find((s) => s.name === sourceName);
@@ -145,7 +145,7 @@ export function registerKnowledgeResources(
             );
           }
           const { NotionKnowledgeProvider } = await import(
-            "../../domain/knowledge/providers/notion-provider"
+            "@minsky/domain/knowledge/providers/notion-provider"
           );
           provider = new NotionKnowledgeProvider(
             notionConfig.rootPageId,

@@ -1,6 +1,12 @@
 # SessionDB Troubleshooting Guide
 
-This guide provides solutions for common SessionDB issues across all backends (SQLite, PostgreSQL).
+> **Historical (2026-06-08).** SQLite support has been removed entirely (mt#2339, mt#2329) —
+> Postgres is the only supported backend (see [ADR-018](architecture/adr-018-domain-persistence-pattern.md)).
+> The SQLite-specific sections below (error codes, `sqlite3` recovery commands, `sessiondb.sqliteOptions`
+> config) are retained for historical reference only and do not apply to the current codebase.
+
+This guide provides solutions for common SessionDB issues. **Postgres is the only supported
+backend** (SQLite sections below are historical).
 
 ## Quick Diagnostics
 
@@ -19,6 +25,15 @@ minsky sessiondb test-connection
 # Verify database integrity
 minsky sessiondb verify --repair
 ```
+
+### `session list` and project scoping
+
+`minsky session list` scopes results to the current project by default
+(ADR-021 / mt#2416) — pass `--all-projects` to see sessions from every
+project. A `--task <id>` filter always bypasses project scoping (mt#2697):
+it consults the exact same unscoped predicate `session start`/`tasks
+dispatch` uses to decide whether a task already has an active session, so a
+task-filtered query never disagrees with what would block a new dispatch.
 
 ### Log Analysis
 
@@ -93,7 +108,7 @@ Error: SQLITE_CORRUPT: database disk image is malformed
 1. **Attempt automatic recovery**:
 
    ```bash
-   minsky sessiondb repair --backend sqlite --auto-recover
+   minsky sessiondb repair --backend postgres --auto-recover
    ```
 
 2. **Manual recovery**:
@@ -421,7 +436,7 @@ minsky session end --all
 minsky sessiondb export --all --format json > emergency-backup.json
 
 # 3. Reset to known good state
-minsky sessiondb reset --backend sqlite --force
+minsky sessiondb reset --backend postgres --force
 
 # 4. Import emergency backup
 minsky sessiondb import --file emergency-backup.json
@@ -542,3 +557,28 @@ Include this information:
 - Steps to reproduce
 - Diagnostic script output
 - Configuration (sanitized)
+
+## Schema-drift audit (Postgres)
+
+`minsky persistence check` runs a **read-only schema-drift audit** on the Postgres backend
+(mt#1641). It exists because the drizzle migration ledger (`drizzle.__drizzle_migrations`)
+records migrations by hash with no post-apply schema verification — so a manual `DROP COLUMN`
+or a migration that was tracked-applied without its `CREATE TABLE` ever running leaves the
+ledger looking clean while the live schema diverges. The audit compares the **declared
+schema (drizzle models)** against the **actual database** and reports:
+
+- **Missing table** — a declared table absent from the DB (e.g. a tracked-but-never-created
+  table).
+- **Missing column** — a declared column absent from an existing table (e.g. a manual
+  `DROP COLUMN`).
+- **Extra column** — a DB column not present in the model (un-modeled column / pending model
+  update).
+- **Duplicate ledger row** — a migration recorded more than once in
+  `drizzle.__drizzle_migrations` (inflates the applied count and trips the migrate
+  count-check).
+
+It is **read-only** — it never modifies the database; findings surface as issues/suggestions
+in the `persistence check` output. v1 covers the embeddings tables; a clean run logs
+`✅ Schema-drift audit clean`. Reconciling reported drift (recreating a table, recording a
+manual drop as a migration, or de-duplicating a ledger row) is a deliberate, separate
+operation — never performed by the audit.

@@ -111,6 +111,12 @@ export const taskFilterParams = {
       "Include per-task attention cost rollup in the output (ADR-008 §Attention accounting)",
     required: false,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return tasks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 /**
@@ -161,6 +167,7 @@ export const taskEditParams = {
       "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
+  kind: TaskParameters.kind,
   execute: {
     schema: z.boolean().default(false),
     description: "Execute the changes (default is dry-run preview)",
@@ -172,7 +179,14 @@ export const taskEditParams = {
  * Index embeddings parameters
  */
 export const tasksIndexEmbeddingsParams = {
-  // Optional single-task target (CLI should use --task, not --task-id)
+  // Optional single-task target. mt#2741: canonical name is `taskId` (tasks_*
+  // family convention); `task` is kept as a back-compat alias. Both optional —
+  // absent => index all tasks up to `limit`. Resolved `taskId ?? task` in the handler.
+  taskId: {
+    schema: z.string(),
+    description: "Single-task target: index just this task (prefer over the `task` alias)",
+    required: false,
+  },
   task: CommonParameters.task,
   reindex: {
     schema: z.boolean().default(false),

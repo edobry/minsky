@@ -12,9 +12,9 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { detectSessionWorkspace, getWorkspaceInfo } from "../../../../domain/workspace/info";
-import type { WorkspaceInfoDeps } from "../../../../domain/workspace/info";
-import type { SessionProviderInterface } from "../../../../domain/session/index";
+import { detectSessionWorkspace, getWorkspaceInfo } from "@minsky/domain/workspace/info";
+import type { WorkspaceInfoDeps } from "@minsky/domain/workspace/info";
+import type { SessionProviderInterface } from "@minsky/domain/session/index";
 import { sharedCommandRegistry } from "../../command-registry";
 import { registerWorkspaceCommands } from "./info-command";
 
@@ -93,7 +93,7 @@ function makeSessionProvider(taskId: string | undefined): SessionProviderInterfa
             repoUrl: "https://github.com/test/repo",
             createdAt: new Date().toISOString(),
             taskId,
-          } as import("../../../../domain/session/types").SessionRecord)
+          } as import("@minsky/domain/session/types").SessionRecord)
         : null,
     getSessionByTaskId: async () => null,
     addSession: async () => {},

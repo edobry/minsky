@@ -1,0 +1,329 @@
+import { resolve, relative, join, normalize } from "path";
+import { access } from "fs/promises";
+import { InvalidPathError } from "../workspace/workspace-backend";
+
+/**
+ * Error thrown when a session is not found or invalid
+ */
+export class SessionNotFoundError extends Error {
+  constructor(
+    public readonly sessionId: string,
+    message?: string
+  ) {
+    super(message || `Session not found: ${sessionId}`);
+    this.name = "SessionNotFoundError";
+  }
+}
+
+/**
+ * Session-provider input accepted by SessionPathResolver: either a direct
+ * provider instance, or a thunk that returns one at call time. The thunk form
+ * supports lazy DI — MCP tool registration runs before container.initialize(),
+ * so the provider isn't available at resolver-construction time but is
+ * available at handler-dispatch time (mt#1799).
+ */
+export type SessionProviderInput =
+  | import("./index").SessionProviderInterface
+  | (() => import("./index").SessionProviderInterface | undefined)
+  | undefined;
+
+function isProviderThunk(
+  input: SessionProviderInput
+): input is () => import("./index").SessionProviderInterface | undefined {
+  return typeof input === "function";
+}
+
+/**
+ * Provides session-aware path resolution and validation
+ * Ensures all paths are within session workspace boundaries
+ */
+export class SessionPathResolver {
+  private sessionProvider: SessionProviderInput;
+
+  constructor(sessionProvider?: SessionProviderInput) {
+    this.sessionProvider = sessionProvider;
+  }
+
+  /**
+   * Resolve the stored provider at call time. Returns the direct instance when
+   * one was passed to the constructor, or invokes the thunk if a deferred-
+   * lookup form was provided. Used internally by every method that needs a
+   * provider so the lazy-DI shape is encapsulated in one place.
+   */
+  private resolveProvider(): import("./index").SessionProviderInterface | undefined {
+    if (isProviderThunk(this.sessionProvider)) {
+      return this.sessionProvider();
+    }
+    return this.sessionProvider;
+  }
+
+  /**
+   * Validate that a path is within session boundaries
+   * @param sessionDir Absolute path to the session workspace
+   * @param userPath User-provided path (relative or absolute)
+   * @returns Normalized absolute path within session boundaries
+   * @throws InvalidPathError if path is outside session boundaries
+   */
+  validateAndResolvePath(sessionDir: string, userPath: string): string {
+    // Normalize the session directory path
+    const normalizedSessionDir = resolve(sessionDir);
+
+    // Handle different path formats
+    let targetPath: string;
+
+    if (userPath.startsWith("/")) {
+      // Absolute path - could be dangerous, check if it's within session
+      targetPath = resolve(userPath);
+    } else {
+      // Relative path - resolve relative to session directory
+      targetPath = resolve(normalizedSessionDir, userPath);
+    }
+
+    // Normalize the target path to handle any "../" segments
+    targetPath = normalize(targetPath);
+
+    // Check if the resolved path is within the session workspace
+    const relativeToBoundary = relative(normalizedSessionDir, targetPath);
+
+    // If the relative path starts with "..", it's outside the session
+    if (relativeToBoundary.startsWith("..") || relativeToBoundary === "..") {
+      throw new InvalidPathError(
+        `Path '${userPath}' resolves outside session workspace boundaries. Resolved to: ${targetPath}`,
+        normalizedSessionDir,
+        userPath
+      );
+    }
+
+    // Temporarily disable logging to investigate infinite loop issue
+    // log.debug("Validated session path", {
+    //   sessionDir: normalizedSessionDir,
+    //   userPath,
+    //   resolvedPath: targetPath,
+    //   relativeToBoundary,
+    // });
+
+    return targetPath;
+  }
+
+  /**
+   * Check if a resolved path is within session boundaries
+   * @param sessionDir Absolute path to the session workspace
+   * @param resolvedPath Absolute path to check
+   * @returns True if path is within boundaries, false otherwise
+   */
+  isPathWithinSession(sessionDir: string, resolvedPath: string): boolean {
+    try {
+      const normalizedSessionDir = resolve(sessionDir);
+      const normalizedResolvedPath = resolve(resolvedPath);
+      const relativePath = relative(normalizedSessionDir, normalizedResolvedPath);
+
+      // Path is within session if it doesn't start with ".."
+      return !relativePath.startsWith("..") && relativePath !== "..";
+    } catch (error) {
+      // Temporarily disable logging to investigate infinite loop issue
+      // log.warn("Error checking path boundaries", {
+      //   sessionDir,
+      //   resolvedPath,
+      //   error: getErrorMessage(error),
+      // });
+      return false;
+    }
+  }
+
+  /**
+   * Convert an absolute path to a relative path within the session
+   * @param sessionDir Absolute path to the session workspace
+   * @param absolutePath Absolute path to convert
+   * @returns Relative path within session, or null if outside boundaries
+   */
+  absoluteToRelative(sessionDir: string, absolutePath: string): string | null {
+    try {
+      const normalizedSessionDir = resolve(sessionDir);
+      const normalizedAbsolutePath = resolve(absolutePath);
+      const relativePath = relative(normalizedSessionDir, normalizedAbsolutePath);
+
+      // Return null if path is outside session boundaries
+      if (relativePath.startsWith("..") || relativePath === "..") {
+        return null;
+      }
+
+      // Return "." for the session root
+      return relativePath || ".";
+    } catch (error) {
+      // Temporarily disable logging to investigate infinite loop issue
+      // log.warn("Error converting absolute to relative path", {
+      //   sessionDir,
+      //   absolutePath,
+      //   error: getErrorMessage(error),
+      // });
+      return null;
+    }
+  }
+
+  /**
+   * Normalize a relative path to prevent directory traversal
+   * @param basePath Base path to resolve against
+   * @param relativePath Relative path to normalize
+   * @returns Normalized relative path
+   */
+  normalizeRelativePath(basePath: string, relativePath: string): string {
+    const resolved = resolve(basePath, relativePath);
+    const normalizedRelative = relative(basePath, resolved);
+
+    // Ensure we don't allow paths that go outside the base
+    if (normalizedRelative.startsWith("..")) {
+      throw new InvalidPathError(
+        `Relative path '${relativePath}' attempts to traverse outside base directory`,
+        basePath,
+        relativePath
+      );
+    }
+
+    return normalizedRelative;
+  }
+
+  /**
+   * Validate multiple paths at once
+   * @param sessionDir Absolute path to the session workspace
+   * @param userPaths Array of user-provided paths
+   * @returns Array of validated absolute paths
+   * @throws InvalidPathError if any path is invalid
+   */
+  validateMultiplePaths(sessionDir: string, userPaths: string[]): string[] {
+    const validatedPaths: string[] = [];
+    const errors: string[] = [];
+
+    for (const userPath of userPaths) {
+      try {
+        const validatedPath = this.validateAndResolvePath(sessionDir, userPath);
+        validatedPaths.push(validatedPath);
+      } catch (error) {
+        if (error instanceof InvalidPathError) {
+          errors.push(`${userPath}: ${error.message}`);
+        } else {
+          errors.push(`${userPath}: Unexpected error during validation`);
+        }
+      }
+    }
+
+    if (errors?.length > 0) {
+      throw new InvalidPathError(
+        `Multiple path validation errors:\n${errors.join("\n")}`,
+        sessionDir
+      );
+    }
+
+    return validatedPaths;
+  }
+
+  /**
+   * Create a safe path within the session by joining components
+   * @param sessionDir Absolute path to the session workspace
+   * @param pathComponents Path components to join
+   * @returns Safe absolute path within session boundaries
+   */
+  createSafePath(sessionDir: string, ...pathComponents: string[]): string {
+    const relativePath = join(...pathComponents);
+    return this.validateAndResolvePath(sessionDir, relativePath);
+  }
+
+  /**
+   * Get the relative path from session root
+   * Useful for display purposes and API responses
+   * @param sessionDir Absolute path to the session workspace
+   * @param userPath User-provided path
+   * @returns Relative path from session root
+   */
+  getRelativePathFromSession(sessionDir: string, userPath: string): string {
+    const absolutePath = this.validateAndResolvePath(sessionDir, userPath);
+    const relativePath = relative(sessionDir, absolutePath);
+    return relativePath || ".";
+  }
+
+  // -------------------------------------------------------------------------
+  // Async session-ID-based API (used by MCP adapters)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Resolve the workspace directory path for a given session identifier.
+   * @param sessionId Session ID / identifier (e.g. "task-mt#123")
+   * @returns Absolute filesystem path to the session workspace
+   */
+  async getSessionWorkspacePath(
+    sessionId: string,
+    sessionProvider?: import("./index").SessionProviderInterface
+  ): Promise<string> {
+    const { resolveSessionDirectory } = await import("./resolve-session-directory");
+    const provider = sessionProvider ?? this.resolveProvider();
+
+    if (!provider) {
+      // Distinguish between "constructor was called with undefined" vs
+      // "constructor was called with a thunk that returns undefined" so the
+      // operator can pinpoint which DI site is at fault (mt#1799). The thunk
+      // case has multiple sub-causes (no container passed, or container
+      // present but provider not yet bound); name both rather than asserting
+      // which one fired (PR #1088 R1 — the original wording mis-attributed
+      // the no-container case to a has()-was-false case).
+      const cause = isProviderThunk(this.sessionProvider)
+        ? "stored provider thunk returned undefined at dispatch time — either no DI container was passed to the registration site, or the container was present but did not have 'sessionProvider' bound when the handler ran"
+        : "stored provider is undefined — constructor was called without a provider";
+      throw new Error(
+        `SessionPathResolver requires a sessionProvider. Pass it to the ` +
+          `constructor or to getSessionWorkspacePath(). Cause: ${cause}.`
+      );
+    }
+    return resolveSessionDirectory(sessionId, provider);
+  }
+
+  /**
+   * Resolve and security-validate a user-supplied path within a session workspace.
+   * Accepts both absolute and relative paths; relative ones are resolved against
+   * the session workspace root.
+   * @param sessionId Session ID / identifier
+   * @param inputPath User-supplied path (absolute or relative)
+   * @returns Absolute path guaranteed to lie within the session workspace
+   * @throws Error if the resolved path escapes the session workspace
+   */
+  async resolvePath(
+    sessionId: string,
+    inputPath: string,
+    sessionProvider?: import("./index").SessionProviderInterface
+  ): Promise<string> {
+    const sessionWorkspace = await this.getSessionWorkspacePath(sessionId, sessionProvider);
+
+    let targetPath: string;
+    if (inputPath.startsWith("/")) {
+      targetPath = inputPath;
+    } else {
+      targetPath = resolve(sessionWorkspace, inputPath);
+    }
+
+    const normalizedPath = resolve(targetPath);
+    const normalizedWorkspace = resolve(sessionWorkspace);
+
+    if (
+      !normalizedPath.startsWith(`${normalizedWorkspace}/`) &&
+      normalizedPath !== normalizedWorkspace
+    ) {
+      throw new Error(
+        `Path "${inputPath}" resolves outside session workspace. ` +
+          `Session workspace: ${sessionWorkspace}, Resolved path: ${normalizedPath}`
+      );
+    }
+
+    return normalizedPath;
+  }
+
+  /**
+   * Validate that a filesystem path exists and is accessible.
+   * @param path Absolute path to check
+   * @throws Error if the path does not exist or is not accessible
+   */
+  async validatePathExists(path: string): Promise<void> {
+    try {
+      await access(path);
+    } catch {
+      throw new Error(`Path does not exist or is not accessible: ${path}`);
+    }
+  }
+}

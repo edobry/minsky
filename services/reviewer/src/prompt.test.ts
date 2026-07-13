@@ -14,10 +14,13 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCriticConstitution,
   buildReviewPrompt,
+  buildReviewThreadsSection,
   CRITIC_CONSTITUTION,
   extractOutOfRepoReferences,
+  extractMigrationBaselineClaims,
   type ReviewPromptInput,
 } from "./prompt";
+import type { ReviewThread } from "./github-client";
 
 // Shared string constants used across multiple test assertions.
 // Extracted to prevent the no-magic-string-duplication lint rule from triggering.
@@ -32,6 +35,14 @@ const INTERNAL_SCRATCH = "internal scratch";
 // Extracted to satisfy custom/no-magic-string-duplication.
 const VERIFICATION_PREAMBLE_R2_PHRASE = "subsequent round of review";
 const VERIFICATION_PREAMBLE_TASK_PHRASE = "verification, not fresh adversarial discovery";
+
+// Shared minimal diff fixture for buildReviewPrompt / buildChunkedReviewPrompt
+// input objects across multiple describe blocks.
+const SAMPLE_DIFF = "diff --git a/foo b/foo";
+
+// mt#2655 SC2 failure-modes phrase — referenced across multiple test cases.
+const PRE_EXISTING_MOVE_MIGRATION_PHRASE =
+  "Pre-existing content resurfaced by a verbatim move/migration";
 
 describe("buildCriticConstitution", () => {
   test("includes the Tool access section when toolsAvailable=true", () => {
@@ -161,6 +172,18 @@ describe("buildCriticConstitution — verification-mode preamble (mt#1656)", () 
     const prompt = buildCriticConstitution(true, "normal", false, true);
     expect(prompt).toContain("Your verification has structure");
     expect(prompt).not.toContain("Your adversariality has structure");
+  });
+
+  test("verification preamble includes spec-freshness clause (mt#2082)", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    expect(prompt).toContain("spec you see is the current version");
+    expect(prompt).toContain("patched between review rounds");
+    expect(prompt).toContain("current spec is canonical");
+  });
+
+  test("standard preamble (R1) does NOT include spec-freshness clause (mt#2082)", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, false);
+    expect(prompt).not.toContain("patched between review rounds");
   });
 
   test("priorReviewsPresent works across scope buckets and output-tools modes", () => {
@@ -464,7 +487,7 @@ describe("buildReviewPrompt out-of-repo section", () => {
     prTitle: "Test PR",
     prBody: "",
     taskSpec: null,
-    diff: "diff --git a/foo b/foo",
+    diff: SAMPLE_DIFF,
     authorshipTier: 3,
     branchName: "task/test",
     baseBranch: "main",
@@ -769,5 +792,496 @@ describe("buildCriticConstitution — scope-aware calibration (mt#1188)", () => 
     expect(prompt).toContain(SCOPE_CALIBRATION_HEADING);
     expect(prompt).toContain(NO_TOOLS_SECTION_HEADING);
     expect(prompt).not.toContain("## Tool access");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildReviewThreadsSection (mt#1345)
+// ---------------------------------------------------------------------------
+
+// Reviewer bot login constant — prevents magic-string-duplication lint warnings.
+const REVIEWER_BOT_LOGIN = "minsky-reviewer[bot]";
+
+function makeReviewThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
+  return {
+    id: "PRRT_kwDOX1",
+    path: "src/foo.ts",
+    line: 42,
+    isResolved: false,
+    isOutdated: false,
+    isCollapsed: false,
+    truncatedComments: false,
+    comments: [
+      {
+        databaseId: 100001,
+        author: REVIEWER_BOT_LOGIN,
+        body: "This null check is missing.",
+        createdAt: "2026-05-01T00:00:00Z",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+describe("buildReviewThreadsSection (mt#1345)", () => {
+  const THREADS_HEADING = "## Active Review Threads";
+
+  test("returns empty string when threads array is empty", () => {
+    expect(buildReviewThreadsSection([])).toBe("");
+  });
+
+  test("returns empty string when all threads are resolved", () => {
+    const allResolved = [
+      makeReviewThread({ isResolved: true }),
+      makeReviewThread({ id: "T_2", isResolved: true }),
+    ];
+    expect(buildReviewThreadsSection(allResolved)).toBe("");
+  });
+
+  test("returns empty string when all threads are outdated", () => {
+    const allOutdated = [makeReviewThread({ isOutdated: true })];
+    expect(buildReviewThreadsSection(allOutdated)).toBe("");
+  });
+
+  test("renders heading and thread ID for active thread", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain(THREADS_HEADING);
+    expect(section).toContain("PRRT_kwDOX1");
+  });
+
+  test("renders file path with line number", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain("src/foo.ts:42");
+  });
+
+  test("renders file path with range when startLine differs from line", () => {
+    const section = buildReviewThreadsSection([makeReviewThread({ startLine: 10, line: 20 })]);
+    expect(section).toContain("src/foo.ts:10-20");
+  });
+
+  test("renders comment databaseId and author", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain("100001");
+    expect(section).toContain(REVIEWER_BOT_LOGIN);
+  });
+
+  test("renders null author as (deleted account)", () => {
+    const section = buildReviewThreadsSection([
+      makeReviewThread({
+        comments: [
+          {
+            databaseId: 99999,
+            author: null,
+            body: "old comment",
+            createdAt: "2026-05-01T00:00:00Z",
+          },
+        ],
+      }),
+    ]);
+    expect(section).toContain("(deleted account)");
+  });
+
+  test("includes resolve and reply-with-inReplyTo instructions", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain("submit_thread_resolve");
+    expect(section).toContain("submit_inline_comment");
+    expect(section).toContain("inReplyTo");
+  });
+
+  test("human-thread guard instruction present", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain(REVIEWER_BOT_LOGIN);
+    expect(section).toContain("never auto-resolve human-opened threads");
+  });
+
+  test("shows truncatedComments note when flag is true", () => {
+    const section = buildReviewThreadsSection([makeReviewThread({ truncatedComments: true })]);
+    expect(section).toContain("more than 10 comments");
+  });
+
+  test("does NOT show truncatedComments note when flag is false", () => {
+    const section = buildReviewThreadsSection([makeReviewThread({ truncatedComments: false })]);
+    expect(section).not.toContain("more than 10 comments");
+  });
+
+  test("filters out resolved threads, only renders active ones", () => {
+    const threads = [
+      makeReviewThread({ id: "T_active", isResolved: false }),
+      makeReviewThread({ id: "T_resolved", isResolved: true }),
+    ];
+    const section = buildReviewThreadsSection(threads);
+    expect(section).toContain("T_active");
+    expect(section).not.toContain("T_resolved");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildReviewPrompt — reviewThreads injection (mt#1345)
+// ---------------------------------------------------------------------------
+
+describe("buildReviewPrompt — reviewThreads injection (mt#1345)", () => {
+  const THREADS_HEADING = "## Active Review Threads";
+  const baseInput: ReviewPromptInput = {
+    prNumber: 42,
+    prTitle: "My PR",
+    prBody: "Some description.",
+    taskSpec: null,
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/mt-1345",
+    baseBranch: "main",
+  };
+
+  test("omits Active Review Threads section when reviewThreads is undefined", () => {
+    const prompt = buildReviewPrompt(baseInput);
+    expect(prompt).not.toContain(THREADS_HEADING);
+  });
+
+  test("omits Active Review Threads section when reviewThreads is empty array", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, reviewThreads: [] });
+    expect(prompt).not.toContain(THREADS_HEADING);
+  });
+
+  test("injects Active Review Threads section when reviewThreads has active threads", () => {
+    const threads = [makeReviewThread()];
+    const prompt = buildReviewPrompt({ ...baseInput, reviewThreads: threads });
+    expect(prompt).toContain(THREADS_HEADING);
+    expect(prompt).toContain("PRRT_kwDOX1");
+    expect(prompt).toContain("src/foo.ts:42");
+  });
+
+  test("Active Review Threads section appears before Diff section", () => {
+    const threads = [makeReviewThread()];
+    const prompt = buildReviewPrompt({ ...baseInput, reviewThreads: threads });
+    const threadsIdx = prompt.indexOf(THREADS_HEADING);
+    const diffIdx = prompt.indexOf("## Diff");
+    expect(threadsIdx).toBeGreaterThan(0);
+    expect(threadsIdx).toBeLessThan(diffIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2058: Critic Constitution disciplines extension
+// ---------------------------------------------------------------------------
+
+const DECISION_GATE_PHRASE = "Decision gate for non-blocking findings";
+const ADOPTION_SWEEP_PHRASE = "Adoption sweep for new public exports";
+const COVERAGE_COMPLETENESS_PHRASE = "Coverage completeness mandate";
+const LIVE_TARGET_PHRASE = "Live-target verification gap";
+const BEHAVIORAL_RESIDUE_PHRASE = "Behavioral residue in removal PRs";
+const UNMET_CRITERIA_PHRASE = "spec must be updated to reflect actual scope";
+const FAILURE_MODES_HEADING = "## Failure modes";
+
+describe("Critic Constitution disciplines (mt#2058)", () => {
+  const constitution = buildCriticConstitution(true);
+
+  test("contains decision gate for non-blocking findings (principle 9)", () => {
+    expect(constitution).toContain(DECISION_GATE_PHRASE);
+    expect(constitution).toContain("in-scope for the current task");
+  });
+
+  test("contains adoption sweep mandate (principle 10)", () => {
+    expect(constitution).toContain(ADOPTION_SWEEP_PHRASE);
+    expect(constitution).toContain("new public export");
+  });
+
+  test("contains coverage completeness mandate (principle 11)", () => {
+    expect(constitution).toContain(COVERAGE_COMPLETENESS_PHRASE);
+    expect(constitution).toContain("100% of the diff");
+  });
+
+  test("contains live-target verification failure mode", () => {
+    expect(constitution).toContain(LIVE_TARGET_PHRASE);
+    expect(constitution).toContain("redacted live-run output");
+  });
+
+  test("contains behavioral residue failure mode", () => {
+    expect(constitution).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+    expect(constitution).toContain("incomplete removal");
+  });
+
+  test("contains spec-unmet-criteria protocol in output-tools format", () => {
+    const toolsConstitution = buildCriticConstitution(true, "normal", true);
+    expect(toolsConstitution).toContain(UNMET_CRITERIA_PHRASE);
+  });
+
+  test("new principles appear in the Principles section", () => {
+    const principlesStart = constitution.indexOf("## Principles");
+    const failureModesStart = constitution.indexOf(FAILURE_MODES_HEADING);
+    expect(principlesStart).toBeGreaterThan(-1);
+    expect(failureModesStart).toBeGreaterThan(-1);
+    const principlesSection = constitution.slice(principlesStart, failureModesStart);
+    expect(principlesSection).toContain(DECISION_GATE_PHRASE);
+    expect(principlesSection).toContain(ADOPTION_SWEEP_PHRASE);
+    expect(principlesSection).toContain(COVERAGE_COMPLETENESS_PHRASE);
+  });
+
+  test("new failure modes appear in the Failure modes section", () => {
+    const failureModesStart = constitution.indexOf(FAILURE_MODES_HEADING);
+    const outOfRepoStart = constitution.indexOf("## Out-of-repo references");
+    expect(failureModesStart).toBeGreaterThan(-1);
+    expect(outOfRepoStart).toBeGreaterThan(-1);
+    const failureSection = constitution.slice(failureModesStart, outOfRepoStart);
+    expect(failureSection).toContain(LIVE_TARGET_PHRASE);
+    expect(failureSection).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+  });
+
+  test("contains JSONC-family carve-out so bun.lock/tsconfig aren't flagged as invalid JSON (mt#2204)", () => {
+    for (const toolsAvailable of [true, false]) {
+      const c = buildCriticConstitution(toolsAvailable);
+      expect(c).toContain("JSONC-family files are not strict JSON");
+      expect(c).toContain("bun.lock");
+      expect(c).toContain("trailing commas");
+      // The carve-out lives between the Failure modes list and Out-of-repo refs.
+      const failureModesStart = c.indexOf(FAILURE_MODES_HEADING);
+      const outOfRepoStart = c.indexOf("## Out-of-repo references");
+      const failureSection = c.slice(failureModesStart, outOfRepoStart);
+      expect(failureSection).toContain("JSONC-family files are not strict JSON");
+    }
+  });
+
+  test("contains spec section-precedence hierarchy (principle 12, mt#2082)", () => {
+    expect(constitution).toContain("Spec section-precedence hierarchy");
+    expect(constitution).toContain("Success Criteria");
+    expect(constitution).toContain("normative");
+    expect(constitution).toContain("informational");
+  });
+
+  test("principle 12 appears in the Principles section before Failure modes (mt#2082)", () => {
+    const principlesStart = constitution.indexOf("## Principles");
+    const failureModesStart = constitution.indexOf(FAILURE_MODES_HEADING);
+    const principlesSection = constitution.slice(principlesStart, failureModesStart);
+    expect(principlesSection).toContain("Spec section-precedence hierarchy");
+    expect(principlesSection).toContain("normative section wins");
+  });
+
+  test("no-tools variant also includes the new disciplines", () => {
+    const noToolsConstitution = buildCriticConstitution(false);
+    expect(noToolsConstitution).toContain(DECISION_GATE_PHRASE);
+    expect(noToolsConstitution).toContain(LIVE_TARGET_PHRASE);
+    expect(noToolsConstitution).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+    expect(noToolsConstitution).toContain(COVERAGE_COMPLETENESS_PHRASE);
+  });
+
+  test("trivial/docs scope calibration preserves constitution-mandated findings", () => {
+    const trivialConstitution = buildCriticConstitution(true, "trivial-or-docs");
+    expect(trivialConstitution).toContain("Constitution-mandated findings");
+    expect(trivialConstitution).toContain("retain their specified severity");
+  });
+
+  test("test-only scope calibration preserves constitution-mandated findings", () => {
+    const testOnlyConstitution = buildCriticConstitution(true, "test-only");
+    expect(testOnlyConstitution).toContain("Constitution-mandated findings");
+    expect(testOnlyConstitution).toContain("retain their specified severity");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Verify-before-block (mt#2655 SC1)
+//
+// Originating incidents: PR #1811 R2 blocked on "I could not verify
+// MinskyError's constructor accepts this signature" when the constructor was
+// 17 lines of readable source away; PR #1821 R2 asserted a stale citation
+// that does not exist in the PR's content (stale chunk or base read). The
+// fix instructs the reviewer that "could not verify" downgrades a finding to
+// a NON-BLOCKING question, never a BLOCKING finding.
+// ---------------------------------------------------------------------------
+describe("buildCriticConstitution — verify-before-block (mt#2655 SC1)", () => {
+  const VERIFY_BEFORE_BLOCK_PRINCIPLE = "Verify before you block";
+  const COULD_NOT_VERIFY_PHRASE = "could not verify";
+
+  test("Principle 13 (verify before you block) appears in the tools variant", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(VERIFY_BEFORE_BLOCK_PRINCIPLE);
+    expect(prompt).toContain(COULD_NOT_VERIFY_PHRASE);
+    expect(prompt).toContain("never as the basis for a BLOCKING finding");
+  });
+
+  test("Principle 13 also appears in the no-tools variant (applies regardless of tool access)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain(VERIFY_BEFORE_BLOCK_PRINCIPLE);
+    expect(prompt).toContain(COULD_NOT_VERIFY_PHRASE);
+  });
+
+  test("Principle 13 addresses stale prior-round citations, not just unverified new claims", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain("re-asserting a citation from a prior review round");
+    expect(prompt).toContain("without re-checking it against the CURRENT diff");
+  });
+
+  test("Tool access section reinforces that an inconclusive tool call is not verification", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(
+      "A tool call you attempted but that came back inconclusive is not verification either"
+    );
+    expect(prompt).toContain("it does not license a BLOCKING finding");
+  });
+
+  test("verify-before-block guidance appears across all scope calibrations (normal, trivial-or-docs, test-only)", () => {
+    for (const scope of ["normal", "trivial-or-docs", "test-only"] as const) {
+      const prompt = buildCriticConstitution(true, scope);
+      expect(prompt).toContain(VERIFY_BEFORE_BLOCK_PRINCIPLE);
+    }
+  });
+
+  test("verify-before-block guidance appears in both output-tools and prose output-format modes", () => {
+    for (const outputToolsActive of [true, false]) {
+      const prompt = buildCriticConstitution(true, "normal", outputToolsActive);
+      expect(prompt).toContain(VERIFY_BEFORE_BLOCK_PRINCIPLE);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration / move PR baseline awareness (mt#2655 SC2)
+//
+// Originating incident: the mt#2304 migration PR (#1812) moved content
+// verbatim between locations; R1+R2 raised 6 findings ALL later verified
+// pre-existing on main. The reviewer had no baseline notion on move/migration
+// PRs. The fix scans the PR body/task spec for byte-equivalence move claims
+// and instructs the reviewer to compare the diff's deletion hunk (old
+// location) against its addition hunk (new location) — both already present
+// in the diff — before raising a BLOCKING finding on migrated content.
+// ---------------------------------------------------------------------------
+describe("extractMigrationBaselineClaims", () => {
+  test("matches 'moved verbatim'", () => {
+    const claims = extractMigrationBaselineClaims(
+      "This PR moves the utils module; content moved verbatim to the new location.",
+      "PR description"
+    );
+    expect(claims).toHaveLength(1);
+    expect(claims[0]?.phrase.toLowerCase()).toBe("moved verbatim");
+    expect(claims[0]?.kind).toBe("moved_verbatim");
+    expect(claims[0]?.source).toBe("PR description");
+  });
+
+  test("matches 'byte-identical' and 'byte for byte' variants", () => {
+    const claims = extractMigrationBaselineClaims(
+      "The new file is byte-identical to the old one; verified byte for byte.",
+      "PR description"
+    );
+    const kinds = claims.map((c) => c.kind);
+    expect(kinds).toContain("byte_identical");
+    expect(kinds).toContain("byte_for_byte");
+  });
+
+  test("matches 'moved without modification' / 'moved without changes'", () => {
+    const claims = extractMigrationBaselineClaims(
+      "Files were moved without modification.",
+      "task spec"
+    );
+    expect(claims).toHaveLength(1);
+    expect(claims[0]?.kind).toBe("moved_without_modification");
+  });
+
+  test("matches 'no content change' and 'content unchanged'", () => {
+    const claims = extractMigrationBaselineClaims(
+      "This is a pure relocation — no content change. The content is unchanged.",
+      "PR description"
+    );
+    const kinds = claims.map((c) => c.kind);
+    expect(kinds).toContain("no_content_change");
+    expect(kinds).toContain("content_unchanged");
+  });
+
+  test("matches 'verbatim migration'", () => {
+    const claims = extractMigrationBaselineClaims(
+      "A verbatim migration of the legacy handlers.",
+      "task spec"
+    );
+    expect(claims).toHaveLength(1);
+    expect(claims[0]?.kind).toBe("verbatim_move_or_migration");
+  });
+
+  test("does not match unrelated move/migration language without a byte-equivalence claim", () => {
+    const claims = extractMigrationBaselineClaims(
+      "This PR migrates the database schema to a new provider and moves the config directory.",
+      "PR description"
+    );
+    expect(claims).toEqual([]);
+  });
+
+  test("returns empty array for empty input", () => {
+    expect(extractMigrationBaselineClaims("", "PR description")).toEqual([]);
+  });
+
+  test("deduplicates repeated matches of the same phrase", () => {
+    const claims = extractMigrationBaselineClaims(
+      "Moved verbatim. Moved verbatim again in a second file.",
+      "PR description"
+    );
+    expect(claims).toHaveLength(1);
+  });
+});
+
+describe("buildReviewPrompt migration baseline section", () => {
+  const MIGRATION_BASELINE_HEADING = "## Migration / move PR — baseline awareness";
+  const baseInput: ReviewPromptInput = {
+    prNumber: 1812,
+    prTitle: "Migrate reviewer prompts to new module layout",
+    prBody: "",
+    taskSpec: null,
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/mt-2304",
+    baseBranch: "main",
+  };
+
+  test("injects the migration baseline section when the PR body declares a byte-equivalence move", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      prBody: "This PR moves prompt.ts content moved verbatim into the new module layout.",
+    });
+    expect(prompt).toContain(MIGRATION_BASELINE_HEADING);
+    expect(prompt).toContain("deletion hunk");
+    expect(prompt).toContain("addition hunk");
+    expect(prompt).toContain("[PRE-EXISTING]");
+  });
+
+  test("injects the section when the task spec (not the PR body) declares the claim", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      taskSpec: "Move the module; content is unchanged by this migration.",
+    });
+    expect(prompt).toContain(MIGRATION_BASELINE_HEADING);
+    expect(prompt).toContain("(task spec)");
+  });
+
+  test("omits the section when no byte-equivalence claim is present", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      prBody: "This PR adds a new feature to the reviewer service.",
+    });
+    expect(prompt).not.toContain(MIGRATION_BASELINE_HEADING);
+  });
+
+  test("places the section between Task Specification/out-of-repo block and Prior Reviews/Diff", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      prBody: "Content moved verbatim.",
+      taskSpec: "Spec content.",
+      priorReviews: "## Prior Reviews\n\nSome prior review text.",
+    });
+    const specIdx = prompt.indexOf("## Task Specification");
+    const migrationIdx = prompt.indexOf(MIGRATION_BASELINE_HEADING);
+    const priorReviewsIdx = prompt.indexOf("## Prior Reviews");
+    const diffIdx = prompt.indexOf("## Diff");
+    expect(specIdx).toBeGreaterThan(-1);
+    expect(migrationIdx).toBeGreaterThan(specIdx);
+    expect(priorReviewsIdx).toBeGreaterThan(migrationIdx);
+    expect(diffIdx).toBeGreaterThan(priorReviewsIdx);
+  });
+});
+
+describe("failure modes — pre-existing content resurfaced by move/migration (mt#2655 SC2)", () => {
+  test("failure modes list references the migration baseline awareness section", () => {
+    const prompt = buildCriticConstitution(true);
+    expect(prompt).toContain(PRE_EXISTING_MOVE_MIGRATION_PHRASE);
+    expect(prompt).toContain("Migration / move PR — baseline awareness");
+  });
+
+  test("appears in both tools and no-tools variants", () => {
+    expect(buildCriticConstitution(true)).toContain(PRE_EXISTING_MOVE_MIGRATION_PHRASE);
+    expect(buildCriticConstitution(false)).toContain(PRE_EXISTING_MOVE_MIGRATION_PHRASE);
   });
 });

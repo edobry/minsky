@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
-import { checkBearerAuth, composeRequestBaseUrl, normalizeEndpointPath } from "./start-command";
-import type { OAuthIdentityProvider } from "../../domain/oauth/types";
+import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
+import {
+  checkBearerAuth,
+  composeRequestBaseUrl,
+  composeWwwAuthenticate,
+  normalizeEndpointPath,
+  extractBearer,
+  validateOAuthBearer,
+  injectAgentIdMeta,
+} from "./start-command";
+import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 
 // ---------------------------------------------------------------------------
 // Helpers for integration tests
@@ -21,6 +31,13 @@ const ERR_INVALID_CLIENT_METADATA: string = "invalid_" + "client_metadata";
 const ERR_SERVICE_UNAVAILABLE: string = "service_" + "unavailable";
 const ERR_SERVER_ERROR: string = "server_" + "error";
 const ERR_REGISTRATION_NOT_SUPPORTED: string = "registration_" + "not_supported";
+// mt#2493 dedup constants (concatenated to match the file convention above).
+// Canonical-case header NAME for res.set(); Node lowercases header names on
+// retrieval, so reads use response.headers.get("www-authenticate") (lowercase).
+const WWW_AUTHENTICATE: string = "WWW-" + "Authenticate";
+const HDR_X_FORWARDED_PROTO: string = "X-Forwarded-" + "Proto";
+const HDR_X_FORWARDED_HOST: string = "X-Forwarded-" + "Host";
+const AUDIENCE_MISMATCH_DESC: string = "audience" + " mismatch";
 const GRANT_AUTHORIZATION_CODE: string = "authorization_" + "code";
 
 /**
@@ -382,6 +399,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -436,6 +454,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -485,6 +504,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -533,6 +553,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -618,21 +639,32 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
   const PORT_REGISTER = 41004;
 
   test("GET /.well-known/oauth-authorization-server returns parseable error when DB unavailable", async () => {
-    // Without a working OAuthProvider, the route returns either:
+    // Three valid outcomes — the test's load-bearing invariant is "route exists,
+    // handler ran, response body is parseable JSON":
+    //   - 200 with OAuth metadata (provider wired via local config — common dev case)
     //   - 503 service_unavailable (provider not constructed; clean no-DB path)
     //   - 500 server_error (provider constructed but errored at metadata-build time)
-    // Both are valid failure modes; the test asserts route exists and emits parseable JSON.
+    // The test cannot reliably force the no-DB path with just DATABASE_URL="" because
+    // the persistence layer reads from ~/.config/minsky/config.yaml independently
+    // (mt#1987: empirically observed during the test-fixup pass; the env var alone is
+    // insufficient to fully disable persistence).
     const { child, ready } = spawnHttpMcp(PORT_AUTH_SERVER, { DATABASE_URL: "" });
     try {
       await ready;
       const response = await fetch(
         `http://127.0.0.1:${PORT_AUTH_SERVER}/.well-known/oauth-authorization-server`
       );
-      expect([500, 503]).toContain(response.status);
+      expect([200, 500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
-      expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
-      expect(typeof body.error_description).toBe("string");
+      if (response.status === 200) {
+        expect(body.issuer).toBeTypeOf("string");
+        expect(body.authorization_endpoint).toBeTypeOf("string");
+        expect(body.token_endpoint).toBeTypeOf("string");
+      } else {
+        expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
+        expect(typeof body.error_description).toBe("string");
+      }
     } finally {
       child.kill("SIGTERM");
       await waitForExit(child, 10000).catch(() => {
@@ -672,7 +704,9 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
 
   test("X-Forwarded-Proto: https is forwarded correctly (trust proxy 1 wired)", async () => {
     // Verifies that the trust-proxy setting is still active and the route fires
-    // (not a 404 / routing miss). Either 500 or 503 confirms the handler ran.
+    // (not a 404 / routing miss). Any of 200, 500, or 503 confirms the handler ran.
+    // The 200 path additionally proves the issuer is constructed from the forwarded
+    // proto/host (the trust-proxy contract under test).
     const { child, ready } = spawnHttpMcp(PORT_X_FORWARDED, { DATABASE_URL: "" });
     try {
       await ready;
@@ -680,14 +714,20 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
         `http://127.0.0.1:${PORT_X_FORWARDED}/.well-known/oauth-authorization-server`,
         {
           headers: {
-            "X-Forwarded-Proto": "https",
-            "X-Forwarded-Host": "minsky-mcp-production.up.railway.app",
+            [HDR_X_FORWARDED_PROTO]: "https",
+            [HDR_X_FORWARDED_HOST]: "minsky-mcp-production.up.railway.app",
           },
         }
       );
-      expect([500, 503]).toContain(response.status);
+      expect([200, 500, 503]).toContain(response.status);
       const body = (await response.json()) as Record<string, unknown>;
-      expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
+      if (response.status === 200) {
+        // Trust-proxy is wired correctly when the issuer URL reflects the
+        // forwarded proto/host rather than the loopback the server bound to.
+        expect(body.issuer).toMatch(/^https:\/\/minsky-mcp-production\.up\.railway\.app/);
+      } else {
+        expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
+      }
     } finally {
       child.kill("SIGTERM");
       await waitForExit(child, 10000).catch(() => {
@@ -731,18 +771,24 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
   const PORT_OAUTH_TOKEN = 41006;
 
   test("GET /oauth/authorize returns parseable error when DB unavailable (mt#1665)", async () => {
-    // Without a working OAuthProvider the route returns:
+    // Three valid outcomes — the test's load-bearing invariant is "route exists,
+    // handler ran, response body is parseable JSON":
+    //   - 400 invalid_request with a parameter-validation message
+    //     (provider wired; common dev case — authorize() validates PKCE / params
+    //     before touching DB, so it rejects the malformed request cleanly)
     //   - 503 service_unavailable (provider not constructed; clean no-DB path)
     //   - 500 server_error (provider constructed but authorize() threw before headers sent)
-    // Both are valid; test asserts route exists, handler ran, and emits parseable JSON.
+    // mt#1987: the 400 path was added when authorize() picked up parameter-shape
+    // validation upstream of persistence access; the prior 500/503-only assertion
+    // assumed the provider would fail at request handling.
     const { child, ready } = spawnHttpMcp(PORT_OAUTH_AUTHORIZE, { DATABASE_URL: "" });
     try {
       await ready;
       const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_AUTHORIZE}/oauth/authorize`);
-      expect([500, 503]).toContain(response.status);
+      expect([400, 500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
-      expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
+      expect(typeof body.error).toBe("string");
       expect(typeof body.error_description).toBe("string");
     } finally {
       child.kill("SIGTERM");
@@ -753,7 +799,12 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
   }, 30000);
 
   test("POST /oauth/token returns parseable error when DB unavailable (mt#1665)", async () => {
-    // Same tolerance pattern as /oauth/authorize above.
+    // Three valid outcomes — same shape as /oauth/authorize above:
+    //   - 400 invalid_request (content-type / form-encoding validation rejects the
+    //     malformed request before persistence access)
+    //   - 503 service_unavailable (provider not constructed)
+    //   - 500 server_error (provider constructed but token() threw)
+    // mt#1987: this test was updated alongside /oauth/authorize for the same reason.
     const { child, ready } = spawnHttpMcp(PORT_OAUTH_TOKEN, { DATABASE_URL: "" });
     try {
       await ready;
@@ -762,10 +813,10 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
         headers: { "Content-Type": APPLICATION_JSON },
         body: "{}",
       });
-      expect([500, 503]).toContain(response.status);
+      expect([400, 500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
-      expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
+      expect(typeof body.error).toBe("string");
       expect(typeof body.error_description).toBe("string");
     } finally {
       child.kill("SIGTERM");
@@ -774,4 +825,721 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
       });
     }
   }, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// Unit tests for extractBearer (mt#1666)
+// ---------------------------------------------------------------------------
+
+describe("extractBearer (mt#1666)", () => {
+  test("extracts token from well-formed Bearer header", () => {
+    expect(extractBearer("Bearer my-token-123")).toBe("my-token-123");
+  });
+
+  test("is case-insensitive on the scheme", () => {
+    expect(extractBearer("bearer my-token-123")).toBe("my-token-123");
+    expect(extractBearer("BEARER my-token-123")).toBe("my-token-123");
+  });
+
+  test("returns null for missing header", () => {
+    expect(extractBearer(undefined)).toBeNull();
+    expect(extractBearer("")).toBeNull();
+  });
+
+  test("returns null for non-Bearer schemes", () => {
+    expect(extractBearer("Basic dXNlcjpwYXNz")).toBeNull();
+    expect(extractBearer("Token abc123")).toBeNull();
+  });
+
+  test("returns null for empty token after Bearer", () => {
+    expect(extractBearer("Bearer ")).toBeNull();
+    expect(extractBearer("Bearer")).toBeNull();
+  });
+
+  test("trims trailing whitespace from token", () => {
+    expect(extractBearer("Bearer my-token   ")).toBe("my-token");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unit tests for validateOAuthBearer (mt#1666)
+// ---------------------------------------------------------------------------
+
+// Test-local constants for magic-string deduplication.
+const ERR_INVALID_TOKEN: string = "invalid_" + "token";
+const ENDPOINT_URL = "https://example.com/mcp";
+const AUDIENCE_MISMATCH = "audience_" + "mismatch";
+// agentId returned by mock provider in validateOAuthBearer unit tests
+const VALIDATE_TEST_SUB = "user-abc";
+const VALIDATE_TEST_AGENT_ID = `oauth:claude-ai:user-${VALIDATE_TEST_SUB}`;
+
+/** Build a minimal mock OAuthIdentityProvider that returns a fixed validateToken result. */
+function buildMockProvider(validateResult: OAuthValidationResult): OAuthIdentityProvider {
+  return {
+    async discoveryMetadata(_req) {
+      return {
+        issuer: "https://example.com",
+        authorization_endpoint: "https://example.com/oauth/authorize",
+        token_endpoint: "https://example.com/oauth/token",
+        response_types_supported: ["code"],
+      };
+    },
+    async protectedResourceMetadata(_req) {
+      return {
+        resource: "https://example.com/mcp",
+        authorization_servers: ["https://example.com"],
+      };
+    },
+    async registerClient(_body) {
+      return {
+        client_id: "c",
+        redirect_uris: [],
+        grant_types: [],
+        token_endpoint_auth_method: "none",
+      };
+    },
+    async authorize(_req, _res) {},
+    async token(_req, _res) {},
+    async forwardInteraction(_req, _res) {},
+    async validateToken(_bearer) {
+      return validateResult;
+    },
+  };
+}
+
+describe("validateOAuthBearer (mt#1666)", () => {
+  test("returns ok=true with agentId when token is valid and audience matches", async () => {
+    const provider = buildMockProvider({
+      valid: true,
+      principal: {
+        sub: VALIDATE_TEST_SUB,
+        clientId: "client-1",
+        agentId: VALIDATE_TEST_AGENT_ID,
+      },
+      scopes: ["mcp"],
+      audience: ENDPOINT_URL,
+    });
+
+    const result = await validateOAuthBearer("some-token", provider, ENDPOINT_URL);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.agentId).toBe(VALIDATE_TEST_AGENT_ID);
+    }
+  });
+
+  test("returns ok=true when token audience is null (no audience binding)", async () => {
+    const provider = buildMockProvider({
+      valid: true,
+      principal: {
+        sub: VALIDATE_TEST_SUB,
+        clientId: "client-1",
+        agentId: VALIDATE_TEST_AGENT_ID,
+      },
+      scopes: ["mcp"],
+      audience: null,
+    });
+
+    const result = await validateOAuthBearer("some-token", provider, ENDPOINT_URL);
+    expect(result.ok).toBe(true);
+  });
+
+  test("returns ok=false with reason=expired when token is expired", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "expired" });
+    const result = await validateOAuthBearer("some-token", provider, ENDPOINT_URL);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("expired");
+    }
+  });
+
+  test("returns ok=false with reason=revoked when token is revoked", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "revoked" });
+    const result = await validateOAuthBearer("some-token", provider, ENDPOINT_URL);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("revoked");
+    }
+  });
+
+  test("returns ok=false with reason=audience_mismatch when audience does not match", async () => {
+    const provider = buildMockProvider({
+      valid: true,
+      principal: {
+        sub: VALIDATE_TEST_SUB,
+        clientId: "client-1",
+        agentId: VALIDATE_TEST_AGENT_ID,
+      },
+      scopes: ["mcp"],
+      audience: "https://other-server.com/mcp",
+    });
+
+    const result = await validateOAuthBearer("some-token", provider, ENDPOINT_URL);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe(AUDIENCE_MISMATCH);
+    }
+  });
+
+  test("returns ok=false with reason=not_found when token not found", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "not_found" });
+    const result = await validateOAuthBearer("some-token", provider, ENDPOINT_URL);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("not_found");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration tests — /mcp auth middleware (mt#1666)
+// These tests wire a mock OAuthIdentityProvider + express app to verify the
+// /mcp route accepts/rejects tokens as expected.
+// ---------------------------------------------------------------------------
+
+describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
+  // Build a minimal express app that mimics the /mcp auth gating from startHttpServer.
+  // We test the auth logic only (replacing the real MCP handler with a simple 200).
+  const buildMcpAuthApp = async (opts: {
+    staticToken?: string;
+    provider?: OAuthIdentityProvider;
+    endpointUrl?: string;
+  }) => {
+    const expressModule = await import("express");
+    const expressApp = expressModule.default();
+    // mt#2493: mirror production's trust-proxy so X-Forwarded-Proto/Host drive
+    // the request base URL (and thus the WWW-Authenticate resource_metadata URL).
+    expressApp.set("trust proxy", 1);
+    expressApp.use(expressModule.default.json());
+
+    const { checkBearerAuth: chkAuth, extractBearer: exBearer } = await import("./start-command");
+    const { validateOAuthBearer: validateOAuth } = await import("./start-command");
+    const metaKey = AGENT_ID_META_KEY;
+
+    const staticToken = opts.staticToken;
+    const oauthProvider = opts.provider;
+    const endpointUrl = opts.endpointUrl ?? "http://127.0.0.1:0/mcp";
+
+    expressApp.all("/mcp", async (req, res) => {
+      // Mirror production gating logic: enforce auth when EITHER static-bearer OR
+      // OAuth provider is configured (mt#1666 fix for the auto-reviewer-bot
+      // BLOCKING #1 — previously this gated only on staticToken, leaving /mcp
+      // unauthenticated in OAuth-only deployments).
+      const authRequired = !!staticToken || !!oauthProvider;
+      if (authRequired) {
+        const header = req.header("authorization") ?? req.header("Authorization");
+        const staticOk = !!staticToken && chkAuth(header, staticToken);
+
+        if (staticOk) {
+          // Pass through
+        } else if (oauthProvider) {
+          const bearer = exBearer(header);
+          if (!bearer) {
+            res.set(WWW_AUTHENTICATE, composeWwwAuthenticate(req));
+            res.status(401).json({ error: "unauthorized", message: "valid bearer token required" });
+            return;
+          }
+
+          const oauthResult = await validateOAuth(bearer, oauthProvider, endpointUrl);
+          if (!oauthResult.ok) {
+            const errorCode =
+              oauthResult.reason === AUDIENCE_MISMATCH ? ERR_INVALID_TOKEN : "unauthorized";
+            const description =
+              oauthResult.reason === AUDIENCE_MISMATCH
+                ? "audience mismatch"
+                : oauthResult.reason === "expired"
+                  ? "token expired"
+                  : "invalid token";
+            res.set(
+              WWW_AUTHENTICATE,
+              composeWwwAuthenticate(req, { error: errorCode, errorDescription: description })
+            );
+            res.status(401).json({ error: errorCode, error_description: description });
+            return;
+          }
+
+          // Inject agentId into body (mt#1765: into params._meta, NOT top-level _meta).
+          // Uses the real production helper so the test exercises the same code path the
+          // middleware uses (no hand-mirrored copy that could drift — PR #1064 R1 NON-BLOCKING).
+          if (req.method === "POST" && req.body && typeof req.body === "object") {
+            if (Array.isArray(req.body)) {
+              req.body = req.body.map((item: unknown) =>
+                item && typeof item === "object" && !Array.isArray(item)
+                  ? injectAgentIdMeta(item as Record<string, unknown>, oauthResult.agentId)
+                  : item
+              );
+            } else {
+              req.body = injectAgentIdMeta(
+                req.body as Record<string, unknown>,
+                oauthResult.agentId
+              );
+            }
+          }
+        } else {
+          res.set(WWW_AUTHENTICATE, "Bearer");
+          res.status(401).json({ error: "unauthorized", message: "valid bearer token required" });
+          return;
+        }
+      }
+
+      // Echo back the processed body and agentId for verification.
+      // mt#1765: agentId now lives in params._meta, not top-level _meta.
+      const body = req.body as Record<string, unknown>;
+      const params =
+        body?.params && typeof body.params === "object" && !Array.isArray(body.params)
+          ? (body.params as Record<string, unknown>)
+          : undefined;
+      const paramsMeta =
+        params?._meta && typeof params._meta === "object" && !Array.isArray(params._meta)
+          ? (params._meta as Record<string, unknown>)
+          : undefined;
+      const injectedAgentId = paramsMeta?.[metaKey] as string | undefined;
+      res.json({ ok: true, agentId: injectedAgentId ?? null });
+    });
+
+    return expressApp;
+  };
+
+  const PORT_MCP_STATIC = 41030;
+  const PORT_MCP_OAUTH_VALID = 41031;
+  const PORT_MCP_OAUTH_EXPIRED = 41032;
+  const PORT_MCP_OAUTH_REVOKED = 41033;
+  const PORT_MCP_OAUTH_AUDIENCE = 41034;
+  const PORT_MCP_MALFORMED = 41035;
+
+  const VALID_SUB = "test-user-abc";
+  const VALID_AGENT_ID = `oauth:claude-ai:user-${VALID_SUB}`;
+  const VALID_ENDPOINT_URL = `http://127.0.0.1:${PORT_MCP_OAUTH_VALID}/mcp`;
+
+  test("static-bearer path continues to work with valid token (no regression)", async () => {
+    const staticToken = "static-test-token-12345";
+    const app = await buildMcpAuthApp({ staticToken });
+    const server = app.listen(PORT_MCP_STATIC);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_STATIC}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: `Bearer ${staticToken}`,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "tools/call", id: 1 }),
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.ok).toBe(true);
+      // Static path does NOT inject agentId (caller controls _meta)
+      expect(body.agentId).toBeNull();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("OAuth-issued token authenticates and agentId is set correctly", async () => {
+    const provider = buildMockProvider({
+      valid: true,
+      principal: { sub: VALID_SUB, clientId: "c1", agentId: VALID_AGENT_ID },
+      scopes: ["mcp"],
+      audience: VALID_ENDPOINT_URL,
+    });
+    const app = await buildMcpAuthApp({
+      staticToken: "static-token",
+      provider,
+      endpointUrl: VALID_ENDPOINT_URL,
+    });
+    const server = app.listen(PORT_MCP_OAUTH_VALID);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_VALID}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Bearer oauth-issued-token",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "tools/call", id: 1 }),
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.ok).toBe(true);
+      // agentId in ADR-006 Decision B format
+      expect(body.agentId).toBe(VALID_AGENT_ID);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("expired OAuth token returns 401", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "expired" });
+    const app = await buildMcpAuthApp({ staticToken: "static-token", provider });
+    const server = app.listen(PORT_MCP_OAUTH_EXPIRED);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_EXPIRED}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Bearer expired-token",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("unauthorized");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("revoked OAuth token returns 401", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "revoked" });
+    const app = await buildMcpAuthApp({ staticToken: "static-token", provider });
+    const server = app.listen(PORT_MCP_OAUTH_REVOKED);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_REVOKED}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Bearer revoked-token",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("unauthorized");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("wrong-audience OAuth token returns 401 with invalid_token", async () => {
+    const provider = buildMockProvider({
+      valid: true,
+      principal: { sub: VALID_SUB, clientId: "c1", agentId: VALID_AGENT_ID },
+      scopes: ["mcp"],
+      audience: "https://other-server.com/mcp",
+    });
+    const app = await buildMcpAuthApp({
+      staticToken: "static-token",
+      provider,
+      endpointUrl: VALID_ENDPOINT_URL,
+    });
+    const server = app.listen(PORT_MCP_OAUTH_AUDIENCE);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_AUDIENCE}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Bearer audience-bound-token",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe(ERR_INVALID_TOKEN);
+      expect(body.error_description).toBe("audience mismatch");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("malformed bearer header returns 401", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "not_found" });
+    const app = await buildMcpAuthApp({ staticToken: "static-token", provider });
+    const server = app.listen(PORT_MCP_MALFORMED);
+    try {
+      // Send a non-Bearer Authorization header
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_MALFORMED}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Basic dXNlcjpwYXNz",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("unauthorized");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // mt#1666 R1 BLOCKING #1 regression coverage: OAuth-only mode (no static token).
+  // Pre-fix, the auth middleware gated entirely on `auth.enabled` (static-bearer
+  // configured), leaving /mcp unauthenticated when ONLY OAuth was configured.
+  // This test enforces that OAuth tokens are honored at the gate even when no
+  // static token is set, AND that missing/invalid bearers return 401.
+  const PORT_MCP_OAUTH_ONLY_VALID = 41036;
+  const PORT_MCP_OAUTH_ONLY_MISSING = 41037;
+
+  test("OAuth-only mode (no staticToken): valid OAuth token authenticates and injects agentId", async () => {
+    const sub = "oauth-only-user";
+    const endpointUrl = `http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_VALID}/mcp`;
+    const provider = buildMockProvider({
+      valid: true,
+      principal: { sub, clientId: "c", agentId: `oauth:claude-ai:user-${sub}` },
+      scopes: ["mcp"],
+      audience: endpointUrl,
+    });
+    const app = await buildMcpAuthApp({ provider, endpointUrl }); // NB: no staticToken
+    const server = app.listen(PORT_MCP_OAUTH_ONLY_VALID);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_VALID}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": APPLICATION_JSON, Authorization: "Bearer oauth-jwt-token" },
+        body: JSON.stringify({ method: "tools/list" }),
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.ok).toBe(true);
+      expect(body.agentId).toBe(`oauth:claude-ai:user-${sub}`);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("OAuth-only mode (no staticToken): missing bearer header returns 401 (NOT pass-through)", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "not_found" });
+    const app = await buildMcpAuthApp({ provider }); // NB: no staticToken
+    const server = app.listen(PORT_MCP_OAUTH_ONLY_MISSING);
+    try {
+      // No Authorization header at all — must be rejected, NOT passed through.
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_MISSING}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": APPLICATION_JSON },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("unauthorized");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // ---- mt#2493: WWW-Authenticate header on the OAuth 401 (RFC 9728 §5.1) ----
+
+  const PORT_WWWAUTH_MISSING = 41080;
+  const PORT_WWWAUTH_INVALID = 41081;
+  const FORWARDED_HOST = "minsky-mcp-production.up.railway.app";
+
+  test("401 (missing bearer) carries WWW-Authenticate with the https resource_metadata URL (mt#2493)", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "not_found" });
+    const app = await buildMcpAuthApp({ provider });
+    const server = app.listen(PORT_WWWAUTH_MISSING);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_WWWAUTH_MISSING}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          // Simulate the TLS-terminating edge so the advertised metadata URL is https.
+          [HDR_X_FORWARDED_PROTO]: "https",
+          [HDR_X_FORWARDED_HOST]: FORWARDED_HOST,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const wwwAuth = response.headers.get("www-authenticate");
+      expect(wwwAuth).toMatch(
+        /^Bearer .*resource_metadata="https:\/\/minsky-mcp-production\.up\.railway\.app\/\.well-known\/oauth-protected-resource"/
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("401 (invalid token) carries WWW-Authenticate with the RFC 6750 error + resource_metadata (mt#2493)", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "expired" });
+    const app = await buildMcpAuthApp({ provider });
+    const server = app.listen(PORT_WWWAUTH_INVALID);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_WWWAUTH_INVALID}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": APPLICATION_JSON,
+          Authorization: "Bearer some-expired-token",
+          [HDR_X_FORWARDED_PROTO]: "https",
+          [HDR_X_FORWARDED_HOST]: FORWARDED_HOST,
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const wwwAuth = response.headers.get("www-authenticate") ?? "";
+      expect(wwwAuth).toMatch(/^Bearer /);
+      expect(wwwAuth).toContain('error="unauthorized"');
+      expect(wwwAuth).toMatch(
+        /resource_metadata="https:\/\/minsky-mcp-production\.up\.railway\.app\/\.well-known\/oauth-protected-resource"/
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("composeWwwAuthenticate builds the RFC 9728 challenge from the request (mt#2493)", () => {
+    const req = {
+      protocol: "https",
+      hostname: FORWARDED_HOST,
+    } as unknown as import("express").Request;
+
+    // Bare discovery hint (no token error).
+    expect(composeWwwAuthenticate(req)).toBe(
+      'Bearer resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
+    );
+
+    // With RFC 6750 error params (invalid/expired/revoked token case).
+    expect(
+      composeWwwAuthenticate(req, {
+        error: "invalid_token",
+        errorDescription: AUDIENCE_MISMATCH_DESC,
+      })
+    ).toBe(
+      'Bearer error="invalid_token", error_description="audience mismatch", ' +
+        'resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
+    );
+  });
+
+  test("composeWwwAuthenticate escapes quotes/backslashes in quoted-string values (mt#2493)", () => {
+    const req = {
+      protocol: "https",
+      hostname: FORWARDED_HOST,
+    } as unknown as import("express").Request;
+
+    // A description carrying a raw double-quote and a backslash must be escaped
+    // per RFC 7230 quoted-string rules so it stays one well-formed parameter and
+    // cannot inject a sibling auth-param.
+    const header = composeWwwAuthenticate(req, {
+      error: "invalid_token",
+      errorDescription: 'a " quote and a \\ slash',
+    });
+
+    expect(header).toContain('error_description="a \\" quote and a \\\\ slash"');
+    // resource_metadata still follows as its own well-formed parameter.
+    expect(header).toContain(
+      'resource_metadata="https://minsky-mcp-production.up.railway.app/.well-known/oauth-protected-resource"'
+    );
+  });
+});
+
+describe("OAuth _meta injection — JSONRPCMessageSchema compatibility (mt#1765)", () => {
+  // Regression test for mt#1765: the OAuth-bearer middleware in start-command.ts
+  // mutates req.body to add the agentId for Layer 2 to read. The SDK's
+  // StreamableHTTPServerTransport pipes req.body through JSONRPCMessageSchema.parse,
+  // which is .strict() at the JSON-RPC envelope level. A top-level _meta key fails
+  // parse and the SDK returns -32700 "Parse error: Invalid JSON-RPC message" — the
+  // class of failure that blocked claude.ai web from connecting after OAuth.
+  //
+  // These tests exercise the REAL `injectAgentIdMeta` helper (imported above), not a
+  // hand-mirrored copy. Drift between production code and test mock is structurally
+  // impossible (PR #1064 R1 NON-BLOCKING #1).
+
+  const MT1765_TEST_AGENT_ID = "oauth:claude-ai:user-operator";
+
+  test("post-injection body passes JSONRPCMessageSchema.parse (initialize request)", () => {
+    // A realistic MCP initialize request (the exact shape claude.ai sends).
+    const initialize = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "claude-ai", version: "1.0" },
+      },
+    };
+
+    const injected = injectAgentIdMeta(initialize, MT1765_TEST_AGENT_ID);
+
+    // The post-injection body must pass the SDK's strict schema.
+    expect(JSONRPCMessageSchema.safeParse(injected).success).toBe(true);
+
+    // And the agentId must land in params._meta where the SDK surfaces it to handlers.
+    const params = (injected as Record<string, unknown>).params as Record<string, unknown>;
+    const meta = params._meta as Record<string, unknown>;
+    expect(meta[AGENT_ID_META_KEY]).toBe(MT1765_TEST_AGENT_ID);
+  });
+
+  test("post-injection body passes JSONRPCMessageSchema.parse (tools/list request)", () => {
+    // tools/list with no caller params is a common shape post-handshake.
+    const toolsList = { jsonrpc: "2.0", id: 2, method: "tools/list" };
+    const injected = injectAgentIdMeta(toolsList, MT1765_TEST_AGENT_ID);
+    expect(JSONRPCMessageSchema.safeParse(injected).success).toBe(true);
+  });
+
+  test("control: TOP-LEVEL _meta injection (the pre-mt#1765 bug shape) FAILS schema parse", () => {
+    // The pre-mt#1765 shape: agentId at top level of the JSON-RPC envelope.
+    // This is what the prior middleware produced and what -32700-blocked claude.ai.
+    const buggyShape = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "x", version: "1" },
+      },
+      _meta: { [AGENT_ID_META_KEY]: MT1765_TEST_AGENT_ID },
+    };
+
+    // Documents the failure: JSONRPCRequestSchema is .strict() and rejects top-level extras.
+    expect(JSONRPCMessageSchema.safeParse(buggyShape).success).toBe(false);
+  });
+
+  test("caller-declared params._meta wins over OAuth-derived (cooperative Layer 2)", () => {
+    const callerDeclared = "subagent:claude-code:caller";
+    const msg = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "echo",
+        _meta: { [AGENT_ID_META_KEY]: callerDeclared },
+      },
+    };
+    const result = injectAgentIdMeta(msg, MT1765_TEST_AGENT_ID);
+    const meta = (result.params as Record<string, unknown>)._meta as Record<string, unknown>;
+    expect(meta[AGENT_ID_META_KEY]).toBe(callerDeclared);
+  });
+
+  test("array params (positional) is NOT clobbered — message returned unchanged (PR #1064 R1 BLOCKING)", () => {
+    // JSON-RPC 2.0 permits positional parameters via an array `params`. The pre-fix
+    // injectMeta replaced it with an object, corrupting the payload. The fix
+    // short-circuits and returns the message unchanged when `params` is an array.
+    const positional = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "some_method",
+      params: ["arg1", 42, { nested: true }],
+    };
+    const result = injectAgentIdMeta(positional, MT1765_TEST_AGENT_ID);
+
+    // Same object identity OR deep-equal preserved.
+    expect(result.params).toEqual(positional.params);
+    expect(Array.isArray(result.params)).toBe(true);
+
+    // No top-level _meta was added either (we did not mutate the envelope at all).
+    expect((result as Record<string, unknown>)._meta).toBeUndefined();
+  });
+
+  test("batch request: each item gets params._meta injection and the batch as a whole passes schema", () => {
+    // Mirrors the production middleware's batch path: each message in the array is
+    // independently injected. Mix two valid object-params messages so each one's
+    // post-injection envelope is schema-clean.
+    const batch = [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "x", version: "1" },
+        },
+      },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    ];
+    const injected = batch.map((m) => injectAgentIdMeta(m, MT1765_TEST_AGENT_ID));
+
+    for (const m of injected) {
+      expect(JSONRPCMessageSchema.safeParse(m).success).toBe(true);
+      const meta = ((m as Record<string, unknown>).params as Record<string, unknown>)
+        ._meta as Record<string, unknown>;
+      expect(meta[AGENT_ID_META_KEY]).toBe(MT1765_TEST_AGENT_ID);
+    }
+  });
 });

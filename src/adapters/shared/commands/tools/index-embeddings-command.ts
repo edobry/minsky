@@ -48,9 +48,9 @@ export class ToolsIndexEmbeddingsCommand {
   async execute(params: ToolsIndexEmbeddingsParams, ctx?: CommandExecutionContext) {
     try {
       const { createToolEmbeddingService } = await import(
-        "../../../../domain/tools/tool-embedding-service"
+        "@minsky/domain/tools/tool-embedding-service"
       );
-      const { createLogger } = await import("../../../../utils/logger");
+      const { createLogger } = await import("@minsky/shared/logger");
 
       const log = createLogger();
       const persistence = ctx?.container?.get("persistence");
@@ -103,7 +103,7 @@ export class ToolsIndexEmbeddingsCommand {
         errors: result.errors,
       };
     } catch (error) {
-      const { createLogger } = await import("../../../../utils/logger");
+      const { createLogger } = await import("@minsky/shared/logger");
       const log = createLogger();
 
       const errorMsg = `Failed to index tool embeddings: ${

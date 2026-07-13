@@ -1,21 +1,21 @@
 /**
  * Rules list, search, and index-embeddings commands
  */
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../command-registry";
-import { type RuleFormat } from "../../../../domain/rules";
-import { log } from "../../../../utils/logger";
-import { resolveWorkspacePath as defaultResolveWorkspacePath } from "../../../../domain/workspace";
+import { type RuleFormat } from "@minsky/domain/rules";
+import { log } from "@minsky/shared/logger";
+import { resolveWorkspacePath as defaultResolveWorkspacePath } from "@minsky/domain/workspace";
 import {
   indexRuleEmbeddings,
   searchRulesEnhanced,
   listRulesFiltered,
-} from "../../../../domain/rules/rules-command-operations";
+} from "@minsky/domain/rules/rules-command-operations";
 import {
   rulesListCommandParams,
   rulesIndexEmbeddingsParams,
@@ -127,7 +127,7 @@ export function registerListSearchCommands(
 
         if (params.details) {
           try {
-            const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
+            const cfg = await (await import("@minsky/domain/configuration")).getConfiguration();
             const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
             const model = cfg.embeddings?.model || "text-embedding-3-small";
             const effThreshold = params.threshold ?? "(default)";

@@ -14,12 +14,12 @@ import {
 } from "../command-registry";
 // Domain git functions are lazy-imported inside execute handlers to avoid
 // loading the entire domain layer at command registration time.
-import { conflictsCommandParams } from "../../../domain/git/commands/subcommands/conflicts-subcommand";
-import { log } from "../../../utils/logger";
+import { conflictsCommandParams } from "@minsky/domain/git/commands/subcommands/conflicts-subcommand";
+import { log } from "@minsky/shared/logger";
 import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
-import { execAsync } from "../../../utils/exec";
-import type { AppContainerInterface } from "../../../composition/types";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Parameters for the commit command
@@ -249,6 +249,65 @@ const logCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Build the argv-shaped `git log` command for the `git.log` command's
+ * execute handler. Every dynamic (caller-controlled) segment is wrapped
+ * with `safeShellQuote` before being joined into the shell command string
+ * passed to `execAsync` — repoPath, author, since, until, grep, ref, and
+ * path are all attacker/operator-controlled strings that may contain shell
+ * metacharacters or embedded spaces (mt#2624 R2). Exported for direct unit
+ * testing without mocking `execAsync`.
+ */
+export function buildGitLogArgs(params: {
+  repo?: string;
+  limit?: number;
+  author?: string;
+  since?: string;
+  until?: string;
+  path?: string;
+  grep?: string;
+  format?: "oneline" | "short" | "medium" | "full";
+  ref?: string;
+}): string[] {
+  const repoPath = params.repo || process.cwd();
+  const limit = params.limit ?? 20;
+  const format = params.format ?? "oneline";
+
+  const args: string[] = ["git", "-C", safeShellQuote(repoPath), "log"];
+
+  // Format flag
+  if (format === "oneline") {
+    args.push("--oneline");
+  } else {
+    args.push(`--format=${format}`);
+  }
+
+  // Limit
+  args.push(`-n`, String(limit));
+
+  // Optional filters
+  if (params.author) {
+    args.push(`--author=${safeShellQuote(params.author)}`);
+  }
+  if (params.since) {
+    args.push(`--since=${safeShellQuote(params.since)}`);
+  }
+  if (params.until) {
+    args.push(`--until=${safeShellQuote(params.until)}`);
+  }
+  if (params.grep) {
+    args.push(`--grep=${safeShellQuote(params.grep)}`);
+  }
+  if (params.ref) {
+    args.push(safeShellQuote(params.ref));
+  }
+  if (params.path) {
+    args.push("--", safeShellQuote(params.path));
+  }
+
+  return args;
+}
+
+/**
  * Parameters for the git search command
  */
 const searchCommandParams = composeParams(
@@ -363,6 +422,207 @@ const blameCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Parameters for the git pull command
+ */
+const pullCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    remote: {
+      schema: z.string(),
+      description: "Remote name (default: origin)",
+      required: false,
+      defaultValue: "origin",
+    },
+    branch: {
+      schema: z.string(),
+      description: "Branch to pull (default: main)",
+      required: false,
+      defaultValue: "main",
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git status command
+ */
+const statusCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {}
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash command
+ */
+const stashCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    message: {
+      schema: z.string(),
+      description: "Optional message for the stash entry",
+      required: false,
+    },
+    paths: {
+      schema: z.array(z.string().min(1)),
+      description: "Optional list of paths to stash selectively",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash_pop command
+ */
+const stashPopCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    ref: {
+      schema: z.string(),
+      description: "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent.",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash_list command
+ */
+const stashListCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {}
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash_drop command
+ */
+const stashDropCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    ref: {
+      schema: z.string().min(1),
+      description: "Stash ref to drop (required). E.g. stash@{0}.",
+      required: true,
+    },
+    confirmDrop: {
+      schema: z.literal(true),
+      description:
+        "Must be set to `true` to confirm this destructive operation. The stash entry cannot be recovered once dropped.",
+      required: true,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git restore command
+ */
+const restoreCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    paths: {
+      schema: z.array(z.string().min(1)).min(1),
+      description:
+        "Paths to restore (discard unstaged working-tree changes). At least one required.",
+      required: true,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git reset command
+ */
+const resetCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    mode: {
+      schema: z.enum(["soft", "mixed", "hard"]),
+      description:
+        "Reset mode: soft (HEAD only), mixed (HEAD + index), hard (HEAD + index + working tree, DESTRUCTIVE).",
+      required: true,
+    },
+    target: {
+      schema: z.string(),
+      description: "Target ref to reset to (default: HEAD).",
+      required: false,
+    },
+    confirmHard: {
+      schema: z.literal(true).optional(),
+      description:
+        "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stats command (churn-by-path analytics, mt#2624)
+ */
+const statsCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+  },
+  {
+    since: {
+      schema: z.string(),
+      description:
+        "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')",
+      required: false,
+    },
+    until: {
+      schema: z.string(),
+      description: "Show commits older than a specific date",
+      required: false,
+    },
+    path: {
+      schema: z.string(),
+      description: "Restrict the query to commits touching this path (file or directory)",
+      required: false,
+    },
+    author: {
+      schema: z.string(),
+      description: "Filter commits by author name or email",
+      required: false,
+    },
+    nameOnly: {
+      schema: z.boolean(),
+      description:
+        "List distinct paths touched in the window without computing insertion/deletion counts (lighter-weight than the default churn aggregation)",
+      required: false,
+      defaultValue: false,
+    },
+    limit: {
+      schema: z.number(),
+      description:
+        "Cap the number of files returned, sorted by total churn (insertions + deletions) descending",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
  * Helper to resolve session to repo path at the adapter boundary.
  * Uses the container's sessionProvider if available.
  */
@@ -391,7 +651,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: commitCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.commit command", { params });
-      const { commitChangesFromParams } = await import("../../../domain/git");
+      const { commitChangesFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -421,7 +681,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: pushCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.push command", { params });
-      const { pushFromParams } = await import("../../../domain/git");
+      const { pushFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -448,7 +708,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: cloneCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.clone command", { params });
-      const { cloneFromParams } = await import("../../../domain/git");
+      const { cloneFromParams } = await import("@minsky/domain/git");
 
       const result = await cloneFromParams({
         url: params.url,
@@ -474,7 +734,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: branchCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.branch command", { params });
-      const { branchFromParams } = await import("../../../domain/git");
+      const { branchFromParams } = await import("@minsky/domain/git");
 
       const result = await branchFromParams({
         session: params.session,
@@ -498,7 +758,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: mergeCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.merge command", { params });
-      const { mergeFromParams } = await import("../../../domain/git");
+      const { mergeFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -529,7 +789,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: checkoutCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.checkout command", { params });
-      const { checkoutFromParams } = await import("../../../domain/git");
+      const { checkoutFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -559,7 +819,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: rebaseCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.rebase command", { params });
-      const { rebaseFromParams } = await import("../../../domain/git");
+      const { rebaseFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -591,7 +851,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     execute: async (params, context) => {
       log.debug("Executing git.conflicts command", { params });
       const { conflictsFromParams } = await import(
-        "../../../domain/git/commands/subcommands/conflicts-subcommand"
+        "@minsky/domain/git/commands/subcommands/conflicts-subcommand"
       );
 
       const result = await conflictsFromParams({
@@ -621,41 +881,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     execute: async (params, _context) => {
       log.debug("Executing git.log command", { params });
 
-      const repoPath = params.repo || process.cwd();
-      const limit = params.limit ?? 20;
-      const format = params.format ?? "oneline";
-
-      const args: string[] = ["git", "-C", repoPath, "log"];
-
-      // Format flag
-      if (format === "oneline") {
-        args.push("--oneline");
-      } else {
-        args.push(`--format=${format}`);
-      }
-
-      // Limit
-      args.push(`-n`, String(limit));
-
-      // Optional filters
-      if (params.author) {
-        args.push(`--author=${params.author}`);
-      }
-      if (params.since) {
-        args.push(`--since=${params.since}`);
-      }
-      if (params.until) {
-        args.push(`--until=${params.until}`);
-      }
-      if (params.grep) {
-        args.push(`--grep=${params.grep}`);
-      }
-      if (params.ref) {
-        args.push(params.ref);
-      }
-      if (params.path) {
-        args.push("--", params.path);
-      }
+      const args = buildGitLogArgs(params);
 
       try {
         const { stdout } = await execAsync(args.join(" "));
@@ -839,6 +1065,269 @@ export function registerGitCommands(container?: AppContainerInterface): void {
           error: error instanceof Error ? error.message : String(error),
         };
       }
+    },
+  });
+
+  // Register git pull command (--ff-only, conflict-aware)
+  sharedCommandRegistry.registerCommand({
+    id: "git.pull",
+    category: CommandCategory.GIT,
+    name: "pull",
+    description:
+      "Pull latest changes from remote using --ff-only. Returns structured error naming conflicting files when local changes block the merge.",
+    parameters: pullCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.pull command", { params });
+      const { pullFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await pullFromParams({
+        repo,
+        remote: params.remote,
+        branch: params.branch,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        alreadyUpToDate: result.alreadyUpToDate,
+      };
+    },
+  });
+
+  // Register git status command
+  sharedCommandRegistry.registerCommand({
+    id: "git.status",
+    category: CommandCategory.GIT,
+    name: "status",
+    description:
+      "Get structured working-tree status (branch, ahead/behind, staged/unstaged/untracked/conflicted files).",
+    parameters: statusCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.status command", { params });
+      const { statusFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await statusFromParams({ repo });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        branch: result.branch,
+        ahead: result.ahead,
+        behind: result.behind,
+        staged: result.staged,
+        unstaged: result.unstaged,
+        untracked: result.untracked,
+        conflicted: result.conflicted,
+      };
+    },
+  });
+
+  // Register git stash command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash",
+    category: CommandCategory.GIT,
+    name: "stash",
+    description: "Stash working-tree changes. Returns stashRef or null when nothing to stash.",
+    parameters: stashCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.stash command", { params });
+      const { stashFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await stashFromParams({
+        repo,
+        message: params.message,
+        paths: params.paths,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        stashRef: result.stashRef,
+        stashed: result.stashed,
+      };
+    },
+  });
+
+  // Register git stash_pop command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash_pop",
+    category: CommandCategory.GIT,
+    name: "stash_pop",
+    description: "Pop (apply + drop) a stash entry. Returns any conflict paths.",
+    parameters: stashPopCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.stash_pop command", { params });
+      const { stashPopFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await stashPopFromParams({
+        repo,
+        ref: params.ref,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        popped: result.popped,
+        conflicts: result.conflicts,
+      };
+    },
+  });
+
+  // Register git stash_list command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash_list",
+    category: CommandCategory.GIT,
+    name: "stash_list",
+    description:
+      "List all stash entries with structured metadata (ref, message, branch, timestamp).",
+    parameters: stashListCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.stash_list command", { params });
+      const { stashListFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await stashListFromParams({ repo });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        stashes: result.stashes,
+      };
+    },
+  });
+
+  // Register git stash_drop command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash_drop",
+    category: CommandCategory.GIT,
+    name: "stash_drop",
+    description:
+      "Drop a specific stash entry. Requires confirmDrop: true (irreversible destructive operation).",
+    parameters: stashDropCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.stash_drop command", { params });
+      const { stashDropFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await stashDropFromParams({
+        repo,
+        ref: params.ref,
+        confirmDrop: params.confirmDrop,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        dropped: result.dropped,
+      };
+    },
+  });
+
+  // Register git restore command
+  sharedCommandRegistry.registerCommand({
+    id: "git.restore",
+    category: CommandCategory.GIT,
+    name: "restore",
+    description:
+      "Discard unstaged working-tree changes for specific paths (git restore). Less destructive than reset --hard.",
+    parameters: restoreCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.restore command", { params });
+      const { restoreFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await restoreFromParams({
+        repo,
+        paths: params.paths,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        restored: result.restored,
+      };
+    },
+  });
+
+  // Register git reset command
+  sharedCommandRegistry.registerCommand({
+    id: "git.reset",
+    category: CommandCategory.GIT,
+    name: "reset",
+    description:
+      "Run git reset with explicit mode (soft/mixed/hard). mode=hard requires confirmHard: true.",
+    parameters: resetCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.reset command", { params });
+      const { resetFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await resetFromParams({
+        repo,
+        mode: params.mode,
+        target: params.target,
+        confirmHard: params.confirmHard,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        reset: result.reset,
+        mode: result.mode,
+        target: result.target,
+      };
+    },
+  });
+
+  // Register git stats command (churn-by-path analytics, mt#2624)
+  sharedCommandRegistry.registerCommand({
+    id: "git.stats",
+    category: CommandCategory.GIT,
+    name: "stats",
+    description:
+      "Compute per-path churn (commit count + insertions/deletions) over a window via " +
+      "`git log --numstat` — the sanctioned path for repo-analytics queries the " +
+      "block-git-gh-cli hook denies on Bash. Set nameOnly to list touched paths without " +
+      "computing insertion/deletion counts.",
+    parameters: statsCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.stats command", { params });
+      const { gitStatsFromParams } = await import("@minsky/domain/git");
+
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await gitStatsFromParams({
+        repo,
+        since: params.since,
+        until: params.until,
+        path: params.path,
+        author: params.author,
+        nameOnly: params.nameOnly,
+        limit: params.limit,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        since: result.since,
+        until: result.until,
+        path: result.path,
+        nameOnly: result.nameOnly,
+        totalCommits: result.totalCommits,
+        files: result.files,
+      };
     },
   });
 }

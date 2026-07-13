@@ -1,0 +1,143 @@
+/**
+ * Schema definitions for storage operations and data structures
+ * These schemas validate data that's commonly parsed from JSON files or database operations
+ */
+import { z } from "zod";
+import { taskStatusSchema } from "./tasks";
+
+/**
+ * Schema for task state stored in JSON files
+ */
+export const taskStateSchema = z.object({
+  tasks: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      status: taskStatusSchema,
+      description: z.string().optional(),
+    })
+  ),
+  lastUpdated: z.string(),
+  metadata: z.object({
+    storageLocation: z.string(),
+    backendType: z.string(),
+    workspacePath: z.string(),
+  }),
+});
+
+/**
+ * Schema for database read operation results
+ */
+export const databaseReadResultSchema = z.object({
+  success: z.boolean(),
+  data: z.any().optional(),
+  error: z.instanceof(Error).optional(),
+});
+
+/**
+ * Schema for database write operation results
+ */
+export const databaseWriteResultSchema = z.object({
+  success: z.boolean(),
+  error: z.instanceof(Error).optional(),
+  bytesWritten: z.number().optional(),
+});
+
+/**
+ * Schema for task read operation results
+ */
+export const taskReadOperationResultSchema = z.object({
+  success: z.boolean(),
+  content: z.string().optional(),
+  error: z.instanceof(Error).optional(),
+  filePath: z.string(),
+});
+
+/**
+ * Schema for task write operation results
+ */
+export const taskWriteOperationResultSchema = z.object({
+  success: z.boolean(),
+  error: z.instanceof(Error).optional(),
+  bytesWritten: z.number().optional(),
+  filePath: z.string(),
+});
+
+/**
+ * Schema for GitHub issue label data.
+ *
+ * The GitHub REST API can return labels in two shapes depending on the endpoint:
+ * - as plain strings (e.g. from certain search responses)
+ * - as objects where `name` and `color` are typed optional/nullable in Octokit's
+ *   type definitions (`name?: string`, `color?: string | null`).
+ *
+ * Strict `z.string()` for both fields caused the entire batch to fail validation
+ * when any label had `color: null`, making ALL tasks appear as "not found" (mt#2572).
+ */
+const githubIssueLabelSchema = z.union([
+  z.string(),
+  z
+    .object({
+      name: z.string().optional(),
+      color: z.string().nullable().optional(),
+    })
+    .passthrough(),
+]);
+
+/**
+ * Schema for GitHub issue data
+ */
+export const githubIssueSchema = z.object({
+  id: z.number(),
+  number: z.number(),
+  title: z.string(),
+  body: z.string().nullable(),
+  state: z.enum(["open", "closed"]),
+  labels: z.array(githubIssueLabelSchema),
+  created_at: z.string(),
+  updated_at: z.string(),
+  assignees: z.array(
+    z.object({
+      login: z.string(),
+    })
+  ),
+});
+
+// Export type definitions
+export type TaskState = z.infer<typeof taskStateSchema>;
+export type DatabaseReadResult<T = unknown> = z.infer<typeof databaseReadResultSchema> & {
+  data?: T;
+};
+export type DatabaseWriteResult = z.infer<typeof databaseWriteResultSchema>;
+export type TaskReadOperationResult = z.infer<typeof taskReadOperationResultSchema>;
+export type TaskWriteOperationResult = z.infer<typeof taskWriteOperationResultSchema>;
+export type GitHubIssue = z.infer<typeof githubIssueSchema>;
+
+// Validation functions
+export function validateTaskState(data: unknown): TaskState {
+  return taskStateSchema.parse(data);
+}
+
+export function validateDatabaseReadResult<T = unknown>(data: unknown): DatabaseReadResult<T> {
+  return databaseReadResultSchema.parse(data) as DatabaseReadResult<T>;
+}
+
+export function validateDatabaseWriteResult(data: unknown): DatabaseWriteResult {
+  return databaseWriteResultSchema.parse(data);
+}
+
+export function validateTaskReadOperationResult(data: unknown): TaskReadOperationResult {
+  return taskReadOperationResultSchema.parse(data);
+}
+
+export function validateTaskWriteOperationResult(data: unknown): TaskWriteOperationResult {
+  return taskWriteOperationResultSchema.parse(data);
+}
+
+export function validateGitHubIssue(data: unknown): GitHubIssue {
+  return githubIssueSchema.parse(data);
+}
+
+export function validateGitHubIssues(data: unknown): GitHubIssue[] {
+  return z.array(githubIssueSchema).parse(data);
+}

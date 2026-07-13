@@ -1,0 +1,110 @@
+import { describe, it, expect } from "bun:test";
+import { getNextTaskId } from "../tasks/taskFunctions";
+import { TaskData } from "../../../../src/types/tasks/taskData";
+import { TaskStatus } from "../tasks/taskConstants";
+import { log } from "@minsky/shared/logger";
+
+// Constants to avoid repetition
+const TEST_CONSTANTS = {
+  TASK_IDS: {
+    EXISTING_HIGH: "md#371",
+    EXPECTED_NEXT: "372", // getNextTaskId returns plain format
+    BUGGY_SEQUENCE: "2", // tasks.length + 1 gives wrong sequence
+  },
+} as const;
+
+describe("Task ID Generation Bug Reproduction", () => {
+  it("should demonstrate correct ID generation with getNextTaskId function", () => {
+    // Setup: Mock task data with existing high-numbered task (md#371)
+    const existingTasks: TaskData[] = [
+      {
+        id: TEST_CONSTANTS.TASK_IDS.EXISTING_HIGH,
+        title: "Existing high numbered task",
+        spec: "This simulates existing task md#371",
+        status: TaskStatus.TODO,
+      },
+    ];
+
+    // Call the CORRECT function that should be used
+    const nextId = getNextTaskId(existingTasks);
+
+    log.debug(`getNextTaskId result: ${nextId}`);
+    log.debug(`Expected next ID: ${TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT}`);
+
+    // This should PASS - getNextTaskId works correctly
+    expect(nextId).toBe(TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
+  });
+
+  it("should demonstrate the naive length+1 approach produces wrong IDs", () => {
+    // Setup: Same mock task data
+    const existingTasks: TaskData[] = [
+      {
+        id: TEST_CONSTANTS.TASK_IDS.EXISTING_HIGH,
+        title: "Existing high numbered task",
+        spec: "This simulates existing task md#371",
+        status: TaskStatus.TODO,
+      },
+    ];
+
+    // WRONG approach (naive implementation using length):
+    // const nextIdNumber = tasks.length + 1;
+    // taskId = String(nextIdNumber);
+
+    const buggyNextId = String(existingTasks.length + 1);
+
+    log.debug(`Buggy approach (tasks.length + 1): ${buggyNextId}`);
+    log.debug(`Should be: ${TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT}`);
+
+    // The naive approach produces sequence-based IDs, not max-based IDs
+    expect(buggyNextId).toBe(TEST_CONSTANTS.TASK_IDS.BUGGY_SEQUENCE); // Shows the wrong behavior
+    expect(buggyNextId).not.toBe(TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT); // Shows it's wrong
+  });
+
+  it("should show the difference between correct and buggy approaches", () => {
+    // Multiple tasks with gaps to make the bug more obvious
+    const tasksWithGaps: TaskData[] = [
+      { id: "md#50", title: "Task 50", spec: "", status: TaskStatus.TODO },
+      { id: "md#100", title: "Task 100", spec: "", status: TaskStatus.TODO },
+      { id: "md#371", title: "Task 371", spec: "", status: TaskStatus.TODO },
+    ];
+
+    const correctNext = getNextTaskId(tasksWithGaps);
+    const buggyNext = String(tasksWithGaps.length + 1);
+
+    log.debug(`Correct approach (max ID + 1): ${correctNext}`);
+    log.debug(`Buggy approach (array.length + 1): ${buggyNext}`);
+
+    // Correct approach: finds max ID (371) + 1 = 372
+    expect(correctNext).toBe("372");
+
+    // Buggy approach: uses array length (3) + 1 = 4
+    expect(buggyNext).toBe("4");
+
+    // Show they're different
+    expect(correctNext).not.toBe(buggyNext);
+  });
+
+  it("should show that getNextTaskId handles qualified IDs correctly", () => {
+    // Mix of qualified and unqualified IDs (real-world scenario)
+    const mixedTasks: TaskData[] = [
+      { id: "md#300", title: "Task 300", spec: "", status: TaskStatus.TODO },
+      {
+        id: "gh#45",
+        title: "GitHub Task 45",
+        spec: "",
+        status: TaskStatus.TODO,
+      },
+      {
+        id: "md#371",
+        title: "Qualified Task 371",
+        spec: "",
+        status: TaskStatus.TODO,
+      },
+    ];
+
+    const nextId = getNextTaskId(mixedTasks);
+
+    // Should find the highest numeric value (371) and return 372
+    expect(nextId).toBe("372");
+  });
+});

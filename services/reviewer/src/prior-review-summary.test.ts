@@ -104,12 +104,18 @@ describe("summarizePriorReviews", () => {
     // Create many reviews with large bodies so the total exceeds 30000 chars.
     // MAX_SUMMARY_CHARS was raised from 3000 to 30000 (mt#1465 substrate raise);
     // use a body of ~4000 chars per iteration so 10 iterations ≈ 40000+ chars total.
+    // mt#2211: stale iterations now render as compact structured location+severity
+    // entries (not verbatim), so they no longer drive truncation. Use all
+    // current-HEAD (non-stale) reviews so the verbatim-render path is exercised.
     const bigBody = `**[BLOCKING]** src/foo.ts:1 — ${"x".repeat(4000)}`;
     const reviews: PriorReview[] = Array.from({ length: 10 }, (_, i) =>
       makeReview({
         id: i + 1,
         submittedAt: `2026-04-${String(i + 1).padStart(2, "0")}T10:00:00Z`,
-        commitId: i === 9 ? HEAD_SHA : OLD_SHA,
+        // mt#2211: stale iterations now render compact structured entries (not
+        // verbatim), so they no longer drive truncation. Use all current-HEAD
+        // (non-stale) reviews so the verbatim-render path is exercised.
+        commitId: HEAD_SHA,
         body: bigBody,
       })
     );
@@ -138,6 +144,77 @@ describe("summarizePriorReviews", () => {
     const result = summarizePriorReviews([review], HEAD_SHA);
 
     expect(result.markdown).not.toContain("stale");
+  });
+});
+
+// ─── mt#2211: stale-finding structured rendering (self-anchoring fix) ─────────
+//
+// Stale prior-review findings render as structured `severity · file:line`
+// entries instead of the verbatim body, so the model cannot copy a stale
+// finding's verbatim prose / code example forward across rounds. Data-layer fix
+// for the PR #1447 persistent-false-positive incident (the model re-quoted a
+// stale escaped-quote example for three rounds against a clean current diff).
+describe("mt#2211: stale iterations render structured location+severity, not verbatim", () => {
+  // Extracted to a single constant so the header literal isn't duplicated
+  // across tests (custom/no-magic-string-duplication, minOccurrences=3).
+  const CW_FINDINGS_HEADER =
+    "**Independent adversarial review (Chinese-wall)**\n\n### Findings\n\n";
+
+  test("stale finding renders file:line + severity WITHOUT the verbatim body text", () => {
+    const review = makeReview({
+      commitId: OLD_SHA,
+      body: `${
+        CW_FINDINGS_HEADER
+      }- **[BLOCKING]** src/foo.ts:42 — SENTINEL_VERBATIM_DETAIL that must not carry forward`,
+    });
+    const result = summarizePriorReviews([review], HEAD_SHA);
+    // Structured location + severity preserved (convergence signal intact)
+    expect(result.markdown).toContain("src/foo.ts:42");
+    expect(result.markdown).toContain("[BLOCKING]");
+    // Verbatim finding prose elided — the carry-forward hazard is gone
+    expect(result.markdown).not.toContain("SENTINEL_VERBATIM_DETAIL");
+    // The re-verify directive is present
+    expect(result.markdown).toContain("Re-verify each against the CURRENT diff");
+  });
+
+  test("PR #1447 regression: a stale escaped-quote example is NOT carried forward", () => {
+    // The exact mechanism of the mt#2211 incident: R1 flagged escaped quotes
+    // with a verbatim code example; the model re-quoted it across rounds against
+    // a clean diff. Structured rendering removes the copyable example while
+    // keeping the file:line so convergence still works.
+    const review = makeReview({
+      commitId: OLD_SHA,
+      body: `${
+        CW_FINDINGS_HEADER
+      }- **[BLOCKING]** .claude/skills/marketing-site-design/SKILL.md:229 — Escaped double-quotes: \`ask \\"what could we do\\"\``,
+    });
+    const result = summarizePriorReviews([review], HEAD_SHA);
+    expect(result.markdown).toContain(".claude/skills/marketing-site-design/SKILL.md:229");
+    // The literal escaped-quote example must NOT appear — that is what the
+    // model was copying forward across rounds.
+    expect(result.markdown).not.toContain('\\"what could we do');
+  });
+
+  test("non-stale finding STILL renders the verbatim body (unchanged behavior)", () => {
+    const review = makeReview({
+      commitId: HEAD_SHA,
+      body: `${
+        CW_FINDINGS_HEADER
+      }- **[BLOCKING]** src/foo.ts:42 — VERBATIM_CURRENT_DETAIL describing current code`,
+    });
+    const result = summarizePriorReviews([review], HEAD_SHA);
+    // Current-HEAD review still shows verbatim detail — it describes current content.
+    expect(result.markdown).toContain("VERBATIM_CURRENT_DETAIL");
+  });
+
+  test("stale review with no parseable findings → elided with note, no verbatim carry-forward", () => {
+    const review = makeReview({
+      commitId: OLD_SHA,
+      body: "**Independent adversarial review (Chinese-wall)** — NO_PARSEABLE_FINDING markers here",
+    });
+    const result = summarizePriorReviews([review], HEAD_SHA);
+    expect(result.markdown).not.toContain("NO_PARSEABLE_FINDING");
+    expect(result.markdown).toContain("Re-verify each against the CURRENT diff");
   });
 });
 

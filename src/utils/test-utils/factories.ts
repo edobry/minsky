@@ -3,7 +3,7 @@
  * This module provides functions to create test data for various domain entities
  */
 import type { TaskData } from "../../types/tasks/taskData";
-import { TaskStatus } from "../../domain/tasks/taskConstants";
+import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 /**
  * Creates a test task with specified overrides
  * @param overrides Optional properties to override defaults

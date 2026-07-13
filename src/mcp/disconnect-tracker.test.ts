@@ -1,21 +1,40 @@
 /**
- * DisconnectTracker unit tests (mt#1645)
+ * DisconnectTracker unit tests (mt#1645 + mt#1682 + mt#1705)
  *
  * Verifies:
- * - recordDisconnect / recordReconnect / recordTransportError emit correctly shaped events
- * - getSummary() computes count24h, byServer, byKind, escalation correctly
- * - Escalation thresholds fire at the right counts (>1 session, >3 daily)
- * - Persistence round-trips are skipped when persistPath is empty (in-memory test mode)
+ * - record* methods emit correctly shaped events (including uptimeMs)
+ * - getSummary() computes count24h, byServer, byKind, byCause, byRole, escalation correctly
+ * - Escalation filter excludes server-initiated causes, short-lived probes, and helper sessions
+ * - Process-role classification: 0 tool calls → "helper", 1+ calls → "main_session"
+ * - Helper sessions are excluded from escalation regardless of uptime (mt#1705)
+ * - Legacy events without processRole are counted in the explicit "legacy"
+ *   bucket of byRole; the escalation predicate still treats them as eligible
+ *   (conservative). mt#1705 R1: this surfaces migration progress to operators.
+ * - Append-only JSONL persistence — events durably hit disk before return
+ * - Format migration — legacy single-array JSON is loadable
+ * - Process-lifecycle markers (process_start) are recorded with PID
+ *
+ * The persistence-roundtrip and persist-race suites intentionally use real
+ * filesystem operations because they test the persistence layer's actual
+ * on-disk behavior. An in-memory mock of `fs` would not catch the persist-
+ * race-with-process-death bug that motivated the append-only switch
+ * (mt#1682). The custom/no-real-fs-in-tests rule is disabled file-wide for
+ * this reason.
  */
+/* eslint-disable custom/no-real-fs-in-tests */
 
-import { describe, test, expect, beforeEach } from "bun:test";
-import { DisconnectTracker, type McpDisconnectEvent } from "./disconnect-tracker";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {
+  DisconnectTracker,
+  STDIO_SESSION_KEY,
+  type McpDisconnectEvent,
+} from "./disconnect-tracker";
 
-/** Shared test description string to avoid lint warnings about duplicated magic strings. */
 const SHAPE_TEST_LABEL = "emits event with correct shape";
 
-/** Helper: return a copy of the event with its timestamp shifted `msAgo` ms into the past.
- * Used to simulate events that fell outside the 24h window. */
 function shiftEventTimestamp(event: McpDisconnectEvent, msAgo: number): McpDisconnectEvent {
   const pastMs = new Date(event.timestamp).getTime() - msAgo;
   return {
@@ -24,16 +43,18 @@ function shiftEventTimestamp(event: McpDisconnectEvent, msAgo: number): McpDisco
   };
 }
 
-// Force-replace internal events array on the tracker for age-simulation tests.
 function setTrackerEvents(tracker: DisconnectTracker, events: McpDisconnectEvent[]): void {
   (tracker as unknown as { events: McpDisconnectEvent[] }).events = [...events];
+}
+
+function makeTempPath(name: string): string {
+  return path.join(os.tmpdir(), `disconnect-tracker-test-${process.pid}-${Date.now()}-${name}`);
 }
 
 describe("DisconnectTracker", () => {
   let tracker: DisconnectTracker;
 
   beforeEach(() => {
-    // In-memory mode: persistPath="" disables file I/O so tests don't touch the filesystem.
     tracker = DisconnectTracker.resetForTest("test-server", "");
   });
 
@@ -51,6 +72,7 @@ describe("DisconnectTracker", () => {
       expect(event.kind).toBe("disconnect");
       expect(event.cause).toBe("stdin_close");
       expect(event.error).toBeUndefined();
+      expect(typeof event.uptimeMs).toBe("number");
 
       const ts = new Date(event.timestamp);
       expect(ts >= before).toBe(true);
@@ -62,39 +84,87 @@ describe("DisconnectTracker", () => {
       expect(event.error).toBe("EPIPE broken pipe");
     });
 
-    test("increments session disconnect count", () => {
+    test("uptimeMs reflects time since process start", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - 10_000);
+      const event = tracker.recordDisconnect("stdin_close");
+      expect(event.uptimeMs).toBeGreaterThanOrEqual(10_000);
+      expect(event.uptimeMs).toBeLessThan(11_000);
+    });
+
+    test("increments total session disconnect count", () => {
       expect(tracker.getSessionDisconnectCount()).toBe(0);
       tracker.recordDisconnect("stdin_close");
       expect(tracker.getSessionDisconnectCount()).toBe(1);
       tracker.recordDisconnect("unknown");
       expect(tracker.getSessionDisconnectCount()).toBe(2);
     });
+
+    test("only escalation-eligible disconnects increment the eligible counter", () => {
+      // Backdate start so any disconnect we record has uptimeMs > threshold.
+      tracker.setProcessStartTimeForTest(Date.now() - 60_000);
+
+      // server-initiated causes — never eligible
+      tracker.recordDisconnect("staleness_exit");
+      tracker.recordDisconnect("signal_sigterm");
+      tracker.recordDisconnect("server_close");
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
+
+      // Harness-side cause with adequate uptime AND at least one tool call
+      // (so processRole becomes "main_session") — eligible
+      tracker.incrementToolCallCount();
+      tracker.recordDisconnect("stdin_close");
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(1);
+    });
+
+    test("short-lived disconnects are not eligible even for harness causes", () => {
+      // Don't backdate — uptime will be ~0ms, well below threshold.
+      tracker.recordDisconnect("stdin_close");
+      tracker.recordDisconnect("unknown");
+      expect(tracker.getSessionDisconnectCount()).toBe(2);
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
+    });
   });
 
   describe("recordReconnect", () => {
     test(SHAPE_TEST_LABEL, () => {
       const event = tracker.recordReconnect();
-
       expect(event.serverName).toBe("test-server");
       expect(event.kind).toBe("reconnect");
       expect(event.cause).toBe("unknown");
       expect(event.error).toBeUndefined();
     });
 
-    test("does not increment session disconnect count", () => {
+    test("does not increment session disconnect counts", () => {
       tracker.recordReconnect();
       expect(tracker.getSessionDisconnectCount()).toBe(0);
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
     });
   });
 
   describe("recordTransportError", () => {
     test(SHAPE_TEST_LABEL, () => {
       const event = tracker.recordTransportError("ECONNRESET");
-
       expect(event.serverName).toBe("test-server");
       expect(event.kind).toBe("transport_error");
       expect(event.cause).toBe("transport_error");
       expect(event.error).toBe("ECONNRESET");
+      expect(typeof event.uptimeMs).toBe("number");
+    });
+  });
+
+  describe("recordProcessStart", () => {
+    test("records a process_start event with pid", () => {
+      const event = tracker.recordProcessStart();
+      expect(event.kind).toBe("process_start");
+      expect(event.cause).toBe("process_start");
+      expect(event.serverName).toBe("test-server");
+      expect(event.pid).toBe(process.pid);
+    });
+
+    test("does not increment any disconnect counter", () => {
+      tracker.recordProcessStart();
+      expect(tracker.getSessionDisconnectCount()).toBe(0);
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
     });
   });
 
@@ -108,7 +178,13 @@ describe("DisconnectTracker", () => {
       expect(summary.count24h).toBe(0);
       expect(summary.reconnects24h).toBe(0);
       expect(summary.byServer).toEqual({});
-      expect(summary.byKind).toEqual({ disconnect: 0, reconnect: 0, transport_error: 0 });
+      expect(summary.byKind).toEqual({
+        process_start: 0,
+        disconnect: 0,
+        reconnect: 0,
+        transport_error: 0,
+      });
+      expect(summary.byCause).toEqual({});
       expect(summary.last).toBeNull();
       expect(summary.escalation).toBe("none");
     });
@@ -125,11 +201,10 @@ describe("DisconnectTracker", () => {
 
     test("excludes events older than 24h from count24h", () => {
       tracker.recordDisconnect("stdin_close");
-      // Manually backdate the first event beyond the 24h window
       const events = [...tracker.getEvents()];
       const firstEvent = events[0];
       if (!firstEvent) throw new Error("Expected at least one event in tracker");
-      const oldEvent = shiftEventTimestamp(firstEvent, 25 * 60 * 60 * 1000); // 25h ago
+      const oldEvent = shiftEventTimestamp(firstEvent, 25 * 60 * 60 * 1000);
       setTrackerEvents(tracker, [oldEvent]);
 
       const summary = tracker.getSummary();
@@ -139,21 +214,36 @@ describe("DisconnectTracker", () => {
     test("byServer groups all event kinds", () => {
       tracker.recordDisconnect("stdin_close");
       tracker.recordReconnect();
+      tracker.recordProcessStart();
 
       const summary = tracker.getSummary();
-      expect(summary.byServer["test-server"]).toBe(2);
+      expect(summary.byServer["test-server"]).toBe(3);
     });
 
-    test("byKind counts each kind separately", () => {
+    test("byKind counts each kind separately, including process_start", () => {
+      tracker.recordProcessStart();
       tracker.recordDisconnect("stdin_close");
       tracker.recordDisconnect("unknown");
       tracker.recordReconnect();
       tracker.recordTransportError("err");
 
       const summary = tracker.getSummary();
+      expect(summary.byKind.process_start).toBe(1);
       expect(summary.byKind.disconnect).toBe(2);
       expect(summary.byKind.reconnect).toBe(1);
       expect(summary.byKind.transport_error).toBe(1);
+    });
+
+    test("byCause distribution surfaces the cause mix", () => {
+      tracker.recordDisconnect("stdin_close");
+      tracker.recordDisconnect("staleness_exit");
+      tracker.recordDisconnect("signal_sigterm");
+      tracker.recordDisconnect("stdin_close");
+
+      const summary = tracker.getSummary();
+      expect(summary.byCause.stdin_close).toBe(2);
+      expect(summary.byCause.staleness_exit).toBe(1);
+      expect(summary.byCause.signal_sigterm).toBe(1);
     });
 
     test("last reflects the most recently recorded event", () => {
@@ -169,57 +259,213 @@ describe("DisconnectTracker", () => {
     });
 
     // -----------------------------------------------------------------------
-    // Escalation thresholds
+    // Escalation thresholds — new semantics (mt#1682)
     // -----------------------------------------------------------------------
 
-    test("escalation is 'none' at exactly 1 session disconnect", () => {
-      tracker.recordDisconnect("stdin_close");
-      // sessionDisconnects = 1; threshold is > 1, so still "none"
+    test("escalation is 'none' when only short-lived disconnects accumulate", () => {
+      // Five short-lived (uptime ~0) stdin_close — none eligible — no escalation
+      for (let i = 0; i < 5; i++) tracker.recordDisconnect("stdin_close");
       const summary = tracker.getSummary();
+      expect(summary.count24h).toBe(5);
       expect(summary.escalation).toBe("none");
     });
 
-    test("escalation is 'session' at 2 session disconnects", () => {
+    test("escalation is 'none' when only server-initiated disconnects accumulate", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - 60_000); // long-lived process
+      tracker.recordDisconnect("staleness_exit");
+      tracker.recordDisconnect("signal_sigterm");
+      tracker.recordDisconnect("server_close");
+      tracker.recordDisconnect("idle_timeout");
+      tracker.recordDisconnect("staleness_exit");
+      const summary = tracker.getSummary();
+      expect(summary.count24h).toBe(5);
+      expect(summary.escalation).toBe("none");
+    });
+
+    test("escalation is 'session' at 2 eligible session disconnects", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - 60_000);
+      // Simulate a main session (1+ tool calls) so both disconnects are eligible
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("stdin_close");
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("unknown");
-      // sessionDisconnects = 2; > 1 threshold exceeded
       const summary = tracker.getSummary();
       expect(summary.escalation).toBe("session");
     });
 
-    test("escalation is 'none' at exactly 3 disconnects in 24h", () => {
+    test("escalation is 'daily' at 4 eligible disconnects in 24h", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - 60_000);
+      // Simulate four main sessions (each with 1+ tool calls). Per the per-
+      // session counter introduced in mt#1705 R1, the counter is evicted after
+      // each recordDisconnect — so each "session" needs its own increment.
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("stdin_close");
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("unknown");
-      tracker.recordDisconnect("signal");
-      // count24h = 3; daily threshold is > 3, so still "none" (session threshold > 1 fires first)
-      // Reset session count to isolate daily-only check
-      tracker.setSessionDisconnectCountForTest(1);
-      const summary = tracker.getSummary();
-      expect(summary.count24h).toBe(3);
-      expect(summary.escalation).toBe("none");
-    });
-
-    test("escalation is 'daily' at 4 disconnects in 24h (when session count is not high)", () => {
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("stdin_close");
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("unknown");
-      tracker.recordDisconnect("signal");
-      tracker.recordDisconnect("server_close");
-      // count24h = 4; > 3 threshold exceeded
-      // Reset session count to isolate daily-only threshold
-      tracker.setSessionDisconnectCountForTest(1);
+      // Reset session count so we isolate the daily branch
+      tracker.setSessionDisconnectCountForTest(1, 1);
       const summary = tracker.getSummary();
       expect(summary.count24h).toBe(4);
       expect(summary.escalation).toBe("daily");
     });
 
+    test("uptime filtering: only disconnects with uptime >= 5s count toward escalation", () => {
+      // Record 5 disconnects at increasing uptimes by manipulating processStartTime.
+      // Per the per-session counter (mt#1705 R1), each disconnect evicts its
+      // sessionKey entry — so increment before EACH recordDisconnect to make
+      // all five disconnects classify as "main_session". Only the uptime filter
+      // then discriminates.
+      const now = Date.now();
+      const uptimes = [100, 200, 300, 6_000, 7_000];
+      for (const u of uptimes) {
+        tracker.setProcessStartTimeForTest(now - u);
+        tracker.incrementToolCallCount();
+        tracker.recordDisconnect("stdin_close");
+      }
+      // count24h is total — all 5
+      const summary = tracker.getSummary();
+      expect(summary.count24h).toBe(5);
+      // eligible — only the 6000ms and 7000ms ones
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(2);
+      // 2 eligible > session-threshold (1), so escalation fires "session"
+      expect(summary.escalation).toBe("session");
+    });
+
     test("'daily' takes precedence over 'session' when both thresholds exceeded", () => {
-      // 4 disconnects in 24h + session count > 1
+      tracker.setProcessStartTimeForTest(Date.now() - 60_000);
+      // Simulate four main sessions (per-session counter evicted on each disconnect)
       for (let i = 0; i < 4; i++) {
+        tracker.incrementToolCallCount();
         tracker.recordDisconnect("stdin_close");
       }
       const summary = tracker.getSummary();
-      // daily threshold (>3) checked first → "daily"
       expect(summary.escalation).toBe("daily");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Process-role classification (mt#1705)
+  // -------------------------------------------------------------------------
+
+  describe("processRole classification", () => {
+    test("disconnect event has processRole 'helper' when no tool calls recorded", () => {
+      // No incrementToolCallCount() — toolCallCount stays 0
+      const event = tracker.recordDisconnect("stdin_close");
+      expect(event.processRole).toBe("helper");
+    });
+
+    test("disconnect event has processRole 'main_session' after one or more tool calls", () => {
+      tracker.incrementToolCallCount();
+      const event = tracker.recordDisconnect("stdin_close");
+      expect(event.processRole).toBe("main_session");
+    });
+
+    test("processRole is 'main_session' even after many tool calls", () => {
+      for (let i = 0; i < 20; i++) tracker.incrementToolCallCount();
+      const event = tracker.recordDisconnect("stdin_close");
+      expect(event.processRole).toBe("main_session");
+    });
+
+    test("getToolCallCount returns current count", () => {
+      expect(tracker.getToolCallCount()).toBe(0);
+      tracker.incrementToolCallCount();
+      expect(tracker.getToolCallCount()).toBe(1);
+      tracker.incrementToolCallCount();
+      expect(tracker.getToolCallCount()).toBe(2);
+    });
+
+    test("helper session is not escalation-eligible even with long uptime", () => {
+      // Long uptime but no tool calls → helper → not eligible
+      tracker.setProcessStartTimeForTest(Date.now() - 300_000); // 5 min
+      const event = tracker.recordDisconnect("stdin_close");
+      expect(event.processRole).toBe("helper");
+      expect(tracker.getEligibleSessionDisconnectCount()).toBe(0);
+    });
+
+    test("helper session does not escalate even at 4+ disconnects in 24h", () => {
+      tracker.setProcessStartTimeForTest(Date.now() - 300_000);
+      // 4 disconnects, none with tool calls → all "helper" → no escalation
+      for (let i = 0; i < 4; i++) tracker.recordDisconnect("stdin_close");
+      const summary = tracker.getSummary();
+      expect(summary.count24h).toBe(4);
+      expect(summary.escalation).toBe("none");
+    });
+
+    test("legacy events without processRole are counted in byRole.legacy bucket", () => {
+      // Inject a legacy event (no processRole) with long uptime and eligible cause.
+      // mt#1705 R1: legacy events get an explicit `legacy` bucket in byRole (not
+      // folded into main_session) so operators can see migration progress —
+      // the legacy count should shrink toward 0 as new-format events saturate.
+      // The escalation predicate still treats legacy events as eligible
+      // (conservative); only the aggregate breakdown changes.
+      const legacyEvent: McpDisconnectEvent = {
+        timestamp: new Date().toISOString(),
+        serverName: "test-server",
+        kind: "disconnect",
+        cause: "stdin_close",
+        uptimeMs: 60_000,
+        // No processRole field — simulates a pre-mt#1705 log entry
+      };
+      (tracker as unknown as { events: McpDisconnectEvent[] }).events.push(legacyEvent);
+
+      const summary = tracker.getSummary();
+      expect(summary.byRole["legacy"]).toBeGreaterThanOrEqual(1);
+      expect(summary.byRole["main_session"]).toBe(0);
+      expect(summary.byRole["helper"]).toBe(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // byRole aggregate (mt#1705)
+  // -------------------------------------------------------------------------
+
+  describe("getSummary byRole", () => {
+    test("byRole starts at zero for all roles", () => {
+      const summary = tracker.getSummary();
+      expect(summary.byRole).toEqual({ helper: 0, main_session: 0, legacy: 0 });
+    });
+
+    test("byRole counts helpers and main_sessions separately", () => {
+      // Two helper disconnects (no tool calls before each reset is not possible,
+      // but processRole is locked once per tracker. Use setTrackerEvents instead.)
+      const helperEvent: McpDisconnectEvent = {
+        timestamp: new Date().toISOString(),
+        serverName: "test-server",
+        kind: "disconnect",
+        cause: "stdin_close",
+        uptimeMs: 60_000,
+        processRole: "helper",
+      };
+      const mainEvent: McpDisconnectEvent = {
+        timestamp: new Date().toISOString(),
+        serverName: "test-server",
+        kind: "disconnect",
+        cause: "stdin_close",
+        uptimeMs: 60_000,
+        processRole: "main_session",
+      };
+      const roleTestTracker = tracker as unknown as { events: McpDisconnectEvent[] };
+      roleTestTracker.events.push(helperEvent, helperEvent, mainEvent);
+
+      const summary = tracker.getSummary();
+      expect(summary.byRole["helper"]).toBe(2);
+      expect(summary.byRole["main_session"]).toBe(1);
+    });
+
+    test("byRole only counts disconnect events, not reconnects or process_start", () => {
+      tracker.recordReconnect();
+      tracker.recordProcessStart();
+      // One helper disconnect
+      tracker.recordDisconnect("stdin_close");
+
+      const summary = tracker.getSummary();
+      // byRole should only reflect the disconnect event
+      expect(summary.byRole["helper"]).toBe(1);
+      expect(summary.byRole["main_session"]).toBe(0);
     });
   });
 
@@ -228,10 +474,7 @@ describe("DisconnectTracker", () => {
   // -------------------------------------------------------------------------
 
   test("caps stored events at MAX_EVENTS (500)", () => {
-    // Record 510 events — only the last 500 should be retained
-    for (let i = 0; i < 510; i++) {
-      tracker.recordDisconnect("unknown");
-    }
+    for (let i = 0; i < 510; i++) tracker.recordDisconnect("unknown");
     expect(tracker.getEvents().length).toBeLessThanOrEqual(500);
   });
 
@@ -250,5 +493,513 @@ describe("DisconnectTracker", () => {
     const a = DisconnectTracker.getInstance("test-server");
     const b = DisconnectTracker.getInstance("test-server");
     expect(a).toBe(b);
+  });
+});
+
+// ===========================================================================
+// Persistence — append-only JSONL
+// ===========================================================================
+
+describe("DisconnectTracker persistence", () => {
+  let tmpPath: string;
+
+  beforeEach(() => {
+    tmpPath = makeTempPath("persist");
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+  });
+
+  test("appends one JSON line per event", () => {
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    t.recordProcessStart();
+    t.recordDisconnect("stdin_close");
+    t.recordReconnect();
+
+    const raw = fs.readFileSync(tmpPath, "utf-8") as string;
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    expect(lines.length).toBe(3);
+
+    for (const line of lines) {
+      // Each line must parse on its own — proves JSONL semantics, not a single array.
+      const obj = JSON.parse(line);
+      expect(typeof obj.kind).toBe("string");
+      expect(typeof obj.serverName).toBe("string");
+    }
+  });
+
+  test("loads JSONL events from disk on tracker construction", () => {
+    // Write a JSONL file directly, then load via tracker.
+    const events = [
+      {
+        timestamp: "2026-05-08T10:00:00.000Z",
+        serverName: "srv",
+        kind: "process_start",
+        cause: "process_start",
+        pid: 1234,
+      },
+      {
+        timestamp: "2026-05-08T10:00:01.000Z",
+        serverName: "srv",
+        kind: "disconnect",
+        cause: "stdin_close",
+        uptimeMs: 1000,
+      },
+      {
+        timestamp: "2026-05-08T10:00:02.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+    ];
+    fs.writeFileSync(tmpPath, `${events.map((e) => JSON.stringify(e)).join("\n")}\n`, "utf-8");
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    const loaded = t.getEvents();
+    expect(loaded.length).toBe(3);
+    expect(loaded[0]?.kind).toBe("process_start");
+    expect(loaded[1]?.cause).toBe("stdin_close");
+    expect(loaded[2]?.kind).toBe("reconnect");
+  });
+
+  test("loads legacy single-array JSON format (mt#1645 backward compat)", () => {
+    // Write a legacy log file as `JSON.stringify(events, null, 2)` — the format
+    // mt#1645 produced.
+    const events = [
+      {
+        timestamp: "2026-05-07T10:00:00.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+      {
+        timestamp: "2026-05-07T10:00:01.000Z",
+        serverName: "srv",
+        kind: "disconnect",
+        cause: "stdin_close",
+      },
+    ];
+    fs.writeFileSync(tmpPath, JSON.stringify(events, null, 2), "utf-8");
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    const loaded = t.getEvents();
+    expect(loaded.length).toBe(2);
+    expect(loaded[0]?.kind).toBe("reconnect");
+    expect(loaded[1]?.cause).toBe("stdin_close");
+  });
+
+  test("loads hybrid file: legacy array followed by appended JSONL lines", () => {
+    // After upgrading from mt#1645 to mt#1682, the next process append-writes
+    // JSONL after the legacy array. The loader must handle both halves.
+    const legacyEvents = [
+      {
+        timestamp: "2026-05-07T10:00:00.000Z",
+        serverName: "srv",
+        kind: "reconnect",
+        cause: "unknown",
+      },
+    ];
+    const newEvents = [
+      {
+        timestamp: "2026-05-08T10:00:00.000Z",
+        serverName: "srv",
+        kind: "process_start",
+        cause: "process_start",
+        pid: 5678,
+      },
+      {
+        timestamp: "2026-05-08T10:00:01.000Z",
+        serverName: "srv",
+        kind: "disconnect",
+        cause: "stdin_close",
+        uptimeMs: 1000,
+      },
+    ];
+    const content = `${JSON.stringify(legacyEvents, null, 2)}\n${newEvents.map((e) => JSON.stringify(e)).join("\n")}\n`;
+    fs.writeFileSync(tmpPath, content, "utf-8");
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    const loaded = t.getEvents();
+    expect(loaded.length).toBe(3);
+    expect(loaded[0]?.cause).toBe("unknown"); // from legacy
+    expect(loaded[1]?.kind).toBe("process_start"); // first JSONL line
+    expect(loaded[2]?.cause).toBe("stdin_close"); // second JSONL line
+  });
+
+  test("malformed JSONL lines are skipped without aborting the load", () => {
+    const goodLine = JSON.stringify({
+      timestamp: "2026-05-08T10:00:00.000Z",
+      serverName: "srv",
+      kind: "disconnect",
+      cause: "stdin_close",
+    });
+    const badLine = "{ not json";
+    fs.writeFileSync(tmpPath, `${goodLine}\n${badLine}\n${goodLine}\n`, "utf-8");
+
+    const t = DisconnectTracker.resetForTest("srv", tmpPath);
+    expect(t.getEvents().length).toBe(2);
+  });
+});
+
+// ===========================================================================
+// Persist-race: spawn child process, record event, exit immediately
+// ===========================================================================
+
+describe("DisconnectTracker persist-race", () => {
+  let tmpPath: string;
+
+  beforeEach(() => {
+    tmpPath = makeTempPath("race");
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+  });
+
+  test("event is durably on disk after immediate process.exit", async () => {
+    // Spawn a child that records a disconnect event, then synchronously
+    // calls process.exit(0). On the legacy `writeFileSync(JSON.stringify(events))`
+    // path, the write could race with stdio teardown if the process were
+    // actually killed during the call — for the append-only path the write
+    // returns before process.exit runs, so the event is durable.
+    const trackerPath = path.resolve(__dirname, "disconnect-tracker.ts");
+    const childScript = `
+      const { DisconnectTracker } = await import(${JSON.stringify(trackerPath)});
+      const t = new DisconnectTracker("race-server", ${JSON.stringify(tmpPath)});
+      t.recordDisconnect("stdin_close", "race test");
+      process.exit(0);
+    `;
+
+    const proc = Bun.spawn(["bun", "-e", childScript], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+
+    // Read the file — the child's recordDisconnect MUST have written before exit.
+    expect(fs.existsSync(tmpPath)).toBe(true);
+    const raw = fs.readFileSync(tmpPath, "utf-8") as string;
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const events = lines.map((l) => JSON.parse(l));
+    const disconnect = events.find((e) => e.kind === "disconnect");
+    expect(disconnect).toBeDefined();
+    expect(disconnect.cause).toBe("stdin_close");
+    expect(disconnect.error).toBe("race test");
+  });
+});
+
+// ===========================================================================
+// Empirical log replay (mt#1705)
+//
+// Verifies that the fixture representing the observed helper-session burst
+// pattern (5 stdin_close disconnects with uptimes 33s–300s, all with 0 tool
+// calls) does NOT trigger escalation under the new processRole filter.
+//
+// Under the OLD filter (uptime < 5s exclusion only), all 5 of these would
+// be escalation-eligible (uptimes all > 5s), triggering "daily" escalation
+// at threshold > 3. Under the NEW filter (processRole === "helper" excluded),
+// none are eligible — the fixture events lack processRole, so they are treated
+// as legacy "main_session" per the conservative default — BUT the fixture is
+// designed to be loaded by a fresh tracker that has no tool calls yet, so
+// events recorded in-process are classified as "helper".
+//
+// The fixture test covers the INGEST path (loading legacy events without
+// processRole); the in-process test covers the CLASSIFICATION path.
+// ===========================================================================
+
+describe("DisconnectTracker empirical replay (mt#1705)", () => {
+  const fixturePath = path.resolve(
+    __dirname,
+    "../../tests/fixtures/mcp-disconnect-logs/helper-session-burst.jsonl"
+  );
+
+  /**
+   * Rewrite the on-disk fixture's hardcoded calendar timestamps into ones
+   * relative to `Date.now()` so the events fall inside the tracker's 24h
+   * window regardless of when the test runs. mt#1705 R1 Finding 2.
+   *
+   * Strategy: preserve the fixture's internal RELATIVE timing (events span
+   * ~13 minutes from earliest to latest) but anchor the latest event to
+   * "1 minute ago." Writes to a temp file and returns its path. The original
+   * fixture is left untouched so it remains a stable record of the empirical
+   * observation.
+   */
+  function rebaseFixtureTimestamps(): string {
+    const raw = fs.readFileSync(fixturePath, "utf-8") as string;
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const events = lines.map((l) => JSON.parse(l) as { timestamp: string; [k: string]: unknown });
+    // Find the latest timestamp in the fixture; anchor it to "1 minute ago".
+    let latestMs = -Infinity;
+    for (const e of events) {
+      const t = new Date(e.timestamp).getTime();
+      if (t > latestMs) latestMs = t;
+    }
+    const anchorTargetMs = Date.now() - 60_000;
+    const shiftMs = anchorTargetMs - latestMs;
+    const rebased = events.map((e) => ({
+      ...e,
+      timestamp: new Date(new Date(e.timestamp).getTime() + shiftMs).toISOString(),
+    }));
+    const tmpPath = path.join(
+      os.tmpdir(),
+      `mcp-disconnect-fixture-${process.pid}-${Date.now()}.jsonl`
+    );
+    fs.writeFileSync(tmpPath, `${rebased.map((e) => JSON.stringify(e)).join("\n")}\n`, "utf-8");
+    return tmpPath;
+  }
+
+  test("fixture file exists and is loadable", () => {
+    expect(fs.existsSync(fixturePath)).toBe(true);
+    const rebased = rebaseFixtureTimestamps();
+    const t = DisconnectTracker.resetForTest("srv", rebased);
+    const events = t.getEvents();
+    // 10 lines: 5 process_start + 5 disconnect
+    expect(events.length).toBe(10);
+    const disconnects = events.filter((e) => e.kind === "disconnect");
+    expect(disconnects.length).toBe(5);
+    // All disconnects have uptimes in the 33s-300s range (empirical helper class)
+    for (const e of disconnects) {
+      expect(e.uptimeMs).toBeGreaterThan(5_000);
+      expect(e.uptimeMs).toBeLessThan(300_001);
+    }
+  });
+
+  test("legacy events from fixture are counted in the byRole.legacy bucket", () => {
+    // Fixture events were written without processRole (pre-mt#1705 format).
+    // mt#1705 R1 Finding 3: they go to an explicit `legacy` bucket so operators
+    // can see the migration progress (legacy count shrinks as new-format
+    // events saturate). isEscalationEligible still treats them conservatively
+    // as eligible — only the aggregate breakdown changes.
+    //
+    // mt#1705 R1 Finding 2: rebase fixture timestamps into the 24h window so
+    // the byRole aggregate (24h-windowed) sees the events deterministically
+    // regardless of when the test runs.
+    const rebased = rebaseFixtureTimestamps();
+    const t = DisconnectTracker.resetForTest("srv", rebased);
+    const summary = t.getSummary();
+    // 5 disconnects in the fixture, all with no processRole → legacy bucket.
+    expect(summary.byRole["legacy"]).toBe(5);
+    expect(summary.byRole["main_session"]).toBe(0);
+    expect(summary.byRole["helper"]).toBe(0);
+  });
+
+  test("in-process helper session burst does not trigger escalation", () => {
+    // Simulate the observed pattern: a fresh tracker (no tool calls) records
+    // 5 stdin_close disconnects with uptimes matching the fixture range.
+    // None should be escalation-eligible because processRole will be "helper".
+    const t = DisconnectTracker.resetForTest("srv", "");
+    // Do NOT call incrementToolCallCount() — this is a helper process.
+    const now = Date.now();
+    const uptimes = [33_000, 114_000, 137_000, 201_000, 197_000];
+    for (const u of uptimes) {
+      t.setProcessStartTimeForTest(now - u);
+      t.recordDisconnect("stdin_close");
+    }
+
+    expect(t.getEligibleSessionDisconnectCount()).toBe(0);
+    const summary = t.getSummary();
+    expect(summary.count24h).toBe(5);
+    expect(summary.escalation).toBe("none");
+    // All classified as "helper" in byRole
+    expect(summary.byRole["helper"]).toBe(5);
+    expect(summary.byRole["main_session"]).toBe(0);
+  });
+
+  test("processRole is correctly set on each disconnect event in-process", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    // 2 helper disconnects (no tool calls), then 2 main_session disconnects.
+    // mt#1705 R1: with per-session counter + eviction-on-disconnect, simulating
+    // a "main session" requires incrementing before each recordDisconnect — each
+    // recordDisconnect models a distinct session that has finished its work.
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    const helper1 = t.recordDisconnect("stdin_close");
+    const helper2 = t.recordDisconnect("stdin_close");
+
+    t.incrementToolCallCount();
+    const main1 = t.recordDisconnect("stdin_close");
+    t.incrementToolCallCount();
+    const main2 = t.recordDisconnect("stdin_close");
+
+    expect(helper1.processRole).toBe("helper");
+    expect(helper2.processRole).toBe("helper");
+    expect(main1.processRole).toBe("main_session");
+    expect(main2.processRole).toBe("main_session");
+  });
+
+  // -------------------------------------------------------------------------
+  // HTTP per-session classification (mt#1705 R1 Finding 1)
+  // -------------------------------------------------------------------------
+
+  test("two concurrent HTTP sessions classify independently by sessionKey", () => {
+    // Models HTTP mode where two per-session Servers coexist. Session A makes
+    // tool calls; session B does not. Both disconnect. Per-session counters
+    // mean A classifies as main_session and B classifies as helper — they do
+    // NOT cross-contaminate. This is the bug the R1 review caught: with a
+    // process-wide counter, A's tool calls would make B's disconnect classify
+    // as main_session, inflating escalation eligibility via HTTP.
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+
+    const sessionA = "http-session-aaaaaaaa";
+    const sessionB = "http-session-bbbbbbbb";
+
+    // Session A makes tool calls
+    t.incrementToolCallCount(sessionA);
+    t.incrementToolCallCount(sessionA);
+    t.incrementToolCallCount(sessionA);
+    expect(t.getToolCallCount(sessionA)).toBe(3);
+
+    // Session B makes no tool calls — never increments
+    expect(t.getToolCallCount(sessionB)).toBe(0);
+
+    // Both disconnect, in opposite order to ensure ordering is not load-bearing
+    const eventB = t.recordDisconnect("unknown", { sessionKey: sessionB });
+    const eventA = t.recordDisconnect("unknown", { sessionKey: sessionA });
+
+    expect(eventA.processRole).toBe("main_session");
+    expect(eventB.processRole).toBe("helper");
+
+    // Eviction: both sessionKeys removed from the map after recordDisconnect.
+    expect(t.getToolCallCount(sessionA)).toBe(0);
+    expect(t.getToolCallCount(sessionB)).toBe(0);
+  });
+
+  test("session disconnect does not affect another concurrent session's count", () => {
+    // Reinforces the per-session-isolation property: disconnecting session A
+    // (and thereby evicting A's counter) must not reset session B's counter.
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+
+    const sessionA = "http-session-aaaaaaaa";
+    const sessionB = "http-session-bbbbbbbb";
+
+    t.incrementToolCallCount(sessionA);
+    t.incrementToolCallCount(sessionB);
+    t.incrementToolCallCount(sessionB);
+
+    // A disconnects first — its entry is evicted, but B's count is preserved.
+    t.recordDisconnect("unknown", { sessionKey: sessionA });
+    expect(t.getToolCallCount(sessionA)).toBe(0);
+    expect(t.getToolCallCount(sessionB)).toBe(2);
+
+    // B disconnects later, still classified as main_session.
+    const eventB = t.recordDisconnect("unknown", { sessionKey: sessionB });
+    expect(eventB.processRole).toBe("main_session");
+  });
+
+  test("legacy two-arg recordDisconnect form (cause, errorMessage) still works", () => {
+    // Back-compat: callers that pass errorMessage as the second positional
+    // argument should still work. The legacy form maps to DEFAULT_SESSION_KEY.
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(); // defaults to DEFAULT_SESSION_KEY
+    const event = t.recordDisconnect("transport_error", "EPIPE");
+    expect(event.processRole).toBe("main_session");
+    expect(event.error).toBe("EPIPE");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1715: stdio counter eviction on clean-shutdown paths
+// ---------------------------------------------------------------------------
+
+describe("stdio counter eviction on clean-shutdown paths (mt#1715)", () => {
+  test("staleness_exit with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(3);
+
+    t.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+      errorMessage: "stale: loaded from abc, now at def",
+    });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("signal disconnect with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(2);
+
+    t.recordDisconnect("signal_sigterm", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("signal_sigint with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+
+    t.recordDisconnect("signal_sigint", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("signal_sighup with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+
+    t.recordDisconnect("signal_sighup", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("staleness_exit classifies as main_session when tool calls > 0", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+
+    const event = t.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+    });
+
+    expect(event.processRole).toBe("main_session");
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("HTTP per-session keys are unaffected by stdio clean-shutdown fix", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    const httpSessionA = "http-session-uuid-1";
+    const httpSessionB = "http-session-uuid-2";
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(httpSessionA);
+    t.incrementToolCallCount(httpSessionB);
+    t.incrementToolCallCount(httpSessionB);
+
+    t.recordDisconnect("staleness_exit", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+    expect(t.getToolCallCount(httpSessionA)).toBe(1);
+    expect(t.getToolCallCount(httpSessionB)).toBe(2);
+  });
+
+  test("isCleanShutdownInitiated prevents counter repopulation after eviction", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(1);
+
+    t.recordDisconnect("staleness_exit", { sessionKey: STDIO_SESSION_KEY });
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+    expect(t.isCleanShutdownInitiated()).toBe(true);
+
+    // Post-eviction increment should be gated by the caller checking
+    // isCleanShutdownInitiated() — the tracker itself doesn't block
+    // increments (server.ts gates the call). Verify the flag is set
+    // so the server-layer guard works.
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    // Without the server-layer guard, this would be 1 again.
+    // The tracker doesn't self-guard; the server does. But we verify
+    // the flag is set so the guard condition is observable.
+    expect(t.isCleanShutdownInitiated()).toBe(true);
   });
 });

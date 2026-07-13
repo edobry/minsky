@@ -1,0 +1,53 @@
+#!/usr/bin/env bun
+// UserPromptSubmit dispatcher entrypoint — ADR-028 D1, Phase 2a+2b
+// (mt#2652, mt#2687).
+//
+// The SOLE `.claude/settings.json` UserPromptSubmit entry for every guard
+// migrated onto the dispatcher framework, registered in `./registry.ts`:
+//   - Phase 2a (mt#2652): the six UserPromptSubmit guidance detectors
+//     (substrate-bypass, retrospective-trigger, pre-narration,
+//     causal-premise, code-mechanism-assertion, ask-routing-deferral).
+//   - Phase 2b (mt#2687): the remaining nine — auto-session-title,
+//     inject-current-time, inject-git-state, inject-prod-state,
+//     inject-dispatch-watchdog, memory-search, skill-staleness-detector,
+//     mcp-daemon-staleness-detector, calibration-review-cadence-detector.
+//     (The ADR text names only seven under-counting by two — one via the
+//     same off-by-one Phase 2a hit for `policy-coverage-detector`, one
+//     because `inject-dispatch-watchdog.ts` was added after the ADR was
+//     written; see `./registry.ts`'s Phase 2b comment for the full account.)
+// Reads stdin once, resolves shared context once (D6 — including the
+// mt#2637-safe transcript-candidate resolution the Phase 2a detectors need),
+// and runs every matched guard's pure function in process via
+// `runDispatcher` — see `./dispatcher.ts` for the core loop.
+//
+// Guard NOT migrated: `policy-coverage-detector` — despite being named as
+// one of the "seven detectors" in mt#2652's spec, ground-truth inspection of
+// `.claude/settings.json` found it registered on `PreToolUse`
+// (matcher `Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|...`),
+// not `UserPromptSubmit`. Recorded as a spec discrepancy; left untouched —
+// it is out of scope for the UserPromptSubmit dispatcher entirely.
+//
+// With Phase 2b landed, EVERY UserPromptSubmit hook now runs through this
+// one dispatcher process — the ADR's "14 spawns -> 1" target for this event.
+//
+// @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1
+// @see mt#2650 — the framework's tracking task (ADR-028 Phase 1, pilot)
+// @see mt#2652 — the Phase 2a family migration
+// @see mt#2687 — this Phase 2b family migration
+// @see .minsky/hooks/dispatcher.ts — the core dispatcher loop
+// @see .minsky/hooks/registry.ts — the declarative guard registry
+// @see .minsky/hooks/dispatch-pretooluse.ts — the PreToolUse sibling entrypoint
+
+import { runDispatcher } from "./dispatcher";
+
+if (import.meta.main) {
+  try {
+    await runDispatcher("UserPromptSubmit", { hookFilename: "dispatch-userpromptsubmit.ts" });
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write(
+      `[dispatch-userpromptsubmit] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    process.exit(0);
+  }
+}

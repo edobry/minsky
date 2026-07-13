@@ -6,15 +6,15 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-import { updateSessionImpl } from "../../../src/domain/session/session-update-operations";
-import { FakeGitService } from "../../../src/domain/git/fake-git-service";
+import { updateSessionImpl } from "@minsky/domain/session/session-update-operations";
+import { FakeGitService } from "@minsky/domain/git/fake-git-service";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import type { SessionTestData } from "./session-test-utilities";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
-import type { SessionRecord } from "../../../src/domain/session";
-import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
+import type { SessionRecord } from "@minsky/domain/session";
+import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
 
 describe("session update command", () => {
   let testData: SessionTestData;
@@ -76,7 +76,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBe("test-session");
+    expect(result.session.sessionId).toBe("test-session");
   });
 
   test("should handle session with missing directory", async () => {
@@ -114,7 +114,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBeTruthy();
+    expect(result.session.sessionId).toBeTruthy();
   });
 
   test("should handle repository URL detection", async () => {
@@ -160,7 +160,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBeTruthy();
+    expect(result.session.sessionId).toBeTruthy();
 
     // dirIsolation.cleanup(); // Not available in this test utility
   });
@@ -199,6 +199,6 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBeTruthy();
+    expect(result.session.sessionId).toBeTruthy();
   });
 });

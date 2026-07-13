@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { checkIfPrCanBeRefreshed, executeSessionPrCreate } from "./pr-create-command";
 import type { CommandExecutionContext } from "../../command-registry";
-import type { SessionProviderInterface } from "../../../../domain/session/session-db-adapter";
+import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SessionCommandDependencies } from "./types";
 
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {

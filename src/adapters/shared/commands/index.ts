@@ -5,15 +5,19 @@
  * This file serves as the central point for registering all shared commands.
  */
 
-import type { AppContainerInterface } from "../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerGitCommands } from "./git";
 import { registerRepoCommands } from "./repo";
-import { registerTasksCommands } from "./tasks";
+// Redirected from the deleted "./tasks" delegation shim (mt#2610 dead-code sweep) —
+// this was the shim's one real caller; `tasks-modular.ts` is the module the shim
+// delegated to.
+import { registerTasksCommands } from "./tasks-modular";
 import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerSetupCommands } from "./setup";
 import { registerSetupGithubAppCommand } from "./setup-github-app";
+import { registerSetupDbCommand } from "./setup-db";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -22,6 +26,7 @@ import { registerToolsCommands } from "./tools";
 import { registerAsksCommands } from "./asks";
 import { registerPrWatchCommands } from "./pr-watch";
 import { registerReviewerWatchCommands } from "./reviewer-watch";
+import { registerReviewerRetriggerCommands } from "./reviewer-retrigger";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
@@ -35,6 +40,13 @@ import { registerTranscriptCommands } from "./transcripts";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
+import { registerEpicDecompositionCommands } from "./epic-decomposition";
+import { registerDeploymentCommands } from "./deployment";
+import { registerObservabilityCommands } from "./observability";
+import { registerPrincipalCorpusCommands } from "./principal-corpus";
+import { registerForgeCommands } from "./forge";
+import { registerEventsCommands } from "./events";
+import { registerCalibrationCommands } from "./calibration";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -67,6 +79,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register `setup github-app` subcommand (mt#1087)
   registerSetupGithubAppCommand();
 
+  // Register `setup db` onboarding wizard (mt#2429)
+  registerSetupDbCommand();
+
   // Register config commands
   registerConfigCommands();
 
@@ -85,17 +100,24 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register asks commands (Ask subsystem — mt#1034 / ADR-008)
   registerAsksCommands(container);
 
+  // Register calibration commands (hook-calibration review sweep — mt#2483)
+  registerCalibrationCommands();
+
   // Register pr-watch commands (PR-state watcher — mt#1295)
   registerPrWatchCommands(container);
 
   // Register reviewer-watch commands (local missed-review alerter — mt#1310)
   registerReviewerWatchCommands();
 
+  // Register reviewer-retrigger command (comment-command retrigger — mt#2127)
+  registerReviewerRetriggerCommands();
+
   // Register changeset commands
   registerChangesetCommands();
 
-  // Register validate commands (lint and typecheck)
-  registerValidateCommands();
+  // Register validate commands (lint and typecheck) — pass the container so the
+  // `task`/`sessionId` params can resolve to a session workspace (mt#2336).
+  registerValidateCommands(container);
 
   // Register MCP commands
   registerMcpCommands();
@@ -130,6 +152,28 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register unasked-direction commands (Surface 4 weekly review — mt#1543)
   registerUnaskedDirectionCommands();
 
+  // Register epic-decomposition audit command (Shape C of attention-allocation
+  // noticer family — mt#1710)
+  registerEpicDecompositionCommands(container);
+
+  // Register deployment commands (platform-agnostic deploy observation — mt#1730)
+  registerDeploymentCommands();
+
+  // Register observability commands (Braintrust smoke-test etc. — mt#1795)
+  registerObservabilityCommands();
+
+  // Register principal-corpus commands (principal-scoped semantic search — mt#1930).
+  // No container arg — commands read persistence from ctx at execute time.
+  registerPrincipalCorpusCommands();
+
+  // Register forge commands (forge-agnostic CI / check-runs / branch-protection /
+  // labels — mt#1957). Side-effect imports happen at module load; the call here
+  // is a no-op but matches the convention used by every other group.
+  registerForgeCommands();
+
+  // Register events commands (system_events table — event log Phase 1a — mt#2092)
+  registerEventsCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -143,6 +187,7 @@ export {
   registerInitCommands,
   registerSetupCommands,
   registerSetupGithubAppCommand,
+  registerSetupDbCommand,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,
@@ -151,6 +196,8 @@ export {
   registerAsksCommands,
   registerPrWatchCommands,
   registerReviewerWatchCommands,
+  registerReviewerRetriggerCommands,
+  registerDeploymentCommands,
   registerChangesetCommands,
   registerValidateCommands,
   registerMcpCommands,
@@ -165,4 +212,9 @@ export {
   registerAttentionCommands,
   registerWindowCommands,
   registerUnaskedDirectionCommands,
+  registerEpicDecompositionCommands,
+  registerObservabilityCommands,
+  registerPrincipalCorpusCommands,
+  registerForgeCommands,
+  registerEventsCommands,
 };

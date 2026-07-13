@@ -28,7 +28,7 @@ import {
   ManifestFlowProvisioner,
   provisionGithubApp,
   type AppManifestSpec,
-} from "../src/domain/setup/github-app";
+} from "@minsky/domain/setup/github-app";
 
 interface ParsedArgs {
   name: string;

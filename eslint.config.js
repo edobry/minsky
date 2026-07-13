@@ -25,6 +25,9 @@ import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
 import requireInjectable from "./eslint-rules/require-injectable.js";
 import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
 import noUnsafeStringTruncation from "./eslint-rules/no-unsafe-string-truncation.js";
+import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
+import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-env-var.js";
+import noRawConsole from "./eslint-rules/no-raw-console.js";
 
 export default [
   js.configs.recommended,
@@ -41,6 +44,10 @@ export default [
       "node_modules/**",
       "build/**",
       "dist/**",
+      "**/dist/**",
+      // Generated Slidev talk-deck build snapshot (committed for Railway serving;
+      // regenerate via `cd services/site && bun run build:talks`)
+      "services/site/public/talks/**",
       "vendor/**",
       "*.min.js",
       "*.bundle.js",
@@ -56,8 +63,14 @@ export default [
       "*.tmp",
       // Exclude Claude Code agent worktrees
       ".claude/worktrees/**",
+      // Exclude Pulumi-generated SDK and infra build artifacts
+      "infra/sdks/**",
+      "infra/bin/**",
+      "infra/node_modules/**",
       // Exclude ESLint rule test fixtures (intentionally contain rule violations)
       "eslint-rules/__fixtures__/**",
+      // Exclude GitHub Actions workflows (YAML files; no ESLint config for them)
+      ".github/**",
     ],
   },
   {
@@ -130,6 +143,9 @@ export default [
           "require-injectable": requireInjectable,
           "no-skipped-tests": noSkippedTests,
           "no-unsafe-string-truncation": noUnsafeStringTruncation,
+          "no-escape-deploy-context": noEscapeDeployContext,
+          "no-unregistered-minsky-env-var": noUnregisteredMinskyEnvVar,
+          "no-raw-console": noRawConsole,
         },
       },
     },
@@ -148,6 +164,26 @@ export default [
       // === VARIABLE NAMING RULES ===
       "custom/no-non-ascii-identifiers": "error", // Prevents non-ASCII characters in identifier names (enforces ensure-ascii-code-symbols rule)
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
+
+      // === LOGGING DISCIPLINE (mt#1960) ===
+      // Prevents raw `console.*` calls; route through the structured logger.
+      // Per-directory excludes live in their own config blocks below.
+      "custom/no-raw-console": [
+        "error",
+        {
+          // Allowed-pattern strings — substring match against the call's source text.
+          // Mirrors the legacy `scripts/lint-console-usage.ts` allowedPatterns list.
+          allowedPatterns: [
+            'console.error("Failed to import test monitoring data"',
+            'console.warn("⚠️ Failed to load test monitoring data"',
+            'console.log("old"',
+            'console.log("new"',
+            "Mock cleanup for directory",
+            '"🔇 Global test setup"',
+            '"📊 Loaded existing test monitoring data"',
+          ],
+        },
+      ],
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Jest migration patterns only
@@ -216,6 +252,12 @@ export default [
             "log",
             "EXEMPT_COMMANDS",
             "testConfigManager",
+            // Constant lookup tables (Set/Map), not stateful service singletons —
+            // surfaced by the ADR-026 path-filter fix (mt#2623), which restored
+            // this rule's enforcement on packages/domain/src/ post-mt#2108.
+            "HOSTED_SAFE_SESSION_COMMANDS",
+            "KNOWN_TOP_LEVEL_KEYS",
+            "HOOK_ONLY_ENV_VARS",
           ],
         },
       ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)
@@ -232,6 +274,14 @@ export default [
             "StorageErrorClassifier",
             "StorageErrorRecovery",
             "StorageErrorMonitor",
+            // Constructed directly via `new X(...)` in production code, never resolved
+            // through the tsyringe container — @injectable() would be dead weight.
+            // Surfaced by the ADR-026 path-filter fix (mt#2623), which restored this
+            // rule's enforcement on packages/domain/src/ post-mt#2108; matches the
+            // allowlist already established for the same classes in
+            // tests/architecture/di-enforcement.test.ts (mt#2608).
+            "AgentTranscriptIngestService",
+            "AgentTranscriptService",
           ],
         },
       ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)
@@ -247,6 +297,36 @@ export default [
         },
       ],
 
+      // Flags relative imports that escape a separately-deployed package's directory
+      // (e.g., `services/reviewer/src/foo.ts` importing `../../../src/utils/x`). Such
+      // imports resolve in the monorepo but crash the deployed container whose Docker
+      // build context excludes the parent tree. Originating incident: mt#1679.
+      //
+      // `excludeGlobs` exempts files inside a package root that are NOT runtime-deployed:
+      // - `services/*/railway.config.ts`: deploy-config files consumed by scripts/railway/apply.ts
+      //   from the host (see services/{reviewer,minsky-mcp}/Dockerfile — neither is COPYed
+      //   into the image).
+      //
+      // Note: services/*/scripts/** is intentionally NOT excluded. Those scripts run from
+      // the monorepo (smoke tests, ad-hoc helpers) and could in principle reach across the
+      // tree — but rewriting an escaping import to a vendored path is cheap, and forcing
+      // every scripts/* file to use the in-package path keeps the codebase consistent. If
+      // a script genuinely needs a parent-tree dependency, add it here.
+      "custom/no-escape-deploy-context": [
+        "error",
+        {
+          packageRoots: ["services/reviewer", "services/minsky-mcp"],
+          excludeGlobs: ["services/*/railway.config.ts"],
+        },
+      ],
+
+      // mt#1788 — every `process.env.MINSKY_*` read in src/ must be registered
+      // in either `environmentMappings` or `HOOK_ONLY_ENV_VARS` to prevent
+      // env-var-namespace conflicts with the config-loader's dot-path parser.
+      // Closes the ADD side of the same class as mt#1610/mt#1624 (RETIRE side
+      // covered by mt#1626 /plan-task gate criterion h).
+      "custom/no-unregistered-minsky-env-var": "error",
+
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [
         "warn",
@@ -258,7 +338,7 @@ export default [
             // Session provider composition roots
             "**/src/domain/session/session-service.ts",
             "**/src/domain/session/session-provider-cache.ts",
-            "**/src/domain/session/session-db-adapter.ts",
+            "**/src/domain/session/drizzle-session-repository.ts",
             // Session path resolver (lazy fallback for MCP handlers without DI context)
             "**/src/domain/session/session-path-resolver.ts",
             // Domain-level facade files that re-export/wire providers
@@ -292,6 +372,13 @@ export default [
             "**/src/adapters/cli/**/*.ts",
             // Git subcommand composition roots
             "**/subcommands/*.ts",
+            // Cockpit widget composition roots (wire DI providers for the cockpit server)
+            "**/src/cockpit/widgets/agents.ts",
+            // Cockpit persistence-provider composition root (mt#2615 — lazy-wires
+            // session/task/ask providers consumed by every cockpit route module;
+            // this was server.ts's job pre-split. server.ts is now composition-only
+            // and no longer needs this permission.
+            "**/src/cockpit/db-providers.ts",
             // Scripts and one-off tools (composition roots by nature)
             "**/scripts/*.ts",
             "**/debug-*.ts",
@@ -477,21 +564,117 @@ export default [
     files: ["src/utils/logger.ts"],
     rules: {
       "no-console": "off",
+      // Logger implementation legitimately uses console under the hood
+      "custom/no-raw-console": "off",
     },
   },
   {
-    files: ["**/test/**", "**/*.test.ts", "**/tests/**"],
+    files: ["**/test/**", "**/*.test.ts", "**/*.test.js", "**/tests/**"],
     rules: {
       // Tests can use console and any type freely
       "no-console": "off",
       "@typescript-eslint/no-explicit-any": "off",
+      // Tests run isolated; console output is the canonical test-debug surface
+      "custom/no-raw-console": "off",
     },
   },
   {
-    files: ["debug-*.ts", "test-*.ts", "scripts/*.ts"],
+    files: ["debug-*.ts", "test-*.ts", "scripts/*.ts", "scripts/**/*.ts"],
     rules: {
       "no-console": "off", // Allow console in debug/test scripts
       "no-magic-numbers": "off", // Allow magic numbers in debug scripts
+      // Scripts and debug entrypoints legitimately use console for CLI output
+      "custom/no-raw-console": "off",
+    },
+  },
+  // === custom/no-raw-console — TSX/JSX coverage parity with legacy script (mt#1960) ===
+  // The main config block above only registers rules for `**/*.ts` and `**/*.js`.
+  // The retired `scripts/lint-console-usage.ts` script also scanned `**/*.tsx` and
+  // `**/*.jsx`, so we add a focused block here that enables ONLY this rule on those
+  // file types — without bringing the other 30+ rules into TSX/JSX scope (which would
+  // be a scope creep beyond the migration intent).
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: {
+      custom: {
+        rules: {
+          "no-raw-console": noRawConsole,
+        },
+      },
+    },
+    rules: {
+      "custom/no-raw-console": [
+        "error",
+        {
+          allowedPatterns: [
+            'console.error("Failed to import test monitoring data"',
+            'console.warn("⚠️ Failed to load test monitoring data"',
+            'console.log("old"',
+            'console.log("new"',
+            "Mock cleanup for directory",
+            '"🔇 Global test setup"',
+            '"📊 Loaded existing test monitoring data"',
+          ],
+        },
+      ],
+      // `js.configs.recommended` (loaded at top of file with no `files` scope)
+      // would otherwise apply `no-undef` and `no-unused-vars` to these TSX/JSX
+      // files for the first time. TypeScript already covers `no-undef` and the
+      // `@typescript-eslint/no-unused-vars` rule (limited to .ts/.js above)
+      // covers unused-vars in the rest of the codebase. Keep this block narrow
+      // to the `no-raw-console` migration intent.
+      "no-undef": "off",
+      "no-unused-vars": "off",
+    },
+  },
+  // === custom/no-raw-console — additional CLI / test-utility excludes (mt#1960) ===
+  // Match the legacy `scripts/lint-console-usage.ts` allowlist. These files legitimately
+  // emit to stdout (CLI tools, test runners, test utilities, naming-fixer scripts).
+  {
+    files: [
+      "**/test-quality-cli.ts",
+      "**/test-runner.ts",
+      "**/test-monitor.ts",
+      "**/session-test-utilities.ts",
+      "**/consolidated-utilities/**",
+      "**/*-cli.ts",
+      "src/commands/**",
+      // Claude Code hooks emit to stdout to inject additionalContext / audit lines.
+      // The console-output pattern IS the public interface of a hook, not a debug
+      // smell. .minsky/hooks/ is the canonical source (mt#2304); .claude/hooks/
+      // is the compiled output. Both share the same console-usage pattern.
+      ".claude/hooks/**",
+      ".minsky/hooks/**",
+      // ESLint rule files themselves use `console.warn` for diagnostic-time messages
+      // that the rule emits to the developer (e.g., misconfiguration warnings). The
+      // rule runtime is not equivalent to application code — keep the exemption.
+      "eslint-rules/*.js",
+      // Drizzle config loaders + root-level CLI tools that predate the standardized
+      // logger. Treated as scripts.
+      "drizzle*.config.ts",
+      "*-tool.ts",
+      // Reviewer-service operator scripts (smoke tests, replay harnesses,
+      // calibration measurements, benchmarks). These are CLI tools whose
+      // stdout output IS the operator-visible result — routing through the
+      // structured logger would inject JSON metadata into output the
+      // operator wants to read directly. The reviewer service's production
+      // code path under services/reviewer/src/ uses the local winston
+      // logger via `log.*` (mt#1255 + mt#1982); this exemption applies
+      // only to the operator-script subdirectory.
+      "services/reviewer/scripts/**",
+    ],
+    rules: {
+      "custom/no-raw-console": "off",
     },
   },
   // Add a second max-lines rule for error at 1500 lines
@@ -504,6 +687,75 @@ export default [
           max: 1500,
           skipBlankLines: true,
           skipComments: true,
+        },
+      ],
+    },
+  },
+  // === FILE SIZE RULES — TSX/JSX parity (mt#2592) ===
+  // The two `max-lines` blocks above (warn @ 400, error @ 1500) scope only to
+  // `**/*.ts` / `**/*.js`, so React components had NO file-size guard at all
+  // (src/cockpit/web/pages/PlantFlowPage.tsx grew to 1646 lines invisibly).
+  // Mirror both tiers here, narrowly, as their own config objects — do NOT
+  // fold `.tsx`/`.jsx` into the big `**/*.ts`/`**/*.js` block above, which
+  // would pull 30+ unrelated rules (custom rules, unused-vars, etc.) into
+  // TSX/JSX scope as an unintended scope expansion (see mt#2592 spec,
+  // "Out of scope: non-size lint rules for .tsx"). Component files run
+  // longer than plain TS modules per unit of logic because JSX markup is
+  // more line-dense than typical TS syntax; the warn tier is pragmatically
+  // set higher than the .ts/.js tier (800 vs 400) so that today's largest
+  // properly-scoped cockpit widgets (e.g. Credentials.tsx at 688 lines)
+  // don't need individual disables, while still catching genuinely
+  // oversized components. The error tier stays at 1500, matching .ts/.js.
+  //
+  // NOTE on `skipComments`: unlike the `.ts`/`.js` tiers above, both `.tsx`
+  // tiers set `skipComments: false`. Two reasons: (1) the codebase's larger
+  // cockpit pages/widgets (e.g. PlantFlowPage.tsx) carry substantial
+  // architecture-rationale JSDoc headers — skipping comments would let a
+  // file's *code* bulk grow arbitrarily while its ESLint-counted size stayed
+  // artificially low, defeating the guard's purpose; (2) with
+  // `skipComments: true` mirrored exactly, PlantFlowPage.tsx's ESLint-counted
+  // line count (~1349, comments/blanks excluded) falls UNDER the 1500 error
+  // threshold despite a raw `wc -l` of 1646 — which would make the
+  // file-level `eslint-disable max-lines` comment below register as an
+  // "Unused eslint-disable directive" (itself a warning, failing the
+  // zero-warning `lint:strict` / pre-commit gate). `skipBlankLines: true` is
+  // kept since blank lines carry no content either way.
+  //
+  // NOTE on ESLint flat-config rule merging: because both tiers configure the
+  // SAME rule name (`max-lines`) with the SAME `files` glob, ESLint's flat
+  // config resolution has the LATER-declared block's rule settings entirely
+  // replace the earlier one for any file matching both — there is no
+  // independent coexistence of a "warn at 800" and "error at 1500" signal.
+  // In practice only the error tier below is ever active. This exactly
+  // mirrors the pre-existing (undocumented) behavior of the `.ts`/`.js`
+  // blocks above, where the warn-@-400 tier is likewise always superseded by
+  // the later error-@-1500 tier. Fixing that pre-existing two-tier-coexistence
+  // gap is out of scope for mt#2592 (which only extends coverage to
+  // `.tsx`/`.jsx`); the warn tier is kept here for documented intent/parity
+  // and in case a future change (e.g. a custom multi-severity rule) makes
+  // both tiers independently effective.
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    rules: {
+      "max-lines": [
+        "warn",
+        {
+          max: 800,
+          skipBlankLines: true,
+          skipComments: false,
+        },
+      ],
+    },
+  },
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    rules: {
+      "max-lines": [
+        "error",
+        {
+          max: 1500,
+          skipBlankLines: true,
+          skipComments: false,
         },
       ],
     },

@@ -3,17 +3,15 @@ name: reviewer
 description: >-
   Code review agent for independent Chinese-wall reviews and large-PR diff
   sectioning. In Mode 2 (whole-PR), fetches context via MCP, validates anchors,
-  and posts findings directly via mcp__minsky__session_pr_review_submit. In
-  Mode 1 (sectioning), returns raw observations to the parent aggregator and
-  MUST NOT call submit — the parent validates anchors and posts the final review.
-  Cannot modify code — posting a GitHub review is an allowed write (Mode 2 only).
+  and posts findings directly via mcp__minsky__session_pr_review_submit. In Mode
+  1 (sectioning), returns raw observations to the parent aggregator and MUST NOT
+  call submit — the parent validates anchors and posts the final review. Cannot
+  modify code — posting a GitHub review is an allowed write (Mode 2 only).
 tools: >-
   Read, Glob, Grep, Bash, mcp__minsky__session_pr_review_context,
   mcp__minsky__session_pr_review_submit, mcp__minsky__tasks_spec_get,
   mcp__github__get_file_contents
 model: sonnet
-skills:
-  - review-pr
 ---
 
 > **Cousin surface.** This local subagent is one of two surfaces enforcing
@@ -23,14 +21,51 @@ skills:
 > under the `minsky-reviewer[bot]` GitHub App identity (see
 > [ADR-005](../../docs/architecture/adr-005-forgebackend-subinterfaces.md)
 > and [ADR-006](../../docs/architecture/adr-006-agent-identity.md)). Both
-> surfaces share the same Chinese-wall constraints — no workspace
-> mutations beyond the sanctioned review-posting write (`Bash` is for
-> read-only commands), no access to the implementer agent's prior
+> surfaces share the same Chinese-wall constraints (per mt#1073 design
+> constraints 2 and 3): no access to the implementer agent's prior
 > conversation or working state, evidence-based output anchored to source,
-> and severity classification per the Critic Constitution. They differ
-> only in invocation mode and runtime surface: this subagent runs
-> in-conversation when a user or skill dispatches it; the Railway service
-> runs as a long-lived deployed service triggered by GitHub webhooks.
+> severity classification per the Critic Constitution, and a policy
+> against workspace mutations beyond the sanctioned review-posting write.
+> They differ only in invocation mode and runtime surface: this subagent
+> runs in-conversation when a user or skill dispatches it; the Railway
+> service runs as a long-lived deployed service triggered by GitHub
+> webhooks.
+>
+> **Isolation boundary enforcement — what is structural vs. policy-level.**
+> The Chinese-wall isolation is enforced by a mix of structural and
+> policy-level mechanisms; calling out which is which matters for
+> auditors:
+>
+> - _Local subagent (this file), structurally enforced_: Claude Code's
+>   `Agent` tool dispatches subagents with a fresh system prompt and no
+>   inherited message history. The `tools:` frontmatter above curates an
+>   allowlist that omits every Minsky write/mutation tool
+>   (`session_write_file`, `session_edit_file`, `session_exec` —
+>   structurally absent from the allowlist).
+> - _Local subagent, policy-level (not yet structurally enforced)_: the
+>   `Bash` tool IS in the allowlist (it is needed for read-only commands
+>   like `grep`, `git log`, `git diff`, `cat`, etc.) and the repo has no
+>   in-tree wrapper that constrains `Bash` invocations to non-mutating
+>   commands. The Chinese-wall constraint here is a policy claim
+>   addressed to the subagent: **`Bash` MUST NOT be used for mutations
+>   (no `rm`, no `mv`, no `sed -i`, no `curl -X POST`/`PUT`/`PATCH`/
+>   `DELETE`, no `git push`, no in-place file rewrites). A future
+>   structural fix could add a Bash-command-filter wrapper or split the
+>   read-only Bash use into a `BashReadOnly` tool; until then, the
+>   reviewer subagent must self-enforce this policy.**
+> - _Cloud reviewer service, structurally enforced_: runs in a separate
+>   Railway process (no filesystem access to implementer sessions); posts
+>   under a separate GitHub App identity (`minsky-reviewer[bot]`,
+>   operational guarantee — see Railway service config and ADR-006).
+>   The model's file access is mediated by the curated `tools.ts`
+>   interface (`readFile` + `listDirectory` only, no write surfaces);
+>   the deployed worker has no `Bash` equivalent.
+>
+> Both surfaces deliver the structural enforcement that mt#1511 originally
+> required and that mt#1083 (DONE) shipped at the cloud surface. The
+> local-`Bash` residual is the one gap remaining; closing it would
+> require a separate task (Bash-wrapper / BashReadOnly tool / agent-
+> runtime guard).
 
 You are a code review analyst. You operate in two modes depending on what the parent agent gives you.
 
@@ -67,7 +102,7 @@ The parent agent gives you:
    - Read callers/callees to verify the change is safe
    - Check types/interfaces to confirm compatibility
    - If the concern is disproven by reading source, drop it (false positive)
-4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution (see "Severity classification" below), constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`. See `.claude/skills/review-pr/SKILL.md` step 6b for the parent's aggregate-and-judge protocol.
+4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution (see "Severity classification" below), constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`.
 
 **Mode 1 hard guard: never call `mcp__minsky__session_pr_review_submit` yourself.** Even if a task ID is also in your context, sectioning means the parent posts the consolidated review across all slices. A Mode 1 subagent posting directly bypasses anchor validation, dedup, and severity calibration — and produces N partial reviews on the PR instead of one. If you find yourself reaching for the submit tool in Mode 1, stop and return observations only.
 
@@ -84,26 +119,38 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 
 # Mode 2 Protocol
 
-1. **Fetch PR context** — call `mcp__minsky__session_pr_review_context` with the task ID. This returns PR metadata, diff, parsed diff (as `parsedDiff: DiffFile[]`), CI check runs, and the task spec in a single call. If both `mcp__minsky__session_pr_review_context` and `mcp__minsky__tasks_spec_get` fail, submit a `COMMENT` review documenting the context-fetch failure, then stop. Do not return findings to the parent — Mode 2 is self-contained.
+1. **Fetch PR context** — call `mcp__minsky__session_pr_review_context` with the task ID. This returns PR metadata, diff, parsed diff (as `parsedDiff: DiffFile[]`), CI check runs, the task spec, and **`reviewThreads[]`** (existing inline thread state) in a single call. If both `mcp__minsky__session_pr_review_context` and `mcp__minsky__tasks_spec_get` fail, submit a `COMMENT` review documenting the context-fetch failure, then stop. Do not return findings to the parent — Mode 2 is self-contained.
 2. **If spec is missing** — fall back to `mcp__minsky__tasks_spec_get` with the task ID.
 
 **Source freshness (required for adoption sweep at step 5b).** Local `Read`, `Glob`, and `Grep` are only safe to use for codebase-wide reads when the workspace is checked out at the PR HEAD. The two supported invocation modes:
 
-- **Dispatched by `/review-pr` into a session workspace** (the standard, preferred path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. **This is the canonical Mode 2 path; prefer it whenever possible.**
+- **Dispatched by the `minsky-reviewer[bot]` into a session workspace** (the standard, preferred path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. **This is the canonical Mode 2 path; prefer it whenever possible.**
 - **Invoked outside a session workspace** (rare; ad-hoc review from main agent context): local reads MAY hit a stale main checkout. **Do NOT run adoption-sweep grep against the local workspace in this case.** Instead, perform adoption-sweep reads via `mcp__github__get_file_contents` with `ref` set to the PR head SHA from `session_pr_review_context`. This requires more explicit calls (one per file or directory) but guarantees the sweep targets the PR branch, not stale main. Constrain the file set to changed files plus their plausible consumers when full-codebase grep would exceed the cost-bounding rule (>10 new exports → file follow-up adoption task per step 5b).
 
 The same staleness class that motivated the auditor's freshness preamble (mt#1485 false-FAIL) applies here. Adoption findings based on stale-main reads are unreliable and must not be reported as BLOCKING.
 
 3. **Analyze the diff** — for each file in the diff, follow steps 2–3 from Mode 1 above. For large PRs (200+ files), request Mode 1 sectioning from the parent instead of attempting a whole-PR review in one run.
-4. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
-   - Find the `DiffFile` in `parsedDiff`. The lookup depends on side and rename status:
-     - **RIGHT-side anchor:** match `file.path === path` (the current filename).
-     - **LEFT-side anchor on a rename** (`DiffFile.oldPath` set, `oldPath !== path`): match `file.oldPath === path` only. Do NOT match `file.path === path` — that would be the post-rename name and produces a wrong-side anchor.
-     - **LEFT-side anchor on a non-rename** (`DiffFile.oldPath` undefined): match `file.path === path` only.
-   - Skip warning-flagged files (`file.warning` set).
-   - Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
-   - **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
-   - If any of those checks fail, record the finding in the review body instead of `comments[]`.
+   4a. **Reply to existing threads (mt#1345) — convergence loop.** When `reviewThreads[]` is non-empty, review each **unresolved, non-outdated** thread before opening new findings. For each thread:
+
+   - **Still applies** → reply with a `comments[]` entry using `inReplyTo: <first-comment databaseId>` so the reply threads under the existing discussion instead of opening a new one. Keep the reply brief: `"Still pending — [evidence from current diff]"`.
+   - **Fixed** → call `mcp__minsky__session_pr_review_thread_resolve` with `threadId` and a one-line reason. **Guard: only resolve threads where `comments[0].author === "minsky-reviewer[bot]"` — never resolve human-opened threads.**
+   - **Outdated / no longer relevant** → call `mcp__minsky__session_pr_review_thread_resolve` with a note. Same human-author guard applies.
+
+   After processing all existing threads, open new `comments[]` entries ONLY for genuinely new findings not covered by an existing thread. This prevents duplicate findings accumulating across rounds.
+
+   The `inReplyTo` field in `comments[]` takes the **`databaseId`** (numeric) from `reviewThreads[N].comments[0].databaseId`. When `inReplyTo` is set, GitHub anchors the reply to the parent comment's location — `path` and `line` are ignored by GitHub but should still be set to the parent's values for schema validity.
+
+4b. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
+
+- Find the `DiffFile` in `parsedDiff`. The lookup depends on side and rename status:
+  - **RIGHT-side anchor:** match `file.path === path` (the current filename).
+  - **LEFT-side anchor on a rename** (`DiffFile.oldPath` set, `oldPath !== path`): match `file.oldPath === path` only. Do NOT match `file.path === path` — that would be the post-rename name and produces a wrong-side anchor.
+  - **LEFT-side anchor on a non-rename** (`DiffFile.oldPath` undefined): match `file.path === path` only.
+- Skip warning-flagged files (`file.warning` set).
+- Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
+- **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
+- If any of those checks fail, record the finding in the review body instead of `comments[]`.
+
 5. **Verify against task spec, run adoption sweep, run smoke test.** This step is mandatory and consolidates three sub-checks the Mode 2 reviewer must run before posting (per mt#1551, replacing the post-merge auditor surface):
 
    **5a. Spec verification.** Read every success criterion in the task spec. For each, verify the PR delivers it by checking the code. Classify Met / Not met / N/A and record the result for the spec-verification table that goes in the review body. Any "Not met" criterion is a BLOCKING finding.
@@ -238,6 +285,15 @@ interface ReviewComment {
   side?: "LEFT" | "RIGHT"; // defaults to RIGHT if absent
   startLine?: number; // first line of multi-line range (must be < line)
   startSide?: "LEFT" | "RIGHT"; // required when startLine is set; must equal side
+  /**
+   * When present, this comment is a REPLY to the existing review comment with
+   * this database ID (mt#1345 — reply-to-thread loop). Obtain the ID from
+   * reviewThreads[N].comments[0].databaseId (returned by session_pr_review_context).
+   * When inReplyTo is set, GitHub anchors the reply to the parent comment's
+   * location — path/line/side are ignored by GitHub but should still be set
+   * to the parent's values for schema validity.
+   */
+  inReplyTo?: number;
 }
 ```
 

@@ -10,27 +10,35 @@ import {
   GetPromptRequestSchema,
   isInitializeRequest,
   McpError,
+  type ServerNotification,
 } from "@modelcontextprotocol/sdk/types.js";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getErrorMessageWithCause } from "@minsky/domain/errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
+import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
-import { resolveAgentId } from "../domain/agent-identity/resolve";
-import type { RequestExtras } from "../domain/agent-identity/layer2";
-import type { AppContainerInterface } from "../composition/types";
+import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
-import type { MemoryServiceSurface } from "../domain/memory/memory-service";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
 import {
   enrichWakeResponse,
   type SessionResolver as WakeSessionResolver,
   type WakeServiceSurface,
 } from "./middleware/wake-enrichment";
-import { DisconnectTracker } from "./disconnect-tracker";
+import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
+import { writeDaemonState } from "./daemon-state";
+import type { InitController } from "./init-retry";
+import {
+  type PresenceClaimRepository,
+  normalizeTaskSubjectId,
+} from "@minsky/domain/presence/index";
 
 /**
  * Transport type for MCP server
@@ -101,14 +109,99 @@ export interface MinskyMCPServerOptions {
    * code paths.
    */
   clientCapabilityRegistry?: MCPClientCapabilityRegistry;
+
+  /**
+   * Optional static memory bundle to include in the SDK Server's `instructions`
+   * field at construction time. Composed by the MCP start command from the
+   * memory store BEFORE this constructor runs (so the bundle is present at
+   * every `initialize` handshake without any post-construction mutation).
+   *
+   * @see mt#1625 — server-side memory injection via MCP `instructions`
+   */
+  instructions?: string;
 }
 
 // Tool definitions for MCP server
+/**
+ * mt#1751: Tools that demonstrably don't touch DI services — these skip the
+ * `initPromise` await in the CallTool handler. Currently covers the three
+ * debug commands routed through the shared-command bridge (which doesn't
+ * thread the `requiresInit` field). Add to this set, or set
+ * `requiresInit: false` on the ToolDefinition directly, when you've verified
+ * a tool's handler does not call `container.get(...)` or otherwise depend on
+ * a resolved DI service.
+ *
+ * Tool names are matched against `request.params.name` exactly. The
+ * shared-command bridge registers debug tools with **dotted** IDs (e.g.,
+ * `debug.listMethods` — see `src/adapters/shared/commands/debug.ts`), and
+ * `CommandMapper.normalizeMethodName` (`src/mcp/command-mapper.ts:42`)
+ * preserves dots, so the protocol-level tool name keeps the dot. We list
+ * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
+ * underscore names — `debug_echo` — and the allowlist never matched.)
+ */
+const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "debug.echo",
+  "debug.listMethods",
+  "debug.systemInfo",
+]);
+
+/**
+ * mt#2677: reports a human-readable progress message for a long-running tool
+ * call. Bound (by `buildProgressReporter` below) to the MCP transport's
+ * `notifications/progress` mechanism when the CALLER requested it (a
+ * `_meta.progressToken` on the originating request) — a no-op function is
+ * NOT passed when the caller didn't ask for progress, so tool handlers can
+ * unconditionally call `progress?.("...")` without checking for support.
+ *
+ * Kept as a plain `(message: string) => void` (not the raw MCP SDK
+ * notification shape) so nothing below this layer — command-mapper,
+ * shared-command-integration, domain poll loops — needs to know about
+ * `RequestHandlerExtra` or JSON-RPC notification framing.
+ */
+export type ToolProgressReporter = (message: string) => void;
+
 export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: object;
-  handler: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * Eager (legacy) handler. At least one of `handler` or `getHandler` must be
+   * provided. When both are present, `handler` takes precedence.
+   *
+   * The optional second argument (mt#2677) is a progress reporter, present
+   * only when the calling client requested progress notifications for this
+   * request. Long-running tools (poll loops in particular) call it once per
+   * poll interval so a legitimate multi-minute wait produces MCP transport
+   * activity instead of total silence — see
+   * `packages/domain/src/session/commands/pr-wait-for-review-subcommand.ts`
+   * for the originating case (a harness-side 1800s MCP idle timeout killed
+   * connections that were still correctly polling within their own
+   * server-side timeout).
+   */
+  handler?: (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>;
+  /**
+   * mt#1792: lazy handler thunk — defers handler-module loading until first
+   * invocation. Mutually exclusive with `handler` at registration time: provide
+   * EITHER a direct `handler` (eager, legacy form) OR a `getHandler` thunk
+   * (lazy form). The CallTool dispatch resolves the thunk on first call and
+   * caches the resolved function back onto `handler` for subsequent calls.
+   *
+   * When both are provided, the legacy `handler` takes precedence and
+   * `getHandler` is ignored — backward-compatible coexistence.
+   */
+  getHandler?: () => Promise<
+    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+  >;
+  /**
+   * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
+   * call when `getHandler` resolution starts; subsequent concurrent first
+   * calls share this promise instead of invoking `getHandler()` again.
+   * Cleared on success (resolved value cached on `handler`) and on rejection
+   * (so retry can occur). Internal; not part of the registration API.
+   */
+  __resolving?: Promise<
+    (args: Record<string, unknown>, progress?: ToolProgressReporter) => Promise<unknown>
+  >;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
    * create/edit/merge, force-push, session-update). The server will refuse
@@ -116,6 +209,52 @@ export interface ToolDefinition {
    * Read-only tools leave this unset or set it to false.
    */
   mutating?: boolean;
+  /**
+   * mt#1751: when explicitly `false`, this tool does NOT require the DI
+   * container to be initialized — the CallTool handler skips the init
+   * await for it. Default (unset/`true`) is to await DI init, which is
+   * the safe choice for any tool that calls `container.get(...)`.
+   *
+   * Opt out only for tools that demonstrably do not touch DI services
+   * (e.g. `debug_echo`, `debug_listMethods`). Mis-opting-out a tool that
+   * does need DI would surface as a "Service ... is not available"
+   * runtime error on first call before background init completes.
+   */
+  requiresInit?: boolean;
+}
+
+/**
+ * Build a `ToolProgressReporter` bound to this request's MCP transport
+ * (mt#2677), or `undefined` when the calling client did not request progress
+ * notifications for this request (no `_meta.progressToken`). Per the MCP
+ * spec, progress notifications are only sent when the caller opts in with a
+ * `progressToken` — sending them unconditionally would be protocol-incorrect
+ * for clients that never asked.
+ *
+ * `progress` is a monotonically increasing counter (the `progress` field is
+ * required by `notifications/progress`); callers only care about `message`,
+ * so the counter is purely internal bookkeeping to satisfy the schema.
+ *
+ * Notification failures are logged and swallowed — a progress notification
+ * is best-effort UX, never a reason to fail the underlying tool call.
+ */
+export function buildProgressReporter(
+  progressToken: string | number | undefined,
+  sendNotification: (notification: ServerNotification) => Promise<void>
+): ToolProgressReporter | undefined {
+  if (progressToken === undefined) return undefined;
+  let progress = 0;
+  return (message: string) => {
+    progress += 1;
+    void sendNotification({
+      method: "notifications/progress",
+      params: { progressToken, progress, message },
+    } satisfies ServerNotification).catch((err) => {
+      log.debug("mt#2677: progress notification failed (non-blocking)", {
+        error: getErrorMessage(err),
+      });
+    });
+  };
 }
 
 interface ResourceDefinition {
@@ -160,6 +299,16 @@ export class MinskyMCPServer {
    */
   private memoryService: MemoryServiceSurface | undefined;
   /**
+   * mt#1625 spike: static memory bundle for MCP `instructions` injection.
+   * When set, this text is appended to the `instructions` field passed to
+   * every SDK `Server` constructor created by `createConfiguredServer`.
+   * Passed via the `instructions` constructor option (composed by the MCP
+   * start command from the memory store BEFORE this class is instantiated).
+   * Stdio mode receives it at constructor time; HTTP per-session Servers
+   * read it on each `createConfiguredServer` call.
+   */
+  private instructionsBundle: string | null | undefined = null;
+  /**
    * Wake-pending service for the mt#1661 v0 wake-enrichment middleware. Optional —
    * when absent, the middleware is a no-op. Set via `setWakeService` from the
    * MCP start command after the persistence provider resolves.
@@ -174,6 +323,44 @@ export class MinskyMCPServer {
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  /**
+   * mt#1751: DI initialization promise. When set via `setInitPromise`, every
+   * CallTool dispatch awaits this promise before invoking the tool handler.
+   * The MCP `initialize` handshake and `tools/list` do NOT await it (they
+   * don't need persistence) — only tool execution does. This lets the server
+   * accept the initialize handshake while DI runs in the background.
+   *
+   * Null in HTTP mode (init runs synchronously via preAction) and in tests
+   * that pre-populate the container.
+   *
+   * mt#1962: superseded by `initController` for the production stdio path —
+   * the controller adds demand-driven retry on rejected attempts so a single
+   * transient init failure no longer poisons the daemon. `setInitPromise` is
+   * retained as the no-retry single-attempt API for tests and any caller
+   * that wants the legacy behavior. Exactly one of `initPromise` /
+   * `initController` is set at any time — each setter clears the other
+   * (symmetric mutual exclusivity).
+   */
+  private initPromise: Promise<void> | null = null;
+
+  /**
+   * mt#1962: DI initialization controller. When set via `setInitController`,
+   * CallTool dispatch calls `awaitReady()` instead of awaiting `initPromise`
+   * directly. The controller tracks attempt state and re-invokes the
+   * underlying initializer on demand (next tool call) when a prior attempt
+   * rejected, subject to a backoff cap. Exactly one of `initPromise` /
+   * `initController` is set at any time — each setter clears the other
+   * (symmetric mutual exclusivity).
+   */
+  private initController: InitController | null = null;
+
+  /**
+   * mt#2562: PresenceClaimRepository for task-grain agent presence.
+   * When set, every tool call with args.task/args.taskId fires a
+   * session-independent upsertClaim (fire-and-forget). When absent, the
+   * write path is a no-op (graceful degradation).
+   */
+  private presenceClaimRepo: PresenceClaimRepository | undefined;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -217,6 +404,11 @@ export class MinskyMCPServer {
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
 
+  // mt#2701: max time to wait for in-flight tool calls to drain before a
+  // staleness exit force-terminates. Overridable in tests. A wedged request
+  // cannot keep a stale server alive past this cap.
+  private staleDrainCapMs = 30_000;
+
   /**
    * Disconnect/reconnect event tracker for cadence measurement (mt#1645).
    * Records structured events to `~/.local/state/minsky/mcp-disconnect-log.json`
@@ -225,6 +417,14 @@ export class MinskyMCPServer {
   private disconnectTracker: DisconnectTracker;
   /** Indirection for process.exit so tests can intercept without spawning a process. */
   private exit = (code: number) => process.exit(code);
+
+  /**
+   * Whether SIGTERM/SIGINT/SIGHUP listeners have been installed in this
+   * process. Static because the underlying process is a singleton — multiple
+   * MinskyMCPServer instances per process should not double-register
+   * listeners. mt#1682.
+   */
+  private static signalHandlersInstalled = false;
 
   /**
    * Create a new MinskyMCPServer
@@ -248,6 +448,11 @@ export class MinskyMCPServer {
     // mt#1457: capability registry for the Ask router. When provided, each
     // Server created via createConfiguredServer is registered.
     this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+
+    // mt#1625: optional static memory bundle for the `instructions` field.
+    // Must be set BEFORE createConfiguredServer is called below so the
+    // eager-constructed stdio Server picks it up via the SDK constructor.
+    this.instructionsBundle = options.instructions;
 
     // Parse session cap from env var. Non-positive or non-numeric values → no cap.
     const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
@@ -274,6 +479,16 @@ export class MinskyMCPServer {
     // MCP server name as configured (e.g. "Minsky MCP Server", "minsky",
     // "minsky-hosted"). Normalised to the short form for readability in logs.
     this.disconnectTracker = DisconnectTracker.getInstance(this.options.name);
+    // mt#1682: process_start lifecycle marker. Recorded in the constructor
+    // before any tool can be invoked so log readers can count actual server
+    // processes (including those that lived <1s and never recorded a
+    // disconnect) and correlate disconnects back to their source process.
+    this.disconnectTracker.recordProcessStart();
+    // mt#1682: install signal handlers that record cause before the natural
+    // process exit. Without these, signal-driven shutdowns surface as
+    // generic `stdin_close` (because the SDK's onclose fires during stdio
+    // teardown), conflating signal kills with harness-initiated closures.
+    this.installSignalHandlers();
 
     // mt#953 — agent identity research diagnostic capture (env-gated)
     this.diag = createDiagnosticCapture();
@@ -282,7 +497,11 @@ export class MinskyMCPServer {
     // Create the primary server instance. For stdio, this is THE server. For
     // HTTP, each session creates an additional one via createConfiguredServer();
     // this instance is never connected to a transport in HTTP mode.
-    this.server = this.createConfiguredServer();
+    // mt#1705: stdio uses the fixed STDIO_SESSION_KEY. The HTTP-primary instance
+    // here also uses STDIO_SESSION_KEY because it is never connected when
+    // transportType === "http" (the connected Server instances are created in
+    // handleHttpRequest with their own UUIDs).
+    this.server = this.createConfiguredServer(STDIO_SESSION_KEY);
 
     // Create transport based on configuration
     if (this.options.transportType === "stdio") {
@@ -343,8 +562,25 @@ export class MinskyMCPServer {
    * created in the constructor. Tools/resources/prompts are owned by
    * MinskyMCPServer and shared across all Server instances via closures in the
    * registered handlers.
+   *
+   * mt#1705: each Server is paired with a `sessionKey` for per-session
+   * tool-call tracking. Stdio passes `STDIO_SESSION_KEY` (a fixed constant);
+   * HTTP generates a unique UUID for each per-session Server. The key is
+   * captured in the CallTool handler closure (so each session's tool calls
+   * increment its own counter) and the wireDisconnectHooks chain (so each
+   * session's disconnect reads its own counter).
    */
-  private createConfiguredServer(): Server {
+  private createConfiguredServer(sessionKey: string): Server {
+    // mt#1625 spike: compose the `instructions` field from the static
+    // reconnect note plus the optional memory bundle (when set). The bundle
+    // is appended after the operational note so the agent sees the reconnect
+    // guidance first, then the memory context.
+    const baseInstructions =
+      "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.";
+    const instructions = this.instructionsBundle
+      ? `${baseInstructions}\n\n${this.instructionsBundle}`
+      : baseInstructions;
+
     const server = new Server(
       {
         name: this.options.name,
@@ -352,13 +588,30 @@ export class MinskyMCPServer {
       },
       {
         capabilities: {
-          tools: {},
+          // listChanged: true advertises that the server may emit
+          // `notifications/tools/list_changed`. The stdio proxy (mt#2011)
+          // emits this notification on inner-server respawn so Claude Code
+          // refreshes its tools/list cache without needing `/mcp` reconnect.
+          // Per MCP spec, clients SHOULD ignore the notification when the
+          // server has not advertised this capability.
+          //
+          // In direct-start mode (no proxy), the inner server itself does
+          // not emit `notifications/tools/list_changed` — Minsky has no
+          // in-process tool-set mutation today (PR #1216 R1 NON-BLOCKING 1).
+          // The capability advertisement is therefore inert in direct mode.
+          // We advertise unconditionally for two reasons: (a) the proxy is
+          // the operator-recommended deployment path, and (b) advertising a
+          // capability the server can deliver under SOME deployment shape is
+          // spec-permissible (the spec frames `listChanged: true` as
+          // "server MAY send", not "server WILL always send"). If direct-
+          // start emits start to support in-process tool mutation in the
+          // future, this declaration is already correct; no change needed.
+          tools: { listChanged: true },
           resources: {},
           prompts: {},
           logging: {},
         },
-        instructions:
-          "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.",
+        instructions,
       }
     );
     this.diag.captureInit(server);
@@ -370,7 +623,7 @@ export class MinskyMCPServer {
     // initialize. HTTP onclose / idle reaper / close() handle unregistration.
     this.clientCapabilityRegistry?.registerServer(server);
 
-    this.setupRequestHandlers(server);
+    this.setupRequestHandlers(server, sessionKey);
     return server;
   }
 
@@ -401,7 +654,16 @@ export class MinskyMCPServer {
         res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
       }
     } catch (error) {
-      log.error("Error handling HTTP request", { error: getErrorMessage(error) });
+      // mt#1831 PR #1113 R1: keep the cause-chain enrichment inside the MCP
+      // tool-response path (CallToolRequestSchema catch) where the consumer is
+      // an MCP agent / operator. The outer HTTP transport's 500 handler fires
+      // for transport-level errors (body-parser, malformed JSON-RPC, express
+      // middleware crashes) whose audience includes arbitrary HTTP clients;
+      // exposing the full `.cause` chain there widens the leak surface to
+      // include driver messages and connection state beyond the spec's scope
+      // (operator-facing MCP wire path). Log the enriched chain for operator
+      // diagnostics but return only the shallow message to the wire.
+      log.error("Error handling HTTP request", { error: getErrorMessageWithCause(error) });
       res.status(500).json({
         error: "Internal server error",
         message: getErrorMessage(error),
@@ -501,7 +763,14 @@ export class MinskyMCPServer {
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
-      const server = this.createConfiguredServer();
+      // mt#1705: generate a per-session key for tool-call tracking BEFORE the
+      // Server is constructed. The CallTool handler closure captures it so
+      // each session's tool calls increment its own counter; wireDisconnectHooks
+      // captures it so each session's disconnect reads its own counter. Using
+      // a process-wide counter (the original mt#1705 approach) would misclassify
+      // disconnects from other sessions once any session made a tool call.
+      const sessionKey = randomUUID();
+      const server = this.createConfiguredServer(sessionKey);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
       });
@@ -514,7 +783,9 @@ export class MinskyMCPServer {
       // HTTP sessions use "unknown" as the default cause — the transport close
       // event does not distinguish client-initiated vs. server-initiated closes
       // at the protocol level.
-      this.wireDisconnectHooks(server, "unknown");
+      // mt#1705: pass the per-session sessionKey so the disconnect reads the
+      // correct per-session tool-call count.
+      this.wireDisconnectHooks(server, "unknown", sessionKey);
       this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
@@ -671,17 +942,44 @@ export class MinskyMCPServer {
    * Server instance. Called once per Server — once from the constructor for
    * stdio, and once per HTTP session via createConfiguredServer.
    */
-  private setupRequestHandlers(server: Server): void {
+  /**
+   * Register all request handlers on a Server instance.
+   *
+   * mt#1705: `sessionKey` is captured in the CallTool handler closure so each
+   * session's tool calls increment that session's counter (not a process-wide
+   * one). Stdio passes `STDIO_SESSION_KEY`; HTTP passes a per-session UUID
+   * generated in `handleHttpRequest`.
+   */
+  private setupRequestHandlers(server: Server, sessionKey: string): void {
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
-      return {
-        tools: Array.from(this.tools.values()).map((tool) => ({
-          name: tool.name,
+      // mt#1779: dedupe by ToolDefinition identity (dual-registration in
+      // `addTool` puts the same tool object under both dotted and underscored
+      // keys). Whether to emit the underscored alias is feature-detected from
+      // the client's `clientInfo.name` reported during `initialize` —
+      // `shouldEmitDesktopAliases` defaults to false for non-Claude clients so
+      // the canonical dotted wire contract is preserved. Claude clients
+      // (clientInfo.name starts with "claude") see the underscored form that
+      // passes their strict frontend validator regex.
+      const clientInfo = server.getClientVersion() as { name?: string } | undefined;
+      const emitDesktop = shouldEmitDesktopAliases(clientInfo);
+      const seen = new Set<ToolDefinition>();
+      const tools: Array<{
+        name: string;
+        description: string;
+        inputSchema: object;
+      }> = [];
+      for (const tool of this.tools.values()) {
+        if (seen.has(tool)) continue;
+        seen.add(tool);
+        tools.push({
+          name: emitDesktop ? toClaudeDesktopName(tool.name) : tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema || {},
-        })),
-      };
+        });
+      }
+      return { tools };
     });
 
     // Call tool
@@ -689,6 +987,19 @@ export class MinskyMCPServer {
       this.diag.captureRequest("tools/call", request, extra);
       if (this.draining) {
         throw new Error("Server is shutting down");
+      }
+
+      // mt#1705: count tool calls for process-role classification at disconnect
+      // time. Incremented before the tool runs so the count is accurate even if
+      // the handler throws. Per-session counter (keyed by `sessionKey` captured
+      // in this handler's closure) — so HTTP sessions classify independently
+      // and one session's tool call doesn't inflate another's count. This is
+      // the discriminating signal: 0 calls → "helper" (harness helper / hook
+      // spawner / probe), 1+ calls → "main_session".
+      // mt#1715: skip increment after clean shutdown to prevent repopulating
+      // an already-evicted counter during the 200ms exit delay or signal drain.
+      if (!this.disconnectTracker.isCleanShutdownInitiated()) {
+        this.disconnectTracker.incrementToolCallCount(sessionKey);
       }
 
       const trackingId = this.nextRequestId++;
@@ -708,11 +1019,80 @@ export class MinskyMCPServer {
           // Read-only tools (mutating === false or unset) are allowed through.
           this.checkDriftGate(tool);
 
-          const result = await tool.handler(request.params.arguments || {});
+          // mt#1751: await DI initialization before dispatching to the tool
+          // handler. The MCP `initialize` handshake completes before DI runs
+          // in stdio mode (so the server appears connected fast); the first
+          // DI-dependent tool call pays the cost. After the first await
+          // resolves, the promise is settled and subsequent awaits are O(1).
+          //
+          // mt#1962: prefer `initController.awaitReady()` when set — it adds
+          // demand-driven retry so a transient init failure recovers on the
+          // next tool call (subject to backoff). Falls back to `initPromise`
+          // for callers using the legacy single-attempt API (tests).
+          //
+          // Tools that declare `requiresInit: false` skip the await — this
+          // gates the latency to DI-dependent tools only, so read-only
+          // debug tools (`debug_echo`, `debug_listMethods`) respond
+          // immediately even if init is still in flight. The DI-free
+          // allowlist is checked against the resolved tool's CANONICAL
+          // (dotted) name, not the request-provided name — so Claude
+          // Desktop clients invoking via the underscored alias (mt#1779
+          // dual-registration) still hit the fast path.
+          const requiresInit = tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(tool.name);
+          if (requiresInit) {
+            if (this.initController) {
+              await this.initController.awaitReady();
+            } else if (this.initPromise) {
+              await this.initPromise;
+            }
+          }
+
+          // mt#1792: lazy handler resolution. Resolve the getHandler thunk on
+          // first call and cache the result back onto tool.handler so subsequent
+          // calls use the resolved function directly (O(1) cached path).
+          // Handler resolution happens AFTER initPromise so DI services are
+          // available before the first handler module is loaded.
+          //
+          // PR #1103 R1 NON-BLOCKING: memoize the in-flight thunk resolution on
+          // `tool.__resolving` so concurrent first calls share a single
+          // `getHandler()` invocation (no redundant heavy module loads under
+          // parallel load). On rejection, the sentinel is cleared so a
+          // subsequent retry can re-attempt resolution.
+          if (!tool.handler && tool.getHandler) {
+            if (!tool.__resolving) {
+              const thunk = tool.getHandler;
+              tool.__resolving = thunk().catch((err) => {
+                tool.__resolving = undefined;
+                throw err;
+              });
+            }
+            tool.handler = await tool.__resolving;
+            tool.__resolving = undefined;
+          }
+          if (!tool.handler) {
+            throw new Error(`Tool '${request.params.name}' has no handler or getHandler`);
+          }
+
+          // mt#2677: build a progress reporter bound to this request's
+          // transport when the caller opted in via _meta.progressToken.
+          const progressToken = (request.params as { _meta?: { progressToken?: string | number } })
+            ._meta?.progressToken;
+          const progress = buildProgressReporter(progressToken, extra.sendNotification);
+
+          const result = await tool.handler(request.params.arguments || {}, progress);
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
           this.writeAgentIdToSession(request.params.arguments || {}, agentId).catch((err) => {
             log.debug("agentId session update failed (non-blocking)", {
+              error: getErrorMessage(err),
+              tool: request.params.name,
+            });
+          });
+
+          // mt#2562: Write task-grain presence claim (fire-and-forget, session-independent).
+          // Fires whenever args.task or args.taskId is present — no Minsky session required.
+          this.writeTaskClaim(request.params.arguments || {}, agentId).catch((err) => {
+            log.debug("presence claim write failed (non-blocking)", {
               error: getErrorMessage(err),
               tool: request.params.name,
             });
@@ -776,9 +1156,15 @@ export class MinskyMCPServer {
             ],
           };
         } catch (error) {
+          // mt#1831: surface the underlying `.cause` chain so operators can
+          // discriminate stale-connection failures (ECONNRESET, Connection
+          // terminated) from real DB errors (schema mismatch, constraint
+          // violation). DrizzleQueryError stashes the driver error on
+          // `.cause` but only surfaces "Failed query: <SQL>" via `.message`.
+          const wireMessage = getErrorMessageWithCause(error);
           log.error("Tool execution failed", {
             tool: request.params.name,
-            error: getErrorMessage(error),
+            error: wireMessage,
           });
 
           // Check for staleness on error path too — trigger fires notification
@@ -790,11 +1176,15 @@ export class MinskyMCPServer {
 
           // Preserve structured McpError instances (e.g. StructuredMcpError with
           // machine-readable data payload) so the SDK propagates `code` and `data`
-          // to the caller intact. Plain Error objects are wrapped as before.
+          // to the caller intact. Plain Error objects are wrapped as before, but
+          // mt#1831 PR #1113 R1 NON-BLOCKING: preserve the original error via the
+          // ES2022 `cause` option so downstream handlers can still inspect machine-
+          // readable fields (driver code, sub-error chain) even though the
+          // user-facing message is the flattened wireMessage string.
           if (error instanceof McpError) {
             throw error;
           }
-          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+          throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
       } finally {
         this.inFlightRequests.delete(trackingId);
@@ -918,6 +1308,51 @@ export class MinskyMCPServer {
   }
 
   /**
+   * mt#1751: Set the DI initialization promise.
+   *
+   * When set, every CallTool dispatch awaits this promise before invoking the
+   * tool handler. The MCP `initialize` handshake and `tools/list` do NOT await
+   * it (they don't need persistence), so the server can become responsive
+   * immediately while DI runs in the background.
+   *
+   * The promise must complete in finite time and must not be cancellable —
+   * tool handlers depend on the container being fully resolved. If init
+   * fails, the rejection propagates to the first tool call.
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitPromise(p: Promise<void>): void {
+    this.initPromise = p;
+    // mt#1962: symmetric mutual exclusivity — setInitPromise clears any
+    // previously-set controller, mirroring setInitController clearing
+    // initPromise. This prevents the silent-ignore failure mode where
+    // both fields are populated and the controller branch wins
+    // unconditionally in the CallTool handler.
+    this.initController = null;
+  }
+
+  /**
+   * mt#1962: Set the DI initialization controller for stdio mode.
+   *
+   * When set, every CallTool dispatch calls `initController.awaitReady()`
+   * before invoking the tool handler. The controller is responsible for
+   * retrying transient init failures (subject to its own backoff policy);
+   * a single rejected attempt no longer poisons the daemon.
+   *
+   * Clears any previously-set `initPromise` so the controller is the
+   * single source of truth (symmetric with `setInitPromise` clearing
+   * `initController`).
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitController(controller: InitController): void {
+    this.initController = controller;
+    this.initPromise = null;
+  }
+
+  /**
    * Resolve the caller's agentId from MCP request extras.
    * Uses the priority resolver: Layer 2 (_meta declared) > Layer 1 (ascribed).
    * Reads clientInfo from the underlying SDK server for Layer 1 kind normalization.
@@ -974,7 +1409,7 @@ export class MinskyMCPServer {
     if (taskId && this.container.has("sessionProvider")) {
       const sessionProvider = this.container.get(
         "sessionProvider"
-      ) as import("../domain/session/types").SessionProviderInterface;
+      ) as import("@minsky/domain/session/types").SessionProviderInterface;
       // Normalize taskId: strip "mt#" prefix to match storage format
       const storageTaskId = taskId.replace(/^mt#/i, "");
       const record = await sessionProvider.getSessionByTaskId(storageTaskId);
@@ -991,19 +1426,125 @@ export class MinskyMCPServer {
     if (!this.container?.has("sessionProvider")) return;
     const sessionProvider = this.container.get(
       "sessionProvider"
-    ) as import("../domain/session/types").SessionProviderInterface;
+    ) as import("@minsky/domain/session/types").SessionProviderInterface;
     await sessionProvider.updateSession(sessionName, { agentId });
     log.debug("agentId written to session record", { session: sessionName, agentId });
   }
 
   /**
-   * Emit a notifications/message at level=alert and schedule a clean process.exit(0)
-   * after 200ms to give the notification time to flush to the client.
+   * mt#2562: Set the presence claim repository. Called from the MCP start command
+   * after the persistence provider resolves. When unset, `writeTaskClaim` is a no-op.
+   */
+  setPresenceClaimRepository(repo: PresenceClaimRepository): void {
+    this.presenceClaimRepo = repo;
+  }
+
+  /**
+   * mt#2562: Write a task-grain presence claim for the current actor.
+   * Session-independent: fires whenever args.task or args.taskId is present,
+   * regardless of whether a Minsky workspace session exists.
+   *
+   * Runs fire-and-forget (caller catches errors). Failures are logged at debug
+   * level and never surface to the MCP caller — presence tracking is best-effort.
+   *
+   * mt#2567: builds the presence repo per-call from the container when the
+   * one-shot setPresenceClaimRepository() fast-path was not fired (e.g. on
+   * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
+   */
+  private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
+    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
+    // or build per-call from the container (resilient fallback — mirrors
+    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
+    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
+    // servers, leaving presenceClaimRepo unset and making every call a no-op.
+    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
+    if (!repo) {
+      if (!this.container?.has("persistence")) return;
+      try {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (!persistence.getDatabaseConnection) return;
+        const db = await persistence.getDatabaseConnection();
+        if (!db) return;
+        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+        repo = buildPresenceClaimRepository(db);
+        if (!repo) return;
+      } catch {
+        return; // fail silently — presence tracking is best-effort
+      }
+    }
+
+    const taskId =
+      (typeof args.task === "string" ? args.task : undefined) ||
+      (typeof args.taskId === "string" ? args.taskId : undefined);
+
+    if (!taskId) return;
+
+    // Canonicalize the task id so the write path and the read path
+    // (tasks.claims.list) key on the SAME subject_id — `mt#2562`, `2562`, and
+    // `MT-2562` must not fragment into distinct rows (PR #1755 R1).
+    const subjectId = normalizeTaskSubjectId(taskId);
+    if (!subjectId) return;
+
+    // Resolve project scope (best-effort; fail silently on error)
+    let projectId: string | undefined;
+    try {
+      const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+      const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+      const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+      if (identity.kind === "resolved" && this.container?.has("persistence")) {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (persistence.getDatabaseConnection) {
+          const rawDb = await persistence.getDatabaseConnection();
+          if (rawDb) {
+            const scope = await resolveProjectScope(
+              identity,
+              rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+            );
+            const { isAllProjects } = await import("@minsky/domain/project/scope");
+            // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
+            if (!isAllProjects(scope)) {
+              projectId = scope;
+            }
+          }
+        }
+      }
+    } catch {
+      // Fail silently — project scope is informational for presence
+    }
+
+    // Capture the caller's CC conversation id (best-effort from environment)
+    const ccConversationId =
+      typeof process.env.CC_CONVERSATION_ID === "string"
+        ? process.env.CC_CONVERSATION_ID
+        : undefined;
+
+    await repo.upsertClaim({
+      subjectKind: "task",
+      subjectId,
+      actorId,
+      ccConversationId,
+      projectId,
+    });
+
+    log.debug("presence claim written", { taskId, actorId });
+  }
+
+  /**
+   * Begin a staleness-driven shutdown (mt#1315 mechanism, mt#2701 drain): emit a
+   * notifications/message at level=alert, tag the upcoming exit as
+   * `staleness_exit`, mark the server `draining` (rejecting new calls), then wait
+   * for in-flight tool calls to DRAIN before scheduling `process.exit(0)` after a
+   * 200ms flush buffer. A hard cap (`staleDrainCapMs`) force-exits a wedged request.
    *
    * Only fires once per process lifetime (guarded by hasTriggeredStaleSignal).
-   * The tool call's response/error is already returned to the caller by the
-   * time this method runs — the 200ms delay is the spike-derived buffer from
-   * mt#1315 (response → exit measured at ~102ms at delayMs=100).
+   * Draining before exit is what prevents a sibling call in a parallel batch from
+   * being orphaned: the detecting call is itself in flight until its `finally`
+   * runs, so the drain waits for it and every concurrent sibling to respond first.
+   * See scheduleStaleExitAfterDrain.
    */
   private triggerStaleSignal(server: Server): void {
     if (this.hasTriggeredStaleSignal) return;
@@ -1035,7 +1576,141 @@ export class MinskyMCPServer {
         });
       });
 
-    setTimeout(() => this.exit(0), 200);
+    // mt#1682: tag the upcoming exit as `staleness_exit` BEFORE process.exit
+    // fires. Without this, the SDK's onclose handler (chained via
+    // wireDisconnectHooks) records `stdin_close` during stdio teardown,
+    // conflating the by-design staleness exit with harness-initiated
+    // closures. Append-only persistence (mt#1682) guarantees the event hits
+    // disk before the 200ms timeout completes.
+    this.disconnectTracker.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+      errorMessage: staleMessage || undefined,
+    });
+
+    // mt#2701: reject NEW calls and drain in-flight ones before exiting, instead
+    // of arming a 200ms fuse that orphans concurrent siblings still executing.
+    this.draining = true;
+    this.scheduleStaleExitAfterDrain();
+  }
+
+  /**
+   * Poll until no tool call is in flight (or `staleDrainCapMs` elapses), then
+   * schedule the process exit after a short flush buffer so the final response
+   * reaches the transport before the process dies (mt#2701).
+   */
+  private scheduleStaleExitAfterDrain(): void {
+    const POLL_INTERVAL_MS = 50;
+    const FLUSH_BUFFER_MS = 200;
+    const start = Date.now();
+
+    const scheduleExit = (wedgedRequests: number): void => {
+      if (wedgedRequests > 0) {
+        log.warn("MCP staleness drain cap reached — exiting with requests still in flight", {
+          wedgedRequests,
+          capMs: this.staleDrainCapMs,
+        });
+      } else {
+        log.debug("MCP staleness drain complete — all in-flight requests finished", {
+          drainMs: Date.now() - start,
+        });
+      }
+      setTimeout(() => this.exit(0), FLUSH_BUFFER_MS);
+    };
+
+    const poll = (): void => {
+      const inFlight = this.inFlightRequests.size;
+      if (inFlight === 0) {
+        scheduleExit(0);
+        return;
+      }
+      if (Date.now() - start >= this.staleDrainCapMs) {
+        scheduleExit(inFlight);
+        return;
+      }
+      setTimeout(poll, POLL_INTERVAL_MS);
+    };
+    poll();
+  }
+
+  /**
+   * Install SIGTERM / SIGINT / SIGHUP listeners that record a cause-tagged
+   * disconnect event before the process exits. Without these, signal-driven
+   * shutdowns surface as generic `stdin_close` (because the SDK's onclose
+   * fires during stdio teardown) — losing the distinction between by-design
+   * shutdowns and harness-initiated closures.
+   *
+   * The handler is a no-op if a previous MinskyMCPServer instance in the same
+   * process already installed listeners. Multiple servers per process is
+   * unusual but possible (tests); the singleton DisconnectTracker means the
+   * recorded events are still correctly attributed.
+   *
+   * The handler explicitly does NOT call process.exit. After recording the
+   * cause, control returns to Node's default signal handling (or any
+   * additional listeners installed by other parts of the application), which
+   * is what eventually terminates the process. This avoids interfering with
+   * graceful-shutdown paths that other code may have wired up.
+   *
+   * @see mt#1682 — cause classification
+   */
+  private installSignalHandlers(): void {
+    if (MinskyMCPServer.signalHandlersInstalled) return;
+    MinskyMCPServer.signalHandlersInstalled = true;
+
+    // The project's narrowed `process` type omits EventEmitter methods.
+    // Cast to a Node-shaped surface for the signal-handling APIs we need —
+    // intentional escape from the narrow type to access on/removeListener/kill.
+    type ProcSignal = "SIGTERM" | "SIGINT" | "SIGHUP";
+    // eslint-disable-next-line custom/no-excessive-as-unknown
+    const proc = process as unknown as {
+      pid: number;
+      on(event: ProcSignal, listener: () => void): void;
+      removeListener(event: ProcSignal, listener: () => void): void;
+      listenerCount(event: ProcSignal): number;
+      kill(pid: number, signal: ProcSignal): void;
+    };
+
+    const tracker = this.disconnectTracker;
+    const listeners: Record<ProcSignal, () => void> = {
+      SIGTERM: () => handle("SIGTERM"),
+      SIGINT: () => handle("SIGINT"),
+      SIGHUP: () => handle("SIGHUP"),
+    };
+    const handle = (signal: ProcSignal) => {
+      const cause: import("./disconnect-tracker").McpDisconnectCause =
+        signal === "SIGTERM"
+          ? "signal_sigterm"
+          : signal === "SIGINT"
+            ? "signal_sigint"
+            : "signal_sighup";
+      try {
+        tracker.recordDisconnect(cause, { sessionKey: STDIO_SESSION_KEY });
+      } catch (err) {
+        log.debug("signal handler: recordDisconnect failed (non-blocking)", {
+          error: getErrorMessage(err),
+        });
+      }
+      // Remove our own listener so we don't re-enter on the kernel-default
+      // re-emit below, and so the post-removal listenerCount reflects only
+      // OTHER registered handlers.
+      proc.removeListener(signal, listeners[signal]);
+
+      // mt#1987: only re-emit when there are no other listeners. When
+      // `start-command.ts` (or any other module) has registered a graceful-
+      // shutdown handler (e.g. the `cleanup` async closure that drains the
+      // DB pool and exits cleanly), defer to it — re-emitting SIGTERM mid-
+      // tick races against the cleanup handler and causes the kernel default
+      // to fire before the JS handler can run, exiting with `signal:SIGTERM`
+      // / code:null and bypassing the cleanup path entirely. Standalone
+      // usages (tests that construct an MCPServer without a cleanup handler)
+      // still get the kernel-default termination because the listenerCount
+      // is 0 after our removal.
+      if (proc.listenerCount(signal) > 0) return;
+      proc.kill(proc.pid, signal);
+    };
+
+    proc.on("SIGTERM", listeners.SIGTERM);
+    proc.on("SIGINT", listeners.SIGINT);
+    proc.on("SIGHUP", listeners.SIGHUP);
   }
 
   /**
@@ -1047,15 +1722,26 @@ export class MinskyMCPServer {
    * @param defaultCause  Cause to record when `onclose` fires without an
    *                 accompanying transport error (e.g. `"stdin_close"` for
    *                 stdio, `"unknown"` for HTTP sessions).
+   * @param sessionKey  Per-session key for tool-call-count tracking (mt#1705).
+   *                 Passed through to `recordDisconnect` so the disconnect
+   *                 reads THIS session's tool-call count, not the process-wide
+   *                 one. Stdio uses `STDIO_SESSION_KEY`; HTTP uses a per-
+   *                 session UUID generated in `createConfiguredServer`.
    */
   private wireDisconnectHooks(
     server: Server,
-    defaultCause: import("./disconnect-tracker").McpDisconnectCause
+    defaultCause: import("./disconnect-tracker").McpDisconnectCause,
+    sessionKey: string
   ): void {
     const prevOnclose = server.onclose;
     server.onclose = () => {
       prevOnclose?.();
-      this.disconnectTracker.recordDisconnect(defaultCause);
+      // mt#1682: if a server-initiated disconnect (staleness_exit, signal_*,
+      // server_close) was already recorded by triggerStaleSignal /
+      // installSignalHandlers / explicit close, suppress the duplicate
+      // `stdin_close` event that the SDK fires during stdio teardown.
+      if (this.disconnectTracker.isCleanShutdownInitiated()) return;
+      this.disconnectTracker.recordDisconnect(defaultCause, { sessionKey });
     };
 
     const prevOnerror = server.onerror;
@@ -1074,11 +1760,66 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Add a tool to the server
+   * Add a tool to the server.
+   *
+   * mt#1779: Tools whose canonical name contains a dot (e.g., `tasks.list`,
+   * `session.pr.get`) are dual-registered under both the canonical name AND
+   * an underscored alias produced by `toClaudeDesktopName(name)`. Reason:
+   * Claude Desktop's frontend validator regex `^[a-zA-Z0-9_-]{1,64}$` rejects
+   * dotted names, blocking every tool call. Legacy consumers using dotted
+   * names (Reviewer service: `session.list`, `session.pr.get`) keep working
+   * because the dotted key remains in the map. Both keys point to the SAME
+   * `ToolDefinition` object, so `tool.name` (used by logs, drift gate, and
+   * `DI_FREE_TOOL_NAMES` allowlist) keeps its canonical dotted form.
+   *
+   * `tools/list` (see `setupRequestHandlers`) dedupes by ToolDefinition
+   * identity and emits the variant appropriate for the connected client
+   * (see `shouldEmitDesktopAliases`).
+   *
+   * PR #1071 R1 BLOCKING #1 fix: pre-flight check BOTH the canonical and
+   * alias keys before any write. The pre-fix code wrote `tool.name` first
+   * then checked the alias — a canonical-name collision (e.g., adding
+   * `foo_bar` after `foo.bar` had been registered and created the
+   * `foo_bar` alias key) would overwrite silently. The fix is symmetric:
+   * any collision on either key to a different `ToolDefinition` refuses
+   * the registration and logs a clear warning. Idempotent re-adds of the
+   * same `ToolDefinition` object are allowed (no-op).
    */
   addTool(tool: ToolDefinition): void {
+    const desktopName = toClaudeDesktopName(tool.name);
+    const aliasDiffers = desktopName !== tool.name;
+
+    // Pre-flight: detect collisions BEFORE writing. Idempotent re-adds (same
+    // ToolDefinition object) are permitted as no-ops.
+    const canonicalExisting = this.tools.get(tool.name);
+    if (canonicalExisting && canonicalExisting !== tool) {
+      log.warn("mt#1779: tool name collision — refusing to overwrite existing tool", {
+        name: tool.name,
+        existing: canonicalExisting.name,
+      });
+      return;
+    }
+    if (aliasDiffers) {
+      const aliasExisting = this.tools.get(desktopName);
+      if (aliasExisting && aliasExisting !== tool) {
+        log.warn("mt#1779: Claude Desktop alias collision — refusing to register tool", {
+          canonical: tool.name,
+          desktopAlias: desktopName,
+          existing: aliasExisting.name,
+        });
+        return;
+      }
+    }
+
+    // No conflicts — register under both keys (or just the one if equal).
     this.tools.set(tool.name, tool);
-    log.debug("Added tool", { name: tool.name });
+    if (aliasDiffers) {
+      this.tools.set(desktopName, tool);
+    }
+    log.debug("Added tool", {
+      name: tool.name,
+      ...(aliasDiffers ? { desktopAlias: desktopName } : {}),
+    });
   }
 
   /**
@@ -1109,9 +1850,14 @@ export class MinskyMCPServer {
         // mt#1645: wire disconnect/reconnect hooks on the SDK Server after connect().
         // onclose fires when the stdio pipe closes (client-side disconnect or process exit).
         // onerror fires on transport-level errors (I/O errors on stdin/stdout).
-        this.wireDisconnectHooks(this.server, "stdin_close");
+        // mt#1705: stdio mode is one-server-per-process, so a fixed sessionKey
+        // is correct here.
+        this.wireDisconnectHooks(this.server, "stdin_close", STDIO_SESSION_KEY);
         // Record the reconnect event (this process starting = a reconnect from the client's POV)
         this.disconnectTracker.recordReconnect();
+        // mt#1717: write daemon state so the staleness detector hook can compare
+        // the running daemon's start-commit against the current HEAD.
+        writeDaemonState("minsky", "stdio");
         log.cli("Minsky MCP Server started with stdio transport");
         log.systemDebug("[MCP] Stdio transport connected successfully");
       } else {
@@ -1120,6 +1866,10 @@ export class MinskyMCPServer {
         const host = httpConfig.host || "localhost";
         const port = httpConfig.port || 3000;
         log.cli(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
+        // mt#1717: write daemon state for HTTP mode too — the hook gates on
+        // transport === "http" and skips, but the file must exist so the hook
+        // knows a daemon is running (BLOCKING 2, PR #1035 R1).
+        writeDaemonState("minsky", "http");
       }
 
       // Debug log of registered items

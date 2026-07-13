@@ -1,5 +1,25 @@
 # SessionDB Migration Guide
 
+> **Obsolete (2026-06-08; SQLite removal completed the same day).** This guide is historical only.
+> The JSON-file backend was removed years ago, and **SQLite support has been removed entirely**
+> (mt#2339, mt#2329) — `PersistenceConfig.backend` is now a `"postgres"` literal type, not a valid
+> `sqlite`/`json` union member. The `[sessiondb]` config keys referenced below are also retired —
+> they now throw at boot (use `persistence.*` / `MINSKY_PERSISTENCE_POSTGRES_URL`). See
+> [ADR-018](architecture/adr-018-domain-persistence-pattern.md) for the canonical persistence
+> decision and task mt#434 for the future PGlite (embedded Postgres) option. The SQLite/legacy
+> content below is retained only for historical reference — none of the `sqlite`-target commands
+> shown work against the current codebase (mt#2623 follow-up: file a full rewrite/purge task).
+> **All command / config / env-var examples below are legacy** and may reference superseded
+> names (`MINSKY_POSTGRES_URL`, `[sessiondb]` TOML keys, SQLite backends); the canonical
+> equivalents are `persistence.*` (YAML) and `MINSKY_PERSISTENCE_POSTGRES_URL`.
+>
+> **Migration to a SQLite TARGET is no longer functional (mt#2329).** Sessions are
+> Postgres-only under ADR-018, and session writes go through the Postgres-only
+> `DrizzleSessionRepository`. `minsky persistence migrate ... to sqlite` (and the
+> `to: "sqlite"` target in any wrapper) now **hard-errors** with a clear message —
+> migrate **to postgres** instead. Migrating _from_ SQLite to Postgres remains the
+> valid direction. The broader SQLite removal is tracked by **mt#2349**.
+
 This guide covers migrating session data between different storage backends in Minsky (SQLite, PostgreSQL).
 
 ## Overview

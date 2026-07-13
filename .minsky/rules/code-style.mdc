@@ -12,4 +12,5 @@ tags:
 - ES5 trailing commas, LF line endings
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
-- 10 custom ESLint rules enforce architectural patterns
+- Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety
+- `custom/no-unregistered-minsky-env-var` (mt#1788, extended mt#2324) — every `process.env.MINSKY_*` read in `src/` and `.claude/hooks/`, via either bare-identifier (`process.env.MINSKY_FOO`) **or** static-string-literal bracket (`process.env["MINSKY_FOO"]` / `process.env['MINSKY_FOO']`) access, must be registered in `environmentMappings` (config-mapped) or `HOOK_ONLY_ENV_VARS` (hook-only) at `packages/domain/src/configuration/sources/environment.ts`; otherwise the env-var-to-config dot-path parser will reject it at boot when the var is set on Railway. Genuinely dynamic computed access (`process.env[someVar]`, interpolated template literals) is not statically resolvable and is not flagged. The `services/*/` tree is excluded — independent deploy packages (reviewer, site) with their own config loaders, not the main dot-path parser. Severity `error`.

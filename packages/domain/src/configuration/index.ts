@@ -1,0 +1,466 @@
+/**
+ * Configuration System Public API
+ *
+ * Provides a unified interface for configuration access that can be backed
+ * by either node-config (legacy) or the new custom configuration system.
+ * This allows for gradual migration while maintaining behavioral compatibility.
+ */
+
+import type { Configuration, PartialConfiguration } from "./schemas";
+import type { ConfigurationLoadResult, ConfigurationLoaderOptions } from "./loader";
+import { deepMergeConfigs } from "./deep-merge";
+export type { Configuration, PartialConfiguration } from "./schemas";
+export { configurationSchema } from "./schemas";
+
+/**
+ * Configuration provider interface
+ *
+ * This interface abstracts over different configuration implementations,
+ * allowing tests to target the interface rather than specific implementations.
+ */
+export interface ConfigurationProvider {
+  /**
+   * Get the complete configuration object
+   */
+  getConfig(): Configuration;
+
+  /**
+   * Get a configuration value by path
+   */
+  get<T = unknown>(path: string): T;
+
+  /**
+   * Check if a configuration path exists
+   */
+  has(path: string): boolean;
+
+  /**
+   * Get configuration source information for debugging
+   */
+  getMetadata(): ConfigurationMetadata;
+
+  /**
+   * Get effective values with source information
+   */
+  getEffectiveValues(): Record<string, { value: unknown; source: string; path: string }>;
+
+  /**
+   * Validate current configuration
+   */
+  validate(): ValidationResult;
+}
+
+/**
+ * Configuration metadata for debugging and introspection
+ */
+export interface ConfigurationMetadata {
+  sources: Array<{
+    name: string;
+    priority: number;
+    loaded: boolean;
+    path?: string;
+    error?: string;
+  }>;
+  loadedAt: Date;
+  version: string;
+}
+
+/**
+ * Configuration validation result
+ */
+export interface ValidationResult {
+  valid: boolean;
+  errors: Array<{
+    path: string;
+    message: string;
+    severity: "error" | "warning" | "info";
+  }>;
+}
+
+/**
+ * Configuration override options for testing
+ */
+export type ConfigurationOverrides = Record<string, unknown>;
+
+/**
+ * Configuration factory for creating providers
+ */
+export interface ConfigurationFactory {
+  /**
+   * Create a configuration provider
+   */
+  createProvider(options?: {
+    workingDirectory?: string;
+    overrides?: ConfigurationOverrides;
+    skipValidation?: boolean;
+    enableCache?: boolean;
+  }): Promise<ConfigurationProvider>;
+}
+
+// NodeConfigProvider removed - node-config has been fully replaced by custom configuration system
+
+/**
+ * Options for CustomConfigurationProvider, extending loader options with override support
+ */
+interface CustomConfigurationProviderOptions extends ConfigurationLoaderOptions {
+  overrideSource?: PartialConfiguration;
+}
+
+/**
+ * Custom configuration provider implementing the ConfigurationProvider interface
+ *
+ * This is the new implementation using our custom configuration system.
+ */
+export class CustomConfigurationProvider implements ConfigurationProvider {
+  private configResult: ConfigurationLoadResult | null = null;
+  private readonly options: CustomConfigurationProviderOptions;
+
+  constructor(options: CustomConfigurationProviderOptions = {}) {
+    this.options = options;
+  }
+
+  async initialize(): Promise<void> {
+    const { loadConfiguration } = await import("./loader");
+    // Errors propagate to the CLI boundary catch in cli.ts (mt#1801). No
+    // log-then-rethrow here — that pattern double-printed in HUMAN mode AND,
+    // per PR #1090 R1, leaked through the agentLogger Console transport in
+    // STRUCTURED mode when log level allowed it. The boundary catch has all
+    // the diagnostic info needed.
+    this.configResult = await loadConfiguration(this.options);
+
+    // Validate that we got a proper result
+    if (!this.configResult || !this.configResult.sources) {
+      throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
+    }
+
+    // Apply overrides if provided
+    if (this.options.overrideSource) {
+      this.configResult = {
+        ...this.configResult,
+        config: deepMergeConfigs(
+          this.configResult.config as Record<string, unknown>,
+          this.options.overrideSource as Record<string, unknown>
+        ) as Configuration,
+      };
+    }
+
+    // Provide stable defaults for tests and consumers
+    // Ensure modern tasks backend property exists
+    // Deep config traversal requires flexible typing as config is partially validated at this stage
+    const cfg = (this.configResult.config || {}) as Record<string, unknown> & {
+      tasks?: { backend?: string };
+    };
+    cfg.tasks = cfg.tasks || {};
+    if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
+      cfg.tasks.backend = "minsky";
+    }
+    this.configResult = { ...this.configResult, config: cfg as Configuration };
+  }
+
+  getConfig(): Configuration {
+    if (!this.configResult) {
+      throw new Error("Configuration not loaded. Call initialize() first.");
+    }
+    return this.configResult.config;
+  }
+
+  get<T = unknown>(path: string): T {
+    const config = this.getConfig();
+    const value = this.getNestedValue(config, path);
+
+    if (value === undefined) {
+      throw new Error(`Configuration path '${path}' not found`);
+    }
+
+    return value as T;
+  }
+
+  has(path: string): boolean {
+    try {
+      const config = this.getConfig();
+      return this.getNestedValue(config, path) !== undefined;
+    } catch {
+      return false;
+    }
+  }
+
+  getMetadata(): ConfigurationMetadata {
+    if (!this.configResult) {
+      throw new Error("Configuration not loaded. Call initialize() first.");
+    }
+
+    return {
+      sources: this.configResult.sources.map((source) => ({
+        name: source.source.name,
+        priority: source.source.priority,
+        loaded: source.success,
+        path: (source.metadata as { configFile?: string })?.configFile,
+        error: source.error?.message,
+      })),
+      loadedAt: this.configResult.loadedAt,
+      version: "custom",
+    };
+  }
+
+  getEffectiveValues(): Record<string, { value: unknown; source: string; path: string }> {
+    if (!this.configResult) {
+      throw new Error("Configuration not loaded. Call initialize() first.");
+    }
+
+    return this.configResult.effectiveValues || {};
+  }
+
+  validate(): ValidationResult {
+    if (!this.configResult) {
+      return {
+        valid: false,
+        errors: [
+          {
+            path: "root",
+            message: "Configuration not loaded",
+            severity: "error",
+          },
+        ],
+      };
+    }
+
+    return {
+      valid: this.configResult.validationResult.success,
+      errors:
+        this.configResult.validationResult.issues?.map((issue) => ({
+          path: issue.path?.join(".") || "unknown",
+          message: issue.message,
+          severity: "error" as const,
+        })) || [],
+    };
+  }
+
+  private getNestedValue(obj: object, path: string): unknown {
+    // Dynamic path traversal requires index access on unknown-typed nested objects
+    return path.split(".").reduce<unknown>((current, key) => {
+      if (current !== null && typeof current === "object") {
+        return (current as Record<string, unknown>)[key];
+      }
+      return undefined;
+    }, obj);
+  }
+}
+
+/**
+ * Configuration factory implementation
+ */
+export class CustomConfigFactory implements ConfigurationFactory {
+  async createProvider(options?: {
+    workingDirectory?: string;
+    overrides?: ConfigurationOverrides;
+    skipValidation?: boolean;
+    enableCache?: boolean;
+  }): Promise<ConfigurationProvider> {
+    const provider = new CustomConfigurationProvider({
+      workingDirectory: options?.workingDirectory,
+      skipValidation: options?.skipValidation,
+      enableCache: options?.enableCache,
+      // Apply overrides by adding them as a high-priority source
+      ...(options?.overrides && {
+        sourcesToLoad: ["defaults", "project", "user", "environment", "overrides"],
+        overrideSource: options.overrides,
+      }),
+    });
+
+    await provider.initialize();
+    return provider;
+  }
+}
+
+/**
+ * Global configuration instance
+ *
+ * This is the main configuration object that the application should use.
+ * It can be switched between implementations for migration.
+ */
+let globalProvider: ConfigurationProvider | null = null;
+let _globalFactory: ConfigurationFactory | null = null;
+
+/**
+ * Initialize the configuration system
+ *
+ * @param factory - Factory to create the configuration provider
+ * @param options - Options for provider creation
+ */
+export async function initializeConfiguration(
+  factory: ConfigurationFactory,
+  options?: {
+    workingDirectory?: string;
+    overrides?: ConfigurationOverrides;
+    skipValidation?: boolean;
+    enableCache?: boolean;
+  }
+): Promise<void> {
+  _globalFactory = factory;
+  globalProvider = await factory.createProvider(options);
+}
+
+/**
+ * Check if the configuration system has been initialized.
+ */
+export function isConfigurationInitialized(): boolean {
+  return globalProvider !== null;
+}
+
+/**
+ * Get the global configuration provider
+ *
+ * @throws Error if configuration hasn't been initialized
+ */
+export function getConfigurationProvider(): ConfigurationProvider {
+  if (!globalProvider) {
+    throw new Error("Configuration not initialized. Call initializeConfiguration() first.");
+  }
+  return globalProvider;
+}
+
+/**
+ * Get the complete configuration object
+ *
+ * Convenience method for accessing the full configuration.
+ */
+export function getConfiguration(): Configuration {
+  return getConfigurationProvider().getConfig();
+}
+
+/**
+ * Get a configuration value by path
+ *
+ * @param path - Dot-separated path to the configuration value
+ * @returns The configuration value
+ * @throws Error if path doesn't exist
+ */
+export function get<T = unknown>(path: string): T {
+  return getConfigurationProvider().get<T>(path);
+}
+
+/**
+ * Check if a configuration path exists
+ *
+ * @param path - Dot-separated path to check
+ * @returns true if the path exists
+ */
+export function has(path: string): boolean {
+  return getConfigurationProvider().has(path);
+}
+
+/**
+ * Get configuration metadata for debugging
+ *
+ * @returns Configuration metadata including source information
+ */
+export function getConfigurationMetadata(): ConfigurationMetadata {
+  return getConfigurationProvider().getMetadata();
+}
+
+/**
+ * Validate current configuration
+ *
+ * @returns Validation result with any errors
+ */
+export function validateConfiguration(): ValidationResult {
+  return getConfigurationProvider().validate();
+}
+
+/**
+ * Configuration provider type for testing
+ */
+export type TestProviderType = "custom";
+
+/**
+ * Create a configuration provider for testing
+ *
+ * @param overrides - Configuration overrides for testing
+ * @param providerType - Which provider implementation to use
+ * @returns A configuration provider with test overrides
+ */
+export async function createTestProvider(
+  overrides: ConfigurationOverrides = {},
+  providerType: TestProviderType = "custom"
+): Promise<ConfigurationProvider> {
+  const factory = new CustomConfigFactory();
+  return factory.createProvider({
+    overrides,
+    // Speed up test provider for performance-sensitive tests
+    skipValidation: true,
+    enableCache: true,
+  });
+}
+
+// Convenience exports for common configuration sections
+export const config = {
+  /**
+   * Get the full configuration object (lazy-loaded)
+   */
+  get all(): Configuration {
+    return getConfiguration();
+  },
+
+  /**
+   * Get backend-specific configuration
+   */
+  get backendConfig() {
+    return getConfiguration().backendConfig;
+  },
+
+  /**
+   * Get GitHub configuration
+   */
+  get github() {
+    return getConfiguration().github;
+  },
+
+  /**
+   * Get AI configuration
+   */
+  get ai() {
+    return getConfiguration().ai;
+  },
+
+  /**
+   * Get logger configuration
+   */
+  get logger() {
+    return getConfiguration().logger;
+  },
+} as const;
+
+/**
+ * Legacy compatibility - direct configuration object access
+ *
+ * This provides backward compatibility with existing code that expects
+ * a direct configuration object rather than going through the provider.
+ *
+ * @deprecated Use the provider interface or config object instead
+ */
+export const legacyConfig = new Proxy({} as Configuration, {
+  get(_target, prop: string) {
+    if (typeof prop === "string") {
+      try {
+        return getConfiguration()[prop as keyof Configuration];
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  },
+
+  has(_target, prop: string) {
+    if (typeof prop === "string") {
+      try {
+        return prop in getConfiguration();
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  },
+});
+
+// Default exports for easy importing
+export default config;

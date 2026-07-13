@@ -21,8 +21,8 @@
  * Reference: mt#1519 §5, mt#1661 spec.
  */
 
-import type { WakeSignalPayload } from "../../domain/ask/wake-on-respond";
-import { log } from "../../utils/logger";
+import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Surface the middleware uses against the wake-pending store. Subset of
@@ -58,8 +58,27 @@ export interface WakeEnrichmentBlock {
   text: string;
 }
 
-/** Tools the v0 wake-enrichment middleware fires on. Mirrors memory-enrichment's allowlist. */
-const WAKE_ENRICHMENT_ALLOWLIST = new Set<string>(["tasks.get"]);
+/**
+ * Tools the v0 wake-enrichment middleware fires on.
+ *
+ * Includes tools from the original asks-path allowlist (`tasks.get`) PLUS tools
+ * an operator-driven agent would call while waiting on a PR-watch notification
+ * (mt#1725 extension). The common pattern: agent registers a pr_watch, does other
+ * work, calls one of these tools, and the wake-enrichment block arrives in the
+ * response carrying the watch-fired signal.
+ *
+ * Allowlist criteria:
+ *   - The tool carries `session` or `sessionId` args (required for session resolution)
+ *   - It is a read-oriented query that an agent polls naturally during babysitting
+ *   - Adding it does not open a delivery path to unrelated callers
+ */
+const WAKE_ENRICHMENT_ALLOWLIST = new Set<string>([
+  "tasks.get",
+  "pr.watch.list",
+  "tasks.status.get",
+  "session.pr.get",
+  "session.pr.list",
+]);
 
 /** Total character budget for the wake-enrichment block (envelope + payload). */
 const DEFAULT_CHAR_BUDGET = 4000;

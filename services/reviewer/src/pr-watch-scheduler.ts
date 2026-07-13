@@ -23,25 +23,70 @@
  * - `PR_WATCH_POLL_INTERVAL_MS` — poll interval (default: 60 000 ms / 1 min).
  *   Set lower for active iteration windows; 60 s covers the "within one
  *   polling interval" acceptance test criterion.
- * - `PR_WATCH_ENABLED` — set to `"true"` to activate (disabled by default).
- * - `MINSKY_MCP_URL` + `MINSKY_MCP_TOKEN` — used to call `pr_watch_run` via
- *   the Minsky MCP server (existing wiring in server.ts); required when this
- *   scheduler is enabled.
+ * - `PR_WATCH_ENABLED` — set to `"false"` to disable. **Enabled by default
+ *   post-mt#1899.** mt#1618 originally shipped this OFF because the
+ *   agent-context delivery path (`WakeSignalSink` → `wake_pending` →
+ *   `enrichWakeResponse`) was not yet wired; once mt#1725 + mt#1755 closed
+ *   that gap, no commit revisited the default. mt#1899's investigation found
+ *   no remaining blocker, so the default was flipped to match the
+ *   sweeper convention (`SWEEPER_ENABLED` / `MERGE_STATE_SWEEPER_ENABLED`
+ *   defaults — see services/reviewer/deploy.config.ts).
  *
  * ## Invocation mechanism
  *
- * The scheduler calls the Minsky MCP `pr.watch.run` tool via the service's
- * existing `mcpClient` infrastructure. This is the same pattern used by the
- * reviewer service for task-spec fetches (task-spec-fetch.ts). It preserves
- * the clean boundary between the reviewer service (GitHub-facing) and the
- * Minsky core (PR-watch domain): the watcher logic lives in Minsky, the
- * scheduler trigger lives in the reviewer service.
+ * The scheduler calls `runWatcher()` from `@minsky/domain/pr-watch/watcher`
+ * directly via domain imports, bypassing the MCP-over-HTTP path entirely.
+ * This removes the network hop and the need for MINSKY_MCP_URL / MINSKY_MCP_AUTH_TOKEN.
+ * The watcher is instantiated with a `DrizzlePrWatchRepository` (from the
+ * domain container's persistence provider), a `makeProductionGithubPrClient`
+ * backed by the Minsky implementer GitHub App token, and a `SystemOperatorNotify`.
+ *
+ * ## Rate-limit posture (PR #1153 R1)
+ *
+ * Per-tick cost when zero active watches: ONE Postgres SELECT (the
+ * `runWatcher` for-loop iterates over `prWatchRepository.listActive()` and
+ * simply doesn't execute when the list is empty — no GitHub API calls).
+ *
+ * Per-tick cost when N active watches: 1 DB SELECT + N × 3 GitHub API calls
+ * (`getPr` + `listReviews` + `listCheckRuns`). At the default 60s cadence
+ * with the 5000-req/hour GitHub App rate limit, this floor is ~111 watches
+ * before the per-instance load saturates the App's rate budget (assuming
+ * one App-token-per-installation). The watches are scoped to operator-
+ * registered PRs, so steady-state N is typically <10. The reviewer GitHub
+ * App's token is distinct from the implementer App's token, so this load
+ * does not compete with the implementer's PR-create / review-post traffic.
+ *
+ * To avoid thundering-herd alignment when multiple reviewer instances run
+ * in parallel (staging + production, or a future horizontal-scale-out), each
+ * instance jitters its tick interval by `Math.random() × JITTER_FRACTION ×
+ * intervalMs` (default 10%) at startup. Computed once per instance, so the
+ * cadence is stable but instances drift apart over time and dilute any
+ * wall-clock alignment they started with.
  *
  * @see mt#1618 — Invocation path wiring for mt#1295 PR-watch subsystem.
+ * @see mt#1899 — Default flipped from OFF to ON post-mt#1725 delivery wiring.
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 
 import type { ReviewerConfig } from "./config";
-import { safeTruncate } from "./utils/safe-truncate";
+import { parsePositiveIntEnv } from "./config";
+import { log } from "./logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-instance interval jitter as a fraction of `intervalMs` (PR #1153 R1).
+ *
+ * Each instance computes `Math.random() * JITTER_FRACTION * intervalMs` at
+ * startup and adds it to the configured interval. Default 10% — at 60s
+ * cadence this spreads parallel instances across a 6-second window, so they
+ * don't all hit GitHub on the same wall-clock second.
+ */
+const JITTER_FRACTION = 0.1;
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -52,26 +97,27 @@ export interface PrWatchSchedulerConfig {
   intervalMs: number;
   /** Whether the scheduler is enabled. */
   enabled: boolean;
-  /** Minsky MCP endpoint URL. */
-  mcpUrl: string;
-  /** Minsky MCP authentication token. */
-  mcpToken: string;
 }
 
 export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
   return {
-    intervalMs: parseInt(process.env["PR_WATCH_POLL_INTERVAL_MS"] ?? "60000", 10),
-    enabled: (process.env["PR_WATCH_ENABLED"] ?? "false") === "true",
-    mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values would
+    // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
+    intervalMs: parsePositiveIntEnv("PR_WATCH_POLL_INTERVAL_MS", 60_000),
+    // mt#1899: default flipped to "true". The agent-context delivery path
+    // (mt#1725 WakeSignalSink + mt#1755 pr.watch.list session filter) is
+    // wired end-to-end, so the original OFF default no longer reflects any
+    // operational constraint. Set PR_WATCH_ENABLED=false to disable locally
+    // (e.g., during dev to avoid polling GitHub from a workstation).
+    enabled: (process.env["PR_WATCH_ENABLED"] ?? "true") === "true",
   };
 }
 
 // ---------------------------------------------------------------------------
-// MCP call helper
+// Domain call helper
 // ---------------------------------------------------------------------------
 
-interface McpCallResult {
+interface PrWatchRunResult {
   success: boolean;
   inspected?: number;
   fired?: number;
@@ -79,89 +125,81 @@ interface McpCallResult {
 }
 
 /**
- * Call the Minsky MCP `pr.watch.run` tool via HTTP.
+ * Run one pr-watch pass via domain imports.
  *
- * The Minsky MCP server exposes tools over a JSON-RPC-over-HTTP interface.
- * This helper sends a minimal `tools/call` request and parses the outcome.
+ * Builds a `DrizzlePrWatchRepository` from the persistence provider,
+ * creates a `makeProductionGithubPrClient` backed by the Minsky implementer
+ * GitHub App token, and calls `runWatcher()` directly.
  *
- * Errors from the MCP call are caught and returned as `{ success: false }` —
- * the scheduler is a best-effort background task; a single failed call must
- * not crash the reviewer service.
+ * Errors are caught and returned as `{ success: false }` — the scheduler is
+ * a best-effort background task; a single failed call must not crash the
+ * reviewer service.
+ *
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
-async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCallResult> {
+async function runPrWatchDomain(container: AppContainerInterface): Promise<PrWatchRunResult> {
   try {
-    const response = await fetch(`${mcpUrl}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${mcpToken}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: `pr-watch-scheduler-${Date.now()}`,
-        method: "tools/call",
-        params: {
-          name: "pr_watch_run",
-          arguments: {},
-        },
-      }),
-    });
+    const { DrizzlePrWatchRepository } = await import("@minsky/domain/pr-watch/repository");
+    const { runWatcher } = await import("@minsky/domain/pr-watch/watcher");
+    const { makeProductionGithubPrClient } = await import("@minsky/domain/pr-watch/github-client");
+    const { SystemOperatorNotify } = await import("@minsky/domain/notify/operator-notify");
+    const { CompositeWakeSignalSink, LoggingWakeSignalSink, PersistentWakeSignalSink } =
+      await import("@minsky/domain/ask/wake-on-respond");
+    const { DrizzleWakePendingRepository } = await import(
+      "@minsky/domain/ask/wake-pending-repository"
+    );
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "(unreadable)");
-      console.warn(
-        JSON.stringify({
-          event: "pr_watch_scheduler.mcp_http_error",
-          status: response.status,
-          body: safeTruncate(text, 200, "head"),
-        })
-      );
-      return { success: false, error: `HTTP ${response.status}` };
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    const db = await persistenceProvider.getDatabaseConnection();
+    if (!db) {
+      return { success: false, error: "No database connection available" };
     }
 
-    const data = (await response.json()) as {
-      result?: { content?: Array<{ text?: string }> };
-      error?: { message?: string };
+    const prWatchRepository = new DrizzlePrWatchRepository(db);
+
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+    const githubClient = makeProductionGithubPrClient(tokenProvider);
+
+    const operatorNotify = new SystemOperatorNotify();
+
+    // Build composite wake sink (logging + persistent)
+    const sinks: import("@minsky/domain/ask/wake-on-respond").WakeSignalSink[] = [
+      new LoggingWakeSignalSink(),
+    ];
+    try {
+      sinks.push(new PersistentWakeSignalSink(new DrizzleWakePendingRepository(db)));
+    } catch (err: unknown) {
+      log.warn("pr_watch_scheduler.wake_sink_init_error", {
+        event: "pr_watch_scheduler.wake_sink_init_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    const wakeSink = new CompositeWakeSignalSink(sinks);
+
+    const watcherResult = await runWatcher(
+      prWatchRepository,
+      githubClient,
+      operatorNotify,
+      wakeSink
+    );
+    return {
+      success: true,
+      inspected: watcherResult.inspected,
+      fired: watcherResult.fired,
     };
-
-    if (data.error) {
-      console.warn(
-        JSON.stringify({
-          event: "pr_watch_scheduler.mcp_rpc_error",
-          error: data.error.message,
-        })
-      );
-      return { success: false, error: data.error.message ?? "rpc error" };
-    }
-
-    // Parse the text content from the MCP tool response.
-    const textContent = data.result?.content?.[0]?.text;
-    if (textContent) {
-      try {
-        const parsed = JSON.parse(textContent) as {
-          inspected?: number;
-          fired?: number;
-        };
-        return {
-          success: true,
-          inspected: parsed.inspected,
-          fired: parsed.fired,
-        };
-      } catch {
-        // Non-JSON text content — still a success
-        return { success: true };
-      }
-    }
-
-    return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      JSON.stringify({
-        event: "pr_watch_scheduler.call_failed",
-        error: message,
-      })
-    );
+    // Error text goes in the log MESSAGE, not only attributes: Railway's log
+    // surface displays and searches message text only, so attribute-only
+    // errors are invisible there (mt#2463).
+    log.error(`pr_watch_scheduler.domain_call_error: ${message}`, {
+      event: "pr_watch_scheduler.domain_call_error",
+      error: message,
+    });
     return { success: false, error: message };
   }
 }
@@ -175,8 +213,9 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
  *
  * Chosen over a Railway cron entry-point for simplicity: the reviewer service
  * is already running 24/7 and this scheduler shares the same process.
- * Configurable via `PR_WATCH_POLL_INTERVAL_MS` (default: 60 s). Opt-in via
- * `PR_WATCH_ENABLED=true` (disabled by default).
+ * Configurable via `PR_WATCH_POLL_INTERVAL_MS` (default: 60 s). **Enabled by
+ * default post-mt#1899**; set `PR_WATCH_ENABLED=false` to disable (e.g.,
+ * local dev workstation).
  *
  * A reentrancy guard (`isRunning`) prevents overlapping calls if a poll cycle
  * takes longer than the interval.
@@ -185,86 +224,86 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
  * competing with service startup initialization.
  *
  * @returns the timer handle (so callers can `clearInterval` in tests), or
- *   `null` when disabled or when MCP credentials are missing.
+ *   `null` when disabled or when the domain container is unavailable.
+ *
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 export function startPrWatchScheduler(
   config: ReviewerConfig,
-  schedulerConfig: PrWatchSchedulerConfig
+  schedulerConfig: PrWatchSchedulerConfig,
+  container?: AppContainerInterface
 ): ReturnType<typeof setInterval> | null {
   if (!schedulerConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "pr_watch_scheduler.disabled",
-        message: "PR-watch scheduler is disabled (PR_WATCH_ENABLED=false).",
-      })
-    );
+    log.info("pr_watch_scheduler.disabled", {
+      event: "pr_watch_scheduler.disabled",
+      message: "PR-watch scheduler is disabled (PR_WATCH_ENABLED=false).",
+    });
     return null;
   }
 
-  if (!schedulerConfig.mcpUrl || !schedulerConfig.mcpToken) {
-    console.warn(
-      JSON.stringify({
-        event: "pr_watch_scheduler.missing_credentials",
-        message:
-          "PR_WATCH_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
-          "PR-watch scheduler will not start.",
-      })
-    );
+  if (!container) {
+    log.warn("pr_watch_scheduler.missing_domain_container", {
+      event: "pr_watch_scheduler.missing_domain_container",
+      message:
+        "PR-watch scheduler is enabled but domain container not injected. " +
+        "PR-watch scheduler will not start. Set PR_WATCH_ENABLED=false to silence this warning.",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "pr_watch_scheduler.started",
-      intervalMs: schedulerConfig.intervalMs,
-      mcpUrl: schedulerConfig.mcpUrl,
-    })
-  );
+  log.info("pr_watch_scheduler.started", {
+    event: "pr_watch_scheduler.started",
+    intervalMs: schedulerConfig.intervalMs,
+  });
 
   // Suppress unused variable warning — config is held for future use
   void config;
 
   let isRunning = false;
 
+  // Per-instance interval jitter (PR #1153 R1): when multiple reviewer
+  // instances run in parallel (staging + production, or horizontal scale-out)
+  // they shouldn't all hit GitHub on the same wall-clock second. Each
+  // instance computes its own random jitter in [0, JITTER_FRACTION) ×
+  // intervalMs at startup, added to the base interval. Over time the
+  // instances drift apart and natural spreading dilutes thundering-herd
+  // alignment. Computed once — subsequent ticks use the same jittered value.
+  const jitterMs = Math.random() * JITTER_FRACTION * schedulerConfig.intervalMs;
+  const effectiveIntervalMs = schedulerConfig.intervalMs + jitterMs;
+
   const handle = setInterval(() => {
     if (isRunning) {
-      console.warn(
-        JSON.stringify({
-          event: "pr_watch_scheduler.skip_reentrant",
-          message: "Previous PR-watch poll still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("pr_watch_scheduler.skip_reentrant", {
+        event: "pr_watch_scheduler.skip_reentrant",
+        message: "Previous PR-watch poll still in progress; skipping this interval tick.",
+      });
       return;
     }
     isRunning = true;
 
-    callPrWatchRun(schedulerConfig.mcpUrl, schedulerConfig.mcpToken)
+    runPrWatchDomain(container)
       .then((result) => {
         if (result.success) {
-          console.log(
-            JSON.stringify({
-              event: "pr_watch_scheduler.poll_complete",
-              inspected: result.inspected ?? 0,
-              fired: result.fired ?? 0,
-            })
-          );
+          log.info("pr_watch_scheduler.poll_complete", {
+            event: "pr_watch_scheduler.poll_complete",
+            inspected: result.inspected ?? 0,
+            fired: result.fired ?? 0,
+          });
         }
-        // Errors are already logged inside callPrWatchRun.
+        // Errors are already logged inside runPrWatchDomain.
       })
       .catch((err: unknown) => {
-        // Unreachable: callPrWatchRun catches internally. Belt-and-suspenders.
+        // Unreachable: runPrWatchDomain catches internally. Belt-and-suspenders.
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "pr_watch_scheduler.unexpected_error",
-            error: message,
-          })
-        );
+        log.error("pr_watch_scheduler.unexpected_error", {
+          event: "pr_watch_scheduler.unexpected_error",
+          error: message,
+        });
       })
       .finally(() => {
         isRunning = false;
       });
-  }, schedulerConfig.intervalMs);
+  }, effectiveIntervalMs);
 
   return handle;
 }

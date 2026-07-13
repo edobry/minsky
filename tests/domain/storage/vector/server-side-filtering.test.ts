@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { first, elementAt } from "../../../../src/utils/array-safety";
-import { MemoryVectorStorage } from "../../../../src/domain/storage/vector/memory-vector-storage";
-import type { SearchOptions } from "../../../../src/domain/storage/vector/types";
+import { MemoryVectorStorage } from "@minsky/domain/storage/vector/memory-vector-storage";
+import type { SearchOptions } from "@minsky/domain/storage/vector/types";
 
 describe("VectorStorage Server-Side Filtering", () => {
   let storage: MemoryVectorStorage;

@@ -8,14 +8,14 @@
 import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
-import { log } from "../../../../utils/logger";
-import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
+import { log } from "@minsky/shared/logger";
+import { createConfiguredTaskService } from "@minsky/domain/tasks/taskService";
 import {
   DefaultBackendDetectionService,
   TaskBackend,
-} from "../../../../domain/configuration/backend-detection";
-import { updateSessionTaskAssociation } from "../../../../domain/session/session-task-association";
-import type { SessionProviderInterface } from "../../../../domain/session/types";
+} from "@minsky/domain/configuration/backend-detection";
+import { updateSessionTaskAssociation } from "@minsky/domain/session/session-task-association";
+import type { SessionProviderInterface } from "@minsky/domain/session/types";
 
 // Supported backends for migration (subset of TaskBackend)
 const MIGRATION_BACKENDS = [TaskBackend.MINSKY, TaskBackend.GITHUB] as const;
@@ -249,7 +249,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     filterStatus?: string;
     updateIds: boolean;
     sessionProvider?: SessionProviderInterface;
-    persistenceProvider?: import("../../../../domain/persistence/types").BasePersistenceProvider;
+    persistenceProvider?: import("@minsky/domain/persistence/types").BasePersistenceProvider;
   }): Promise<MigrationResult> {
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
@@ -565,7 +565,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     workspacePath: string;
     migratedTasks: MigrationDetail[];
     updateIds: boolean;
-    persistenceProvider?: import("../../../../domain/persistence/types").BasePersistenceProvider;
+    persistenceProvider?: import("@minsky/domain/persistence/types").BasePersistenceProvider;
   }): Promise<ValidationResult> {
     const { sourceBackend, targetBackend, workspacePath, migratedTasks, updateIds } = params;
 

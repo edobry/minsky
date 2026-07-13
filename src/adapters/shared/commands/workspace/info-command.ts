@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../../command-registry";
-import { getWorkspaceInfo } from "../../../../domain/workspace/info";
+import { getWorkspaceInfo } from "@minsky/domain/workspace/info";
 
 const workspaceInfoParams = {
   cwd: {

@@ -11,7 +11,7 @@ import {
   resolveSessionForInterface,
 } from "./session-context-resolver";
 import { TEST_PATHS } from "../utils/test-utils/test-constants";
-import { ValidationError } from "../errors/index";
+import { ValidationError } from "@minsky/domain/errors/index";
 
 describe("Interface-Layer Session Context Resolution", () => {
   describe("CLI Session Context Resolver", () => {

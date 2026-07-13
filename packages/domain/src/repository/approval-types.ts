@@ -1,0 +1,378 @@
+/**
+ * Types for PR Approval and Merge Decoupling
+ *
+ * Defines the new interfaces needed to separate PR approval from merging
+ * as outlined in Task #358.
+ */
+
+/**
+ * Information about a PR approval operation
+ */
+export interface ApprovalInfo {
+  /**
+   * Review ID from the platform (GitHub review ID, or generated local ID)
+   */
+  reviewId: string | number;
+
+  /**
+   * User who approved the PR
+   */
+  approvedBy: string;
+
+  /**
+   * ISO timestamp when approval was granted
+   */
+  approvedAt: string;
+
+  /**
+   * Optional review comment provided with approval
+   */
+  comment?: string;
+
+  /**
+   * PR number or identifier that was approved
+   */
+  prNumber: string | number;
+
+  /**
+   * Platform-specific metadata
+   */
+  metadata?: {
+    /**
+     * GitHub-specific data
+     */
+    github?: {
+      reviewId: number;
+      reviewState: "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED";
+      reviewerLogin: string;
+      submittedAt: string;
+    };
+
+    /**
+     * Local/Remote repository data
+     */
+    local?: {
+      approvalId: string;
+      sessionId: string;
+      taskId?: string;
+    };
+
+    [key: string]: unknown;
+  };
+
+  /**
+   * Platform-specific data (alternative to metadata for direct platform info)
+   */
+  platformData?: Record<string, unknown>;
+}
+
+/**
+ * A single raw review entry as returned by the platform API.
+ * Used by waiver eligibility checks that need to inspect review state
+ * beyond what the summarized ApprovalInfo captures.
+ */
+export interface RawReviewEntry {
+  /** Platform review ID (string for uniformity) */
+  reviewId: string;
+  /** GitHub login of the reviewer */
+  reviewerLogin: string;
+  /** Review state: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING */
+  state: string;
+  /** ISO timestamp when the review was submitted */
+  submittedAt: string;
+  /** Optional review body text */
+  body?: string;
+}
+
+/**
+ * Current approval status of a pull request
+ */
+export interface ApprovalStatus {
+  /**
+   * Whether the PR has sufficient approvals to be merged
+   */
+  isApproved: boolean;
+
+  /**
+   * List of all approvals for this PR
+   */
+  approvals: ApprovalInfo[];
+
+  /**
+   * Number of approvals required (from branch protection or repo settings)
+   */
+  requiredApprovals: number;
+
+  /**
+   * Whether the PR can be merged (considers approvals, status checks, etc.)
+   */
+  canMerge: boolean;
+
+  /**
+   * Whether there are merge blockers OTHER than missing approval.
+   *
+   * This is computed independently of isApproved so that the
+   * acceptStaleReviewerSilence waiver can check it without the
+   * canMerge short-circuit (canMerge is always false when isApproved=false,
+   * making canMerge useless inside the waiver path).
+   *
+   * True when: PR is a draft, PR has merge conflicts (mergeable=false),
+   * or PR state is not "open".
+   */
+  hasNonApprovalMergeBlockers?: boolean;
+
+  /**
+   * Human-readable description of the active non-approval merge blocker,
+   * if any. Used to surface a meaningful message in the waiver rejection.
+   * Examples: "draft PR", "merge conflicts", "PR not open".
+   */
+  nonApprovalBlockerDescription?: string;
+
+  /**
+   * Current state of the pull request
+   */
+  prState?: "open" | "closed" | "merged" | "draft";
+
+  /**
+   * Raw review entries from the platform API.
+   * Used by waiver eligibility checks to inspect review state beyond
+   * the summarized approvals list (e.g. COMMENTED, DISMISSED states).
+   */
+  rawReviews?: RawReviewEntry[];
+
+  /**
+   * Platform-specific data (alternative to metadata for direct platform info)
+   */
+  platformData?: Record<string, unknown>;
+
+  /**
+   * Platform-specific approval metadata
+   */
+  metadata?: {
+    /**
+     * GitHub-specific approval data
+     */
+    github?: {
+      /**
+       * Required status checks and their states
+       */
+      statusChecks: Array<{
+        context: string;
+        state: "pending" | "success" | "failure";
+        targetUrl?: string;
+      }>;
+
+      /**
+       * Branch protection rules affecting merge.
+       *
+       * Carries per-field observed values from
+       * `GET /repos/{owner}/{repo}/branches/{branch}/protection`. The
+       * "configured" verdict is NOT stored — derive it in the formatter
+       * (`src/domain/session/branch-protection-formatter.ts`) from the
+       * observed fields. See mt#2007.
+       *
+       * Shape extended additively in mt#2007 — the original four required
+       * fields (`requiredReviews / dismissStaleReviews / requireCodeOwnerReviews
+       * / restrictPushes`) are preserved for backward compatibility. New
+       * consumers should call `formatBranchProtectionLine()` rather than
+       * hardcoding the old "requiredReviews > 0" collapse.
+       *
+       * Three-state semantics for the API response, distinguished via
+       * `apiResponded` + `probeError`:
+       *   - HTTP 200 + protection object → apiResponded=true, probeError=false
+       *   - HTTP 404 (no protection rules) → apiResponded=true, probeError=false
+       *   - Auth / network / 5xx failure → apiResponded=false, probeError=true
+       * The formatter renders state #3 as "unknown (API error)" rather than
+       * "not configured" to avoid misleading operators when the state is
+       * undeterminable.
+       */
+      branchProtection: {
+        requiredReviews: number;
+        dismissStaleReviews: boolean;
+        requireCodeOwnerReviews: boolean;
+        restrictPushes: boolean;
+        /** `required_status_checks.contexts` — list of required check names. Empty when no status checks required. */
+        statusChecksContexts?: string[];
+        /** `enforce_admins.enabled` — admins included in protection. */
+        enforceAdmins?: boolean;
+        /** `allow_force_pushes.enabled` — when false, force-push to branch is blocked. */
+        allowForcePushes?: boolean;
+        /** `allow_deletions.enabled` — when false, branch deletion is blocked. */
+        allowDeletions?: boolean;
+        /**
+         * Whether the GitHub API gave a definitive response (200 or 404).
+         * `true` for both successful protection fetch AND 404 (no protection);
+         * `false` only when the probe failed for reasons other than 404.
+         */
+        apiResponded?: boolean;
+        /**
+         * Whether the protection probe failed for a non-404 reason (auth,
+         * network, permission, 5xx). When true, the protection state is
+         * UNKNOWN — distinct from "not configured." Mutually exclusive with
+         * `apiResponded=true`.
+         */
+        probeError?: boolean;
+      };
+
+      /**
+       * CODEOWNERS requirements
+       */
+      codeownersApproval?: boolean;
+    };
+
+    /**
+     * Local/Remote repository approval data
+     */
+    local?: {
+      sessionWorkspace: string;
+      approvalSource: "manual" | "automatic";
+    };
+
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Error types for approval operations
+ */
+export class ApprovalError extends Error {
+  constructor(
+    message: string,
+    public prIdentifier: string | number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = "ApprovalError";
+  }
+}
+
+export class InsufficientPermissionsError extends ApprovalError {
+  constructor(prIdentifier: string | number, requiredPermission: string) {
+    super(
+      `Insufficient permissions to approve PR ${prIdentifier}. Required: ${requiredPermission}`,
+      prIdentifier,
+      "INSUFFICIENT_PERMISSIONS"
+    );
+    this.name = "InsufficientPermissionsError";
+  }
+}
+
+export class AlreadyApprovedError extends ApprovalError {
+  constructor(prIdentifier: string | number, approvedBy: string) {
+    super(
+      `PR ${prIdentifier} is already approved by ${approvedBy}`,
+      prIdentifier,
+      "ALREADY_APPROVED"
+    );
+    this.name = "AlreadyApprovedError";
+  }
+}
+
+export class PullRequestNotFoundError extends ApprovalError {
+  constructor(prIdentifier: string | number) {
+    super(`Pull request ${prIdentifier} not found`, prIdentifier, "PR_NOT_FOUND");
+    this.name = "PullRequestNotFoundError";
+  }
+}
+
+/**
+ * Error types for merge operations
+ */
+export class MergeError extends Error {
+  constructor(
+    message: string,
+    public prIdentifier: string | number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = "MergeError";
+  }
+}
+
+export class NotApprovedError extends MergeError {
+  constructor(prIdentifier: string | number, requiredApprovals: number, currentApprovals: number) {
+    super(
+      `PR ${prIdentifier} cannot be merged: ${currentApprovals}/${requiredApprovals} approvals`,
+      prIdentifier,
+      "NOT_APPROVED"
+    );
+    this.name = "NotApprovedError";
+  }
+}
+
+export class MergeConflictError extends MergeError {
+  constructor(prIdentifier: string | number, conflictDetails: string) {
+    super(
+      `PR ${prIdentifier} has merge conflicts: ${conflictDetails}`,
+      prIdentifier,
+      "MERGE_CONFLICT"
+    );
+    this.name = "MergeConflictError";
+  }
+}
+
+export class BranchProtectionError extends MergeError {
+  constructor(prIdentifier: string | number, violation: string) {
+    super(
+      `PR ${prIdentifier} violates branch protection rules: ${violation}`,
+      prIdentifier,
+      "BRANCH_PROTECTION_VIOLATION"
+    );
+    this.name = "BranchProtectionError";
+  }
+}
+
+/**
+ * Configuration for approval operations
+ */
+export interface ApprovalConfig {
+  /**
+   * Whether to require a review comment when approving
+   */
+  requireComment?: boolean;
+
+  /**
+   * Whether to automatically dismiss stale reviews
+   */
+  dismissStaleReviews?: boolean;
+
+  /**
+   * Whether to skip approval if already approved by same user
+   */
+  allowReapproval?: boolean;
+
+  /**
+   * Custom validation rules for approval
+   */
+  customValidation?: (prIdentifier: string | number) => Promise<boolean>;
+}
+
+/**
+ * Configuration for merge operations
+ */
+export interface MergeConfig {
+  /**
+   * Merge strategy to use
+   */
+  strategy?: "merge" | "squash" | "rebase";
+
+  /**
+   * Whether to delete the source branch after merge
+   */
+  deleteBranch?: boolean;
+
+  /**
+   * Whether to skip status checks (admin override)
+   */
+  skipStatusChecks?: boolean;
+
+  /**
+   * Custom commit message for merge commit
+   */
+  commitMessage?: string;
+
+  /**
+   * Custom validation before merge
+   */
+  premergeValidation?: (prIdentifier: string | number) => Promise<void>;
+}
