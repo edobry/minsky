@@ -145,6 +145,13 @@ export const taskCreateParamsSchema = z
       .array(z.string())
       .optional()
       .describe("Tags/labels for thematic batching (e.g., ['di-cleanup', 'test-quality'])"),
+    kind: z
+      .string()
+      .optional()
+      .describe(
+        "Workflow kind (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'. " +
+          "Validated against the workflow registry; invalid values rejected at create time."
+      ),
   })
   .extend(commonCommandOptionsSchema.shape)
   .refine(
@@ -186,6 +193,13 @@ export const taskCreateFromTitleAndSpecParamsSchema = z
       .optional()
       .describe(
         "GitHub repository override in 'owner/repo' format (only for github-issues backend)"
+      ),
+    tags: z.array(z.string()).optional().describe("Tags/labels for thematic batching"),
+    kind: z
+      .string()
+      .optional()
+      .describe(
+        "Workflow kind (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'."
       ),
   })
   .extend(commonCommandOptionsSchema.shape)

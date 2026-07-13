@@ -73,6 +73,7 @@ interface TasksCreateParams extends BaseTaskParams {
   dependsOn?: string | string[];
   parent?: string;
   tag?: string | string[];
+  kind?: string;
 }
 
 /**
@@ -670,6 +671,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
           session: params.session,
           githubRepo: params.githubRepo,
           tags,
+          kind: params.kind,
         },
         {
           persistenceProvider: this.getPersistenceProvider?.(),
@@ -743,6 +745,9 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
         message = chalk.green(`✅ Task ${result.id} created successfully`);
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.id}`;
+        if (params.kind) {
+          message += `\n${chalk.gray("  Kind: ")}${params.kind}`;
+        }
         if (tags && tags.length > 0) {
           message += `\n${chalk.gray("  Tags: ")}${tags.join(", ")}`;
         }
