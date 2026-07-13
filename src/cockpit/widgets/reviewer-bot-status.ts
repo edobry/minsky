@@ -22,6 +22,7 @@
  */
 
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -661,63 +662,94 @@ async function probeReviewerHealth(): Promise<ReviewerHealthProbeResult> {
 }
 
 /**
- * Build the queryRows dep from the shared PersistenceService.
- * Returns a function that executes raw SQL queries against the shared Postgres.
- * Returns [] on any error (fail-open for cockpit observability).
+ * Minimal shape of the postgres-js `Sql` instance this widget needs. Raw
+ * string queries MUST go through `sql.unsafe(query, params)`; calling the
+ * instance as a plain function throws NOT_TAGGED_CALL (it is a tagged-template
+ * function). The resolved value is the row ARRAY (postgres-js RowList), NOT
+ * `{ rows }`. Both mistakes shipped in the original mt#2076 wiring and made
+ * every DB field render as zero since birth (mt#2757). Vendor reference:
+ * node_modules/postgres/README.md §"Advanced unsafe use cases".
  */
-async function buildQueryRows(): Promise<QueryRowsFn> {
+export interface RawSqlLike {
+  unsafe: (query: string, params?: unknown[]) => PromiseLike<unknown>;
+}
+
+/** The slice of PersistenceProvider that buildQueryRows consumes. */
+export interface RawSqlProviderLike {
+  getRawSqlConnection?: () => Promise<unknown>;
+}
+
+/** Rate-limit window for query-failure warn logs — one line per window, not
+ * 15 lines per 30s poll cycle. */
+const QUERY_WARN_SUPPRESS_MS = 60_000;
+
+let _lastQueryWarnAtMs = 0;
+
+/** Rate-limited warn for reviewer DB query failures (mt#2757: the previous
+ * fully-silent catch made a total query-layer failure indistinguishable from
+ * "no data"). */
+function warnQueryFailure(err: unknown): void {
+  const nowMs = Date.now();
+  if (nowMs - _lastQueryWarnAtMs < QUERY_WARN_SUPPRESS_MS) return;
+  _lastQueryWarnAtMs = nowMs;
+  const message = err instanceof Error ? err.message : String(err);
+  log.warn(
+    `[reviewer-bot-status] reviewer DB query failed (repeats suppressed ${QUERY_WARN_SUPPRESS_MS / 1000}s): ${message}`
+  );
+}
+
+/**
+ * Wrap a postgres-js-like connection into a QueryRowsFn. Exported as a seam so
+ * tests can verify the wiring shape (`.unsafe` call, array result) that the
+ * original implementation got wrong (mt#2757).
+ */
+export function createUnsafeQueryRows(
+  rawSql: RawSqlLike,
+  warn: (err: unknown) => void = warnQueryFailure
+): QueryRowsFn {
+  return async (query: string, params?: unknown[]): Promise<Record<string, unknown>[]> => {
+    try {
+      const rows = await rawSql.unsafe(query, params);
+      return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
+    } catch (err) {
+      warn(err);
+      return [];
+    }
+  };
+}
+
+async function defaultLoadProvider(): Promise<RawSqlProviderLike> {
+  const { getSharedPersistenceService } = await import("../shared-persistence");
+  const svc = await getSharedPersistenceService();
+  return svc.getProvider() as RawSqlProviderLike;
+}
+
+/**
+ * Build the queryRows dep from the shared PersistenceService. Exported with an
+ * injectable provider-loader seam for tests (mt#2757 — the previous private,
+ * untested version is exactly where the never-worked wiring hid).
+ *
+ * The former drizzle `getDatabaseConnection` fallback was removed: drizzle's
+ * `execute()` does not accept `(string, params[])` either, and the postgres
+ * provider always exposes `getRawSqlConnection` — the fallback was
+ * dead-and-broken code. Providers without raw SQL (e.g. SQLite) degrade to
+ * empty results: the reviewer tables live in the shared Postgres only.
+ */
+export async function buildQueryRows(
+  loadProvider: () => Promise<RawSqlProviderLike> = defaultLoadProvider
+): Promise<QueryRowsFn> {
   try {
-    const { getSharedPersistenceService } = await import("../shared-persistence");
-    const svc = await getSharedPersistenceService();
-    const provider = svc.getProvider();
-
-    // Need raw SQL access — check for getRawSqlConnection() first, then
-    // fall back to getDatabaseConnection() which returns a drizzle instance.
-    if (
-      "getRawSqlConnection" in provider &&
-      typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function"
-    ) {
-      const sqlProvider = provider as {
-        getRawSqlConnection: () => Promise<
-          (query: string, params?: unknown[]) => Promise<{ rows: unknown[] }>
-        >;
-      };
-      const rawSql = await sqlProvider.getRawSqlConnection();
-      // postgres-js supports parameterized queries via sql.unsafe(query, params)
-      return async (query: string, params?: unknown[]): Promise<Record<string, unknown>[]> => {
-        try {
-          const result = await rawSql(query, params);
-          return (result.rows ?? []) as Record<string, unknown>[];
-        } catch {
-          return [];
-        }
-      };
+    const provider = await loadProvider();
+    if (typeof provider.getRawSqlConnection === "function") {
+      const rawSql = (await provider.getRawSqlConnection()) as RawSqlLike | null;
+      if (rawSql && typeof rawSql.unsafe === "function") {
+        return createUnsafeQueryRows(rawSql);
+      }
     }
-
-    if (
-      "getDatabaseConnection" in provider &&
-      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection === "function"
-    ) {
-      const dbProvider = provider as {
-        getDatabaseConnection: () => Promise<{
-          execute: (query: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-        }>;
-      };
-      const db = await dbProvider.getDatabaseConnection();
-      // drizzle's execute() accepts an optional params array for parameterized queries
-      return async (query: string, params?: unknown[]): Promise<Record<string, unknown>[]> => {
-        try {
-          const result = await db.execute(query, params);
-          return (result.rows ?? []) as Record<string, unknown>[];
-        } catch {
-          return [];
-        }
-      };
-    }
-
-    // No SQL provider available — return empty results for all queries.
+    log.debug("[reviewer-bot-status] provider has no raw SQL connection; DB stats disabled");
     return async (_query: string, _params?: unknown[]) => [];
-  } catch {
+  } catch (err) {
+    warnQueryFailure(err);
     return async (_query: string, _params?: unknown[]) => [];
   }
 }
