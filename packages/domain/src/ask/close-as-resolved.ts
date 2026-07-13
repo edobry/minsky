@@ -25,6 +25,9 @@
  * All operations are best-effort and idempotent — an already-terminal Ask is a
  * no-op, which is what makes a re-run (or the backfill) safe.
  *
+ * This primitive covers the two emit-site triggers (commit-success, PR-merge);
+ * the PR-close-unmerged and parent-task-terminal triggers reuse it under mt#2760.
+ *
  * Reference: mt#2593 spec (Implementation refinement, 2026-07-13).
  */
 
