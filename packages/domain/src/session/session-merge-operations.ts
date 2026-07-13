@@ -45,6 +45,9 @@ import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
 import type { AskRepository } from "../ask/repository";
+import { closeAskAsResolved } from "../ask/close-as-resolved";
+import { findPrRef } from "../ask/reconciler";
+import { isTerminal } from "../ask/state-machine";
 import { applyPostMergeStateSync } from "./session-merge-status-sync";
 import {
   validateSessionApprovedForMerge,
@@ -701,6 +704,40 @@ export async function mergeSessionPr(
       session: sessionIdToUse,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+
+  // mt#2593: the PR merged, so any open quality.review Ask for it is resolved —
+  // close them best-effort so they never linger in the operator's suspended
+  // queue. Match by parent task, then by the merged PR number when the Ask
+  // carries a github-pr contextRef (fall back to same-task when it does not, so
+  // review Asks emitted without a PR URL are still closed).
+  if (deps.askRepository && sessionRecord.taskId) {
+    try {
+      const mergedPrNumber = sessionRecord.pullRequest?.number;
+      const askRepository = deps.askRepository;
+      const reviewAsks = (await askRepository.listByParentTask(sessionRecord.taskId)).filter(
+        (a) => {
+          if (a.kind !== "quality.review" || isTerminal(a.state)) return false;
+          const ref = findPrRef(a);
+          // No PR ref -> same-task fallback; with a ref -> require it matches.
+          return ref === null || (mergedPrNumber != null && ref.prNumber === mergedPrNumber);
+        }
+      );
+      for (const a of reviewAsks) {
+        await closeAskAsResolved(askRepository, a.id, {
+          responder: "system:pr-merged",
+          payload: {
+            prNumber: sessionRecord.pullRequest?.number,
+            prUrl: sessionRecord.pullRequest?.url,
+          },
+        });
+      }
+    } catch (err: unknown) {
+      log.warn("session_pr_merge: failed to close quality.review Asks (best-effort, swallowed)", {
+        session: sessionIdToUse,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   return {
