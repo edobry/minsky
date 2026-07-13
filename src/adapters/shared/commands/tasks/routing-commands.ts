@@ -99,6 +99,11 @@ export function createTasksAvailableCommand(
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
 
+      // Belt-and-suspenders for bridge-materialized defaults (mt#2759): direct
+      // execute() callers (or a bridge that fails to materialize defaultValue)
+      // must still get the documented defaults.
+      const limit = (params.limit as number | undefined) ?? 20;
+
       // Track whether we have dependency data available
       let dependencyDataAvailable = true;
       let availableTasks;
@@ -113,7 +118,7 @@ export function createTasksAvailableCommand(
           availableTasks = await routingService.findAvailableTasks({
             statusFilter,
             backendFilter: params.backend,
-            limit: params.limit,
+            limit,
             showEffort: params.showEffort,
             showPriority: params.showPriority,
           });
@@ -148,7 +153,7 @@ export function createTasksAvailableCommand(
             ? filteredTasks.filter((task) => statusFilter.includes(task.status))
             : filteredTasks;
 
-        availableTasks = statusFilteredTasks.slice(0, params.limit).map((task) => ({
+        availableTasks = statusFilteredTasks.slice(0, limit).map((task) => ({
           taskId: task.id,
           title: task.title || "Unknown",
           status: task.status,

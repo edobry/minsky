@@ -102,6 +102,56 @@ describe("Routing Commands", () => {
         expect(result.data?.count).toBe(1);
         expect(result.data?.availableTasks).toHaveLength(1);
       });
+
+      test("applies default limit 20 on the SQL path when limit is omitted", async () => {
+        const providerWithSql = (() =>
+          ({ capabilities: { sql: true } }) as unknown as PersistenceProvider)();
+        let receivedLimit: unknown = "not-called";
+        const routingService = {
+          findAvailableTasks: async (options: { limit?: number }) => {
+            receivedLimit = options.limit;
+            return [];
+          },
+        } as unknown as TaskRoutingService;
+
+        const command = createTasksAvailableCommand(
+          () => providerWithSql,
+          () => routingService,
+          stubGetTaskService
+        );
+
+        await command.execute({ json: true } as never);
+        expect(receivedLimit).toBe(20);
+      });
+
+      test("applies default limit 20 on the no-SQL fallback path when limit is omitted", async () => {
+        // Before mt#2759, an omitted limit made the fallback `slice(0, undefined)`
+        // return the whole list instead of the documented default of 20.
+        const providerNoSql = (() =>
+          ({ capabilities: { sql: false } }) as unknown as PersistenceProvider)();
+        const manyTasks = Array.from({ length: 25 }, (_, i) => ({
+          id: `mt#${1000 + i}`,
+          title: `Task ${i}`,
+          status: "TODO",
+        }));
+        const taskService = {
+          listTasks: async () => manyTasks,
+        } as unknown as TaskServiceInterface;
+
+        const command = createTasksAvailableCommand(
+          () => providerNoSql,
+          stubGetRoutingService,
+          () => taskService
+        );
+
+        const result = (await command.execute({ json: true } as never)) as {
+          success: boolean;
+          data?: { availableTasks: unknown[]; count: number };
+        };
+
+        expect(result.success).toBe(true);
+        expect(result.data?.count).toBe(20);
+      });
     });
   });
 
