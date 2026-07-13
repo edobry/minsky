@@ -45,7 +45,7 @@ export class CliCommandBridge {
   /**
    * Set the DI container so execute handlers can access services via context.container.
    */
-  setContainer(container: import("../../../composition/types").AppContainerInterface): void {
+  setContainer(container: import("@minsky/domain/composition/types").AppContainerInterface): void {
     this.modularBridge.setContainer(container);
   }
 

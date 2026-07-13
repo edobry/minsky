@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { getSessionDirImpl } from "../../../src/domain/session/session-lifecycle-operations";
+import { getSessionDirImpl } from "@minsky/domain/session/session-lifecycle-operations";
 import { createMock } from "../../../src/utils/test-utils/mocking";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import type { SessionTestData } from "./session-test-utilities";

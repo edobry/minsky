@@ -16,10 +16,10 @@ import type {
   KnowledgeSourceConfig,
   SyncReport,
   KnowledgeSearchResponse,
-} from "../../../../domain/knowledge/types";
-import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
-import type { VectorStorage, SearchResult } from "../../../../domain/storage/vector/types";
-import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
+} from "@minsky/domain/knowledge/types";
+import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
+import type { VectorStorage, SearchResult } from "@minsky/domain/storage/vector/types";
+import type { KnowledgeService } from "@minsky/domain/knowledge/knowledge-service";
 
 // ─── Fake helpers ─────────────────────────────────────────────────────────────
 

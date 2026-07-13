@@ -15,13 +15,13 @@
 
 import { describe, it, expect } from "bun:test";
 import { buildSessionMergeDeps } from "./workflow-commands";
-import { FakeAskRepository } from "../../../../domain/ask/repository";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
 
 describe("buildSessionMergeDeps (mt#1025)", () => {
   it("threads taskService, gitService, and sessionDB from DI deps", () => {
     const stubTaskService = { marker: "task" } as any;
     const stubGitService = { marker: "git" } as any;
-    const stubSessionProvider = { marker: "sessiondb" } as any;
+    const stubSessionProvider = { marker: "persistence" } as any;
 
     const mergeDeps = buildSessionMergeDeps(
       {

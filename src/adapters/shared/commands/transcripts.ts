@@ -17,9 +17,17 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/index";
-import type { AppContainerInterface } from "../../../composition/types";
+import { log } from "@minsky/shared/logger";
+// mt#2741: migrate transcripts_ingest onto the family's canonical conversationId
+// key (mt#2526 / ADR-022), keeping `session` as a deprecated back-compat alias —
+// matching the other 6 transcripts_* commands.
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./transcripts/conversation-id-param";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
 import { registerTranscriptSearchCommand } from "./transcripts/search-command";
 import { registerTranscriptSimilarCommand } from "./transcripts/similar-command";
@@ -56,21 +64,19 @@ export function registerTranscriptCommands(
     category: CommandCategory.TRANSCRIPTS,
     name: "ingest",
     description:
-      "Ingest agent session transcripts into the agent_transcripts table. " +
-      "Pass --all to sweep every discoverable session, or --session=<uuid> to target one. " +
+      "Ingest agent conversation transcripts into the agent_transcripts table. " +
+      "Pass --all to sweep every discoverable conversation, or --conversationId=<uuid> to " +
+      "target one (the legacy --session alias is also accepted). " +
       "Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
     parameters: {
       all: {
         schema: z.boolean(),
-        description: "Sweep and ingest all discoverable sessions",
+        description: "Sweep and ingest all discoverable conversations",
         required: false,
         defaultValue: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Ingest a single session by its agent session UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam("Ingest a single conversation by its agent session UUID"),
+      session: deprecatedConversationAlias("session"),
       harness: {
         schema: z.string(),
         description: "Source harness label (default: claude_code)",
@@ -80,13 +86,13 @@ export function registerTranscriptCommands(
     },
     async execute(params, context): Promise<TranscriptIngestResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
       const harness = (params.harness as string | undefined) ?? "claude_code";
 
       if (!doAll && !sessionId) {
         throw new Error(
-          "transcripts.ingest requires either --all or --session=<uuid>. " +
-            "Pass --all to sweep every discoverable session."
+          "transcripts.ingest requires either --all or --conversationId=<uuid> " +
+            "(the `session` alias is also accepted). Pass --all to sweep every discoverable conversation."
         );
       }
 
@@ -95,7 +101,7 @@ export function registerTranscriptCommands(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -117,12 +123,12 @@ export function registerTranscriptCommands(
 
       // ── Build TranscriptSource ───────────────────────────────────────────
       const { ClaudeCodeTranscriptSource } = await import(
-        "../../../domain/transcripts/claude-code-transcript-source"
+        "@minsky/domain/transcripts/claude-code-transcript-source"
       );
       const source = new ClaudeCodeTranscriptSource();
 
       const { AgentTranscriptIngestService } = await import(
-        "../../../domain/transcripts/agent-transcript-ingest-service"
+        "@minsky/domain/transcripts/agent-transcript-ingest-service"
       );
       const svc = new AgentTranscriptIngestService(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -143,7 +149,7 @@ export function registerTranscriptCommands(
 
       // Single-session mode.
       // Locate the session in discovered sessions to get full DiscoveredSession metadata.
-      let found: import("../../../domain/transcripts/transcript-source").DiscoveredSession | null =
+      let found: import("@minsky/domain/transcripts/transcript-source").DiscoveredSession | null =
         null;
       for await (const sess of source.discoverSessions()) {
         if (sess.agentSessionId === sessionId) {

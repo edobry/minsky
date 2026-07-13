@@ -11,10 +11,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import {
-  MinskyTaskBackend,
-  type MinskyBackendDb,
-} from "../../../src/domain/tasks/minskyTaskBackend";
+import { MinskyTaskBackend, type MinskyBackendDb } from "@minsky/domain/tasks/minskyTaskBackend";
 
 // ── Minimal in-memory fake DB ─────────────────────────────────────────────────
 //
@@ -146,6 +143,11 @@ function createFakeDb(initialTasks: TaskRow[] = []) {
     },
     delete(_table: unknown) {
       return { where: () => ({ returning: () => Promise.resolve([]) }) };
+    },
+    // Run the callback against this same fake so the create path's
+    // transaction (mt#2205) records into the same task/spec maps.
+    transaction<T>(fn: (tx: MinskyBackendDb) => Promise<T>): Promise<T> {
+      return fn(this as unknown as MinskyBackendDb);
     },
   };
 

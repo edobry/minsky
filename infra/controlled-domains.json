@@ -1,0 +1,5 @@
+{
+  "$comment": "Domains/hosts VERIFIED under our control as deploy targets (mt#2208). Adding an entry is the deliberate 'I verified we own this' gate. Do NOT add a domain without verifying it is a zone in our Cloudflare account (GET /zones?name=<domain>) or a platform-provided sub-host provisioned to our account. The pre-commit deploy-domain guard (src/hooks/deploy-domain-detector.ts) fails any domain asserted in infra/index.ts, services/*/deploy.config.ts, services/*/astro.config.ts, or services/*/README.md 'Deployed at' claims that is not listed here. Originating incident: minsky.dev (third-party-owned) hardened into authoritative deploy config. See mt#2193 / mt#2208.",
+  "apexes": ["railway.app", "github.io", "ghcr.io"],
+  "exactHosts": []
+}

@@ -22,7 +22,7 @@ import {
   installNestedDependencies,
   NESTED_PACKAGE_PARENTS,
   type PackageManagerDependencies,
-} from "./package-manager";
+} from "@minsky/domain/utils/package-manager";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures (extracted to avoid magic-string duplication warnings)

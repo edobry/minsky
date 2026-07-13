@@ -8,8 +8,12 @@
 
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
-import { isQualifiedTaskId } from "../../domain/tasks/task-id";
-import { getAvailableBackendsString } from "../../domain/tasks/taskConstants";
+import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
+import { getAvailableBackendsString } from "@minsky/domain/tasks/taskConstants";
+import { WORKFLOWS, type TaskKind } from "@minsky/domain/tasks/workflows";
+
+/** Known task kinds, derived from the workflow registry (mt#1812 / mt#2661). */
+const TASK_KIND_VALUES = Object.keys(WORKFLOWS) as [TaskKind, ...TaskKind[]];
 
 /**
  * Core common parameters used across multiple command categories
@@ -279,6 +283,10 @@ export const TaskParameters = {
 
   /**
    * Task status parameter
+   *
+   * Includes all statuses across all task kinds. The gate in
+   * validateStatusTransition() enforces per-kind state machine rules —
+   * e.g., COMPLETED is valid only for umbrella tasks (mt#1812).
    */
   status: {
     schema: z.enum([
@@ -290,8 +298,24 @@ export const TaskParameters = {
       "DONE",
       "BLOCKED",
       "CLOSED",
+      "COMPLETED",
     ]),
     description: "Task status",
+    required: false,
+  } as CommandParameterDefinition,
+
+  /**
+   * Task workflow kind parameter (mt#1812 / mt#2661).
+   *
+   * Selects which per-kind state machine applies (see
+   * packages/domain/src/tasks/workflows.ts). Defaults to "implementation"
+   * when unset on a task. Only database-backed backends support changing
+   * kind on an existing task (TasksEditCommand checks for setTaskKind
+   * support and errors otherwise).
+   */
+  kind: {
+    schema: z.enum(TASK_KIND_VALUES),
+    description: `Task workflow kind — selects the state machine (${TASK_KIND_VALUES.join(", ")})`,
     required: false,
   } as CommandParameterDefinition,
 

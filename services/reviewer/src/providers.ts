@@ -16,12 +16,116 @@ import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
+import { withTimeout, TimeoutError } from "./with-timeout";
+import { log } from "./logger";
+import { createHash } from "node:crypto";
+
+/**
+ * Default model timeout used when callOpenAIWithClient is called without an
+ * explicit value. Matches the production default in `config.ts`
+ * (`REVIEWER_MODEL_TIMEOUT_MS`); kept in sync manually because the test
+ * surface that calls callOpenAIWithClient directly doesn't load config.
+ *
+ * mt#1086.
+ */
+const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
+
+/**
+ * Default retry-on-timeout ceiling for the openai.chat.completions.create.toolloop
+ * inner call. mt#1969: when a single inner SDK call times out at the primary
+ * `timeoutMs` cap, we retry ONCE with this ceiling.
+ *
+ * mt#2083: raised from 90s to 120s (matching the primary timeout). The original
+ * 90s was designed to "fail fast on genuinely-stuck" retries, but empirical
+ * latency data shows normal gpt-5 reviews take ~80-100s — the 90s retry was
+ * shorter than healthy-case latency, causing retries to fail even when the
+ * provider-side transient had cleared. Matching the primary timeout gives the
+ * retry the same budget as the first attempt.
+ *
+ * Tunable via REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS at process-env load time.
+ */
+const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120_000;
+
+/**
+ * Read the toolloop-retry config from process env at call time. Defaults match
+ * the empirically-grounded values above. mt#1969.
+ */
+function resolveToolloopRetryConfig(): { enabled: boolean; retryTimeoutMs: number } {
+  const rawEnabled = process.env["REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT"];
+  const enabled = rawEnabled === undefined ? true : rawEnabled === "true" || rawEnabled === "1";
+  const rawMs = process.env["REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS"];
+  const parsedMs = rawMs ? parseInt(rawMs, 10) : NaN;
+  const retryTimeoutMs =
+    Number.isFinite(parsedMs) && parsedMs > 0 ? parsedMs : DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS;
+  return { enabled, retryTimeoutMs };
+}
+
+export interface ToolloopRetryResult<T> {
+  result: T;
+  retriedOnTimeout: boolean;
+}
+
+/**
+ * Run the toolloop SDK call with a single retry on TimeoutError (mt#1969).
+ *
+ * Behavior:
+ *   - First attempt uses the caller-supplied `primaryTimeoutMs` (production
+ *     default 120s from config.ts → DEFAULT_MODEL_TIMEOUT_MS).
+ *   - On TimeoutError AND retry-enabled (REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT,
+ *     default "true"), emits a `toolloop.timeout_retry` log line and retries
+ *     once with REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS (default 90s).
+ *   - If the retry also times out OR retry is disabled, the TimeoutError
+ *     propagates to the toolloop caller and surfaces in logs as the existing
+ *     `sweeper.retrigger_failed` / equivalent shape.
+ *
+ * Why retry with a SMALLER ceiling, not a larger one: the goal is to recover
+ * transient provider-side slowness, not mask sustained slowness. A larger
+ * retry ceiling would just inflate wall-clock on hopeless retries. A smaller
+ * ceiling preserves the "fail fast on genuinely-stuck" property while
+ * giving transient hiccups a second chance.
+ *
+ * Non-TimeoutError throws (e.g., HTTP 4xx/5xx from OpenAI, schema validation,
+ * etc.) propagate without retry — they aren't timeout-class issues and the
+ * retry doesn't address them.
+ */
+export async function callToolloopWithRetry<T>(
+  op: string,
+  round: number,
+  primaryTimeoutMs: number,
+  fn: (signal: AbortSignal) => Promise<T>
+): Promise<ToolloopRetryResult<T>> {
+  try {
+    const result = await withTimeout(op, primaryTimeoutMs, fn);
+    return { result, retriedOnTimeout: false };
+  } catch (err) {
+    if (!(err instanceof TimeoutError)) throw err;
+    const { enabled, retryTimeoutMs } = resolveToolloopRetryConfig();
+    if (!enabled) throw err;
+    log.warn("toolloop.timeout_retry", {
+      event: "toolloop.timeout_retry",
+      op,
+      round,
+      primary_timeout_ms: primaryTimeoutMs,
+      retry_timeout_ms: retryTimeoutMs,
+    });
+    const result = await withTimeout(`${op}.retry`, retryTimeoutMs, fn);
+    return { result, retriedOnTimeout: true };
+  }
+}
 
 export interface ReviewUsage {
   promptTokens?: number;
   completionTokens?: number;
   reasoningTokens?: number;
+  /** Cached input tokens (OpenAI prompt_tokens_details.cached_tokens); mt#2721. */
+  cachedTokens?: number;
   totalTokens?: number;
+}
+
+export interface TimingData {
+  roundLatenciesMs: number[];
+  timeoutCount: number;
+  retryOutcomes: string[];
 }
 
 export interface ReviewOutput {
@@ -32,11 +136,13 @@ export interface ReviewOutput {
   model: string;
   /**
    * Structured output tool calls emitted by the model during review. Each
-   * entry is a parsed, validated discriminated-union call (submit_finding,
-   * submit_inline_comment, submit_spec_verification, or conclude_review).
+   * entry is a parsed, validated discriminated-union call: submit_finding,
+   * submit_inline_comment, submit_spec_verification, submit_documentation_impact,
+   * submit_thread_resolve, or conclude_review.
    * Always an array — never undefined; empty when no output tools were called.
    */
   toolCalls: ReviewToolCall[];
+  timing?: TimingData;
 }
 
 /**
@@ -190,9 +296,10 @@ const OUTPUT_TOOL_NAMES = new Set<string>(OUTPUT_TOOL_DEFINITIONS.map((t) => t.f
 
 /**
  * All tools registered with the model in the tool-use loop: the two
- * read-only reviewer tools (read_file, list_directory) plus the four
+ * read-only reviewer tools (read_file, list_directory) plus the six
  * structured output tools (submit_finding, submit_inline_comment,
- * submit_spec_verification, conclude_review).
+ * submit_spec_verification, submit_documentation_impact, submit_thread_resolve,
+ * conclude_review).
  *
  * OutputToolDefinition.function.parameters uses a concrete shape (type, properties,
  * required, additionalProperties) while OpenAI's FunctionParameters is typed as
@@ -210,6 +317,32 @@ const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     },
   })),
 ];
+
+/**
+ * The submit_documentation_impact tool definition extracted from
+ * OUTPUT_TOOL_DEFINITIONS, adapted to the OpenAI SDK's tool-shape. Used by
+ * the post-loop forced doc-impact pass (mt#2115) to constrain the model to
+ * emit submit_documentation_impact via tool_choice.
+ */
+const DOC_IMPACT_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
+  (t) => t.function.name === "submit_documentation_impact"
+);
+const DOC_IMPACT_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null = DOC_IMPACT_RAW_DEF
+  ? {
+      type: "function" as const,
+      function: {
+        name: DOC_IMPACT_RAW_DEF.function.name,
+        description: DOC_IMPACT_RAW_DEF.function.description,
+        parameters: DOC_IMPACT_RAW_DEF.function.parameters as Record<string, unknown>,
+      },
+    }
+  : null;
+
+/** User message injected before the post-loop forced doc-impact pass. */
+const DOC_IMPACT_REMINDER_USER_MSG =
+  "Your review is incomplete — you must emit a `submit_documentation_impact` tool call now. " +
+  'Provide a JSON object with: `kind` (one of "no-update-needed", "updated-in-pr", "blocking-needs-update"), ' +
+  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths).";
 
 /**
  * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
@@ -250,6 +383,16 @@ interface ChatCreateBaseParams {
   model: string;
   max_completion_tokens: number;
   reasoning_effort?: "low" | "medium" | "high";
+  // mt#2722 — OpenAI prompt-cache controls. Neither field is typed by the
+  // installed openai@4.104.0 (both postdate it); the OpenAI Node SDK forwards
+  // unknown body fields verbatim, so we carry them as a typed passthrough on
+  // baseParams and let the spread into `client.chat.completions.create` forward
+  // them (spread-originated properties are exempt from TS excess-property
+  // checks). `prompt_cache_key` is only a routing HINT — it can never cause an
+  // incorrect cache hit (OpenAI validates the actual prefix bytes), so a
+  // stale/colliding key is at worst a missed optimization, never wrong data.
+  prompt_cache_key: string;
+  prompt_cache_retention: "24h";
 }
 
 /**
@@ -274,28 +417,34 @@ async function forceConcludeReview(
   baseParams: ChatCreateBaseParams,
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
-  accumulatedToolCalls: ReviewToolCall[]
+  accumulatedToolCalls: ReviewToolCall[],
+  timeoutMs: number
 ): Promise<{
   promptTokens: number;
   completionTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   emitted: boolean;
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
   // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
-  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted on
-  // stdout (via console.log) for parity with all other reviewer.* JSON events
-  // so log-pipeline ingestion picks it up; the `severity: "error"` field is
-  // available for dashboards/alerts that want to escalate it.
+  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted via
+  // log.info for parity with all other reviewer.* JSON events so log-pipeline
+  // ingestion picks it up; the `severity: "error"` field is available for
+  // dashboards/alerts that want to escalate it.
   if (!CONCLUDE_REVIEW_TOOL_DEF) {
-    console.log(
-      JSON.stringify({
-        event: "reviewer.conclude_review_tool_def_missing",
-        provider: "openai",
-        severity: "error",
-      })
-    );
-    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+    log.info("reviewer.conclude_review_tool_def_missing", {
+      event: "reviewer.conclude_review_tool_def_missing",
+      provider: "openai",
+      severity: "error",
+    });
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      emitted: false,
+    };
   }
 
   // Build a shallow-copied messages array for the forced call so the parent
@@ -309,24 +458,47 @@ async function forceConcludeReview(
     { role: "user", content: CONCLUDE_REVIEW_REMINDER_USER_MSG },
   ];
 
-  const response = await client.chat.completions.create({
-    ...baseParams,
-    messages: forcedMessages,
-    tools: [CONCLUDE_REVIEW_TOOL_DEF],
-    // Reference the extracted tool def's name so the constraint stays in
-    // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
-    // renamed there, this call updates automatically.
-    tool_choice: {
-      type: "function",
-      function: { name: CONCLUDE_REVIEW_TOOL_DEF.function.name },
-    },
-  });
+  const response = await withTimeout(
+    "openai.chat.completions.create.forceConclude",
+    timeoutMs,
+    (signal) =>
+      client.chat.completions.create(
+        {
+          ...baseParams,
+          messages: forcedMessages,
+          // mt#2722 — pass the FULL tools array (was [CONCLUDE_REVIEW_TOOL_DEF])
+          // so the forced pass preserves the cached prefix shared with the main
+          // loop: swapping the `tools` array busts the prompt cache from the
+          // tools position onward. `tool_choice` below still pins the model to
+          // emit exactly conclude_review regardless of array width, so effective
+          // tool availability is unchanged. NOTE (mt#2722 AT 2b): the original
+          // single-tool narrowing was a deliberate mt#1471 choice (memory
+          // c57a9479 records that narrowing + forced tool_choice reached 15/15
+          // emission on gpt-5); widening to the full array is expected to stay
+          // quality-neutral because tool_choice removes the compliance question,
+          // but this is EMPIRICALLY GATED, not assumed — the replay emission
+          // rate must stay >= the mt#1471 baseline. If it regresses, revert to
+          // the narrow array and accept the forced-pass cache-bust (spec
+          // Contingency: change (a)/(b) separability).
+          tools: ALL_TOOL_DEFINITIONS,
+          // Reference the extracted tool def's name so the constraint stays in
+          // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
+          // renamed there, this call updates automatically.
+          tool_choice: {
+            type: "function",
+            function: { name: CONCLUDE_REVIEW_TOOL_DEF.function.name },
+          },
+        },
+        { signal }
+      )
+  );
 
   const usage = response.usage;
   const tokenUsage = {
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
     reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
   };
 
   const message = response.choices[0]?.message;
@@ -344,26 +516,22 @@ async function forceConcludeReview(
       // Observability parity with main-loop output tool calls: emit the same
       // shape so downstream metrics tracking `reviewer.output_tool_call`
       // counts include the forced-path conclude_review emission.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.output_tool_call",
-          provider: "openai",
-          tool: "conclude_review",
-          count: accumulatedToolCalls.length,
-        })
-      );
+      log.info("reviewer.output_tool_call", {
+        event: "reviewer.output_tool_call",
+        provider: "openai",
+        tool: "conclude_review",
+        count: accumulatedToolCalls.length,
+      });
       return { ...tokenUsage, emitted: true };
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.log(
-        JSON.stringify({
-          event: "reviewer.output_tool_call_parse_error",
-          provider: "openai",
-          tool: "conclude_review",
-          phase: "post_loop_forced",
-          error: errMsg,
-        })
-      );
+      log.info("reviewer.output_tool_call_parse_error", {
+        event: "reviewer.output_tool_call_parse_error",
+        provider: "openai",
+        tool: "conclude_review",
+        phase: "post_loop_forced",
+        error: errMsg,
+      });
       // Malformed forced call: do not append. Composition-side severity-derived
       // event recovery (mt#1413) handles the absent-conclude_review case.
       return { ...tokenUsage, emitted: false };
@@ -372,6 +540,115 @@ async function forceConcludeReview(
 
   // Forced call returned tool calls but none was conclude_review (shouldn't
   // happen with tool_choice constraint, but defensive).
+  return { ...tokenUsage, emitted: false };
+}
+
+/**
+ * Run a single forced submit_documentation_impact API call and, if it returns
+ * a parseable tool call, append it to `accumulatedToolCalls`.
+ *
+ * Same pattern as forceConcludeReview (mt#1471) — uses tool_choice to
+ * constrain the model. Fires BEFORE forceConcludeReview so the doc-impact
+ * assessment is available when the model formulates its conclusion.
+ */
+async function forceDocumentationImpact(
+  client: OpenAI,
+  baseParams: ChatCreateBaseParams,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
+  accumulatedToolCalls: ReviewToolCall[],
+  timeoutMs: number
+): Promise<{
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  emitted: boolean;
+}> {
+  if (!DOC_IMPACT_TOOL_DEF) {
+    log.info("reviewer.doc_impact_tool_def_missing", {
+      event: "reviewer.doc_impact_tool_def_missing",
+      provider: "openai",
+      severity: "error",
+    });
+    return {
+      promptTokens: 0,
+      completionTokens: 0,
+      reasoningTokens: 0,
+      cachedTokens: 0,
+      emitted: false,
+    };
+  }
+
+  const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...messages,
+    ...(exitMessage ? [exitMessage] : []),
+    { role: "user", content: DOC_IMPACT_REMINDER_USER_MSG },
+  ];
+
+  const response = await withTimeout(
+    "openai.chat.completions.create.forceDocImpact",
+    timeoutMs,
+    (signal) =>
+      client.chat.completions.create(
+        {
+          ...baseParams,
+          messages: forcedMessages,
+          // mt#2722 — pass the FULL tools array (was [DOC_IMPACT_TOOL_DEF]) so
+          // the forced pass preserves the cached prefix shared with the main
+          // loop. `tool_choice` still pins exactly submit_documentation_impact.
+          // Empirically gated the same as the conclude_review forced pass — see
+          // that pass's comment and mt#2722 AT 2b.
+          tools: ALL_TOOL_DEFINITIONS,
+          tool_choice: {
+            type: "function",
+            function: { name: DOC_IMPACT_TOOL_DEF.function.name },
+          },
+        },
+        { signal }
+      )
+  );
+
+  const usage = response.usage;
+  const tokenUsage = {
+    promptTokens: usage?.prompt_tokens ?? 0,
+    completionTokens: usage?.completion_tokens ?? 0,
+    reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+  };
+
+  const message = response.choices[0]?.message;
+  const rawToolCalls = message?.tool_calls;
+  if (!rawToolCalls || rawToolCalls.length === 0) {
+    return { ...tokenUsage, emitted: false };
+  }
+
+  for (const toolCall of rawToolCalls) {
+    if (toolCall.function.name !== "submit_documentation_impact") continue;
+    try {
+      const parsed = parseToolCall("submit_documentation_impact", toolCall.function.arguments);
+      accumulatedToolCalls.push(parsed);
+      log.info("reviewer.output_tool_call", {
+        event: "reviewer.output_tool_call",
+        provider: "openai",
+        tool: "submit_documentation_impact",
+        count: accumulatedToolCalls.length,
+        phase: "post_loop_forced",
+      });
+      return { ...tokenUsage, emitted: true };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.info("reviewer.output_tool_call_parse_error", {
+        event: "reviewer.output_tool_call_parse_error",
+        provider: "openai",
+        tool: "submit_documentation_impact",
+        phase: "post_loop_forced",
+        error: errMsg,
+      });
+      return { ...tokenUsage, emitted: false };
+    }
+  }
+
   return { ...tokenUsage, emitted: false };
 }
 
@@ -386,7 +663,12 @@ export async function callOpenAIWithClient(
   systemPrompt: string,
   userPrompt: string,
   tools?: ReviewerToolContext,
-  options?: CallReviewerOptions
+  options?: CallReviewerOptions,
+  // mt#1086: per-SDK-call timeout. Optional + defaulted so the dozens of
+  // existing test sites and replay scripts that call this directly without
+  // loading config don't need to change. Production callers (`callOpenAI`
+  // below) pass `config.modelTimeoutMs`.
+  timeoutMs: number = DEFAULT_MODEL_TIMEOUT_MS
 ): Promise<ReviewOutput> {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -408,9 +690,32 @@ export async function callOpenAIWithClient(
   // options.reasoningEffort always takes precedence on both paths. See mt#1232.
   const defaultReasoningEffort = tools ? ("low" as const) : ("medium" as const);
 
+  // mt#2722 — stable prompt-cache routing key. The OpenAI cached prefix is the
+  // systemPrompt + tools array; the systemPrompt (built by
+  // buildCriticConstitution) is repo-INDEPENDENT — a pure function of
+  // (toolsActive, scopeBucket, outputToolsActive, priorReviewsPresent) — so a
+  // hash of it is the correct variant discriminator, stable across reviews,
+  // across the tool-use rounds within a review, and across the forced passes
+  // (all four create call sites spread this baseParams). This DEVIATES from the
+  // spec's original `reviewer:<repo>:<variant>` shape by dropping <repo>: the
+  // repo is not part of the cacheable prefix (it lives in the per-PR user
+  // message, past the shared prefix), so keying on it would fragment cross-repo
+  // cache sharing for negligible sharding benefit (single dominant repo,
+  // sporadic cadence far under OpenAI's ~15 RPM/prefix ceiling). See the spec's
+  // "cache-key value" reconciliation note.
+  const promptCacheKey = `reviewer:${createHash("sha256")
+    .update(systemPrompt)
+    .digest("hex")
+    .slice(0, 16)}`;
+
   const baseParams = {
     model,
     max_completion_tokens: maxCompletionTokens,
+    // mt#2722 — see ChatCreateBaseParams. Applied uniformly to every OpenAI call
+    // in a review (main-loop rounds, both forced passes, and the no-tools path)
+    // so they share one cached prefix.
+    prompt_cache_key: promptCacheKey,
+    prompt_cache_retention: "24h" as const,
     // reasoning_effort is "o-series models only" per the OpenAI SDK. Passing
     // it to non-reasoning models (gpt-4o, gpt-4, etc.) returns 400 from the
     // API — so only include it when the configured model supports it. The
@@ -425,7 +730,13 @@ export async function callOpenAIWithClient(
 
   // No tools provided — preserve original single-turn behavior.
   if (!tools) {
-    const response = await client.chat.completions.create({ ...baseParams, messages });
+    const noToolsStart = Date.now();
+    const response = await withTimeout(
+      "openai.chat.completions.create.notools",
+      timeoutMs,
+      (signal) => client.chat.completions.create({ ...baseParams, messages }, { signal })
+    );
+    const noToolsDurationMs = Date.now() - noToolsStart;
     const text = response.choices[0]?.message?.content ?? "";
     const usage = response.usage;
     return {
@@ -435,11 +746,17 @@ export async function callOpenAIWithClient(
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
         reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens,
+        cachedTokens: usage?.prompt_tokens_details?.cached_tokens,
         totalTokens: usage?.total_tokens,
       },
       provider: "openai",
       model,
       toolCalls: [],
+      timing: {
+        roundLatenciesMs: [noToolsDurationMs],
+        timeoutCount: 0,
+        retryOutcomes: [],
+      },
     };
   }
 
@@ -447,6 +764,7 @@ export async function callOpenAIWithClient(
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
+  let totalCachedTokens = 0;
 
   /** Accumulated output tool calls parsed during the loop. */
   const accumulatedToolCalls: ReviewToolCall[] = [];
@@ -484,15 +802,49 @@ export async function callOpenAIWithClient(
   /** How many rounds the main loop actually ran (1-indexed for logging). */
   let totalRoundsUsed = 0;
 
+  const roundLatenciesMs: number[] = [];
+  let timeoutCount = 0;
+  const retryOutcomes: string[] = [];
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
-    const response = await client.chat.completions.create({
-      ...baseParams,
-      messages,
-      // On the last round, force the model to respond with text only.
-      ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
-    });
+    // mt#1969: retry-on-timeout once with a reduced ceiling to recover
+    // transient provider-side slowness. See callToolloopWithRetry's docstring.
+    const roundStart = Date.now();
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    let retriedOnTimeout = false;
+    try {
+      const retryResult = await callToolloopWithRetry(
+        "openai.chat.completions.create.toolloop",
+        round,
+        timeoutMs,
+        (signal) =>
+          client.chat.completions.create(
+            {
+              ...baseParams,
+              messages,
+              // On the last round, force the model to respond with text only.
+              ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
+            },
+            { signal }
+          )
+      );
+      response = retryResult.result;
+      retriedOnTimeout = retryResult.retriedOnTimeout;
+    } catch (err) {
+      roundLatenciesMs.push(Date.now() - roundStart);
+      if (err instanceof TimeoutError) {
+        timeoutCount++;
+        retryOutcomes.push("timeout-unrecovered");
+      }
+      throw err;
+    }
+    roundLatenciesMs.push(Date.now() - roundStart);
+    if (retriedOnTimeout) {
+      timeoutCount++;
+      retryOutcomes.push("timeout-recovered");
+    }
 
     totalRoundsUsed = round + 1;
 
@@ -501,6 +853,7 @@ export async function callOpenAIWithClient(
       totalPromptTokens += usage.prompt_tokens ?? 0;
       totalCompletionTokens += usage.completion_tokens ?? 0;
       totalReasoningTokens += usage.completion_tokens_details?.reasoning_tokens ?? 0;
+      totalCachedTokens += usage.prompt_tokens_details?.cached_tokens ?? 0;
     }
 
     const message = response.choices[0]?.message;
@@ -558,25 +911,21 @@ export async function callOpenAIWithClient(
           const parsed = parseToolCall(fnName, toolCall.function.arguments);
           accumulatedToolCalls.push(parsed);
           const count = accumulatedToolCalls.length;
-          console.log(
-            JSON.stringify({
-              event: "reviewer.output_tool_call",
-              provider: "openai",
-              tool: fnName,
-              count,
-            })
-          );
+          log.info("reviewer.output_tool_call", {
+            event: "reviewer.output_tool_call",
+            provider: "openai",
+            tool: fnName,
+            count,
+          });
           resultContent = JSON.stringify({ ok: true, recorded: true });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          console.log(
-            JSON.stringify({
-              event: "reviewer.output_tool_call_parse_error",
-              provider: "openai",
-              tool: fnName,
-              error: errMsg,
-            })
-          );
+          log.info("reviewer.output_tool_call_parse_error", {
+            event: "reviewer.output_tool_call_parse_error",
+            provider: "openai",
+            tool: fnName,
+            error: errMsg,
+          });
           // Malformed call: do NOT add to accumulatedToolCalls; return an error
           // envelope so the model can self-correct.
           resultContent = JSON.stringify({ ok: false, error: `parse_error: ${errMsg}` });
@@ -588,10 +937,21 @@ export async function callOpenAIWithClient(
           const path = typeof args.path === "string" ? args.path : "";
 
           if (fnName === "read_file") {
-            const content = await tools.readFile(path);
+            // mt#1086 PR #969 R1 BLOCKING #2 + R2 BLOCKING #2:
+            // Defense-in-depth wrap around the tool call AND propagate
+            // the AbortSignal into the inner function so abort actually
+            // cancels the underlying GitHub request (the R1 wrap by itself
+            // only short-circuited locally). The signal flows:
+            //   withTimeout → tools.readFile → readFileAtRef.callerSignal
+            //   → Octokit `request: { signal }`.
+            const content = await withTimeout("tools.read_file", timeoutMs, (signal) =>
+              tools.readFile(path, signal)
+            );
             resultContent = JSON.stringify(buildReadFileEnvelope(content));
           } else if (fnName === "list_directory") {
-            const entries = await tools.listDirectory(path);
+            const entries = await withTimeout("tools.list_directory", timeoutMs, (signal) =>
+              tools.listDirectory(path, signal)
+            );
             resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
           } else {
             resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });
@@ -612,56 +972,122 @@ export async function callOpenAIWithClient(
     }
   }
 
-  // Post-loop forced conclude_review pass (mt#1471).
+  // Snapshot main-loop output count BEFORE forced passes so the conclude
+  // gate's gate_branch discriminator reflects main-loop behavior, not
+  // forced-pass side-effects (mt#2115 reviewer finding).
+  const mainLoopOutputCount = accumulatedToolCalls.length;
+
+  // Post-loop forced submit_documentation_impact pass (mt#2115).
+  const hasDocImpact = accumulatedToolCalls.some((tc) => tc.name === "submit_documentation_impact");
+  if (!hasDocImpact) {
+    try {
+      const forced = await forceDocumentationImpact(
+        client,
+        baseParams,
+        messages,
+        exitMessage,
+        accumulatedToolCalls,
+        timeoutMs
+      );
+      totalPromptTokens += forced.promptTokens;
+      totalCompletionTokens += forced.completionTokens;
+      totalReasoningTokens += forced.reasoningTokens;
+      totalCachedTokens += forced.cachedTokens;
+
+      log.info("reviewer.doc_impact_reminder", {
+        event: "reviewer.doc_impact_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        finally_emitted: forced.emitted,
+      });
+    } catch (err: unknown) {
+      log.info("reviewer.doc_impact_reminder", {
+        event: "reviewer.doc_impact_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        finally_emitted: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Post-loop forced conclude_review pass (mt#1471 + mt#1639).
   //
-  // The main loop has exited. If the model emitted output tool calls (findings,
-  // inline comments, or spec verifications) but did NOT emit conclude_review,
-  // run one more API call with `tool_choice` constrained to conclude_review.
-  // This is the structural fix for the 1/15 production emission rate of
-  // mt#1450's in-loop reminder: the post-loop pass is decoupled from the
-  // round budget and uses tool_choice to force compliance.
+  // The main loop has exited. If the model did NOT emit conclude_review, run
+  // one more API call with `tool_choice` constrained to conclude_review. This
+  // covers two gate branches:
+  //
+  //   - "emitted_no_conclude": model emitted output tool calls (findings,
+  //     inline comments, or spec verifications) but omitted conclude_review.
+  //     This was mt#1471's original gate (`!hasConcludeReview &&
+  //     hasEmittedOutputCalls`).
+  //
+  //   - "emitted_nothing": model exited the loop without emitting any output
+  //     tool calls at all — no findings, no inline comments, no spec
+  //     verifications, no conclude_review. mt#1471's gate skipped this case
+  //     (`hasEmittedOutputCalls=false`), leaving the reviewer to submit an
+  //     empty structural-envelope review. mt#1639 closes the gap by dropping
+  //     the `&& hasEmittedOutputCalls` clause so both cases reach the forced
+  //     pass. Live instance: PR #973 (mt#1618, 2026-05-07 18:54Z).
+  //
+  // Tool-list scope for the empty-case forced pass: narrow to conclude_review
+  // only, matching mt#1471's behavior for consistency. Alternative not taken:
+  // include the full ALL_TOOL_DEFINITIONS list so the model could retroactively
+  // emit findings before concluding. Rejected because the forced pass is a
+  // last-resort structural backstop — retroactive findings from an otherwise-
+  // empty pass would be unanchored from the read_file / list_directory evidence
+  // the model never gathered, producing hallucinated severity assessments.
+  //
+  // The `gate_branch` discriminator on the audit log distinguishes the two
+  // branches for downstream segmentation without a separate event name.
   //
   // Composition-side severity-derived event recovery (mt#1413) remains the
   // safety net if the forced pass fails to emit a parseable conclude_review.
   const hasConcludeReview = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
-  const hasEmittedOutputCalls = accumulatedToolCalls.length > 0;
-  if (!hasConcludeReview && hasEmittedOutputCalls) {
+  const hasEmittedOutputCalls = mainLoopOutputCount > 0;
+  if (!hasConcludeReview) {
+    // Discriminator for audit log: which gate branch fired.
+    const gateBranch: "emitted_no_conclude" | "emitted_nothing" = hasEmittedOutputCalls
+      ? "emitted_no_conclude"
+      : "emitted_nothing";
     try {
       const forced = await forceConcludeReview(
         client,
         baseParams,
         messages,
         exitMessage,
-        accumulatedToolCalls
+        accumulatedToolCalls,
+        timeoutMs
       );
       totalPromptTokens += forced.promptTokens;
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
+      totalCachedTokens += forced.cachedTokens;
 
-      console.log(
-        JSON.stringify({
-          event: "reviewer.conclude_review_reminder",
-          provider: "openai",
-          mode: "post_loop_forced",
-          fired_at_turn: totalRoundsUsed,
-          reminder_count: 1,
-          finally_emitted: forced.emitted,
-        })
-      );
+      log.info("reviewer.conclude_review_reminder", {
+        event: "reviewer.conclude_review_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        reminder_count: 1,
+        finally_emitted: forced.emitted,
+        gate_branch: gateBranch,
+      });
     } catch (err: unknown) {
       // API error (network, rate limit, etc.) on the forced call. Log and
       // fall through; composition-side recovery handles the missing event.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.conclude_review_reminder",
-          provider: "openai",
-          mode: "post_loop_forced",
-          fired_at_turn: totalRoundsUsed,
-          reminder_count: 1,
-          finally_emitted: false,
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
+      log.info("reviewer.conclude_review_reminder", {
+        event: "reviewer.conclude_review_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        reminder_count: 1,
+        finally_emitted: false,
+        gate_branch: gateBranch,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -675,11 +1101,17 @@ export async function callOpenAIWithClient(
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
       reasoningTokens: totalReasoningTokens,
+      cachedTokens: totalCachedTokens,
       totalTokens,
     },
     provider: "openai",
     model,
     toolCalls: accumulatedToolCalls,
+    timing: {
+      roundLatenciesMs,
+      timeoutCount,
+      retryOutcomes,
+    },
   };
 }
 
@@ -697,7 +1129,8 @@ async function callOpenAI(
     systemPrompt,
     userPrompt,
     tools,
-    options
+    options,
+    config.modelTimeoutMs
   );
 }
 
@@ -708,7 +1141,7 @@ async function callGoogle(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider google does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }
@@ -719,7 +1152,15 @@ async function callGoogle(
     systemInstruction: systemPrompt,
   });
 
-  const response = await model.generateContent(userPrompt);
+  // mt#1086: wrap in withTimeout. The Google SDK does not propagate
+  // AbortSignal to its underlying HTTPS request as of @google/generative-ai
+  // v0.21, so the abort is best-effort: the SDK call may continue running
+  // in the background after timeout, but the caller has moved on.
+  const googleStart = Date.now();
+  const response = await withTimeout("google.generateContent", config.modelTimeoutMs, () =>
+    model.generateContent(userPrompt)
+  );
+  const googleDurationMs = Date.now() - googleStart;
   const text = response.response.text();
   const usage = response.response.usageMetadata;
   return {
@@ -733,6 +1174,11 @@ async function callGoogle(
     provider: "google",
     model: config.providerModel,
     toolCalls: [],
+    timing: {
+      roundLatenciesMs: [googleDurationMs],
+      timeoutCount: 0,
+      retryOutcomes: [],
+    },
   };
 }
 
@@ -743,18 +1189,27 @@ async function callAnthropic(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider anthropic does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }
 
   const client = new Anthropic({ apiKey: config.providerApiKey });
-  const response = await client.messages.create({
-    model: config.providerModel,
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  // mt#1086: wrap in withTimeout. Anthropic SDK accepts `signal` in the
+  // second arg (RequestOptions); it propagates to the underlying fetch.
+  const anthropicStart = Date.now();
+  const response = await withTimeout("anthropic.messages.create", config.modelTimeoutMs, (signal) =>
+    client.messages.create(
+      {
+        model: config.providerModel,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      },
+      { signal }
+    )
+  );
+  const anthropicDurationMs = Date.now() - anthropicStart;
 
   const text = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
@@ -773,5 +1228,10 @@ async function callAnthropic(
     provider: "anthropic",
     model: config.providerModel,
     toolCalls: [],
+    timing: {
+      roundLatenciesMs: [anthropicDurationMs],
+      timeoutCount: 0,
+      retryOutcomes: [],
+    },
   };
 }

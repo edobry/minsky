@@ -1,0 +1,150 @@
+---
+name: MCP disconnect cadence
+description: Cause classification, escalation thresholds, and operator-side reading of the MCP disconnect tracker (mt#1645 + mt#1682 + mt#1705).
+alwaysApply: true
+tags:
+  - minsky
+  - mcp
+  - operations
+---
+# MCP disconnect cadence and escalation threshold
+
+The Minsky MCP server tracks disconnect, reconnect, and process-lifecycle
+events for both the local stdio server and the hosted HTTP server. Operators
+read the cadence via `mcp__minsky__debug_systemInfo` (under `mcpDisconnects`)
+and the persisted JSONL log at
+`~/.local/state/minsky/mcp-disconnect-log.json`.
+
+> **Terminology (mt#2525).** Throughout this rule, **"session"** and
+> **"disconnect"** mean an **MCP transport connection** — a single MCP server
+> process's stdio (stdin/stdout) or hosted-HTTP connection lifecycle. This is
+> the **transport** sense of "session" from the mt#2513 inventory; it is NOT a
+> Minsky **workspace** session (the task-scoped clone created by `session_start`)
+> and NOT a harness **conversation** (a Claude Code chat). In particular,
+> `processRole: "main_session"` means an MCP connection that issued >= 1 tool
+> call, and `escalation: "session"` is scoped to the current MCP server-process
+> lifetime — neither refers to a workspace or a conversation.
+
+## Cause classes
+
+A single `stdin_close` reading would conflate four real-world classes that
+the tracker now distinguishes (mt#1682):
+
+1. **Harness-driven cycling** — Claude Code spawns short-lived MCP server
+   processes for hooks and pre-flight probes. Recorded as
+   `cause: "stdin_close"` with `uptimeMs < 5_000`. **Excluded from
+   escalation** as a normal harness lifecycle pattern.
+2. **Server-initiated `staleness_exit`** — mt#1315's stale-source mechanism
+   intentionally exits the process so the next call gets a fresh server
+   loaded from the new HEAD. Recorded as `cause: "staleness_exit"`.
+   **Excluded from escalation** as by-design behavior.
+3. **Genuine long-lived MCP-connection closure** — the harness closes an MCP
+   transport connection that had been doing real work. Recorded as
+   `cause: "stdin_close"` with
+   `uptimeMs >= 5_000` AND `processRole: "main_session"`. **Counts toward
+   escalation** — this is the user-visible reliability concern.
+4. **Signal-driven shutdowns** — process received SIGTERM, SIGINT, or
+   SIGHUP. Recorded as `signal_sigterm` / `signal_sigint` / `signal_sighup`.
+   **Excluded from escalation** as by-design behavior.
+5. **Stdout pollution** — terminal escape codes, build progress text, and
+   status emoji from subprocesses leaking onto the MCP stdio's stdout.
+   Currently tolerated by Claude Code (logged as "Ignoring non-JSON line on
+   stdout") and is **not a disconnect cause** but is a framing-corruption
+   hazard worth tracking. Cleanup is a separate concern.
+
+## Process-role classification (mt#1705)
+
+Even after filtering class 1 (uptimeMs < 5s), some "helper" processes
+(hooks spawning `minsky` CLI, /mcp reconnect probes, pre-flight harness
+checks) linger 33s–300s before closing. These looked like class 3 (genuine
+session closures) under the uptime-only filter. The `processRole` field
+discriminates them using the tool-call count at disconnect time:
+
+- **`"helper"`** — `processRole: "helper"` — 0 tool calls before disconnect.
+  The process connected but never invoked a tool. This covers hooks, probes,
+  and pre-flight checks. **Excluded from escalation** regardless of uptime.
+- **`"main_session"`** — `processRole: "main_session"` — 1+ tool calls before
+  disconnect. Substantive working session. Still subject to cause-based and
+  uptime-based escalation filters.
+
+The discriminating signal is the tool-call count (incremented by
+`incrementToolCallCount()` in `server.ts`'s `CallToolRequestSchema` handler
+before each tool dispatch). Helper processes characteristically connect without
+invoking tools; this is the only reliable signal that doesn't overlap with
+short working sessions.
+
+**Legacy events** without `processRole` (from pre-mt#1705 logs) are surfaced
+in their own `byRole.legacy` aggregate bucket so operators can see migration
+progress (the legacy count shrinks toward 0 as new-format events saturate the
+log). For escalation eligibility, legacy events are treated conservatively as
+escalation-eligible — same as `"main_session"` — because we have no tool-call
+count to discriminate them. The aggregate split is informational; only the
+predicate's conservative treatment matters for the escalation signal.
+
+## Recurrence-threshold escalation
+
+The tracker emits `escalation: "none" | "session" | "daily"` in the
+`debug.systemInfo` payload, computed from the in-memory event list:
+
+- `daily` fires when **escalation-eligible** disconnects in the last 24h
+  exceed 3.
+- `session` fires when escalation-eligible disconnects in the current
+  server-process lifetime exceed 1.
+
+"Escalation-eligible" means ALL of:
+- `kind: "disconnect"`
+- `cause ∉ {staleness_exit, signal_sigterm, signal_sigint, signal_sighup, server_close, idle_timeout}`
+- `uptimeMs >= 5_000` (or `uptimeMs` absent — legacy mt#1645 events without
+  uptime are counted conservatively)
+- `processRole !== "helper"` (mt#1705 — helper sessions never escalate;
+  legacy events without `processRole` are counted conservatively as
+  escalation-eligible and are surfaced in `byRole.legacy` separately from
+  `byRole.main_session`)
+
+When `escalation` is non-`none`, file or update the structural-fix follow-up
+task. The threshold is calibrated against the empirically observed cadence
+(2026-05-08: ~7 disconnects in 4 hours, of which most were class 1 / 2 /
+4 — only class 3 events drive the eligible count).
+
+## Reading the persisted log
+
+The log file is **append-only JSONL**: one JSON object per line, no
+enclosing array. Each line carries:
+
+- `timestamp`, `serverName`, `kind`, `cause` (always)
+- `uptimeMs` on `disconnect` and `transport_error` events
+- `processRole` on `disconnect` events (mt#1705): `"helper"` or `"main_session"`
+- `pid` on `process_start` events
+- `error` on `transport_error` and (optionally) `disconnect` events
+
+The legacy mt#1645 single-array JSON format is still readable on load
+(backward-compat migration). After upgrade, new events append as JSONL
+lines after the legacy array; both halves load on the next restart.
+
+Quick consumer commands:
+
+```bash
+# Cause distribution today
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq -r '.cause' | sort | uniq -c
+
+# Role distribution today (mt#1705)
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq -r '.processRole // "legacy"' | sort | uniq -c
+
+# Eligible-only count (main_session long-lived harness closures)
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq 'select(.uptimeMs >= 5000 and .cause == "stdin_close" and .processRole == "main_session")'
+
+# Process count today
+grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
+```
+
+## Cross-references
+
+- `mt#1645` — measurement layer (parent task)
+- `mt#1682` — cause classification + append-only log
+- `mt#1705` — process-role classification to exclude helper sessions (this rule update)
+- `src/mcp/disconnect-tracker.ts` — implementation
+- `src/mcp/server.ts` — `wireDisconnectHooks`, `installSignalHandlers`,
+  `triggerStaleSignal`, `incrementToolCallCount` integration points

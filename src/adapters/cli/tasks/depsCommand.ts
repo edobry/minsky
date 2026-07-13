@@ -2,7 +2,7 @@
  * CLI adapter for task deps commands
  */
 import { Command } from "commander";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { sharedCommandRegistry } from "../../shared/command-registry";
 import { addRepoOptions, addOutputOptions, addBackendOptions } from "../utils/index";
 import { handleCliError, outputResult } from "../utils/error-handler";

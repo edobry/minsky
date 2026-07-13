@@ -6,13 +6,13 @@
  */
 
 import { Command } from "commander";
-import { log } from "../../utils/logger";
-import { TaskStatus } from "../../domain/tasks/taskConstants";
+import { log } from "@minsky/shared/logger";
+import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import {
   getContextComponentRegistry,
   registerDefaultComponents,
   getComponentHelp,
-} from "../../domain/context/components/index";
+} from "@minsky/domain/context/components/index";
 
 import type {
   GenerateRequest,
@@ -162,10 +162,10 @@ function buildGenerateRequest(components: string[], options: GenerateOptions): G
       },
       workspacePath: process.cwd(),
       task: {
-        id: "md#082",
-        title: "Add Context Management Commands for Environment-Agnostic AI Collaboration",
+        id: "<testbench-fixture>",
+        title: "Context Generation Testbench Fixture",
         status: TaskStatus.IN_PROGRESS,
-        spec: "Implementing modular context component system for testbench development",
+        spec: "Synthetic task fixture used by the context generate testbench to exercise the modular context component system. Not a real task.",
       },
       userQuery:
         options.prompt ||

@@ -6,6 +6,8 @@
  * required variables are missing.
  */
 
+import { log } from "./logger";
+
 export interface ReviewerConfig {
   appId: number;
   privateKey: string;
@@ -31,6 +33,64 @@ export interface ReviewerConfig {
 
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
+
+  // mt#1086: per-operation network-call timeouts. Bun's fetch has no
+  // default timeout; without these the webhook response stays open until
+  // the platform kills the worker. Defaults are deliberately generous:
+  // gpt-5 reviewer runs can take 60-90s; GitHub API calls should always
+  // return within seconds even on cold paths.
+  modelTimeoutMs: number;
+  githubTimeoutMs: number;
+}
+
+/**
+ * Additional reviewer env vars NOT bound through ReviewerConfig but read at
+ * call time. Names declared here so operators auditing reviewer
+ * configuration can find them in this file without grepping the full source
+ * tree. The actual reads live in `services/reviewer/src/providers.ts`
+ * (`resolveToolloopRetryConfig`).
+ *
+ * Why call-time rather than ReviewerConfig: `providers.ts` is a sealed
+ * module without imports from `./config`, and the production callers don't
+ * thread a per-call retry config through. Reading at call time keeps the
+ * surface narrow while still being operator-tunable. If operational
+ * complexity grows (more retry knobs, hot-reload, etc.) the proper fix is
+ * to plumb them through ReviewerConfig.
+ *
+ * Defaults are in `providers.ts` (`DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120000`;
+ * `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT` defaults `"true"`).
+ *
+ * mt#1969.
+ */
+export const REVIEWER_CALLTIME_ENV_VAR_NAMES = {
+  /** Enable single retry on toolloop `TimeoutError`. Default `"true"`. */
+  TOOLLOOP_RETRY_ON_TIMEOUT: "REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT",
+  /** Timeout ceiling for the retry attempt (matches primary). Default `120000` ms. */
+  TOOLLOOP_RETRY_TIMEOUT_MS: "REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS",
+} as const;
+
+/**
+ * Parse a positive-integer env var with a default fallback. Throws at
+ * config-load time on `=abc`, `=-5`, `=0`, `=NaN`, `=3.14`, `= ` — any
+ * non-positive-integer value. This is mt#1086's stricter cousin of the
+ * loose `parseInt` pattern used elsewhere in this file; only the new
+ * timeout fields use it, to make misconfigured timeouts a fail-fast
+ * boot error rather than a silent NaN that triggers infinite waits.
+ *
+ * Exported for tests.
+ */
+export function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  // Strict integer parse: no leading whitespace, optional + sign, digits.
+  if (!/^\+?\d+$/.test(raw)) {
+    throw new Error(`minsky-reviewer: ${name} must be a positive integer (got "${raw}")`);
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`minsky-reviewer: ${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
 }
 
 function requireEnv(name: string): string {
@@ -78,11 +138,11 @@ export function loadConfig(): ReviewerConfig {
   })();
 
   const mcpUrl = process.env["MINSKY_MCP_URL"] ?? undefined;
-  const mcpToken = process.env["MINSKY_MCP_TOKEN"] ?? undefined;
+  const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? undefined;
 
   if (!mcpUrl || !mcpToken) {
-    console.warn(
-      "minsky-reviewer: MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+    log.warn(
+      "minsky-reviewer: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
         "Provenance-based tier resolution (mt#1085) falls back to the PR-body marker, " +
         "and task-spec fetch (mt#1187) is disabled for every review."
     );
@@ -105,5 +165,15 @@ export function loadConfig(): ReviewerConfig {
 
     port: parseInt(optionalEnv("PORT", "3000"), 10),
     logLevel: optionalEnv("LOG_LEVEL", "info") as ReviewerConfig["logLevel"],
+
+    // mt#1086 — timeout budgets sized to production traffic:
+    //   model: 120s per tool-loop round. Production data (2026-05-24):
+    //          successful reviews complete in 50-60s; transient timeouts
+    //          recover via callToolloopWithRetry in 10-20s.
+    //   toolloop retry: 120s (matches primary; see providers.ts).
+    //   github: 30s — every GitHub REST call returns in <5s on the happy
+    //          path; 30s buys headroom for transient slow paths.
+    modelTimeoutMs: parsePositiveIntEnv("REVIEWER_MODEL_TIMEOUT_MS", 120_000),
+    githubTimeoutMs: parsePositiveIntEnv("REVIEWER_GITHUB_TIMEOUT_MS", 30_000),
   };
 }

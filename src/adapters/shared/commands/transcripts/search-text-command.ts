@@ -15,8 +15,8 @@
  *   query          Required. The natural-language search query.
  *   limit          Optional. Max results to return (default 10).
  *   role           Optional. Filter to 'user' or 'assistant' turns.
- *   from           Optional. ISO date string — filter sessions started after this date.
- *   to             Optional. ISO date string — filter sessions started before this date.
+ *   from           Optional. ISO date string — include only turns whose own timestamp is on/after this date.
+ *   to             Optional. ISO date string — include only turns whose own timestamp is on/before this date.
  *   session        Optional. Restrict results to a single agent session UUID.
  *
  * DI pattern mirrors search-command.ts: persistence provider resolved from
@@ -30,9 +30,18 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import type { AppContainerInterface } from "../../../../composition/types";
-import type { TranscriptTurnResult } from "../../../../domain/transcripts/transcript-fts-service";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
+import { log } from "@minsky/shared/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import {
+  assessWindowCoverage,
+  buildSearchResponse,
+  type TranscriptSearchResponse,
+} from "@minsky/domain/transcripts/transcript-search-filters";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -57,7 +66,12 @@ export function registerTranscriptSearchTextCommand(
       "Search agent transcript turns by full-text search (FTS). " +
       "Uses Postgres plainto_tsquery against the fts_text GENERATED column. " +
       "Results are ranked by ts_rank (higher = more relevant). " +
-      "Optionally filter by role (user/assistant), date range, or session UUID.",
+      "Optionally filter by role (user/assistant), date range, or session UUID. " +
+      "Date filters bind the turn's own timestamp, so turns from long-running " +
+      "sessions are matched by when the turn happened, not when the session started. " +
+      "Returns { results, coverage }: when a date window contains sessions not yet " +
+      "indexed into searchable turns, `coverage` reports the gap instead of a silent " +
+      "empty result (those turns become searchable after `transcripts index-embeddings`).",
     parameters: {
       query: {
         schema: z.string(),
@@ -78,35 +92,36 @@ export function registerTranscriptSearchTextCommand(
       },
       from: {
         schema: z.string(),
-        description: "ISO date string — include only turns from sessions started after this date",
+        description:
+          "ISO date string — include only turns whose own timestamp is on/after this date",
         required: false,
       },
       to: {
         schema: z.string(),
-        description: "ISO date string — include only turns from sessions started before this date",
+        description:
+          "ISO date string — include only turns whose own timestamp is on/before this date",
         required: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Restrict results to a single agent session by its UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam(
+        "Restrict results to a single harness conversation by its id (agent-session UUID)"
+      ),
+      session: deprecatedConversationAlias("session"),
     },
 
-    async execute(params, context): Promise<TranscriptTurnResult[]> {
+    async execute(params, context): Promise<TranscriptSearchResponse> {
       const query = params.query as string;
       const limit = (params.limit as number | undefined) ?? 10;
       const role = params.role as "user" | "assistant" | undefined;
       const from = params.from as string | undefined;
       const to = params.to as string | undefined;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
 
       // ── Resolve DB from DI container ─────────────────────────────────────
       const persistenceProvider = (() => {
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -129,7 +144,7 @@ export function registerTranscriptSearchTextCommand(
       // ── Construct service and search ─────────────────────────────────────
       // FTS search does not need EmbeddingService — skip that part of the pattern.
       const { TranscriptFtsService } = await import(
-        "../../../../domain/transcripts/transcript-fts-service"
+        "@minsky/domain/transcripts/transcript-fts-service"
       );
       const svc = new TranscriptFtsService(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase
@@ -143,16 +158,30 @@ export function registerTranscriptSearchTextCommand(
         dateRange.to = new Date(to);
       }
 
+      const windowed = Object.keys(dateRange).length > 0 ? dateRange : undefined;
+
       const results = await svc.searchText(query, {
         limit,
         role,
-        dateRange: Object.keys(dateRange).length > 0 ? dateRange : undefined,
+        dateRange: windowed,
         sessionId,
       });
 
-      log.debug("transcripts.search-text complete", { query, resultCount: results.length });
+      // When a date window is supplied, report whether in-window sessions exist
+      // that are not yet indexed (so an empty/short result isn't misread as
+      // "nothing matched"). Omitted when there is no gap. (mt#2319 SC#4)
+      const coverage = await assessWindowCoverage(
+        db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
+        windowed
+      );
 
-      return results;
+      log.debug("transcripts.search-text complete", {
+        query,
+        resultCount: results.length,
+        unindexedSessionsInWindow: coverage.unindexedSessionsInWindow,
+      });
+
+      return buildSearchResponse(results, coverage);
     },
   });
 

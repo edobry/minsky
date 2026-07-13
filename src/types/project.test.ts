@@ -1,16 +1,28 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   validateRepositoryPath,
   createProjectContext,
   createProjectContextFromCwd,
 } from "./project";
-import type { SyncFsLike } from "../domain/interfaces/fs-like";
+import type { SyncFsLike } from "@minsky/domain/interfaces/fs-like";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
-import { getErrorMessage } from "../errors/message-templates";
+import { getErrorMessage } from "@minsky/domain/errors/message-templates";
 
 describe("ProjectContext", () => {
   let mockFs: ReturnType<typeof createMockFilesystem>;
   let syncFs: SyncFsLike;
+  // Saved so the real process.cwd can be restored after every test. Bun's
+  // mock.restore() only rewinds spies created via spyOn/mock.module — it
+  // does NOT undo a raw property reassignment like `process.cwd = mock(...)`,
+  // so without this restore the mocked "/mock/projects/minsky" leaks into
+  // every subsequent test file in the same bun test process (mt#2608 — same
+  // class of bug found in errors/message-templates.test.ts and
+  // tests/domain/commands/workspace.commands.test.ts).
+  const realCwd = process.cwd;
+
+  afterEach(() => {
+    (process as unknown as Record<string, unknown>).cwd = realCwd;
+  });
 
   beforeEach(() => {
     // Set up mock filesystem — injected via DI, no mock.module needed

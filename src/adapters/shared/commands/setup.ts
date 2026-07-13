@@ -9,17 +9,17 @@
 
 import { z } from "zod";
 import { select, confirm, isCancel, cancel } from "@clack/prompts";
-import { getErrorMessage } from "../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
   defineCommand,
   type CommandParameterMap,
 } from "../command-registry";
-import { performSetup } from "../../../domain/setup";
-import { applyHarnessSettings } from "../../../domain/setup/harness-settings";
-import { detectInstalledClients } from "../../../domain/runtime/harness-detection";
-import { ValidationError } from "../../../errors/index";
+import { performSetup } from "@minsky/domain/setup";
+import { applyHarnessSettings } from "@minsky/domain/setup/harness-settings";
+import { detectInstalledClients } from "@minsky/domain/runtime/harness-detection";
+import { ValidationError } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
 import { isInteractive } from "../../../utils/interactive";
 

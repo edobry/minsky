@@ -11,9 +11,9 @@
  */
 import { describe, test, expect, mock } from "bun:test";
 import { MinskyMCPServer } from "./server";
-import { AGENT_ID_META_KEY } from "../domain/agent-identity/layer2";
-import type { AppContainerInterface, ServiceKey } from "../composition/types";
-import type { SessionProviderInterface, SessionRecord } from "../domain/session/types";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
+import type { AppContainerInterface, ServiceKey } from "@minsky/domain/composition/types";
+import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session/types";
 
 // Used in tests where writeAgentIdToSession is expected to short-circuit
 // before the agentId value is observed (no container, no session match).

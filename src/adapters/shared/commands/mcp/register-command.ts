@@ -18,11 +18,11 @@ import {
 } from "../../command-registry";
 import { CommonParameters, composeParams } from "../../common-parameters";
 import { isInteractive } from "../../../../utils/interactive";
-import { detectInstalledClients } from "../../../../domain/runtime/harness-detection";
-import { registerWithClient, getRegistrar } from "../../../../domain/mcp/registration";
-import { loadProjectConfiguration } from "../../../../domain/configuration/sources/project";
-import { ValidationError, getErrorMessage } from "../../../../errors/index";
-import type { McpConfig } from "../../../../domain/configuration/schemas/mcp";
+import { detectInstalledClients } from "@minsky/domain/runtime/harness-detection";
+import { registerWithClient, getRegistrar } from "@minsky/domain/mcp/registration";
+import { loadProjectConfiguration } from "@minsky/domain/configuration/sources/project";
+import { ValidationError, getErrorMessage } from "@minsky/domain/errors/index";
+import type { McpConfig } from "@minsky/domain/configuration/schemas/mcp";
 
 const mcpRegisterParams = composeParams(
   {

@@ -4,10 +4,10 @@
  * Shows GitHub backend configuration and status information
  */
 
-import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
-import type { GitHubIssuesTaskBackendOptions } from "../../domain/tasks/githubIssuesTaskBackend";
-import { get, getConfiguration } from "../../domain/configuration";
-import { log } from "../../utils/logger";
+import { getGitHubBackendConfig } from "@minsky/domain/tasks/githubBackendConfig";
+import type { GitHubIssuesTaskBackendOptions } from "@minsky/domain/tasks/githubIssuesTaskBackend";
+import { get, getConfiguration } from "@minsky/domain/configuration";
+import { log } from "@minsky/shared/logger";
 
 interface StatusOptions {
   verbose?: boolean;

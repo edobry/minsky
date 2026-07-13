@@ -7,11 +7,12 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrReviewSubmitCommandParams } from "./session-parameters";
-import { sessionPrReviewSubmit } from "../../../../domain/session/commands/pr-subcommands";
-import type { ReviewComment } from "../../../../domain/repository/github-pr-review";
+import { sessionPrReviewSubmit } from "@minsky/domain/session/commands/pr-subcommands";
+import type { ReviewComment } from "@minsky/domain/repository/github-pr-review";
+import type { TokenRole } from "@minsky/domain/auth/token-provider";
 
 export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
@@ -19,8 +20,16 @@ export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): Co
     category: CommandCategory.SESSION,
     name: "review-submit",
     description:
-      "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky " +
-      "using the configured bot identity",
+      "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using " +
+      "the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the " +
+      "implementer App (default `minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the " +
+      "reviewer App (default `minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is " +
+      "configured. " +
+      "APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool " +
+      "throws a typed MinskyError naming the missing config key rather than silently falling " +
+      "back to implementer, because that would re-introduce GitHub's self-approval block on " +
+      "bot-authored PRs. The optional `identity` parameter can override the default mapping " +
+      "explicitly. See ADR-006 for the architectural decision record.",
     parameters: sessionPrReviewSubmitCommandParams,
     mutating: true,
     execute: withErrorLogging(
@@ -37,6 +46,7 @@ export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): Co
               body: params.body as string,
               event: params.event as "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
               comments: params.comments as ReviewComment[] | undefined,
+              identity: params.identity as TokenRole | undefined,
             },
             { sessionDB: deps.sessionProvider }
           );

@@ -44,7 +44,7 @@ minsky setup github-app \
   --name minsky-reviewer \
   --repo <your-owner>/<your-repo> \
   --permissions pull_requests:write,contents:read,metadata:read \
-  --events pull_request \
+  --events pull_request,issue_comment \
   --webhook-url https://minsky-reviewer.example.com/webhook
 
 # Guided wizard fallback (GitHub Enterprise instances, restricted SSO orgs,
@@ -98,6 +98,51 @@ Flags:
 - `--help` / `-h` — print usage.
 
 The same flags are accepted by `minsky setup github-app`, plus `--via {manifest|wizard}`, `--apiBaseUrl <url>`, and `--webBaseUrl <url>` (for GitHub Enterprise hosts when `--via wizard`).
+
+### Updating an existing App's events or permissions
+
+After an App is created, you can update its webhook event subscriptions and permissions without visiting the GitHub portal. The `--update` flag switches the command from creation mode to update mode, reading stored credentials and calling `PATCH /app`.
+
+```bash
+# Preview what would change (dry-run, no API mutation):
+minsky setup github-app \
+  --name minsky-reviewer \
+  --update \
+  --events pull_request,issue_comment
+
+# Apply the change:
+minsky setup github-app \
+  --name minsky-reviewer \
+  --update \
+  --events pull_request,issue_comment \
+  --execute
+
+# Update permissions:
+minsky setup github-app \
+  --name minsky-reviewer \
+  --update \
+  --permissions pull_requests:write,contents:read,metadata:read \
+  --execute
+
+# Both events and permissions in a single call:
+minsky setup github-app \
+  --name minsky-reviewer \
+  --update \
+  --events pull_request,issue_comment \
+  --permissions pull_requests:write,contents:read \
+  --execute
+```
+
+Update-mode flags:
+
+- `--update` — switch to update mode. Reads stored credentials from `<outputDir>/<name>.{pem,json}`.
+- `--execute` — apply the change. Without this flag, the command shows a dry-run preview (current vs proposed) and exits without calling the API.
+- `--events <e1,e2,...>` — new event subscription list (replaces the current list entirely).
+- `--permissions <k:v,...>` — new permissions map (replaces the current map entirely).
+- `--name <name>` — required. Identifies which stored credentials to use.
+- `--repo` is **not required** in update mode (the App already exists).
+
+The command verifies the update by reading back from `GET /app` after the `PATCH` succeeds.
 
 After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are automated; section 1 steps below are only needed if you prefer the UI path.
 
@@ -276,7 +321,7 @@ When `github.serviceAccount` is present in the resolved configuration:
 
 5. **Routing**: All GitHub API operations performed by Minsky's `RepositoryBackend` (create PR, merge PR, post reviews) call `TokenProvider.getServiceToken()`, so they authenticate as `minsky-ai[bot]` (or whatever slug you gave the App).
 
-6. **Review submission**: The `/review-pr` skill's `mcp__minsky__session_pr_review_submit` MCP tool routes through this pipeline, so review comments appear as authored by the bot.
+6. **Review submission**: The `mcp__minsky__session_pr_review_submit` MCP tool routes through this pipeline, so review comments appear as authored by the bot.
 
 ## 7. Troubleshooting
 

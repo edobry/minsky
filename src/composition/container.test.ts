@@ -15,8 +15,8 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { TsyringeContainer } from "./container";
-import type { AppServices } from "./types";
+import { TsyringeContainer } from "@minsky/domain/composition/container";
+import type { AppServices } from "@minsky/domain/composition/types";
 
 // Minimal fakes that satisfy the type constraints
 const fakePersistence = {

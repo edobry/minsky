@@ -22,6 +22,7 @@
  *   bun services/reviewer/scripts/replay-severity.ts
  *   bun services/reviewer/scripts/replay-severity.ts --pr=743 --iteration=3 --attempts=3
  *   bun services/reviewer/scripts/replay-severity.ts --corpus=default --attempts=3
+ *   bun services/reviewer/scripts/replay-severity.ts --corpus=verification --verification-mode --attempts=3
  *
  * Skips gracefully when OPENAI_API_KEY or GITHUB_TOKEN is absent.
  *
@@ -129,28 +130,30 @@ import {
   type FlatFinding,
   type SeverityInflationResult,
 } from "../src/replay-summary";
+import {
+  applyMonotonicityRecovery,
+  type DowngradeAuditEntry,
+  type FlatPriorFinding,
+} from "../src/severity-recovery";
 
 // ---------------------------------------------------------------------------
 // Environment gating
 // ---------------------------------------------------------------------------
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const DRY_RUN = process.argv.includes("--dry-run");
 
 // Dry-run mode fetches corpus context (priors + diffs) without calling OpenAI,
 // so operators can validate harness wiring + see prompt-budget numbers before
-// authorizing a real run. Still requires GITHUB_TOKEN for the read-only fetch.
+// authorizing a real run. Still requires a GitHub token for the read-only fetch.
 if (!OPENAI_API_KEY && !DRY_RUN) {
   console.log("SKIP: OPENAI_API_KEY not set; skipping live replay test.");
   console.log("HINT: re-run with --dry-run to inspect corpus context without API calls.");
   process.exit(0);
 }
 
-if (!GITHUB_TOKEN) {
-  console.log("SKIP: GITHUB_TOKEN not set; skipping live replay test.");
-  process.exit(0);
-}
+import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
+const GITHUB_TOKEN = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Calibration corpus
@@ -195,6 +198,51 @@ const DEFAULT_CORPUS: ReadonlyArray<CorpusEntry> = [
   },
 ];
 
+/**
+ * Verification-mode corpus for mt#1673 (mt#1656 Fix 1 SC#3 validation).
+ *
+ * Tests the verification-mode preamble (priorReviewsPresent=true) against
+ * historical multi-round PRs to validate two properties:
+ *   1. Legitimate R≥2 catches survive (no false APPROVEs)
+ *   2. Bikeshedding-class findings are suppressed
+ *
+ * PR #920 (mt#1465, 6 rounds): R3+R4 contradicted R2 — legitimate catches.
+ * PR #872 (mt#1309, 4 rounds): R3 caught real defensive bug missed by R1+R2.
+ * PR #922 (mt#1496, 28 rounds): canonical bikeshedding extreme.
+ */
+const VERIFICATION_CORPUS: ReadonlyArray<CorpusEntry> = [
+  {
+    prNumber: 920,
+    iteration: 3,
+    notes: "mt#1465 6-round PR; R3 contradicted R2 — legitimate catch (severity inflation fix)",
+  },
+  {
+    prNumber: 920,
+    iteration: 4,
+    notes: "mt#1465 6-round PR; R4 contradicted R2 — legitimate catch (severity inflation fix)",
+  },
+  {
+    prNumber: 872,
+    iteration: 3,
+    notes: "mt#1309 4-round PR; R3 caught real defensive bug (CI check_runs gate) missed by R1+R2",
+  },
+  {
+    prNumber: 922,
+    iteration: 8,
+    notes: "mt#1496 28-round PR; R8 bikeshedding extreme (severity recovery layer)",
+  },
+  {
+    prNumber: 922,
+    iteration: 15,
+    notes: "mt#1496 28-round PR; R15 bikeshedding extreme (mid-run)",
+  },
+  {
+    prNumber: 922,
+    iteration: 22,
+    notes: "mt#1496 28-round PR; R22 bikeshedding extreme (late-run)",
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
@@ -208,6 +256,10 @@ interface ParsedArgs {
   model: string;
   /** When true, swap in the pre-mt#1465 preamble + Principle 8 for A/B comparison. */
   baseline: boolean;
+  /** When true, apply mt#1496 applyMonotonicityRecovery between callOpenAIWithClient and composeReviewBody. */
+  recovery: boolean;
+  /** When true, pass priorReviewsPresent=true to buildCriticConstitution for R≥2 entries (mt#1656 Fix 1). */
+  verificationMode: boolean;
 }
 
 function parseArgs(): ParsedArgs {
@@ -218,6 +270,8 @@ function parseArgs(): ParsedArgs {
   let prOverride: number | undefined;
   let iterationOverride: number | undefined;
   let baseline = false;
+  let recovery = false;
+  let verificationMode = false;
 
   for (const arg of args) {
     if (arg.startsWith("--pr=")) {
@@ -233,8 +287,14 @@ function parseArgs(): ParsedArgs {
       model = arg.slice("--model=".length).trim();
     } else if (arg === "--corpus=default") {
       // explicit no-op for clarity
+    } else if (arg === "--corpus=verification") {
+      corpus = [...VERIFICATION_CORPUS];
     } else if (arg === "--baseline") {
       baseline = true;
+    } else if (arg === "--recovery") {
+      recovery = true;
+    } else if (arg === "--verification-mode") {
+      verificationMode = true;
     }
   }
 
@@ -252,7 +312,7 @@ function parseArgs(): ParsedArgs {
     process.exit(2);
   }
 
-  return { corpus, attemptsPerEntry, model, baseline };
+  return { corpus, attemptsPerEntry, model, baseline, recovery, verificationMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +451,10 @@ interface PerAttemptSeverityResult extends AttemptResult {
   inflation: SeverityInflationResult;
   /** Length of the rendered prior-reviews markdown injected into the prompt. */
   priorReviewsMarkdownChars: number;
+  /** When --recovery is active, the audit entries from applyMonotonicityRecovery for this attempt. */
+  downgrades?: DowngradeAuditEntry[];
+  /** Whether the verification-mode preamble was active for this attempt (mt#1656 Fix 1). */
+  verificationModeActive?: boolean;
 }
 
 interface PerEntryResult {
@@ -408,7 +472,9 @@ async function replayEntry(
   model: string,
   ctx: FetchedIterationContext,
   attemptsPerEntry: number,
-  baseline: boolean
+  baseline: boolean,
+  recovery: boolean,
+  verificationMode: boolean
 ): Promise<PerEntryResult> {
   // KNOWN LIMITATION: the harness wires no-op tool handlers (readFile and
   // listDirectory always return null) while declaring tools-available in
@@ -436,9 +502,13 @@ async function replayEntry(
   // mt#1497 will re-run with real handlers to get production-fidelity
   // absolute numbers.
   const toolsAvailable = true;
+  // verification mode: pass priorReviewsPresent=true for R≥2 entries (iteration > 1)
+  // where prior reviews exist. This swaps in the mt#1656 verification-mode preamble.
+  const priorReviewsPresent =
+    verificationMode && ctx.iteration > 1 && ctx.priorReviewsMarkdown.length > 0;
   const systemPrompt = baseline
     ? buildBaselinePrompt(toolsAvailable)
-    : buildCriticConstitution(toolsAvailable, "normal", true);
+    : buildCriticConstitution(toolsAvailable, "normal", true, priorReviewsPresent);
   const userPrompt = buildReviewPrompt({
     prNumber: ctx.prNumber,
     prTitle: ctx.title,
@@ -467,32 +537,68 @@ async function replayEntry(
       listDirectory: async (_path: string) => null,
     });
 
-    const composed = composeReviewBody(output.toolCalls);
+    // mt#1497: optional monotonicity-recovery layer (mt#1496).
+    // When --recovery is active, downgrade BLOCKING findings whose file matched
+    // a prior NON-BLOCKING/PRE-EXISTING finding AND whose cited range doesn't
+    // overlap the iteration's new lines.
+    let effectiveToolCalls = output.toolCalls;
+    let downgrades: DowngradeAuditEntry[] = [];
+    if (recovery) {
+      // Structural adapter: FlatFinding (replay-summary.ts) and FlatPriorFinding
+      // (severity-recovery.ts) share {file, severity, line}; only FlatPriorFinding
+      // carries the optional lineEnd field. Map explicitly rather than casting
+      // through `unknown` — keeps type safety, stays local to this file (no shared
+      // type changes), and avoids the no-excessive-as-unknown lint suppression.
+      // PR #1104 R1#3 fix.
+      const priorAdapter: FlatPriorFinding[] = ctx.priorFindings.map((f) => ({
+        file: f.file,
+        severity: f.severity,
+        ...(f.line !== undefined ? { line: f.line } : {}),
+      }));
+      const result = applyMonotonicityRecovery(output.toolCalls, priorAdapter, ctx.diffAtIteration);
+      effectiveToolCalls = result.toolCalls;
+      downgrades = result.downgrades;
+    }
+
+    const composed = composeReviewBody(effectiveToolCalls);
     const scratchSanitized = sanitizeReviewBody(output.text);
     const postedBodySanitized = sanitizeReviewBody(composed.body);
 
+    // When --recovery is active, effectiveToolCalls = recovery-adjusted calls,
+    // so baseAttempt.blockingFindingCount reflects POST-recovery counts (not
+    // raw model output). The downgrade audit is captured separately on
+    // attemptResult.downgrades. When --recovery is inactive, effectiveToolCalls
+    // === output.toolCalls and the metrics match the raw model output.
+    // PR #1104 R1#2 clarification.
     const baseAttempt = buildAttemptResult(
       attemptNum,
-      output.toolCalls,
+      effectiveToolCalls,
       output.text,
       scratchSanitized.action,
       postedBodySanitized.action
     );
 
-    // Flatten current submit_finding tool calls for severity analysis.
-    const currentFindings: FlatFinding[] = output.toolCalls
-      .filter((tc) => tc.name === "submit_finding")
-      .map((tc) => {
-        if (tc.name !== "submit_finding") {
-          // Discriminator narrowed at runtime; this branch is unreachable.
-          throw new Error("unreachable");
-        }
-        return {
-          file: tc.args.file,
-          severity: tc.args.severity,
-          line: tc.args.line,
-        };
+    // PR #920 R6#3 orphan dedup: drop duplicate submit_finding emissions
+    // (observed on PR #732 attempt 3 — two identical BLOCKING findings on
+    // src/adapters/mcp/shared-command-integration.ts:186). Key on
+    // file:line:lineEnd:side:severity so legitimately-distinct findings
+    // (multi-line ranges vs single-line at the same start; LEFT-side deletion
+    // vs RIGHT-side addition at the same line) are NOT collapsed. Keep first
+    // occurrence per unique key. PR #1104 R1#1 fix to the original dedup
+    // (which keyed on file:line:severity only).
+    const seenFindingKeys = new Set<string>();
+    const currentFindings: FlatFinding[] = [];
+    for (const tc of effectiveToolCalls) {
+      if (tc.name !== "submit_finding") continue;
+      const key = `${tc.args.file}:${tc.args.line}:${tc.args.lineEnd ?? ""}:${tc.args.side ?? ""}:${tc.args.severity}`;
+      if (seenFindingKeys.has(key)) continue;
+      seenFindingKeys.add(key);
+      currentFindings.push({
+        file: tc.args.file,
+        severity: tc.args.severity,
+        line: tc.args.line,
       });
+    }
 
     const inflation = detectSeverityInflation(currentFindings, ctx.priorFindings);
 
@@ -501,6 +607,8 @@ async function replayEntry(
       currentFindings,
       inflation,
       priorReviewsMarkdownChars: ctx.priorReviewsMarkdown.length,
+      ...(recovery ? { downgrades } : {}),
+      ...(priorReviewsPresent ? { verificationModeActive: true } : {}),
     };
 
     attempts.push(attemptResult);
@@ -508,7 +616,9 @@ async function replayEntry(
     console.log(
       `    blocking=${inflation.currentBlockingCount} inflated=${inflation.inflatedFindings.length} ` +
         `rate=${inflation.inflationRate.toFixed(2)} concludeEvent=${baseAttempt.concludeEvent} ` +
-        `priorMd=${ctx.priorReviewsMarkdown.length}c`
+        `priorMd=${ctx.priorReviewsMarkdown.length}c${
+          recovery ? ` downgrades=${downgrades.length}` : ""
+        }${priorReviewsPresent ? " verification-mode=ON" : ""}`
     );
 
     if (inflation.inflatedFindings.length > 0) {
@@ -548,17 +658,21 @@ interface AggregateSummary {
   totalCurrentBlocking: number;
   totalInflated: number;
   weightedInflationRate: number;
+  /** Total downgrades applied by applyMonotonicityRecovery across all attempts. 0 when --recovery is not active. */
+  totalDowngrades: number;
 }
 
 function aggregate(perEntry: PerEntryResult[], attemptsPerEntry: number): AggregateSummary {
   let totalCurrentBlocking = 0;
   let totalInflated = 0;
   let totalAttempts = 0;
+  let totalDowngrades = 0;
   for (const e of perEntry) {
     for (const a of e.attempts) {
       totalAttempts += 1;
       totalCurrentBlocking += a.inflation.currentBlockingCount;
       totalInflated += a.inflation.inflatedFindings.length;
+      totalDowngrades += a.downgrades?.length ?? 0;
     }
   }
   return {
@@ -568,6 +682,7 @@ function aggregate(perEntry: PerEntryResult[], attemptsPerEntry: number): Aggreg
     totalCurrentBlocking,
     totalInflated,
     weightedInflationRate: totalCurrentBlocking === 0 ? 0 : totalInflated / totalCurrentBlocking,
+    totalDowngrades,
   };
 }
 
@@ -580,12 +695,16 @@ interface RunResult {
   model: string;
   /** "baseline" (pre-mt#1465 preamble) or "post-restructure" (mt#1465 sub-fix 2). */
   promptVariant: "baseline" | "post-restructure";
+  /** Whether mt#1496 applyMonotonicityRecovery was active for this run. */
+  recoveryEnabled: boolean;
+  /** Whether mt#1656 verification-mode preamble was active for R≥2 entries. */
+  verificationModeEnabled: boolean;
   summary: AggregateSummary;
   perEntry: PerEntryResult[];
 }
 
 async function main() {
-  const { corpus, attemptsPerEntry, model, baseline } = parseArgs();
+  const { corpus, attemptsPerEntry, model, baseline, recovery, verificationMode } = parseArgs();
   const runStartedAt = new Date().toISOString();
 
   console.log("=== Severity-Monotonicity Replay (mt#1465) ===");
@@ -593,6 +712,19 @@ async function main() {
   console.log(
     `Prompt variant: ${baseline ? "baseline (pre-mt#1465)" : "post-restructure (mt#1465 sub-fix 2)"}`
   );
+  console.log(`Recovery: ${recovery ? "enabled (mt#1496 applyMonotonicityRecovery)" : "disabled"}`);
+  console.log(
+    `Verification mode: ${verificationMode ? "enabled (mt#1656 Fix 1 priorReviewsPresent=true for R>=2)" : "disabled"}`
+  );
+  const resolvedOutputFilename = baseline
+    ? "replay-severity-baseline-results.json"
+    : recovery
+      ? "replay-severity-recovery-results.json"
+      : verificationMode
+        ? "replay-verification-mode-results.json"
+        : "replay-severity-results.json";
+  console.log(`GitHub auth: ${getAuthSource()}`);
+  console.log(`Output: services/reviewer/scripts/${resolvedOutputFilename}`);
   console.log(`Corpus entries: ${corpus.map((e) => `#${e.prNumber}@R${e.iteration}`).join(", ")}`);
   console.log(`Attempts per entry: ${attemptsPerEntry}`);
   console.log(`Total API calls: ${corpus.length * attemptsPerEntry}`);
@@ -654,7 +786,15 @@ async function main() {
       continue;
     }
 
-    const result = await replayEntry(openaiClient, model, ctx, attemptsPerEntry, baseline);
+    const result = await replayEntry(
+      openaiClient,
+      model,
+      ctx,
+      attemptsPerEntry,
+      baseline,
+      recovery,
+      verificationMode
+    );
     result.notes = entry.notes;
     perEntry.push(result);
   }
@@ -665,15 +805,14 @@ async function main() {
     runStartedAt,
     model,
     promptVariant: baseline ? "baseline" : "post-restructure",
+    recoveryEnabled: recovery,
+    verificationModeEnabled: verificationMode,
     summary,
     perEntry,
   };
 
   const scriptDir = dirname(fileURLToPath(import.meta.url));
-  const outputFilename = baseline
-    ? "replay-severity-baseline-results.json"
-    : "replay-severity-results.json";
-  const outputPath = join(scriptDir, outputFilename);
+  const outputPath = join(scriptDir, resolvedOutputFilename);
   writeFileSync(outputPath, JSON.stringify(runResult, null, 2), "utf-8");
 
   console.log("\n=== Replay Summary ===");

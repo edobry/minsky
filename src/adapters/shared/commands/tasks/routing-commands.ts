@@ -1,11 +1,11 @@
 import { z } from "zod";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskRoutingService } from "../../../../domain/tasks/task-routing-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
 // Re-export RouteStep for callers that reference it from this file
-export type { RouteStep } from "../../../../domain/tasks/task-routing-service";
+export type { RouteStep } from "@minsky/domain/tasks/task-routing-service";
 
 // Parameter definitions for available tasks command
 const tasksAvailableParams = {

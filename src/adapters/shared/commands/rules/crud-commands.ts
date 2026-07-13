@@ -1,21 +1,21 @@
 /**
  * Rules CRUD commands: get, create, update, generate
  */
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
   type CommandParameterMap,
 } from "../../command-registry";
-import { type RuleFormat } from "../../../../domain/rules";
-import { log } from "../../../../utils/logger";
-import { resolveWorkspacePath as defaultResolveWorkspacePath } from "../../../../domain/workspace";
+import { type RuleFormat } from "@minsky/domain/rules";
+import { log } from "@minsky/shared/logger";
+import { resolveWorkspacePath as defaultResolveWorkspacePath } from "@minsky/domain/workspace";
 import {
   getRule as defaultGetRule,
   generateRules as defaultGenerateRules,
   createRule as defaultCreateRule,
   updateRule as defaultUpdateRule,
-} from "../../../../domain/rules/rules-command-operations";
+} from "@minsky/domain/rules/rules-command-operations";
 import {
   rulesGetCommandParams,
   rulesGenerateCommandParams,

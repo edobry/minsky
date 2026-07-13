@@ -14,9 +14,9 @@ import {
   ConfigurationError,
   GitOperationError,
   ensureError,
-} from "../../errors/index";
-import { log, isStructuredMode } from "../../utils/logger";
-import { exit } from "../../utils/process";
+} from "@minsky/domain/errors/index";
+import { log, isStructuredMode } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
 /**
  * Interface for adapter-specific error handlers
  */

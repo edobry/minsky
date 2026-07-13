@@ -4,8 +4,8 @@
  * Handles component processing and context assembly.
  */
 
-import { log } from "../../utils/logger";
-import { getContextComponentRegistry } from "../../domain/context/components/index";
+import { log } from "@minsky/shared/logger";
+import { getContextComponentRegistry } from "@minsky/domain/context/components/index";
 import type { GenerateRequest, GenerateResult } from "./generate-types";
 
 /**

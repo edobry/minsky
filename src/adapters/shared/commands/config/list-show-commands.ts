@@ -5,10 +5,10 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
-import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
-import { log } from "../../../../utils/logger";
+import { DefaultCredentialResolver } from "@minsky/domain/configuration/credential-resolver";
+import { log } from "@minsky/shared/logger";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
 import { maskCredentials, maskCredentialsInEffectiveValues, gatherCredentialInfo } from "./helpers";
 
@@ -67,17 +67,14 @@ export const configListRegistration = defineCommand({
   execute: async (params, _ctx) => {
     try {
       // Use custom configuration system to get configuration
-      const { getConfigurationProvider } = await import("../../../../domain/configuration/index");
+      const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
       const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const metadata = provider.getMetadata();
       const effectiveValues = provider.getEffectiveValues();
 
-      // Show ALL configuration properties except deprecated ones
-      const { backend: _deprecatedBackend, ...resolved } = config;
-
       // Apply credential masking unless explicitly requested to show secrets
-      const maskedConfig = maskCredentials(resolved, params.showSecrets || false);
+      const maskedConfig = maskCredentials(config, params.showSecrets || false);
 
       return {
         success: true,
@@ -124,7 +121,7 @@ export const configShowRegistration = defineCommand({
   execute: async (params, _ctx) => {
     try {
       // Use custom configuration system to get resolved configuration
-      const { getConfigurationProvider } = await import("../../../../domain/configuration/index");
+      const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
       const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const metadata = provider.getMetadata();

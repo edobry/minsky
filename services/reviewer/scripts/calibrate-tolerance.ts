@@ -118,6 +118,7 @@ async function fetchAllBotReviews(octokit: Octokit): Promise<ReviewRecord[]> {
             : [];
 
           const headingMatch = STRUCTURAL_HEADING_RE.exec(body);
+          // eslint-disable-next-line custom/no-unsafe-string-truncation -- structural split at regex match position (calibration script; markdown headings are ASCII)
           const prefix = headingMatch ? body.slice(0, headingMatch.index) : body;
           const prefixLength = prefix.length;
           const narrativePresent = NARRATIVE_SCRATCH_PATTERN.test(prefix);

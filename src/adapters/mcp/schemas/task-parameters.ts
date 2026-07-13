@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { TaskStatus } from "../../../domain/tasks/taskConstants";
+import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import {
   TaskIdSchema,
   ForceSchema,

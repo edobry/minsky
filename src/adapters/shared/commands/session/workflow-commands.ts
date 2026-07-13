@@ -15,17 +15,148 @@ import {
 } from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
 import { buildAskRepository } from "../asks";
-import { type AIReviewResult } from "../../../../domain/ai/review-service";
-import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
+import { type AIReviewResult } from "@minsky/domain/ai/review-service";
+import type { SessionMergeDependencies } from "@minsky/domain/session/session-merge-operations";
 import type {
   PersistenceProvider,
   SqlCapablePersistenceProvider,
-} from "../../../../domain/persistence/types";
-import { McpErrorCode } from "../../../../errors/mcp-error-codes";
-import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
-import { SessionConflictError } from "../../../../errors/index";
-import { DrizzleAskRepository, type AskRepository } from "../../../../domain/ask/repository";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/persistence/types";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { SessionConflictError } from "@minsky/domain/errors/index";
+import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
+import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
+// mt#2635: bumped from 800 -> 2000. At 800 chars, a real ESLint-warning-
+// threshold failure (mt#2637 R1 diagnosis: 10 warnings) or a TypeScript
+// error dump routinely got truncated before the actual failing check's
+// banner/detail lines were reached, since `pre-commit hook`'s stdout also
+// includes the preceding (passing) steps' output. 2000 chars comfortably
+// fits a failure banner plus its immediate detail lines while still being a
+// bounded "tail" excerpt, not a full dump.
+export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 2000;
+
+/**
+ * Known `pre-commit.ts` / `commit-msg.ts` failure banners, mapped to a
+ * short human-readable step label. Used ONLY to produce a friendlier
+ * `details.failingStep` field for the error message — matching is
+ * best-effort: if pre-commit.ts's wording changes, `detectFailingStep`
+ * silently returns `undefined` and the raw tail excerpt (which still
+ * carries whatever banner text pre-commit.ts printed) is the fallback.
+ * This deliberately does NOT change any hook's own check logic or output
+ * (mt#2635 scope: "Out of scope: the pre-commit pipeline's checks
+ * themselves") — it only reads text the checks already emit.
+ *
+ * COUPLING / SOURCE OF TRUTH (mt#2635 PR #1811 R1): every pattern below is
+ * copied verbatim from a `log.cli(...)` / `log.error(...)` call in
+ * `src/hooks/pre-commit.ts` or `src/hooks/commit-msg.ts`. If either hook's
+ * banner wording changes, the corresponding pattern here silently stops
+ * matching (safe degradation — `detectFailingStep` just returns
+ * `undefined`, see above) but SHOULD be updated to track the new text.
+ * `workflow-commands-payload.test.ts`'s "recognizes each known ... banner"
+ * test pins these exact strings so drift breaks loudly (test failure)
+ * rather than silently (a `failingStep` that quietly stops appearing).
+ *
+ * Each pattern is deliberately matched against the FAILURE-specific text,
+ * not just a bare topic phrase, to avoid false-positiving on that same
+ * check's SUCCESS banner. Concrete example this guards against: pre-commit.ts
+ * prints "✅ No variable naming issues found." on success and "❌ Variable
+ * naming issues found! Please fix them before committing." on failure — an
+ * earlier draft of this list matched the bare phrase "variable naming
+ * issues found", which matches BOTH banners; the pattern below requires the
+ * failure-only "! Please fix" suffix.
+ */
+const KNOWN_FAILING_STEP_MARKERS: ReadonlyArray<{ pattern: RegExp; step: string }> = [
+  { pattern: /too many warnings/i, step: "ESLint (warning threshold)" },
+  { pattern: /linter errors detected/i, step: "ESLint (errors)" },
+  { pattern: /secrets detected by gitleaks/i, step: "gitleaks (secret scan)" },
+  { pattern: /node\.js shims detected/i, step: "Node-shim guard" },
+  { pattern: /nul byte\(s\) detected/i, step: "NUL-byte guard" },
+  { pattern: /typescript type errors found/i, step: "TypeScript typecheck" },
+  {
+    pattern: /executable entry points missing execute permission/i,
+    step: "hook-file permission check",
+  },
+  {
+    pattern: /applied migration file\(s\) staged for modification/i,
+    step: "immutable-migration guard",
+  },
+  { pattern: /deploy-domain ownership violation/i, step: "deploy-domain ownership guard" },
+  {
+    // Failure-only: "! Please fix" excludes the success banner "✅ No
+    // variable naming issues found." (see coupling note above).
+    pattern: /variable naming issues found! please fix/i,
+    step: "variable-naming check",
+  },
+  { pattern: /commit message validation failed/i, step: "commit-msg format validation" },
+];
+
+/**
+ * Best-effort extraction of a human-readable "which check failed" label
+ * from raw pre-commit/commit-msg subprocess output. Returns `undefined`
+ * when no known banner is recognized (safe degradation — the raw tail is
+ * still surfaced regardless).
+ */
+export function detectFailingStep(subprocessOutput: string): string | undefined {
+  for (const { pattern, step } of KNOWN_FAILING_STEP_MARKERS) {
+    if (pattern.test(subprocessOutput)) return step;
+  }
+  return undefined;
+}
+
+/**
+ * Build the structured-error payload fields for a `git commit` subprocess
+ * failure. Keeps `summary` terse (≤120 chars per `McpErrorPayload` contract)
+ * and parks the truncated subprocess preview in `details.tail`, full text in
+ * `subprocessOutput`. PR #962 R1: the previous shape stuffed up to
+ * SUBPROCESS_OUTPUT_TRUNCATE_LIMIT chars of preview into `summary`, violating
+ * the contract.
+ *
+ * mt#2635: `details.failingStep` (best-effort, see `detectFailingStep`) and
+ * `details.tail` are both folded into the WIRE message by
+ * `StructuredMcpError` (mcp-structured-errors.ts) — not just left in `data`
+ * — because the opacity incidents this fixes showed operators seeing only
+ * `error.message` (== `summary` before this fix), never `error.data`.
+ */
+export function buildSubprocessFailurePayload(
+  hookKind: "commit-msg" | "pre-commit" | "unknown" | "none",
+  subprocessOutput: string
+): {
+  code: (typeof McpErrorCode)[keyof typeof McpErrorCode];
+  summary: string;
+  subprocessOutput: string;
+  details?: Record<string, unknown>;
+} {
+  let code: (typeof McpErrorCode)[keyof typeof McpErrorCode];
+  let summary: string;
+  if (hookKind === "commit-msg") {
+    code = McpErrorCode.COMMIT_MSG_FAILED;
+    summary = "commit-msg hook blocked the commit";
+  } else if (hookKind === "pre-commit") {
+    code = McpErrorCode.PRE_COMMIT_FAILED;
+    summary = "pre-commit hook blocked the commit";
+  } else {
+    code = McpErrorCode.SUBPROCESS_FAILED;
+    summary = "git commit failed";
+  }
+  if (!subprocessOutput) {
+    return { code, summary, subprocessOutput };
+  }
+  const wasTruncated = subprocessOutput.length > SUBPROCESS_OUTPUT_TRUNCATE_LIMIT;
+  const failingStep = detectFailingStep(subprocessOutput);
+  return {
+    code,
+    summary,
+    subprocessOutput,
+    details: {
+      tail: safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT),
+      truncated: wasTruncated,
+      ...(failingStep ? { failingStep } : {}),
+    },
+  };
+}
+
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -33,11 +164,13 @@ type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown 
 // from workflow-commands.
 export { createSessionPrCreateCommand } from "./pr-create-command";
 export { createSessionPrEditCommand } from "./pr-edit-command";
+export { createSessionPrCloseCommand } from "./pr-close-command";
 export { createSessionPrListCommand } from "./pr-list-command";
 export { createSessionPrGetCommand } from "./pr-get-command";
 export { createSessionPrOpenCommand } from "./pr-open-command";
 export { createSessionPrChecksCommand } from "./pr-checks-command";
 export { createSessionPrWaitForReviewCommand } from "./pr-wait-for-review-command";
+export { createSessionPrDriveCommand } from "./pr-drive-command";
 export { createSessionPrReviewContextCommand } from "./pr-review-context-command";
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
 export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
@@ -45,38 +178,105 @@ export { createSessionPrReviewThreadResolveCommand } from "./pr-review-thread-re
 export { createSessionPrCheckRunSubmitCommand } from "./pr-check-run-submit-command";
 
 /**
- * Classify a caught error from `git commit` as a pre-commit hook failure.
+ * Classify a caught error from `git commit` as a hook failure, and identify
+ * which hook fired.
  *
  * Node's `child_process.exec` attaches `.stderr` and `.stdout` to the thrown
- * error when the process exits with a non-zero code. A pre-commit hook failure
- * looks like: `ExecException { message: "Command failed: git -C ... commit ...", stderr: "<hook output>" }`.
+ * error when the process exits with a non-zero code. A hook failure looks
+ * like: `ExecException { message: "Command failed: git -C ... commit ...", stderr: "<hook output>" }`.
  *
- * We consider it a pre-commit failure when:
- *   - The error has a non-empty `stderr` property (subprocess output), AND
- *   - The error message mentions the git commit command (not some other git op).
+ * Distinguishing commit-msg from pre-commit matters for the structured error
+ * (mt#1524): a single generic "pre-commit" summary hides commit-msg failures
+ * (e.g., non-conventional format) that have nothing to do with pre-commit
+ * tooling. We branch on substrings that the project's hook output reliably
+ * emits:
+ *
+ *   - `commit-msg` (script name in husky output, plus our hook's own
+ *     "Commit message validation failed:" header)
+ *   - `pre-commit` (script name and our hook headers)
+ *
+ * If subprocess output is empty, the error is internal (not a hook failure)
+ * and `hookKind` is "none".
+ *
+ * mt#2635: also falls back to `err.cause` for both the message and the
+ * stderr/stdout fields. `execInRepositoryImpl` (git-core-operations.ts)
+ * wraps a subprocess failure in a fresh `MinskyError` and — as of mt#2635 —
+ * preserves the original error as `.cause`. `session_commit`'s own commit
+ * path no longer routes through that wrapper (it now goes through
+ * `commitImpl`, which re-throws the original error unmodified), but this
+ * fallback is defense-in-depth for any OTHER caller that reaches this
+ * classifier via an `execInRepositoryImpl`-wrapped error.
  */
-function classifyPreCommitFailure(err: unknown): {
-  isPreCommit: boolean;
+type HookKind = "commit-msg" | "pre-commit" | "unknown" | "none";
+
+/**
+ * Exported (mt#2635 PR #1811 R2) so tests can exercise the REAL classifier
+ * directly against a REAL `execInRepositoryImpl`-wrapped `MinskyError` —
+ * rather than duplicating its logic in a test-local reimplementation (as
+ * `mcp-structured-errors.test.ts`'s pre-existing `classifyHookFailure` copy
+ * does, per its own mt#1524 comment) — closing the drift risk between a
+ * copy and the real thing, and giving genuine end-to-end coverage of the
+ * `.cause` fallback path. See
+ * `workflow-commands-payload.test.ts`'s "classifyHookFailure via .cause"
+ * describe block.
+ */
+export function classifyHookFailure(err: unknown): {
+  isHookFailure: boolean;
+  hookKind: HookKind;
   subprocessOutput: string;
 } {
   if (err === null || typeof err !== "object") {
-    return { isPreCommit: false, subprocessOutput: "" };
+    return { isHookFailure: false, hookKind: "none", subprocessOutput: "" };
   }
   const e = err as Record<string, unknown>;
+  const cause =
+    e.cause !== null && typeof e.cause === "object" ? (e.cause as Record<string, unknown>) : null;
+
   const msg = typeof e.message === "string" ? e.message : "";
-  const stderr = typeof e.stderr === "string" ? e.stderr : "";
-  const stdout = typeof e.stdout === "string" ? e.stdout : "";
+  const causeMsg = typeof cause?.message === "string" ? cause.message : "";
+  const stderr =
+    typeof e.stderr === "string" ? e.stderr : typeof cause?.stderr === "string" ? cause.stderr : "";
+  const stdout =
+    typeof e.stdout === "string" ? e.stdout : typeof cause?.stdout === "string" ? cause.stdout : "";
   const subprocessOutput = [stderr, stdout].filter(Boolean).join("\n").trim();
 
-  // Must reference a git commit invocation
-  const isCommitCommand = msg.includes("git") && msg.includes("commit");
+  // Must reference a git commit invocation — check the outer message first,
+  // falling back to the cause's message (the outer MinskyError's "cleaned"
+  // message may not retain "git"/"commit" substrings verbatim).
+  const isCommitCommand =
+    (msg.includes("git") && msg.includes("commit")) ||
+    (causeMsg.includes("git") && causeMsg.includes("commit"));
   // Must have subprocess output (if there is none, it's an internal error, not a hook)
   const hasOutput = subprocessOutput.length > 0;
 
-  return {
-    isPreCommit: isCommitCommand && hasOutput,
-    subprocessOutput,
-  };
+  if (!isCommitCommand || !hasOutput) {
+    return { isHookFailure: false, hookKind: "none", subprocessOutput };
+  }
+
+  // Disambiguate commit-msg vs pre-commit. The husky shim prints the script
+  // name on failure (`husky - commit-msg script failed (code 1)`); our own
+  // hooks also include their headers ("Commit message validation failed:"
+  // for commit-msg, various pre-commit task names for pre-commit).
+  const out = subprocessOutput.toLowerCase();
+  const looksLikeCommitMsg =
+    out.includes("commit-msg") || out.includes("commit message validation failed");
+  const looksLikePreCommit = out.includes("pre-commit");
+
+  let hookKind: HookKind;
+  if (looksLikeCommitMsg && !looksLikePreCommit) {
+    hookKind = "commit-msg";
+  } else if (looksLikePreCommit && !looksLikeCommitMsg) {
+    hookKind = "pre-commit";
+  } else if (looksLikeCommitMsg && looksLikePreCommit) {
+    // Both substrings present (e.g., output mentions both hooks). Prefer
+    // commit-msg since it's the later-firing hook — if it failed, that's
+    // the proximate cause of the rejection.
+    hookKind = "commit-msg";
+  } else {
+    hookKind = "unknown";
+  }
+
+  return { isHookFailure: true, hookKind, subprocessOutput };
 }
 
 export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -90,8 +290,10 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging(
       "session.commit",
       async (params: Record<string, unknown>, context) => {
-        const { sessionCommit } = await import("../../../../domain/session/session-commands");
-        const { log } = await import("../../../../utils/logger");
+        const { sessionCommit } = await import("@minsky/domain/session/session-commands");
+        const { log } = await import("@minsky/shared/logger");
+        const { createTokenProvider } = await import("@minsky/domain/auth");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const deps = await getDeps();
         // Guard: skip DB touch when persistence is not registered in the container.
         // buildAskRepository is a no-op when container is absent, but calling it
@@ -119,9 +321,19 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               all: params.all as boolean | undefined,
               amend: params.amend as boolean | undefined,
               noStage: params.noStage as boolean | undefined,
+              noFiles: params.noFiles as boolean | undefined,
             },
             deps.sessionProvider,
-            askRepository ?? undefined
+            askRepository ?? undefined,
+            (() => {
+              try {
+                const cfg = getConfiguration();
+                const userToken = String(cfg.github?.token ?? "");
+                return createTokenProvider(cfg.github ?? {}, userToken);
+              } catch {
+                return undefined;
+              }
+            })()
           );
 
           return {
@@ -144,16 +356,20 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             noFiles: params.noFiles === true,
           };
         } catch (err) {
-          const { isPreCommit, subprocessOutput } = classifyPreCommitFailure(err);
-          if (isPreCommit) {
-            const summaryDetail = subprocessOutput
-              ? `Pre-commit hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
-              : "Pre-commit hook blocked the commit";
-            throw mcpStructuredError({
-              code: McpErrorCode.PRE_COMMIT_FAILED,
-              summary: summaryDetail,
-              subprocessOutput,
-            });
+          const { isHookFailure, hookKind, subprocessOutput } = classifyHookFailure(err);
+          if (isHookFailure) {
+            // Map hook kind to error code + human-readable summary so MCP
+            // clients can branch on `error.data.code` and humans see which
+            // hook actually fired (mt#1524: a generic "pre-commit" summary
+            // was masking commit-msg failures from non-conventional formats).
+            // Three-way mapping:
+            //   - commit-msg → COMMIT_MSG_FAILED + "commit-msg hook blocked the commit"
+            //   - pre-commit → PRE_COMMIT_FAILED + "pre-commit hook blocked the commit"
+            //   - unknown    → SUBPROCESS_FAILED + neutral "git commit failed" wording
+            //                  (we know `git commit` exited non-zero with output, but
+            //                  we cannot identify a specific hook — fabricating a
+            //                  "git commit hook" name would be misleading).
+            throw mcpStructuredError(buildSubprocessFailurePayload(hookKind, subprocessOutput));
           }
           throw err;
         }
@@ -172,7 +388,7 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
     execute: withErrorLogging(
       "session.approve",
       async (params: Record<string, unknown>, _context) => {
-        const { SessionService } = await import("../../../../domain/session/session-service");
+        const { SessionService } = await import("@minsky/domain/session/session-service");
         const deps = await getDeps();
         const service = new SessionService(deps);
 
@@ -181,6 +397,10 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
+          // mt#2742: session.approve shares sessionApproveCommandParams (which declares
+          // reviewComment) with session.pr.approve — thread it here too so --review-comment
+          // isn't silently dropped on this command.
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };
@@ -197,7 +417,7 @@ export function createSessionInspectCommand(getDeps: LazySessionDeps): CommandDe
     description: "Inspect the current session (auto-detected from workspace)",
     parameters: sessionInspectCommandParams,
     execute: withErrorLogging("session.inspect", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -267,9 +487,7 @@ async function handleAutoComment(
   if (!changeset) return;
 
   try {
-    const { createChangesetService } = await import(
-      "../../../../domain/changeset/changeset-service"
-    );
+    const { createChangesetService } = await import("@minsky/domain/changeset/changeset-service");
     const changesetService = await createChangesetService(
       changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
     );
@@ -277,7 +495,7 @@ async function handleAutoComment(
     const commentText = formatAIReviewComment(aiResult);
     await changesetService.approve(changeset.id, commentText);
   } catch (error) {
-    const { log } = await import("../../../../utils/logger");
+    const { log } = await import("@minsky/shared/logger");
     log.warn("Failed to auto-comment AI review:", { error });
   }
 }
@@ -298,9 +516,7 @@ async function handleAutoApprove(
   if (!changeset || aiResult.overall.score < 8) return;
 
   try {
-    const { createChangesetService } = await import(
-      "../../../../domain/changeset/changeset-service"
-    );
+    const { createChangesetService } = await import("@minsky/domain/changeset/changeset-service");
     const changesetService = await createChangesetService(
       changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
     );
@@ -308,7 +524,7 @@ async function handleAutoApprove(
     const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
     await changesetService.approve(changeset.id, approvalText);
   } catch (error) {
-    const { log } = await import("../../../../utils/logger");
+    const { log } = await import("@minsky/shared/logger");
     log.warn("Failed to auto-approve changeset:", { error });
   }
 }
@@ -323,13 +539,14 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging("session.review", async (params: Record<string, unknown>) => {
       const deps = await getDeps();
       const { sessionReviewImpl } = await import(
-        "../../../../domain/session/session-review-operations"
+        "@minsky/domain/session/session-review-operations"
       );
 
       const reviewResult = await sessionReviewImpl(
         {
-          sessionId:
-            (params.sessionId as string | undefined) || (params.session as string | undefined),
+          // mt#2742: session_review declares `sessionId`, not `session`; the
+          // `|| params.session` fallback was dead (always undefined).
+          sessionId: params.sessionId as string | undefined,
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
@@ -348,11 +565,11 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       if (params.ai && reviewResult.changeset) {
         try {
-          const { AIReviewService } = await import("../../../../domain/ai/review-service");
+          const { AIReviewService } = await import("@minsky/domain/ai/review-service");
           const { DefaultAICompletionService } = await import(
-            "../../../../domain/ai/completion-service"
+            "@minsky/domain/ai/completion-service"
           );
-          const { getConfiguration } = await import("../../../../domain/configuration");
+          const { getConfiguration } = await import("@minsky/domain/configuration");
 
           const configService: {
             loadConfiguration: () => Promise<{ resolved: ReturnType<typeof getConfiguration> }>;
@@ -421,7 +638,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     execute: withErrorLogging(
       "session.pr.approve",
       async (params: Record<string, unknown>, _context) => {
-        const { SessionService } = await import("../../../../domain/session/session-service");
+        const { SessionService } = await import("@minsky/domain/session/session-service");
         const deps = await getDeps();
         const service = new SessionService(deps);
 
@@ -430,8 +647,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
           task: params.task as string | undefined,
           repo: params.repo as string | undefined,
           json: params.json as boolean | undefined,
-          reviewComment:
-            (params.comment as string | undefined) || (params.reviewComment as string | undefined),
+          reviewComment: params.reviewComment as string | undefined,
         });
 
         return { success: true, result };
@@ -493,9 +709,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
       "session.pr.merge",
       async (params: Record<string, unknown>, context) => {
         const deps = await getDeps();
-        const { mergeSessionPr } = await import(
-          "../../../../domain/session/session-merge-operations"
-        );
+        const { mergeSessionPr } = await import("@minsky/domain/session/session-merge-operations");
 
         const shouldCleanup = params.skipCleanup !== true;
 
@@ -528,6 +742,8 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
               json: params.json as boolean | undefined,
               cleanupSession: shouldCleanup,
               acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
+              forceBypass: params.forceBypass as boolean | undefined,
+              bypassReason: params.bypassReason as string | undefined,
             },
             buildSessionMergeDeps(deps, context.container, askRepository)
           );

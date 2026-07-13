@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } fro
 import express from "express";
 import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // Shared HTTP content-type constants used across integration tests
 const CONTENT_TYPE_JSON = "application/json";
@@ -605,8 +605,9 @@ describe("MCP Server", () => {
     expect(data.startupHead).toBe(fakeStartupHead);
     expect(data.currentHead).toBe(fakeCurrentHead);
 
-    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Wait for the staleness exit to fire: in-flight drain + 200ms flush buffer (mt#2701 —
+    // exit is scheduled after the request's finally clears the in-flight map, not immediately).
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     expect(exitCalls.length).toBe(1);
 
     await server.close();
@@ -688,8 +689,9 @@ describe("MCP Server", () => {
     expect(call.level).toBe("alert");
     expect(call.logger).toBe(STALENESS_LOGGER);
 
-    // Wait for the exit timer (200ms) to fire so it doesn't leak into other tests.
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Wait for the staleness exit to fire: in-flight drain + 200ms flush buffer (mt#2701 —
+    // exit is scheduled after the request's finally clears the in-flight map, not immediately).
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     expect(exitCalls.length).toBe(1);
 
     await server.close();
@@ -766,7 +768,8 @@ describe("MCP Server", () => {
       server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
     ).triggerStaleSignal.bind(server);
 
-    // Verify tool call succeeds
+    // Verify tool call succeeds (handler is set; getHandler was not used here)
+    if (!echoTool.handler) throw new Error("echoTool.handler unexpectedly undefined");
     const result = await echoTool.handler({ value: "hello" });
     expect(result).toBe("hello");
 
@@ -800,6 +803,146 @@ describe("MCP Server", () => {
     if (firstExitCode === undefined) throw new Error("Expected exitCalls[0] to be defined");
     expect(firstExitCode).toBe(0);
 
+    await server.close();
+  });
+
+  test("staleness drain: a concurrent sibling call's response is delivered before exit (mt#2701)", async () => {
+    // Acceptance Test 1: two concurrent tool calls; a fast one detects staleness
+    // and triggers the exit while a slow sibling is still executing. The drain
+    // must let the slow sibling's response come back (not orphan it) and only
+    // then exit. Drives the REAL tools/call handler so in-flight accounting,
+    // response delivery, and drain interact exactly as in production.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // A slow tool (still in flight when staleness triggers) and a fast one.
+    server.addTool({
+      name: "slow",
+      description: "Slow tool",
+      handler: async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+        return "slow-done";
+      },
+    });
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
+    });
+
+    const fakeStaleMessage =
+      "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
+      "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
+
+    // Start the slow sibling first so it is past the draining gate and registered
+    // in-flight before staleness triggers.
+    const slowPromise = toolsCallHandler(
+      { method: "tools/call", params: { name: "slow", arguments: {} } },
+      {}
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+
+    // The quick call completes and detects staleness → triggers drain-then-exit.
+    const quickRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(quickRes)).toBe("quick-done");
+
+    // Slow sibling is still running: the exit must be held by the drain.
+    expect(exitCalls.length).toBe(0);
+
+    // The sibling response is DELIVERED (not orphaned) — the core of AT1.
+    const slowRes = await slowPromise;
+    expect(textOf(slowRes)).toBe("slow-done");
+
+    // Only after the sibling drained does the exit fire (drain + 200ms flush).
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    await server.close();
+  });
+
+  test("staleness drain: hard cap force-exits when a request is wedged (mt#2701)", async () => {
+    // A request that never completes must not keep a stale server alive forever;
+    // the drain cap force-exits. Shrinks staleDrainCapMs so the test runs fast.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const fakeStaleMessage =
+      "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
+      "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    // Shrink the drain cap and seed a wedged (never-clearing) in-flight request.
+    (server as unknown as { staleDrainCapMs: number }).staleDrainCapMs = 150;
+    const inFlight = (server as unknown as { inFlightRequests: Map<number, number> })
+      .inFlightRequests;
+    inFlight.set(1, Date.now());
+
+    const triggerStaleSignal = (
+      server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
+    ).triggerStaleSignal.bind(server);
+    triggerStaleSignal(sdkServer as any);
+
+    // Before the cap elapses, no exit yet.
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+    expect(exitCalls.length).toBe(0);
+
+    // After cap (150ms) + flush buffer (200ms), the exit fires despite the wedge.
+    await new Promise<void>((resolve) => setTimeout(resolve, 450));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    inFlight.delete(1);
     await server.close();
   });
 
@@ -1041,5 +1184,557 @@ describe("MCP Server", () => {
     expect(server.getSessionCount()).toBe(0);
     expect(server.getMaxSessions()).toBeNull();
     await server.close();
+  });
+});
+
+describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt#1779)", () => {
+  // Claude Desktop's frontend validator regex — the source of the bug this
+  // suite protects against. Any tool name surfaced in `tools/list` MUST match.
+  const CLAUDE_DESKTOP_TOOL_NAME_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+  // Shared test-fixture client identities (avoids the no-magic-string-duplication
+  // lint rule).
+  const NON_CLAUDE_CLIENT_NAME = "custom-mcp-client";
+  const CLAUDE_CLIENT_NAME = "claude-ai";
+
+  // Mirror of the production `toClaudeDesktopName` — kept local rather than
+  // imported to keep the test asserting against the wire shape, not against
+  // a function that could regress in lockstep with the production code.
+  const expectedDesktopName = (name: string): string => name.replace(/\./g, "_");
+
+  function buildToolDef(name: string): {
+    name: string;
+    description: string;
+    inputSchema: object;
+    handler: (args: Record<string, unknown>) => Promise<unknown>;
+  } {
+    return {
+      name,
+      description: `Test tool ${name}`,
+      inputSchema: { type: "object", properties: {}, additionalProperties: true },
+      handler: async () => ({ ok: true, name }),
+    };
+  }
+
+  test("dotted tool name is dual-registered: both the dotted canonical AND the underscored alias resolve", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("session.pr.get"));
+
+    // Both forms must be dispatchable via the internal tools map (the
+    // CallTool handler does `this.tools.get(request.params.name)`).
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.has("session.pr.get")).toBe(true);
+    expect(tools.has("session_pr_get")).toBe(true);
+    expect(tools.get("session.pr.get")).toBe(tools.get("session_pr_get"));
+
+    await server.close();
+  });
+
+  test("non-dotted tool name is registered exactly once (no spurious alias)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const before = (server as unknown as { tools: Map<string, unknown> }).tools.size;
+    server.addTool(buildToolDef("plain_name"));
+    const after = (server as unknown as { tools: Map<string, unknown> }).tools.size;
+
+    expect(after - before).toBe(1);
+
+    await server.close();
+  });
+
+  // Drive tools/list through the real SDK handler. The SDK Server class is
+  // wired in `setupRequestHandlers` which fires when an SDK Server is connected
+  // to a transport. To exercise it deterministically without a real transport
+  // round-trip, we cast through to the SDK Server's private `_requestHandlers`
+  // map and invoke the handler directly. Mirrors the test pattern used by
+  // mt#1751's defer-DI suite.
+  async function callToolsListHandler(
+    server: import("./server").MinskyMCPServer,
+    clientInfo?: { name: string; version: string }
+  ): Promise<{ tools: Array<{ name: string; description: string; inputSchema: object }> }> {
+    // Stdio mode constructs an internal SDK Server during start(); for tests we
+    // pluck it via the per-session creation path.
+    const sdkServer = (
+      server as unknown as { createConfiguredServer: (k: string) => unknown }
+    ).createConfiguredServer("test-session-key") as {
+      _requestHandlers: Map<string, (req: unknown, extra: unknown) => Promise<unknown>>;
+      _clientVersion?: { name: string; version: string };
+    };
+    if (clientInfo) sdkServer._clientVersion = clientInfo;
+    const handler = sdkServer._requestHandlers.get("tools/list");
+    if (!handler) throw new Error("SDK did not register tools/list handler");
+    return (await handler({ method: "tools/list", params: {} }, {})) as {
+      tools: Array<{ name: string; description: string; inputSchema: object }>;
+    };
+  }
+
+  test("regression: every name surfaced to tools/list matches Claude Desktop's validator regex (Claude client)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a representative set spanning the kinds of names production uses.
+    const names = [
+      "session.list",
+      "session.pr.get",
+      "session.apply_post_merge_state_sync",
+      "tasks.list",
+      "tasks.spec.get",
+      "debug.echo",
+      "debug.listMethods",
+      "rules.create",
+      "git.log",
+      "persistence.check",
+      "validate.lint",
+      "plain_name",
+    ];
+    for (const n of names) server.addTool(buildToolDef(n));
+
+    // Drive through the real SDK handler with a Claude-Desktop-shaped client.
+    const result = await callToolsListHandler(server, {
+      name: CLAUDE_CLIENT_NAME,
+      version: "1.0",
+    });
+
+    // Every emitted name must pass Claude Desktop's validator regex.
+    for (const tool of result.tools) {
+      expect(tool.name).toMatch(CLAUDE_DESKTOP_TOOL_NAME_REGEX);
+      expect(tool.name).not.toContain(".");
+    }
+    // Each tool surfaces exactly once.
+    expect(result.tools.length).toBe(names.length);
+    // The Claude-Desktop-mangled names match the expectedDesktopName() of each canonical.
+    const emittedSet = new Set(result.tools.map((t) => t.name));
+    for (const canonical of names) {
+      expect(emittedSet.has(expectedDesktopName(canonical))).toBe(true);
+    }
+
+    await server.close();
+  });
+
+  test("mt#1785: DEFAULT (no env var) emits underscored regardless of client identity", async () => {
+    // mt#1785: the new default is `underscore`. Even a non-Claude client now
+    // receives validator-clean names. Use case: Anthropic's tools-list cache
+    // is keyed by MCP-server name and persists snapshots; ensuring EVERY
+    // snapshot is underscored prevents the cached-dotted-name failure mode.
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+    server.addTool(buildToolDef("session.pr.get"));
+
+    // Belt-and-suspenders: make sure MINSKY_MCP_TOOL_NAMES is not set (so the
+    // test exercises the actual default), restore on exit.
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    delete process.env.MINSKY_MCP_TOOL_NAMES;
+    try {
+      // Non-Claude client + no env var → underscored by default (mt#1785).
+      const result = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      const emittedNames = result.tools.map((t) => t.name).sort();
+      expect(emittedNames).toEqual(["session_pr_get", "tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("mt#1785: MINSKY_MCP_TOOL_NAMES=auto restores feature-detect (non-Claude → dotted)", async () => {
+    // The mt#1779 behavior is preserved as an opt-in mode. Non-Claude clients
+    // see canonical dotted; Claude clients see underscored.
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "auto";
+    try {
+      // Non-Claude in `auto` mode → canonical dotted.
+      const nonClaude = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(nonClaude.tools.map((t) => t.name)).toEqual(["tasks.list"]);
+
+      // Claude client in `auto` mode → underscored.
+      const claude = await callToolsListHandler(server, {
+        name: CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(claude.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("env override MINSKY_MCP_TOOL_NAMES=underscore forces aliases for all clients", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "underscore";
+    try {
+      const result = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(result.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("env override MINSKY_MCP_TOOL_NAMES=dotted forces canonical for all clients (incl. Claude)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "dotted";
+    try {
+      const result = await callToolsListHandler(server, {
+        name: CLAUDE_CLIENT_NAME,
+        version: "1.0",
+      });
+      expect(result.tools.map((t) => t.name)).toEqual(["tasks.list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("mt#1785 PR #1074 R1 BLOCKING: unknown env value falls back to safe default 'underscore' (does NOT route to dotted via auto)", async () => {
+    // PR #1074 R1 BLOCKING: a typo like `MINSKY_MCP_TOOL_NAMES=underscroe` or
+    // any unrecognized value previously fell through to the `auto` branch.
+    // With clientInfo absent or non-Claude, that emitted dotted names — the
+    // exact failure mode mt#1785 set out to prevent. Validate the safe-default
+    // for both Claude and non-Claude clients, and reset the one-time warning
+    // latch between cases so each test can be observed independently.
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const { __resetUnknownModeWarningForTests } = await import("./tool-name");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "underscroe"; // operator typo
+    try {
+      __resetUnknownModeWarningForTests();
+      // Non-Claude → still underscored (safe fallback, not `auto`'s dotted).
+      const nonClaude = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(nonClaude.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+
+      __resetUnknownModeWarningForTests();
+      // Claude → also underscored (matches the safe default; no surprise).
+      const claude = await callToolsListHandler(server, {
+        name: CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(claude.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("PR #1071 R1 BLOCKING #1: canonical-key collision refuses to overwrite (symmetric with alias collision)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register `foo.bar` first — this also creates the alias key `foo_bar`.
+    const first = buildToolDef("foo.bar");
+    server.addTool(first);
+
+    // Now attempt to register a DIFFERENT tool with canonical name `foo_bar`.
+    // The pre-fix code would set tools[foo_bar] = second silently, breaking
+    // any subsequent call by foo_bar (which is also the alias for first).
+    const second = buildToolDef("foo_bar");
+    server.addTool(second);
+
+    // The collision must be refused: the alias key still points to first.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.get("foo_bar")).toBe(first);
+    // And the canonical `foo.bar` key is unchanged.
+    expect(tools.get("foo.bar")).toBe(first);
+
+    await server.close();
+  });
+
+  test("PR #1071 R1 BLOCKING #1: alias-key collision refuses to overwrite", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register `foo_bar` first (canonical, no alias since no dot).
+    const first = buildToolDef("foo_bar");
+    server.addTool(first);
+
+    // Now register `foo.bar` — its alias `foo_bar` collides with first.
+    const second = buildToolDef("foo.bar");
+    server.addTool(second);
+
+    // Refused: `foo_bar` still maps to first; `foo.bar` was NOT registered.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.get("foo_bar")).toBe(first);
+    expect(tools.has("foo.bar")).toBe(false);
+
+    await server.close();
+  });
+
+  test("idempotent re-add of same ToolDefinition is a no-op", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const tool = buildToolDef("tasks.list");
+    server.addTool(tool);
+    server.addTool(tool); // same object — should be allowed
+    server.addTool(tool);
+
+    // Both keys still point to the SAME tool; map size unchanged.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.get("tasks.list")).toBe(tool);
+    expect(tools.get("tasks_list")).toBe(tool);
+    expect(tools.size).toBe(2);
+
+    await server.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1625 spike: `instructions` option — constructor-time bundle injection
+// ---------------------------------------------------------------------------
+
+describe("MinskyMCPServer instructions option — mt#1625 spike", () => {
+  beforeEach(() => {
+    setupTestMocks();
+  });
+
+  test("instructions option appends bundle to stdio Server's instructions field at construction time", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const bundle =
+      '<memory-bundle count="1" source="minsky-db">\n[feedback/user] Test\n  A test\n  Content\n---\n</memory-bundle>';
+    const server = new MinskyMCPServer({
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+      instructions: bundle,
+    });
+
+    // The SDK Server should have been constructed with the composed
+    // instructions (baseInstructions + bundle). We read it via the SDK's
+    // public getter pattern (here through internal field for test purposes).
+    const sdkServer = (server as unknown as { server: SdkServer }).server;
+    const instructions = (sdkServer as unknown as { _instructions?: string })["_instructions"];
+
+    expect(instructions).toBeDefined();
+    expect(instructions).toContain("You are connected to the Minsky MCP server");
+    expect(instructions).toContain(bundle);
+
+    await server.close();
+  });
+
+  test("HTTP per-session createConfiguredServer picks up the instructions bundle", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const bundle = '<memory-bundle count="1" source="minsky-db">\nTest bundle</memory-bundle>';
+    const server = new MinskyMCPServer({
+      transportType: "http",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+      httpConfig: { port: 0, host: "127.0.0.1" },
+      instructions: bundle,
+    });
+
+    // Create a configured server (simulates HTTP session creation)
+    const sdkServerForSession = (
+      server as unknown as { createConfiguredServer: (key: string) => SdkServer }
+    ).createConfiguredServer("test-session-key");
+
+    const instructions = (sdkServerForSession as unknown as { _instructions?: string })[
+      "_instructions"
+    ];
+    expect(instructions).toContain(bundle);
+
+    await server.close();
+  });
+});
+
+describe("MinskyMCPServer init setters — mt#1962 symmetric mutual-exclusivity (PR #1188 R1 B1)", () => {
+  test("setInitPromise clears any previously-set initController", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const { RetryingInitController } = await import("./init-retry");
+    const server = new MinskyMCPServer({
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Set a controller first.
+    const controllerInitCount = { n: 0 };
+    const controller = new RetryingInitController({
+      initializer: async () => {
+        controllerInitCount.n++;
+      },
+    });
+    server.setInitController(controller);
+    expect((server as unknown as { initController: unknown }).initController).toBe(controller);
+
+    // Now overlay a promise — controller must be cleared.
+    const promise = Promise.resolve();
+    server.setInitPromise(promise);
+    expect((server as unknown as { initController: unknown }).initController).toBeNull();
+    expect((server as unknown as { initPromise: unknown }).initPromise).toBe(promise);
+
+    await server.close();
+  });
+
+  test("setInitController clears any previously-set initPromise", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const { RetryingInitController } = await import("./init-retry");
+    const server = new MinskyMCPServer({
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const promise = Promise.resolve();
+    server.setInitPromise(promise);
+    expect((server as unknown as { initPromise: unknown }).initPromise).toBe(promise);
+
+    const controller = new RetryingInitController({
+      initializer: async () => {},
+    });
+    server.setInitController(controller);
+    expect((server as unknown as { initPromise: unknown }).initPromise).toBeNull();
+    expect((server as unknown as { initController: unknown }).initController).toBe(controller);
+
+    await server.close();
+  });
+});
+
+describe("buildProgressReporter (mt#2677)", () => {
+  test("returns undefined when the caller did not request progress (no progressToken)", async () => {
+    const { buildProgressReporter } = await import("./server");
+    const sendNotification = mock(async () => {});
+    const reporter = buildProgressReporter(undefined, sendNotification);
+    expect(reporter).toBeUndefined();
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  test("sends a notifications/progress message with an incrementing counter when a progressToken is present", async () => {
+    const { buildProgressReporter } = await import("./server");
+    const calls: unknown[] = [];
+    const sendNotification = mock(async (notification: unknown) => {
+      calls.push(notification);
+    });
+
+    const reporter = buildProgressReporter("tok-123", sendNotification);
+    expect(reporter).toBeDefined();
+
+    reporter?.("waiting for review, poll 1");
+    reporter?.("waiting for review, poll 2");
+
+    // sendNotification is fire-and-forget (void + .catch) inside the
+    // reporter — flush a microtask so both calls have been dispatched.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls).toEqual([
+      {
+        method: "notifications/progress",
+        params: { progressToken: "tok-123", progress: 1, message: "waiting for review, poll 1" },
+      },
+      {
+        method: "notifications/progress",
+        params: { progressToken: "tok-123", progress: 2, message: "waiting for review, poll 2" },
+      },
+    ]);
+  });
+
+  test("a sendNotification failure is swallowed — does not throw or reject", async () => {
+    const { buildProgressReporter } = await import("./server");
+    const sendNotification = mock(async () => {
+      throw new Error("transport gone");
+    });
+
+    const reporter = buildProgressReporter("tok-456", sendNotification);
+    expect(() => reporter?.("this should not throw synchronously")).not.toThrow();
+
+    // Let the rejected promise's .catch() handler run — an unhandled
+    // rejection here would fail the test via bun's global handler.
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });

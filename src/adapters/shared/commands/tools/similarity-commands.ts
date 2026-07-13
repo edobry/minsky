@@ -7,9 +7,9 @@
 import { z } from "zod";
 import type { CommandExecutionContext, CommandParameterMap } from "../../command-registry";
 import { sharedCommandRegistry } from "../../command-registry";
-import { createLogger } from "../../../../utils/logger";
+import { createLogger } from "@minsky/shared/logger";
 import { CommonParameters } from "../../common-parameters";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 const log = createLogger();
 
@@ -164,7 +164,7 @@ export class ToolsSimilarCommand {
 
     // Create tool similarity service
     const { createToolSimilarityService } = await import(
-      "../../../../domain/tools/similarity/tool-similarity-service"
+      "@minsky/domain/tools/similarity/tool-similarity-service"
     );
     const service = await createToolSimilarityService({}, this.getPersistenceProvider());
 
@@ -266,7 +266,7 @@ export class ToolsSearchCommand {
 
     // Create tool similarity service
     const { createToolSimilarityService } = await import(
-      "../../../../domain/tools/similarity/tool-similarity-service"
+      "@minsky/domain/tools/similarity/tool-similarity-service"
     );
     const service = await createToolSimilarityService({}, this.getPersistenceProvider());
 
@@ -278,7 +278,7 @@ export class ToolsSearchCommand {
     // Optional human-friendly diagnostics (no global debug needed)
     if (params.details) {
       try {
-        const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
+        const cfg = await (await import("@minsky/domain/configuration")).getConfiguration();
         const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
         const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold = threshold ?? "(default)";

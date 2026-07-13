@@ -10,12 +10,12 @@
  */
 
 import { describe, it, expect, mock } from "bun:test";
-import type { SchedulerClock, TimerHandle } from "../../domain/knowledge/ingestion/scheduler";
-import type { KnowledgeSourceProvider, KnowledgeDocument } from "../../domain/knowledge/types";
-import type { SyncReport } from "../../domain/knowledge/types";
+import type { SchedulerClock, TimerHandle } from "@minsky/domain/knowledge/ingestion/scheduler";
+import type { KnowledgeSourceProvider, KnowledgeDocument } from "@minsky/domain/knowledge/types";
+import type { SyncReport } from "@minsky/domain/knowledge/types";
 
 /** Scheduler module path — extracted to avoid magic-string duplication across tests. */
-const SCHEDULER_MODULE = "../../domain/knowledge/ingestion/scheduler";
+const SCHEDULER_MODULE = "@minsky/domain/knowledge/ingestion/scheduler";
 
 // ---------------------------------------------------------------------------
 // Fake clock (mirrors the one in scheduler.test.ts)

@@ -1,0 +1,228 @@
+#!/usr/bin/env bun
+// PostToolUse hook — Surface 4 of the System 3* detector (mt#1035 / mt#1543).
+//
+// Runs after a session PR merges. Resolves the merged session's transcript,
+// asks the unasked-direction analyzer to surface preference-bound decisions,
+// and writes the findings to `.minsky/state/unasked-directions/<sessionId>.json`.
+//
+// Findings are observational — they DO NOT block merge (the merge already
+// happened). They feed the rule library that informs Surface 2 (deferred
+// to v0.2). The operator triages weekly via the `unasked-direction` CLI.
+//
+// Modes via MINSKY_UNASKED_DIRECTION_DETECTOR env var:
+//   - unset / "log-only" (DEFAULT): run analyzer, write findings.
+//   - "disabled":                    skip entirely; no AI call.
+//
+// On any failure (missing transcript, AI error, file IO error), the hook
+// logs and exits 0. The hook is best-effort; it must never break the merge
+// flow.
+//
+// @see mt#1543 — this task (Surface 4 specifics)
+// @see mt#1574 — shared Detector core (consumes signalToAskIntent)
+// @see docs/research/mt1035-system3-detector.md §Surface 4
+// @see .claude/hooks/post-merge-pull.ts — sibling hook on the same matcher
+
+import { readInput } from "./types";
+import type { ToolHookInput } from "./types";
+
+import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
+import { writeFindings } from "../../packages/domain/src/detectors/unasked-direction-store";
+import type { TranscriptMessage } from "../../packages/domain/src/provenance/transcript-service";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Mode env var. */
+const MODE_ENV_VAR = "MINSKY_UNASKED_DIRECTION_DETECTOR";
+
+type DetectorMode = "log-only" | "disabled";
+
+/** Tool names the hook reacts to. */
+const COVERED_TOOL_NAMES = new Set([
+  "mcp__minsky__session_pr_merge",
+  "mcp__github__merge_pull_request",
+]);
+
+function readMode(): DetectorMode {
+  const raw = process.env[MODE_ENV_VAR];
+  if (raw === "disabled") return "disabled";
+  return "log-only";
+}
+
+// ---------------------------------------------------------------------------
+// Session / task / transcript resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Pull the session ID + task ID out of the tool input/response.
+ *
+ * `mcp__minsky__session_pr_merge` accepts either `sessionId` or `task`.
+ * The tool response typically includes the session record under
+ * `tool_result.session.{sessionId,taskId}`.
+ *
+ * Returns `null` if neither input nor response yields a session ID.
+ */
+export function resolveSessionContext(input: ToolHookInput): {
+  sessionId: string;
+  taskId?: string;
+} | null {
+  const params = input.tool_input ?? {};
+  const result = input.tool_result ?? {};
+
+  const sessionId =
+    typeof params["sessionId"] === "string"
+      ? params["sessionId"]
+      : typeof params["session"] === "string"
+        ? params["session"]
+        : isObject(result["session"]) && typeof result["session"]["sessionId"] === "string"
+          ? result["session"]["sessionId"]
+          : undefined;
+
+  if (!sessionId) return null;
+
+  const taskId =
+    typeof params["task"] === "string"
+      ? params["task"]
+      : isObject(result["session"]) && typeof result["session"]["taskId"] === "string"
+        ? result["session"]["taskId"]
+        : undefined;
+
+  return { sessionId, taskId };
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/**
+ * Try to fetch the stored transcript for a session.
+ *
+ * Lazily imports the transcript service + persistence to avoid the cost
+ * (and the Postgres connection setup) when the hook is in `disabled` mode.
+ *
+ * Returns `null` if the transcript can't be loaded for any reason — DB
+ * unavailable, no row, parse failure. Hook treats `null` as a no-op.
+ */
+async function loadTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
+  try {
+    const { resolvePersistenceProvider } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const { AgentTranscriptService } = await import(
+      "../../packages/domain/src/provenance/transcript-service"
+    );
+
+    const provider = await resolvePersistenceProvider();
+    if (!provider || !("getDatabaseConnection" in provider)) return null;
+
+    const db = await (
+      provider as { getDatabaseConnection(): Promise<unknown> }
+    ).getDatabaseConnection();
+    if (!db) return null;
+
+    const service = new AgentTranscriptService(
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+    return await service.getTranscript(sessionId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a completion service if AI providers are configured.
+ *
+ * Returns `null` if the resolver throws (no API key, missing provider config,
+ * etc.). The hook treats `null` as "skip the analyzer, exit silently."
+ */
+async function buildCompletionService(): Promise<unknown | null> {
+  try {
+    const { createCompletionService } = await import(
+      "../../packages/domain/src/ai/service-factory"
+    );
+    const { requireAIProviders } = await import("../../packages/domain/src/ai/provider-operations");
+    const { getResolvedConfig } = await import(
+      "../../src/adapters/shared/commands/ai/shared-helpers"
+    );
+
+    const resolvedConfig = getResolvedConfig();
+    requireAIProviders(resolvedConfig);
+    return createCompletionService(resolvedConfig);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hook entry point
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  const input = await readInput<ToolHookInput>();
+  const mode = readMode();
+
+  if (mode === "disabled") {
+    process.exit(0);
+  }
+
+  if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
+    process.exit(0);
+  }
+
+  const ctx = resolveSessionContext(input);
+  if (!ctx) {
+    process.stderr.write(
+      "[post-merge-unasked-direction-scan] Could not resolve sessionId from tool input — skipping\n"
+    );
+    process.exit(0);
+  }
+
+  const projectRoot = input.cwd;
+
+  const transcript = await loadTranscript(ctx.sessionId);
+  if (!transcript || transcript.length === 0) {
+    process.stderr.write(
+      `[post-merge-unasked-direction-scan] No transcript available for ${ctx.sessionId} — skipping\n`
+    );
+    process.exit(0);
+  }
+
+  const completionService = await buildCompletionService();
+  if (!completionService) {
+    process.stderr.write(
+      "[post-merge-unasked-direction-scan] No AI provider configured — skipping analyzer\n"
+    );
+    process.exit(0);
+  }
+
+  let output;
+  try {
+    const analyzer = new UnaskedDirectionAnalyzer(
+      completionService as import("../../packages/domain/src/ai/completion-service").DefaultAICompletionService
+    );
+    output = await analyzer.analyzeTranscript(transcript, {
+      sessionId: ctx.sessionId,
+      taskId: ctx.taskId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[post-merge-unasked-direction-scan] Analyzer failed for ${ctx.sessionId}: ${message}\n`
+    );
+    process.exit(0);
+  }
+
+  const wrote = await writeFindings(projectRoot, ctx.sessionId, output, {
+    taskId: ctx.taskId,
+  });
+
+  if (wrote) {
+    const findingCount = output.findings.length;
+    process.stdout.write(
+      `[post-merge-unasked-direction-scan] Wrote ${findingCount} finding(s) for session ${ctx.sessionId}\n`
+    );
+  }
+
+  process.exit(0);
+}

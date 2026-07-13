@@ -13,17 +13,46 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
 import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
+import { withTimeout } from "./with-timeout";
+import { log } from "./logger";
+
+/**
+ * Default GitHub-API timeout used when these helpers are called without an
+ * explicit value (tests, scripts that don't load config). Matches the
+ * production default in `config.ts` (`REVIEWER_GITHUB_TIMEOUT_MS`); kept in
+ * sync manually because the test surface that calls these helpers directly
+ * doesn't load config.
+ *
+ * mt#1086.
+ */
+const DEFAULT_GITHUB_TIMEOUT_MS = 30_000;
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
+  // mt#2717: install `createAppAuth` as the Octokit `authStrategy` rather than
+  // extracting a static installation-token STRING. The prior form —
+  //   const { token } = await auth({ type: "installation" });
+  //   return new Octokit({ auth: token });
+  // — pinned the client to `@octokit/auth-token` (a static strategy) holding a
+  // token GitHub expires after ~60 minutes. Any client reused past that mark
+  // (both sweepers cache one for the whole process lifetime) then returns
+  // `401 "Bad credentials"` on EVERY subsequent call and never self-recovers —
+  // the merge-state sweeper alone logged 1,730 such failures in one ~15.5h
+  // deployment window. The webhook review path escaped only because it builds a
+  // fresh Octokit per review, never crossing the 1h boundary.
+  //
+  // The `authStrategy` form is the canonical `@octokit/auth-app` usage: the auth
+  // hook runs per request and `@octokit/auth-app` "transparently creates an
+  // installation access token the first time it is needed and refreshes it when
+  // it expires" (cached and reused until ~59 min, then refreshed). This makes a
+  // single long-lived reused instance correct — exactly what both sweepers want.
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+      installationId: config.installationId,
+    },
   });
-
-  const { token } = await auth({ type: "installation" });
-
-  return new Octokit({ auth: token });
 }
 
 export interface PullRequestContext {
@@ -51,9 +80,14 @@ export interface PullRequestContext {
   /**
    * List of file paths changed by this PR (relative to repo root).
    * Used by the scope classifier (mt#1188) to determine docs-only / test-only.
-   * Fetched from the pulls.listFiles endpoint alongside the diff.
+   * Derived from `fileEntries` for backward compatibility.
    */
   filesChanged: string[];
+  /**
+   * Per-file entries with patch, additions, deletions, and status (mt#2120).
+   * Used by chunked review to build per-chunk prompts from per-file patches.
+   */
+  fileEntries: PrFileEntry[];
   /**
    * Authoritative changed-files count from the PR API (`pulls.get` →
    * `changed_files`). The classifier compares this against
@@ -73,9 +107,20 @@ export interface PullRequestContext {
  */
 export const MAX_FILES_FETCHED = 1000;
 
+export interface PrFileEntry {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previousFilename?: string;
+}
+
 /**
  * Fetch the list of files changed by a PR, following Link headers via
- * octokit.paginate. Returns an array of filename strings.
+ * octokit.paginate. Returns per-file entries with patch, additions,
+ * deletions, and status. The `patch` field is omitted by GitHub for
+ * files >1MB or binary files.
  *
  * Safety cap: if more than MAX_FILES_FETCHED files are returned the cap is
  * exceeded and [] is returned (scope classifier falls through to normal).
@@ -88,62 +133,87 @@ export async function fetchListFiles(
   octokit: Octokit,
   owner: string,
   repo: string,
-  prNumber: number
-): Promise<string[]> {
-  let allFiles: Array<{ filename: string }>;
+  prNumber: number,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<PrFileEntry[]> {
+  let allFiles: Array<{
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+    previous_filename?: string;
+  }>;
   try {
-    allFiles = await octokit.paginate(octokit.rest.pulls.listFiles, {
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-    });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_listfiles_error",
+    allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, (signal) =>
+      octokit.paginate(octokit.rest.pulls.listFiles, {
         owner,
         repo,
-        pr: prNumber,
-        error: message,
+        pull_number: prNumber,
+        per_page: 100,
+        request: { signal },
       })
     );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.info("pr_scope_listfiles_error", {
+      event: "pr_scope_listfiles_error",
+      owner,
+      repo,
+      pr: prNumber,
+      error: message,
+    });
     return [];
   }
 
   if (allFiles.length > MAX_FILES_FETCHED) {
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_files_cap_exceeded",
-        owner,
-        repo,
-        pr: prNumber,
-        fileCount: allFiles.length,
-        cap: MAX_FILES_FETCHED,
-      })
-    );
+    log.info("pr_scope_files_cap_exceeded", {
+      event: "pr_scope_files_cap_exceeded",
+      owner,
+      repo,
+      pr: prNumber,
+      fileCount: allFiles.length,
+      cap: MAX_FILES_FETCHED,
+    });
     return [];
   }
 
-  return allFiles.map((f) => f.filename);
+  return allFiles.map((f) => ({
+    filename: f.filename,
+    status: f.status,
+    additions: f.additions,
+    deletions: f.deletions,
+    patch: f.patch,
+    ...(f.previous_filename ? { previousFilename: f.previous_filename } : {}),
+  }));
 }
 
 export async function fetchPullRequestContext(
   octokit: Octokit,
   owner: string,
   repo: string,
-  prNumber: number
+  prNumber: number,
+  // mt#1086: per-call timeout — applied independently to each of the three
+  // parallel sub-requests, so the overall wall-clock is bounded by
+  // max(timeoutMs) rather than 3*timeoutMs.
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse, filesChanged] = await Promise.all([
-    octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
-    octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
-      owner,
-      repo,
-      pull_number: prNumber,
-      mediaType: { format: "diff" },
-    }),
-    fetchListFiles(octokit, owner, repo, prNumber),
+  const [prResponse, diffResponse, fileEntries] = await Promise.all([
+    // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
+    // via `request: { signal }` so abort actually cancels the request.
+    withTimeout("github.pulls.get", timeoutMs, (signal) =>
+      octokit.rest.pulls.get({ owner, repo, pull_number: prNumber, request: { signal } })
+    ),
+    withTimeout("github.pulls.get.diff", timeoutMs, (signal) =>
+      octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: prNumber,
+        mediaType: { format: "diff" },
+        request: { signal },
+      })
+    ),
+    fetchListFiles(octokit, owner, repo, prNumber, timeoutMs),
   ]);
 
   const pr = prResponse.data;
@@ -171,7 +241,8 @@ export async function fetchPullRequestContext(
     baseBranch: pr.base.ref,
     diff,
     headSha: pr.head.sha,
-    filesChanged,
+    filesChanged: fileEntries.map((f) => f.filename),
+    fileEntries,
     changedFilesCount: pr.changed_files,
   };
 }
@@ -181,20 +252,86 @@ export interface SubmittedReview {
   htmlUrl: string;
 }
 
+/**
+ * A single inline comment to submit as part of a review.
+ * When `inReplyTo` is set this comment is a reply to an existing comment;
+ * GitHub anchors it to the parent comment's location (path/line/side are ignored).
+ */
+export interface ReviewInlineComment {
+  /** File path of the comment anchor (relative to repo root). */
+  path: string;
+  /** Line number in the diff the comment anchors to (1-based). */
+  line: number;
+  /** Comment body text. */
+  body: string;
+  /**
+   * Which side of the diff the line refers to. Defaults to `"RIGHT"` (the new
+   * version of the file). GitHub's `pulls.createReview` requires `side` when
+   * anchoring by `line` — defaulting is not guaranteed, so we always send it
+   * when `inReplyTo` is undefined. When `inReplyTo` IS set GitHub anchors via
+   * the parent comment and ignores `side`.
+   */
+  side?: "LEFT" | "RIGHT";
+  /**
+   * When present, this comment is a reply to the existing review comment with
+   * this database ID. Obtain the ID from `fetchReviewThreads` comments[].databaseId.
+   */
+  inReplyTo?: number;
+}
+
 export async function submitReview(
   octokit: Octokit,
   owner: string,
   repo: string,
   prNumber: number,
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
-  body: string
+  body: string,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles
+  // for rationale).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  // mt#1345: optional inline comments with optional in_reply_to wiring.
+  inlineComments?: ReviewInlineComment[]
 ): Promise<SubmittedReview> {
-  const response = await octokit.rest.pulls.createReview({
-    owner,
-    repo,
-    pull_number: prNumber,
-    event,
-    body,
+  // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
+  const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
+    // Map inlineComments to the Octokit comments[] shape.
+    //
+    // Two branches per comment (PR #1069 R1 BLOCKING #2):
+    //   - inReplyTo set: GitHub anchors via the parent comment; omit
+    //     path/line/side from the payload. Only body + in_reply_to are
+    //     required.
+    //   - inReplyTo NOT set: top-level comment anchored by file+line+side.
+    //     side defaults to "RIGHT" because the GitHub API does not guarantee
+    //     a default; sending without it risks a 422 that rejects the entire
+    //     review payload.
+    const comments =
+      inlineComments !== undefined && inlineComments.length > 0
+        ? inlineComments.map((c) =>
+            c.inReplyTo !== undefined
+              ? { body: c.body, in_reply_to: c.inReplyTo }
+              : { path: c.path, line: c.line, side: c.side ?? "RIGHT", body: c.body }
+          )
+        : undefined;
+
+    // mt#1782: the inline-comments union ({reply variant} | {inline variant})
+    // doesn't structurally match Octokit's `createReview` `comments` parameter
+    // shape because Octokit's typed signature for `createReview` does not include
+    // `in_reply_to` (which is technically a `createReviewComment` parameter).
+    // mt#1345's use of `in_reply_to` against `createReview` is intentional — GitHub
+    // accepts it at the REST surface — but TS can't reconcile the union with
+    // Octokit's stricter type. Cast at the call site to satisfy the typechecker
+    // without changing behavior. See mt#1782 spec for follow-up tracking on the
+    // wider mt#1345 reply-routing question.
+    type CreateReviewParams = NonNullable<Parameters<typeof octokit.rest.pulls.createReview>[0]>;
+    return octokit.rest.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      event,
+      body,
+      ...(comments !== undefined ? { comments: comments as CreateReviewParams["comments"] } : {}),
+      request: { signal },
+    });
   });
 
   return {
@@ -229,22 +366,30 @@ export async function fetchPriorReviews(
   octokit: Octokit,
   owner: string,
   repo: string,
-  prNumber: number
+  prNumber: number,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PriorReview[]> {
   // paginate fetches all pages automatically. listReviews returns oldest-first.
-  const allReviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
-    owner,
-    repo,
-    pull_number: prNumber,
-    per_page: 100,
-  });
+  // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
+  const allReviews = await withTimeout("github.pulls.listReviews", timeoutMs, (signal) =>
+    octokit.paginate(octokit.rest.pulls.listReviews, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+      request: { signal },
+    })
+  );
 
   let rawReviews = allReviews;
   if (rawReviews.length > MAX_REVIEWS_FETCHED) {
-    console.warn(
-      `[fetchPriorReviews] PR #${prNumber} has ${rawReviews.length} reviews, ` +
-        `exceeding the cap of ${MAX_REVIEWS_FETCHED}. Only the first ${MAX_REVIEWS_FETCHED} will be used.`
-    );
+    log.warn("reviewer.prior_reviews_cap_exceeded", {
+      event: "reviewer.prior_reviews_cap_exceeded",
+      pr: prNumber,
+      count: rawReviews.length,
+      cap: MAX_REVIEWS_FETCHED,
+    });
     rawReviews = rawReviews.slice(0, MAX_REVIEWS_FETCHED);
   }
 
@@ -363,15 +508,29 @@ export async function readFileAtRef(
   owner: string,
   repo: string,
   path: string,
-  ref: string
+  ref: string,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  // mt#1086 PR #969 R2 BLOCKING #2: optional caller-provided AbortSignal.
+  // When the OpenAI tool loop wraps the tool call in its own withTimeout,
+  // it passes that signal through here so abort actually cancels the
+  // Octokit request rather than leaving it running in the background.
+  // Combined with the internal withTimeout's signal via AbortSignal.any
+  // — whichever fires first wins.
+  callerSignal?: AbortSignal
 ): Promise<ReadFileResult | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: normalizedPath,
-      ref,
+    const response = await withTimeout("github.repos.getContent.file", timeoutMs, (innerSignal) => {
+      const signal =
+        callerSignal !== undefined ? AbortSignal.any([innerSignal, callerSignal]) : innerSignal;
+      return octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: normalizedPath,
+        ref,
+        request: { signal },
+      });
     });
     const data = response.data;
     // getContent returns an array for directories; a single object for files.
@@ -422,15 +581,25 @@ export async function listDirectoryAtRef(
   owner: string,
   repo: string,
   path: string,
-  ref: string
+  ref: string,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  // mt#1086 PR #969 R2 BLOCKING #2: optional caller-provided AbortSignal.
+  // See readFileAtRef above for rationale.
+  callerSignal?: AbortSignal
 ): Promise<DirEntry[] | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: normalizedPath,
-      ref,
+    const response = await withTimeout("github.repos.getContent.dir", timeoutMs, (innerSignal) => {
+      const signal =
+        callerSignal !== undefined ? AbortSignal.any([innerSignal, callerSignal]) : innerSignal;
+      return octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: normalizedPath,
+        ref,
+        request: { signal },
+      });
     });
     const data = response.data;
     if (!Array.isArray(data)) {
@@ -453,6 +622,274 @@ export async function listDirectoryAtRef(
   }
 }
 
+// ── Review threads (mt#1345) ─────────────────────────────────────────────────
+
+/**
+ * A single comment within a review thread, as surfaced in the reviewer prompt.
+ */
+export interface ReviewThreadComment {
+  /** GitHub database ID of the comment (numeric). Used for in_reply_to wiring. */
+  databaseId: number;
+  /** GitHub login of the comment author, or null for deleted accounts. */
+  author: string | null;
+  /** Comment body text. */
+  body: string;
+  /** ISO-8601 timestamp of comment creation. */
+  createdAt: string;
+}
+
+/**
+ * A review thread (inline diff discussion) on a pull request.
+ * Shape matches the GraphQL `reviewThreads.nodes` projection.
+ */
+export interface ReviewThread {
+  /** GraphQL node ID of the thread — used for the resolveReviewThread mutation. */
+  id: string;
+  /** File path the thread is anchored to. */
+  path: string;
+  /**
+   * Line number the thread ends on (1-based). Null when the thread is
+   * outdated (the anchored line was removed from the diff).
+   */
+  line: number | null;
+  /** First line of a multi-line range (1-based). Undefined for single-line. */
+  startLine?: number;
+  /** Whether the thread has been marked resolved. */
+  isResolved: boolean;
+  /** Whether the thread is outdated (anchored line no longer in the diff). */
+  isOutdated: boolean;
+  /** Whether the thread is collapsed in the GitHub UI. */
+  isCollapsed: boolean;
+  /** Ordered list of comments in the thread (oldest first, up to 10). */
+  comments: ReviewThreadComment[];
+  /** True when the thread has more than 10 comments (only first 10 are present). */
+  truncatedComments: boolean;
+}
+
+// ── GraphQL types ─────────────────────────────────────────────────────────────
+
+interface GqlThreadComment {
+  databaseId: number;
+  author: { login: string } | null;
+  body: string;
+  createdAt: string;
+}
+
+interface GqlThread {
+  id: string;
+  path: string;
+  line: number | null;
+  startLine: number | null;
+  isResolved: boolean;
+  isOutdated: boolean;
+  isCollapsed: boolean;
+  comments: {
+    totalCount: number;
+    nodes: GqlThreadComment[];
+  };
+}
+
+interface GqlPageInfo {
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
+
+interface GqlReviewThreadsResponse {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        nodes: GqlThread[];
+        pageInfo: GqlPageInfo;
+      };
+    } | null;
+  } | null;
+}
+
+const REVIEW_THREADS_QUERY = `
+  query GetReviewerThreads($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $prNumber) {
+        reviewThreads(first: 50, after: $after) {
+          nodes {
+            id
+            path
+            line
+            startLine
+            isResolved
+            isOutdated
+            isCollapsed
+            comments(first: 10) {
+              totalCount
+              nodes {
+                databaseId
+                author { login }
+                body
+                createdAt
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  }
+`;
+
+const RESOLVE_THREAD_MUTATION = `
+  mutation ResolveReviewerThread($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) {
+      thread { id isResolved }
+    }
+  }
+`;
+
+/** Hard cap on threads fetched per PR to avoid runaway pagination. */
+const MAX_REVIEW_THREADS = 200;
+
+/**
+ * Fetch all review threads for a pull request.
+ *
+ * Paginates through `pullRequest.reviewThreads` (50 per page) and caps at
+ * MAX_REVIEW_THREADS (200). Returns an empty array on any network/auth/GraphQL
+ * error — thread context is non-fatal and degrades gracefully.
+ *
+ * @param octokit  Authenticated Octokit instance.
+ * @param owner    Repository owner.
+ * @param repo     Repository name.
+ * @param prNumber Pull request number.
+ * @param signal   Optional AbortSignal for request cancellation.
+ */
+export async function fetchReviewThreads(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  signal?: AbortSignal
+): Promise<ReviewThread[]> {
+  const allThreads: ReviewThread[] = [];
+  let hasNextPage = true;
+  let cursor: string | null = null;
+
+  while (hasNextPage) {
+    let response: GqlReviewThreadsResponse;
+    try {
+      response = await octokit.graphql<GqlReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
+        owner,
+        repo,
+        prNumber,
+        after: cursor,
+        request: { signal },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.info("reviewer_fetch_threads_error", {
+        event: "reviewer_fetch_threads_error",
+        owner,
+        repo,
+        pr: prNumber,
+        error: message,
+      });
+      return allThreads;
+    }
+
+    const pr = response?.repository?.pullRequest;
+    if (pr === null || pr === undefined) {
+      return allThreads;
+    }
+
+    const { nodes, pageInfo } = pr.reviewThreads;
+
+    for (const node of nodes) {
+      if (allThreads.length >= MAX_REVIEW_THREADS) {
+        log.info("reviewer_threads_cap_exceeded", {
+          event: "reviewer_threads_cap_exceeded",
+          owner,
+          repo,
+          pr: prNumber,
+          cap: MAX_REVIEW_THREADS,
+        });
+        return allThreads;
+      }
+
+      const comments: ReviewThreadComment[] = node.comments.nodes.map((c) => ({
+        databaseId: c.databaseId,
+        author: c.author?.login ?? null,
+        body: c.body,
+        createdAt: c.createdAt,
+      }));
+
+      allThreads.push({
+        id: node.id,
+        path: node.path,
+        line: node.line,
+        ...(node.startLine !== null ? { startLine: node.startLine } : {}),
+        isResolved: node.isResolved,
+        isOutdated: node.isOutdated,
+        isCollapsed: node.isCollapsed,
+        comments,
+        truncatedComments: node.comments.totalCount > node.comments.nodes.length,
+      });
+    }
+
+    hasNextPage = pageInfo.hasNextPage;
+    cursor = pageInfo.endCursor;
+  }
+
+  return allThreads;
+}
+
+/**
+ * Resolve a review thread via the GraphQL `resolveReviewThread` mutation.
+ *
+ * Throws if the mutation fails (the caller should decide whether to surface
+ * the error or swallow it).
+ *
+ * @param octokit  Authenticated Octokit instance.
+ * @param threadId GraphQL node ID of the thread to resolve.
+ * @param signal   Optional AbortSignal for request cancellation.
+ */
+export async function resolveThread(
+  octokit: Octokit,
+  threadId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  await octokit.graphql(RESOLVE_THREAD_MUTATION, {
+    threadId,
+    request: { signal },
+  });
+}
+
+/**
+ * Dismiss a pull-request review via the `pulls.dismissReview` REST endpoint.
+ *
+ * Used by the `/resolve` command (mt#2173) to clear stale CHANGES_REQUESTED
+ * reviews so they no longer block the merge gate. The dismissal message is
+ * shown in the GitHub UI alongside the dismissed review.
+ */
+export async function dismissReview(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  reviewId: number,
+  message: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<void> {
+  await withTimeout("github.pulls.dismissReview", timeoutMs, (signal) =>
+    octokit.rest.pulls.dismissReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      review_id: reviewId,
+      message,
+      request: { signal },
+    })
+  );
+}
+
 /**
  * Return the reviewer App's bot identity (login name) via the /app endpoint.
  *
@@ -467,20 +904,39 @@ export async function listDirectoryAtRef(
  */
 let cachedAppIdentity: { login: string } | null = null;
 
+/**
+ * Construct the App-JWT-authed Octokit used to read the reviewer App's own
+ * identity (`GET /app`).
+ *
+ * mt#2717: installs `createAppAuth` as the `authStrategy` so the App-level JWT
+ * is minted and refreshed per request, rather than extracting a static JWT
+ * string (`new Octokit({ auth: token })`) — the same static-token anti-pattern
+ * the sweepers' `createOctokit` hit. Only `appId`/`privateKey` are needed for
+ * the App-level `/app` route (no `installationId`); `@octokit/auth-app` supplies
+ * a JWT automatically for App-level endpoints. Exported for tests.
+ */
+export function createAppIdentityOctokit(config: ReviewerConfig): Octokit {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+    },
+  });
+}
+
+/** TEST-ONLY: reset the cached App identity so a test can re-exercise the fetch. */
+export function _resetAppIdentityCacheForTests(): void {
+  cachedAppIdentity = null;
+}
+
 export async function getAppIdentity(config: ReviewerConfig): Promise<{ login: string }> {
   if (cachedAppIdentity) return cachedAppIdentity;
 
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
-  });
-
-  // `type: "app"` returns an App-level JWT (not an installation token), which
-  // is required for `/app` endpoints.
-  const { token } = await auth({ type: "app" });
-
-  const appOctokit = new Octokit({ auth: token });
+  // mt#2717: authStrategy-based client (see createAppIdentityOctokit) so the
+  // App JWT mints/refreshes per request. `apps.getAuthenticated` (GET /app) is
+  // an App-level route, so @octokit/auth-app supplies a fresh JWT automatically.
+  const appOctokit = createAppIdentityOctokit(config);
   const response = await appOctokit.rest.apps.getAuthenticated();
   if (!response.data) {
     throw new Error(

@@ -17,12 +17,17 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
       "Identify and remove stale/orphaned sessions (dry-run by default; pass --no-dry-run --yes to delete)",
     parameters: sessionCleanupCommandParams,
     execute: withErrorLogging("session.cleanup", async (params: Record<string, unknown>) => {
-      const { identifyCleanupCandidates, parseDuration, sessionHasUncommittedChanges } =
-        await import("../../../../domain/session/session-cleanup");
+      const {
+        identifyCleanupCandidates,
+        identifyFilesystemOrphanDirs,
+        parseDuration,
+        sessionHasUncommittedChanges,
+      } = await import("@minsky/domain/session/session-cleanup");
       const { deleteSessionImpl } = await import(
-        "../../../../domain/session/session-lifecycle-operations"
+        "@minsky/domain/session/session-lifecycle-operations"
       );
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
+      const { existsSync, rmSync } = await import("node:fs");
 
       const deps = await getDeps();
       const sessionProvider = deps.sessionProvider;
@@ -45,14 +50,18 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
       const dryRun = (params.dryRun as boolean | undefined) ?? true;
       const yes = (params.yes as boolean | undefined) ?? false;
 
-      // Identify candidates
+      // Identify DB-tracked candidates (stale sessions, DB-orphans with no dir, etc.)
       const candidates = await identifyCleanupCandidates(sessionProvider, {
         includeStale,
         includeOrphaned,
         olderThanMs,
       });
 
-      if (candidates.length === 0) {
+      // Identify filesystem orphan dirs (dirs on disk with no DB record) when --orphaned.
+      // This is the mt#1941 failure mode: workspace dir persists after DB record is deleted.
+      const fsOrphans = includeOrphaned ? await identifyFilesystemOrphanDirs(sessionProvider) : [];
+
+      if (candidates.length === 0 && fsOrphans.length === 0) {
         return {
           success: true,
           found: 0,
@@ -63,7 +72,7 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
         };
       }
 
-      // For each candidate, check uncommitted changes (skip + warn if found)
+      // For each DB-tracked candidate, check uncommitted changes (skip + warn if found)
       const safeToDelete: typeof candidates = [];
       const skippedDueToChanges: Array<{ sessionId: string; reason: string }> = [];
 
@@ -88,17 +97,31 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
         status: c.session.status,
       }));
 
-      // Dry-run: print candidates, don't delete
+      // Filesystem orphans summary (no DB record — no taskId/status/liveness metadata)
+      const fsOrphanSummary = fsOrphans.map((o) => ({
+        sessionId: o.sessionId,
+        taskId: undefined as string | undefined,
+        reason: "filesystem-orphan" as const,
+        liveness: "orphaned" as const,
+        lastActivityAt: undefined as string | undefined,
+        status: "unknown" as const,
+        dirPath: o.dirPath,
+      }));
+
+      const totalFound = candidates.length + fsOrphans.length;
+      const totalWouldDelete = safeToDelete.length + fsOrphans.length;
+
+      // Dry-run: print candidates + fs orphans, don't delete
       if (dryRun) {
         return {
           success: true,
           dryRun: true,
-          found: candidates.length,
+          found: totalFound,
           skipped: skippedDueToChanges.length,
-          wouldDelete: safeToDelete.length,
-          candidates: candidateSummary,
+          wouldDelete: totalWouldDelete,
+          candidates: [...candidateSummary, ...fsOrphanSummary],
           skippedDetails: skippedDueToChanges,
-          message: `Found ${safeToDelete.length} session(s) that would be deleted (dry-run). Pass --no-dry-run --yes to delete.`,
+          message: `Found ${totalWouldDelete} session(s) that would be deleted (dry-run). Pass --no-dry-run --yes to delete.`,
         };
       }
 
@@ -106,18 +129,18 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
       if (!yes) {
         return {
           success: false,
-          found: candidates.length,
+          found: totalFound,
           skipped: skippedDueToChanges.length,
-          wouldDelete: safeToDelete.length,
-          candidates: candidateSummary,
+          wouldDelete: totalWouldDelete,
+          candidates: [...candidateSummary, ...fsOrphanSummary],
           message:
-            `Found ${safeToDelete.length} session(s) to delete. ` +
+            `Found ${totalWouldDelete} session(s) to delete. ` +
             `Pass --yes to confirm deletion, or use --dry-run (default) to preview.`,
           requiresConfirmation: true,
         };
       }
 
-      // Delete each candidate
+      // Delete each DB-tracked candidate
       let deleted = 0;
       const deletionErrors: Array<{ sessionId: string; error: string }> = [];
 
@@ -141,12 +164,31 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
         }
       }
 
+      // Remove filesystem orphan dirs (no DB record to delete — just remove the dir)
+      for (const orphan of fsOrphans) {
+        try {
+          if (existsSync(orphan.dirPath)) {
+            rmSync(orphan.dirPath, { recursive: true, force: true });
+            deleted++;
+            log.debug(`Removed filesystem orphan workspace dir '${orphan.dirPath}' (no DB record)`);
+          } else {
+            // Dir disappeared between scan and delete — count as success (already gone)
+            deleted++;
+            log.debug(`Filesystem orphan dir already gone: ${orphan.dirPath}`);
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          deletionErrors.push({ sessionId: orphan.sessionId, error: msg });
+          log.warn(`Failed to remove filesystem orphan dir '${orphan.dirPath}': ${msg}`);
+        }
+      }
+
       return {
         success: deletionErrors.length === 0,
-        found: candidates.length,
+        found: totalFound,
         skipped: skippedDueToChanges.length + deletionErrors.length,
         deleted,
-        candidates: candidateSummary,
+        candidates: [...candidateSummary, ...fsOrphanSummary],
         skippedDetails: [
           ...skippedDueToChanges,
           ...deletionErrors.map((e) => ({
@@ -154,7 +196,7 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
             reason: `deletion-failed: ${e.error}`,
           })),
         ],
-        message: `Deleted ${deleted} of ${safeToDelete.length} session(s).`,
+        message: `Deleted ${deleted} of ${totalWouldDelete} session(s).`,
       };
     }),
   };

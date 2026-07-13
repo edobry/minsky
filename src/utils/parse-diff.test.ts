@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseUnifiedDiff, type DiffFile, type DiffHunk, type DiffLine } from "./parse-diff";
+import {
+  parseUnifiedDiff,
+  type DiffFile,
+  type DiffHunk,
+  type DiffLine,
+} from "@minsky/domain/utils/parse-diff";
 
 const NEW_FILE_MODE = "new file mode 100644";
 const DELETED_FILE_MODE = "deleted file mode 100644";

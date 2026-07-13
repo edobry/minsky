@@ -5,7 +5,7 @@
  * output, with and without per-value source annotations.
  */
 
-import { TaskBackend } from "../../../../domain/configuration/backend-detection";
+import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import {
   getBackendDisplayName,
   getSessionBackendDisplayName,
@@ -34,8 +34,8 @@ export function formatResolvedConfigurationWithSources(
 
   // Task Storage
   const taskBackend = r.tasks?.backend || r.backend;
-  const persistenceConfig = r.persistence || r.sessiondb;
-  const persistenceBackend = persistenceConfig?.backend || "sqlite";
+  const persistenceConfig = r.persistence;
+  const persistenceBackend = persistenceConfig?.backend || "postgres";
 
   // Don't show separate task storage if it's using the same database as persistence
   if (taskBackend === "minsky" && persistenceBackend === "postgres") {
@@ -97,8 +97,7 @@ export function formatResolvedConfigurationWithSources(
 
   // Storage Layer
   if (persistenceConfig) {
-    const persistenceSource =
-      getSourceAnnotation("persistence.backend") || getSourceAnnotation("sessiondb.backend");
+    const persistenceSource = getSourceAnnotation("persistence.backend");
 
     if (taskBackend === "minsky" && persistenceBackend === "postgres") {
       output += `💾 Persistence:\n   • All data stored in PostgreSQL database${persistenceSource}\n`;
@@ -108,9 +107,7 @@ export function formatResolvedConfigurationWithSources(
     }
 
     if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
-      const connSource =
-        getSourceAnnotation("persistence.postgres.connectionString") ||
-        getSourceAnnotation("sessiondb.connectionString");
+      const connSource = getSourceAnnotation("persistence.postgres.connectionString");
       output += `   • Connection: configured${connSource}\n`;
     }
   }
@@ -184,8 +181,8 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   // Task Storage
   // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
   const taskBackend = r.tasks?.backend || r.backend;
-  const persistenceConfig = r.persistence || r.sessiondb;
-  const persistenceBackend = persistenceConfig?.backend || "sqlite";
+  const persistenceConfig = r.persistence;
+  const persistenceBackend = persistenceConfig?.backend || "postgres";
 
   // Don't show separate task storage if it's using the same database as persistence
   if (taskBackend === "minsky" && persistenceBackend === "postgres") {
@@ -236,16 +233,9 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   // Storage Layer (unified for sessions, embeddings, and optionally tasks)
   // persistenceConfig already defined above
   if (persistenceConfig) {
-    // Warn about legacy sessiondb usage
-    if (!r.persistence && r.sessiondb) {
-      output +=
-        "⚠️  DEPRECATION: sessiondb configuration detected. Please migrate to persistence: configuration.\n";
-      output += "   Run 'minsky config migrate' to automatically convert your configuration.\n\n";
-    }
-
     // Only show separate persistence if tasks aren't using the same backend
     const innerTaskBackend = r.tasks?.backend || r.backend;
-    const innerPersistenceBackend = persistenceConfig.backend || "sqlite";
+    const innerPersistenceBackend = persistenceConfig.backend || "postgres";
 
     if (innerTaskBackend === "minsky" && innerPersistenceBackend === "postgres") {
       // Both using same database - don't duplicate
@@ -255,12 +245,7 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
       output += `   • Backend: ${getSessionBackendDisplayName(innerPersistenceBackend)}\n`;
     }
 
-    if (innerPersistenceBackend === "sqlite" && persistenceConfig.sqlite?.dbPath) {
-      output += `   • Database: ${persistenceConfig.sqlite.dbPath}\n`;
-    } else if (
-      innerPersistenceBackend === "postgres" &&
-      persistenceConfig.postgres?.connectionString
-    ) {
+    if (innerPersistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
       output += "   • Connection: configured\n";
     }
   }

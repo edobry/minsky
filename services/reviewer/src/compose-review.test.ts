@@ -11,22 +11,58 @@
  *   7. Multiple conclude_review calls → use LAST one
  *   8. Pipe escaping in spec-verification table cells
  *   9. side: LEFT annotated; default RIGHT not annotated
+ *
+ * Also covers mt#2655's chunk-review label reconciliation: a lingering
+ * BLOCKING finding forces the terminal event to REQUEST_CHANGES regardless
+ * of what the model's own (or the last chunk's) conclude_review call said.
+ * See the "reconcileEventWithBlockingCount" and "chunk-review label
+ * reconciliation" describe blocks below.
  */
 
 import { describe, test, expect } from "bun:test";
-import { composeReviewBody } from "./compose-review";
+import { composeReviewBody, reconcileEventWithBlockingCount } from "./compose-review";
 import type { ReviewToolCall } from "./output-tools";
+
+// Tool name constants — prevents magic-string-duplication lint warnings.
+const TOOL_SUBMIT_FINDING = "submit_finding";
+const TOOL_SUBMIT_INLINE_COMMENT = "submit_inline_comment";
+const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
+const TOOL_SUBMIT_DOCUMENTATION_IMPACT = "submit_documentation_impact";
+const TOOL_SUBMIT_ADOPTION_SWEEP = "submit_adoption_sweep";
+const TOOL_CONCLUDE_REVIEW = "conclude_review";
+const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
+
+// Section heading constants — the merge gate text-matches these in the rendered
+// body, so the literal strings are part of the contract.
+const SECTION_DOCUMENTATION_IMPACT = "## Documentation impact";
+const SECTION_SPEC_VERIFICATION = "## Spec verification";
+const SECTION_ADOPTION_SWEEP = "## Adoption sweep";
+
+// Documentation-impact kind constants — referenced across multiple test cases.
+const DOC_IMPACT_NO_UPDATE_NEEDED = "no-update-needed" as const;
+
+// Adoption-sweep classification constants — referenced across multiple test cases.
+const ADOPTION_MISSING_CONSUMERS = "Missing consumers";
+
+// Reconciliation notice phrases (mt#2655) — referenced across multiple test cases.
+const RECONCILIATION_NOTICE_PREFIX = "Event reconciled from";
+const RECONCILIATION_APPROVE_TO_REQUEST_CHANGES = `${RECONCILIATION_NOTICE_PREFIX} \`APPROVE\` to \`REQUEST_CHANGES\``;
 
 // ---------------------------------------------------------------------------
 // Test 1: Three findings + conclude APPROVE → body has summary, ordered
 //         findings (BLOCKING, NON-BLOCKING, PRE-EXISTING), event APPROVE
 // ---------------------------------------------------------------------------
 describe("composeReviewBody", () => {
-  test("1: three findings with different severities + conclude APPROVE", () => {
+  // Originally "conclude APPROVE" with a BLOCKING finding still present and
+  // result.event asserted APPROVE — that was exactly the mt#2655 bug class
+  // (#1812 R2, #1819 R2: APPROVE events carrying [BLOCKING]-labeled
+  // findings). Updated to assert the reconciled REQUEST_CHANGES event; the
+  // severity-ordering assertions this test also covers are unchanged.
+  test("1: three findings with different severities + conclude APPROVE → reconciled to REQUEST_CHANGES (mt#2655, BLOCKING present)", () => {
     const approvalSummary = "Overall the PR looks good.";
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/foo.ts",
@@ -36,7 +72,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "PRE-EXISTING",
           file: "src/bar.ts",
@@ -46,7 +82,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/baz.ts",
@@ -56,7 +92,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: approvalSummary,
@@ -66,22 +102,33 @@ describe("composeReviewBody", () => {
 
     const result = composeReviewBody(toolCalls);
 
-    expect(result.event).toBe("APPROVE");
+    // BLOCKING finding present → reconciled to REQUEST_CHANGES regardless of
+    // the model's own APPROVE verdict (mt#2655).
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(true);
+    expect(result.body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
     expect(result.body).toContain(approvalSummary);
     expect(result.body).toContain("## Findings");
 
-    // Check severity order in the output: BLOCKING must appear before NON-BLOCKING,
-    // which must appear before PRE-EXISTING
-    const blockingPos = result.body.indexOf("[BLOCKING]");
-    const nonBlockingPos = result.body.indexOf("[NON-BLOCKING]");
-    const preExistingPos = result.body.indexOf("[PRE-EXISTING]");
+    // Check severity order WITHIN THE FINDINGS LIST: BLOCKING must appear
+    // before NON-BLOCKING, which must appear before PRE-EXISTING. Search
+    // starts after the "## Findings" heading — the reconciliation notice
+    // above it also contains the literal substring "[BLOCKING]" (in
+    // backticks), which would otherwise be matched first.
+    const findingsHeadingPos = result.body.indexOf("## Findings");
+    const blockingPos = result.body.indexOf("[BLOCKING]", findingsHeadingPos);
+    const nonBlockingPos = result.body.indexOf("[NON-BLOCKING]", findingsHeadingPos);
+    const preExistingPos = result.body.indexOf("[PRE-EXISTING]", findingsHeadingPos);
 
     expect(blockingPos).toBeLessThan(nonBlockingPos);
     expect(nonBlockingPos).toBeLessThan(preExistingPos);
 
-    // Summary is the opening content
+    // Reconciliation notice appears before the executive summary, which in
+    // turn appears before the findings list.
+    const reconciliationPos = result.body.indexOf(RECONCILIATION_NOTICE_PREFIX);
     const summaryPos = result.body.indexOf(approvalSummary);
-    expect(summaryPos).toBeLessThan(blockingPos);
+    expect(reconciliationPos).toBeLessThan(summaryPos);
+    expect(summaryPos).toBeLessThan(findingsHeadingPos);
   });
 
   // -------------------------------------------------------------------------
@@ -90,7 +137,7 @@ describe("composeReviewBody", () => {
   test("2: two findings + inline comment + spec verification + REQUEST_CHANGES", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/a.ts",
@@ -100,7 +147,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/b.ts",
@@ -110,7 +157,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_inline_comment",
+        name: TOOL_SUBMIT_INLINE_COMMENT,
         args: {
           file: "src/c.ts",
           line: 42,
@@ -118,7 +165,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_spec_verification",
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
         args: {
           criterion: "Exports composeReviewBody",
           status: "Met",
@@ -126,7 +173,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "There is a blocking null pointer issue that must be fixed.",
@@ -139,7 +186,7 @@ describe("composeReviewBody", () => {
     expect(result.event).toBe("REQUEST_CHANGES");
     expect(result.body).toContain("## Findings");
     expect(result.body).toContain("## Inline comments");
-    expect(result.body).toContain("## Spec verification");
+    expect(result.body).toContain(SECTION_SPEC_VERIFICATION);
 
     // Inline comment section
     expect(result.body).toContain("src/c.ts:42 — Consider using");
@@ -158,7 +205,7 @@ describe("composeReviewBody", () => {
   test("3: no conclude_review with BLOCKING finding → event REQUEST_CHANGES, warning with severity counts", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/x.ts",
@@ -191,7 +238,7 @@ describe("composeReviewBody", () => {
   test("3b: no conclude_review with only NON-BLOCKING findings → event COMMENT, warning with counts", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/a.ts",
@@ -201,7 +248,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/b.ts",
@@ -241,7 +288,7 @@ describe("composeReviewBody", () => {
   test("5: multi-line range finding renders file:line-lineEnd", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/range.ts",
@@ -252,7 +299,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Refactoring needed.",
@@ -272,7 +319,7 @@ describe("composeReviewBody", () => {
   test("6: severity ordering — stable sort within severity buckets", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "a.ts",
@@ -282,7 +329,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "PRE-EXISTING",
           file: "b.ts",
@@ -292,7 +339,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "c.ts",
@@ -302,7 +349,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "d.ts",
@@ -312,7 +359,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Multiple issues found.",
@@ -347,14 +394,14 @@ describe("composeReviewBody", () => {
   test("7: multiple conclude_review calls → uses last one", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: "First summary — should be overridden.",
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Second summary — this is the final verdict.",
@@ -375,7 +422,7 @@ describe("composeReviewBody", () => {
   test("8: pipe characters in spec-verification cells are escaped", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_spec_verification",
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
         args: {
           criterion: "Handle A | B | C cases",
           status: "Met",
@@ -383,7 +430,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: "All criteria met.",
@@ -423,12 +470,15 @@ describe("composeReviewBody", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 3d: conclude_review present → derived path NOT taken; event from conclude_review
+  // Test 3d: conclude_review present → derived (no-conclude_review) path NOT
+  // taken, but a BLOCKING finding still reconciles the event to
+  // REQUEST_CHANGES (mt#2655) — distinct from the "no conclude_review at
+  // all" severity-derivation path exercised by test 3.
   // -------------------------------------------------------------------------
-  test("3d: conclude_review present with BLOCKING findings → derived path not taken, conclude_review.event wins", () => {
+  test("3d: conclude_review present with BLOCKING findings → derived (no-conclude) path not taken, but event reconciled to REQUEST_CHANGES", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/y.ts",
@@ -438,7 +488,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: "Reviewer explicitly approved despite findings.",
@@ -448,12 +498,98 @@ describe("composeReviewBody", () => {
 
     const result = composeReviewBody(toolCalls);
 
-    // conclude_review.event must win, NOT the derived REQUEST_CHANGES
-    expect(result.event).toBe("APPROVE");
+    // conclude_review.event alone does NOT win when a BLOCKING finding is
+    // present — reconciliation forces REQUEST_CHANGES (mt#2655).
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(true);
     expect(result.body).toContain("Reviewer explicitly approved despite findings.");
-    // Must NOT contain the severity-derived warning
+    expect(result.body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
+    // Must NOT contain the no-conclude_review severity-derived warning — that
+    // is a distinct code path (test 3) from reconciliation (this test).
     expect(result.body).not.toContain("Event derived from severity counts");
     expect(result.body).not.toContain("⚠️ **Reviewer did not emit");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 10: submit_thread_resolve calls → collected in threadResolves, NOT in body
+  // -------------------------------------------------------------------------
+  test("10: submit_thread_resolve tool calls are collected in threadResolves, not rendered in body", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_THREAD_RESOLVE,
+        args: { threadId: "PRRT_kwABCD", reason: "fix verified — see commit abc123" },
+      },
+      {
+        name: TOOL_SUBMIT_THREAD_RESOLVE,
+        args: { threadId: "PRRT_kwEFGH", reason: "outdated — function was deleted" },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "All prior findings resolved." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.threadResolves).toHaveLength(2);
+    expect(result.threadResolves[0]).toEqual({
+      threadId: "PRRT_kwABCD",
+      reason: "fix verified — see commit abc123",
+    });
+    expect(result.threadResolves[1]).toEqual({
+      threadId: "PRRT_kwEFGH",
+      reason: "outdated — function was deleted",
+    });
+    // Thread resolve entries must NOT appear in the review body
+    expect(result.body).not.toContain("PRRT_kwABCD");
+    expect(result.body).not.toContain("PRRT_kwEFGH");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 11: submit_inline_comment with inReplyTo → preserved in inlineComments
+  // -------------------------------------------------------------------------
+  test("11: inReplyTo on submit_inline_comment is preserved in composed inlineComments", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_INLINE_COMMENT,
+        args: { file: "src/foo.ts", line: 5, body: "still applies", inReplyTo: 98765 },
+      },
+      {
+        name: TOOL_SUBMIT_INLINE_COMMENT,
+        args: { file: "src/bar.ts", line: 10, body: "new observation" },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "COMMENT", summary: "Incremental review." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.inlineComments).toHaveLength(2);
+    expect(result.inlineComments[0]).toEqual({
+      file: "src/foo.ts",
+      line: 5,
+      body: "still applies",
+      inReplyTo: 98765,
+    });
+    expect(result.inlineComments[1]).toEqual({
+      file: "src/bar.ts",
+      line: 10,
+      body: "new observation",
+    });
+    // The inReplyTo field must NOT appear in the body text
+    expect("inReplyTo" in (result.inlineComments[1] ?? {})).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 12: empty toolCalls → threadResolves and inlineComments are empty arrays
+  // -------------------------------------------------------------------------
+  test("12: empty toolCalls → threadResolves and inlineComments are empty arrays", () => {
+    const result = composeReviewBody([]);
+
+    expect(result.threadResolves).toEqual([]);
+    expect(result.inlineComments).toEqual([]);
   });
 
   // -------------------------------------------------------------------------
@@ -462,7 +598,7 @@ describe("composeReviewBody", () => {
   test("9: side LEFT is annotated, RIGHT (or absent) is not", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/left.ts",
@@ -473,7 +609,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/right.ts",
@@ -484,7 +620,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/noside.ts",
@@ -494,7 +630,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Side annotation check.",
@@ -514,5 +650,565 @@ describe("composeReviewBody", () => {
     // No side must NOT be annotated
     expect(result.body).toContain("src/noside.ts:15");
     expect(result.body).not.toContain("src/noside.ts:15 (");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 13: submit_documentation_impact "no-update-needed" → section emitted,
+  // affectedDocs omitted from output when not provided
+  // -------------------------------------------------------------------------
+  test("13: documentation impact no-update-needed renders section without affected docs", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Pure internal refactor — no documented behavior changed.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Clean refactor." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**no-update-needed**");
+    expect(result.body).toContain("Pure internal refactor");
+    expect(result.body).not.toContain("Affected:");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 14: submit_documentation_impact "updated-in-pr" with affectedDocs →
+  // affected list rendered alongside kind + evidence
+  // -------------------------------------------------------------------------
+  test("14: documentation impact updated-in-pr with affectedDocs renders affected list", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "updated-in-pr",
+          evidence: "Added a new MINSKY_FOO env var; updated configuration guide.",
+          affectedDocs: ["docs/configuration-guide.md", "CLAUDE.md"],
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Code and docs in sync." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**updated-in-pr**");
+    expect(result.body).toContain("Added a new MINSKY_FOO env var");
+    expect(result.body).toContain("Affected: docs/configuration-guide.md, CLAUDE.md");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 15: submit_documentation_impact "blocking-needs-update" → section
+  // emitted; the reviewer is expected to ALSO emit a BLOCKING finding for the
+  // same issue (this test verifies the section emission only, not the finding)
+  // -------------------------------------------------------------------------
+  test("15: documentation impact blocking-needs-update renders section with affected docs", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "blocking-needs-update",
+          evidence: "Adds a new MCP tool but does not update docs/architecture.md tool inventory.",
+          affectedDocs: ["docs/architecture.md"],
+        },
+      },
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "docs/architecture.md",
+          line: 1,
+          summary: "Architecture doc missing new MCP tool",
+          details:
+            "The new tool registration is not reflected in docs/architecture.md tool inventory. Update before merge.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Docs out of sync." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**blocking-needs-update**");
+    expect(result.body).toContain("Affected: docs/architecture.md");
+    // The companion BLOCKING finding is rendered in the Findings section
+    expect(result.body).toContain("## Findings");
+    expect(result.body).toContain("[BLOCKING] docs/architecture.md:1");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 16: no submit_documentation_impact call → no Documentation impact
+  // section in body (the merge gate will then deny — that's by design until
+  // the structural restructure of mt#2055 ships)
+  // -------------------------------------------------------------------------
+  test("16: absent documentation impact tool call → missing sentinel emitted", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "minor nit",
+          details: "trivial nit details",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Fine." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**missing**");
+    expect(result.body).toContain("`submit_documentation_impact` was not called");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 16b: multiple submit_documentation_impact calls → LAST one wins
+  // (mirrors conclude_review self-correction semantics; prevents duplicate
+  // bullets when the model self-corrects)
+  // -------------------------------------------------------------------------
+  test("16b: multiple submit_documentation_impact calls → last wins (single bullet rendered)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Initial verdict — internal refactor.",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "updated-in-pr",
+          evidence: "Correction — actually updated docs/configuration-guide.md.",
+          affectedDocs: ["docs/configuration-guide.md"],
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Model self-corrected mid-review." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    // Last call wins
+    expect(result.body).toContain("**updated-in-pr**");
+    expect(result.body).toContain("Correction — actually updated");
+    expect(result.body).toContain("Affected: docs/configuration-guide.md");
+    // Earlier call must NOT be rendered
+    expect(result.body).not.toContain("**no-update-needed**");
+    expect(result.body).not.toContain("Initial verdict");
+    // Exactly one bullet in the Documentation impact section (find the next
+    // heading or end-of-body as the section terminator; can't use `\n\n` as
+    // a delimiter because it appears WITHIN the section between heading and
+    // body too).
+    const docSectionStart = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+    const afterStart = docSectionStart + SECTION_DOCUMENTATION_IMPACT.length;
+    const nextHeadingIdx = result.body.slice(afterStart).search(/\n## /);
+    const docSection =
+      nextHeadingIdx === -1
+        ? result.body.slice(docSectionStart)
+        : result.body.slice(docSectionStart, afterStart + nextHeadingIdx);
+    const bulletCount = (docSection.match(/^- \*\*/gm) ?? []).length;
+    expect(bulletCount).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 17: documentation impact section is rendered AFTER spec verification
+  // section when both are present (gate-relevant section ordering)
+  // -------------------------------------------------------------------------
+  test("17: documentation impact follows spec verification in body section order", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: {
+          criterion: "Tool registered",
+          status: "Met",
+          evidence: "output-tools.ts new entry",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Adds an output tool; no end-user doc surface change.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Internal tool addition." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const specIndex = result.body.indexOf(SECTION_SPEC_VERIFICATION);
+    const docIndex = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+    expect(specIndex).toBeGreaterThan(-1);
+    expect(docIndex).toBeGreaterThan(-1);
+    expect(docIndex).toBeGreaterThan(specIndex);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 18: zero submit_adoption_sweep calls → no ## Adoption sweep section
+  // -------------------------------------------------------------------------
+  test("18: zero submit_adoption_sweep calls → ## Adoption sweep section omitted", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: { kind: DOC_IMPACT_NO_UPDATE_NEEDED, evidence: "Refactor only." },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "No new public exports." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).not.toContain(SECTION_ADOPTION_SWEEP);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 19: one Adopted call → table with one row, no recommendation line
+  // -------------------------------------------------------------------------
+  test("19: one submit_adoption_sweep Adopted → table with one row, no recommendation", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: TOOL_SUBMIT_ADOPTION_SWEEP,
+          kind: "mcp-tool",
+          consumersFound: [
+            "services/reviewer/src/providers.ts:276 — included in OUTPUT_TOOL_NAMES",
+          ],
+          classification: "Adopted",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "New tool properly wired." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_ADOPTION_SWEEP);
+    // Table header row
+    expect(result.body).toContain("| Symbol | Kind | Consumers found | Classification | Notes |");
+    // The adopted row
+    expect(result.body).toContain(TOOL_SUBMIT_ADOPTION_SWEEP);
+    expect(result.body).toContain("mcp-tool");
+    expect(result.body).toContain("Adopted");
+    // No recommendation line when all are adopted
+    expect(result.body).not.toContain("Recommendation:");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 20: one Missing consumers call → table + recommendation line
+  // -------------------------------------------------------------------------
+  test("20: one submit_adoption_sweep Missing consumers → table with recommendation line", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "newMcpTool",
+          kind: "mcp-tool",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+          notes: "No registration found in any adapter file.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Tool not wired." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_ADOPTION_SWEEP);
+    expect(result.body).toContain(ADOPTION_MISSING_CONSUMERS);
+    // Recommendation line appears when at least one missing
+    expect(result.body).toContain("Recommendation:");
+    expect(result.body).toContain("1 missing consumer");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 21: cost-bounded call (>10 exports) → single capability row
+  // -------------------------------------------------------------------------
+  test("21: cost-bounded submit_adoption_sweep (>10 exports) → single capability row", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "12 new exports (cost-bounding rule)",
+          kind: "capability",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+          notes: "Recommend filing a follow-up adoption task to wire these exports.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "COMMENT", summary: "Cost-bounded adoption sweep." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_ADOPTION_SWEEP);
+    expect(result.body).toContain("12 new exports (cost-bounding rule)");
+    expect(result.body).toContain("capability");
+    expect(result.body).toContain(ADOPTION_MISSING_CONSUMERS);
+    expect(result.body).toContain("follow-up adoption task");
+    // Exactly one data row (only the single cost-bounded call, not 12 individual rows)
+    const tableRows = result.body.split("\n").filter((line: string) => {
+      return line.startsWith("| ") && !line.startsWith("| Symbol") && !line.startsWith("| ---");
+    });
+    expect(tableRows).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 22: adoption sweep section positioned between spec verification and
+  // documentation impact
+  // -------------------------------------------------------------------------
+  test("22: adoption sweep section positioned after spec verification and before documentation impact", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: { criterion: "SC1", status: "Met", evidence: "Found." },
+      },
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "newExport",
+          kind: "function",
+          consumersFound: ["src/index.ts:10"],
+          classification: "Adopted",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: { kind: DOC_IMPACT_NO_UPDATE_NEEDED, evidence: "Internal function." },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "All good." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const specIdx = result.body.indexOf(SECTION_SPEC_VERIFICATION);
+    const sweepIdx = result.body.indexOf(SECTION_ADOPTION_SWEEP);
+    const docIdx = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+
+    expect(specIdx).toBeGreaterThan(-1);
+    expect(sweepIdx).toBeGreaterThan(-1);
+    expect(docIdx).toBeGreaterThan(-1);
+
+    expect(sweepIdx).toBeGreaterThan(specIdx);
+    expect(docIdx).toBeGreaterThan(sweepIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconcileEventWithBlockingCount + chunk-review label reconciliation
+// (mt#2655)
+//
+// Originating incident: in chunked-review mode, each chunk emits its own
+// conclude_review call, and composeReviewBody used only the LAST chunk's
+// verdict to derive the terminal event. An earlier chunk's BLOCKING finding
+// then survived into the aggregated findings list even when the last
+// chunk's own verdict was APPROVE or COMMENT — producing APPROVE events
+// carrying [BLOCKING]-labeled findings (#1812 R2, #1819 R2) and
+// event/label/provenance disagreements (#1821 R1: body said "1 blocking + 4
+// non-blocking", embedded provenance said "0/0").
+// ---------------------------------------------------------------------------
+describe("reconcileEventWithBlockingCount (mt#2655)", () => {
+  test("APPROVE + blockingCount > 0 → reconciled to REQUEST_CHANGES", () => {
+    const result = reconcileEventWithBlockingCount("APPROVE", 1);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBe("APPROVE");
+  });
+
+  test("COMMENT + blockingCount > 0 → reconciled to REQUEST_CHANGES", () => {
+    const result = reconcileEventWithBlockingCount("COMMENT", 3);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBe("COMMENT");
+  });
+
+  test("REQUEST_CHANGES + blockingCount > 0 → already consistent, no reconciliation", () => {
+    const result = reconcileEventWithBlockingCount("REQUEST_CHANGES", 2);
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciledFrom).toBeNull();
+  });
+
+  test("APPROVE + blockingCount == 0 → no reconciliation", () => {
+    const result = reconcileEventWithBlockingCount("APPROVE", 0);
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciledFrom).toBeNull();
+  });
+
+  test("COMMENT + blockingCount == 0 → no reconciliation", () => {
+    const result = reconcileEventWithBlockingCount("COMMENT", 0);
+    expect(result.event).toBe("COMMENT");
+    expect(result.reconciledFrom).toBeNull();
+  });
+});
+
+describe("composeReviewBody — chunk-review label reconciliation (mt#2655)", () => {
+  test("simulated 2-chunk aggregation: chunk 1 BLOCKING finding + chunk 2 conclude APPROVE → REQUEST_CHANGES with reconciliation notice", () => {
+    // Simulates the aggregated toolCalls array review-worker.ts assembles
+    // across chunks: chunk 1's finding, then chunk 2's own conclude_review
+    // (the LAST one, which composeReviewBody's raw derivation would use).
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/chunk1-file.ts",
+          line: 12,
+          summary: "chunk 1 blocking issue",
+          details: "Found while reviewing chunk 1's files.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Chunk 2's files look fine." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(true);
+    expect(result.body).toContain("[BLOCKING] src/chunk1-file.ts:12");
+    expect(result.body).toContain(RECONCILIATION_APPROVE_TO_REQUEST_CHANGES);
+    expect(result.body).toContain("1 outstanding `[BLOCKING]` finding(s)");
+  });
+
+  test("no BLOCKING findings, conclude APPROVE → event untouched, no reconciliation notice", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "a nit",
+          details: "cosmetic only",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Looks good." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciled).toBe(false);
+    expect(result.body).not.toContain(RECONCILIATION_NOTICE_PREFIX);
+  });
+
+  test("BLOCKING finding + conclude REQUEST_CHANGES already agreeing → no reconciliation notice", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "a real bug",
+          details: "must fix before merge",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Blocking issue found." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("REQUEST_CHANGES");
+    expect(result.reconciled).toBe(false);
+    expect(result.body).not.toContain(RECONCILIATION_NOTICE_PREFIX);
+  });
+
+  test("PRE-EXISTING findings alone do NOT force reconciliation (only BLOCKING does)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "PRE-EXISTING",
+          file: "src/moved.ts",
+          line: 4,
+          summary: "pre-existing issue in moved content",
+          details: "Content unchanged by this PR — predates the move.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Only pre-existing content flagged." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.event).toBe("APPROVE");
+    expect(result.reconciled).toBe(false);
+    expect(result.body).not.toContain(RECONCILIATION_NOTICE_PREFIX);
+  });
+
+  test("reconciliation notice appears before the executive summary and the Findings section", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "blocking issue",
+          details: "details",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "COMMENT", summary: "The executive summary text." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const reconciliationPos = result.body.indexOf(RECONCILIATION_NOTICE_PREFIX);
+    const summaryPos = result.body.indexOf("The executive summary text.");
+    const findingsPos = result.body.indexOf("## Findings");
+
+    expect(reconciliationPos).toBeGreaterThan(-1);
+    expect(reconciliationPos).toBeLessThan(summaryPos);
+    expect(summaryPos).toBeLessThan(findingsPos);
   });
 });

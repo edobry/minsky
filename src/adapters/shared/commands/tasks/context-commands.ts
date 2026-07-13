@@ -7,8 +7,8 @@
  * standalone-future contexts.
  */
 import { z } from "zod";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import {
   type TaskContext,
@@ -16,8 +16,8 @@ import {
   generateDecomposePrompt,
   generateEstimatePrompt,
   generateAnalyzePrompt,
-} from "../../../../domain/tasks/task-prompt-generation";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/tasks/task-prompt-generation";
+import { log } from "@minsky/shared/logger";
 
 const taskContextParams = {
   taskId: {
@@ -52,7 +52,7 @@ async function gatherTaskContext(
   let spec: string | undefined;
   try {
     const { getTaskSpecContentFromParams } = await import(
-      "../../../../domain/tasks/commands/query-commands"
+      "@minsky/domain/tasks/commands/query-commands"
     );
     const specResult = await getTaskSpecContentFromParams(
       {

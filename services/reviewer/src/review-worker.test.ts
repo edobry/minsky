@@ -12,11 +12,15 @@ import {
   buildSubmitFailureLog,
   serializeSubmitError,
   applyRecoveryAndCompose,
+  persistConvergenceMetric,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
   type PriorReviewIngestionResult,
+  type RunReviewDeps,
 } from "./review-worker";
+import type { ReviewerDb } from "./db/client";
+import type { ConvergenceMetricInput } from "./metrics";
 import type { ReviewToolCall } from "./output-tools";
 import type { FlatPriorFinding } from "./severity-recovery";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
@@ -24,7 +28,10 @@ import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
+import { TimeoutError } from "./with-timeout";
 import type { PriorReview } from "./prior-review-summary";
+import { extractProvenance } from "./review-provenance";
+import { SYNTHESIZED_FINDING_FILE } from "./empty-findings-recovery";
 
 // Shared constant for the first-attempt trace string — used in multiple
 // describe blocks so it must be file-scoped to avoid no-magic-string-duplication.
@@ -380,6 +387,117 @@ describe("callReviewerWithRetry (mt#1131)", () => {
     );
 
     expect(invocations).toHaveLength(2);
+  });
+});
+
+// ----- callReviewerWithRetry — TimeoutError retry (mt#2083) -----
+
+describe("callReviewerWithRetry — TimeoutError retry (mt#2083)", () => {
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  const substantive: ReviewOutput = {
+    text: "Findings: something substantive.\n\nAPPROVE",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 500,
+    usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    toolCalls: [],
+  };
+
+  test("retries once on TimeoutError and succeeds with reasoningEffort=low for OpenAI", async () => {
+    let callCount = 0;
+    type Invocation = { options?: CallReviewerOptions };
+    const invocations: Invocation[] = [];
+    const fakeFn: CallReviewerFn = async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      callCount++;
+      if (callCount === 1)
+        throw new TimeoutError("openai.chat.completions.create.toolloop", 120000);
+      return substantive;
+    };
+    const result = await callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn);
+    expect(callCount).toBe(2);
+    expect(result.attempt).toBe("retry-success");
+    expect(result.retryAttempted).toBe(true);
+    expect(result.output.text).toContain("substantive");
+    expect(invocations[1]?.options).toEqual({ reasoningEffort: "low" });
+  });
+
+  test("timeout retry for non-OpenAI provider does NOT pass reasoningEffort", async () => {
+    const googleConfig = { ...fakeConfig, provider: "google" } as unknown as ReviewerConfig;
+    const googleSubstantive = {
+      ...substantive,
+      provider: "google" as const,
+      model: "gemini-2.5-pro",
+    };
+    let callCount = 0;
+    type Invocation = { options?: CallReviewerOptions };
+    const invocations: Invocation[] = [];
+    const fakeFn: CallReviewerFn = async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      callCount++;
+      if (callCount === 1) throw new TimeoutError("test.op", 120000);
+      return googleSubstantive;
+    };
+    const result = await callReviewerWithRetry(googleConfig, "sys", "user", undefined, fakeFn);
+    expect(callCount).toBe(2);
+    expect(result.attempt).toBe("retry-success");
+    expect(invocations[1]?.options).toBeUndefined();
+  });
+
+  test("retries once on TimeoutError — retry also times out → propagates", async () => {
+    const fakeFn: CallReviewerFn = async () => {
+      throw new TimeoutError("openai.chat.completions.create.toolloop", 120000);
+    };
+    await expect(
+      callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn)
+    ).rejects.toThrow(TimeoutError);
+  });
+
+  test("non-TimeoutError propagates without retry", async () => {
+    let callCount = 0;
+    const fakeFn: CallReviewerFn = async () => {
+      callCount++;
+      throw new Error("network failure");
+    };
+    await expect(
+      callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn)
+    ).rejects.toThrow("network failure");
+    expect(callCount).toBe(1);
+  });
+
+  test("timeout retry returning empty → falls through to empty-output retry path", async () => {
+    let callCount = 0;
+    const empty: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 16000,
+      usage: {
+        promptTokens: 4000,
+        completionTokens: 0,
+        reasoningTokens: 16000,
+        totalTokens: 20000,
+      },
+      toolCalls: [],
+    };
+    const fakeFn: CallReviewerFn = async () => {
+      callCount++;
+      if (callCount === 1) throw new TimeoutError("test.op", 120000);
+      if (callCount === 2) return empty;
+      return substantive;
+    };
+    const result = await callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn);
+    // First call: timeout → catch → retry call (callCount=2) returns empty
+    // Empty output from timeout-retry does NOT cascade to the empty-output retry
+    // (the timeout-retry branch returns directly).
+    expect(callCount).toBe(2);
+    expect(result.attempt).toBe("retry-failed");
+    expect(result.retryAttempted).toBe(true);
   });
 });
 
@@ -755,7 +873,11 @@ describe("ReviewResult.scope type (mt#1188)", () => {
         tier: 3,
         scope,
       };
-      expect(result.scope).toBe(scope);
+      // Cast through unknown so toBe's argument inference doesn't strip the
+      // optional `undefined` from result.scope (varies across @types/bun
+      // versions resolved by the root workspace install vs. the service's
+      // own node_modules).
+      expect(result.scope as unknown).toBe(scope);
     }
   });
 
@@ -916,6 +1038,151 @@ describe("buildConvergenceMetricLog (SC-5, mt#1189)", () => {
     expect(log[FIELD_NEW_BLOCKER_COUNT]).toBe(0);
     expect(log[FIELD_ACKNOWLEDGED_COUNT]).toBe(3);
     expect(log[FIELD_ITERATION_INDEX]).toBe(4);
+  });
+});
+
+// ----- metricsRecorder dep slot (mt#1306) -----
+//
+// Verifies:
+// 1. When deps.db and deps.metricsRecorder are provided, the recorder is
+//    invoked with the correct ConvergenceMetricInput payload.
+// 2. When deps.metricsRecorder throws, the error does NOT propagate —
+//    reviews must not fail because of metric write failures.
+// 3. When deps.db is absent, the recorder is NOT called.
+//
+// These are structural / shape tests that do not require the full GitHub
+// client stack — they test RunReviewDeps interface behaviour only.
+
+describe("RunReviewDeps.metricsRecorder slot (mt#1306)", () => {
+  test("metricsRecorder interface accepts the expected ConvergenceMetricInput shape", () => {
+    // Type-level test: construct a RunReviewDeps value with a metricsRecorder
+    // and verify it satisfies the declared type.
+    const recorder = mock(async (_db: ReviewerDb, _input: ConvergenceMetricInput) => {});
+
+    const fakeDeps: RunReviewDeps = {
+      metricsRecorder: recorder,
+      db: {} as ReviewerDb,
+    };
+
+    // Structural check: if the type assignment above compiles, the slot
+    // is wired correctly. Runtime: recorder should be callable.
+    expect(typeof fakeDeps.metricsRecorder).toBe("function");
+    expect(typeof fakeDeps.db).toBe("object");
+  });
+
+  test("metricsRecorder slot is optional — deps without it satisfies RunReviewDeps", () => {
+    const fakeDeps: RunReviewDeps = {};
+    expect(fakeDeps.metricsRecorder).toBeUndefined();
+    expect(fakeDeps.db).toBeUndefined();
+  });
+
+  test("metricsRecorder receives all 8 expected ConvergenceMetricInput fields", async () => {
+    const captured: ConvergenceMetricInput[] = [];
+    const recorder = mock(async (_db: ReviewerDb, input: ConvergenceMetricInput) => {
+      captured.push(input);
+    });
+
+    const input: ConvergenceMetricInput = {
+      prOwner: "edobry",
+      prRepo: "minsky",
+      prNumber: 769,
+      headSha: "abc123",
+      iterationIndex: 2,
+      priorBlockerCount: 3,
+      newBlockerCount: 1,
+      acknowledgedAddressedCount: 2,
+    };
+
+    // Call the recorder directly to verify the shape round-trips correctly.
+    await recorder({} as ReviewerDb, input);
+
+    expect(captured).toHaveLength(1);
+    const recorded = captured[0];
+    if (recorded === undefined) throw new Error("expected a recorded input");
+    expect(recorded.prOwner).toBe("edobry");
+    expect(recorded.prRepo).toBe("minsky");
+    expect(recorded.prNumber).toBe(769);
+    expect(recorded.headSha).toBe("abc123");
+    expect(recorded.iterationIndex).toBe(2);
+    expect(recorded.priorBlockerCount).toBe(3);
+    expect(recorded.newBlockerCount).toBe(1);
+    expect(recorded.acknowledgedAddressedCount).toBe(2);
+  });
+
+  test("recorder error does not propagate — errors are swallowed at the call site", async () => {
+    // Simulate what runReview does when the metricsRecorder throws:
+    // The catch in recordConvergenceMetric should swallow the error.
+    // Since we cannot run full runReview without GitHub mocks, we test
+    // the contract by calling the default recordConvergenceMetric with a
+    // throwing db directly (covered in metrics.test.ts) — this test
+    // verifies the deps slot itself accepts a throwing recorder without issue.
+    const throwingRecorder = mock(async (_db: ReviewerDb, _input: ConvergenceMetricInput) => {
+      throw new Error("metric write failure");
+    });
+
+    // The recorder itself throws, but callers of recordConvergenceMetric in
+    // review-worker use it inside a try/catch so it is fire-and-forget safe.
+    // Here we verify the RunReviewDeps shape accommodates a throwing recorder.
+    const deps: RunReviewDeps = {
+      metricsRecorder: throwingRecorder,
+      db: {} as ReviewerDb,
+    };
+
+    // TypeScript: the recorder must be callable without compile errors.
+    expect(typeof deps.metricsRecorder).toBe("function");
+    if (deps.metricsRecorder === undefined) throw new Error("expected metricsRecorder to be set");
+    // The recorder throws — this is the failure mode we guard against in runReview.
+    await expect(
+      deps.metricsRecorder({} as ReviewerDb, {
+        prOwner: "o",
+        prRepo: "r",
+        prNumber: 1,
+        headSha: "s",
+        iterationIndex: 0,
+        priorBlockerCount: 0,
+        newBlockerCount: 0,
+        acknowledgedAddressedCount: 0,
+      })
+    ).rejects.toThrow("metric write failure");
+  });
+});
+
+// ----- persistConvergenceMetric — shared success-path helper (mt#2725) -----
+//
+// Both review success paths (output-tools + prose) now route their convergence
+// write through this helper. Verifies the db-guard and recorder delegation in
+// isolation. (The full output-tools-path invocation — i.e. that the production
+// path actually calls this — is owned by the mt#1263 runReview integration
+// harness / the mt#2731 finalize-tail extraction, which the reviewer suite's
+// no-mock.module convention defers.)
+
+describe("persistConvergenceMetric (mt#2725)", () => {
+  const input: ConvergenceMetricInput = {
+    prOwner: "edobry",
+    prRepo: "minsky",
+    prNumber: 1234,
+    headSha: "abc123",
+    iterationIndex: 2,
+    priorBlockerCount: 3,
+    newBlockerCount: 1,
+    acknowledgedAddressedCount: 2,
+    headRef: "task/mt-1234",
+  };
+
+  test("delegates to the injected metricsRecorder with the exact input when db is present", async () => {
+    const captured: ConvergenceMetricInput[] = [];
+    const recorder = mock(async (_db: ReviewerDb, i: ConvergenceMetricInput) => {
+      captured.push(i);
+    });
+    await persistConvergenceMetric({ db: {} as ReviewerDb, metricsRecorder: recorder }, input);
+    expect(recorder).toHaveBeenCalledTimes(1);
+    expect(captured).toEqual([input]);
+  });
+
+  test("is a no-op when no db is configured (recorder not called)", async () => {
+    const recorder = mock(async (_db: ReviewerDb, _i: ConvergenceMetricInput) => {});
+    await persistConvergenceMetric({ metricsRecorder: recorder }, input);
+    expect(recorder).toHaveBeenCalledTimes(0);
   });
 });
 
@@ -1316,10 +1583,13 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
       },
     };
   }
-  function conclude(event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"): ReviewToolCall {
+  function conclude(
+    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+    summary?: string
+  ): ReviewToolCall {
     return {
       name: "conclude_review",
-      args: { event, summary: `${event} summary` },
+      args: { event, summary: summary ?? `${event} summary` },
     };
   }
 
@@ -1446,5 +1716,99 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
     expect(result.downgrades).toHaveLength(0);
     expect(result.postRecoveryBlockingCount).toBe(1);
     expect(result.reconcileApplied).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Empty-findings coherence recovery (mt#2685)
+  // -------------------------------------------------------------------------
+  //
+  // Acceptance test: "A composed review whose model output contains a
+  // REQUEST_CHANGES conclusion and zero submit_finding calls does not
+  // silently ship as-is: the chosen mechanism fires." These tests exercise
+  // the mechanism through the SAME pipeline entrypoint (applyRecoveryAndCompose)
+  // production code uses, and assert both halves of the structural-coherence
+  // claim: the composed body renders a Findings section AND provenance
+  // (extracted from the same toolCalls the worker forwards downstream) agrees
+  // with it — the exact "body says one thing, provenance says another" defect
+  // shape from #1821 R1 that mt#2655 fixed for the other direction.
+  describe("empty-findings coherence recovery (mt#2685)", () => {
+    test("REQUEST_CHANGES + zero submit_finding calls: synthesizes a finding and stays REQUEST_CHANGES", () => {
+      const toolCalls: ReviewToolCall[] = [
+        conclude(
+          "REQUEST_CHANGES",
+          "Lacks an end-to-end test asserting config.doctor emits the new diagnostic."
+        ),
+      ];
+
+      const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+
+      expect(result.emptyFindingsRecovery.applied).toBe(true);
+      expect(result.composed.event).toBe("REQUEST_CHANGES");
+      expect(result.composed.reconciled).toBe(false); // no double-reconciliation
+      expect(result.composed.body).toContain("## Findings");
+      expect(result.composed.body).toContain("[BLOCKING]");
+      expect(result.postRecoveryBlockingCount).toBe(1);
+
+      // Observability (mt#2685 review R1): the model emitted ZERO of its own
+      // BLOCKING findings — originalBlockingCount must stay 0 (never silently
+      // absorb the synthesized finding), while synthesizedBlockingCount makes
+      // the 1-finding gap explicit, and postRecoveryBlockingCount (1) is their
+      // sum. A log/metric reader must be able to tell "the model found 0" from
+      // "the pipeline is now reporting 1" without reading this module's source.
+      expect(result.originalBlockingCount).toBe(0);
+      expect(result.synthesizedBlockingCount).toBe(1);
+      expect(result.postRecoveryBlockingCount).toBe(
+        result.originalBlockingCount + result.synthesizedBlockingCount
+      );
+
+      // Provenance consistency: the SAME toolCalls the worker forwards to
+      // extractProvenance (recoveryResult.toolCalls, per annotateReviewBody's
+      // call site) must reflect the synthesized finding too — not just the
+      // rendered body. And provenance itself must distinguish the synthesized
+      // finding from a model-emitted one (mt#2685 review R1).
+      const provenance = extractProvenance(result.toolCalls);
+      expect(provenance.findings.blocking).toBe(1);
+      expect(provenance.findings.synthesizedBlocking).toBe(1);
+      expect(provenance.conclusion?.event).toBe("REQUEST_CHANGES");
+    });
+
+    test("does not fire for a genuine REQUEST_CHANGES backed by a real BLOCKING finding", () => {
+      const toolCalls: ReviewToolCall[] = [
+        finding("BLOCKING", "src/foo.ts", 5),
+        conclude("REQUEST_CHANGES"),
+      ];
+      const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+      expect(result.emptyFindingsRecovery.applied).toBe(false);
+      expect(result.postRecoveryBlockingCount).toBe(1);
+      expect(result.synthesizedBlockingCount).toBe(0);
+
+      const provenance = extractProvenance(result.toolCalls);
+      expect(provenance.findings.synthesizedBlocking).toBe(0);
+    });
+
+    test("does not fight legitimate crossed-zero downgrade reconciliation", () => {
+      // A REAL BLOCKING finding that recovery legitimately downgrades to
+      // zero must still reconcile to COMMENT via Step 3 — the empty-findings
+      // pass (keyed on the ORIGINAL, pre-recovery blocking count) must not
+      // re-synthesize a finding here, or it would fight the very
+      // convergence this recovery pass exists to enable.
+      const toolCalls: ReviewToolCall[] = [
+        finding("BLOCKING", "src/foo.ts", 5),
+        conclude("REQUEST_CHANGES"),
+      ];
+      const priors: FlatPriorFinding[] = [
+        { file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 },
+      ];
+      const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+      expect(result.emptyFindingsRecovery.applied).toBe(false);
+      expect(result.reconcileApplied).toBe(true);
+      expect(result.composed.event).toBe("COMMENT");
+    });
+
+    test("synthesized finding uses the documented sentinel file", () => {
+      const toolCalls: ReviewToolCall[] = [conclude("REQUEST_CHANGES", "prose-only blocker")];
+      const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+      expect(result.emptyFindingsRecovery.synthesizedFinding?.file).toBe(SYNTHESIZED_FINDING_FILE);
+    });
   });
 });

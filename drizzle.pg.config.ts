@@ -1,9 +1,12 @@
+// tsyringe (transitively imported via schema chain → configuration/backend-detection)
+// requires reflect-metadata to be loaded at the drizzle-kit subprocess entry point.
+import "reflect-metadata";
 import type { Config } from "drizzle-kit";
 import { execSync } from "child_process";
 
 // Helper function to get PostgreSQL connection string from Minsky config system
 function getPostgresConnectionString(): string {
-  // Environment variables set by Minsky's sessiondb migrate command
+  // Environment variables set by Minsky's persistence migrate command
   // which loads the full configuration system and exports the necessary values
 
   // 1. Check for Minsky-loaded database config (set by migration command)
@@ -19,7 +22,7 @@ function getPostgresConnectionString(): string {
   }
 
   // 2. Fall back to direct environment variables
-  const envUrl = process.env.MINSKY_SESSIONDB_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
+  const envUrl = process.env.MINSKY_PERSISTENCE_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
   if (envUrl) {
     return envUrl;
   }
@@ -45,19 +48,29 @@ function getPostgresConnectionString(): string {
 
 export default {
   schema: [
-    "./src/domain/storage/schemas/session-schema.ts",
-    "./src/domain/storage/schemas/task-embeddings.ts",
-    "./src/domain/storage/schemas/rule-embeddings.ts",
-    "./src/domain/storage/schemas/task-relationships.ts",
-    "./src/domain/storage/schemas/provenance-schema.ts",
-    "./src/domain/storage/schemas/agent-transcripts-schema.ts",
-    "./src/domain/storage/schemas/agent-transcript-turns-schema.ts",
-    "./src/domain/storage/schemas/agent-spawns-schema.ts",
-    "./src/domain/storage/schemas/minsky-session-links-schema.ts",
-    "./src/domain/storage/schemas/ask-schema.ts",
-    "./src/domain/storage/schemas/pr-watch-schema.ts",
+    "./packages/domain/src/storage/schemas/projects-schema.ts",
+    "./packages/domain/src/storage/schemas/session-schema.ts",
+    "./packages/domain/src/storage/schemas/task-embeddings.ts",
+    "./packages/domain/src/storage/schemas/rule-embeddings.ts",
+    "./packages/domain/src/storage/schemas/task-relationships.ts",
+    "./packages/domain/src/storage/schemas/provenance-schema.ts",
+    "./packages/domain/src/storage/schemas/agent-transcripts-schema.ts",
+    "./packages/domain/src/storage/schemas/agent-transcript-turns-schema.ts",
+    "./packages/domain/src/storage/schemas/agent-spawns-schema.ts",
+    "./packages/domain/src/storage/schemas/minsky-session-links-schema.ts",
+    "./packages/domain/src/storage/schemas/ask-schema.ts",
+    "./packages/domain/src/storage/schemas/pr-watch-schema.ts",
+    "./packages/domain/src/storage/schemas/subagent-invocations-schema.ts",
+    "./packages/domain/src/storage/schemas/knowledge-embeddings.ts",
+    "./packages/domain/src/storage/schemas/memory-embeddings.ts",
+    "./packages/domain/src/storage/schemas/oauth-schema.ts",
+    "./packages/domain/src/storage/schemas/tool-embeddings.ts",
+    "./packages/domain/src/storage/schemas/wake-pending-schema.ts",
+    "./packages/domain/src/storage/schemas/system-events-schema.ts",
+    "./packages/domain/src/detectors/dismissal-store.ts",
+    "./packages/domain/src/storage/schemas/presence-claims-schema.ts",
   ],
-  out: "./src/domain/storage/migrations/pg",
+  out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",
   dbCredentials: {
     // Load connection string from Minsky configuration system via environment variables

@@ -17,6 +17,7 @@ import { sign } from "@octokit/webhooks-methods";
 import type { ReviewerConfig } from "./config";
 import type { ReviewResult } from "./review-worker";
 import { createApp, type RunReviewFn } from "./server";
+import type { AlertSink } from "./alert-sink";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures
@@ -45,6 +46,8 @@ const BASE_CONFIG: ReviewerConfig = {
   mcpToken: undefined,
   port: 0, // ephemeral — Bun will pick a random free port
   logLevel: "info",
+  modelTimeoutMs: 120_000,
+  githubTimeoutMs: 30_000,
 };
 
 const STUB_REVIEW_RESULT: ReviewResult = {
@@ -99,17 +102,51 @@ async function sendWebhook(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Collect console.log lines for structured-log assertions. */
+/**
+ * Capture lines written to process.stdout during a test.
+ *
+ * Winston's Console transport writes to process.stdout.write directly,
+ * bypassing the standard `console` global. We intercept at the stream
+ * level so the winston path is captured regardless of which logger API
+ * the code under test uses.
+ */
 function captureConsoleLogs(): { logs: string[]; restore: () => void } {
   const logs: string[] = [];
-  const original = console.log.bind(console);
-  console.log = (...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
+  const originalWrite = process.stdout.write.bind(process.stdout);
+
+  // process.stdout.write can be called with (string | Buffer, ...) — we only
+  // care about the string form that winston produces.
+  // Node's overloaded WriteStream.write signatures use `Error | undefined` for
+  // the callback err parameter. We must match that exactly (not `Error | null`)
+  // or TS rejects the assignment with TS2322 — see PR #1017 CI fix from mt#1255.
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCb?: BufferEncoding | ((err?: Error) => void),
+    cb?: (err?: Error) => void
+  ): boolean => {
+    const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    // Winston emits one JSON object per line followed by "\n".
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed) logs.push(trimmed);
+    }
+    // Call the real write so other transports / the terminal still work.
+    if (typeof encodingOrCb === "function") {
+      return originalWrite(chunk, encodingOrCb);
+    }
+    if (cb !== undefined) {
+      return originalWrite(chunk, encodingOrCb as BufferEncoding, cb);
+    }
+    if (encodingOrCb !== undefined) {
+      return originalWrite(chunk, encodingOrCb as BufferEncoding);
+    }
+    return originalWrite(chunk);
   };
+
   return {
     logs,
     restore: () => {
-      console.log = original;
+      process.stdout.write = originalWrite;
     },
   };
 }
@@ -228,6 +265,72 @@ describe("webhook handler", () => {
     }
   });
 
+  test("missing x-github-delivery synthesizes a unique synthetic-<uuid> per request (R2 BLOCKING regression)", async () => {
+    // R2 BLOCKING fix: when x-github-delivery is absent, the server previously
+    // fell back to the literal "unknown". Combined with the DO NOTHING upsert
+    // semantics from R1 BLOCKING #1, that collapsed every missing-header POST
+    // into a single row — defeating the "persist every webhook" goal.
+    // The fix synthesizes "synthetic-${crypto.randomUUID()}" per request.
+    const { logs, restore } = captureConsoleLogs();
+
+    try {
+      const body = buildPRPayload();
+
+      // Two POSTs without x-github-delivery; signature and event present so
+      // the handler reaches the persistence path before any 400.
+      const signature = await signPayload(body);
+      await Promise.all([
+        fetch(`${baseUrl}/webhook`, {
+          method: "POST",
+          headers: {
+            "content-type": CONTENT_TYPE_JSON,
+            [HEADER_SIGNATURE]: signature,
+            [HEADER_EVENT]: "pull_request",
+            // x-github-delivery deliberately omitted
+          },
+          body,
+        }),
+        fetch(`${baseUrl}/webhook`, {
+          method: "POST",
+          headers: {
+            "content-type": CONTENT_TYPE_JSON,
+            [HEADER_SIGNATURE]: signature,
+            [HEADER_EVENT]: "pull_request",
+            // x-github-delivery deliberately omitted
+          },
+          body,
+        }),
+      ]);
+
+      // Tick to let both webhook_received log lines flush.
+      await new Promise<void>((r) => setTimeout(r, 50));
+
+      // Collect every webhook_received log entry and inspect their delivery_id.
+      const webhookReceivedEntries: string[] = [];
+      for (const line of logs) {
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          if (parsed["event"] === "webhook_received") {
+            const id = parsed["delivery_id"];
+            if (typeof id === "string") webhookReceivedEntries.push(id);
+          }
+        } catch {
+          // not JSON — skip
+        }
+      }
+
+      expect(webhookReceivedEntries.length).toBe(2);
+      // Both delivery_ids must be synthetic (i.e., not "unknown" and not absent).
+      expect(webhookReceivedEntries[0]).toMatch(/^synthetic-/);
+      expect(webhookReceivedEntries[1]).toMatch(/^synthetic-/);
+      // The two synthesized IDs must be distinct — uniqueness via crypto.randomUUID().
+      // If they collide, the DO NOTHING upsert silently drops one row.
+      expect(webhookReceivedEntries[0]).not.toBe(webhookReceivedEntries[1]);
+    } finally {
+      restore();
+    }
+  });
+
   test("/health returns inflightCount", async () => {
     const body = buildPRPayload();
     // Kick off a slow review so inflight > 0.
@@ -254,63 +357,71 @@ describe("gracefulShutdown", () => {
   test("logs shutdown_drain_start with correct inflightCount, then shutdown_drain_complete", async () => {
     const { logs, restore } = captureConsoleLogs();
 
-    // Use a blocking runReview to keep reviews in inflight during drain.
-    let releaseReviews: () => void = () => {};
-    const reviewsBlocked = new Promise<void>((res) => {
-      releaseReviews = res;
-    });
+    try {
+      // Use a blocking runReview to keep reviews in inflight during drain.
+      let releaseReviews: () => void = () => {};
+      const reviewsBlocked = new Promise<void>((res) => {
+        releaseReviews = res;
+      });
 
-    const blockingRunReview: RunReviewFn = async () => {
-      await reviewsBlocked;
-      return STUB_REVIEW_RESULT;
-    };
+      const blockingRunReview: RunReviewFn = async () => {
+        await reviewsBlocked;
+        return STUB_REVIEW_RESULT;
+      };
 
-    const { server: blockServer, gracefulShutdown: blockShutdown } = createApp(
-      BASE_CONFIG,
-      blockingRunReview
-    );
-    const blockBase = `http://localhost:${blockServer.port}`;
+      const { server: blockServer, gracefulShutdown: blockShutdown } = createApp(
+        BASE_CONFIG,
+        blockingRunReview
+      );
+      const blockBase = `http://localhost:${blockServer.port}`;
 
-    // Send two webhooks — both will be in inflight (blocked on reviewsBlocked).
-    await Promise.all([
-      sendWebhook(blockBase, buildPRPayload({ prNumber: 1 })),
-      sendWebhook(blockBase, buildPRPayload({ prNumber: 2 })),
-    ]);
+      // Send two webhooks — both will be in inflight (blocked on reviewsBlocked).
+      await Promise.all([
+        sendWebhook(blockBase, buildPRPayload({ prNumber: 1 })),
+        sendWebhook(blockBase, buildPRPayload({ prNumber: 2 })),
+      ]);
 
-    // Give event loop a tick so both promises are registered in inflight.
-    await new Promise<void>((r) => setTimeout(r, 20));
+      // Give event loop a tick so both promises are registered in inflight.
+      await new Promise<void>((r) => setTimeout(r, 20));
 
-    // Start shutdown, then release reviews so drain completes.
-    const shutdownPromise = blockShutdown();
-    releaseReviews();
-    await shutdownPromise;
-    restore();
+      // Start shutdown, then release reviews so drain completes.
+      const shutdownPromise = blockShutdown();
+      releaseReviews();
+      await shutdownPromise;
 
-    const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
-    const drainComplete = findLogEvent(logs, EVENT_DRAIN_COMPLETE);
+      const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
+      const drainComplete = findLogEvent(logs, EVENT_DRAIN_COMPLETE);
 
-    expect(drainStart).toBeTruthy();
-    expect(drainComplete).toBeTruthy();
+      expect(drainStart).toBeTruthy();
+      expect(drainComplete).toBeTruthy();
 
-    // drain_start must appear before drain_complete in log order.
-    const startIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_START));
-    const completeIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_COMPLETE));
-    expect(startIdx).toBeLessThan(completeIdx);
+      // drain_start must appear before drain_complete in log order.
+      const startIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_START));
+      const completeIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_COMPLETE));
+      expect(startIdx).toBeLessThan(completeIdx);
 
-    // inflightCount in drain_start must be a number.
-    expect(typeof (drainStart as Record<string, unknown>)["inflightCount"]).toBe("number");
+      // inflightCount in drain_start must be a number.
+      expect(typeof (drainStart as Record<string, unknown>)["inflightCount"]).toBe("number");
+    } finally {
+      // Always restore stdout, even if an assertion above threw — otherwise
+      // the patched write leaks into sibling tests and causes flake.
+      restore();
+    }
   });
 
   test("shutdown_drain_start carries inflightCount=0 when no reviews in flight", async () => {
     const { logs, restore } = captureConsoleLogs();
 
-    const { gracefulShutdown } = createApp(BASE_CONFIG, async () => STUB_REVIEW_RESULT);
-    await gracefulShutdown();
-    restore();
+    try {
+      const { gracefulShutdown } = createApp(BASE_CONFIG, async () => STUB_REVIEW_RESULT);
+      await gracefulShutdown();
 
-    const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
-    expect(drainStart).toBeTruthy();
-    expect((drainStart as Record<string, unknown>)["inflightCount"]).toBe(0);
+      const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
+      expect(drainStart).toBeTruthy();
+      expect((drainStart as Record<string, unknown>)["inflightCount"]).toBe(0);
+    } finally {
+      restore();
+    }
   });
 
   test("review errors do NOT prevent graceful shutdown from completing", async () => {
@@ -327,5 +438,232 @@ describe("gracefulShutdown", () => {
 
     // Shutdown must complete even though the review errored.
     await expect(gracefulShutdown()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /retrigger auth (mt#2346): authenticated by the MCP auth token (cfg.mcpToken,
+// from MINSKY_MCP_AUTH_TOKEN), NOT the webhook HMAC secret.
+// ---------------------------------------------------------------------------
+
+describe("/retrigger auth (mt#2346)", () => {
+  const MCP_TOKEN = "test-mcp-auth-token";
+  const CONFIG_WITH_MCP_TOKEN: ReviewerConfig = { ...BASE_CONFIG, mcpToken: MCP_TOKEN };
+
+  // runReview is never reached by these auth-focused tests: they either fail
+  // auth, or pass auth and fail body validation before any dispatch.
+  const noopRunReview: RunReviewFn = async () => STUB_REVIEW_RESULT;
+
+  async function postRetrigger(
+    baseUrl: string,
+    auth: string | undefined,
+    body: unknown
+  ): Promise<Response> {
+    return fetch(`${baseUrl}/retrigger`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        ...(auth !== undefined ? { authorization: auth } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("accepts the MCP auth token — passes auth, reaches body validation (400, not 401)", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      // Correct token but an invalid (empty) body: a 400 — rather than 401 —
+      // proves the request got PAST the auth gate to body validation.
+      const res = await postRetrigger(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`, {});
+      expect(res.status).toBe(400);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects the webhook HMAC secret — no longer valid retrigger auth (SC: secret is webhook-only)", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      const res = await postRetrigger(
+        `http://localhost:${server.port}`,
+        `Bearer ${CONFIG_WITH_MCP_TOKEN.webhookSecret}`,
+        { pr: 1, owner: "o", repo: "r" }
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a missing Authorization header with 401", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      const res = await postRetrigger(`http://localhost:${server.port}`, undefined, {
+        pr: 1,
+        owner: "o",
+        repo: "r",
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("returns 503 when MINSKY_MCP_AUTH_TOKEN is unset on the service (fail closed)", async () => {
+    // BASE_CONFIG has mcpToken: undefined.
+    const { server } = createApp(BASE_CONFIG, noopRunReview);
+    try {
+      const res = await postRetrigger(`http://localhost:${server.port}`, `Bearer anything`, {
+        pr: 1,
+        owner: "o",
+        repo: "r",
+      });
+      expect(res.status).toBe(503);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /alert-test (mt#2451): on-demand test send through the deployed alert sink.
+// Same bearer auth as /retrigger (cfg.mcpToken). Mirrors the /retrigger tests.
+// ---------------------------------------------------------------------------
+
+describe("/alert-test (mt#2451)", () => {
+  const MCP_TOKEN = "test-mcp-auth-token";
+  const CONFIG_WITH_MCP_TOKEN: ReviewerConfig = { ...BASE_CONFIG, mcpToken: MCP_TOKEN };
+  const noopRunReview: RunReviewFn = async () => STUB_REVIEW_RESULT;
+
+  type RecordingSink = AlertSink & {
+    calls: Array<{ severity: string; title: string; body: string }>;
+  };
+
+  /** Fake AlertSink that records each notify() call. */
+  function makeFakeSink(): RecordingSink {
+    const calls: Array<{ severity: string; title: string; body: string }> = [];
+    return {
+      calls,
+      async notify(severity, title, body) {
+        calls.push({ severity, title, body });
+      },
+    };
+  }
+
+  async function postAlertTest(baseUrl: string, auth: string | undefined): Promise<Response> {
+    return fetch(`${baseUrl}/alert-test`, {
+      method: "POST",
+      headers: { ...(auth !== undefined ? { authorization: auth } : {}) },
+    });
+  }
+
+  test("returns 503 when MINSKY_MCP_AUTH_TOKEN is unset (fail closed)", async () => {
+    // BASE_CONFIG has mcpToken: undefined.
+    const { server } = createApp(BASE_CONFIG, noopRunReview);
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, "Bearer anything");
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("alert-test auth not configured");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a missing Authorization header with 401", async () => {
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      makeFakeSink()
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, undefined);
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a wrong bearer token with 401", async () => {
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      makeFakeSink()
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, "Bearer wrong-token");
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("returns 503 with an actionable message when authed but no sink is configured", async () => {
+    // Inject null to represent ALERT_SINK_TYPE unset/off.
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview, undefined, undefined, null);
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: string; hint?: string };
+      expect(body.error).toBe("no alert sink configured");
+      expect(body.hint).toContain("ALERT_SINK_TYPE");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("authed + sink configured → 200 and sends an info-severity message through the PROVIDED sink instance", async () => {
+    // Injecting the sink exercises the same code path server-main uses: it
+    // builds one sink at start and passes that single instance to createApp.
+    // Asserting on `fake.calls` proves the route used the PROVIDED instance
+    // (not a freshly-built one). The undefined→build-fresh fallback is a
+    // separate path, only hit when no instance is passed (e.g. minimal tests).
+    const fake = makeFakeSink();
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview, undefined, undefined, fake);
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; deliveryAttempted: boolean };
+      expect(body.ok).toBe(true);
+      expect(body.deliveryAttempted).toBe(true);
+      // The send path was actually invoked on the injected (shared) sink.
+      expect(fake.calls.length).toBe(1);
+      expect(fake.calls[0]?.severity).toBe("info");
+      expect(fake.calls[0]?.title).toContain("alert test");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a throwing sink yields 503 (never 500) and does not echo the raw error", async () => {
+    // AlertSink is contracted fail-open; a throw is a contract violation. The
+    // probe must stay resilient (no 500) and must not leak the error body,
+    // which could carry credentials (mt#2463 redaction lesson).
+    const secretLeak = "boom postgres://user:pw@host/db";
+    const throwingSink: AlertSink = {
+      async notify() {
+        throw new Error(secretLeak);
+      },
+    };
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      throwingSink
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(503);
+      const raw = await res.text();
+      expect(raw).toContain("alert sink threw");
+      expect(raw).not.toContain("pw@host");
+    } finally {
+      server.stop(true);
+    }
   });
 });

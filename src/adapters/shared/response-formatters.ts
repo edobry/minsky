@@ -7,7 +7,7 @@
 
 import type { CommandExecutionContext } from "./command-registry";
 import chalk from "chalk";
-import { getErrorMessage, getErrorStack } from "../../schemas/error";
+import { getErrorMessage, getErrorStack } from "@minsky/domain/schemas/error";
 
 /**
  * Supported output formats

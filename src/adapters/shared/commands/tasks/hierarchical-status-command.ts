@@ -8,7 +8,7 @@ import { Command } from "commander";
 import { type CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { TasksStatusGetCommand, TasksStatusSetCommand } from "./status-commands";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 /**
  * Hierarchical status command that manages get/set subcommands

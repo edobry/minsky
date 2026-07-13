@@ -9,11 +9,23 @@ For common Postgres errors, see [SessionDB Troubleshooting Guide](./sessiondb-tr
 
 ### Default
 
-Each Minsky process opens a postgres-js connection pool with a **default maximum of 3 connections**.
-This is intentionally small. Minsky is designed to run as multiple concurrent processes (for
-example, a laptop MCP server and a Railway-hosted MCP server) all sharing the same
-Supabase/Supavisor session-mode pooler. A large per-process limit would quickly saturate the
-pooler's global connection ceiling.
+Each Minsky process opens a postgres-js connection pool with a **default maximum of 15 connections**
+(`DEFAULT_POSTGRES_MAX_CONNECTIONS`).
+
+Minsky runs as multiple concurrent processes (laptop MCP server, Railway-hosted MCP server,
+Railway reviewer service, cockpit menu-bar app) all sharing the same Supabase/Supavisor pooler.
+mt#1193 originally set this default to **3** to keep the fleet under the **session-mode** pooler's
+hard 15-slot global ceiling. After the 2026-04-24 migration to the Supavisor **transaction-mode**
+pooler (`:6543`), that global ceiling is effectively gone (practical ceiling in the thousands), so
+the per-process limit no longer rations a scarce global budget — it now sizes per-process query
+**fan-out concurrency** (how many parallel queries one process can issue without client-side
+queueing). mt#2224 retuned the default to **15**; at 3, dashboards/handlers that fan out parallel
+queries hit gratuitous queueing latency.
+
+> **If you switch back to the session-mode pooler (`:5432`, 15-slot hard ceiling)** — only needed
+> when session-scoped state like prepared statements, `LISTEN`, or advisory locks is required —
+> lower this per-process limit so the fleet stays under 15 total. The retry policy below still
+> applies in that case.
 
 ### Overriding the Pool Size
 
@@ -22,7 +34,7 @@ The pool size is resolved in priority order (highest wins):
 1. **Config file** — `persistence.postgres.maxConnections` in `.minsky/config.yaml` or
    `~/.config/minsky/config.yaml`
 2. **Environment variable** — `MINSKY_POSTGRES_MAX_CONNECTIONS`
-3. **Built-in default** — 3
+3. **Built-in default** — 15 (`DEFAULT_POSTGRES_MAX_CONNECTIONS`)
 
 Example config override:
 
@@ -56,9 +68,11 @@ the one set on the provider via the config key or env var described above.
 
 ## Connection-Exhaustion Retry Policy
 
-When Supavisor (session-mode pooler), PgBouncer, or Postgres itself rejects a new connection
-because the pool is full, Minsky retries the operation automatically rather than failing
-immediately.
+When Supavisor, PgBouncer, or Postgres itself rejects a new connection because the pool is full,
+Minsky retries the operation automatically rather than failing immediately. Under the current
+**transaction-mode** pooler (`:6543`) this rejection is unlikely (practical ceiling in the
+thousands); the policy remains as defense-in-depth and is the primary guard when running against
+the **session-mode** pooler (`:5432`, 15-slot ceiling).
 
 ### Conditions that trigger a retry
 
@@ -108,7 +122,7 @@ fails, the error is propagated to the caller.
 
 To investigate persistent pool saturation:
 
-1. Check how many Minsky MCP processes are running and their per-process pool size (default 3).
+1. Check how many Minsky MCP processes are running and their per-process pool size (default 15).
 2. Check the Supabase/Supavisor pooler's global connection limit.
 3. Consider reducing `maxConnections` per process or restarting idle MCP servers.
 
@@ -129,8 +143,10 @@ The same cleanup runs on **SIGINT** (Ctrl+C).
 
 Without explicit connection closing, Postgres-side sockets remain open until TCP keepalive timeout
 (minutes). During a rolling redeploy on Railway (or any platform that starts a new container
-while the old one drains), the old container's open connections count against the pooler's global
-ceiling. The new container then hits pool saturation and must wait or retry.
+while the old one drains), the old container's open connections linger. Under the session-mode
+pooler this counts against the global 15-slot ceiling and the new container hits pool saturation;
+under the transaction pooler saturation is unlikely, but releasing sockets promptly is still good
+hygiene (it avoids leaking idle connections during every redeploy).
 
 Graceful shutdown fixes this: the old container releases its slots before the new container
 starts, so the new container connects cleanly.
@@ -327,3 +343,131 @@ there is no strong reason to revert.
 Both harnesses share the same `runSaturationSuite` helper, so adding a new acceptance test
 covers both backends with one change. Convergent results across both is the strongest signal
 that the retry path behaves correctly.
+
+## Migration Safety: Unmerged-Migration Guard (mt#2277)
+
+`minsky persistence migrate --execute` will **refuse to apply a pending migration to a
+shared production database if that migration's `.sql` file is not present on `origin/main`**.
+
+This prevents the mt#2229 failure class: a feature-branch-only migration is applied to the
+shared prod DB, the branch is then closed without merging, and the database and the repo
+diverge (the applied migration has no record on `main`).
+
+**How it classifies "production".** The guard runs only when the target connection is a
+shared remote DB. Hosts treated as local/dev (guard skipped): `localhost`, `127.0.0.1`,
+IPv6 loopback (`[::1]` / `::1`), `host.docker.internal`, and the Docker service aliases
+`postgres` / `db` / `database`. Every other host (Supabase, Neon, RDS, any remote) is
+treated as production. An unparseable connection string is treated as production
+(fail-closed).
+
+**What it checks.** For each pending migration (journal entries not yet in the ledger), the
+guard verifies the `<tag>.sql` file resolves on `origin/main` (`git cat-file -e
+origin/main:<path>`). If any pending migration is absent, the apply is blocked with the list
+of offending migrations and the instruction to merge to `main` first.
+
+**Fail-open on infra issues.** If `origin/main` does not resolve locally (no remote, a
+differently-named remote, or simply not fetched), the guard **cannot** determine merge status,
+so it does **not** block — it emits a warning and proceeds. Run `git fetch origin main` to
+re-enable the check. This deliberately avoids false-blocking CI or fresh clones.
+
+**Break-glass override.** Set `MINSKY_SKIP_UNMERGED_MIGRATION_CHECK=1` (or `true` / `yes`) to
+bypass the guard when a migration is intentionally applied ahead of merge. The override is
+audit-logged to stdout (env value + masked connection + timestamp):
+
+```bash
+MINSKY_SKIP_UNMERGED_MIGRATION_CHECK=1 minsky persistence migrate --execute
+```
+
+The override env-var name is registered in `HOOK_ONLY_ENV_VARS`
+(`packages/domain/src/configuration/sources/environment.ts`, per mt#1788) and exported as the
+constant `UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV` so the guard, tests, and this doc cannot drift.
+
+**Complement:** the immutable-migration _pre-commit_ guard (mt#2268) blocks _editing_ an
+already-applied migration file; this guard blocks _applying_ an unmerged one. Together they
+retire the mt#2229 / mt#2250 migration-drift class.
+
+## Migration Folder Resolution (bundle-aware, mt#2369)
+
+`minsky persistence migrate` resolves its Postgres migrations folder via
+`resolvePgMigrationsFolder()` in
+`packages/domain/src/persistence/postgres-migration-operations.ts`. The resolver tries
+candidates in order and returns the first one whose `meta/_journal.json` exists:
+
+| #   | Candidate                                         | When it wins                                                                                                                                                                 |
+| --- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a   | `import.meta.dir/../storage/migrations/pg`        | Source-tree (dev): this file is at `packages/domain/src/persistence/`, one level up is `src/storage/migrations/pg`                                                           |
+| b-1 | `import.meta.dir/storage/migrations/pg`           | Primary bundled-dist probe: `import.meta.dir` is the directory containing `dist/minsky.js`; migrations are copied there as `dist/storage/migrations/pg`                      |
+| b-2 | `dirname(process.argv[1])/storage/migrations/pg`  | Secondary bundled-dist probe: `process.argv[1]` is the invoked script path (e.g. `/usr/local/bin/minsky.js`); useful when `import.meta.dir` differs from the binary location |
+| c   | `<cwd>/packages/domain/src/storage/migrations/pg` | Legacy fallback: preserves pre-mt#2369 behaviour for `bun run src/cli.ts` from the repo root                                                                                 |
+
+**Why `process.argv[1]`, not `process.argv[0]` or `process.execPath`.**
+`process.argv[0]` and `process.execPath` both point to the Bun runtime binary (e.g.
+`/home/user/.bun/bin/bun`), which is NOT co-located with the migration assets.
+`process.argv[1]` is the path of the invoked script (`dist/minsky.js`), which IS
+co-located with the bundled migrations at `dist/storage/migrations/pg`. Using
+`process.argv[0]` / `process.execPath` would produce a wrong path like
+`/home/user/.bun/bin/storage/migrations/pg` and fail to find the migrations.
+
+**Diagnostic output.** If none of the candidates contains `meta/_journal.json`, the
+command throws with the full list of tried paths so the operator can diagnose the issue.
+
+**Cold-start regression gate.** The `.github/workflows/cold-start-migrate.yml` CI workflow
+validates this resolver end-to-end on every PR: it builds the bundle, runs
+`minsky persistence migrate --execute` from a temp directory outside the repo, then asserts
+via `psql` that the `tasks` table was created AND that a follow-up dry-run reports 0 pending
+migrations. A successful run conclusively proves the bundled binary resolves its migrations
+from an arbitrary working directory.
+
+## Cockpit daemon: circuit-breaker degradation mode (gh#1761)
+
+When the cockpit daemon's postgres-js connection trips the Supavisor circuit breaker
+(or any other DB-layer error occurs — `ECIRCUITBREAKER`, `EDBHANDLEREXITED`,
+`CONNECTION_CLOSED`, `CONNECTION_DESTROYED`, or a `PersistenceInitTimeoutError`),
+the daemon's `unhandledRejection` handler catches the error and degrades gracefully
+instead of crashing.
+
+### What happens on a DB error
+
+1. `isDbDegradationError(reason)` classifies the rejection as DB-specific.
+2. `markDbDegraded()` resets the shared-persistence singleton so the next
+   `getSharedPersistenceService()` call retries from scratch.
+3. `startDbRetryBackoff()` starts a background loop that retries
+   `getSharedPersistenceService()` every 30 s (default;
+   `DEFAULT_DB_RETRY_INTERVAL_MS`). On success the loop cancels its pending timer
+   and stops — no further retries.
+4. The `/api/health` endpoint returns `db: "degraded"` until the retry succeeds,
+   at which point it returns `db: "ok"`.
+
+The daemon **does not call `process.exit(1)`** for DB errors. Only errors that are
+not classified as DB-specific (programming errors, unrelated library bugs, etc.)
+still trigger the exit path.
+
+### Why this matters
+
+Before gh#1761 the handler called `process.exit(1)` for all unhandled rejections,
+including DB circuit-breaker events. Combined with `KeepAlive` in the launchd plist,
+this produced the 49,650-restart incident: the daemon crashed on every circuit-breaker
+trip, launchd restarted it immediately (ThrottleInterval: 5), the new process
+re-triggered the circuit breaker, and the loop continued until launchd's throttle
+threshold was hit (~9 s later).
+
+### Configuration
+
+| Name                                         | Default   | Description                                                 |
+| -------------------------------------------- | --------- | ----------------------------------------------------------- |
+| `DEFAULT_DB_RETRY_INTERVAL_MS`               | 30,000 ms | Gap between DB reconnect attempts                           |
+| `MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS` | 30,000 ms | Deadline for each `PersistenceService.initialize()` attempt |
+
+### Observability
+
+- `WARN [shared-persistence] DB retry failed (...); next attempt in 30000ms` — each failed retry
+- `INFO [shared-persistence] DB reconnected successfully via retry backoff` — on success
+- `GET /api/health` returns `{ "db": "degraded" }` while retrying, `{ "db": "ok" }` after
+
+### Related files
+
+| File                                    | Role                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `src/cockpit/shared-persistence.ts`     | `startDbRetryBackoff`, `markDbDegraded`, `getDbStatus`, `PersistenceInitTimeoutError` |
+| `src/commands/cockpit/start-command.ts` | `isDbDegradationError`, `unhandledRejection` handler                                  |
+| `src/cockpit/server.ts`                 | `/api/health` endpoint (`db: getDbStatus()`)                                          |

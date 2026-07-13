@@ -1,0 +1,501 @@
+# cockpit-design — Minsky-domain patterns for Cockpit UI work
+
+You are designing or implementing UI for Minsky's Cockpit web app (`src/cockpit/web/**`). The 12 vendored community skills (Impeccable, frontend-design, react-best-practices, tailwind-v4-shadcn, etc.) cover general patterns. This skill adds the Minsky-specific layer: which entities exist, what their states mean, what UI conventions apply, and what NOT to abstract.
+
+The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read it first if you haven't. This skill is the depth layer; CLAUDE.md is the breadth.
+
+## When to invoke
+
+- Designing a new Cockpit widget
+- Rebuilding an existing widget on the bundle stack (shadcn/ui + TanStack Query)
+- Adding entity displays (tasks, sessions, changesets, PRs, asks)
+- Implementing command-palette interactions
+- Implementing drill-down navigation
+- Auditing existing Cockpit UI against Minsky-domain conventions
+
+## Strategic anchor — `minsky-brand`
+
+Cockpit is **one organ inside the cyberbrain frame, not an independent design language**. The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, vocabulary inventory, bridge-as-affect discipline — lives in [`/minsky-brand`](../minsky-brand/SKILL.md). Load it before any cockpit visual decision so cockpit's mission-control register stays coherent with the marketing site, position papers, and any future Minsky surface.
+
+The operational tokens (typography stack, color palette in hex + OKLCH, motion budget with `prefers-reduced-motion` handling, WCAG contrast targets, font licensing) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume directly when implementing cockpit widgets.
+
+**Migration status (mt#1935, shipped 2026-05-20).** Cockpit's `src/cockpit/web/index.css` now stores tokens as raw OKLCH triplets (lightness chroma hue) consumed via `oklch(var(--X) / <alpha-value>)` in `tailwind.config.ts`. The brand palette is in the Tailwind config under these utility classes:
+
+- `bg-background` / `text-foreground` / `bg-card` / etc. — shadcn semantic surface (`--primary` is keyed to `signal.cyan` in dark mode).
+- `bg-signal-cyan` / `text-signal-cyan` / `border-signal-cyan-dim` — the active/live accent.
+- `bg-warn-amber` / `text-warn-amber` — soft warning / attention-required.
+- `bg-warn-red` / `text-warn-red` — hard warning / hook-denial / escalation. (`bg-destructive` is the legacy alias; either works.)
+- `bg-iso-pastel` / `text-iso-pastel` — companion-personality surfaces only (agent identity indicators, ghost overlays).
+- `text-subtle` — tertiary text below `text-muted-foreground`.
+- `font-sans` / `font-mono` / `font-warm-mono` — Geist / JetBrains Mono / Berkeley-or-IBM-Plex-italic. `<body>` defaults to `font-sans`.
+- `animate-status-dot` — 1.6s opacity pulse for live status indicators (gated on `prefers-reduced-motion`).
+- `animate-hook-denial` — 600ms amber-fade-to-transparent for blocked-action surfaces (gated on `prefers-reduced-motion`).
+
+A token for `success` (green) is intentionally NOT in the palette — the brand register's "no green" rule (one accent + two warning tiers + one pastel) holds at the foundation. Widgets needing a green DONE / healthy semantic continue to use cockpit-local `bg-liveness-healthy` (kept as a green-mapped sub-token per brand-system §7) until the broader DONE-color decision is made.
+
+The patterns in _this_ skill — entity model, mission-control density, command-palette UX, drill-down navigation, attention-debt visualization — are the **Minsky-domain layer** that lives on top of the brand foundation. They are the things `minsky-brand` does not (and should not) carry, because they are specific to cockpit's operational role.
+
+## Step 0 — View the live cockpit
+
+Before designing or critiquing UI, **always open the running cockpit in the shared dev chromium and look at it**. Specks and screenshots drift fast; the rendered surface is the ground truth.
+
+The dev chromium is launched by `minsky cockpit` (mt#1904) with `--remote-debugging-port=9222` and a dedicated `--user-data-dir`. It is shared across all concurrent Claude Code sessions — each session's agent opens its own cockpit URL as a tab in the same chromium window so the operator can see every active cockpit at once.
+
+**Procedure** (run this at the start of any cockpit design or implementation session, and any time you want to verify your change rendered):
+
+1. **Resolve the cockpit URL for THIS workspace** (auto-start if not running, per mt#1925).
+
+   **a. Compute the workspace key.** If the current working directory is under the Minsky **sessions dir** (resolved by `getSessionsDir()` from `src/utils/paths.ts` — defaults to `~/.local/state/minsky/sessions/` but respects `XDG_STATE_HOME` and varies by OS), the key is the first path segment after that dir (the session ID). Otherwise it is `"main"`.
+
+   **b. Read the state file** at `<state-dir>/cockpit/<workspace-key>.json` (state dir defaults to `~/.local/state/minsky/` but respects `MINSKY_STATE_DIR` / `XDG_STATE_HOME`).
+
+   **c. Decide based on state file + PID liveness:**
+
+   - **State file present AND its `pid` is alive**: cockpit is already running. Use the `url` field for step 2.
+   - **State file missing OR `pid` is dead** (stale): cockpit needs to be started. Continue to (d).
+
+   **Cross-platform PID liveness check.** `kill -0 <pid>` is Unix-only. Use this Bun one-liner instead — it works on macOS, Linux, AND Windows under Bun:
+
+   ```bash
+   bun -e "try { process.kill(PID, 0); process.exit(0) } catch { process.exit(1) }"
+   ```
+
+   Exit 0 = alive, exit 1 = dead. Substitute `PID` with the value from the state file.
+
+   **d. Auto-start opt-out check.** If the operator has explicitly said "don't auto-start cockpit", "skip cockpit start", "I'll start it myself", or equivalent in the current OR prior conversation turn, do NOT auto-start — report "cockpit not running for this workspace" and stop here. Otherwise continue to (e).
+
+   **e. Auto-start the cockpit** by running this single deterministic shell command (replace `<key>` with the workspace key from (a)). The script resolves the state dir + log dir from env vars with the same precedence as the lifecycle module (`MINSKY_STATE_DIR` > `XDG_STATE_HOME` > default) so it works in customized setups:
+
+   ```bash
+   STATE_DIR="${MINSKY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/minsky}"
+   LOG_DIR="${TMPDIR:-/tmp}"
+   STATE="$STATE_DIR/cockpit/<key>.json"
+   LOG="$LOG_DIR/cockpit-<key>.log"
+   nohup bun src/cli.ts cockpit start > "$LOG" 2>&1 &
+   for i in $(seq 1 10); do
+     sleep 1
+     if [ -f "$STATE" ]; then
+       cat "$STATE"
+       exit 0
+     fi
+   done
+   echo "TIMEOUT: cockpit state file did not appear within 10s ($STATE)" >&2
+   tail -30 "$LOG"
+   exit 1
+   ```
+
+   In a session workspace, invoke via `mcp__minsky__session_exec(task: "<task-id>", command: "<the shell above>")`. In the main workspace, invoke via the `Bash` tool.
+
+   - **On exit 0**: stdout contains the raw state-file JSON. Parse it for the `url` field. Continue to step 2.
+   - **On exit 1**: surface the TIMEOUT message (on stderr) and the log tail (on stdout) to the operator and STOP. Something prevented cockpit startup (port conflict, build error, missing dependencies, etc.). Do not proceed with attach steps.
+
+   **Windows note.** The bash snippet above assumes a POSIX-like shell (macOS / Linux / WSL). On native Windows shells, the equivalent uses PowerShell env-var expansion (`$env:MINSKY_STATE_DIR ?? $env:XDG_STATE_HOME ?? "$env:USERPROFILE\.local\state"` etc.) and `Start-Process` for backgrounding. Auto-start is currently scoped to POSIX shells; Windows operators run `minsky cockpit start` manually until this is generalized.
+
+   **f. After successful auto-start**, the dev chromium is also ensured (`minsky cockpit start` idempotently probes `/json/version` and only spawns Chrome if missing — mt#1904). No separate step needed.
+
+2. **Find or open the tab.** Call `mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages` to see what's already open. If a tab matches the URL from step 1, select it with `select_page`. Otherwise open it with `new_page` (passing the URL as the navigation target).
+
+3. **Snapshot and look.** Call `take_snapshot` (a11y-tree view; preferred over screenshots for textual reasoning) or `take_screenshot` (visual, when you need pixel-level review).
+
+4. **Stay on YOUR tab.** Other concurrent agents may have their own cockpit tabs in the same chromium. Always `select_page` to your tab before any page-scoped action (`click`, `type_text`, `evaluate_script`). Do not assume the currently-focused page is yours.
+
+**MCP attachment**: chrome-devtools-mcp must be configured with `--browser-url=http://127.0.0.1:9222` so it attaches to the shared dev chromium rather than launching its own ephemeral instance. Verify the operator's MCP config once; this is one-time setup.
+
+**Gotcha** (chrome://inspect): Chrome 144+ added a `chrome://inspect/#remote-debugging` UI toggle that exposes a debug port. Do NOT use it for our setup — chrome-devtools-mcp `--browser-url` only works against a Chrome launched with the explicit `--remote-debugging-port=` flag and a non-default `--user-data-dir`. Upstream issue #1194 is closed as wontfix-by-design; the UI toggle is for the separate `--autoConnect` path which has different semantics. mt#1904's dev chromium is the maintainer-recommended setup for our case.
+
+**Cross-tab interference** (mt#1912): the shared chromium model has a small race — two agents calling `select_page` interleaved with `click` could land on the wrong tab. v0 ignores this in exchange for not enabling the experimental `--experimentalPageIdRouting` flag; if you observe an interference incident (screenshot of wrong page, click on wrong widget), escalate to mt#1912.
+
+## The Minsky domain model
+
+Cockpit visualizes Minsky's internal state. Six core entities + their states are the IA organizing layer. Surface them; don't abstract them away.
+
+### Tasks (mt#X)
+
+The canonical work-item primitive. Every task has:
+
+- **Anchor:** `mt#X` (always monospace, always lowercase `mt`, e.g., `mt#1772`). Display this prominently — it's the universal cross-reference.
+- **Title:** human-readable description.
+- **Status:** state machine — `TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE`, plus side branches `BLOCKED` and `CLOSED`.
+- **Parent + children:** optional task graph edges (mt#X has parent mt#Y, children mt#Z1, mt#Z2).
+- **Tags:** keyword labels (e.g., "cockpit", "bug", "build").
+
+#### Status state machine
+
+The forward path is `TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE`. Backward transitions are forbidden (e.g., `IN-PROGRESS → READY` refuses). Side states: `BLOCKED` (from PLANNING/READY/IN-PROGRESS), `CLOSED` (from any state — abandoned or superseded).
+
+#### Status color conventions
+
+Use semantic tokens, not raw colors. Post-mt#1935 the brand palette covers warning states via `warn.amber` and `warn.red`; a `success` token is intentionally not in the palette (see brand-application section above). Use the cockpit-local `liveness.healthy` token for the DONE / healthy semantic until a broader DONE-color decision is made.
+
+Recommended status mapping:
+
+- TODO: `text-muted-foreground bg-muted` — neutral gray
+- PLANNING: `text-foreground bg-secondary` — active but pre-work
+- READY: `text-primary-foreground bg-primary` — calls action (primary is signal-cyan in dark mode)
+- IN-PROGRESS: `text-foreground bg-accent` — distinct from READY
+- IN-REVIEW: `text-foreground bg-warn-amber/30` — attention-required, soft
+- DONE: `text-foreground bg-liveness-healthy/30` — settled, healthy
+- BLOCKED: `text-destructive-foreground bg-warn-red/40` — urgent (`bg-destructive` is the legacy alias)
+- CLOSED: `text-muted-foreground line-through opacity-50` — terminal
+
+Don't fall back to raw hex (e.g., `bg-yellow-500`) — that bypasses the dark-mode-first theming and creates per-widget drift. Always go through the semantic layer.
+
+**Existing inline hex colors in `Workstreams.tsx` / `TaskGraph.tsx` `statusStyle()` are pending refactor** to the tokens above. They were left in place by mt#1935 (foundation-layer migration only) so the refactor can land as a focused entity-display change; track or fold into a follow-up cockpit-design task when entity-display work next runs.
+
+### Sessions
+
+A session is the agent's workspace for a task. Has:
+
+- **Session ID:** UUID-shaped, e.g., `577bbf25-90e5-4229-bc6a-60bcd4083b38`. Display the first 8 chars + ellipsis when space-constrained; full ID on hover or detail view.
+- **Task ID:** the `mt#X` this session implements.
+- **Branch:** the git branch (typically `task/mt-NNNN`).
+- **Liveness:** `healthy | idle | stale | exited` — see mt#951 SessionRecord.
+- **Last activity timestamp:** absolute + relative (`2m ago`, `1h ago`).
+
+#### Session liveness conventions
+
+Post-mt#1935 the liveness dots use the cockpit-local `liveness.*` sub-tokens directly. Each is OKLCH-keyed and tuned for dark elevation:
+
+- `healthy`: `bg-liveness-healthy` (green; cockpit-local — brand palette has no `success`)
+- `idle`: `bg-liveness-idle` (amber; maps onto `warn.amber` range)
+- `stale`: `bg-liveness-stale` (red; maps onto `warn.red` range)
+- `orphaned`: `bg-liveness-orphaned` (muted blue-gray; maps onto `text.subtle` range)
+
+For a live dot that should breathe per the brand motion budget, add `animate-status-dot` (1.6s opacity pulse, gated on `prefers-reduced-motion`).
+
+### Changesets
+
+VCS-agnostic abstraction for "a unit of proposed change" (mt#1335 ADR-008). Maps to:
+
+- GitHub PR (most common today)
+- GitLab MR (future)
+- Local-only diff (future)
+
+Display fields:
+
+- **Reference:** `#NNNN` for GitHub (e.g., `#1077`), `!NN` for GitLab, hash prefix for local
+- **Title:** short description
+- **State:** `open | closed | merged | draft`
+- **Author:** bot identity (`minsky-ai[bot]` or `minsky-reviewer[bot]`) or user login
+- **Branch:** head ref
+
+### PRs (GitHub-specific)
+
+Subtype of changeset. Adds:
+
+- **Review state:** combination of CI status + reviewer-bot state
+- **Reviews:** `APPROVED` / `CHANGES_REQUESTED` / `COMMENT` counts by reviewer
+- **CI:** N of M checks passing
+
+When displaying PRs in lists, the canonical first column is the PR number (`#1077`); the canonical second column is the linked task (`mt#1772`). Operators connect those two anchors first.
+
+### Asks (mt#1034)
+
+Attention-requiring events. Eight ask kinds: `capability.escalate`, `information.retrieve`, `authorization.approve`, `direction.decide`, `coordination.notify`, `quality.review`, `stuck.unblock`, plus `compliance.audit` (latest). See `feedback_ask_subsystem_mcp_elicitation` for the routing/transport model.
+
+Display fields:
+
+- **Kind:** color-coded per category (sync vs. async, principal-facing vs. agent-to-agent)
+- **Window:** `sync` (seconds), `async` (hours), or `open-ended`
+- **Age:** how long the ask has been open
+- **Source:** which agent or subsystem raised it
+- **State:** `open | answered | expired | superseded`
+
+Attention widget mt#1147 will render these; gated on mt#1034 + mt#454.
+
+### Agents
+
+The running unit of agent activity. Display fields:
+
+- **Agent ID:** e.g., `a1b6015a2c0d23c5c` (16-char hex). Show prefix + ellipsis when space-constrained.
+- **Model:** `sonnet` / `opus` / `haiku` (badge)
+- **Type:** `implementer` / `reviewer` / `auditor` / `refactorer` / `cleaner` / `cockpit-dev` / etc.
+- **Liveness:** mirrors session liveness
+- **Current activity:** what tool last fired, when
+
+## Mission-control density patterns
+
+Cockpit is a dense operator dashboard, not an editorial surface. Operators scan, drill down, take action. The density posture:
+
+### Tables with row-density toggles
+
+Default to compact rows (single-line content + small padding). Provide a toggle for comfortable (multi-line content + larger padding). Match Linear / Sentry / Grafana conventions — keep density user-controlled.
+
+Tailwind row sizing:
+
+- Compact row: `py-1.5 text-sm`
+- Comfortable row: `py-3 text-base`
+
+### Information density cards
+
+Cards aren't decorative. Each card carries 3–6 pieces of operator-relevant info in a compact layout. Avoid `<Card><CardTitle>X</CardTitle><CardContent>Y</CardContent></Card>` for one-fact displays — that's marketing-mode padding. Use cards when you have a coherent cluster of related info.
+
+Compact card pattern for a single entity (session example):
+
+```tsx
+<Card className="p-3">
+  <div className="flex items-center justify-between">
+    <div className="flex items-center gap-2">
+      <SessionLivenessDot status={session.liveness} />
+      <span className="font-mono text-sm">{shortId(session.id)}</span>
+      <Badge variant="secondary">{session.taskId}</Badge>
+    </div>
+    <span className="text-xs text-muted-foreground">{relativeTime(session.lastActivity)}</span>
+  </div>
+  <div className="mt-1 text-sm text-muted-foreground truncate">{session.branch}</div>
+</Card>
+```
+
+### Status rollups at parent levels
+
+When showing a parent task with children, display a status rollup (`3 IN-PROGRESS, 1 BLOCKED, 2 DONE`) rather than re-stating each child's full state. Operators scan rollups first, drill down for detail.
+
+Rollup pattern: small badges in a row, colored by state, with count.
+
+### Sparkline indicators
+
+Trends matter for some entities (CI duration over time, ask close-time over last N, agent activity rate). Use sparklines — small inline charts — to encode trends without consuming screen space. The 12 vendored skills include `tanstack-query` for the data; pick a small chart lib (recharts, visx, hand-rolled SVG) per widget needs.
+
+## Command palette (Cmd+K) UX
+
+Cockpit needs a command palette for cross-entity jumps. Use the shadcn-ui `<Command>` primitive (from `cmdk`) once mt#1773 ships.
+
+Conventions:
+
+- **Cmd+K** opens the palette globally (Ctrl+K on non-Mac)
+- **Esc** closes
+- Typing filters live across all sources
+- **Enter** executes the selected item
+- **Arrow keys** navigate results
+
+### Sources (categorized in palette)
+
+1. **Tasks:** type `mt` or task number to jump (e.g., `mt 1772` → jump to task detail)
+2. **Sessions:** type session ID prefix or branch name
+3. **PRs:** type `#1077` or PR title text
+4. **Agents:** type agent ID or type
+5. **Actions:** common actions (`Start session for current task`, `Open PR for current session`, `Toggle widget X`)
+
+### Visual structure
+
+```tsx
+<Command>
+  <CommandInput placeholder="Search tasks, sessions, PRs, or actions..." />
+  <CommandList>
+    <CommandEmpty>No results.</CommandEmpty>
+    <CommandGroup heading="Tasks">
+      {tasks.map((t) => (
+        <CommandItem key={t.id} value={`${t.id} ${t.title}`}>
+          ...
+        </CommandItem>
+      ))}
+    </CommandGroup>
+    <CommandGroup heading="Sessions">...</CommandGroup>
+    <CommandGroup heading="Actions">...</CommandGroup>
+  </CommandList>
+</Command>
+```
+
+### Anti-patterns to refuse
+
+- **Cmd+K as menu replacement** — palette is for SEARCH + JUMP, not hierarchical action menus. Use a separate menubar/sidebar for navigation.
+- **Modal blocking input** — Cmd+K should be a transient overlay, not a modal that blocks the dashboard.
+- **Recent items as default** — show NOTHING until typing. Operators know what they want; stale recents obscure search.
+- **Mouse-only navigation** — keyboard arrows + Enter must work; mouse is secondary.
+
+## Drill-down navigation
+
+Cockpit's primary navigation is drill-down: dashboard → entity detail → action → back.
+
+### URL conventions
+
+The `#` character in `mt#X` is a URL fragment delimiter in standard parsing — it MUST be percent-encoded as `%23` in URL path segments, otherwise the browser interprets it as a fragment marker and the route never resolves. Most React routers (TanStack Router, React Router v6+) handle path-segment encoding/decoding automatically when you use route parameters — declare `<Route path="/task/:taskId" />` and pass `taskId="mt#1772"`; the router emits `/task/mt%231772` in the address bar and decodes on read. If hand-constructing URLs (e.g., in command-palette navigation handlers), wrap the task ID with `encodeURIComponent(taskId)` before composing the path.
+
+UI display vs URL: show users `mt#1772` (the canonical form). `%23` appears in the URL bar only.
+
+- Dashboard: `/` (no path)
+- Task detail: `/task/:taskId` (taskId parameter holds `mt#X`; renders as `/task/mt%231772` in the URL bar)
+- Session detail: `/session/:sessionId` (full UUID; no encoding needed)
+- PR detail: `/pr/:prNumber` (number only, repo is implicit)
+- Agent detail: `/agent/:agentId`
+- Widget panels: `/widget/:widgetName` (e.g., `/widget/agents`)
+
+When the router is picked in phase B (mt#1773), confirm this scheme matches its conventions and update this section if it diverges (e.g., some routers prefer search-params over path-params for IDs containing special chars).
+
+### Breadcrumb conventions
+
+When drill-down depth exceeds 2, render breadcrumbs:
+
+```
+Dashboard → Tasks → mt#1772 → Session 577bbf25
+```
+
+### Back / forward
+
+The browser back/forward should work. Keyboard shortcuts:
+
+- `Cmd+[` or `Backspace` (when not in an input): go back
+- `Cmd+]`: go forward
+
+### Drill-down patterns
+
+- A clickable entity row → opens detail view
+- Detail view has tabs for sub-views (e.g., session has tabs: overview, files, logs, PR)
+- Each tab has its own URL fragment (`/session/<id>#files`)
+- Deep links work — load any URL directly into the correct drilled-down state
+
+## Dark-mode elevation conventions
+
+Already covered in `src/cockpit/CLAUDE.md` and the `interface-design` vendored skill. Quick summary for cross-reference:
+
+- Base background: near-black (HSL L ~3-5%)
+- Card surfaces: lighter than background (L ~7%)
+- Popover/dialog surfaces: even lighter (L ~10%)
+- Elevation via lightness, not shadow
+- Shadows decorative only
+
+Refer to the `interface-design` skill for full treatment.
+
+## Attention-debt visualization
+
+Gated on mt#1034 + mt#454 (Asks subsystem + open-ask persistence). The Attention widget (mt#1147) will render this. Pattern stubs for when it ships:
+
+### Open asks display
+
+- Group by kind (`direction.decide`, `authorization.approve`, etc.)
+- Sort by age within each group
+- Color-code by urgency: red (>24h old or window expired), yellow (within window), gray (fresh)
+
+### Window-bounded asks
+
+Some asks have a deadline (sync window). Show the deadline visibly:
+
+```tsx
+<AskCard>
+  <AskKind>{ask.kind}</AskKind>
+  <AskAge>{relativeTime(ask.createdAt)}</AskAge>
+  {ask.deadline && <AskDeadline>{deadlineRelative(ask.deadline)}</AskDeadline>}
+</AskCard>
+```
+
+### Escalation badges
+
+When an ask has escalated (deadline missed, bot intervention triggered, principal-level need), show an escalation badge with the reason.
+
+## Workstream visualization
+
+The Workstreams widget (mt#1452, DONE) shows parent tasks with collapsible children. Patterns:
+
+### Parent task card
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>
+      <span className="font-mono">{parent.id}</span>: {parent.title}
+    </CardTitle>
+    <CardDescription className="flex items-center gap-3">
+      <StatusBadge status={parent.status} />
+      <ChildrenRollup children={children} />
+      <LastActivity>{relativeTime(lastActivityTimestamp)}</LastActivity>
+    </CardDescription>
+  </CardHeader>
+  <CardContent>
+    <Collapsible>
+      <CollapsibleTrigger>{children.length} children</CollapsibleTrigger>
+      <CollapsibleContent>
+        {children.map((c) => (
+          <ChildRow key={c.id} task={c} />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  </CardContent>
+</Card>
+```
+
+### Activity feed integration
+
+Each workstream card can show a recent-activity feed (last N events: commits, PRs, status changes). Implementation choice: separate `activity_events` table OR derive from PR + commit + status-set audit logs. The vendored skill `tanstack-query` covers caching the feed.
+
+## Whole-system / observability view (the plant board)
+
+The `/plant` board (mt#2375 cluster, ADR-020) is the cockpit's whole-system view — a single living schematic of all of Minsky. When building or extending it (or any "see the whole system breathe" surface), inherit this canon rather than re-deriving it. Full depth: the reference memory _"Whole-system observability view — design canon + build playbook"_ (id `8d3d4f06`), ADR-020, and memories `82c7a58e` (research) / `67676430` (visual-verification discipline).
+
+### Design canon
+
+- **VSM-organ layout.** Lay the whole system on the five-organ Viable System Model skeleton — S1 operations / S2 coordination-valves / S3 management+3★ / S4 future / S5 identity — plus the attention/ask seam (cognition coupling) and the learning loop. All five organs must be visually present; a missing organ (S2 valves were dropped in the first node-link cut) reads as an incomplete system.
+- **Four timescales, rendered differently.** STABLE (the plant itself — pipes, stages, organs; internalized, rarely changes) · FLUID (instances as flow-rate / tank-level, never as fixed nodes) · BREATH (aggregate levels, ~60s) · SLOW (the plant grows new parts — e.g. a hook welded onto the pipe).
+- **Honest-motion law.** Every motion is driven by a real event (a `system_events` row). No event → no motion. Idle reads calm. A faked-busy idle (always-on dash-marching, decorative spinners) destroys the operator's ability to read the system — remove it. The fixed event→gesture dictionary lives in `src/cockpit/web/lib/plant-gestures.ts`; the first poll baselines (history is not motion).
+- **HMI-bones / lush-skin.** Adopt High-Performance-HMI's _information architecture_ (node-link topology, live data embedded in context, overview→drill-down hierarchy, anomaly-pops) but KEEP the dense cyberbrain aesthetic — do NOT go sterile grayscale. Reinterpret HMI's "grayscale-at-rest / color-on-alarm" as **"coherent rich field at rest / deviation breaks the harmony."**
+- **Instrument language, not text panels.** The board reads as a _plant_ because metrics are rendered as INSTRUMENTS embedded in the topology — tanks with fill levels, valves on the pipe, reservoirs, gauges with alarm setpoints, a scan sweep — not as nodes that merely contain text. Port new metrics in as instruments. The instrument components (vessel tanks, S2 valve nodes, gauge arcs, the memory reservoir, the legend `Panel`) live in `src/cockpit/web/pages/PlantFlowPage.tsx`; the instrument-parity port is mt#2466.
+- **Tufte + Shneiderman.** Tufte: layer & separate the relational layer from the data layer; small multiples; sparklines; micro/macro readings. Shneiderman: overview first → zoom & filter → details on demand (semantic zoom / focus+context).
+- **Substrate = node-link** (`@xyflow/react`, per ADR-020): rich HTML nodes (density + reuse + responsive fill) wired by animatable SVG edges (relational flow + dots-on-edges) on a pan/zoom canvas. This is the converged substrate; the earlier fixed-SVG and CSS-grid prototypes are retired. **Import `@xyflow/react` (v12) for new work** — the repo also still carries `reactflow` (v11), used only by the older TaskGraph widget; do not import from `reactflow` in plant-board / new canvas code.
+
+### react-flow build gotchas (hard-won; will save you an hour)
+
+- **Container needs an EXPLICIT height.** If an ancestor is `min-h-screen` / auto-height, a `h-full` page collapses and react-flow renders `height:0` — a blank page that still passes unit tests. Inside the cockpit shell (sticky `h-14` AppHeader + `min-h-screen` Layout root) size the page `h-[calc(100vh-3.5rem)]`; bare `h-screen` overflows 56px below the fold.
+- **Silently dropped edges.** An edge whose target node has no matching TARGET handle (or whose `targetHandle` points at a SOURCE handle) is NOT rendered — no error, tests pass, the relation just isn't on screen. Probe the DOM (`.react-flow__edge` count vs the edge-array length) when an edge "should be there."
+- **`fitView` runs before node measurement.** The `fitView` prop computes bounds from bare positions (custom HTML node heights are unknown at first paint) → over-zoom + bottom clipping. Fix structurally with a `useNodesInitialized()` + `fitView()` effect so the refit uses MEASURED bounds; do NOT hand-tune y-coordinates to compensate.
+- **smoothstep routing collisions.** smoothstep approaches a Left/Right handle ~20px outside the node and picks midpoint corners you don't control, so long verticals pass behind unrelated nodes. Place source/target so the approach channel threads a real gap, and offset same-side handles apart (`style: { left: "30%" }`) so two edges don't superimpose at a node's center.
+- **Custom edges and `style` can be undefined.** `EdgeProps.style` is `React.CSSProperties | undefined`; spreading it (`{ ...style }`) throws. Guard with `...(style ?? {})`.
+- **Underlay paint order.** react-flow paints edges in array order. A "pipe underlay" edge must be FIRST in the edges array or it overpaints what crosses it.
+
+### Verifying a plant-board render
+
+Visual verification of react-flow is unreliable through the Bun dev server (Vite HMR: WS-port conflicts, segfaults, zero-renders). Verify against the PROD bundle: `bun run cockpit:build` → `bun src/cli.ts cockpit start --port=<N>` → screenshot via playwright (load at 1440×900, `waitUntil: "domcontentloaded"` — NOT `networkidle`, the page polls forever — wait for a node `data-testid`, save a PNG, then `Read` it). Run the objective-defect checklist (memory `67676430` (A)) on the full uncropped render and FIX every objective defect BEFORE presenting; only the subjective composition is the principal's call. See `src/cockpit/CLAUDE.md §Operator dev loop` for the gotcha-aware commands.
+
+## Anti-patterns specific to Minsky
+
+Refuse these Minsky-domain anti-patterns when designing Cockpit UI:
+
+### 1. Generic "user" UI for a single-operator system
+
+Cockpit is single-principal (edobry). Don't add multi-user concepts (avatars, teams, permissions, sharing) — they're noise for v0.
+
+### 2. Marketing-mode entity displays
+
+Tasks/sessions/PRs are operational entities. Don't add hero images, marketing copy, "celebrate completion" animations. Surface state, age, ID, branch — that's it.
+
+### 3. Abstracted entity IDs
+
+Show `mt#1772`, `#1077`, full session UUID directly. Don't replace with "Task A" / "Session 1" / "PR 3" — operators reference by ID across all surfaces (CLI, GitHub, MCP); a UI breaking that convention forces a translation layer.
+
+### 4. Hiding the state machine
+
+Show full status (`TODO`, `PLANNING`, `READY`, `IN-PROGRESS`, `IN-REVIEW`, `DONE`, `BLOCKED`, `CLOSED`). Don't compress to "active / done" or other 2-state collapses — operators need to distinguish PLANNING from READY from IN-PROGRESS.
+
+### 5. Hover-only critical info
+
+Critical state (status, age, blocking) should be visible without hover. Use hover for SECONDARY info (full timestamps, full IDs, expanded metadata).
+
+### 6. Modal-everything
+
+Cockpit is multi-panel by design. Avoid modals that block the dashboard for routine entity views — use side panels or full-page drill-down instead. Modals are for confirmations and ephemeral inputs only.
+
+### 7. Polling without TanStack Query
+
+When mt#1773 lands TanStack Query, all data fetching should use `useQuery` with sensible `staleTime` / `refetchInterval`. Don't use bare `fetch` + `setInterval` — it breaks cache invalidation on mutations and doesn't compose with the rest of the widget framework.
+
+### 8. Treating widgets as standalone
+
+The widget framework (mt#1144) lets each widget declare its data dependencies and degrade gracefully. Don't write a widget that crashes the dashboard when its data source is down — the framework expects you to return a `degraded` state with a useful message. Pattern: `<DegradedCard reason="session_provider unavailable" />`.
+
+## Cross-references
+
+- Reference memory `8d3d4f06` — _Whole-system observability view — design canon + build playbook_ (the plant-board canon this skill's §Whole-system view condenses)
+- `docs/architecture/adr-020-plant-board-rendering-substrate.md` — node-link substrate decision (Accepted)
+- mt#2375 — plant-board / whole-system-view umbrella (canon, four timescales, honest motion)
+- `src/cockpit/CLAUDE.md` — descriptive companion (path-scoped activation surface)
+- `.minsky/agents/cockpit-dev/prompt.md` — prescriptive companion (agent prompt directives)
+- The 12 vendored Tier-1 skills — general patterns this skill specializes (notably `interface-design` for elevation, `shadcn-ui` for primitives, `tanstack-query` for data, `react-best-practices` + `composition-patterns` for engineering)
+- mt#1034 — Asks subsystem (attention layer; provides the data for attention-debt visualization)
+- mt#1143 — Cockpit v0 umbrella
+- mt#1144 — Shell + widget framework
+- mt#1145 — Agents widget (existing implementation reference)
+- mt#1146 — TaskGraph widget
+- mt#1147 — Attention widget (gated on mt#1034)
+- mt#1148 — Push transport (polling → SSE)
+- mt#1335 ADR-008 — Changeset abstraction
+- mt#1452 — Workstreams widget (existing implementation reference)
+- mt#951 — SessionRecord liveness
+- Memory `project_cockpit_stack_and_bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — bundle reference

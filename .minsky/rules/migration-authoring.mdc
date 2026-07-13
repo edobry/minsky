@@ -1,0 +1,56 @@
+---
+name: Migration Authoring
+description: Use drizzle-kit generate for all database migrations — never hand-write SQL migration files
+---
+# Migration Authoring
+
+## The canonical workflow
+
+When adding or modifying a database table, column, index, or enum:
+
+1. **Edit the Drizzle schema file** (TypeScript) under `packages/domain/src/storage/schemas/`
+2. **Run `bun run db:generate:pg`** — this invokes `drizzle-kit generate` which diffs the schema against the last snapshot and atomically produces:
+   - The SQL migration file (`packages/domain/src/storage/migrations/pg/NNNN_<name>.sql`)
+   - The journal entry (`packages/domain/src/storage/migrations/pg/meta/_journal.json`)
+   - The snapshot file (`packages/domain/src/storage/migrations/pg/meta/NNNN_snapshot.json`)
+3. **Commit all three artifacts together** — the pre-commit hook validates that every SQL file has a journal entry
+
+## Why this matters
+
+Drizzle's migration runner uses a high-water-mark model: it reads `_journal.json` to discover migrations and applies them in timestamp order. A SQL file without a journal entry is **invisible to the migrator** — it will never be applied, and `persistence migrate --dry-run` may report a false "0 pending."
+
+Originating incident: mt#2086 / mt#2070 (2026-05-24). A subagent hand-wrote `0040_memory_associations.sql` without updating the journal. The `persistence migrate --dry-run` check reported 0 pending (false-negative due to count-based clamping). The column existed in the live DB only because Railway's boot-time auto-migrate happened to apply it — but the journal tracking was out of sync, causing migration tooling errors.
+
+## Never hand-write migration SQL files
+
+Always use `bun run db:generate:pg`. The tool handles:
+- Sequential numbering with unique naming
+- Journal entry with monotonically-increasing timestamp
+- Snapshot for future diffing
+- Statement breakpoint markers (`--> statement-breakpoint`)
+
+## When drizzle-kit generate isn't sufficient
+
+Some migrations need DDL that drizzle-kit can't express (e.g., `DO $$ ... EXCEPTION WHEN duplicate_object` guards, data backfill mixed with DDL, complex enum creation). In these cases:
+
+1. Run `bun run db:generate:pg` first to get the base migration with journal + snapshot
+2. Edit the generated SQL file to add the guards or custom DDL
+3. The journal entry and snapshot already exist — no manual tracking needed
+
+Never create a SQL file from scratch without running `db:generate:pg` first.
+
+## Pre-commit enforcement
+
+The pre-commit pipeline validates that:
+- The number of `.sql` files equals the number of journal entries
+- Every staged `.sql` file has a corresponding journal entry (matched by filename stem)
+
+A commit that adds a SQL migration file without a journal entry is blocked.
+
+## Cross-references
+
+- `drizzle.pg.config.ts` — Drizzle Kit configuration for PostgreSQL
+- `package.json` script `db:generate:pg` — the canonical generate command
+- `docs/testing/postgres-migrations.md` — migration testing patterns
+- mt#2086 — originating incident (missing journal entry)
+- mt#2070 — the migration that triggered the incident

@@ -2,3 +2,8 @@ if git diff --name-only ORIG_HEAD HEAD | grep -q "bun.lock"; then
   echo "bun.lock changed, running bun install..."
   bun install
 fi
+
+if git diff --name-only ORIG_HEAD HEAD | grep -q "^src/"; then
+  echo "src/ changed, rebuilding CLI bundle..."
+  bun run build
+fi

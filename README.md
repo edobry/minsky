@@ -1,12 +1,18 @@
+<p align="center">
+  <img src="assets/icon/social-preview.png" alt="Minsky — The cyberbrain for software organizations." width="100%" />
+</p>
+
 # Minsky
 
-A development workflow orchestration platform that creates collaborative environments for both human and AI developers through organizational cybernetic principles.
+An exocortex for software organizations led by a principal — the substrate that holds the cognition of one mind across a flock of agents, and translates declared intent into coordinated realized work.
 
-> _"The power of intelligence stems from our vast diversity, not from any single, perfect principle."_ — Marvin Minsky, The Society of Mind
+> _"The power of intelligence stems from our vast diversity, not from any single, perfect principle."_ — Marvin Minsky, _The Society of Mind_
 
-## What Minsky Does
+The principal — the human responsible for the work — declares intent; the substrate composes hooks, sessions, tasks, asks, memory, and reviewer agents to drive that intent to realization. Principality is recursive: every individual engineer running Minsky is the principal of their own flock, and an organization is a tree of principals all the way down to the ICs. Minsky is principal substrate at every level on that tree.
 
-### Task Management with Multiple Backends
+## What Minsky does
+
+### Task management with multiple backends
 
 Coordinate work items across different storage systems:
 
@@ -18,7 +24,7 @@ minsky init --tasks-backend minsky
 minsky init --tasks-backend github-issues
 ```
 
-### Session-Based Development
+### Session-based development
 
 Isolated workspaces that prevent conflicts and enable parallel work:
 
@@ -33,9 +39,9 @@ cd $(minsky session dir mt#123)
 minsky session pr create --title "Fix critical bug" --type fix
 ```
 
-### Unified CLI and MCP Interface
+### Unified CLI and MCP surfaces
 
-Minsky exposes all commands as both CLI and MCP tools, so AI agents interact with the same interface as human developers. There is no separate AI API — the same `session start`, `tasks create`, and `session pr create` commands work whether you are typing them in a terminal or an agent is calling them via MCP.
+Minsky exposes all commands as both CLI and MCP tools, so AI agents interact with the same surface as human developers. There is no separate AI API — the same `session start`, `tasks create`, and `session pr create` commands work whether a human is typing them in a terminal or an agent is calling them via MCP.
 
 ## Why Minsky?
 
@@ -45,7 +51,7 @@ Tools like CodeRabbit, GitHub Copilot Review, and Greptile operate at PR time �
 
 ### Not a task tracker
 
-Minsky is the coordination layer that makes your existing tools work as a coherent system. Your linter, test runner, and CI pipeline already exist — Minsky configures them to run at the right moments and surfaces their results in a consistent format. It does not replace them.
+Minsky is the coordination substrate that makes your existing tools work as a coherent system. Your linter, test runner, and CI pipeline already exist — Minsky configures them to run at the right moments and surfaces their results in a consistent format. It does not replace them.
 
 ### Alignment through environment, not instruction
 
@@ -61,7 +67,15 @@ Minsky runs on your infrastructure, in your git repository. It integrates with A
 
 Sessions are isolated git clones. Changesets are branches. Pull requests are the integration mechanism. There is no proprietary state format — everything lives in git and is inspectable with standard tools.
 
-## Quick Start
+### Attention as the scarce resource
+
+Underneath every mechanism above sits a scarcer resource than CPU or storage: principal attention. A pre-commit hook catching unformatted code, a session starting from a clean git clone, a `BLOCKED` task surfaced in review — each one routes a decision to the cheapest thing that can resolve it, and pulls in the principal only when nothing cheaper will do.
+
+Two symmetric failure modes follow. **Waste** is asking about choices the substrate could have resolved from policy. **Usurp** is deciding things — architectural calls, precedent-setting naming, scope expansions — that structurally belong to the principal. Minsky treats these as a single routing problem: different kinds of asks (permission, direction, escalation, review, notification) need different transports and cost models, not one-size-fits-all confirmation dialogs.
+
+The full argument — and the emerging ask taxonomy — is in the [companion essay on attention as the binding resource](https://www.notion.so/34a937f03cb4814badbaf2e5cee38c08).
+
+## Quick start
 
 ### Installation
 
@@ -79,14 +93,48 @@ npm install
 npm link
 ```
 
-### Initialize a Project
+### Initialize a project
 
 ```bash
 # Interactive setup — configures task backend and git hooks
 minsky init
 ```
 
-### Create and Work on Tasks
+### Configure the database
+
+Minsky requires a PostgreSQL database. `minsky setup db` is an interactive wizard
+that captures a connection string, writes it to your config, runs the schema
+migrations, and verifies connectivity:
+
+```bash
+minsky setup db
+```
+
+It offers three ways to get a connection string:
+
+- **Docker** (detected automatically) — prints a copy-paste one-liner to start a
+  local Postgres, then captures the resulting connection string. Minsky does not
+  manage the container; you run and stop it with your own Docker.
+- **Supabase free tier** — points you at the no-credit-card signup and prompts
+  for the connection string.
+- **Bring your own** — paste any existing Postgres connection string.
+
+Before writing anything it shows a plan and asks to confirm (the config write is
+the only mutating step). It is re-runnable — running it again updates the
+connection string and re-verifies.
+
+Non-interactive / scripted use:
+
+```bash
+# Supply the connection string directly; --yes skips the confirmation prompt.
+minsky setup db --connection-string "postgresql://user:password@host:5432/dbname" --yes
+```
+
+On failure it reports which step failed (`validate` / `connectivity` /
+`config-write` / `migrate` / `verify`) with an actionable message; connection
+strings are masked in all output.
+
+### Create and work on tasks
 
 ```bash
 # Create a task
@@ -102,32 +150,124 @@ cd $(minsky session dir mt#1)
 minsky session pr create --title "feat: Add user authentication"
 ```
 
-## Design Philosophy
+### Shell completions (bash / zsh / fish)
 
-Minsky applies principles from organizational cybernetics — the study of control and communication in complex systems. By creating the right feedback loops and control structures, good practices become the path of least resistance:
+`minsky` ships tab-completion for bash, zsh, and fish via [@pnpm/tabtab](https://github.com/pnpm/tabtab). One-time setup:
+
+```bash
+# Interactive: prompts for which shell to set up
+minsky completions install
+
+# Then re-source your shell config (or open a new shell)
+exec $SHELL -l
+```
+
+After install, tab-complete top-level commands, subcommands, option flags, AND option values:
+
+```
+minsky <TAB>                          # → tasks, session, rules, git, config, mcp, ...
+minsky tasks <TAB>                    # → list, get, create, status, ...
+minsky tasks list --<TAB>             # → --backend, --status, --tag, ...
+minsky tasks list --status <TAB>      # → TODO, PLANNING, READY, IN-PROGRESS, ...
+minsky git merge --conflict-strategy <TAB>  # → automatic, guided, manual
+```
+
+Value completion (`--status <TAB>` → enum values) is automatic for any option whose underlying Zod schema in the shared command registry is a finite enum (`z.enum([...])`, `z.union([z.literal(...), ...])`, or any of those wrapped in `.optional()` / `.default(...)` / `.nullable()`). Free-form options (`z.string()`, `z.number()`) produce no values — those fall through to the shell's default behavior.
+
+To uninstall, run `minsky completions uninstall`. For manual install (bypassing the interactive prompt), `minsky completions bash`, `minsky completions zsh`, or `minsky completions fish` emit the raw completion script to stdout — pipe it into the appropriate shell config.
+
+Dynamic value completion (`tasks get <TAB>` → live task IDs queried from the DB at TAB time) is tracked separately as mt#1894. Windows and PowerShell are not supported.
+
+## Design philosophy
+
+Minsky applies principles from organizational cybernetics — the study of control and communication in complex systems. The right feedback loops and control structures make good practices the path of least resistance:
 
 - **Fast feedback loops** (pre-commit hooks) catch issues immediately
 - **Progressive gates** (pre-push, CI/CD) balance thoroughness with productivity
 - **Isolation** (session-based development) prevents conflicts and enables parallel work
 
-The central insight is agent equivalence: the incentive structures that guide human developers guide AI agents equally well. This isn't coincidence — it is design. We do not need to teach AI agents to follow best practices. We create an environment where following best practices is the only way to succeed, the same as for humans.
+The central insight is agent equivalence: the incentive structures that guide human developers guide AI agents equally well. This isn't coincidence — it is design. AI agents do not need to be taught to follow best practices; the environment makes following best practices the only path to success, the same as for humans.
 
-For the full theoretical background, see [docs/theory-of-operation.md](./docs/theory-of-operation.md).
+For the full theoretical background, see [docs/theory-of-operation.md](./docs/theory-of-operation.md). For the recursive-principality argument (every level of an organization is itself a principal-substrate relationship), see [Position: Levels of principality](https://www.notion.so/366937f03cb4812691c4db4cc44a0776).
 
 ## Architecture
 
-Minsky follows a clean architecture with domain logic separated from adapters and infrastructure. The same domain operations (task management, session lifecycle, PR creation) work whether accessed via CLI or MCP. See [docs/architecture.md](./docs/architecture.md) for details.
+Minsky follows a clean architecture with domain logic separated from adapters and infrastructure. The same domain operations (task management, session lifecycle, PR creation) work whether accessed via CLI or MCP. See [docs/architecture.md](./docs/architecture.md) for the system-level walk-through.
+
+## Brand & identity
+
+> Notion links below are in the Minsky workspace (private; request access). The agent-consumable skill surfaces and `docs/brand-system.md` are in this repo and require no external account.
+
+The brand thesis lives in [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1) — the unit-of-analysis distinction that names what Minsky is and what it deliberately is not.
+
+The agent-consumable brand foundation — locked myth, cultural code, layered references, vocabulary, bridge-as-affect discipline — lives in the [`minsky-brand`](./.claude/skills/minsky-brand/SKILL.md) skill.
+
+Operational implementation tokens — typography stack, color palette in OKLCH, motion budget with `prefers-reduced-motion`, WCAG contrast targets — live in [`docs/brand-system.md`](./docs/brand-system.md).
+
+Marketing-surface design patterns (Idiom B product-screenshot-dominant, layout, anti-patterns, the new-surface workshop process) live in the [`marketing-site-design`](./.claude/skills/marketing-site-design/SKILL.md) skill.
+
+The principal's literary voice — the corpus-grounded register used in long-form prose — is codified in the [`pz-voice`](./.claude/skills/pz-voice/SKILL.md) skill.
+
+## Configuration notes
+
+### Observability (Braintrust)
+
+To use Braintrust for LLM observability, both an API key and a project name are required.
+The project name has **no default** — it must be set explicitly so traces do not silently
+accumulate in a project named after someone else's installation:
+
+```bash
+# Configure via config
+minsky config set observability.providers.braintrust.apiKey --value <your-key>
+minsky config set observability.providers.braintrust.projectName --value <your-project>
+
+# Or via environment variables
+export BRAINTRUST_API_KEY=<your-key>
+export BRAINTRUST_PROJECT_NAME=<your-project>
+
+# Verify connectivity
+minsky observability smoke-test
+```
+
+See `observability.providers.braintrust.projectName` in the configuration schema
+(`packages/domain/src/configuration/schemas/observability.ts`).
+
+### Postgres schema migrations (bundle-aware resolver)
+
+`minsky persistence migrate` resolves the migrations folder in a bundle-aware way —
+it no longer requires running from the Minsky repo root. The resolver probes candidates
+in order:
+
+1. `import.meta.dir/../storage/migrations/pg` — source-tree (dev)
+2. `import.meta.dir/storage/migrations/pg` — bundled dist (co-located with `dist/minsky.js`)
+3. `dirname(process.argv[1])/storage/migrations/pg` — secondary bundled probe
+4. `<cwd>/packages/domain/src/storage/migrations/pg` — legacy repo-root fallback
+
+The first candidate whose `meta/_journal.json` exists wins. When using the production
+bundle (`dist/minsky.js`) from an arbitrary working directory, candidates 2 and 3 resolve
+to the migrations co-located with the bundle.
+
+## CI workflows
+
+| Workflow             | Trigger              | Purpose                                                                                                                                                                                  |
+| -------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundle-boot-smoke`  | every PR / main push | Builds the bundle and asserts `GET /health` returns 200                                                                                                                                  |
+| `cold-start-migrate` | every PR / main push | Builds the bundle, runs `minsky persistence migrate --execute` from a temp dir outside the repo, then asserts the `tasks` table was created and `--dry-run` reports 0 pending migrations |
+
+The `cold-start-migrate` workflow is the regression gate for the bundle-aware migration
+resolver. It proves that the production binary can find and apply its bundled migrations
+from an arbitrary working directory.
 
 ## Contributing
 
-We welcome contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Contributions welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## Documentation
 
-- [Complete Documentation](./docs/README.md)
-- [Development Workflow](./docs/development-workflow.md)
-- [Testing Guide](./docs/testing.md)
-- [Architecture Overview](./docs/architecture.md)
+- [Complete documentation](./docs/README.md)
+- [Development workflow](./docs/development-workflow.md)
+- [Testing guide](./docs/testing.md)
+- [Architecture overview](./docs/architecture.md)
 
 ## License
 
@@ -135,6 +275,6 @@ MIT — See [LICENSE](./LICENSE) for details.
 
 ## Acknowledgments
 
-Named after Marvin Minsky, whose "Society of Mind" theory inspired the idea that intelligence emerges from the coordination of simple processes. Just as Minsky proposed that minds are societies of simpler agents, this tool orchestrates development tools into coherent workflows.
+Named after Marvin Minsky, whose _Society of Mind_ theory inspired the idea that intelligence emerges from the coordination of simpler processes. Just as Minsky proposed that minds are societies of simpler agents, this tool orchestrates development tools into coherent workflows.
 
 The organizational cybernetics principles draw from Stafford Beer's Viable System Model: organizations of humans or AI agents need the same control structures to function effectively.

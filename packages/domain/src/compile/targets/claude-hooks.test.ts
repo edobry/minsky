@@ -1,0 +1,412 @@
+/**
+ * Unit tests for the claude-hooks compile target.
+ *
+ * Uses injected fake fs to avoid touching disk.
+ */
+
+import { describe, it, expect } from "bun:test";
+import {
+  makeClaudeHooksTarget,
+  buildHookContent,
+  HOOK_SHEBANG,
+  HOOK_COMPILE_BANNER,
+} from "./claude-hooks";
+import type { MinskyCompileFsDeps } from "../types";
+
+// ─── Fake fs ─────────────────────────────────────────────────────────────────
+
+type FileMap = Record<string, string>;
+
+interface FakeChmodRecord {
+  [path: string]: number;
+}
+
+type FakeFs = MinskyCompileFsDeps & { written: FileMap; chmodCalls: FakeChmodRecord };
+
+function makeTrackingFs(files: FileMap): FakeFs {
+  const written: FileMap = {};
+  const chmodCalls: FakeChmodRecord = {};
+
+  return {
+    written,
+    chmodCalls,
+    async readFile(path: string, _enc: "utf-8"): Promise<string> {
+      const content = files[path] ?? written[path];
+      if (content === undefined) {
+        throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
+      }
+      return content;
+    },
+    async writeFile(path: string, data: string, _enc: "utf-8"): Promise<void> {
+      written[path] = data;
+    },
+    async mkdir(_path: string, _opts: { recursive: boolean }): Promise<undefined> {
+      return undefined;
+    },
+    async readdir(path: string): Promise<string[]> {
+      const prefix = path.endsWith("/") ? path : `${path}/`;
+      const names = new Set<string>();
+      for (const key of [...Object.keys(files), ...Object.keys(written)]) {
+        if (key.startsWith(prefix)) {
+          const rest = key.slice(prefix.length);
+          const segment = rest.split("/")[0];
+          if (segment !== undefined && !segment.includes("/")) {
+            names.add(segment);
+          }
+        }
+      }
+      return Array.from(names);
+    },
+    async access(path: string): Promise<void> {
+      if (files[path] === undefined && written[path] === undefined) {
+        throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
+      }
+    },
+    async chmod(path: string, mode: number): Promise<void> {
+      chmodCalls[path] = mode;
+    },
+  };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const WORKSPACE = "/workspace";
+
+/** Fixture hook filenames used across multiple tests. */
+const HOOK_BLOCK_GIT = "block-git-gh-cli.ts";
+const HOOK_BLOCK_GIT_TEST = "block-git-gh-cli.test.ts";
+
+function hookSourcePath(hookName: string): string {
+  return `${WORKSPACE}/.minsky/hooks/${hookName}`;
+}
+
+function hookOutputPath(hookName: string): string {
+  return `${WORKSPACE}/.claude/hooks/${hookName}`;
+}
+
+/** Simple hook source without a shebang (most common case). */
+const SAMPLE_SOURCE_NO_SHEBANG = `import { readInput } from "./types";
+
+async function main() {
+  const input = await readInput();
+  console.log("hook fired", input);
+}
+
+main().catch(console.error);
+`;
+
+/** Hook source that already has a shebang. */
+const SAMPLE_SOURCE_WITH_SHEBANG = `#!/usr/bin/env bun
+import { readInput } from "./types";
+
+async function main() {
+  const input = await readInput();
+  console.log("hook fired", input);
+}
+
+main().catch(console.error);
+`;
+
+// ─── buildHookContent ─────────────────────────────────────────────────────────
+
+describe("buildHookContent", () => {
+  it("adds shebang and banner when source has no shebang", () => {
+    const result = buildHookContent(SAMPLE_SOURCE_NO_SHEBANG, "my-hook.ts");
+    expect(result).toMatch(/^#!/);
+    expect(result.startsWith(`${HOOK_SHEBANG}\n`)).toBe(true);
+    expect(result).toContain(HOOK_COMPILE_BANNER);
+    expect(result).toContain("// Source: .minsky/hooks/my-hook.ts");
+  });
+
+  it("strips existing shebang and re-adds it when source already has one", () => {
+    const result = buildHookContent(SAMPLE_SOURCE_WITH_SHEBANG, "my-hook.ts");
+    // Should start exactly once with the shebang
+    expect(result.startsWith(`${HOOK_SHEBANG}\n`)).toBe(true);
+    // Should NOT have double shebang
+    const shebangs = result.split(HOOK_SHEBANG).length - 1;
+    expect(shebangs).toBe(1);
+    expect(result).toContain(HOOK_COMPILE_BANNER);
+  });
+
+  it("banner is on line 2 (after shebang line 1)", () => {
+    const result = buildHookContent(SAMPLE_SOURCE_NO_SHEBANG, "my-hook.ts");
+    const lines = result.split("\n");
+    expect(lines[0]).toBe(HOOK_SHEBANG);
+    expect(lines[1]).toBe(HOOK_COMPILE_BANNER);
+    expect(lines[2]).toBe("// Source: .minsky/hooks/my-hook.ts");
+  });
+
+  it("source content appears after the header (blank-line separated)", () => {
+    const result = buildHookContent(SAMPLE_SOURCE_NO_SHEBANG, "my-hook.ts");
+    expect(result).toContain("import { readInput }");
+  });
+
+  it("provenance comment names the hook file", () => {
+    const result = buildHookContent(SAMPLE_SOURCE_NO_SHEBANG, "substrate-bypass-detector.ts");
+    expect(result).toContain("// Source: .minsky/hooks/substrate-bypass-detector.ts");
+  });
+
+  it("banner matches GENERATION_BANNER_PATTERNS (// Generated by pattern)", () => {
+    // The check-generated-file-edit hook recognises `// Generated by` per its
+    // `line comment: AUTOGENERATED / Generated by` regex.
+    const result = buildHookContent(SAMPLE_SOURCE_NO_SHEBANG, "my-hook.ts");
+    // Verify via the same regex pattern the hook uses
+    const lineCommentPattern = /^\s*\/\/\s*(AUTOGENERATED|Generated by\b)/im;
+    expect(lineCommentPattern.test(result)).toBe(true);
+  });
+});
+
+// ─── listOutputFiles ──────────────────────────────────────────────────────────
+
+describe("claudeHooksTarget.listOutputFiles", () => {
+  it("returns empty list when no hooks exist", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({});
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    expect(files).toEqual([]);
+  });
+
+  it("returns one output path per hook source file", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath(HOOK_BLOCK_GIT)]: "// hook",
+      [hookSourcePath("check-branch-fresh.ts")]: "// hook",
+    });
+
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    expect(files).toHaveLength(2);
+    expect(files.some((f) => f.includes(HOOK_BLOCK_GIT))).toBe(true);
+    expect(files.some((f) => f.includes("check-branch-fresh.ts"))).toBe(true);
+  });
+
+  it("excludes *.test.ts files", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath(HOOK_BLOCK_GIT)]: "// hook",
+      [hookSourcePath(HOOK_BLOCK_GIT_TEST)]: "// test",
+    });
+
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain(HOOK_BLOCK_GIT);
+    expect(files.some((f) => f.includes(".test.ts"))).toBe(false);
+  });
+
+  it("output paths are under .claude/hooks/", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: "// hook",
+    });
+
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/\.claude\/hooks\/my-hook\.ts$/);
+  });
+});
+
+// ─── compile — normal mode ────────────────────────────────────────────────────
+
+describe("claudeHooksTarget.compile (normal)", () => {
+  it("compiles a single hook source and writes the output", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsIncluded).toEqual(["my-hook.ts"]);
+    expect(result.definitionsSkipped).toEqual([]);
+    expect(result.filesWritten).toHaveLength(1);
+    expect(result.content).toBeUndefined();
+
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    expect(outPath).toMatch(/\.claude\/hooks\/my-hook\.ts$/);
+    expect(fakeFs.written[outPath]).toContain(HOOK_SHEBANG);
+    expect(fakeFs.written[outPath]).toContain(HOOK_COMPILE_BANNER);
+  });
+
+  it("compiles multiple hook sources", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("hook-a.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+      [hookSourcePath("hook-b.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+      [hookSourcePath("hook-c.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsIncluded).toHaveLength(3);
+    expect(result.filesWritten).toHaveLength(3);
+    expect(result.definitionsSkipped).toEqual([]);
+  });
+
+  it("excludes *.test.ts files from compilation", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+      [hookSourcePath("my-hook.test.ts")]: "// test file",
+    });
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsIncluded).toEqual(["my-hook.ts"]);
+    expect(result.filesWritten).toHaveLength(1);
+    expect(result.filesWritten[0]).not.toContain(".test.ts");
+  });
+
+  it("calls chmod with 0o755 on each compiled output", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    expect(fakeFs.chmodCalls[outPath]).toBe(0o755);
+  });
+
+  it("calls chmod with 0o755 for each file in a multi-hook compile", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("hook-a.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+      [hookSourcePath("hook-b.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    for (const outPath of result.filesWritten) {
+      expect(fakeFs.chmodCalls[outPath]).toBe(0o755);
+    }
+  });
+
+  it("strips existing shebang from source before re-emitting", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_WITH_SHEBANG,
+    });
+
+    await target.compile({}, WORKSPACE, fakeFs);
+
+    const outPath = hookOutputPath("my-hook.ts");
+    const content = fakeFs.written[outPath];
+    if (content === undefined) throw new Error("expected output to be written");
+    const shebangs = content.split(HOOK_SHEBANG).length - 1;
+    expect(shebangs).toBe(1);
+  });
+
+  it("skips a source file whose readFile throws and adds it to definitionsSkipped", async () => {
+    const target = makeClaudeHooksTarget();
+    // Provide the source dir entry but not the file content — readFile will throw
+    const baseFs = makeTrackingFs({});
+    const customFs: MinskyCompileFsDeps & { written: FileMap; chmodCalls: FakeChmodRecord } = {
+      ...baseFs,
+      async readdir(path: string): Promise<string[]> {
+        if (path.includes(".minsky/hooks")) {
+          return ["bad-hook.ts"];
+        }
+        return [];
+      },
+      async readFile(_path: string, _enc: "utf-8"): Promise<string> {
+        throw new Error("ENOENT: file not found");
+      },
+    };
+
+    const result = await target.compile({}, WORKSPACE, customFs);
+
+    expect(result.definitionsSkipped).toContain("bad-hook.ts");
+    expect(result.definitionsIncluded).toEqual([]);
+    expect(result.filesWritten).toHaveLength(0);
+  });
+});
+
+// ─── compile — dryRun mode ────────────────────────────────────────────────────
+
+describe("claudeHooksTarget.compile (dryRun)", () => {
+  it("does not write files and populates content and contentsByPath", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+
+    const result = await target.compile({ dryRun: true }, WORKSPACE, fakeFs);
+
+    expect(Object.keys(fakeFs.written)).toHaveLength(0);
+    expect(result.content).toBeDefined();
+    expect(result.contentsByPath).toBeDefined();
+
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    if (result.contentsByPath === undefined)
+      throw new Error("expected contentsByPath to be defined");
+    expect(result.contentsByPath.get(outPath)).toContain(HOOK_SHEBANG);
+    expect(result.contentsByPath.get(outPath)).toContain(HOOK_COMPILE_BANNER);
+  });
+
+  it("does not call chmod in dry-run mode", async () => {
+    const target = makeClaudeHooksTarget();
+    const fakeFs = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+
+    await target.compile({ dryRun: true }, WORKSPACE, fakeFs);
+
+    expect(Object.keys(fakeFs.chmodCalls)).toHaveLength(0);
+  });
+});
+
+// ─── idempotency ─────────────────────────────────────────────────────────────
+
+describe("claudeHooksTarget — idempotency", () => {
+  it("compiling twice produces identical output", async () => {
+    const target = makeClaudeHooksTarget();
+
+    // First compile
+    const fakeFs1 = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+    const result1 = await target.compile({}, WORKSPACE, fakeFs1);
+    const outPath = result1.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0]");
+    const firstOutput = fakeFs1.written[outPath];
+
+    // Second compile (using the first compile's output as the "existing" file —
+    // the target reads from source, not from the existing output, so the source
+    // content doesn't change and the compiled output should be identical)
+    const fakeFs2 = makeTrackingFs({
+      [hookSourcePath("my-hook.ts")]: SAMPLE_SOURCE_NO_SHEBANG,
+    });
+    await target.compile({}, WORKSPACE, fakeFs2);
+    const secondOutput = fakeFs2.written[outPath];
+
+    expect(firstOutput).toBe(secondOutput);
+  });
+});
+
+// ─── target metadata ─────────────────────────────────────────────────────────
+
+describe("claudeHooksTarget — metadata", () => {
+  it("has id 'claude-hooks'", () => {
+    const target = makeClaudeHooksTarget();
+    expect(target.id).toBe("claude-hooks");
+  });
+
+  it("has displayName 'Claude Hooks'", () => {
+    const target = makeClaudeHooksTarget();
+    expect(target.displayName).toBe("Claude Hooks");
+  });
+
+  it("sharedOutputDirectory is false (exclusively owned)", () => {
+    const target = makeClaudeHooksTarget();
+    expect(target.sharedOutputDirectory).toBe(false);
+  });
+
+  it("defaultOutputPath returns .claude/hooks path", () => {
+    const target = makeClaudeHooksTarget();
+    const outputPath = target.defaultOutputPath(WORKSPACE);
+    expect(outputPath).toMatch(/\.claude\/hooks$/);
+  });
+});

@@ -5,10 +5,10 @@
  * Composes TaskGraphService (children + deps) with task status resolution.
  */
 import { z } from "zod";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
-import { log } from "../../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 const tasksOrchestrateParams = {
   taskId: {
@@ -145,8 +145,13 @@ export function createTasksOrchestrateCommand(
         lines.push("");
         lines.push("To dispatch a subtask:");
         lines.push(
-          `  tasks_dispatch(parentTaskId: "${parentTaskId}", title: "...", instructions: "...")`
+          `  tasks_dispatch(parentTaskId: "${parentTaskId}", title: "...", instructions: "...",`
         );
+        lines.push(`    premiseClaim: "...", premiseFalsifier: "...", premiseEvidence: "...")`);
+        lines.push(
+          `  (mt#2488 evidence gate: state the premise this dispatch rests on, the cheapest`
+        );
+        lines.push(`   check that would disprove it, and the result of running that check.)`);
         lines.push("Or start a session directly for an existing subtask:");
         lines.push(`  session_start(task: "${dispatchable[0]?.taskId}")`);
       }

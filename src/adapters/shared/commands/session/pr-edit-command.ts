@@ -12,12 +12,16 @@ import {
   SessionConflictError,
   ValidationError,
   getErrorMessage,
-} from "../../../../errors/index";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrEditCommandParams } from "./session-parameters";
-import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrEdit } from "@minsky/domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import {
+  CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
+  CONVENTIONAL_COMMIT_TYPES_DISPLAY,
+} from "@minsky/domain/git/conventional-commit-types";
 
 export interface SessionPrEditParams {
   sessionId?: string;
@@ -84,7 +88,7 @@ export async function executeSessionPrEdit(
       let sessionId = params.sessionId;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
         const resolvedContext = await resolveSessionContextWithFeedback({
           task: params.task,
@@ -106,16 +110,16 @@ export async function executeSessionPrEdit(
     let finalTitle: string | undefined = params.title;
     if (params.title) {
       const { assertValidPrTitle } = await import(
-        "../../../../domain/session/validation/title-validation"
+        "@minsky/domain/session/validation/title-validation"
       );
       assertValidPrTitle(params.title);
 
       if (params.type) {
         try {
           const { resolveSessionContextWithFeedback } = await import(
-            "../../../../domain/session/session-context-resolver"
+            "@minsky/domain/session/session-context-resolver"
           );
-          const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
+          const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
           const resolved = await resolveSessionContextWithFeedback({
             sessionId: params.sessionId,
@@ -135,11 +139,20 @@ export async function executeSessionPrEdit(
           finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
         }
       } else {
-        const conventionalRe = /^(feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?:\s+/i;
+        // Case-sensitive AND single-space-after-colon on purpose: the
+        // commit-msg hook regex (`src/hooks/commit-msg.ts`
+        // `CONVENTIONAL_COMMIT_PATTERN`) does NOT use the `i` flag and
+        // requires exactly one literal space (`: `). Accepting `Feat(...)`
+        // or `feat(scope):  two-spaces` here would let titles through that
+        // the hook later rejects at commit time. Keep this validator
+        // strictly aligned with the hook (PR #938 R3/R5).
+        const conventionalRe = new RegExp(
+          `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\([^)]*\\))?: `
+        );
         if (!conventionalRe.test(params.title)) {
           throw new ValidationError(
             "Invalid title. Provide either:\n" +
-              "  • --type <feat|fix|docs|style|refactor|perf|test|chore> with a description-only --title\n" +
+              `  • --type <${CONVENTIONAL_COMMIT_TYPES_DISPLAY.replaceAll(", ", "|")}> with a description-only --title\n` +
               "  • or a full conventional commit title like 'feat(scope): short description'"
           );
         }

@@ -1,0 +1,20 @@
+{
+  "name": "@minsky/shared",
+  "version": "0.1.0",
+  "description": "Shared utilities used across Minsky packages and separately-deployed services.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./safe-truncate": "./src/safe-truncate.ts",
+    "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts",
+    "./deployment-config": "./src/deployment/config.ts",
+    "./logger": "./src/logger.ts",
+    "./exec": "./src/exec.ts",
+    "./paths": "./src/paths.ts",
+    "./process": "./src/process.ts",
+    "./fs": "./src/fs.ts",
+    "./constants": "./src/constants.ts",
+    "./array-safety": "./src/array-safety.ts"
+  }
+}

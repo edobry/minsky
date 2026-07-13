@@ -3,20 +3,18 @@
  *
  * Two responsibilities:
  *   1. Extract the task ID from a PR's branch name or title.
- *   2. Call the hosted Minsky MCP (via mcp-client.ts) and classify the
- *      outcome into a structured TaskSpecFetchResult the caller logs.
+ *   2. Fetch the task spec content via the injected TaskServiceInterface and
+ *      classify the outcome into a structured TaskSpecFetchResult the caller logs.
  *
- * The actual HTTP work lives in mcp-client.ts (alongside the provenance
- * client that mt#1085 shipped). This module is a thin adapter that maps
- * the MCP-client result shape onto the reviewer's logging taxonomy.
+ * Previously called the hosted Minsky MCP via mcp-client.ts. Now uses the
+ * domain TaskServiceInterface directly (mt#2121).
  *
- * Requires the hosted MCP to be reachable with a populated tasks table;
- * transport issues surface as `status: "error"`, missing config as
+ * Requires a running TaskService with a backend configured for the repo;
+ * transport issues surface as `status: "error"`, missing service as
  * `status: "disabled"`, and operator visibility is preserved via logs.
  */
 
-import type { ReviewerConfig } from "./config";
-import { callTasksSpecGet, type TasksSpecGetResult } from "./mcp-client";
+import type { TaskServiceInterface } from "@minsky/domain/tasks";
 
 /**
  * Matches task IDs in common branch/title forms: `task/mt-1109`, `mt#1109`,
@@ -52,27 +50,21 @@ export interface TaskSpecFetchResult {
 }
 
 /**
- * Injected dependency for tests. Defaults to the production callTasksSpecGet.
- * Tests pass a stub that returns a hardcoded TasksSpecGetResult instead of
- * making a real HTTP request.
- */
-export type TasksSpecGetFn = (
-  taskId: string,
-  config: ReviewerConfig
-) => Promise<TasksSpecGetResult>;
-
-/**
  * Resolve the task spec for a PR. Extracts the task ID from branch + title,
- * then calls the MCP. Every non-success path returns `taskSpec: null` with a
- * structured `fetchResult` — the reviewer never blocks on spec fetch.
+ * then fetches the spec via the TaskService. Every non-success path returns
+ * `taskSpec: null` with a structured `fetchResult` — the reviewer never
+ * blocks on spec fetch.
+ *
+ * @param taskService Optional injected TaskService. When absent, returns
+ *   `status: "disabled"` — the spec fetch is optional and the reviewer
+ *   degrades gracefully without it.
  */
 export async function resolveTaskSpec(input: {
   branchName: string;
   prTitle: string;
-  config: ReviewerConfig;
-  fetcher?: TasksSpecGetFn;
+  taskService?: TaskServiceInterface | null;
 }): Promise<{ taskSpec: string | null; fetchResult: TaskSpecFetchResult }> {
-  if (!input.config.mcpUrl || !input.config.mcpToken) {
+  if (!input.taskService) {
     return {
       taskSpec: null,
       fetchResult: { status: "disabled" },
@@ -90,29 +82,31 @@ export async function resolveTaskSpec(input: {
     };
   }
 
-  const fetcher = input.fetcher ?? callTasksSpecGet;
-  const result = await fetcher(taskId, input.config);
-  switch (result.kind) {
-    case "found":
-      return {
-        taskSpec: result.content,
-        fetchResult: { status: "found", taskId, specLength: result.content.length },
-      };
-    case "not-found":
+  try {
+    const result = await input.taskService.getTaskSpecContent(taskId);
+    const content = result.content;
+    if (!content) {
       return {
         taskSpec: null,
         fetchResult: { status: "not-found", taskId },
       };
-    case "disabled":
-      // Shouldn't reach here given the config check above, but handle defensively.
+    }
+    return {
+      taskSpec: content,
+      fetchResult: { status: "found", taskId, specLength: content.length },
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Treat "not found" errors as not-found, everything else as error.
+    if (/not.found|does not exist|no such/i.test(message)) {
       return {
         taskSpec: null,
-        fetchResult: { status: "disabled" },
+        fetchResult: { status: "not-found", taskId },
       };
-    case "error":
-      return {
-        taskSpec: null,
-        fetchResult: { status: "error", taskId, error: result.message },
-      };
+    }
+    return {
+      taskSpec: null,
+      fetchResult: { status: "error", taskId, error: message },
+    };
   }
 }

@@ -34,10 +34,15 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
-import type { AppContainerInterface } from "../../../../composition/types";
-import type { SpawnsPipelineRunResult } from "../../../../domain/transcripts/agent-spawns-pipeline";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SpawnsPipelineRunResult } from "@minsky/domain/transcripts/agent-spawns-pipeline";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
@@ -71,8 +76,9 @@ export function registerTranscriptSpawnsExtractCommand(
     name: "spawns-extract",
     description:
       "Extract agent spawn relationships from transcript turns where is_spawn_boundary=true " +
-      "and upsert into agent_spawns. Pass --all to sweep every ingested session, or " +
-      "--session=<uuid> to target one parent session. Idempotent.",
+      "and upsert into agent_spawns. Pass --all to sweep every ingested conversation, or " +
+      "--conversationId=<uuid> to target one parent conversation (--session is a deprecated " +
+      "alias). Idempotent.",
     parameters: {
       all: {
         schema: z.boolean(),
@@ -80,21 +86,20 @@ export function registerTranscriptSpawnsExtractCommand(
         required: false,
         defaultValue: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Extract spawns for a single parent session by its agent session UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam(
+        "Extract spawns for a single parent harness conversation by its id (agent-session UUID)"
+      ),
+      session: deprecatedConversationAlias("session"),
     },
 
     async execute(params, context): Promise<TranscriptSpawnsExtractResult> {
       const doAll = (params.all as boolean | undefined) ?? false;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
 
       if (!doAll && !sessionId) {
         throw new Error(
-          "transcripts.spawns-extract requires either --all or --session=<uuid>. " +
-            "Pass --all to sweep all ingested sessions."
+          "transcripts.spawns-extract requires either --all or --conversationId=<uuid> " +
+            "(--session is a deprecated alias). Pass --all to sweep all ingested conversations."
         );
       }
 
@@ -103,7 +108,7 @@ export function registerTranscriptSpawnsExtractCommand(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -125,7 +130,7 @@ export function registerTranscriptSpawnsExtractCommand(
 
       // ── Construct pipeline ────────────────────────────────────────────────
       const { AgentSpawnsPipeline } = await import(
-        "../../../../domain/transcripts/agent-spawns-pipeline"
+        "@minsky/domain/transcripts/agent-spawns-pipeline"
       );
 
       const pipeline = new AgentSpawnsPipeline(
