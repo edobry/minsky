@@ -11,12 +11,19 @@
  * two and linked `/agents` rows to `/session/:workspaceId`, which 404'd because
  * a workspace id is not a transcript id (mt#2420). The readable "Conversations"
  * surface is this page.
+ *
+ * Live indicator (mt#2749): rows whose `agentSessionId` is in the transcript
+ * watcher's active-session registry (`useActiveConversationSessions`, sourced
+ * from `GET /api/health`) get a pulsing emerald dot — the same pattern used
+ * on WorkspaceDetailPage's "Conversation" heading — so the operator can find
+ * a running conversation to open live.
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Bot } from "lucide-react";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { extractConversationRows } from "../lib/conversations-source";
+import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
 import { cn } from "../lib/utils";
 
 export function ConversationsPage() {
@@ -27,6 +34,9 @@ export function ConversationsPage() {
   });
 
   const conversations = extractConversationRows(query.data);
+
+  const activeSessionsQuery = useActiveConversationSessions();
+  const activeSessionIds = activeSessionsQuery.data ?? new Set<string>();
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
@@ -60,7 +70,15 @@ export function ConversationsPage() {
           >
             <Bot aria-hidden className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{s.label}</div>
+              <div className="flex items-center gap-1.5 truncate font-medium">
+                {s.label}
+                {activeSessionIds.has(s.agentSessionId) && (
+                  <span
+                    className="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-400 animate-pulse"
+                    aria-label="live"
+                  />
+                )}
+              </div>
               {s.cwd && <div className="truncate text-xs text-muted-foreground">{s.cwd}</div>}
             </div>
             <span className="font-mono text-[10px] text-muted-foreground/60">

@@ -15,15 +15,18 @@
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
  *   GET /api/agents/:id       — workspace-session detail: meta, commits, PR
  *                               state, transcript bridge (mt#1919)
+ *   GET /api/conversation/:agentSessionId/live-tail — conversation-keyed live
+ *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
  *
  * @see ./routes/health.ts, ./routes/tasks.ts, ./routes/agents.ts,
- *   ./routes/changesets.ts, ./routes/events.ts, ./routes/activity.ts,
- *   ./routes/asks.ts, ./routes/credentials.ts, ./routes/context-inspector.ts,
- *   ./routes/embeddings.ts — the per-domain route modules
+ *   ./routes/conversations.ts, ./routes/changesets.ts, ./routes/events.ts,
+ *   ./routes/activity.ts, ./routes/asks.ts, ./routes/credentials.ts,
+ *   ./routes/context-inspector.ts, ./routes/embeddings.ts — the per-domain
+ *   route modules
  * @see ./db-providers.ts — shared lazy-cached persistence getters
  * @see ./sweepers.ts — the periodic-sweeper factory + concrete sweepers
  */
@@ -42,6 +45,8 @@ import type { CredentialModuleOverride } from "./routes/credentials";
 import { mountHealthRoutes } from "./routes/health";
 import { mountTaskRoutes } from "./routes/tasks";
 import { mountAgentRoutes } from "./routes/agents";
+import { mountConversationRoutes } from "./routes/conversations";
+import type { ConversationRoutesOptions } from "./routes/conversations";
 import { mountChangesetRoutes } from "./routes/changesets";
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
@@ -127,6 +132,14 @@ export interface CockpitServerOptions {
    * response-header behavior with no request-handling impact.
    */
   isPublicDeployment?: boolean;
+  /**
+   * Test-only injection seams for the conversation-keyed live-tail endpoint
+   * (mt#2749) — overrides the fs/tailer/timing primitives its
+   * `resolveJsonlPath`/`startLiveTail` calls use, so tests can exercise the
+   * full SSE integration path against in-memory fakes instead of real disk
+   * I/O and real timers. See `./routes/conversations.ts`.
+   */
+  overrideConversationLiveTail?: ConversationRoutesOptions;
 }
 
 /**
@@ -241,6 +254,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountHealthRoutes(app, { serverDirname: __dirname, availableWidgets });
   mountTaskRoutes(app);
   mountAgentRoutes(app);
+  mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountChangesetRoutes(app);
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
