@@ -353,8 +353,8 @@ machine can reach loopback, DNS-rebinding can drive a victim browser at `localho
 - **Read-only GET/SSE surfaces are exempt from the token check.** The loopback bind already
   restricts them to the local machine, and plumbing the token to every GET consumer (the tray
   Rust supervisor's `/api/health` poll, the chrome-devtools-mcp dev canary, curl operators) is
-  disproportionate at this tier. The Rung 2A WS channel (mt#2750) WILL require the token once it
-  ships.
+  disproportionate at this tier. The Rung 2A WS channel (mt#2750, see below) DOES require the
+  token — it is remote command execution, not a read-only surface.
 - **Host-header allowlist** (DNS-rebinding defense) — every request's `Host` header must resolve
   to `localhost`, `127.0.0.1`, `::1`, or the configured `--host` value; anything else gets `403`.
   This is what stops an attacker-controlled DNS name that resolves to `127.0.0.1` from reaching
@@ -383,6 +383,65 @@ scope for this task. The CSP header and the no-CORS policy are additive/response
 still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238) owns
 its own, distinct auth surface for that separate concern.
 
+## Driven-session host and WS channel (Rung 2A, mt#2750)
+
+`src/cockpit/driven-session-host.ts` spawns the **genuine `claude` binary**
+as a managed child of the LOCAL cockpit daemon (never the Railway
+`isPublicDeployment` entrypoint — see the Bind/auth section above):
+
+```
+claude -p --input-format stream-json --output-format stream-json \
+  --verbose --include-partial-messages [--dangerously-skip-permissions]
+```
+
+cwd set to the target workspace. Stdout is parsed defensively as
+newline-delimited stream-json events (the upstream event schema is thin —
+anthropics/claude-code#24594 / #24596). A daemon-side
+`DrivenSessionRegistry` tracks each spawned session — keyed by a spawn-time
+local id (used by the WS route, addressable before the child's `init` event
+can possibly arrive) with the harness `init` session id recorded as a
+secondary index once observed.
+
+Endpoints (`src/cockpit/routes/driven-sessions.ts`, mounted only when
+`!isPublicDeployment`):
+
+| Path                           | Method | Purpose                                       |
+| ------------------------------ | ------ | --------------------------------------------- |
+| `/api/driven-session`          | POST   | Spawn a driven session; returns its local id  |
+| `/api/driven-session/:id/stop` | POST   | Graceful stop (close stdin, SIGTERM fallback) |
+| `/api/driven-session`          | GET    | List app-started sessions (registry snapshot) |
+| `/api/driven-session/:id/ws`   | WS     | Bidirectional event/input channel (below)     |
+
+The WS channel (`src/cockpit/driven-session-ws.ts`) attaches to the
+daemon's underlying `http.Server` `"upgrade"` event via the `ws` package
+(`{ noServer: true }` + `wss.handleUpgrade`) — WS upgrades bypass Express's
+request pipeline entirely, so this is a separate attach point wired from
+`src/commands/cockpit/start-command.ts` rather than mounted on the Express
+app. It replays the session's buffered event log on connect, streams new
+events live, and forwards client frames to the child's stdin as stream-json
+user-message turns (multi-turn — the child process stays alive across
+turns). Every upgrade is validated against the SAME mt#2538 bearer
+token/cookie and Host allowlist the mutation-auth middleware enforces
+(`isValidCockpitAuth`/`isHostAllowed`, shared, not reinvented) — an
+unauthenticated or disallowed-Host upgrade never completes the handshake.
+
+Permission posture is an explicit, logged parameter
+(`bypassPermissions` | `default`; default `bypassPermissions` —
+`--dangerously-skip-permissions`, since Rung 2A ships no permission-prompt
+UI). If an org policy blocks that flag, the child exits immediately and the
+host surfaces a readable `minsky_error`/`minsky_exit` event on the channel
+rather than hanging.
+
+Nested-scope note: the spawned `claude` child inherits the operator's MCP
+config and may call back into Minsky MCP tools mid-turn. The cockpit daemon
+and the Minsky MCP server are separate OS processes reached over
+stdio/HTTP by the child — there is no in-process loop; a `tool_use`/
+`tool_result` pair is just another pair of forwarded events to this host.
+
+Out of scope for Rung 2A (deferred to later rungs): SPA rendering of the
+channel (Rung 2B), launch-from-task UX (Rung 2C), cost readout (Rung 2D),
+a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
+
 ## Daemon lifecycle and tray
 
 - `cockpit-tray/` — Tauri v2 menu bar app
@@ -396,7 +455,11 @@ its own, distinct auth surface for that separate concern.
 - `src/cockpit/CLAUDE.md` — design vocabulary, engineering standards, IA posture (auto-loaded)
 - mt#2538 — daemon security hardening (loopback bind default, bearer-token auth, CSP, no-CORS
   policy — see "Bind, auth, and CSP posture" above); `src/cockpit/auth.ts`, `src/cockpit/csp.ts`
-- mt#2750 — Rung 2A driven-session WS channel; will REQUIRE the bearer token this task introduces
+- mt#2750 — Rung 2A driven-session host + WS channel (see "Driven-session host
+  and WS channel" above); REQUIRES the bearer token this task introduces;
+  `src/cockpit/driven-session-host.ts`, `src/cockpit/driven-session-ws.ts`,
+  `src/cockpit/routes/driven-sessions.ts`
+- mt#2237 — parent (Rung 2); mt#2230 — umbrella (harness-host ladder)
 - mt#2238 — Rung 3 cloud→local relay channel; owns its own distinct auth surface, out of scope here
 - Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — durable cross-cutting reference
 - mt#1143 — Cockpit v0 umbrella

@@ -19,14 +19,22 @@
  *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
+ *   POST /api/driven-session  — spawn a driven session (genuine `claude`
+ *                               child, local daemon only, mt#2750)
+ *   POST /api/driven-session/:id/stop — graceful stop of a driven session
+ *   GET /api/driven-session   — list app-started driven sessions
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
  *
  * @see ./routes/health.ts, ./routes/tasks.ts, ./routes/agents.ts,
  *   ./routes/conversations.ts, ./routes/changesets.ts, ./routes/events.ts,
  *   ./routes/activity.ts, ./routes/asks.ts, ./routes/credentials.ts,
- *   ./routes/context-inspector.ts, ./routes/embeddings.ts — the per-domain
- *   route modules
+ *   ./routes/context-inspector.ts, ./routes/embeddings.ts,
+ *   ./routes/driven-sessions.ts — the per-domain route modules
+ * @see ./driven-session-host.ts, ./driven-session-ws.ts — Rung 2A
+ *   driven-session spawn/registry logic + its WS channel (mt#2750; the WS
+ *   channel is attached separately by
+ *   src/commands/cockpit/start-command.ts — see that file's docblock)
  * @see ./db-providers.ts — shared lazy-cached persistence getters
  * @see ./sweepers.ts — the periodic-sweeper factory + concrete sweepers
  */
@@ -54,6 +62,8 @@ import { mountAskRoutes } from "./routes/asks";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
+import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
+import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
   cookieBootstrapMiddleware,
@@ -140,6 +150,15 @@ export interface CockpitServerOptions {
    * I/O and real timers. See `./routes/conversations.ts`.
    */
   overrideConversationLiveTail?: ConversationRoutesOptions;
+  /**
+   * Test-only injection seams for the Rung 2A driven-session routes
+   * (mt#2750) — overrides the registry/spawnFn/command
+   * `POST /api/driven-session` uses, so tests exercise the full
+   * spawn/registry/lifecycle path against an injected FAKE process instead
+   * of the real `claude` binary. See ./routes/driven-sessions.ts and
+   * ./driven-session-host.ts. Never set in production.
+   */
+  overrideDrivenSession?: DrivenSessionRoutesOptions;
 }
 
 /**
@@ -262,6 +281,14 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
   mountEmbeddingsRoutes(app);
+
+  // Rung 2A driven-session routes (mt#2750) — LOCAL DAEMON ONLY. Spawning a
+  // genuine `claude` binary with the operator's own credentials has no
+  // meaning on the Railway-deployed public entrypoint (isPublicDeployment) —
+  // see ./routes/driven-sessions.ts's docblock.
+  if (!opts.isPublicDeployment) {
+    mountDrivenSessionRoutes(app, opts.overrideDrivenSession ?? {});
+  }
 
   // --- Static SPA assets ---
 

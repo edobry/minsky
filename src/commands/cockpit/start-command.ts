@@ -24,7 +24,13 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
-import { getCockpitTokenPath, isLoopbackHost } from "../../cockpit/auth";
+import {
+  getCockpitTokenPath,
+  isLoopbackHost,
+  getOrCreateCockpitToken,
+  buildAllowedHosts,
+} from "../../cockpit/auth";
+import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
 
 const DEFAULT_PORT = 3737;
 
@@ -253,6 +259,23 @@ export function createStartCommand(): Command {
       }
 
       const server = attempt.server;
+
+      // Rung 2A driven-session WebSocket channel (mt#2750) — LOCAL DAEMON
+      // ONLY (this file IS the local daemon entrypoint; the Railway
+      // isPublicDeployment entrypoint is a separate file,
+      // services/cockpit/src/server.ts, which never calls this attach
+      // function — mirrors the routes/driven-sessions.ts mount gate).
+      // WS upgrades bypass Express's request pipeline entirely (they're
+      // plain HTTP GETs with `Connection: Upgrade`, handled by a listener on
+      // the raw http.Server), so this is attached directly to the `server`
+      // handle rather than threaded through createCockpitServer(). Re-derives
+      // the SAME token/allowedHosts createCockpitServer computed internally
+      // (same persisted token file, same --host value) — a cheap,
+      // deterministic re-read, not a new source of truth.
+      attachDrivenSessionWebSocket(server, {
+        token: getOrCreateCockpitToken(),
+        allowedHosts: buildAllowedHosts(host),
+      });
 
       try {
         writeCurrentCockpitState({
