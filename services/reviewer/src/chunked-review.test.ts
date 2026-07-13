@@ -373,12 +373,13 @@ describe("buildChunkedReviewPrompt — migration baseline section (mt#2655)", ()
 //
 // The aggregate ReviewOutput.text is the model's free-text scratch channel,
 // consumed ONLY by the defensive CoT-leak scratch logging on the output-tools
-// path (review-worker.ts:960, sanitizeReviewBody(output.text)) — the posted
-// body is composed from tool calls, not this field. Before mt#2739, aggregation
-// kept only the LAST non-empty chunk's text (`lastText = output.text || lastText`),
-// so leaked reasoning in an EARLIER chunk was never inspected. mt#2739
-// concatenates every non-empty chunk's text with a blank-line separator so the
-// sanitizer sees all chunks' scratch.
+// path (review-worker.ts:960) — the posted body is composed from tool calls, not
+// this field. Before mt#2739, aggregation kept only the LAST non-empty chunk's
+// text (`lastText = output.text || lastText`), so leaked reasoning in an EARLIER
+// chunk was never inspected. mt#2739 concatenates every non-empty chunk's text
+// with a blank-line separator. These tests assert the AGGREGATION output directly
+// (all chunks present, single-blank-line separator, empty/whitespace skipped);
+// the leak-detection heuristics are covered by sanitize.test.ts, kept decoupled.
 //
 // Tests use provider "google" so an empty chunk output returns as final without
 // the OpenAI empty-output retry (review-output-validation.ts:158), keeping the
