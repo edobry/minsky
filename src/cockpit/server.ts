@@ -110,6 +110,22 @@ export interface CockpitServerOptions {
    * doesn't get rejected by its own daemon.
    */
   host?: string;
+  /**
+   * Set ONLY by `services/cockpit/src/server.ts`, the Railway-deployed
+   * entrypoint — a separate consumer of this shared factory that binds
+   * `0.0.0.0` deliberately for the platform proxy and is reached via a
+   * Railway-assigned public hostname that can never satisfy the
+   * loopback-only Host-header allowlist below. The mt#2538 local-daemon
+   * hardening spec explicitly rules that deployment out of scope. Setting
+   * this to `true` skips the Host-header allowlist and the bearer-token /
+   * cookie mutation-auth requirement entirely, preserving that deployment's
+   * pre-mt#2538 behavior exactly (it also skips generating/reading the local
+   * `~/.local/state/minsky/cockpit-token` file, which has no meaning for a
+   * multi-instance container deployment). The CSP header and the
+   * no-permissive-CORS policy still apply — both are purely additive
+   * response-header behavior with no request-handling impact.
+   */
+  isPublicDeployment?: boolean;
 }
 
 /**
@@ -147,12 +163,20 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // machine can reach loopback, and DNS-rebinding can drive a victim
   // browser at localhost. Hence the token + Host-allowlist below, in
   // addition to the bind default.
-  const cockpitToken = opts.overrideToken ?? getOrCreateCockpitToken();
+  //
+  // `isPublicDeployment` (set only by the Railway entrypoint) skips the
+  // loopback-oriented Host-allowlist and mutation-auth below — see the
+  // CockpitServerOptions doc comment for the full rationale. The CSP header
+  // and no-CORS policy are additive/response-only, so they still apply.
+  const localAuthEnabled = !opts.isPublicDeployment;
+  const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
   const allowedHosts = buildAllowedHosts(opts.host);
 
-  // Host-header allowlist (DNS-rebinding defense) — runs first, before any
-  // handler that would otherwise trust `req.headers.host`.
-  app.use(hostAllowlistMiddleware(allowedHosts));
+  if (localAuthEnabled) {
+    // Host-header allowlist (DNS-rebinding defense) — runs first, before any
+    // handler that would otherwise trust `req.headers.host`.
+    app.use(hostAllowlistMiddleware(allowedHosts));
+  }
 
   app.use(express.json());
 
@@ -160,19 +184,22 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // responses; only has effect on the SPA's rendered HTML). See ./csp.ts.
   app.use(cspMiddleware(!!opts.dev));
 
-  // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
-  // the SPA's same-origin mutation fetches work without any URL/localStorage
-  // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
-  // future non-loopback opt-in consumer. See ./auth.ts.
-  app.use(cookieBootstrapMiddleware(cockpitToken));
+  if (localAuthEnabled && cockpitToken) {
+    // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
+    // the SPA's same-origin mutation fetches work without any URL/localStorage
+    // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
+    // future non-loopback opt-in consumer. See ./auth.ts.
+    app.use(cookieBootstrapMiddleware(cockpitToken));
 
-  // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer token
-  // (Authorization header) or the bootstrap cookie. Read-only GET/SSE
-  // surfaces are exempt — loopback bind already covers the LAN read
-  // surface, and plumbing the token to every GET consumer (tray Rust health
-  // poll, dev canary, curl operators) is disproportionate at this tier. The
-  // Rung 2A WS channel (mt#2750) will REQUIRE the token. See ./auth.ts.
-  app.use(mutationAuthMiddleware(cockpitToken, allowedHosts));
+    // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
+    // token (Authorization header) or the bootstrap cookie. Read-only
+    // GET/SSE surfaces are exempt — loopback bind already covers the LAN
+    // read surface, and plumbing the token to every GET consumer (tray Rust
+    // health poll, dev canary, curl operators) is disproportionate at this
+    // tier. The Rung 2A WS channel (mt#2750) will REQUIRE the token. See
+    // ./auth.ts.
+    app.use(mutationAuthMiddleware(cockpitToken, allowedHosts));
+  }
 
   // NO permissive CORS is set anywhere in this file — that absence IS the
   // policy (same-origin only). There is no `cors` middleware and no

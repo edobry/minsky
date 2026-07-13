@@ -29,6 +29,7 @@ import { FakeAskRepository } from "@minsky/domain/ask/repository";
 
 const TEST_TOKEN = "test-server-security-token";
 const CONTENT_TYPE_JSON = "application/json";
+const CSP_HEADER = "content-security-policy";
 
 /** A deterministic, empty AskRepository — without this override the route
  * lazily initializes a real DB-backed repository, which 503s in this test
@@ -220,7 +221,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
     const s = await startTestServer();
     closeList.push(s.close);
     const res = await fetch(`${s.url}/`);
-    const csp = res.headers.get("content-security-policy") ?? "";
+    const csp = res.headers.get(CSP_HEADER) ?? "";
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("object-src 'none'");
   });
@@ -229,7 +230,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
     const s = await startTestServer({ dev: true });
     closeList.push(s.close);
     const res = await fetch(`${s.url}/api/health`);
-    const csp = res.headers.get("content-security-policy") ?? "";
+    const csp = res.headers.get(CSP_HEADER) ?? "";
     expect(csp).toContain("'unsafe-eval'");
   });
 
@@ -263,6 +264,38 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
     closeList.push(s.close);
     const res = await requestWithHost(s.port, "/api/health", "cockpit.example.internal");
     expect(res.status).toBe(200);
+  });
+
+  // -------------------------------------------------------------------------
+  // isPublicDeployment escape hatch (Railway entrypoint, services/cockpit/src/server.ts)
+  // -------------------------------------------------------------------------
+
+  describe("isPublicDeployment (Railway entrypoint carve-out)", () => {
+    test("skips the Host-header allowlist — an arbitrary Host header is allowed", async () => {
+      const s = await startTestServer({ isPublicDeployment: true });
+      closeList.push(s.close);
+      const res = await requestWithHost(s.port, "/api/health", "my-app.up.railway.app");
+      expect(res.status).toBe(200);
+    });
+
+    test("skips mutation auth — a mutation with no token/cookie is not rejected with 401", async () => {
+      const s = await startTestServer({ isPublicDeployment: true, ...emptyAskRepoOverride() });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/asks/nonexistent/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": CONTENT_TYPE_JSON },
+        body: JSON.stringify({ responder: "operator", payload: {} }),
+      });
+      // No 401 gate — falls through to the route, which 404s on the unknown id.
+      expect(res.status).toBe(404);
+    });
+
+    test("still sets the CSP header (additive, not skipped)", async () => {
+      const s = await startTestServer({ isPublicDeployment: true });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/`);
+      expect(res.headers.get(CSP_HEADER) ?? "").toContain("default-src 'self'");
+    });
   });
 
   // -------------------------------------------------------------------------
