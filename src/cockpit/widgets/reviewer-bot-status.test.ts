@@ -14,9 +14,11 @@
  *   7. Verdict distribution + A6 drift (mt#2287)
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import {
   createReviewerBotStatusWidget,
+  createUnsafeQueryRows,
+  buildQueryRows,
   extractTaskIdFromBranch,
   type ReviewerBotStatusPayload,
   type ReviewerHealthProbeResult,
@@ -722,5 +724,70 @@ describe("createReviewerBotStatusWidget — verdict distribution (mt#2287)", () 
     if (payload.db === null) throw new Error("expected db to be non-null");
     expect(payload.db.verdictCounts24h).toEqual({ approve: 0, requestChanges: 0, comment: 0 });
     expect(payload.anomalies.a6VerdictDrift).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Query wiring (mt#2757) — the real buildQueryRows path was never covered;
+// the original wiring called the postgres-js Sql instance as a plain function
+// (NOT_TAGGED_CALL on every query) and read `.rows` off an array result, so
+// every DB field rendered as zero since birth. These tests pin the corrected
+// shape: raw string queries go through `.unsafe(query, params)` and the
+// resolved value IS the row array.
+// ---------------------------------------------------------------------------
+
+describe("createUnsafeQueryRows / buildQueryRows wiring (mt#2757)", () => {
+  test("routes queries through sql.unsafe(query, params) and returns the row array", async () => {
+    const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ count: "7" }]));
+    const queryRows = createUnsafeQueryRows({ unsafe });
+
+    const rows = await queryRows("SELECT 1", ["a"]);
+
+    expect(unsafe).toHaveBeenCalledTimes(1);
+    expect(unsafe).toHaveBeenCalledWith("SELECT 1", ["a"]);
+    expect(rows).toEqual([{ count: "7" }]);
+  });
+
+  test("non-array resolution degrades to [] (defensive against driver-shape drift)", async () => {
+    const unsafe = mock((_query: string, _params?: unknown[]) =>
+      Promise.resolve({ rows: [{ count: "7" }] } as unknown)
+    );
+    const queryRows = createUnsafeQueryRows({ unsafe });
+
+    expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+
+  test("query rejection returns [] AND invokes the warn seam (no silent fail-open)", async () => {
+    const warn = mock((_err: unknown) => {});
+    const unsafe = mock((_query: string, _params?: unknown[]) =>
+      Promise.reject(new Error("NOT_TAGGED_CALL"))
+    );
+    const queryRows = createUnsafeQueryRows({ unsafe }, warn);
+
+    const rows = await queryRows("SELECT 1");
+
+    expect(rows).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  test("buildQueryRows wires provider.getRawSqlConnection().unsafe (not a plain call)", async () => {
+    const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ ok: 1 }]));
+    const provider = { getRawSqlConnection: () => Promise.resolve({ unsafe }) };
+
+    const queryRows = await buildQueryRows(() => Promise.resolve(provider));
+    const rows = await queryRows("SELECT ok", [1]);
+
+    expect(unsafe).toHaveBeenCalledWith("SELECT ok", [1]);
+    expect(rows).toEqual([{ ok: 1 }]);
+  });
+
+  test("buildQueryRows degrades to empty results when the provider has no raw SQL support", async () => {
+    const queryRows = await buildQueryRows(() => Promise.resolve({}));
+    expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+
+  test("buildQueryRows degrades to empty results when the provider loader throws", async () => {
+    const queryRows = await buildQueryRows(() => Promise.reject(new Error("init failed")));
+    expect(await queryRows("SELECT 1")).toEqual([]);
   });
 });

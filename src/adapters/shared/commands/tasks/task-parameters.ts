@@ -68,6 +68,12 @@ export const taskCreationParams = {
       "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
+  kind: {
+    schema: z.string().optional(),
+    description:
+      "Workflow kind for the task (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'.",
+    required: false,
+  },
 };
 
 /**

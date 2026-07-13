@@ -19,6 +19,7 @@ import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
+import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
 
 /**
  * Parameters for tasks edit command
@@ -68,6 +69,13 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
     const hasTagOperation = params.tag !== undefined;
     const hasKindOperation = params.kind !== undefined;
+
+    // Validate kind against the workflow registry up front; mirrors create-time validation
+    // so a typo can't slip through to a backend write that silently succeeds.
+    if (hasKindOperation && !isKnownKind(params.kind as string)) {
+      const known = Object.keys(WORKFLOWS).join(", ");
+      throw new ValidationError(`Unknown task kind: "${params.kind}". Valid kinds: ${known}.`);
+    }
 
     if (!params.title && !hasSpecOperation && !hasTagOperation && !hasKindOperation) {
       throw new ValidationError(
@@ -183,8 +191,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       this.debug(`Tags update: ${JSON.stringify(newTags)}`);
     }
 
-    // Handle workflow kind update (mt#1812 / mt#2661)
-    if (params.kind !== undefined) {
+    // Handle kind update (reclassification across workflow registry; mt#1812 / mt#2661)
+    if (hasKindOperation) {
       updates.kind = params.kind;
       this.debug(`Kind update: "${params.kind}"`);
     }
@@ -268,7 +276,8 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         this.debug("Updated task tags");
       }
 
-      // Apply kind update separately (mt#2661 back-annotation support)
+      // Apply kind update separately (mt#2661 back-annotation support; unsupported
+      // backends were already rejected by the up-front setTaskKind check above)
       if (updates.kind && backend.setTaskKind) {
         await backend.setTaskKind(validatedTaskId, updates.kind);
         this.debug(`Updated task kind to "${updates.kind}"`);
