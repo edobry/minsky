@@ -24,7 +24,7 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
-import { isLoopbackHost } from "../../cockpit/auth";
+import { getCockpitTokenPath, isLoopbackHost } from "../../cockpit/auth";
 
 const DEFAULT_PORT = 3737;
 
@@ -153,7 +153,14 @@ export function createStartCommand(): Command {
         console.warn(
           `WARNING: cockpit daemon binding to ${host} — this exposes cockpit data ` +
             "(tasks, sessions, transcripts, live events) and command endpoints to any " +
-            "host that can reach this interface (e.g. your LAN)."
+            "host that can reach this interface (e.g. your LAN).\n" +
+            "  Auth posture on a non-loopback bind: the daemon serves plain HTTP (no TLS), " +
+            "so the bearer token would traverse the network in the clear, and any host that " +
+            "can reach this interface can attempt to brute-force it. Cookie bootstrap is " +
+            "DISABLED on non-loopback binds — mutation clients must send an explicit " +
+            "`Authorization: Bearer <token>` header (token at " +
+            `${getCockpitTokenPath()}). Prefer an SSH tunnel or a TLS-terminating reverse ` +
+            "proxy over a bare non-loopback bind."
         );
       }
 

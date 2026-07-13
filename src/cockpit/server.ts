@@ -54,6 +54,7 @@ import {
   cookieBootstrapMiddleware,
   getOrCreateCockpitToken,
   hostAllowlistMiddleware,
+  isLoopbackHost,
   mutationAuthMiddleware,
 } from "./auth";
 import { cspMiddleware } from "./csp";
@@ -171,6 +172,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   const localAuthEnabled = !opts.isPublicDeployment;
   const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
   const allowedHosts = buildAllowedHosts(opts.host);
+  // Loopback bind unless `--host` opted into a routable address. Gates the
+  // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
+  // explicit Authorization header rather than a Secure-less cookie.
+  const isLoopbackBind = !opts.host || isLoopbackHost(opts.host);
 
   if (localAuthEnabled) {
     // Host-header allowlist (DNS-rebinding defense) — runs first, before any
@@ -189,7 +194,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // the SPA's same-origin mutation fetches work without any URL/localStorage
     // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
     // future non-loopback opt-in consumer. See ./auth.ts.
-    app.use(cookieBootstrapMiddleware(cockpitToken));
+    app.use(cookieBootstrapMiddleware(cockpitToken, isLoopbackBind));
 
     // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
     // token (Authorization header) or the bootstrap cookie. Read-only
@@ -198,7 +203,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // health poll, dev canary, curl operators) is disproportionate at this
     // tier. The Rung 2A WS channel (mt#2750) will REQUIRE the token. See
     // ./auth.ts.
-    app.use(mutationAuthMiddleware(cockpitToken, allowedHosts));
+    app.use(mutationAuthMiddleware(cockpitToken));
   }
 
   // NO permissive CORS is set anywhere in this file — that absence IS the

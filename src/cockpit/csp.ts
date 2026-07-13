@@ -8,6 +8,13 @@
  */
 import type { NextFunction, Request, Response } from "express";
 
+// `connect-src 'self'` covers same-origin `fetch`/XHR AND the `/api/events`
+// EventSource/SSE stream — `'self'` is the origin the SPA is served from, and
+// SSE is plain same-origin HTTP, so no explicit `http:`/`https:` source is
+// needed (adding one would only loosen the policy for a case `'self'` already
+// permits). `ws:`/`wss:` are reserved for the future Rung-2A WS channel
+// (mt#2750). If a non-same-origin connect target is ever introduced (e.g. a
+// Rung-3 relay on another host), widen this deliberately at that point.
 const PROD_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'";

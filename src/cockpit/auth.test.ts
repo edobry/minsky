@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import {
   buildAllowedHosts,
   COCKPIT_COOKIE_NAME,
+  cookieBootstrapMiddleware,
   extractHostname,
   getOrCreateCockpitToken,
   hostAllowlistMiddleware,
@@ -182,14 +183,20 @@ describe("extractHostname", () => {
 interface FakeResponse {
   statusCode: number | null;
   jsonBody: unknown;
+  headers: Record<string, string>;
+  redirectedTo: string | null;
   status(code: number): FakeResponse;
   json(body: unknown): FakeResponse;
+  setHeader(name: string, value: string): void;
+  redirect(code: number, url: string): void;
 }
 
 function makeFakeResponse(): FakeResponse {
   const res: FakeResponse = {
     statusCode: null,
     jsonBody: undefined,
+    headers: {},
+    redirectedTo: null,
     status(code: number) {
       res.statusCode = code;
       return res;
@@ -197,6 +204,13 @@ function makeFakeResponse(): FakeResponse {
     json(body: unknown) {
       res.jsonBody = body;
       return res;
+    },
+    setHeader(name: string, value: string) {
+      res.headers[name] = value;
+    },
+    redirect(code: number, url: string) {
+      res.statusCode = code;
+      res.redirectedTo = url;
     },
   };
   return res;
@@ -226,13 +240,63 @@ describe("hostAllowlistMiddleware", () => {
     expect(nextCalled).toBe(false);
     expect(res.statusCode).toBe(403);
   });
+
+  test("accepts a mixed-case allowed Host header (mt#2538 R1)", () => {
+    // Hostnames are case-insensitive; `LOCALHOST` must not 403.
+    const middleware = hostAllowlistMiddleware(buildAllowedHosts());
+    const req = { headers: { host: "LOCALHOST:3737" } };
+    const res = makeFakeResponse();
+    let nextCalled = false;
+    middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+    expect(res.statusCode).toBeNull();
+  });
+
+  test("accepts a mixed-case --host opt-in value (mt#2538 R1)", () => {
+    const middleware = hostAllowlistMiddleware(buildAllowedHosts("Cockpit.Internal"));
+    const req = { headers: { host: "cockpit.internal:3737" } };
+    const res = makeFakeResponse();
+    let nextCalled = false;
+    middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+  });
+});
+
+describe("cookieBootstrapMiddleware", () => {
+  const TOKEN = "the-real-token";
+
+  test("mints the cookie on a cookieless GET when bound to loopback", () => {
+    const middleware = cookieBootstrapMiddleware(TOKEN, true);
+    const req = { method: "GET", headers: {}, query: {} };
+    const res = makeFakeResponse();
+    middleware(req as any, res as any, () => {});
+    expect(String(res.headers["Set-Cookie"] ?? "")).toContain(`${COCKPIT_COOKIE_NAME}=`);
+  });
+
+  test("does NOT mint the cookie when bound to a non-loopback host (mt#2538 R1)", () => {
+    // The Secure-less cookie must never be handed to a browser talking to a
+    // routable address; non-loopback binds require an Authorization header.
+    const middleware = cookieBootstrapMiddleware(TOKEN, false);
+    const req = { method: "GET", headers: {}, query: {} };
+    const res = makeFakeResponse();
+    let nextCalled = false;
+    middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+    expect(res.headers["Set-Cookie"]).toBeUndefined();
+  });
 });
 
 describe("mutationAuthMiddleware", () => {
   const TOKEN = "the-real-token";
 
   test("passes GET/HEAD/OPTIONS through without checking auth", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     for (const method of ["GET", "HEAD", "OPTIONS"]) {
       const req = { method, headers: {} };
       const res = makeFakeResponse();
@@ -245,7 +309,7 @@ describe("mutationAuthMiddleware", () => {
   });
 
   test("rejects a mutation with no token or cookie with 401", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     const req = { method: "POST", headers: {} };
     const res = makeFakeResponse();
     let nextCalled = false;
@@ -257,7 +321,7 @@ describe("mutationAuthMiddleware", () => {
   });
 
   test("accepts a mutation with a valid bearer token", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     const req = { method: "POST", headers: { authorization: `Bearer ${TOKEN}` } };
     const res = makeFakeResponse();
     let nextCalled = false;
@@ -268,7 +332,7 @@ describe("mutationAuthMiddleware", () => {
   });
 
   test("rejects a mutation with an invalid bearer token", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     const req = { method: "POST", headers: { authorization: "Bearer wrong-token" } };
     const res = makeFakeResponse();
     let nextCalled = false;
@@ -280,7 +344,7 @@ describe("mutationAuthMiddleware", () => {
   });
 
   test("accepts a mutation with a valid cockpit cookie", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     const req = { method: "POST", headers: { cookie: `${COCKPIT_COOKIE_NAME}=${TOKEN}` } };
     const res = makeFakeResponse();
     let nextCalled = false;
@@ -291,7 +355,7 @@ describe("mutationAuthMiddleware", () => {
   });
 
   test("rejects a cross-origin mutation even with a valid token", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     const req = {
       method: "POST",
       headers: {
@@ -309,12 +373,53 @@ describe("mutationAuthMiddleware", () => {
   });
 
   test("accepts a same-origin mutation Origin header with a valid token", () => {
-    const middleware = mutationAuthMiddleware(TOKEN, buildAllowedHosts());
+    const middleware = mutationAuthMiddleware(TOKEN);
     const req = {
       method: "POST",
       headers: {
         authorization: `Bearer ${TOKEN}`,
         origin: "http://127.0.0.1:3737",
+        host: "127.0.0.1:3737",
+      },
+    };
+    const res = makeFakeResponse();
+    let nextCalled = false;
+    middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(true);
+  });
+
+  test("rejects a same-host, DIFFERENT-port Origin with a valid token (mt#2538 R1)", () => {
+    // The daemon is on :3737; a page on :1234 shares the hostname but is a
+    // different origin. The prior hostname-only check let this through.
+    const middleware = mutationAuthMiddleware(TOKEN);
+    const req = {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        origin: "http://127.0.0.1:1234",
+        host: "127.0.0.1:3737",
+      },
+    };
+    const res = makeFakeResponse();
+    let nextCalled = false;
+    middleware(req as any, res as any, () => {
+      nextCalled = true;
+    });
+    expect(nextCalled).toBe(false);
+    expect(res.statusCode).toBe(403);
+  });
+
+  test("accepts a mixed-case same-origin Origin header (mt#2538 R1)", () => {
+    // Hostnames are case-insensitive; a mixed-case Origin must still match.
+    const middleware = mutationAuthMiddleware(TOKEN);
+    const req = {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        origin: "http://LocalHost:3737",
+        host: "localhost:3737",
       },
     };
     const res = makeFakeResponse();
