@@ -779,6 +779,17 @@ a refactor, a logic fix, a change to an EXISTING already-provisioned integration
 passes automatically with the explicit "(n) No new external-system integration — criterion
 passes" statement.
 
+**Enforcement tier + mechanization path (mt#2740 PR #1886 R1).** Gate (n) is a plan-time
+**discipline** criterion — process-enforced by the `/plan-task` skill (the agent walks it every
+planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
+hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
+this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
+gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
+currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
+the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
+mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the `/plan-task` process that
+runs it: no stronger, and no weaker than its discipline-tier peers.
+
 **Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
 "can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
 crash-on-start) and fires on `infra/**`, `services/*/Dockerfile`, `services/*/railway.json`,

@@ -305,6 +305,13 @@ applied at the time, the PR body would have read "UNVERIFIED — checks:write no
 task could be considered functionally complete — surfacing the 403 immediately instead of a day
 later.
 
+**Enforcement tier (mt#2740 PR #1886 R1).** This subsection is verification **discipline**, not a
+hook — process-enforced by this skill, at the same tier as the rest of §7/§10. Its hook-tier
+sibling for the adjacent deploy-CRASH class is the mt#2353 deploy-verification merge gate +
+post-merge reminder; the automated backstop for THIS (external-integration) class — recognizing
+the trigger mechanically rather than relying on the agent, paired with `/plan-task` gate (n) — is
+tracked in mt#2755.
+
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 
 **This step owns the IN-PROGRESS → IN-REVIEW transition.**
