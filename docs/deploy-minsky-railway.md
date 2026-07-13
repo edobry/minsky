@@ -38,18 +38,18 @@ All production env-var state is declared in `infra/index.ts` using the Pulumi Ra
 ```bash
 cd infra
 
-# First-time setup: install deps and generate the Railway TF bridge SDK
-npm install
-PULUMI_CONFIG_PASSPHRASE="" pulumi package add terraform-provider terraform-community-providers/railway
+# One-time per machine: log in to Pulumi Cloud (the prod stack's state backend,
+# mt#2738) and install deps + regenerate the Railway TF-bridge SDK.
+pulumi login                              # https://app.pulumi.com
+pulumi install
 
-# Configure Railway token (once per machine)
-PULUMI_CONFIG_PASSPHRASE="" pulumi config set railway:token "$RAILWAY_TOKEN" --secret
+# Preview changes (dry-run). No passphrase — config secrets decrypt via your
+# Pulumi Cloud token (managed-KMS, mt#2738). railway:token comes from the
+# committed Pulumi.prod.yaml, so there's no per-machine `config set` step.
+pulumi preview --refresh --stack edobry/minsky-infra/prod
 
-# Preview changes (dry-run)
-PULUMI_CONFIG_PASSPHRASE="" pulumi preview --refresh
-
-# Apply changes
-PULUMI_CONFIG_PASSPHRASE="" pulumi up --refresh
+# Apply changes (still a manual operator step in Phase 1)
+pulumi up --refresh --stack edobry/minsky-infra/prod
 ```
 
 Pulumi:
@@ -58,6 +58,16 @@ Pulumi:
 2. Refreshes live Railway state via the TF provider's Railway API calls
 3. Computes a diff and prints it
 4. On `pulumi up`: applies creates/updates/deletes and records new state
+
+> **Backend, secrets, and CI (mt#2738).** The `prod` stack's state lives in
+> **Pulumi Cloud** (`edobry/minsky-infra/prod`), not a local `file://~` backend.
+> Config secrets are encrypted with Pulumi Cloud's **managed KMS** key (not a
+> passphrase), so `infra/Pulumi.prod.yaml` is **committed** (ciphertext) and no
+> `PULUMI_CONFIG_PASSPHRASE` is needed anywhere. CI runs `pulumi preview` on every
+> PR touching `infra/**` (`.github/workflows/infra-preview.yml`) and a daily drift
+> check (`infra-drift-cron.yml`) that opens a GitHub issue on drift. **Applying is
+> still manual** (the `pulumi up` above) — apply-on-merge is deferred to Phase 2.
+> CI authenticates via the `PULUMI_ACCESS_TOKEN` repo secret.
 
 ### Secret handling
 
