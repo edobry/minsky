@@ -84,6 +84,17 @@ const CONVERSATIONS_PAYLOAD: WidgetData = {
 
 /** Mocks both /api/widget/context-inspector/data and /api/health by pathname. */
 function mockFetches(activeSessionIds: string[]) {
+  mockFetchesWithTimestamps(activeSessionIds.map((agentSessionId) => ({ agentSessionId })));
+}
+
+/**
+ * Same as {@link mockFetches} but lets each entry override `lastEventAt` —
+ * used to exercise the recency filter (mt#2749): an entry with a stale
+ * `lastEventAt` is present in the raw registry but must NOT show the badge.
+ */
+function mockFetchesWithTimestamps(
+  activeSessions: Array<{ agentSessionId: string; lastEventAt?: string }>
+) {
   globalThis.fetch = mock((url: string) => {
     const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
     if (pathname === "/api/widget/context-inspector/data") {
@@ -99,10 +110,10 @@ function mockFetches(activeSessionIds: string[]) {
         new Response(
           JSON.stringify({
             transcriptWatcher: {
-              activeSessions: activeSessionIds.map((agentSessionId) => ({
+              activeSessions: activeSessions.map(({ agentSessionId, lastEventAt }) => ({
                 agentSessionId,
                 isSubagent: false,
-                lastEventAt: new Date().toISOString(),
+                lastEventAt: lastEventAt ?? new Date().toISOString(),
                 lastIngestAt: null,
                 lastTurnsIngested: 0,
               })),
@@ -169,5 +180,25 @@ describe("ConversationsPage — live badge (mt#2749)", () => {
     });
 
     expect(container.querySelectorAll('[aria-label="live"]').length).toBe(0);
+  });
+
+  // Recency filter (mt#2749) — the transcript watcher's boot scan stamps
+  // lastEventAt to "now" for every PRE-EXISTING file it discovers
+  // (TranscriptWatcher.seedExisting()), so raw presence in activeSessions is
+  // NOT sufficient evidence of genuine live activity. A row present in the
+  // registry but with a stale lastEventAt must NOT show the badge.
+  test("withholds the badge when the registry entry's lastEventAt is stale (boot-scan false positive)", async () => {
+    const staleTimestamp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(); // 3 days old
+    mockFetchesWithTimestamps([{ agentSessionId: ACTIVE_ID, lastEventAt: staleTimestamp }]);
+    renderConversationsPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Active Conversation")).toBeDefined();
+    });
+
+    const activeRow = screen.getByLabelText(`Open conversation Active Conversation`);
+    // Give the active-sessions query a tick to settle before asserting absence.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(activeRow.querySelector('[aria-label="live"]')).toBeNull();
   });
 });
