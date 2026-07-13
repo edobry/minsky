@@ -8,6 +8,7 @@ import { MinskyError, NothingToCommitError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
 import type { AskRepository } from "../ask/repository";
+import { closeAskAsResolved } from "../ask/close-as-resolved";
 import type { TokenProvider } from "../auth/token-provider";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
@@ -232,12 +233,14 @@ export async function sessionCommit(
     }
 
     // Emit authorization.approve Ask (best-effort — never blocks the commit)
-    // Only reaches here when there are actual changes to commit.
+    // Only reaches here when there are actual changes to commit. mt#2593: capture
+    // the created Ask's id so it can be closed once the commit lands (below).
+    let commitAuthAskId: string | undefined;
     if (askRepository) {
       try {
         const requestor =
           sessionRecordForFreeze?.agentId ?? `minsky.session-commit:session:${sessionIdToUse}`;
-        await askRepository.create({
+        const commitAuthAsk = await askRepository.create({
           kind: "authorization.approve",
           classifierVersion: "v1",
           requestor,
@@ -250,6 +253,7 @@ export async function sessionCommit(
             stagedFiles: params.all ? "all" : "manual-staged",
           },
         });
+        commitAuthAskId = commitAuthAsk.id;
       } catch (askErr: unknown) {
         log.warn("sessionCommit: failed to emit authorization.approve Ask (best-effort)", {
           session: params.session,
@@ -395,6 +399,24 @@ export async function sessionCommit(
         repo: workdir,
         authToken,
       });
+
+      // mt#2593: the commit (and push) succeeded, so the commit-authorization
+      // Ask emitted above is resolved — close it best-effort so it never lingers
+      // in the operator's suspended queue. On commit FAILURE we throw before
+      // reaching here, leaving the Ask open (the genuine attention-worthy case).
+      if (askRepository && commitAuthAskId) {
+        try {
+          await closeAskAsResolved(askRepository, commitAuthAskId, {
+            responder: "system:commit-landed",
+            payload: { commitHash: commitResult.commitHash },
+          });
+        } catch (closeErr: unknown) {
+          log.debug("sessionCommit: failed to close commit-authorization Ask (best-effort)", {
+            session: params.session,
+            error: closeErr instanceof Error ? closeErr.message : String(closeErr),
+          });
+        }
+      }
 
       // Collect commit metadata and changed files
       const gitService = createGitService();
