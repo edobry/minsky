@@ -309,4 +309,31 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const { json: listJson } = await s.postJson("/api/driven-session/does-not-exist/stop", {});
     expect((listJson as { error?: string }).error).toBeDefined();
   });
+
+  test("routes are NOT mounted for the Railway isPublicDeployment entrypoint (load-bearing invariant)", async () => {
+    const registry = new DrivenSessionRegistry();
+    const { spawnFn } = makeFakeSpawnFn();
+    const app = createCockpitServer({
+      overrideToken: TEST_TOKEN,
+      isPublicDeployment: true,
+      overrideDrivenSession: { registry, spawnFn },
+    });
+    const server: Server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    closeList.push(
+      () => new Promise<void>((resolve, reject) => server.close((e) => (e ? reject(e) : resolve())))
+    );
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("unexpected addr shape");
+
+    const res = await fetch(`http://127.0.0.1:${addr.port}${DRIVEN_SESSION_PATH}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/tmp/scratch" }),
+    });
+    // isPublicDeployment skips mutation-auth too (see server-security.test.ts),
+    // so a 404 here specifically confirms the route itself was never mounted
+    // — not merely that auth blocked it.
+    expect(res.status).toBe(404);
+  });
 });
