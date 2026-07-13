@@ -19,6 +19,7 @@ import {
   createReviewerBotStatusWidget,
   createUnsafeQueryRows,
   buildQueryRows,
+  runQueriesWithLimit,
   extractTaskIdFromBranch,
   type ReviewerBotStatusPayload,
   type ReviewerHealthProbeResult,
@@ -789,5 +790,126 @@ describe("createUnsafeQueryRows / buildQueryRows wiring (mt#2757)", () => {
   test("buildQueryRows degrades to empty results when the provider loader throws", async () => {
     const queryRows = await buildQueryRows(() => Promise.reject(new Error("init failed")));
     expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrency discipline (mt#2765) — >pool-max concurrent queries wedge the
+// shared postgres-js pool forever, and the frontend's timeout-less polling
+// turned that into a permanently hung endpoint. These tests pin the three
+// defenses: bounded query fan-out, single-flighted concurrent fetches, and a
+// hard deadline on the DB-stats phase.
+// ---------------------------------------------------------------------------
+
+describe("concurrency discipline (mt#2765)", () => {
+  test("runQueriesWithLimit never exceeds its bound and preserves order", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const thunks = Array.from({ length: 15 }, (_, i) => async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return i;
+    });
+
+    const results = await runQueriesWithLimit(thunks, 4, -1);
+
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+    expect(results).toEqual(Array.from({ length: 15 }, (_, i) => i));
+  });
+
+  test("runQueriesWithLimit maps a rejecting thunk to the fallback for only its slot", async () => {
+    const thunks = [
+      async () => "a",
+      async () => {
+        throw new Error("boom");
+      },
+      async () => "c",
+    ];
+    expect(await runQueriesWithLimit(thunks, 2, "FALLBACK")).toEqual(["a", "FALLBACK", "c"]);
+  });
+
+  test("widget query fan-out stays within the concurrency limit", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let calls = 0;
+    const countingQueryRows = async (): Promise<Record<string, unknown>[]> => {
+      calls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      inFlight--;
+      return [];
+    };
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: countingQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+
+    expect((data as { state: string }).state).toBe("ok");
+    expect(calls).toBe(15);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+  });
+
+  test("concurrent fetches are single-flighted: one probe, one stats pass, all callers resolve", async () => {
+    let probeCalls = 0;
+    let queryCalls = 0;
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: async () => {
+        probeCalls++;
+        await new Promise((r) => setTimeout(r, 5));
+        return healthyProbe();
+      },
+      queryRows: async () => {
+        queryCalls++;
+        await new Promise((r) => setTimeout(r, 2));
+        return [];
+      },
+      now: () => FIXED_NOW,
+    });
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => widget.fetch(fakeCtx())));
+
+    expect(probeCalls).toBe(1);
+    expect(queryCalls).toBe(15);
+    for (const r of results) expect((r as { state: string }).state).toBe("ok");
+  });
+
+  test("sequential fetches are NOT coalesced (fresh data per poll)", async () => {
+    let probeCalls = 0;
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: async () => {
+        probeCalls++;
+        return healthyProbe();
+      },
+      queryRows: async () => [],
+      now: () => FIXED_NOW,
+    });
+
+    await widget.fetch(fakeCtx());
+    await widget.fetch(fakeCtx());
+
+    expect(probeCalls).toBe(2);
+  });
+
+  test("DB-stats deadline: never-settling queries resolve to db:null within the deadline", async () => {
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: () => new Promise<Record<string, unknown>[]>(() => {}),
+      now: () => FIXED_NOW,
+      dbStatsTimeoutMs: 25,
+    });
+
+    // If the deadline were broken this await would never settle and the test
+    // itself would time out — no elapsed-time assertion needed.
+    const data = await widget.fetch(fakeCtx());
+
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    expect(payload.db).toBeNull();
+    expect(payload.health.ok).toBe(true);
   });
 });

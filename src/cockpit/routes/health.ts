@@ -29,6 +29,13 @@ import type { WidgetModule } from "../types";
 const serverStartTime = Date.now();
 
 /**
+ * Hard cap on a single widget's fetch when serving /api/widget/:id/data
+ * (mt#2765). Generous relative to any healthy widget (slowest observed ~3s)
+ * but bounded so one wedged widget cannot pin browser connections forever.
+ */
+const WIDGET_FETCH_TIMEOUT_MS = 30_000;
+
+/**
  * Consecutive DB-degraded poll counter (mt#2578 watchdog TS slice).
  *
  * Incremented on each /api/health call when db !== "ok"; reset to 0 when db === "ok".
@@ -153,8 +160,29 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       for (const [k, v] of Object.entries(req.query)) {
         if (typeof v === "string") query[k] = v;
       }
-      const data = await widget.fetch({ id: req.params.id, query });
-      res.json(data);
+      // Deadline (mt#2765): a wedged widget fetch must degrade, never hold the
+      // request open forever — the reviewer widget's pool wedge left the
+      // overview card on "Loading…" indefinitely because this await had no
+      // bound. The losing fetch keeps running (no cancellation seam on
+      // WidgetModule.fetch today); the deadline only caps the HTTP response.
+      let deadlineHandle: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<{ state: "degraded"; reason: string }>((resolve) => {
+        deadlineHandle = setTimeout(
+          () =>
+            resolve({
+              state: "degraded",
+              reason: `widget fetch timed out after ${WIDGET_FETCH_TIMEOUT_MS / 1000}s`,
+            }),
+          WIDGET_FETCH_TIMEOUT_MS
+        );
+        deadlineHandle.unref?.();
+      });
+      try {
+        const data = await Promise.race([widget.fetch({ id: req.params.id, query }), deadline]);
+        res.json(data);
+      } finally {
+        if (deadlineHandle) clearTimeout(deadlineHandle);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.json({ state: "degraded", reason: `Widget crashed: ${message}` });
