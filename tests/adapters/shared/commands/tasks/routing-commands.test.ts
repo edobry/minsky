@@ -52,6 +52,57 @@ describe("Routing Commands", () => {
     });
 
     // Integration tests require database setup - tested via direct CLI implementations
+
+    describe("minReadiness default materialization (mt#2759)", () => {
+      // The CLI/MCP bridges materialize omitted-arg defaults ONLY from
+      // CommandParameterDefinition.defaultValue — a Zod schema.default() is never
+      // parsed at runtime. Guard against the two drifting apart.
+      test("declares defaultValue so the bridges apply the documented defaults", () => {
+        const command = createTasksAvailableCommand(
+          stubGetProvider,
+          stubGetRoutingService,
+          stubGetTaskService
+        );
+
+        expect(command.parameters.minReadiness?.defaultValue).toBe(0.5);
+        expect(command.parameters.limit?.defaultValue).toBe(20);
+      });
+
+      test("returns fully-ready tasks when minReadiness is omitted entirely", async () => {
+        // Mimics what the bridges hand to execute() when the caller omits the
+        // param and no defaultValue is materialized: the key is simply absent.
+        // Before mt#2759, `readinessScore >= undefined` filtered out every task.
+        const providerWithSql = (() =>
+          ({ capabilities: { sql: true } }) as unknown as PersistenceProvider)();
+        const routingService = {
+          findAvailableTasks: async () => [
+            {
+              taskId: "mt#9999",
+              title: "Fully ready task",
+              status: "TODO",
+              readinessScore: 1.0,
+              blockedBy: [],
+              backend: "mt",
+            },
+          ],
+        } as unknown as TaskRoutingService;
+
+        const command = createTasksAvailableCommand(
+          () => providerWithSql,
+          () => routingService,
+          stubGetTaskService
+        );
+
+        const result = (await command.execute({ json: true } as never)) as {
+          success: boolean;
+          data?: { availableTasks: unknown[]; count: number };
+        };
+
+        expect(result.success).toBe(true);
+        expect(result.data?.count).toBe(1);
+        expect(result.data?.availableTasks).toHaveLength(1);
+      });
+    });
   });
 
   describe("createTasksRouteCommand", () => {
