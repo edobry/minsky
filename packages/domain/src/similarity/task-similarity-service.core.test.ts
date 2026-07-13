@@ -296,3 +296,98 @@ describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)",
     expectNoForwardedFilter(capturedSearchOptions);
   });
 });
+
+// mt#2754: the filtered path embeds the query ONCE (concurrently with the live-task fetch) and
+// reuses that precomputed vector for the vector search(es) — the embed-split latency fix. Verified
+// by counting embed calls and asserting the vector store receives the precomputed vector.
+describe("TaskSimilarityService embed-split reuses one query vector (mt#2754)", () => {
+  const tasks = [
+    { id: "md#401", title: "Embed-split candidate one", status: "TODO", backend: "minsky" },
+    { id: "md#402", title: "Embed-split candidate two", status: "TODO", backend: "minsky" },
+  ];
+  const QUERY_VECTOR = [0.42, 0.43, 0.44];
+  let embedCalls: number;
+  let capturedVectors: number[][];
+
+  const countingEmbedding: EmbeddingService = {
+    generateEmbedding: async () => {
+      embedCalls++;
+      return QUERY_VECTOR;
+    },
+  } as unknown as EmbeddingService;
+
+  const spyVector: VectorStorage = {
+    store: async () => void 0,
+    delete: async () => void 0,
+    search: async (vector: number[]): Promise<SearchResult[]> => {
+      capturedVectors.push(vector);
+      return tasks.map((t, i) => ({ id: t.id, score: 1 - i * 0.1, metadata: {} }));
+    },
+  };
+
+  let service: TaskSimilarityService;
+
+  beforeEach(() => {
+    embedCalls = 0;
+    capturedVectors = [];
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+    service = new TaskSimilarityService(
+      countingEmbedding,
+      spyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (_id: string) => ({ content: "", specPath: "", task: {} as any }),
+      {}
+    );
+  });
+
+  afterEach(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  it("filtered search embeds once and passes the precomputed vector to the vector store", async () => {
+    const response = await service.searchByText("deploy pipeline", 5, undefined, {
+      statusExclude: ["DONE", "CLOSED"],
+    });
+    expect(response.backend).toBe("embeddings");
+    // Embedded exactly once (in searchByText's Promise.all), NOT re-embedded inside the backend.
+    expect(embedCalls).toBe(1);
+    // Every vector-store search received the precomputed query vector.
+    expect(capturedVectors.length).toBeGreaterThan(0);
+    for (const v of capturedVectors) {
+      expect(v).toEqual(QUERY_VECTOR);
+    }
+  });
+
+  it("pre-embed failure degrades to the lexical backend instead of throwing", async () => {
+    const throwingEmbedding: EmbeddingService = {
+      generateEmbedding: async () => {
+        throw new Error("embedding provider unavailable");
+      },
+    } as unknown as EmbeddingService;
+    // Lexical needs content to score against; make it overlap the query.
+    const specForLexical: Record<string, string> = {
+      "md#401": "widget alpha configuration and rollout notes",
+      "md#402": "widget beta configuration and rollout notes",
+    };
+    const svc = new TaskSimilarityService(
+      throwingEmbedding,
+      spyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (id: string) => ({ content: specForLexical[id] || "", specPath: "", task: {} as any }),
+      {}
+    );
+
+    // The precompute embed throws; searchByText must NOT bubble it — the search service
+    // fails the embeddings backend and degrades to lexical (mt#2754 review BLOCKING).
+    const response = await svc.searchByText("widget configuration rollout", 5, undefined, {
+      statusExclude: ["DONE", "CLOSED"],
+    });
+    expect(response.backend).toBe("lexical");
+    expect(response.degraded).toBe(true);
+    expect(response.results.length).toBeGreaterThan(0);
+  });
+});

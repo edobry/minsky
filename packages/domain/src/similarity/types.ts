@@ -6,6 +6,13 @@ export interface SimilarityItem {
 
 export interface SimilarityQuery {
   queryText?: string;
+  /**
+   * Precomputed query embedding (mt#2754). When set, the embeddings backend uses
+   * it instead of calling generateEmbedding(queryText) — lets a caller embed once
+   * and reuse the vector (e.g. across an over-fetch + widen) and embed concurrently
+   * with other work. Backends that don't vector-search (lexical) ignore it.
+   */
+  queryVector?: number[];
   subjectId?: string;
   limit?: number;
   filters?: Record<string, unknown>;

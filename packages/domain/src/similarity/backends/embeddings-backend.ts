@@ -30,7 +30,9 @@ export class EmbeddingsSimilarityBackend implements SimilarityBackend {
     // remote query-embedding call and the (HNSW-indexed) vector query — the only
     // two per-call costs in this shared path. Debug-level; near-zero overhead.
     const embedStart = Date.now();
-    const vector = await this.embeddingService.generateEmbedding(text);
+    // mt#2754: reuse a precomputed query vector when the caller provides one
+    // (embedded once, concurrently with other work) instead of re-embedding.
+    const vector = query.queryVector ?? (await this.embeddingService.generateEmbedding(text));
     const embedMs = Date.now() - embedStart;
 
     const searchStart = Date.now();
