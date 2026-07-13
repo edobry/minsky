@@ -7,6 +7,18 @@
  * (Express never sees an upgrade request unless something explicitly wires
  * it in). Gated to `/api/driven-session/:id/ws`.
  *
+ * Library choice (mt#2750 spec's "pick one, justify" note): uses the `ws`
+ * npm package (already a direct dependency — see package.json) rather than
+ * Bun's native `Bun.serve({ websocket })` upgrade path. The cockpit daemon is
+ * an Express app bound via `app.listen()` / `http.createServer(app).listen()`
+ * (see start-command.ts) — Bun's native WS upgrade is a property of
+ * `Bun.serve()`'s own fetch handler and does not compose with an
+ * already-created `node:http` `Server`/Express app without restructuring the
+ * whole daemon bootstrap onto `Bun.serve()`. `ws`'s `{ noServer: true }` +
+ * `server.on("upgrade", ...)` + `wss.handleUpgrade(...)` pattern attaches
+ * cleanly to the EXISTING `http.Server`, so the rest of the daemon
+ * (Express routes, SSE broker, sweepers) is untouched.
+ *
  * Auth (mt#2538 — consumed here, not reinvented): validates the SAME bearer
  * token / `minsky_cockpit` cookie the mutation-auth middleware checks, via
  * the shared `isValidCockpitAuth`/`isHostAllowed` predicates exported from
