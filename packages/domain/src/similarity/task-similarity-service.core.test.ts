@@ -360,4 +360,34 @@ describe("TaskSimilarityService embed-split reuses one query vector (mt#2754)", 
       expect(v).toEqual(QUERY_VECTOR);
     }
   });
+
+  it("pre-embed failure degrades to the lexical backend instead of throwing", async () => {
+    const throwingEmbedding: EmbeddingService = {
+      generateEmbedding: async () => {
+        throw new Error("embedding provider unavailable");
+      },
+    } as unknown as EmbeddingService;
+    // Lexical needs content to score against; make it overlap the query.
+    const specForLexical: Record<string, string> = {
+      "md#401": "widget alpha configuration and rollout notes",
+      "md#402": "widget beta configuration and rollout notes",
+    };
+    const svc = new TaskSimilarityService(
+      throwingEmbedding,
+      spyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (id: string) => ({ content: specForLexical[id] || "", specPath: "", task: {} as any }),
+      {}
+    );
+
+    // The precompute embed throws; searchByText must NOT bubble it — the search service
+    // fails the embeddings backend and degrades to lexical (mt#2754 review BLOCKING).
+    const response = await svc.searchByText("widget configuration rollout", 5, undefined, {
+      statusExclude: ["DONE", "CLOSED"],
+    });
+    expect(response.backend).toBe("lexical");
+    expect(response.degraded).toBe(true);
+    expect(response.results.length).toBeGreaterThan(0);
+  });
 });

@@ -145,10 +145,22 @@ export class TaskSimilarityService {
     let allTasksFetchMs = 0;
     const parallelStart = Date.now();
     const [queryVector, allTasks] = await Promise.all([
-      this.embeddingService.generateEmbedding(query).then((v) => {
-        embedMs = Date.now() - parallelStart;
-        return v;
-      }),
+      // If the pre-embed throws (e.g. embedding provider down), resolve to undefined so the
+      // embeddings backend re-attempts inside getSearchService().search() and, on failure,
+      // SimilaritySearchService degrades to the lexical backend exactly as before this
+      // optimization — the precompute must not bypass the graceful fallback (mt#2754 review).
+      this.embeddingService.generateEmbedding(query).then(
+        (v) => {
+          embedMs = Date.now() - parallelStart;
+          return v;
+        },
+        (err: unknown) => {
+          log.debug("tasks searchByText pre-embed failed; deferring to search-service fallback", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        }
+      ),
       this.searchTasks({}).then((t) => {
         allTasksFetchMs = Date.now() - parallelStart;
         return t;
