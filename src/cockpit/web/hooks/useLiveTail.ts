@@ -53,6 +53,36 @@ export interface UseLiveTailResult {
 }
 
 // ---------------------------------------------------------------------------
+// Shape guard
+// ---------------------------------------------------------------------------
+
+/**
+ * True when a parsed SSE frame is a renderable live block.
+ *
+ * Keys on `id` only — the field the server ALWAYS synthesizes for a live block
+ * (`<agentSessionId>:live:<n>`, see `live-tail-poller.ts` `turnLineToBlock` +
+ * the live-id override) and the one `ConversationThread` uses as its React key
+ * / dedup anchor. `timestamp` is deliberately NOT required: it drives only
+ * display ordering, and dropping an otherwise-valid turn because a JSONL line
+ * lacked a timestamp is worse than showing it (live blocks are supplemental +
+ * append-only — fail open).
+ *
+ * Note this is NOT `uuid` or `rawJsonlType`: `uuid` names the RAW JSONL input
+ * line (the poller's input, not its output) and `rawJsonlType` names the
+ * block's origin-type — neither is the emitted block's identity. The emitted
+ * `SessionContextSnapshotBlock` is keyed by `id`, so that is what the guard
+ * checks. Exported so the guard's accept/reject contract is unit-pinned
+ * against the real emitted shape (mt#2749 review R1).
+ */
+export function isRenderableLiveBlock(block: unknown): block is SessionContextSnapshotBlock {
+  return (
+    typeof block === "object" &&
+    block !== null &&
+    typeof (block as Record<string, unknown>)["id"] === "string"
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Shared implementation — identical EventSource lifecycle for both channels
 // ---------------------------------------------------------------------------
 
@@ -99,17 +129,12 @@ function useSseLiveTail(url: string | null | undefined): UseLiveTailResult {
         return;
       }
 
-      // Minimal shape guard: must have `id` (string) and `timestamp` (string).
-      if (
-        typeof block !== "object" ||
-        block === null ||
-        typeof (block as Record<string, unknown>)["id"] !== "string" ||
-        typeof (block as Record<string, unknown>)["timestamp"] !== "string"
-      ) {
+      // See `isRenderableLiveBlock` for the accept/reject contract.
+      if (!isRenderableLiveBlock(block)) {
         return;
       }
 
-      const snapshotBlock = block as SessionContextSnapshotBlock;
+      const snapshotBlock = block;
       const next = [...blocksRef.current, snapshotBlock];
       blocksRef.current = next;
       setLiveBlocks(next);

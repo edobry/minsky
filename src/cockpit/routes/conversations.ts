@@ -133,14 +133,18 @@ export function mountConversationRoutes(
         return;
       }
 
-      // 3. Set SSE response headers and start streaming (identical shape to
-      //    the workspace-keyed endpoint's steps 4-5 in routes/agents.ts).
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      });
+      // 3. Set SSE response headers and start streaming. Use per-header
+      //    `setHeader` + `status` rather than `writeHead(200, {...})`: the
+      //    object form of `writeHead` bypasses Express's header store and can
+      //    clobber headers set by upstream middleware (e.g. the mt#2538 CSP
+      //    middleware, which runs on GET responses). `setHeader` merges with
+      //    those instead. `flushHeaders()` then commits the status line +
+      //    headers before the first `data:` frame so proxies open the stream.
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
       res.flushHeaders();
 
       let closed = false;

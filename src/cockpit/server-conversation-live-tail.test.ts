@@ -150,18 +150,25 @@ describe("GET /api/conversation/:agentSessionId/live-tail", () => {
     expect(body.error).not.toContain("bundle not built");
   });
 
-  test("400 when the path segment is missing (router does not match empty :id)", async () => {
+  test("empty :id path does not reach the live-tail handler (falls through to the SPA catch-all)", async () => {
     const url = await server({
       overrideConversationLiveTail: {
         claudeProjectsDirOverride: "/mock/claude/projects",
         fsMod: makeMockFsMod([]),
       },
     });
-    // /api/conversation//live-tail does not match :agentSessionId — Express's
-    // router 404s this rather than reaching the handler at all, matching the
-    // equivalent case in the workspace-keyed sibling's test.
+    // `/api/conversation//live-tail` does not match `:agentSessionId` (empty
+    // segment), so Express skips the SSE route and the request falls through to
+    // the SPA catch-all (`app.get("*")`). We therefore assert on the thing that
+    // is actually invariant — the SSE HANDLER was NOT reached — rather than on
+    // the status code: the catch-all legitimately returns 200 (the SPA shell)
+    // when a bundle is present and a "bundle not built" 404 when it is not, so a
+    // bare status check is bundle-state-dependent and flaky (mt#2749 review R1).
+    // A response that is NOT `text/event-stream` proves the live-tail handler
+    // never ran.
     const res = await fetch(`${url}/api/conversation//live-tail`);
-    expect(res.status).not.toBe(200);
+    const contentType = res.headers.get("content-type") ?? "";
+    expect(contentType).not.toContain("text/event-stream");
   });
 
   test("resolves the JSONL from agentSessionId alone and streams a live-appended block", async () => {
