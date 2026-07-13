@@ -81,15 +81,19 @@ export async function closeAskAsResolved(
   if (!ask) return { kind: "not-found", askId };
   if (isTerminal(ask.state)) return { kind: "already-terminal", askId };
 
-  const response = {
-    responder: input.responder,
-    payload: input.payload ?? {},
-    attentionCost: buildAttentionCost({ responder: input.responder }),
-  };
-
   try {
     if (ask.state === "suspended") {
       // suspended -> closed, atomically, preserving the audit payload.
+      // `buildAttentionCost` is computed INSIDE this try (not above it) so that a
+      // throw becomes a caught `cancelled`/`skipped` outcome rather than
+      // propagating — the never-throws contract must hold on the commit/merge hot
+      // paths. It is also only needed on this (closed) branch; the cancelled
+      // branch attaches no response.
+      const response = {
+        responder: input.responder,
+        payload: input.payload ?? {},
+        attentionCost: buildAttentionCost({ responder: input.responder }),
+      };
       await repo.respondAndClose(askId, { response }, { response });
       return { kind: "closed", askId };
     }
