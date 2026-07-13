@@ -33,7 +33,6 @@ import type { ReviewPromptInput } from "./prompt";
 import type { ReviewOutput } from "./providers";
 import type { CallReviewerFn } from "./review-output-validation";
 import type { ReviewerConfig } from "./config";
-import { sanitizeReviewBody } from "./sanitize";
 
 function makeFile(filename: string, patchChars: number, status = "modified"): PrFileEntry {
   return {
@@ -454,54 +453,46 @@ describe("runChunkedReview — output.text aggregation (mt#2739)", () => {
     expect(result.output.text).toBe("scratch one\n\nscratch two");
   });
 
-  test("skips empty chunk texts when concatenating (no leading/dangling separator)", async () => {
-    const files = twoChunkFiles();
+  test("skips empty or whitespace-only chunk texts (no leading/dangling separator)", async () => {
+    // Whitespace-only is the stronger case flagged in PR #1884 R1; a genuinely
+    // empty "" trims to the same "" and is covered by the same guard.
     const result = await runChunkedReview(
-      inputWith(fakeReviewerReturningTexts(["", "only second"]), files)
+      inputWith(fakeReviewerReturningTexts(["  \n  ", "only second"]), twoChunkFiles())
     );
-    // Empty first chunk contributes nothing; no leading "\n\n".
     expect(result.output.text).toBe("only second");
   });
 
-  test("CoT-leak signal fires on an EARLIER chunk's scratch — the gap mt#2739 closes", async () => {
-    // Earlier chunk leaks raw reasoning; last chunk is a clean structured review.
-    const earlierLeak = [
-      "I will review the auth module now.",
-      "Calling read_file on src/auth/session.ts.",
-      "Go.",
-      "This time for sure.",
-      "Let's try again.",
-    ].join("\n");
-    const lastClean =
-      "## Findings\n\n- [BLOCKING] src/auth/session.ts:10 — missing guard.\n\nAPPROVE";
-
-    // Baseline: sanitizing ONLY the last chunk passes through — last-chunk-only
-    // aggregation (pre-mt#2739) would have MISSED the earlier leak.
-    expect(sanitizeReviewBody(lastClean).action).toBe("passthrough");
+  test("includes an EARLIER (non-last) chunk's scratch in the aggregate — the gap mt#2739 closes", async () => {
+    // Pre-mt#2739 kept only the LAST chunk, dropping earlier chunks' scratch, so
+    // the CoT-leak sanitizer (review-worker.ts:960) never saw it. The aggregator's
+    // job is to surface EVERY chunk's free-text into the channel the sanitizer
+    // consumes; whether the sanitizer then fires on given content is owned by
+    // sanitize.test.ts (kept decoupled here to avoid brittle cross-module coupling).
+    const earlierScratch = "Calling read_file on src/auth/session.ts.\nGo.";
+    const lastScratch = "Reviewed; findings submitted via tools.";
 
     const result = await runChunkedReview(
-      inputWith(fakeReviewerReturningTexts([earlierLeak, lastClean]), twoChunkFiles())
+      inputWith(fakeReviewerReturningTexts([earlierScratch, lastScratch]), twoChunkFiles())
     );
 
-    // The aggregate now includes the earlier chunk's scratch...
+    // Earlier chunk is no longer dropped — its scratch reaches the aggregate,
+    // joined with the last chunk by exactly one blank line.
     expect(result.output.text).toContain("Calling read_file on src/auth/session.ts.");
-    // ...so the defensive sanitizer (review-worker.ts:960) detects the leak.
-    expect(sanitizeReviewBody(result.output.text).action).not.toBe("passthrough");
+    expect(result.output.text).toBe(`${earlierScratch}\n\n${lastScratch}`);
   });
 
-  test("concatenating two clean chunk texts does not introduce a false positive", async () => {
-    // Two independently-clean structured reviews (each passes through on its own).
-    const cleanA = "## Findings\n\n- [NON-BLOCKING] src/a.ts:1 — nit.\n\nAPPROVE";
-    const cleanB = "## Findings\n\n- [BLOCKING] src/b.ts:2 — bug.\n\nEvent: REQUEST_CHANGES";
-    expect(sanitizeReviewBody(cleanA).action).toBe("passthrough");
-    expect(sanitizeReviewBody(cleanB).action).toBe("passthrough");
-
+  test("joins chunks with exactly one blank line, even when chunks carry surrounding blank lines", async () => {
+    // A chunk with trailing blank lines followed by one with leading blank lines
+    // must NOT combine into a 3+-newline run at the join (which could read as the
+    // PR #743 blank-line-run leak pattern). The per-chunk trim keeps it a single
+    // "\n\n" — this is the structural FP-avoidance guarantee at the aggregation
+    // layer; the sanitizer's own FP/TP behavior is owned by sanitize.test.ts.
+    const a = "chunk A body\n\n\n";
+    const b = "\n\nchunk B body";
     const result = await runChunkedReview(
-      inputWith(fakeReviewerReturningTexts([cleanA, cleanB]), twoChunkFiles())
+      inputWith(fakeReviewerReturningTexts([a, b]), twoChunkFiles())
     );
-
-    // The concatenated scratch is what the sanitizer would see on the chunked
-    // path; two clean chunks must not trip it (SC #2).
-    expect(sanitizeReviewBody(result.output.text).action).toBe("passthrough");
+    expect(result.output.text).toBe("chunk A body\n\nchunk B body");
+    expect(result.output.text).not.toMatch(/\n{3,}/);
   });
 });

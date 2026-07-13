@@ -454,7 +454,14 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
     totalPromptTokens += chunkResult.output.usage?.promptTokens ?? 0;
     totalCompletionTokens += chunkResult.output.usage?.completionTokens ?? 0;
     totalReasoningTokens += chunkResult.output.usage?.reasoningTokens ?? 0;
-    if (chunkResult.output.text) chunkTexts.push(chunkResult.output.text);
+    // Trim each chunk's scratch before collecting: skips whitespace-only chunks
+    // (which would inject leading/dangling separators) and prevents a chunk's
+    // trailing blank lines + the next chunk's leading blank lines from combining
+    // into a spurious blank-line run at the "\n\n" join (which could itself look
+    // like the PR #743 blank-line-run leak to the sanitizer). Internal blank-line
+    // runs WITHIN a chunk — the actual CoT-leak signal — are preserved.
+    const chunkText = chunkResult.output.text.trim();
+    if (chunkText) chunkTexts.push(chunkText);
 
     if (chunkResult.output.timing) {
       allRoundLatencies.push(...chunkResult.output.timing.roundLatenciesMs);
