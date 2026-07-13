@@ -41,7 +41,7 @@ import type { IncomingMessage, Server } from "http";
 import type { Duplex } from "stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { log } from "@minsky/shared/logger";
-import { isHostAllowed, isValidCockpitAuth } from "./auth";
+import { isHostAllowed, isRequestOriginAllowed, isValidCockpitAuth } from "./auth";
 import {
   drivenSessionRegistry,
   sendDrivenSessionInput,
@@ -86,6 +86,21 @@ export function attachDrivenSessionWebSocket(
     if (!match) return;
 
     if (!isHostAllowed(req.headers.host, opts.allowedHosts)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    // Cross-origin defense (mt#2750 R1). The SPA authenticates this upgrade with
+    // the `SameSite=Strict` cookie (a browser `WebSocket` cannot set an
+    // `Authorization` header), and that cookie IS sent to a same-site
+    // DIFFERENT-port origin — so without this check a malicious
+    // `http://127.0.0.1:<other>` page could open an authenticated
+    // command-execution channel. Enforce the SAME origin check the HTTP mutation
+    // path uses (shared `isRequestOriginAllowed`); browsers send `Origin` on WS
+    // upgrades, so it is enforceable here. Runs BEFORE the token check so a
+    // cross-origin attempt is refused regardless of the cookie it carries.
+    if (!isRequestOriginAllowed(req)) {
       socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;

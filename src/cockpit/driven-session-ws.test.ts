@@ -20,7 +20,7 @@ import WebSocket from "ws";
 import { createCockpitServer } from "./server";
 import { attachDrivenSessionWebSocket } from "./driven-session-ws";
 import { DrivenSessionRegistry, type ProcessLike, type SpawnFn } from "./driven-session-host";
-import { buildAllowedHosts } from "./auth";
+import { buildAllowedHosts, COCKPIT_COOKIE_NAME } from "./auth";
 
 const TEST_TOKEN = "test-driven-session-ws-token";
 const DRIVEN_SESSION_PATH = "/api/driven-session";
@@ -259,6 +259,59 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const outcome = await waitForWsOutcome(ws);
 
     expect(outcome).toBe("refused");
+  });
+
+  test("cross-origin (different-port) upgrade with a valid cookie is refused — CSRF defense (mt#2750 R1)", async () => {
+    // A browser `WebSocket` can't set an Authorization header, so the SPA
+    // authenticates the upgrade with the SameSite=Strict cookie — which IS sent
+    // to a same-site DIFFERENT-port origin. A malicious `http://127.0.0.1:<other>`
+    // page must NOT be able to open an authenticated command-execution channel
+    // by riding that cookie. The Origin check refuses it.
+    const registry = new DrivenSessionRegistry();
+    const { spawnFn } = makeFakeSpawnFn();
+    const s = await startTestServer(registry, spawnFn);
+    closeList.push(s.close);
+
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const sessionId = (json as { sessionId: string }).sessionId;
+
+    const ws = new WebSocket(s.wsUrl(`/api/driven-session/${sessionId}/ws`), {
+      headers: {
+        Cookie: `${COCKPIT_COOKIE_NAME}=${TEST_TOKEN}`,
+        // Different port than the daemon's own — a same-site, cross-origin page.
+        Origin: "http://127.0.0.1:1",
+      },
+    });
+    socketList.push(ws);
+
+    const outcome = await waitForWsOutcome(ws);
+
+    expect(outcome).toBe("refused");
+  });
+
+  test("same-origin upgrade with a valid cookie is accepted — legitimate SPA path (mt#2750 R1)", async () => {
+    // Guards against over-rejection: the real SPA connects with the cookie and a
+    // same-origin Origin, which must succeed.
+    const registry = new DrivenSessionRegistry();
+    const { spawnFn } = makeFakeSpawnFn();
+    const s = await startTestServer(registry, spawnFn);
+    closeList.push(s.close);
+
+    const { json } = await s.postJson(DRIVEN_SESSION_PATH, { cwd: "/tmp/scratch" });
+    const sessionId = (json as { sessionId: string }).sessionId;
+
+    const sameOrigin = s.wsUrl("").replace(/^ws:/, "http:");
+    const ws = new WebSocket(s.wsUrl(`/api/driven-session/${sessionId}/ws`), {
+      headers: {
+        Cookie: `${COCKPIT_COOKIE_NAME}=${TEST_TOKEN}`,
+        Origin: sameOrigin,
+      },
+    });
+    socketList.push(ws);
+
+    const outcome = await waitForWsOutcome(ws);
+
+    expect(outcome).toBe("opened");
   });
 
   test("connecting to an unknown session id is refused (404 before handshake)", async () => {

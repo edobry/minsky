@@ -232,6 +232,31 @@ function isSameOrigin(origin: string, requestHost: string | undefined): boolean 
   }
 }
 
+/**
+ * True when the request's `Origin` (if present) is same-origin with the
+ * request's own `Host` — i.e. the request is NOT a disallowed cross-origin one.
+ * A request with no `Origin` header (a non-browser client, or a request that
+ * omits it) is allowed; a request whose `Origin` authority does not exactly
+ * match the `Host` authority is rejected.
+ *
+ * Shared by `mutationAuthMiddleware` (Express HTTP mutations) and the Rung 2A
+ * driven-session WS upgrade handler (mt#2750, ./driven-session-ws.ts) so BOTH
+ * surfaces enforce the identical cross-origin defense. This is load-bearing for
+ * the WS path: a browser's `WebSocket` cannot set an `Authorization` header, so
+ * the SPA authenticates the upgrade with the `SameSite=Strict` cookie — and
+ * that cookie IS sent to a same-site DIFFERENT-port origin, so without this
+ * check a malicious `http://127.0.0.1:<other>` page could open an authenticated
+ * command-execution channel (a CSRF on the driven-session host). Browsers do
+ * send `Origin` on WS upgrades, so the check is enforceable there (mt#2750 R1).
+ */
+export function isRequestOriginAllowed(req: {
+  headers: { origin?: string; host?: string };
+}): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return isSameOrigin(origin, req.headers.host);
+}
+
 // ---------------------------------------------------------------------------
 // Cookie bootstrap
 // ---------------------------------------------------------------------------
@@ -354,8 +379,7 @@ export function mutationAuthMiddleware(token: string) {
       return;
     }
 
-    const origin = req.headers.origin;
-    if (origin && !isSameOrigin(origin, req.headers.host)) {
+    if (!isRequestOriginAllowed(req)) {
       res.status(403).json({ error: "Cross-origin mutation rejected" });
       return;
     }
