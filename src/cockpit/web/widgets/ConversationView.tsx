@@ -42,7 +42,7 @@ import { Prose } from "../components/Prose";
 import { ToolPayload } from "../components/ToolPayload";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
-import { useLiveTail } from "../hooks/useLiveTail";
+import { useLiveTail, useConversationLiveTail } from "../hooks/useLiveTail";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -58,10 +58,27 @@ type ConversationViewProps =
        * NOT be the same string as `sessionId` (which is the harness agentSessionId).
        *
        * This is the pluggable live stream-source seam (mt#2232 Rung 1).
+       * Mutually exclusive with `liveByConversationId` — when both are set,
+       * this workspace-keyed channel takes precedence.
        */
       workspaceSessionId?: WorkspaceId;
+      /**
+       * Opt in to the conversation-keyed live-tail channel (mt#2749): when
+       * `true` (and `workspaceSessionId` is NOT set), `ConversationFetcher`
+       * opens `GET /api/conversation/:sessionId/live-tail` directly off
+       * `sessionId` — no workspace/cwd bridge required. Used by the
+       * conversation surface (`ConversationPage`, keyed by agentSessionId
+       * alone) where no workspace context exists at all.
+       */
+      liveByConversationId?: boolean;
     }
-  | { snapshot: SessionContextSnapshot; sessionId?: undefined; workspaceSessionId?: never; className?: string };
+  | {
+      snapshot: SessionContextSnapshot;
+      sessionId?: undefined;
+      workspaceSessionId?: never;
+      liveByConversationId?: never;
+      className?: string;
+    };
 
 // ── Snapshot fetch (mirrors ContextInspector's endpoint usage) ─────────────────
 
@@ -502,6 +519,7 @@ function ConversationThread({
 function ConversationFetcher({
   sessionId,
   workspaceSessionId,
+  liveByConversationId,
   className,
 }: {
   sessionId: ConversationId;
@@ -511,6 +529,11 @@ function ConversationFetcher({
    * workspace sessionId (WorkspaceId) — NOT the same string as `sessionId`.
    */
   workspaceSessionId?: WorkspaceId;
+  /**
+   * When `true` (and `workspaceSessionId` is NOT set), opens the
+   * conversation-keyed live-tail channel directly off `sessionId` (mt#2749).
+   */
+  liveByConversationId?: boolean;
   className?: string;
 }) {
   const query = useQuery<SessionContextSnapshot, Error>({
@@ -519,8 +542,17 @@ function ConversationFetcher({
     staleTime: 30_000,
   });
 
-  // Live-tail seam (mt#2232): accumulate SSE appends when workspaceSessionId is set.
-  const { liveBlocks } = useLiveTail(workspaceSessionId);
+  // Live-tail seam: exactly one of the two channels is active per host —
+  // workspaceSessionId (mt#2232, WorkspaceDetailPage) takes precedence when
+  // both happen to be set; liveByConversationId (mt#2749, ConversationPage)
+  // opens the conversation-keyed channel with no workspace bridge. Both hooks
+  // are always called (rules-of-hooks) — each is a no-op when its id arg is
+  // falsy, so only the selected channel actually connects.
+  const workspaceLive = useLiveTail(workspaceSessionId);
+  const conversationLive = useConversationLiveTail(
+    liveByConversationId && !workspaceSessionId ? sessionId : undefined
+  );
+  const liveBlocks = workspaceSessionId ? workspaceLive.liveBlocks : conversationLive.liveBlocks;
 
   if (query.isError) {
     const snapErr = query.error instanceof SnapshotError ? query.error : null;
@@ -582,10 +614,13 @@ function ConversationFetcher({
  * the host supplies the chrome. Pass either `sessionId` (self-fetch) or `snapshot`
  * (pre-fetched).
  *
- * Live-tail seam (mt#2232): pass `workspaceSessionId` alongside `sessionId` to
- * enable real-time appends from the SSE stream. The two id-spaces are distinct —
- * `sessionId` is the harness ConversationId; `workspaceSessionId` is the Minsky
- * workspace WorkspaceId.
+ * Two mutually-exclusive live-tail seams:
+ *   - `workspaceSessionId` (mt#2232 Rung 1) — real-time appends bridged through
+ *     a Minsky workspace. `sessionId` is the harness ConversationId;
+ *     `workspaceSessionId` is the distinct Minsky workspace WorkspaceId.
+ *   - `liveByConversationId` (mt#2749) — real-time appends opened directly off
+ *     `sessionId` alone, no workspace bridge. Used on the conversation surface
+ *     (`ConversationPage`), which has no workspace context at all.
  */
 export function ConversationView(props: ConversationViewProps) {
   if (props.snapshot !== undefined) {
@@ -595,6 +630,7 @@ export function ConversationView(props: ConversationViewProps) {
     <ConversationFetcher
       sessionId={props.sessionId}
       workspaceSessionId={props.workspaceSessionId}
+      liveByConversationId={props.liveByConversationId}
       className={props.className}
     />
   );
