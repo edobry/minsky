@@ -330,6 +330,59 @@ bun run cockpit:build && minsky cockpit start --port 3737
 
 When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-014), this `cockpit:build` step is automatic: the tray rebuilds the bundle at startup if source is newer than `dist/`, and watches `src/cockpit/web/**` for changes while running (mt#2297). Operators running through the tray never need to invoke `cockpit:build` by hand. The auto-rebuild is gated on a source checkout being present — a packaged/no-source install serves the bundle shipped with the app.
 
+## Bind, auth, and CSP posture (mt#2538)
+
+The daemon binds `127.0.0.1` (loopback) by default (`src/commands/cockpit/start-command.ts`).
+An explicit `--host <host>` opt-in is required to bind any other interface; doing so logs a
+one-line warning naming the exposure (cockpit data — tasks, sessions, transcripts, live events —
+plus the command surface become reachable from that interface, e.g. the whole LAN for a bare IP
+or `0.0.0.0`).
+
+**Loopback bind alone is not a sufficient auth posture.** Any local process of any user on the
+machine can reach loopback, DNS-rebinding can drive a victim browser at `localhost`, and the Rung
+2A driven-session WS channel (mt#2750) needs a token model regardless. So the daemon also enforces:
+
+- **Bearer token** (`src/cockpit/auth.ts`) — a random token generated on first boot and persisted
+  at `~/.local/state/minsky/cockpit-token` (mode `0600`), reused across restarts. Every
+  non-GET/HEAD/OPTIONS request must carry it, either as `Authorization: Bearer <token>` or via the
+  `minsky_cockpit` cookie (`HttpOnly`, `SameSite=Strict`, no `Secure` — the daemon is plain HTTP on
+  loopback). The cookie is minted automatically on the first GET, so the SPA's same-origin
+  mutation fetches work with zero URL/localStorage plumbing. A `?token=<t>` query-param bootstrap
+  is also accepted on any GET (validates, sets the cookie, redirects to strip the param) for a
+  future non-loopback opt-in consumer.
+- **Read-only GET/SSE surfaces are exempt from the token check.** The loopback bind already
+  restricts them to the local machine, and plumbing the token to every GET consumer (the tray
+  Rust supervisor's `/api/health` poll, the chrome-devtools-mcp dev canary, curl operators) is
+  disproportionate at this tier. The Rung 2A WS channel (mt#2750) WILL require the token once it
+  ships.
+- **Host-header allowlist** (DNS-rebinding defense) — every request's `Host` header must resolve
+  to `localhost`, `127.0.0.1`, `::1`, or the configured `--host` value; anything else gets `403`.
+  This is what stops an attacker-controlled DNS name that resolves to `127.0.0.1` from reaching
+  the daemon under its own `Host` value.
+- **Content-Security-Policy** — set on every GET/HEAD response (`src/cockpit/csp.ts`):
+  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'`. `--dev` mode (Vite HMR) uses a
+  relaxed variant (`'unsafe-inline' 'unsafe-eval'` on `script-src`) since Vite's dev client and
+  esbuild's dev transform rely on inline/eval'd script execution the pre-built prod bundle never
+  needs.
+- **No permissive CORS.** There is no `cors` middleware and no `Access-Control-Allow-Origin`
+  response header anywhere in `server.ts` — that absence IS the policy (same-origin only). A
+  cross-origin mutation additionally fails an explicit `Origin` check as defense in depth for
+  non-browser HTTP clients that set `Origin` manually (browsers already can't get a cross-origin
+  `fetch()` to succeed here, and the `SameSite=Strict` cookie is never sent cross-site regardless).
+
+Scope: this posture covers the **local** cockpit daemon only. The Railway-deployed
+`services/cockpit/src/server.ts` is a separate entrypoint that binds `0.0.0.0` deliberately for
+the platform proxy and is out of scope here. Because both entrypoints share the same
+`createCockpitServer()` factory, the Railway entrypoint passes `isPublicDeployment: true`
+(`CockpitServerOptions`), which skips the Host-header allowlist and the bearer-token/cookie
+mutation-auth for that deployment — its incoming `Host` header is a Railway-assigned public
+hostname that could never satisfy the loopback-only allowlist, and introducing a mutation
+bearer-token requirement to an already-shipped multi-consumer production surface is out of
+scope for this task. The CSP header and the no-CORS policy are additive/response-only, so they
+still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238) owns
+its own, distinct auth surface for that separate concern.
+
 ## Daemon lifecycle and tray
 
 - `cockpit-tray/` — Tauri v2 menu bar app
@@ -341,6 +394,10 @@ When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-0
 ## Cross-references
 
 - `src/cockpit/CLAUDE.md` — design vocabulary, engineering standards, IA posture (auto-loaded)
+- mt#2538 — daemon security hardening (loopback bind default, bearer-token auth, CSP, no-CORS
+  policy — see "Bind, auth, and CSP posture" above); `src/cockpit/auth.ts`, `src/cockpit/csp.ts`
+- mt#2750 — Rung 2A driven-session WS channel; will REQUIRE the bearer token this task introduces
+- mt#2238 — Rung 3 cloud→local relay channel; owns its own distinct auth surface, out of scope here
 - Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — durable cross-cutting reference
 - mt#1143 — Cockpit v0 umbrella
 - mt#2149 — embeddings-health overview card (DONE 2026-05-27)

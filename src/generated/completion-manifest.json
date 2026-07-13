@@ -6263,6 +6263,11 @@
             {
               "flags": ["--dev"],
               "description": "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. Use with `bun --watch` for server-side auto-restart."
+            },
+            {
+              "flags": ["--host"],
+              "description": "Interface to bind to (default: 127.0.0.1 — loopback only). Binding to any other interface exposes the cockpit's data (tasks, sessions, transcripts, live events) and command surface to that interface — e.g. your whole LAN for a bare IP or 0.0.0.0. Only opt in if you understand that risk.",
+              "takesValue": true
             }
           ]
         },

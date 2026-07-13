@@ -19,10 +19,15 @@ import { createCockpitServer } from "./server";
 // Helpers
 // ---------------------------------------------------------------------------
 
+// mt#2538: createCockpitServer now generates/persists a real bearer token on
+// first use unless overridden — pass a fixed test token so these GET-only
+// tests never touch ~/.local/state/minsky/cockpit-token.
+const TEST_TOKEN = "test-server-live-tail-token";
+
 async function startTestServer(
   opts?: Parameters<typeof createCockpitServer>[0]
 ): Promise<{ url: string; close: () => Promise<void> }> {
-  const app = createCockpitServer(opts);
+  const app = createCockpitServer({ overrideToken: TEST_TOKEN, ...opts });
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();

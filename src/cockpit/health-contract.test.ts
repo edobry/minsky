@@ -40,8 +40,13 @@ function typeOf(value: unknown): string {
   return typeof value;
 }
 
+// mt#2538: createCockpitServer now generates/persists a real bearer token on
+// first use unless overridden — pass a fixed test token so these GET-only
+// tests never touch ~/.local/state/minsky/cockpit-token.
+const TEST_TOKEN = "test-health-contract-token";
+
 async function startTestServer(): Promise<{ url: string; close: () => Promise<void> }> {
-  const app = createCockpitServer();
+  const app = createCockpitServer({ overrideToken: TEST_TOKEN });
   const server: Server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const addr = server.address();

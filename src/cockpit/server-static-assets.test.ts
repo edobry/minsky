@@ -39,11 +39,16 @@ afterAll(() => {
   fs.rmSync(emptyDistDir, { recursive: true, force: true });
 });
 
+// mt#2538: createCockpitServer now generates/persists a real bearer token on
+// first use unless overridden — pass a fixed test token so these tests never
+// touch ~/.local/state/minsky/cockpit-token.
+const TEST_TOKEN = "test-static-assets-token";
+
 async function startTestServer(overrideWebDistDir: string): Promise<{
   url: string;
   close: () => Promise<void>;
 }> {
-  const app = createCockpitServer({ overrideWebDistDir });
+  const app = createCockpitServer({ overrideToken: TEST_TOKEN, overrideWebDistDir });
   const server: Server = createServer(app);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

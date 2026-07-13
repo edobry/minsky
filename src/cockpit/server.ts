@@ -49,6 +49,15 @@ import { mountAskRoutes } from "./routes/asks";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
+import {
+  buildAllowedHosts,
+  cookieBootstrapMiddleware,
+  getOrCreateCockpitToken,
+  hostAllowlistMiddleware,
+  isLoopbackHost,
+  mutationAuthMiddleware,
+} from "./auth";
+import { cspMiddleware } from "./csp";
 
 export type { CredentialModuleOverride } from "./routes/credentials";
 
@@ -88,6 +97,36 @@ export interface CockpitServerOptions {
    * a real `cockpit:build` output).
    */
   overrideWebDistDir?: string;
+  /**
+   * Override the bearer token used by the mutation-auth middleware (used in
+   * tests, so a run doesn't read/write the real
+   * `~/.local/state/minsky/cockpit-token` file). When absent, the real
+   * per-machine token is read from disk (generating one on first boot).
+   */
+  overrideToken?: string;
+  /**
+   * The `--host` value the daemon is (or will be) bound to, if not the
+   * loopback default. Added to the Host-header allowlist alongside the
+   * standard loopback aliases (mt#2538) so an explicit non-loopback opt-in
+   * doesn't get rejected by its own daemon.
+   */
+  host?: string;
+  /**
+   * Set ONLY by `services/cockpit/src/server.ts`, the Railway-deployed
+   * entrypoint — a separate consumer of this shared factory that binds
+   * `0.0.0.0` deliberately for the platform proxy and is reached via a
+   * Railway-assigned public hostname that can never satisfy the
+   * loopback-only Host-header allowlist below. The mt#2538 local-daemon
+   * hardening spec explicitly rules that deployment out of scope. Setting
+   * this to `true` skips the Host-header allowlist and the bearer-token /
+   * cookie mutation-auth requirement entirely, preserving that deployment's
+   * pre-mt#2538 behavior exactly (it also skips generating/reading the local
+   * `~/.local/state/minsky/cockpit-token` file, which has no meaning for a
+   * multi-instance container deployment). The CSP header and the
+   * no-permissive-CORS policy still apply — both are purely additive
+   * response-header behavior with no request-handling impact.
+   */
+  isPublicDeployment?: boolean;
 }
 
 /**
@@ -117,7 +156,64 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   setLoadedWidgetCount(availableWidgets.size);
 
   const app = express();
+
+  // --- Security hardening (mt#2538) ---
+  //
+  // Loopback bind (start-command.ts default host `127.0.0.1`) is NOT by
+  // itself a sufficient auth posture: any local process of any user on the
+  // machine can reach loopback, and DNS-rebinding can drive a victim
+  // browser at localhost. Hence the token + Host-allowlist below, in
+  // addition to the bind default.
+  //
+  // `isPublicDeployment` (set only by the Railway entrypoint) skips the
+  // loopback-oriented Host-allowlist and mutation-auth below — see the
+  // CockpitServerOptions doc comment for the full rationale. The CSP header
+  // and no-CORS policy are additive/response-only, so they still apply.
+  const localAuthEnabled = !opts.isPublicDeployment;
+  const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
+  const allowedHosts = buildAllowedHosts(opts.host);
+  // Loopback bind unless `--host` opted into a routable address. Gates the
+  // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
+  // explicit Authorization header rather than a Secure-less cookie.
+  const isLoopbackBind = !opts.host || isLoopbackHost(opts.host);
+
+  if (localAuthEnabled) {
+    // Host-header allowlist (DNS-rebinding defense) — runs first, before any
+    // handler that would otherwise trust `req.headers.host`.
+    app.use(hostAllowlistMiddleware(allowedHosts));
+  }
+
   app.use(express.json());
+
+  // Content-Security-Policy on every GET/HEAD response (harmless on JSON API
+  // responses; only has effect on the SPA's rendered HTML). See ./csp.ts.
+  app.use(cspMiddleware(!!opts.dev));
+
+  if (localAuthEnabled && cockpitToken) {
+    // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
+    // the SPA's same-origin mutation fetches work without any URL/localStorage
+    // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
+    // future non-loopback opt-in consumer. See ./auth.ts.
+    app.use(cookieBootstrapMiddleware(cockpitToken, isLoopbackBind));
+
+    // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
+    // token (Authorization header) or the bootstrap cookie. Read-only
+    // GET/SSE surfaces are exempt — loopback bind already covers the LAN
+    // read surface, and plumbing the token to every GET consumer (tray Rust
+    // health poll, dev canary, curl operators) is disproportionate at this
+    // tier. The Rung 2A WS channel (mt#2750) will REQUIRE the token. See
+    // ./auth.ts.
+    app.use(mutationAuthMiddleware(cockpitToken));
+  }
+
+  // NO permissive CORS is set anywhere in this file — that absence IS the
+  // policy (same-origin only). There is no `cors` middleware and no
+  // `Access-Control-Allow-Origin` response header, so a cross-origin
+  // `fetch()` from a browser fails the CORS preflight/response check before
+  // it ever reaches a route handler. `mutationAuthMiddleware` above adds a
+  // second, server-side Origin check for non-browser HTTP clients that set
+  // `Origin` manually. See docs/architecture/cockpit.md "Bind, auth, and
+  // CSP posture" for the full rationale.
 
   // Preview-mode guard (mt#2096): block mutation endpoints in preview deploys.
   // Defense-in-depth API layer — paired with a read-only Supabase DB role.

@@ -24,8 +24,17 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
+import { getCockpitTokenPath, isLoopbackHost } from "../../cockpit/auth";
 
 const DEFAULT_PORT = 3737;
+
+/**
+ * Default bind host (mt#2538): loopback-only. Binding to any other
+ * interface (via `--host`) exposes the cockpit's data (tasks, sessions,
+ * transcripts, live events) and command surface to that interface — e.g.
+ * the whole LAN for a bare IP or `0.0.0.0`.
+ */
+export const DEFAULT_HOST = "127.0.0.1";
 
 // __dirname is used only for the --dev Vite web root (which requires a source
 // checkout). The PRODUCTION web-dist path is resolved bundle-aware via
@@ -41,8 +50,12 @@ type ListenAttempt =
  * Bind-or-fail: race the 'listening' event against 'error'. EADDRINUSE is
  * classified separately from other errors so the caller can attempt recovery.
  */
-async function attemptListen(app: express.Express, port: number): Promise<ListenAttempt> {
-  const server = app.listen(port);
+async function attemptListen(
+  app: express.Express,
+  port: number,
+  host: string
+): Promise<ListenAttempt> {
+  const server = app.listen(port, host);
   return new Promise<ListenAttempt>((resolve) => {
     server.once("listening", () => resolve({ kind: "ok", server }));
     server.once("error", (err: NodeJS.ErrnoException) => {
@@ -120,11 +133,35 @@ export function createStartCommand(): Command {
       "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. " +
         "Use with `bun --watch` for server-side auto-restart."
     )
+    .option(
+      "--host <host>",
+      `Interface to bind to (default: ${DEFAULT_HOST} — loopback only). Binding to any ` +
+        "other interface exposes the cockpit's data (tasks, sessions, transcripts, live " +
+        "events) and command surface to that interface — e.g. your whole LAN for a bare " +
+        "IP or 0.0.0.0. Only opt in if you understand that risk.",
+      DEFAULT_HOST
+    )
     .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
         process.exit(1);
+      }
+
+      const host: string = options.host || DEFAULT_HOST;
+      if (!isLoopbackHost(host)) {
+        console.warn(
+          `WARNING: cockpit daemon binding to ${host} — this exposes cockpit data ` +
+            "(tasks, sessions, transcripts, live events) and command endpoints to any " +
+            "host that can reach this interface (e.g. your LAN).\n" +
+            "  Auth posture on a non-loopback bind: the daemon serves plain HTTP (no TLS), " +
+            "so the bearer token would traverse the network in the clear, and any host that " +
+            "can reach this interface can attempt to brute-force it. Cookie bootstrap is " +
+            "DISABLED on non-loopback binds — mutation clients must send an explicit " +
+            "`Authorization: Bearer <token>` header (token at " +
+            `${getCockpitTokenPath()}). Prefer an SSH tunnel or a TLS-terminating reverse ` +
+            "proxy over a bare non-loopback bind."
+        );
       }
 
       const isDev = !!options.dev;
@@ -135,7 +172,7 @@ export function createStartCommand(): Command {
         process.exit(1);
       }
 
-      const app = createCockpitServer({ dev: isDev });
+      const app = createCockpitServer({ dev: isDev, host });
 
       // In dev mode, attach Vite middleware for frontend HMR.
       if (isDev) {
@@ -165,7 +202,7 @@ export function createStartCommand(): Command {
         }
       }
 
-      let attempt = await attemptListen(app, port);
+      let attempt = await attemptListen(app, port, host);
 
       // EADDRINUSE: classify and (with --force) recover.
       if (attempt.kind === "in-use") {
@@ -173,7 +210,7 @@ export function createStartCommand(): Command {
         switch (classification.kind) {
           case "free":
             // Holder vanished between bind and lsof. Retry once.
-            attempt = await attemptListen(app, port);
+            attempt = await attemptListen(app, port, host);
             break;
           case "recognized-zombie":
             if (!options.force) {
@@ -188,7 +225,7 @@ export function createStartCommand(): Command {
               `Port ${port} held by previous cockpit (PID ${classification.pid}); terminating...`
             );
             await killZombie(classification.pid);
-            attempt = await attemptListen(app, port);
+            attempt = await attemptListen(app, port, host);
             break;
           case "unrecognized":
             console.error(
