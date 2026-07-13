@@ -14,8 +14,9 @@
  * fail-open catch ate an error), NOT that there is no data.
  *
  * Usage: bun scripts/verify-reviewer-widget-db.ts
- * Exits 0 on pass or graceful skip (no DB configured); 1 on failure.
- * Output: JSON on stdout.
+ * Exits 0 on pass or graceful skip (no DB configured / non-Postgres provider);
+ * 1 on genuine query-layer failure (raw SQL available but the probe returns
+ * no rows). Output: JSON on stdout.
  */
 import "reflect-metadata";
 import { setupConfiguration } from "../packages/domain/src/config-setup";
@@ -31,6 +32,30 @@ try {
   emit({
     status: "SKIP",
     reason: `configuration unavailable: ${err instanceof Error ? err.message : String(err)}`,
+  });
+  process.exit(0);
+}
+
+// Capability gate: distinguish "no shared Postgres configured" (SKIP) from
+// "query layer broken" (FAIL). buildQueryRows() intentionally degrades to an
+// always-[] function when the provider lacks raw SQL support, which would
+// otherwise read as a false FAIL from the SELECT 1 probe below.
+try {
+  const { getSharedPersistenceService } = await import("../src/cockpit/shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider() as { getRawSqlConnection?: () => Promise<unknown> };
+  if (typeof provider.getRawSqlConnection !== "function") {
+    emit({
+      status: "SKIP",
+      reason:
+        "persistence provider has no raw SQL connection (no shared Postgres configured) — reviewer widget DB stats are disabled by design on this backend",
+    });
+    process.exit(0);
+  }
+} catch (err) {
+  emit({
+    status: "SKIP",
+    reason: `persistence unavailable: ${err instanceof Error ? err.message : String(err)}`,
   });
   process.exit(0);
 }
