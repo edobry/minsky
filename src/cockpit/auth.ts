@@ -167,6 +167,21 @@ export function extractHostname(hostHeader: string | undefined): string | null {
 }
 
 /**
+ * True when `hostHeader` resolves to a hostname in `allowedHosts`. Shared by
+ * `hostAllowlistMiddleware` (Express requests) below and the Rung 2A
+ * driven-session WS upgrade handler (mt#2750,
+ * ./driven-session-ws.ts#attachDrivenSessionWebSocket) — WS upgrades bypass
+ * Express's middleware pipeline entirely (they're plain HTTP GETs with
+ * `Connection: Upgrade`, handled by a listener on the raw `http.Server`, not
+ * by any mounted middleware), so that handler calls this predicate directly
+ * rather than being able to reuse the middleware wrapper itself.
+ */
+export function isHostAllowed(hostHeader: string | undefined, allowedHosts: Set<string>): boolean {
+  const hostname = extractHostname(hostHeader);
+  return hostname !== null && allowedHosts.has(hostname);
+}
+
+/**
  * Rejects any request whose Host header does not resolve to a name in
  * `allowedHosts`. This is the DNS-rebinding defense: an attacker-controlled
  * DNS name that resolves to 127.0.0.1 still carries its own Host header
@@ -174,8 +189,7 @@ export function extractHostname(hostHeader: string | undefined): string | null {
  */
 export function hostAllowlistMiddleware(allowedHosts: Set<string>) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const hostname = extractHostname(req.headers.host);
-    if (!hostname || !allowedHosts.has(hostname)) {
+    if (!isHostAllowed(req.headers.host, allowedHosts)) {
       res.status(403).json({
         error: `Host header '${req.headers.host ?? ""}' is not in the cockpit daemon's allowlist`,
       });
@@ -284,6 +298,43 @@ export function cookieBootstrapMiddleware(token: string, isLoopbackBind: boolean
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
+ * Extract the bearer token or `minsky_cockpit` cookie value from a
+ * request-like object's headers — works for both an Express `Request` and
+ * the raw `http.IncomingMessage` a WS upgrade handler sees (both expose
+ * `.headers.authorization` / `.headers.cookie`). Returns `null` when neither
+ * is present. Does NOT compare against an expected token — see
+ * `isValidCockpitAuth` for the comparison.
+ */
+export function extractCockpitAuthToken(headers: {
+  authorization?: string;
+  cookie?: string;
+}): string | null {
+  const authHeader = headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+  const cookies = parseCookies(headers.cookie);
+  return cookies[COCKPIT_COOKIE_NAME] ?? null;
+}
+
+/**
+ * True when `req` carries a valid bearer token or `minsky_cockpit` cookie
+ * matching `token`. Shared by `mutationAuthMiddleware` (Express requests)
+ * below and the Rung 2A driven-session WS upgrade handler (mt#2750,
+ * ./driven-session-ws.ts#attachDrivenSessionWebSocket) — like
+ * `isHostAllowed` above, this predicate is called directly by the WS
+ * handler rather than mounted as middleware, since WS upgrades never reach
+ * Express's middleware pipeline.
+ */
+export function isValidCockpitAuth(
+  req: { headers: { authorization?: string; cookie?: string } },
+  token: string
+): boolean {
+  const provided = extractCockpitAuthToken(req.headers);
+  return provided !== null && provided === token;
+}
+
+/**
  * Require a valid bearer token (`Authorization: Bearer <token>`) or a valid
  * `minsky_cockpit` cookie on every non-GET/HEAD/OPTIONS request.
  *
@@ -309,14 +360,7 @@ export function mutationAuthMiddleware(token: string) {
       return;
     }
 
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ") && authHeader.slice(7) === token) {
-      next();
-      return;
-    }
-
-    const cookies = parseCookies(req.headers.cookie);
-    if (cookies[COCKPIT_COOKIE_NAME] === token) {
+    if (isValidCockpitAuth(req, token)) {
       next();
       return;
     }
