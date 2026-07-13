@@ -10,6 +10,12 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-subagent-merge-without-grant.ts",
+            "timeout": 10,
+            "statusMessage": "Checking subagent merge-capability grant..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-review-before-merge.ts",
             "timeout": 15,
             "statusMessage": "Checking for PR review..."
@@ -19,6 +25,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-execution-evidence-before-merge.ts",
             "timeout": 60,
             "statusMessage": "Checking for execution evidence on new test files..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-deploy-verification-before-merge.ts",
+            "timeout": 60,
+            "statusMessage": "Checking for deploy-verification commitment on deploy/infra PRs..."
           },
           {
             "type": "command",
@@ -50,9 +62,22 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-checks-on-bypass-merge.ts",
+            "timeout": 30,
+            "statusMessage": "Checking required CI status before bypass-merge..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-git-gh-cli.ts",
             "timeout": 5,
             "statusMessage": "Checking for git/gh CLI..."
+          },
+          {
+            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry (currently: check-guessed-session-path). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 15,
+            "statusMessage": "Running guard dispatcher (PreToolUse)..."
           },
           {
             "type": "command",
@@ -81,7 +106,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-session-for-main-workspace-edits.ts",
             "timeout": 5,
             "statusMessage": "Checking main-workspace edit guard..."
-          },
+          }
+        ]
+      },
+      {
+        "_comment": "mt#2029 R1 consolidation: single PreToolUse block for policy-coverage-detector covering both Claude Code native write tools and MCP session write tools. Consolidating eliminates the double-invocation hazard the prior two-block layout had (if a future matcher refactor accidentally overlapped, both blocks would fire and skew calibration). require-session-for-main-workspace-edits stays in its own native-only block above (session tools are by definition session-scoped, so its guard doesn't apply there).",
+        "matcher": "Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace|mcp__minsky__session_write_file",
+        "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/policy-coverage-detector.ts",
@@ -91,13 +122,30 @@
         ]
       },
       {
-        "matcher": "mcp__minsky__session_start",
+        "matcher": "mcp__minsky__session_start|mcp__minsky__tasks_dispatch",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/parallel-work-guard.ts",
             "timeout": 30,
             "statusMessage": "Checking for parallel work..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__minsky__tasks_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/parallel-work-guard.ts",
+            "timeout": 30,
+            "statusMessage": "Checking for duplicate sibling task..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-task-spec.ts",
+            "timeout": 5,
+            "statusMessage": "Validating task spec structure..."
           }
         ]
       },
@@ -120,6 +168,17 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tasks-status-set-guard.ts",
             "timeout": 10,
             "statusMessage": "Validating task status transition..."
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__minsky__tasks_status_set|mcp__minsky__session_start|mcp__minsky__tasks_dispatch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-task-spec-read.ts",
+            "timeout": 10,
+            "statusMessage": "Checking the task spec was read before advancing/binding..."
           }
         ]
       },
@@ -186,6 +245,18 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/transcript-ingest-on-session-end.ts",
+            "timeout": 45,
+            "statusMessage": "Ingesting finished session transcript..."
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|mcp__minsky__session_write_file|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace",
@@ -195,17 +266,6 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-edit.ts",
             "timeout": 30,
             "statusMessage": "Type checking..."
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__minsky__tasks_create",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/validate-task-spec.ts",
-            "timeout": 5,
-            "statusMessage": "Validating task spec structure..."
           }
         ]
       },
@@ -223,6 +283,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-merge-unasked-direction-scan.ts",
             "timeout": 60,
             "statusMessage": "Scanning for unasked directions..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/deploy-verification-after-merge.ts",
+            "timeout": 30,
+            "statusMessage": "Checking for deploy-surface changes needing post-merge verification..."
           }
         ]
       },
@@ -249,6 +315,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__session_pr_merge|mcp__minsky__tasks_status_set",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bridge-memory-retirement.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for bridge memories to retire..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|Write|Read|Grep|Glob|mcp__.*",
         "hooks": [
           {
@@ -264,28 +341,11 @@
       {
         "hooks": [
           {
+            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b (mt#2652, mt#2687): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector, calibration-review-cadence-detector). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=115 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all fifteen UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Built from the Phase 2a entry's already-calibrated 60s (covering the six Phase 2a guards' worst-case 65s summed budget, minus a small process-spawn-overhead saving) plus the nine Phase 2b guards' individual worst-case budgets summed (5+5+5+5+5+10+5+5+10=55s): 60+55=115s.",
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/auto-session-title.ts",
-            "timeout": 5,
-            "statusMessage": "Checking session label..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/memory-search.ts",
-            "timeout": 10,
-            "statusMessage": "Searching memory for context..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/skill-staleness-detector.ts",
-            "timeout": 5,
-            "statusMessage": "Checking for skill/agent/rule staleness..."
-          },
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/mcp-daemon-staleness-detector.ts",
-            "timeout": 5,
-            "statusMessage": "Checking for MCP daemon staleness..."
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
+            "timeout": 115,
+            "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]
       }

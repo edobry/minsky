@@ -14,7 +14,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Types

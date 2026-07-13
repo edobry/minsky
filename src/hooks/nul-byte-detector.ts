@@ -26,6 +26,7 @@ export const KNOWN_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([
   ".gif",
   ".webp",
   ".ico",
+  ".icns",
   ".bmp",
   ".tiff",
   // Documents / archives

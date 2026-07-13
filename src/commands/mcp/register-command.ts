@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "../../errors/index";
-import { log } from "../../utils/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Create the `mcp register` CLI subcommand.

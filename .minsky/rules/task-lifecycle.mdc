@@ -8,28 +8,4 @@ tags:
 ---
 # Task Lifecycle
 
-```
-TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE
-       (investigate) (gate)  (session_start) (pr_create)  (merge)
-
-Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state)
-```
-
-Transitions are enforced in the domain layer. `session_start` blocks from TODO/PLANNING — task must be READY first. See `/orchestrate` skill for full workflow details.
-
-The state machine above applies to the **default kind** (`implementation`). Minsky supports multiple per-kind workflows via the task `kind` field (mt#1812):
-
-- `kind: "implementation"` (default) — the state machine above, for tasks that ship via PR.
-- `kind: "umbrella"` — `TODO → PLANNING → IN-PROGRESS → COMPLETED | CLOSED`, for epic/metadata tasks with no associated PR. `COMPLETED` is the success terminal state (distinct from `DONE`, which means "PR merged").
-
-See `docs/task-kinds.md` for the full workflow definitions, tool-mapping tables, and the pattern for adding new kinds.
-
-## Verification surfaces
-
-The reviewer subagent (`.claude/agents/reviewer.md` Mode 2, dispatched by `/review-pr` and auto-firing as `minsky-reviewer[bot]`) is the canonical verification surface. It runs at review time against the PR branch and covers spec verification, adoption sweep, and a smoke test exercising the changed code path. This is the load-bearing gate; merges are blocked until its findings are addressed.
-
-Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an audit gate. It is a thin closeout wrapper for the bypass-merge path: it confirms `pr.merged === true` AND the merge-commit body contains the canonical bypass-merge audit-trail signature ("Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"), then sets DONE. If neither condition holds, it halts. The auditor subagent is no longer dispatched on the standard closeout path; it remains available for ad-hoc spec verification when explicitly requested.
-
-The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
-
-Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
+Task lifecycle transitions are owned by per-phase skills: `/plan-task` (planning and READY gate), `/implement-task` (session, coding, PR creation), `/verify-task` (post-merge closeout). Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state). Multi-kind workflows (umbrella, etc.) documented in `docs/task-kinds.md`.

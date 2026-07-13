@@ -5,9 +5,9 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
-import { createConfigWriter } from "../../../../domain/configuration/config-writer";
+import { createConfigWriter } from "@minsky/domain/configuration/config-writer";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
 import { parseConfigValue } from "./helpers";
 
@@ -43,7 +43,7 @@ export const configGetRegistration = defineCommand({
   }),
   execute: async (params, _ctx) => {
     try {
-      const { getConfigurationProvider } = await import("../../../../domain/configuration/index");
+      const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
       const provider = getConfigurationProvider();
 
       const exists = provider.has(params.key);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { validatePrContent, isDuplicateContent } from "../src/domain/session/pr-validation";
+import { validatePrContent, isDuplicateContent } from "@minsky/domain/session/pr-validation";
 
 // Test the actual case that went wrong in PR #132
 describe("Bug Fix Verification", () => {

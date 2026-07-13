@@ -1,6 +1,6 @@
-import { log } from "../../../../utils/logger";
-import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import { log } from "@minsky/shared/logger";
+import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 /**
  * Dependencies that can be injected for testing or DI threading.
@@ -27,8 +27,7 @@ export function autoIndexTaskEmbedding(taskId: string, deps: AutoIndexDeps): voi
   (async () => {
     try {
       const getConfiguration =
-        deps.getConfiguration ??
-        (await import("../../../../domain/configuration")).getConfiguration;
+        deps.getConfiguration ?? (await import("@minsky/domain/configuration")).getConfiguration;
       const cfg = getConfiguration();
       if (cfg.embeddings?.autoIndex === false) return;
 

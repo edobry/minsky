@@ -1,10 +1,12 @@
-import { defineSkill } from "../../../src/domain/definitions/factories";
+import { defineSkill } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
   name: "plan-task",
   description:
     "Drive a task through PLANNING to READY: investigate the spec, surface gaps, file subtasks, and run the gate check. Use when: 'investigate mt#X', 'plan mt#X', 'look into mt#X', \"what's the gap for mt#X\", 'bring mt#X to ready', 'research mt#X', 'analyze mt#X spec'. Does NOT create new tasks (use /create-task) and does NOT implement (use /implement-task).",
-  content: `# Plan Task
+  userInvocable: true,
+  content: `
+# Plan Task
 
 Drive an existing task from TODO through PLANNING to READY by investigating its spec, surfacing
 gaps, filing any needed subtasks, and running the PLANNING → READY gate check.
@@ -16,6 +18,7 @@ Required: a task ID (e.g., \`/plan-task mt#915\` or \`investigate mt#915\`).
 ## Triggers
 
 This skill auto-invokes on:
+
 - "investigate mt#X"
 - "plan mt#X"
 - "look into mt#X"
@@ -38,6 +41,21 @@ a status transition; everything else is investigation and gate-check.
 - Step 2: Read and verify the spec
 - Step 2.5: Premise audit (four checks — must run before the gate)
 - Step 3: Run the PLANNING → READY gate check
+  - (a) Required spec sections present
+  - (b) Success criteria are testable
+  - (c) Scope is bounded
+  - (d) No blocking questions
+  - (e) File:line references are fresh
+  - (f) Subtasks filed for multi-phase work
+  - (g) No parallel work in flight
+  - (h) Contract-propagation enumeration
+  - (j) Premise label verification (letter \`i\` intentionally skipped to avoid confusion
+    with the Roman-numeral premise-audit labels \`(i)\`/\`(ii)\`/\`(iii)\`/\`(iv)\` used in Step 2.5)
+  - (k) Third-party tool/dependency verification
+  - (l) Authoritative-source check for third-party-system decisions (security surfaces,
+    designing a mechanism on a third-party's internals, or how to use a named tool with docs)
+  - (m) Factual-claim citation verification
+  - (n) External-system integration provisioning enumeration
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -118,6 +136,32 @@ operation being patched into its constituent parts. Ask: "What are the actual su
 of this thing? Are they being conflated?" Apply Socratic decomposition of the operation
 being patched as part of this check — not just pattern-matching on cluster shape.
 
+**Architecture-consistency sub-check (mt#1856).** When the spec proposes a **new
+capability, abstraction, substrate, or module**, it must name one of: (a) **which
+existing pattern it extends** — a sibling ADR's capability slot (e.g., an ADR-002
+persistence-provider capability), an existing module's interface, an established
+convention; OR (b) **explicit justification for a new pattern** — why the existing
+pattern doesn't fit and what alternatives were rejected. A spec that introduces a new
+structural element without naming the extend-vs-introduce choice fails this sub-check.
+Originating incident (2026-05-15, mt#1852 / ADR-010): the substrate choice was framed
+as novel without checking it against the existing \`project_supabase\` pattern, which
+let "session vs transaction pool mode" and "pooled vs direct connection" collapse under
+the salient phrase "no LISTEN/NOTIFY."
+
+**Design-intent-assertion citation sub-check (mt#1676).** When the recommendation depends
+on an **asserted claim about Minsky's design intent** — trigger phrases such as "X is part
+of Minsky's design intent," "the right move per the strategic frame," "X is the role of
+surface Y," "this surface is for A, not B," "the design trajectory is Z" — the gate requires
+the agent to either (a) **cite a specific corpus source** (task ID, memory ID, Notion page
+ID, ADR number, CLAUDE.md section), or (b) **explicitly disclaim it as a hypothesis** ("I'm
+asserting this without evidence; treat as hypothesis"). If neither is present, the sub-check
+fails — surface the gap before recommending the action. This is the _asserting_ direction
+(agent invents a frame to justify a tactical preference); \`feedback_strategic_reframe_first\`
+covers the _connecting_ direction (user's tactical ask → existing frame). Originating incident
+(2026-05-08 hosted-MCP framing failure): the agent asserted "hosted MCP is the task-management
+substrate, not a session-runner" with no evidence and against the actual corpus (mt#263,
+mt#190, Progressive Adoption Model T4).
+
 If no structural issue is suspected: "(iv) No recurring pattern identified; tactical fix is appropriate."
 
 ### Step 3: Run the PLANNING → READY gate check
@@ -141,6 +185,7 @@ Check each section's presence. Record any missing sections as blocking gaps.
 
 Each item under \`## Success Criteria\` must be independently verifiable by an agent or a
 human reviewer. Reject criteria that:
+
 - Use vague language ("should work correctly", "behaves as expected", "is improved")
 - Cannot be checked by running a command, reading a file, or calling a tool
 - Are aspirational rather than observable
@@ -157,6 +202,7 @@ without an out-of-scope list, creep risk is unmanaged. Surface as a gap if missi
 
 Look for any open questions in the spec or in the task's history that would prevent starting
 implementation. Indicators:
+
 - "TBD" or "TODO" items inside the spec text
 - Unresolved design decisions ("[open question: …]" patterns)
 - Dependencies on unmerged PRs or incomplete tasks (check status of listed deps)
@@ -166,6 +212,7 @@ If blocking questions exist, list them explicitly. They must be answered before 
 #### Gate criterion (e) — File:line references are fresh
 
 For every \`path/to/file.ts:N\` reference in the spec:
+
 1. Verify the file exists in the current codebase.
 2. Verify the referenced code (function, class, constant) is still present near line N (±10).
 3. If a reference is stale, note the stale ref and the correct location (or note it was deleted).
@@ -211,10 +258,30 @@ Run all three:
      recently-merged commits.
 
 3. **Parent/sibling enumeration** — if the task has a parent:
+
    - Walk \`mcp__minsky__tasks_parent\` then \`mcp__minsky__tasks_children\` to enumerate the
-     full sibling/descendant set.
+     full sibling/descendant set. **Fail closed (do not pass):** if \`tasks_children\` errors or
+     returns a result you cannot trust (transient MCP failure), do NOT pass this criterion —
+     retry, or record a blocking gap. A silent "no children" read is exactly how the
+     duplicate-decomposition recurrences slipped through (mt#1423/1424/1425 duplicated DONE
+     mt#1188/1189; mt#2403-2406 duplicated mt#2397/2398/2399).
+   - For **each** child surface its \`(taskId, status, title)\` — **including children in a
+     terminal status** (DONE / CLOSED / COMPLETED are all valid Minsky task statuses; see
+     CLAUDE.md §Task Lifecycle), not just active/in-flight ones. A sibling that already SHIPPED
+     or was closed-as-redundant is just as much a duplicate as one in flight; the time-windowed
+     open-PR/recent-merge checks above do not catch a terminal-status sibling outside the
+     window. Flag any child whose title shares **≥2 substantive tokens** (4+ char, non-stopword)
+     with the task being planned.
    - For each related task ID, call \`mcp__minsky__session_pr_list\` with \`status: "open"\`
      and \`task: "mt#X"\`; surface any open PR.
+   - **Hard reconciliation requirement:** any flagged title-overlap or already-shipped sibling
+     MUST be reconciled before READY — subsume (close one, absorb its constraints), supersede,
+     or confirm-orthogonal (state explicitly why the scopes don't actually overlap). Do NOT
+     promote to READY with an unreconciled overlap.
+
+   NOTE: this planning-time enumeration is the Tier-2 floor. It reads children at planning
+   START; concurrent children filed in the gap before \`tasks_create\` are caught at the
+   mutating action by the Tier-3 \`parallel-work-guard.ts\` \`tasks_create\` matcher (mt#1435).
 
 If any check hits, surface findings as a blocking gap with task/PR IDs and the specific
 overlap (file, phrase, or sibling). Do NOT promote to READY until the user resolves the
@@ -222,13 +289,552 @@ overlap.
 
 If no check hits, this criterion passes.
 
+#### Gate criterion (h) — Contract-propagation enumeration
+
+When the task retires or modifies a contract — a function/type signature, skill text, command
+name, env-var name, config key, or schema field — the spec's \`## Scope\` → \`In scope\` section
+must explicitly enumerate the downstream consumers of that contract. A spec that names the
+retired or changed artifact without listing who reads or depends on it is incomplete and must
+not proceed to READY.
+
+Rationale: four incidents on 2026-05-06/08 traced to exactly this gap. In each case the spec
+correctly identified the artifact being changed but missed one or more consumer classes,
+causing silent breakage after merge:
+
+- **mt#1551** — retired the \`/verify-task\` audit gate without enumerating the skill files
+  referencing it; caused idle-drift on PR #970.
+- **mt#1086** — added required fields to \`ReviewerConfig\` without enumerating test fixtures;
+  CI on main was broken for ~24 hours.
+- **mt#1610 (doc-side)** — enumerated 25+ in-scope code sites but missed three documentation
+  files (\`docs/configuration-guide.md\`, \`docs/repository-configuration.md\`,
+  \`docs/github-issues-backend-guide.md\`).
+- **mt#1610 (Railway env-var side)** — spec claimed "Sole consumer is \`~/.config/minsky/config.yaml\`"
+  but the Railway-deployed \`minsky-mcp\` service was also a consumer with its own
+  \`MINSKY_SESSIONDB_*\` env vars. Production crashed 2026-05-08T00:09Z; fixed via mt#1624 / PR #976.
+
+This criterion encodes the escalation policy of the \`contract_propagation_at_design_time\`
+memory (id \`513934fa-3000-4f67-8869-2d50598f484b\`): when a fourth instance surfaces, add
+Gate criterion (h).
+
+**Trigger condition.** This criterion fires when the spec describes any of:
+
+- Retiring, renaming, or changing the signature of a function, type, interface, or class
+- Renaming or retiring a skill, command, or CLI subcommand
+- Renaming or retiring an env-var or config key
+- Changing a schema field name, type, or required-status
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(h) No contract modification — criterion passes."
+
+**Consumer enumeration heuristic by change type.** For each category of change, the spec's
+\`## Scope\` → \`In scope\` list must cover all of the following:
+
+| Change type               | Consumers to enumerate                                                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Function / type signature | All call sites and imports in \`src/\`, \`tests/\`, \`services/\`, \`.github/\`                                                          |
+| Skill text / command name | All skill files under \`.claude/skills/\` and \`.claude/agents/\`, all \`CLAUDE.md\` sections that reference the skill/command by name |
+| Env-var rename            | All reads in \`src/\`, \`services/\`, \`scripts/\`, \`.github/\` **and** deployed-environment artifacts (see below)                      |
+| Config key / schema field | All reads in \`src/\`, \`tests/\`, \`services/\`, \`.github/\`, \`docs/\` **and** deployed-environment artifacts (see below)               |
+
+**Deployed-environment artifacts (required callout for env-var and config-key changes).**
+Source-code consumers are not the only consumers. When an env-var or config key changes, the
+following deployed-environment locations must be explicitly checked and enumerated or ruled out:
+
+- **Railway service env vars** — any Railway service that sets or reads the variable
+  (visible in \`services/*/railway.config.ts\`, Railway dashboard env-var declarations, and
+  \`railway.json\` / \`railway.toml\` files if present)
+- **CI/CD env declarations** — \`.github/workflows/*.yml\` files that set the variable via
+  \`env:\` blocks or \`secrets:\` references
+- **In-tree service configs** — \`services/*/railway.config.ts\` and any other
+  service-config files in the \`services/\` directory that reference the key
+
+**Check steps:**
+
+1. Read the spec and identify whether it describes any of the trigger-condition change types.
+   If not, record "(h) passes — no contract modification."
+2. If triggered, identify the specific artifact(s) being changed (names, paths, key names).
+3. For each artifact, look up its consumer class in the heuristic table above.
+4. Verify the spec's \`## Scope\` → \`In scope\` list covers each consumer class. Missing
+   consumer classes are blocking gaps.
+5. For env-var and config-key changes specifically: confirm the spec explicitly addresses each
+   of the three deployed-environment artifact categories, either enumerating consumers or
+   stating "no consumers in this category."
+
+A spec that says "sole consumer is X" without a verified sweep of the consumer classes does
+not satisfy this criterion — the claim must be grounded in an actual search, not an assumption.
+
+#### Gate criterion (j) — Premise label verification
+
+When the spec or amendment applies a categorization label that determines policy treatment,
+the agent MUST produce a four-step citation-and-mapping protocol BEFORE the label is applied.
+Categorization labels that determine policy treatment include (but are not limited to):
+
+- \`source-of-truth state\` (vs derived analytics / observability)
+- \`auxiliary capability\` (vs core)
+- \`ephemeral\` (vs durable)
+- \`derived analytics\` (vs source-of-truth)
+- \`complement\` / \`in-house substrate\` / \`parallel implementation\`
+- \`tier N\` (e.g., T0 / T1 / T4 in Progressive Adoption Model)
+- \`policy carve-out\` / \`scope boundary\` / \`out of scope per §X\`
+
+Rationale: four recurrences of the confabulated-strategic-frame failure family in six days
+(R1 hosted-MCP 2026-05-08; R2 build-vs-buy 2026-05-12; R3 explicit-framework-selection
+2026-05-12; R4 mt#1306 spec amendment 2026-05-13). Prior tier escalations: memory entry →
+corpus rule (\`decision-defaults.mdc §Build vs buy\`) → \`/declare-framework\` skill (mt#1789).
+The R4 sub-pattern — applying a categorization label _within_ a framework without verifying
+the label against the framework's actual definition — wasn't covered by \`/declare-framework\`
+(which addresses framework selection, not label application). Gate (j) is the sibling
+chain-step escalation for label application.
+
+The structural insight: memory-tier and corpus-tier rules say "watch for confabulation."
+They are advisory text that requires the agent to remember and apply the check at the right
+moment — which is mid-spec-amendment when attention is on substantive content. Citation is
+mechanical; introspection is unreliable. The four-step protocol forces specificity:
+citation, verbatim quote, explicit mapping, and explicit verdict. The agent cannot
+rationalize past "what is the actual definition of this label?" with the same fluency it
+can rationalize past "is this a confabulation?"
+
+**Trigger condition.** This criterion fires when the spec or amendment contains a
+categorization label from the list above (or a synonym/paraphrase). If no such label
+appears, the criterion passes automatically. State that explicitly:
+"(j) No categorization label applied — criterion passes."
+
+**Required four-step protocol (when triggered):**
+
+1. **Cite the rule** that defines the label. Examples: \`decision-defaults.mdc §Datastores\`
+   for "source-of-truth state"; \`decision-defaults.mdc §Build vs buy\` for "auxiliary
+   capability"; \`progressive-adoption-model\` memory for "tier N".
+2. **Quote the definition verbatim** — not paraphrased. Paraphrase is where confabulation
+   re-enters. Copy the exact language from the cited rule into the gate output.
+3. **Map the artifact's properties to the definition's criteria** — explicitly list what
+   the criteria say and what the artifact actually has. One-to-one mapping; identify any
+   criterion the artifact does not satisfy.
+4. **State the verdict:** "criteria met" / "criteria not met" / "criteria ambiguous". If
+   ambiguous, file an Ask rather than applying the label.
+
+A spec that applies a categorization label without producing this four-step output fails
+gate (j) and must not proceed to READY. If the mapping in step 3 cannot be cleanly
+produced, the label is suspect — surface this as a blocking gap and the user decides
+whether to apply a different label, retire the categorization, or file an Ask.
+
+**Regression example — mt#1306 (2026-05-13).** During a reviewer-cluster cleanup session,
+the agent labeled mt#1306 (in-house Postgres convergence-metrics table) "source-of-truth
+state" to justify keeping it in-house, applied that framing across three spec amendments
+(mt#1110/mt#1497/mt#1552). On user challenge ("Are you sure we want it to be in-house?
+Help me understand the justification"), checking \`decision-defaults.mdc §Datastores\`'s
+actual definition immediately invalidated the label.
+
+Walkthrough of what gate (j) would have produced:
+
+1. **Cite:** \`decision-defaults.mdc §Datastores\`
+2. **Quote:** _"this policy covers Minsky's source-of-truth state — places that hold
+   authoritative product data the system owns. It does NOT cover derived analytics,
+   observability sinks, or event streams."_
+3. **Map:** mt#1306 holds blocker-count aggregates derived from GitHub-side review data.
+   GitHub owns reviews (source of truth); Minsky owns tasks. mt#1306 doesn't own anything
+   authoritative — it's a measurement aggregate. Criterion "authoritative product data"
+   → NO. Criterion "the system owns" → NO.
+4. **Verdict:** Criteria NOT met. Label "source-of-truth state" is invalid for mt#1306.
+   The artifact is observability data, not source-of-truth.
+
+Gate (j) would have blocked the original spec amendment. The agent would have surfaced
+the gap, leading to the user's challenge being avoided entirely — or, if the user wanted
+to proceed anyway, the explicit "label not justified by definition" record would have
+made the choice intentional rather than confabulated.
+
+Cross-reference: \`feedback_premise_label_verification_required\` (id \`b8bcebec\`) is the
+bridge memory until this gate ships; once shipped, that memory's job becomes historical
+record + pointer here. Sibling skill: \`/declare-framework\` (mt#1789, framework selection).
+
+#### Gate criterion (k) — Third-party tool/dependency verification
+
+When the spec recommends adopting, installing, or relying on a third-party tool, library,
+or service — by GitHub repo URL, package name, CLI tool name, or similar reference — the
+agent must run four cheap verification checks BEFORE the spec can proceed to READY. A spec
+that references a third-party dependency without running these checks is incomplete.
+
+Rationale: mt#1714 / 2026-05-11 incident — the spec recommended \`data-goblin/claude-code-mcp-reload\`
+("mcp-hot-reload") as a staleness-exit absorption proxy. The recommendation was inherited
+from mt#1713's "Research findings" section, also written without verification. All four
+checks would have surfaced blocking gaps in under a minute:
+
+- **License**: \`PROPRIETARY\` — "Commercial use of any kind is STRICTLY PROHIBITED … You may
+  not modify, reverse engineer, decompile, or disassemble." Minsky is commercial.
+- **Maintenance**: 7 stars, 0 issues, 0 PRs, \`created==pushed\` on 2025-07-10 (single-day
+  project, no commits since).
+- **Install path**: spec said \`pip install mcp-hot-reload\`; package not on PyPI (404).
+  Actual install is \`git clone && pip install -e .\`.
+- **Canonical URL**: spec linked \`data-goblin/claude-code-mcp-reload\`. The upstream README's
+  own clone URL points to \`claude-code-mcp-reload/claude-code-mcp-reload\` — a non-existent
+  org (404).
+
+This is the third-party-tool slice of the contract-propagation pattern that Gate (h)
+addresses for first-party contracts: a claim crystallizes upstream and downstream consumers
+inherit it as a settled premise. Recurrence record: 9+ prior cases (mt#1208 ×2, mt#1224,
+mt#1262, mt#1682 ×4) plus mt#1713→mt#1714 (×2). Prior fix tier was a memory entry plus
+mt#1541's policy-coverage detector in calibration mode. Memory-only + calibration-mode
+detector is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
+is the right tier.
+
+**Trigger condition.** This criterion fires when the spec contains any of:
+
+- A GitHub repo URL (e.g., \`github.com/owner/repo\`, \`owner/repo\` shorthand)
+- A package-manager install command (\`pip install <name>\`, \`npm install <name>\`,
+  \`cargo add <name>\`, \`brew install <name>\`, etc.)
+- An explicit recommendation to use any named external tool, library, or service
+  introduced by this task
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(k) No third-party tool recommendation found — criterion passes."
+
+**Required verification table (when triggered).** For each identified third-party dependency:
+
+| Check         | How to verify                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Block condition                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| License       | \`gh api repos/<owner>/<repo>\` → \`.license.spdx_id\`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Block on SPDX identifiers (case-sensitive, as returned by \`gh api\`): \`Proprietary\`, \`NOASSERTION\`, \`Other\`, and any \`GPL-*\` (including \`GPL-2.0-only\`, \`GPL-2.0-or-later\`, \`GPL-3.0-only\`, \`GPL-3.0-or-later\`, \`AGPL-3.0-only\`, \`AGPL-3.0-or-later\`). \`LGPL-*\` and \`MPL-2.0\` ARE on the allowlist (weak-copyleft, commercial-compatible per project policy). Block until explicit acknowledgment from user. |
+| Maintenance   | Same API response: check \`archived\`, \`created_at\`, \`pushed_at\`, \`stargazers_count\`, \`forks_count\`, \`open_issues_count\`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | \`archived==true\` OR (\`created_at == pushed_at\` AND \`stargazers_count < 10\`) — block; single-day abandoned project heuristic                                                                                                                                                                                                                                                                                 |
+| Install path  | Probe registry: \`pip index versions <name>\` for Python; \`npm view <name> version\` for Node; \`cargo search <name>\` for Rust                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 404 / no result — block unless spec provides the correct alternative install path (e.g., \`git clone && pip install -e .\`)                                                                                                                                                                                                                                                                                   |
+| Canonical URL | HTTP 2xx or 3xx (following redirects) on the spec's stated URL AND on any HTTP(S) URL found inside the upstream's own README. Treat 401/403 as inconclusive (proceed but flag for manual review); block only on 4xx (other than auth) or 5xx. The HTTP status check applies to HTTP/S URLs only. SSH clone URLs (e.g., \`git@github.com:owner/repo.git\`) and \`git://\` URLs are excluded from this check; their presence in the README is fine. If the only canonical URL inside the README is a non-HTTP(S) URL, manually verify the repo exists by other means before applying this gate's verdict. | Disagreement between spec URL and upstream README URL, OR non-auth 4xx/5xx inside upstream README — block                                                                                                                                                                                                                                                                                                   |
+
+**Check steps:**
+
+1. Read the spec and identify any third-party tool, library, or service recommendation
+   (GitHub URL, package-manager install command, named external tool). If none, record
+   "(k) passes — no third-party tool recommendation."
+2. For each identified dependency, run the four checks in the table above. Use
+   \`mcp__minsky__session_exec\` (or equivalent shell access) for the registry probes and
+   HTTP checks.
+3. Record findings per check. License: state the \`spdx_id\`. Maintenance: state whether
+   \`archived\`, and the \`created_at\`/\`pushed_at\` equality check result. Install path: state
+   the registry probe result (HTTP status or package version). Canonical URL: state whether
+   the spec URL and upstream README URL agree.
+4. Any check that hits a block condition is a blocking gap. Summarize each blocking gap
+   with the check name and the specific finding (e.g., "License: PROPRIETARY").
+5. Evidence lives in the spec text under \`## Context\` as \`Third-party dependency: <name>\` —
+   include license, maintenance signal, install path, and canonical URL findings.
+
+A spec that says "use <tool>" or links a repo without running these four checks does not
+satisfy this criterion. The claim must be grounded in an actual verification, not an
+assumption inherited from upstream research or prior agent turns.
+
+Cross-reference: bridge memory \`e296b3ee-324e-4186-9313-926dd3f9ee5b\`
+(\`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
+at spec-authoring time\`) is the precedent memory this gate formalizes; once this gate ships,
+that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
+(Surface 1 policy-coverage detector, graduating to enforcing mode).
+
+#### Gate criterion (l) — Authoritative-source check for third-party-system decisions
+
+When the spec or plan-decision **designs a mechanism on — or recommends how to use — a
+third-party system that has authoritative documentation on the decision**, the spec must
+document a vendor-docs / community-practice check (at least one authoritative citation) and an
+explicit match/extend/deviate statement BEFORE the mechanism is encoded and the task passes to
+READY. First-principles design from mechanism-level knowledge — or a polished tradeoff table —
+is not a substitute for checking the vendor's intended workflow.
+
+Rationale: the **first-principles-design-without-prior-art** family (sub-thread of
+build-path-as-research, memory \`f6607043\`). The rest of the gate battery points investigation
+INWARD — (e) repo refs, (g) parallel work, (h) consumer enumeration — and (k) points outward
+but only for _adopting a NEW_ third-party dependency (license / maintenance / install).
+Nothing asked "does the third-party system you are building ON, or the named tool you are
+recommending, already solve this — and what does its documentation say?" Knowing HOW a tool
+works internally (e.g. drizzle's ledger high-water-mark, memory \`0c2427e5\`) breeds false
+confidence that the design space is understood; it is not knowledge of the vendor's INTENDED
+workflow.
+
+Recurrence record (each prior fix was too narrow to catch the next instance):
+
+- R1 (2026-05-24, mt#1477): \`pull_request_target\` CI migration spec'd without a
+  security-literature check — fixed as the original security-surface-only gate (l) (mt#2090;
+  later lost on a skill recompile and restored generalized here, mt#2445).
+- R3 (2026-06-11, mt#2439): a bespoke "snapshot + stamp" fresh-DB baseline designed from first
+  principles and gate-passed to READY; \`drizzle-kit pull --init\` is the documented canonical
+  baseline (and the hand-authored empty \`0000\` baseline is the documented anti-pattern). The
+  invented design converged with canon only by luck.
+- R7 (2026-06-15, mt#2449): "vendor the generated \`@pulumi/railway\` SDK" recommended from a
+  clean first-principles tradeoff table; Pulumi's Local Packages doc recommends the OPPOSITE
+  (gitignore the SDK + regenerate via \`pulumi install\`), a pattern the repo already followed.
+
+**Trigger condition.** This criterion fires when the spec or plan-decision does any of:
+
+- **(sub-case 1 — security surface)** changes a CI/CD security surface: workflow trigger
+  events, token scopes, secrets-exposure models, permission boundaries, credential flows, or
+  authentication mechanisms.
+- **(sub-case 2 — mechanism on third-party internals)** designs a mechanism that operates on or
+  extends a third-party system's internals or workflows: migration ledgers, ORM/CLI workflows,
+  API semantics, build tooling, connection-pooler behavior, etc.
+- **(sub-case 3 — how-to-use a named tool with official docs)** recommends HOW to use a
+  specific named third-party tool/framework on a decision that tool has authoritative
+  documentation about.
+
+If none apply, the criterion passes automatically. State that explicitly:
+"(l) No third-party-system decision designed — criterion passes."
+
+**Required when triggered:**
+
+1. **Search** — at least one vendor-docs or community-practice search for the canonical pattern
+   (and, for sub-case 1, the security implications of the approach; e.g. "pull_request_target
+   security" surfaces the pwn-request literature in seconds).
+2. **Cite** — at least one authoritative citation in the spec (vendor docs, the project's own
+   widely-adopted reference, or security-lab guidance). For sub-case 1 the canonical
+   bot-commit-workflow reference is peter-evans/create-pull-request (as of 2026-05-24).
+3. **Match / extend / deviate** — an explicit statement of whether the proposed mechanism
+   matches, extends, or deviates from the vendor-canonical pattern, with justification for any
+   deviation. The documented pattern is the default; the spec justifies a DEVIATION from it,
+   not the choice itself.
+
+**Rigor-theater callout (esp. sub-case 3).** A well-structured options/tradeoff table is NOT a
+substitute for consulting an authoritative source that exists — its FORM looks like diligence
+and masks that the source of truth was never read. A polished tradeoff table with no
+authoritative citation, on a decision a named tool documents, is the tell; treat it as a red
+flag in your own output. Also check current repo state against the recommended pattern — you
+may already be doing it (as in R7).
+
+**Disambiguation from adjacent gates.** Gate (k) verifies a NEW dependency at ADOPTION time
+(license / maintenance / install-path / canonical-URL). This gate (l) is about an
+already-known third-party system: are you designing a mechanism on it, or recommending how to
+USE it, against what its docs say? \`/declare-framework\` (mt#1789) is framework _selection_,
+not how-to-use verification.
+
+**Worked example — mt#2439 (sub-case 2).** The "Plan decision" encoded a bespoke baseline
+mechanism on drizzle's migration ledger and walked the full READY gate battery; no gate asked
+"does drizzle solve this?". Walking gate (l): the design operates on a third-party migration
+ledger → sub-case 2 fires → the required search surfaces \`drizzle-kit pull --init\` (canonical)
+and the empty-\`0000\` baseline as the documented anti-pattern → the gate blocks READY until the
+citation + a match/extend/deviate statement is in the spec. The bespoke design is recognized as
+a needless deviation BEFORE READY rather than by luck.
+
+**Worked example — mt#2449 (sub-case 3).** The recommendation "vendor the generated
+\`@pulumi/railway\` SDK" was presented in a clean a/b/c tradeoff table with no doc citation.
+Walking gate (l): recommending how to use a named tool (Pulumi) that documents this exact
+decision → sub-case 3 fires → reading Pulumi's Local Packages doc reverses the recommendation
+(gitignore + regenerate via \`pulumi install\`), which \`infra/Pulumi.yaml\` already did → the
+gate blocks until the citation + match/deviate statement replaces the un-cited table.
+
+**Counter-case (no over-fire).** A pure in-repo change with no third-party-system decision
+(e.g. a refactor, a logic fix, a docs edit) passes automatically with the explicit "(l) No
+third-party-system decision designed — criterion passes" statement. The criterion does not
+fire on first-principles design where no authoritative tool-specific source exists.
+
+Cross-references: \`decision-defaults.mdc §Security-surface changes require community-practice
+check\` (the corpus rule for sub-case 1); bridge memories \`dad73290\` (R3 design-on-internals)
+and \`60219837\` (R7 how-to-use-a-named-tool); the originating R1 memory \`22a55d66\`. The
+implement-time sibling — verify an architectural pattern against community practice BEFORE
+implementing (R6, memory \`4012b934\`, the never-shipped implement-task §7 check) — is a
+separate surface (implementation, not planning); file/keep it as its own task if it ships.
+This criterion is the gate-tier successor to the lost mt#2090 security-only gate (l), restored
+and generalized by mt#2445 (which subsumed the recommendation-time-only mt#2494).
+
+#### Gate criterion (m) — Factual-claim citation verification
+
+When the spec (or amendment) **cites a memory ID, rule section, or doc passage** AND that
+citation is used to justify a **structural choice** (substrate, capability, abstraction
+boundary, "new vs extended pattern"), the agent MUST produce a three-step citation-and-mapping
+protocol BEFORE the structural choice is encoded. This is the factual-content sibling of gate
+(j): gate (j) verifies a categorization _label_ against its defining rule; gate (m) verifies a
+_factual claim_ against its cited source.
+
+Rationale: the memory-snippet-conflation pattern. The agent retrieves a source correctly, then
+a salient phrase in it becomes the anchor for the rendering while adjacent qualifying sentences
+are silently dropped — the artifact lands with a near-but-different technical framing. The
+information was in context; the encoding step skipped re-verification. Citation is mechanical;
+introspection ("is this a conflation?") is unreliable — so the protocol forces a verbatim quote
+and an explicit mapping the agent cannot fluently rationalize past.
+
+**Trigger condition.** Fires when a structural choice in the spec rests on a cited memory / rule /
+doc passage. If no cited claim drives a structural choice, the criterion passes automatically:
+"(m) No cited factual claim drives a structural choice — criterion passes."
+
+**Required three-step protocol (when triggered):**
+
+1. **Verbatim quote** of the cited text — copied exactly from the source (\`memory_get\`, the
+   rule file, the doc), not paraphrased. Paraphrase is where conflation re-enters.
+2. **Explicit mapping** of how the structural choice follows from the quote — one-to-one: what
+   the quote actually says vs. what the spec asserts it supports. Name any gap.
+3. **Verdict:** "claim supported" / "claim not supported" / "claim ambiguous". If ambiguous or
+   not supported, do not encode the structural choice — surface the gap; file an Ask if the
+   source itself is unclear.
+
+A spec that cites a source to justify a structural choice without producing this three-step
+output fails gate (m) and must not proceed to READY.
+
+**Worked example — mt#1852 / ADR-010 (2026-05-15).** The spec and ADR-010 §Substrate-constraint
+encoded "dedicated direct Postgres connection (bypassing Supavisor's transaction pooler)," citing
+the \`project_supabase\` memory. Walking gate (m):
+
+1. **Verbatim quote** (\`project_supabase\`): the memory named the **session pooler** (port 5432,
+   same Supavisor) as the LISTEN/NOTIFY-capable alternative — NOT a direct connection bypassing
+   Supavisor.
+2. **Mapping:** the spec asserted "direct connection bypassing the pooler"; the source said
+   "session-pool mode on the same pooler." Two distinct axes — "session vs transaction pool mode"
+   and "pooled vs direct connection" — were collapsed under the salient phrase "no LISTEN/NOTIFY."
+   Gap: the spec's "bypass the pooler" is not in the source.
+3. **Verdict:** claim NOT supported. The structural choice as framed does not follow from the
+   citation. Gate (m) blocks; the agent surfaces the gap instead of encoding the wrong framing
+   (which is what shipped in ADR-010 commit \`af07a249c\`, later corrected via mt#1857).
+
+Cross-reference: bridge memory \`feedback_memory_snippet_conflation_at_artifact_write_time\`
+(id \`de54bd12-fa9a-4023-bc34-83a1832aefdb\`) is the originating-pattern reference; once this gate
+ships, that memory's job becomes historical record + pointer here. Sibling gates: (j) label
+verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
+runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
+
+#### Gate criterion (n) — External-system integration provisioning enumeration
+
+When the task introduces a **new external-system integration** — a new GitHub App permission or
+API scope, a new outbound API host/endpoint requiring a credential, or a new webhook
+subscription — the spec must (a) enumerate the required external provisioning and (b) confirm
+it is provisioned OR link an explicit provisioning task, before the task can be READY. A spec
+that names the new integration surface without enumerating and gating its external precondition
+is incomplete and must not proceed to READY.
+
+This is the external-system-contract analog of gate (h): gate (h) propagates a changed
+first-party contract to its downstream consumers; gate (n) propagates a new external-system
+dependency to the provisioning step required for it to actually function once deployed. Unlike
+the deploy-CRASH class covered by the deploy-surface merge gate (mt#2353) — which asks "will the
+container start?" — this criterion asks "will the feature actually WORK once the container
+starts?" A change can pass CI, deploy cleanly, and return healthy on \`/health\`, and still be
+INERT in production because the external precondition (a scope, a permission, a credential) was
+never provisioned. CI cannot catch this: CI runs against test credentials or fake/mocked
+clients, never the live external system.
+
+**Originating incident — mt#2435 (2026-07-10/11).** mt#2435 wired \`services/reviewer/src/*\` to
+post a GitHub check-run per review, which requires the \`minsky-reviewer[bot]\` GitHub App to
+hold the \`checks:write\` permission. That external precondition WAS tracked — as a separate
+task, mt#2500 — but mt#2500 was still TODO at merge and the spec never enumerated the
+precondition or gated on its provisioning status. The PR merged green,
+\`deployment_wait-for-latest\` returned SUCCESS, and the task was reported done. In production,
+\`POST /check-runs\` returned 403; \`publishCheckRun\` degraded silently (no crash, no alert); the
+feature was inert for a day+ until a follow-up session (mt#2736) drove a live check and the
+operator granted the permission (verified 2026-07-11, checkRunId 86533407554). Walking gate (n)
+against mt#2435's diff at plan time would have produced: (a) \`checks:write\` enumerated as a
+required precondition, (b) a gate hit linking mt#2500 (still TODO — provisioning NOT yet
+satisfied), (c) a blocking gap surfaced BEFORE merge instead of the 403 surfacing a day later.
+
+**Trigger condition.** This criterion fires when the spec describes any of:
+
+- A new GitHub App permission or API scope the integration did not previously require (e.g.
+  \`checks:write\`, \`contents:write\`, a new webhook event subscription)
+- A new outbound API host or endpoint that requires a credential, token, or API key not already
+  configured (a new \`octokit.rest.*\` call class requiring a scope the App doesn't hold, a new
+  third-party API integration, a new outbound \`fetch\` target requiring auth)
+- A new webhook subscription — either registering to receive a new webhook event type, or
+  exposing a new webhook-receiving endpoint that a third party must be configured to call
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(n) No new external-system integration — criterion passes."
+
+**Heuristic for recognizing a new external-system integration (best-effort, v1).** Grep the
+diff/spec for:
+
+- A new \`octokit.rest.<resource>.<method>\` call whose GitHub REST scope isn't already held by
+  the calling App/token (cross-check against the App's current permission set, e.g. the App's
+  manifest or its settings page)
+- A new outbound \`fetch(...)\` / HTTP client call whose target host doesn't appear in any
+  existing outbound-call site in the codebase
+- A new webhook route registration (e.g. \`app.post("/webhooks/...")\`) or a new
+  \`octokit.webhooks.on(...)\` event subscription
+
+This heuristic is a starting point for the agent to apply manually during plan-time review — it
+is NOT a mechanical/automated detector. An automated semantic detector (e.g. AST-diffing
+\`octokit.rest.*\` call sites against a known-scope table) is explicitly a stretch follow-on, not
+required for v1.
+
+**Required enumeration (when triggered).** For each identified new external-system integration:
+
+1. **Name the precondition** — the specific permission/scope/credential/webhook required (e.g.
+   "\`checks:write\` App permission", "new \`SLACK_BOT_TOKEN\` credential", "webhook subscription
+   to \`pull_request.closed\`").
+2. **State provisioning status** — one of:
+   - **Provisioned** — the precondition is already granted/configured in the target
+     environment; cite how this was verified (e.g. "confirmed via \`gh api /app\` → permissions
+     include \`checks: write\`" or "confirmed via a live API call in the target environment").
+   - **Linked to a provisioning task** — an explicit task ID that owns granting the
+     precondition, with that task's current status. If the provisioning task is not yet DONE,
+     this is a **blocking gap** — merging before provisioning is what produced the mt#2435
+     incident.
+   - **Neither** — a blocking gap. The spec must add one of the two above before READY.
+3. **Record in the spec** — the enumeration lives in the spec's \`## Scope\` → \`In scope\` section
+   (mirroring gate (h)'s placement) or a dedicated \`## External preconditions\` subsection.
+
+**Check steps:**
+
+1. Read the spec and identify whether it describes any of the trigger-condition integration
+   types. If not, record "(n) passes — no new external-system integration."
+2. If triggered, identify the specific precondition(s) using the heuristic above.
+3. For each precondition, verify the spec states provisioning status per the three-step
+   enumeration above.
+4. A provisioning-task link to a task that is NOT DONE is a blocking gap — do not accept "will
+   provision later" without either provisioning now or making the merge/READY transition
+   contingent on that task's completion being verified (not merely linked).
+5. A spec that names the new integration without stating provisioning status does not satisfy
+   this criterion — the claim must be grounded in a verified check, not an assumption.
+
+**Counter-case (no over-fire).** A pure in-repo change with no new external-system integration —
+a refactor, a logic fix, a change to an EXISTING already-provisioned integration surface —
+passes automatically with the explicit "(n) No new external-system integration — criterion
+passes" statement.
+
+**Enforcement tier + mechanization path (mt#2740 PR #1886 R1).** Gate (n) is a plan-time
+**discipline** criterion — process-enforced by the \`/plan-task\` skill (the agent walks it every
+planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
+hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
+this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
+gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
+currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
+the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
+mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the \`/plan-task\` process that
+runs it: no stronger, and no weaker than its discipline-tier peers.
+
+**Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
+"can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
+crash-on-start) and fires on \`infra/**\`, \`services/*/Dockerfile\`, \`services/*/railway.json\`,
+etc. Gate (n) asks "will this deployed feature actually WORK?" and fires on the external-system
+integration surface regardless of whether the change touches deploy-config files at all — the
+mt#2435 diff touched only \`services/reviewer/src/*\` application code, not deploy config. Do not
+conflate the two; a change can trip one, both, or neither.
+
+Cross-reference: this task (mt#2740) formalizes the gate; bridge memory \`2de33884\`. Sibling
+verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requirement, same task).
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
 
 1. Report the gate summary (all green).
 2. Call \`mcp__minsky__tasks_status_set\` to transition the task to **READY**.
-3. Report: "Task mt#X is now READY for implementation. Use \`/implement-task mt#X\` to begin."
+3. **Continue the lifecycle: invoke \`/implement-task mt#X\` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use \`/implement-task\` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory \`feedback_auto_mode_chains_skills_at_affirmative_tokens\`, id \`4b83ff51-4bc2-49f5-84be-7e4eac073125\`).
+
+   **Only halt before \`/implement-task\` if** one of these explicit halt conditions holds:
+
+   - The user said something during planning that explicitly defers implementation ("don't implement yet", "just plan it", "I'll handle the impl").
+   - The READY transition itself surfaced a new blocking signal (e.g., dependency status check failed mid-transition).
+   - The task is gated on an external decision the user owns (e.g., "spec needs your approval before impl"), explicitly stated in the spec.
+
+   **Do NOT halt for any of these reasons** (each was a confabulated halt rationale in the originating incident):
+
+   - "Planning is the skill's scope; implementation is a separate skill."
+   - "User might want to review the gate report before I proceed."
+   - "The next move is user-driven."
+
+   When a brief affirmative ("proceed", "continue", "go", "ok", "yes") arrives at any planning hand-off point, treat it as confirmation to walk the chain forward — NOT as acknowledgment to stop. The bridge memory \`4b83ff51\` covers this verbatim; this step encodes the same discipline structurally so the agent doesn't have to recall the memory at hand-off time.
+
+   **Multi-next-step disambiguation guard (mt#1842).** The chain-walk-on-affirmative discipline above assumes an UNAMBIGUOUS next step. When the just-READY'd task is a child of a parent with multiple unblocked siblings — i.e., walking to \`/implement-task\` on THIS task silently picks one of N possible next moves — invoke \`/disambiguate-next\` BEFORE the chain-walk to \`/implement-task\`. Trigger detection: call \`mcp__minsky__tasks_parent <this-task>\`; if a parent exists, call \`mcp__minsky__tasks_children <parent>\` and count tasks in walkable state (TODO + spec-substantive, READY, IN-PROGRESS). If count ≥ 2, the disambiguation guard fires — surface the option set in user-facing output BEFORE the \`/implement-task\` call. The exception: if the prior agent turn explicitly recommended THIS specific task as next and the user's brief affirmative followed that recommendation, no disambiguation is needed (the recommendation IS the disambiguation). See \`/disambiguate-next\` for the full skill including the stakes-filter sub-check.
+
+   **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /merge-coordination walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, merge-coordination SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
+
+   **Ask-or-cite-ask at closeout (mt#2471).** If a gate criterion surfaced a dependency or
+   open question that is gated on a **principal-owned decision** (the spec records it as
+   "principal wants further discussion", "resolve before dependent impl", or the gate halted
+   on "external decision the user owns"), the closeout MUST route it through the Ask substrate
+   — file it via \`mcp__minsky__asks_create\` (kind \`direction.decide\`, packaged per
+   \`humility.mdc §Escalation packaging\`, \`parentTaskId\` set) OR cite the id of an existing
+   open ask that covers it. Do NOT reference the decision by pointer in chat prose ("the
+   rail-axis discussion", "needs your call") and end the turn — chat prose evaporates and never
+   reaches the attention surface. This is the planning-closeout enforcement of the
+   escalation-packaging family (memory \`3e3f29d8\`; originating recurrences R3 2026-06-09 in
+   THIS skill's closeout, R4 2026-06-12). For a NON-principal deferral (a next-step a lookup or
+   standing default resolves), use \`/classify-before-deferring\` instead of an ask.
 
 **One or more gate criteria fail:**
 
@@ -252,17 +858,140 @@ To re-run the gate after fixes: \`/plan-task mt#X\`
 
 4. Stop. Do not attempt to patch the spec automatically unless the user explicitly asks.
 
+**Example (h) failure.** For a task that renames a config key (e.g., \`sessionDbPath\` →
+\`sessiondb.path\`) whose spec says "Sole consumer is \`~/.config/minsky/config.yaml\`":
+
+\`\`\`
+## Gap Report for mt#1610 (PLANNING — not yet READY)
+
+### Blocking gaps
+- (h) Contract-propagation enumeration: spec claims sole consumer of \`MINSKY_SESSIONDB_*\`
+  is \`~/.config/minsky/config.yaml\` but does not enumerate deployed-environment consumers.
+  Missing: Railway service env vars (\`MINSKY_SESSIONDB_PATH\`, \`MINSKY_SESSIONDB_AUTH_TOKEN\`
+  set on \`minsky-mcp\` Railway service), CI/CD env declarations (\`.github/workflows/\`
+  references), and in-tree service configs (\`services/*/railway.config.ts\`).
+
+### Required actions before READY
+1. Add the Railway env-var consumers to \`## Scope\` → \`In scope\`:
+   "Railway \`minsky-mcp\` service env vars: MINSKY_SESSIONDB_PATH, MINSKY_SESSIONDB_AUTH_TOKEN"
+2. State explicitly whether CI/CD workflows or in-tree service configs reference this key
+   (or confirm they do not after a verified grep).
+
+To re-run the gate after fixes: \`/plan-task mt#1610\`
+\`\`\`
+
+**Example (j) failure.** For a task that amends a spec to label mt#1306 as "source-of-truth state"
+without producing the citation-and-mapping protocol:
+
+\`\`\`
+## Gap Report for mt#1306 amendment (PLANNING — not yet READY)
+
+### Blocking gaps
+- (j) Premise label verification: spec applies the label "source-of-truth state" to mt#1306
+  without producing the four-step protocol. The label triggers gate (j) per the trigger list.
+  Required: cite \`decision-defaults.mdc §Datastores\`; quote the definition verbatim; map
+  mt#1306's properties (derived measurement counts of GitHub-side review data) against the
+  criteria ("authoritative product data the system owns"); state verdict.
+
+### Required actions before READY
+1. Produce the four-step protocol in the spec or amendment.
+2. If the mapping fails, retire the label (and the policy treatment it implied) OR file an
+   Ask to confirm whether a different label fits.
+
+To re-run the gate after fixes: \`/plan-task <task-id>\`
+\`\`\`
+
+**Example (k) failure.** For a task that recommends adopting \`acme-corp/auto-summarizer\`
+(a hypothetical proprietary-licensed GitHub project) as a summarization backend without
+running any verification checks:
+
+\`\`\`
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (k) Third-party tool/dependency verification: spec recommends \`acme-corp/auto-summarizer\`
+  but no verification checks were run. License check via \`gh api repos/acme-corp/auto-summarizer\`
+  returns \`spdx_id: null, license: {name: "Proprietary"}\`. Minsky is commercial; this license
+  is incompatible. Maintenance check: \`archived: false\`, but \`created_at == pushed_at\`
+  (2024-11-03) and \`stargazers_count: 2\` — single-day abandoned project heuristic fires.
+  Install path: \`pip install auto-summarizer\` returns HTTP 404 from PyPI — package does not
+  exist in the registry. Canonical URL: spec links \`github.com/acme-corp/auto-summarizer\`;
+  upstream README references \`acme-corp/summarizer-v2\` which returns 404 — URL mismatch.
+  All four sub-checks block.
+
+### Required actions before READY
+1. Abandon \`acme-corp/auto-summarizer\` as a dependency recommendation — license is
+   Proprietary (incompatible with Minsky's commercial use) and the project appears abandoned.
+2. Research an alternative with a permissive license (MIT, Apache-2.0, BSD-*, ISC) AND
+   active maintenance history. Run all four (k) checks before re-submitting.
+3. Add \`Third-party dependency: <name>\` evidence block to \`## Context\` with the verified
+   license, maintenance signal, install path, and canonical URL for the chosen replacement.
+
+To re-run the gate after fixes: \`/plan-task mt#XXXX\`
+\`\`\`
+
+**Example (m) failure.** For a task whose spec cites the \`project_supabase\` memory to justify
+a "dedicated direct Postgres connection bypassing Supavisor's transaction pooler" without
+producing the three-step citation-and-mapping protocol:
+
+\`\`\`
+## Gap Report for mt#1852 (PLANNING — not yet READY)
+
+### Blocking gaps
+- (m) Factual-claim citation verification: the spec cites \`project_supabase\` to justify a
+  substrate choice ("direct connection bypassing the pooler") but produces no verbatim quote +
+  mapping. Walking gate (m): the memory names the SESSION POOLER (port 5432, same Supavisor) as
+  the LISTEN/NOTIFY-capable alternative — NOT a direct connection bypassing Supavisor. The spec
+  collapsed "session vs transaction pool mode" and "pooled vs direct connection" under the
+  salient phrase "no LISTEN/NOTIFY." Verdict: claim NOT supported.
+
+### Required actions before READY
+1. Produce the three-step protocol: verbatim-quote \`project_supabase\`, map the substrate choice
+   to the quote, state the verdict.
+2. Re-frame the substrate decision to match the source (session-pool mode on the same pooler),
+   or cite a different source that actually supports the direct-connection bypass.
+
+To re-run the gate after fixes: \`/plan-task mt#1852\`
+\`\`\`
+
+**Example (n) failure.** For a task (modeled on mt#2435) that wires a service to post a GitHub
+check-run per review, requiring the App's \`checks:write\` permission, without enumerating the
+precondition or gating on its provisioning status:
+
+\`\`\`
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (n) External-system integration provisioning enumeration: spec adds a new
+  \`octokit.rest.checks.create\` call requiring the \`checks:write\` App permission, but does not
+  enumerate this precondition or state its provisioning status. Cross-checking the App's current
+  permission set: \`checks:write\` is NOT currently granted. A separate provisioning task exists
+  (mt#2500) but the spec does not link it, and mt#2500 is still TODO — provisioning is not yet
+  satisfied.
+
+### Required actions before READY
+1. Add an \`## External preconditions\` subsection (or extend \`## Scope\` → \`In scope\`) naming
+   \`checks:write\` as a required App permission.
+2. Link mt#2500 as the provisioning task, and state explicitly that READY/merge is contingent on
+   mt#2500 reaching DONE (verified, not merely linked) before the check-run path is considered
+   live-functional.
+3. Per \`/implement-task\` §7a/§10, plan for a live \`POST /check-runs\` exercise post-deploy —
+   deploy-SUCCESS alone does not verify the permission is actually granted.
+
+To re-run the gate after fixes: \`/plan-task mt#XXXX\`
+\`\`\`
+
 ## State transition map
 
-| Current status   | Action                                           |
-|------------------|--------------------------------------------------|
-| TODO             | → PLANNING (first step), then investigate + gate |
-| PLANNING         | Skip transition, investigate + gate              |
-| READY            | Report already READY, stop (confirm to re-run)   |
-| IN-PROGRESS      | Out of scope for this skill; inform user         |
-| IN-REVIEW        | Out of scope for this skill; inform user         |
-| DONE             | Out of scope for this skill; inform user         |
-| BLOCKED          | Surface blocker, do not transition               |
+| Current status | Action                                           |
+| -------------- | ------------------------------------------------ |
+| TODO           | → PLANNING (first step), then investigate + gate |
+| PLANNING       | Skip transition, investigate + gate              |
+| READY          | Report already READY, stop (confirm to re-run)   |
+| IN-PROGRESS    | Out of scope for this skill; inform user         |
+| IN-REVIEW      | Out of scope for this skill; inform user         |
+| DONE           | Out of scope for this skill; inform user         |
+| BLOCKED        | Surface blocker, do not transition               |
 
 ## Key constraints
 
@@ -277,7 +1006,7 @@ To re-run the gate after fixes: \`/plan-task mt#X\`
 
 ## Reframe-trigger ergonomics
 
-There is no reliable harness-level intervention that *produces* a reframe. The harness can
+There is no reliable harness-level intervention that _produces_ a reframe. The harness can
 block premature transitions and require audit answers, but it cannot force the agent to
 recognize a structural pattern it has not already seen.
 

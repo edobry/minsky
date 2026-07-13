@@ -4,6 +4,47 @@
 
 The GitHub Issues task backend allows you to use GitHub Issues as your task management system while working with Minsky. Tasks are automatically synchronized between Minsky and GitHub Issues, providing a seamless integration between your development workflow and GitHub's project management features.
 
+## Status: Disabled by Default
+
+The GitHub Issues task backend is **disabled by default**. The configuration flag
+`tasks.githubBackend.enabled` (default `false`) guards backend registration in both
+the explicit-request path and the multi-backend auto-register path.
+
+### Why disabled?
+
+The github-issues backend treats all issues in the repository as tasks (25k+ issues in
+the Minsky repo alone), has had reliability issues (spec-write no-ops, id-mapping bugs,
+pagination bugs), and Minsky's operational default is the Minsky DB backend (`mt#`).
+The flag is reversible — see below to re-enable.
+
+### Enabling the GitHub Issues Backend
+
+Add to your user config (`~/.config/minsky/config.yaml`) or repo config
+(`.minsky/config.yaml`):
+
+```yaml
+tasks:
+  githubBackend:
+    enabled: true
+```
+
+With the flag set, the github backend registers when GitHub credentials
+(`GITHUB_TOKEN`, owner, repo) are present — restoring the behavior from before
+the gate was introduced.
+
+### Error When Disabled
+
+When the flag is `false` (default), any explicit request for the github backend
+— `--backend github`, `--backend github-issues`, or via the MCP `backend` parameter —
+returns this error:
+
+```
+GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+```
+
+In multi-backend mode (no explicit `--backend`), the backend is silently skipped with
+an info log; `tasks_create` with no backend creates an `mt#` Minsky task as usual.
+
 ## Features
 
 - **Automatic Task Synchronization**: Create, update, and manage tasks that sync with GitHub Issues
@@ -86,11 +127,11 @@ version: 1
 # Task Backend Configuration
 backend: "github-issues"
 
-# Persistence Configuration
+# Persistence Configuration (Postgres is the only supported backend — mt#2339)
 persistence:
-  backend: "sqlite"
-  sqlite:
-    dbPath: "~/.local/state/minsky/sessions.db"
+  backend: "postgres"
+  postgres:
+    connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
 ```
 
 ### Step 4: Verify Setup
@@ -161,9 +202,9 @@ backendConfig:
       CLOSED: "minsky:closed"
 
 persistence:
-  backend: "sqlite"
-  sqlite:
-    dbPath: "~/.local/state/minsky/sessions.db"
+  backend: "postgres"
+  postgres:
+    connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
 ```
 
 ## Troubleshooting

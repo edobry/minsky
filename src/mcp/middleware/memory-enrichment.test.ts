@@ -19,12 +19,12 @@ import {
   isEnrichmentEnabled,
   shouldEnrich,
 } from "./memory-enrichment";
-import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type {
   MemoryRecord,
   MemorySearchResponse,
   MemorySearchResult,
-} from "../../domain/memory/types";
+} from "@minsky/domain/memory/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,6 +45,7 @@ function makeMemoryRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
     confidence: null,
     supersededBy: null,
     metadata: null,
+    associations: {},
     createdAt: new Date(),
     updatedAt: new Date(),
     lastAccessedAt: null,

@@ -1,6 +1,6 @@
-import { log } from "../../../../utils/logger";
-import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import { log } from "@minsky/shared/logger";
+import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 const STARTUP_SWEEP_LIMIT = 50;
 const STARTUP_SWEEP_CONCURRENCY = 2;
@@ -16,7 +16,7 @@ export async function triggerStartupEmbeddingSweep(
   taskService: TaskServiceInterface
 ): Promise<void> {
   // Check config gate
-  const { getConfiguration } = await import("../../../../domain/configuration");
+  const { getConfiguration } = await import("@minsky/domain/configuration");
   const cfg = getConfiguration();
   if (cfg.embeddings?.autoIndex === false) return;
 
@@ -59,7 +59,10 @@ export async function triggerStartupEmbeddingSweep(
         if (changed) indexed++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/insufficient_quota/i.test(msg)) break; // Stop on billing issues
+        if (/insufficient_quota/i.test(msg)) {
+          log.warn("Startup sweep: OpenAI quota exhausted (insufficient_quota) — stopping");
+          break;
+        }
         failed++;
       }
     }

@@ -88,11 +88,17 @@ Claude Code
 │  │  • tools/list response      │   │
 │  │    → augment with           │   │
 │  │      __proxy_restart_server │   │
+│  │  • __proxy_ready_probe_*    │   │
+│  │    response (mt#2011)       │   │
+│  │    → swallow + emit         │   │
+│  │      tools/list_changed     │   │
 │  │  • all other frames         │   │
 │  │    → pass through verbatim  │   │
 │  └─────────────────────────────┘   │
 └─────────────────────────────────────┘
-    │  (stdout)
+    │  (stdout: child responses +
+    │   proxy-injected notifications/
+    │   tools/list_changed on respawn)
     ▼
 Claude Code
 ```
@@ -111,15 +117,42 @@ Paths through the proxy:
   exit as `clean_exit`, tears down the old Transform streams, and schedules a respawn
   after `RESPAWN_DELAY_MS` (200 ms). A fresh child is spawned with the same command
   and args. New Transform streams are wired. The proxy's stdin/stdout remain open
-  throughout. Claude Code sees no disconnect.
+  throughout. Claude Code sees no disconnect. After the fresh child confirms
+  readiness via the ping probe (see below), the proxy emits
+  `notifications/tools/list_changed` so Claude Code refreshes its tools/list
+  cache without operator action.
 
 - **Agent-initiated restart (`__proxy_restart_server`):** Claude Code writes a
   `tools/call` JSON-RPC frame with `params.name === "__proxy_restart_server"`. The
   inbound transform detects this, swallows the frame (does not forward to the child),
   and calls `handleProxyRestart()`. The proxy kills the current child (SIGTERM →
-  SIGKILL grace), tears down pipes, spawns a fresh child, waits 300 ms for the child
-  to start, and writes a `tools/call` success response directly to stdout. Claude
-  Code receives the response and can immediately use the refreshed tool list.
+  SIGKILL grace), tears down pipes, spawns a fresh child, AWAITS the ping
+  readiness probe (semantic ready signal; replaces the prior blanket 300ms
+  wait), emits `notifications/tools/list_changed`, then writes the
+  `tools/call` success response directly to stdout. Claude Code therefore
+  sees notification-then-response, refreshes its tools/list cache, and can
+  immediately use the refreshed tool list.
+
+- **Ping readiness probe + tools-list-changed emission (mt#2011):** After
+  every successful `spawnChild()` call, the proxy synthesizes a JSON-RPC
+  `ping` request with id `__proxy_ready_probe_<spawnCount>` and writes it
+  to the fresh child's stdin. Per the MCP spec, `ping` is a transport-layer
+  liveness method handled by the SDK's base `Protocol` class without
+  requiring prior `initialize`, so the probe works against a child that
+  has not seen a client handshake on this respawn. The outbound transform
+  recognises the probe response by id prefix and:
+  1. Swallows the response (does NOT forward upstream).
+  2. On respawns (`spawnCount > 1`), writes
+     `{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}` to
+     `process.stdout` so Claude Code refreshes its tools cache.
+  3. On the initial spawn (`spawnCount === 1`), the notification is
+     skipped — Claude Code's session-start `initialize` handshake is
+     still in flight, and a notification then is premature.
+     The probe has a 2-second timeout fallback: if the child does not respond
+     in time, the notification is emitted anyway as best-effort (better to
+     race the inner's startup than to silently leave the cache stale). The
+     reserved `__proxy_ready_probe_` prefix is reserved by the proxy; no
+     external client should ever send a request with this prefix.
 
 ## `__proxy_restart_server` tool contract
 

@@ -57,7 +57,7 @@ Eugene's stated goal is to **offload more Minsky work to the agent as Eugene ope
 
 Per `humility.mdc §Escalation packaging` and `decision-defaults.mdc §Multi-step direction execution`, principal-level decisions stay with Eugene:
 
-- Naming (product names, customer-facing terms, domain naming that sets precedent)
+- Naming (product names, customer-facing terms, domain naming that sets precedent, agent self-presentation to external parties — handles, bios, attribution on third-party surfaces)
 - Architectural moves that affect customer experience or product surface
 - Authorization for shared / production state changes
 - Scope changes to in-flight work

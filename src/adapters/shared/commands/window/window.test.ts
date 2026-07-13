@@ -23,11 +23,11 @@ import {
   type StdinReader,
   type WindowServiceResult,
 } from "./index";
-import { createRecordingWindowNotifier } from "../../../../domain/ask/attention-windows/notify";
-import type { AttentionWindowConfig } from "../../../../domain/ask/attention-windows/config";
-import type { LoaderFs } from "../../../../domain/ask/attention-windows/loader";
-import { FakeAskRepository } from "../../../../domain/ask/repository";
-import type { Ask, AskKind, AskOption } from "../../../../domain/ask/types";
+import { createRecordingWindowNotifier } from "@minsky/domain/ask/attention-windows/notify";
+import type { AttentionWindowConfig } from "@minsky/domain/ask/attention-windows/config";
+import type { LoaderFs } from "@minsky/domain/ask/attention-windows/loader";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import type { Ask, AskKind, AskOption } from "@minsky/domain/ask/types";
 
 // ---------------------------------------------------------------------------
 // Test fixtures

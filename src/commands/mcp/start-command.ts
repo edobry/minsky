@@ -10,42 +10,49 @@ import { Command } from "commander";
 // remain top-level since TS erases them at runtime.
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
-import { log } from "../../utils/logger";
+import { RetryingInitController } from "../../mcp/init-retry";
+import { log } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
-import { exit } from "../../utils/process";
-import { registerDebugTools } from "../../adapters/mcp/debug";
-import { registerGitTools } from "../../adapters/mcp/git";
-import { registerRepoTools } from "../../adapters/mcp/repo";
-import { registerInitTools } from "../../adapters/mcp/init";
-import { registerRulesTools } from "../../adapters/mcp/rules";
-import { registerSessionTools } from "../../adapters/mcp/session";
+import { exit } from "@minsky/shared/process";
+import { CommandCategory } from "../../adapters/shared/command-registry";
+import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
-import { registerPersistenceTools } from "../../adapters/mcp/persistence";
-import { registerTaskTools } from "../../adapters/mcp/tasks";
-import { registerChangesetTools } from "../../adapters/mcp/changeset";
-import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
-import { registerValidateTools } from "../../adapters/mcp/validate";
-import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
-import { registerMemoryTools } from "../../adapters/mcp/memory";
-import { registerDetectorsTools } from "../../adapters/mcp/detectors";
+import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
-import { setHostedMode } from "../../domain/configuration/guard";
+
+// Re-export the dispatch table for consumers that prefer importing from
+// `start-command.ts`. Source of truth: `./discovery-config.ts` — a side-
+// effect-free module that smoke scripts and unit tests can import without
+// pulling in the MCP-server / HTTP / OAuth dependency graph.
+//
+// mt#2037: the prior exclusion-constant re-export was deleted alongside
+// the constant itself. No in-repo consumers ever imported it; out-of-repo
+// consumers (if any exist) would need to update their imports to remove
+// the deleted symbol. The deletion is intentional, not a backward-compat
+// break — the symbol has zero realistic consumers per the mt#2017 caller-
+// graph analysis.
+export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
+import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
-import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
-import type { AppContainerInterface } from "../../composition/types";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
+import {
+  isInstructionsBundleEnabled,
+  composeMemoryBundle,
+} from "../../mcp/middleware/memory-bundle";
 // mt#1719 Intervention 2: `resolveOAuthProvider` top-level import deferred —
 // pulls in `oidc-provider` + Koa middleware closure (~30-50ms estimated).
 // Sole call site is inside `if (transportType === "http" && container)`
 // block, so stdio mode never needs it. The type imports below are erased
 // at runtime by TypeScript and stay top-level.
-import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
-import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
+import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 import { profileCheckpoint } from "../../utils/cold-start-profile";
 
 const DEFAULT_HTTP_PORT = 3000;
@@ -196,10 +203,27 @@ export function injectAgentIdMeta(
 
 /**
  * Register all MCP tool adapters on the given command mapper.
+ *
+ * Uses a discovery loop over `Object.values(CommandCategory)` (mt#2010,
+ * subsumes mt#1521). Categories in `MCP_CATEGORY_ADAPTERS` use their
+ * per-category adapter(s) (preserving per-command overrides); categories
+ * without an entry are auto-bridged via `registerSharedCommandsWithMcp`.
+ *
+ * Native MCP tools (session-workspace, session-files, session-edit-tools)
+ * register directly via `commandMapper.addCommand` rather than going through
+ * the shared command registry, so they are NOT covered by the discovery loop —
+ * they are invoked explicitly below.
+ *
+ * mt#2037: the prior narrowed-deployment opt-out (mt#1521 / mt#1227 / mt#1254
+ * hook) was deleted per the mt#2017 investigation — none of the realistic
+ * narrowing use cases needed the boot-time function-parameter shape.
+ * Per-request narrowing belongs at OAuth-scope (mt#1666); per-deployment
+ * belongs at env-var read in `createStartCommand`. See ADR-011 §Retraction
+ * and the inline comment in discovery-config.ts.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): Promise<void> {
   // mt#1751: Tool handlers (which need persistence) await the server's
   // `initPromise` before dispatching, so the container is NOT eagerly
@@ -221,33 +245,36 @@ async function registerAllTools(
     );
   }
 
-  // Register debug tools first to ensure they're available for debugging
-  registerDebugTools(commandMapper, container);
-
-  // Register main application tools
-  log.debug("[MCP] About to register task tools");
-  registerTaskTools(commandMapper, container);
-  log.debug("[MCP] About to register session tools");
-  registerSessionTools(commandMapper, container);
+  // Native MCP tools — registered directly via commandMapper.addCommand
+  // (NOT bridged through the shared command registry). These are session
+  // file/edit tools with bespoke runtime semantics; the discovery loop
+  // below covers everything else.
   registerSessionWorkspaceTools(commandMapper, container);
   registerSessionFileTools(commandMapper, container);
   registerSessionEditTools(commandMapper, container);
 
-  // Register persistence tools for agent querying
-  log.debug("[MCP] About to register persistence tools");
-  registerPersistenceTools(commandMapper, container);
-
-  registerGitTools(commandMapper, container);
-  registerRepoTools(commandMapper, container);
-
-  registerInitTools(commandMapper, container);
-  registerRulesTools(commandMapper, container);
-  registerConfigTools(commandMapper, container);
-  registerChangesetTools(commandMapper, container);
-  registerValidateTools(commandMapper, container);
-  registerMcpManagementTools(commandMapper, container);
-  registerMemoryTools(commandMapper, container);
-  registerDetectorsTools(commandMapper, container);
+  // Discovery loop: every CommandCategory gets bridged exactly once. Dispatch
+  // to per-category adapter(s) if registered; otherwise auto-bridge with no
+  // overrides. New categories added to the enum + registered with shared
+  // commands surface in MCP `tools/list` without editing this file.
+  for (const category of Object.values(CommandCategory)) {
+    const adapters = MCP_CATEGORY_ADAPTERS[category];
+    if (adapters && adapters.length > 0) {
+      log.debug(`[MCP] Registering category ${category} via ${adapters.length} adapter(s)`);
+      for (const adapter of adapters) {
+        adapter(commandMapper, container);
+      }
+    } else {
+      // Auto-bridge: no per-category adapter, no overrides. The bridge
+      // function is idempotent on empty categories (CORE has no commands),
+      // so this is safe to call unconditionally.
+      log.debug(`[MCP] Auto-bridging category ${category} (no per-category adapter)`);
+      registerSharedCommandsWithMcp(commandMapper, {
+        categories: [category],
+        container,
+      });
+    }
+  }
 }
 
 /**
@@ -297,6 +324,43 @@ function resolveProjectContext(
 export function composeRequestBaseUrl(req: import("express").Request): string {
   const host = req.hostname || "localhost";
   return `${req.protocol}://${host}`;
+}
+
+/**
+ * Build the RFC 9728 §5.1 `WWW-Authenticate: Bearer ...` challenge for a 401
+ * from the OAuth-protected MCP endpoint. Always includes the `resource_metadata`
+ * parameter pointing at this server's protected-resource-metadata document
+ * (`${baseUrl}/.well-known/oauth-protected-resource`), so a spec-compliant MCP
+ * client can discover the authorization server straight from the 401 instead of
+ * having to know to probe the well-known path itself. Optional RFC 6750
+ * `error` / `error_description` parameters describe an invalid/expired/revoked
+ * token. The base URL is derived from the request (honoring `trust proxy`), so
+ * it matches the URL the client actually used to reach the resource. mt#2493.
+ */
+/**
+ * Escape a value for use inside an RFC 7230 `quoted-string` (the form
+ * `WWW-Authenticate` auth-param values take). Backslash MUST be escaped before
+ * the double-quote, otherwise the backslash inserted to escape a `"` would
+ * itself be re-escaped. Today's callers pass fixed token-like strings, but the
+ * helper is exported, so this guards a future caller from passing a value with
+ * a `"` or `\` that would otherwise break header framing or inject a parameter.
+ */
+function escapeQuotedString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export function composeWwwAuthenticate(
+  req: import("express").Request,
+  opts?: { error?: string; errorDescription?: string }
+): string {
+  const resourceMetadataUrl = `${composeRequestBaseUrl(req)}/.well-known/oauth-protected-resource`;
+  const params: string[] = [];
+  if (opts?.error) params.push(`error="${escapeQuotedString(opts.error)}"`);
+  if (opts?.errorDescription) {
+    params.push(`error_description="${escapeQuotedString(opts.errorDescription)}"`);
+  }
+  params.push(`resource_metadata="${escapeQuotedString(resourceMetadataUrl)}"`);
+  return `Bearer ${params.join(", ")}`;
 }
 
 /**
@@ -397,6 +461,8 @@ async function startHttpServer(
         // OAuth-token path: try to validate as an OAuth-issued token.
         const bearer = extractBearer(header);
         if (!bearer) {
+          // mt#2493: advertise OAuth discovery on the 401 per RFC 9728 §5.1.
+          res.set("WWW-Authenticate", composeWwwAuthenticate(req));
           res.status(401).json({
             error: "unauthorized",
             message: "valid bearer token required",
@@ -429,6 +495,13 @@ async function startHttpServer(
                 : oauthResult.reason === "revoked"
                   ? "token revoked"
                   : "invalid token";
+          // mt#2493: advertise OAuth discovery + the RFC 6750 token error on the
+          // 401 per RFC 9728 §5.1, so a spec-compliant client can re-discover and
+          // re-authorize.
+          res.set(
+            "WWW-Authenticate",
+            composeWwwAuthenticate(req, { error: errorCode, errorDescription: description })
+          );
           res.status(401).json({
             error: errorCode,
             error_description: description,
@@ -455,6 +528,11 @@ async function startHttpServer(
         }
       } else {
         // No OAuth provider available; static-bearer check already failed.
+        // mt#2493: emit a bare RFC 6750 Bearer challenge. No `resource_metadata`
+        // here — without an OAuth provider the
+        // `/.well-known/oauth-protected-resource` route is not registered, so
+        // there is nothing to advertise for discovery.
+        res.set("WWW-Authenticate", "Bearer");
         res.status(401).json({
           error: "unauthorized",
           message: "valid bearer token required",
@@ -724,7 +802,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return null;
 
-    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     if (!(persistence instanceof PersistenceProvider)) return null;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return null;
@@ -733,7 +811,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     if (!connection) return null;
 
     const { DrizzleWakePendingRepository } = await import(
-      "../../domain/ask/wake-pending-repository"
+      "@minsky/domain/ask/wake-pending-repository"
     );
     const wakeRepo = new DrizzleWakePendingRepository(
       connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
@@ -742,7 +820,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     const sessionProvider = container.has("sessionProvider")
       ? (container.get(
           "sessionProvider"
-        ) as import("../../domain/session/types").SessionProviderInterface)
+        ) as import("@minsky/domain/session/types").SessionProviderInterface)
       : undefined;
 
     const resolver: import("../../mcp/middleware/wake-enrichment").SessionResolver = {
@@ -783,7 +861,7 @@ async function buildMemoryServiceForSpike(
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return null;
 
-    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     if (!(persistence instanceof PersistenceProvider)) return null;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return null;
@@ -792,12 +870,12 @@ async function buildMemoryServiceForSpike(
     if (!connection) return null;
 
     const { createEmbeddingServiceFromConfig } = await import(
-      "../../domain/ai/embedding-service-factory"
+      "@minsky/domain/ai/embedding-service-factory"
     );
     const embeddingService = await createEmbeddingServiceFromConfig();
 
     const { createVectorStorageForDomain } = await import(
-      "../../domain/storage/vector/vector-storage-factory"
+      "@minsky/domain/storage/vector/vector-storage-factory"
     );
     const vectorStorage = await createVectorStorageForDomain(
       "memory",
@@ -805,8 +883,8 @@ async function buildMemoryServiceForSpike(
       persistence
     );
 
-    const { MemoryService } = await import("../../domain/memory");
-    type MemoryServiceDb = import("../../domain/memory/memory-service").MemoryServiceDb;
+    const { MemoryService } = await import("@minsky/domain/memory");
+    type MemoryServiceDb = import("@minsky/domain/memory/memory-service").MemoryServiceDb;
     return new MemoryService({
       db: connection as MemoryServiceDb,
       vectorStorage,
@@ -827,8 +905,8 @@ async function buildMemoryServiceForSpike(
  * resolved. After this call, `debug.systemInfo` returns real dispatch cadence
  * aggregates rather than the zero-filled no-op defaults.
  *
- * Returns null when persistence is unavailable (CLI path, SQLite-only
- * deployment, or construction failure) — the singleton stays as the no-op
+ * Returns null when persistence is unavailable (CLI path, no Postgres
+ * connection, or construction failure) — the singleton stays as the no-op
  * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
  *
  * @see mt#1738 — this wiring
@@ -839,7 +917,7 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return false;
 
-    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     if (!(persistence instanceof PersistenceProvider)) return false;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return false;
@@ -847,10 +925,10 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     const connection = await persistence.getDatabaseConnection();
     if (!connection) return false;
 
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
-    SubagentDispatchTracker.setInstance(
-      connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
-    );
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
   } catch (err) {
     log.debug("[mt#1738] buildSubagentDispatchTracker threw", {
@@ -861,10 +939,44 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
 }
 
 /**
+ * Wire the EmbeddingsHealthTracker singleton to a production EventEmitter (mt#2147).
+ *
+ * Called once the DB connection is resolved. After this call, the tracker can
+ * emit `embeddings.provider_degraded` events to the `system_events` table.
+ * Without this wiring, the tracker still tracks health in-memory (for
+ * debug_systemInfo) but cannot persist events.
+ */
+async function wireEmbeddingsHealthTracker(container: AppContainerInterface): Promise<boolean> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return false;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return false;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return false;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return false;
+
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    const { EmbeddingsHealthTracker } = await import("@minsky/domain/ai/embeddings-health-tracker");
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    EmbeddingsHealthTracker.getInstance().setEventEmitter(createEventEmitter(db));
+    return true;
+  } catch (err) {
+    log.debug("[mt#2147] wireEmbeddingsHealthTracker threw", {
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
-  container?: import("../../composition/types").AppContainerInterface
+  externalContainer?: import("@minsky/domain/composition/types").AppContainerInterface
 ): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the MCP server");
@@ -898,6 +1010,15 @@ export function createStartCommand(
         // SAME baseline (set at cli.ts module load).
         profileCheckpoint("action_entry");
 
+        // mt#2098: When no container is passed (standalone MCP server boot
+        // without the CLI composition root), create one from the portable
+        // domain bootstrap. This makes the MCP server independently bootable.
+        let container = externalContainer;
+        if (!container) {
+          const { createDomainContainer } = await import("@minsky/domain/composition/domain");
+          container = await createDomainContainer();
+        }
+
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
@@ -926,6 +1047,43 @@ export function createStartCommand(
           container.set("clientCapabilityRegistry", clientCapabilityRegistry);
         }
 
+        // mt#1625 spike: compose the static memory bundle BEFORE the
+        // MinskyMCPServer constructor so the SDK Server receives the bundle
+        // natively via its `instructions` constructor option. No embedding
+        // call is needed (list by accessCount, not semantic search), so this
+        // adds ~10-50ms to cold start rather than ~835ms. R1 BLOCKING #2 fix
+        // — replaces the previous post-construction private-field mutation.
+        let instructionsBundle: string | undefined;
+        if (isInstructionsBundleEnabled()) {
+          if (container) {
+            try {
+              const memSvcForBundle = await buildMemoryServiceForSpike(container);
+              if (memSvcForBundle) {
+                const bundle = await composeMemoryBundle(memSvcForBundle);
+                if (bundle) {
+                  instructionsBundle = bundle;
+                  log.debug("[mt#1625] Instructions bundle composed", {
+                    bundleChars: bundle.length,
+                  });
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#1625] Instructions bundle composition failed; proceeding without it", {
+                error: getErrorMessage(err),
+              });
+            }
+          } else {
+            // R1 NON-BLOCKING #2: explicit diagnostic for the
+            // flag-set-but-container-absent case (some test/CLI paths invoke
+            // mcp start without a DI container). Previously this was silently
+            // skipped, leaving operators puzzled about why the env var had no
+            // effect.
+            log.cli(
+              "[mt#1625] MINSKY_MCP_INSTRUCTIONS_BUNDLE is set but no DI container is available — bundle composition skipped. This flag requires a persistence-backed container."
+            );
+          }
+        }
+
         // Prepare server configuration
         const serverConfig = {
           name: "Minsky MCP Server",
@@ -933,6 +1091,7 @@ export function createStartCommand(
           projectContext,
           transportType: transportType as "stdio" | "http",
           clientCapabilityRegistry,
+          ...(instructionsBundle && { instructions: instructionsBundle }),
           ...(transportType === "http" && {
             httpConfig: {
               port: parseInt(options.port, 10),
@@ -973,28 +1132,80 @@ export function createStartCommand(
         // HTTP mode, preAction (`src/cli.ts`) has already initialized
         // synchronously — no defer needed (Profile B is long-lived).
         if (container && transportType === "stdio" && !container.has("persistence")) {
-          const initPromise = container.initialize().then(() => {
-            profileCheckpoint("background_container_initialized");
-          });
-
-          // PR #1063 R2 BLOCKING: attach a SIDE-EFFECT-ONLY log catch on a
-          // FORKED reference (not the one passed to setInitPromise). This
-          // consumes the rejection so Node never emits `unhandledRejection`
-          // if init fails and no tool call ever awaits — the side `.catch`
-          // attaches a handler to a copy of the chain, preventing the
-          // unhandled-rejection hazard. The ORIGINAL `initPromise` remains
-          // rejecting; when a tool call awaits via `server.initPromise`
-          // (see server.ts CallTool handler), the error surfaces to the
-          // MCP client with the actual root cause (DB connection failure,
-          // missing config, etc.) — NOT a downstream "Service ... is not
-          // available" symptom.
-          initPromise.catch((err: unknown) => {
-            log.error("[mt#1751] background container.initialize() failed", {
-              error: getErrorMessage(err),
+          // mt#1962: retry-aware controller. Pre-mt#1962 this site stored a
+          // single long-lived `Promise<void>` whose rejection would poison
+          // every subsequent tool call indefinitely (promises are at-most-
+          // once; the side-effect-only `.catch` for logging didn't reset
+          // the original promise's rejected state). A single transient
+          // init failure (DB unreachable, missing migrations folder, slow
+          // Postgres handshake, port collision) became a hard outage that
+          // required `proxy_restart_server` or process kill to clear.
+          //
+          // The controller tracks attempt state and re-invokes the
+          // initializer on demand when a prior attempt rejected (subject
+          // to a 30s default backoff so repeated failures don't tight-
+          // loop the database; tunable via MINSKY_MCP_INIT_RETRY_INTERVAL_MS
+          // for environments with different recovery cadences). Concurrent
+          // tool calls during an in-flight retry collapse to a single
+          // `container.initialize()` invocation.
+          const DEFAULT_INIT_RETRY_INTERVAL_MS = 30_000;
+          const rawInterval = Number.parseInt(
+            process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS ?? "",
+            10
+          );
+          const minRetryIntervalMs =
+            Number.isFinite(rawInterval) && rawInterval > 0
+              ? rawInterval
+              : DEFAULT_INIT_RETRY_INTERVAL_MS;
+          if (rawInterval && minRetryIntervalMs !== rawInterval) {
+            log.warn("[mt#1962] MINSKY_MCP_INIT_RETRY_INTERVAL_MS invalid; using default", {
+              raw: process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS,
+              defaultMs: DEFAULT_INIT_RETRY_INTERVAL_MS,
             });
+          }
+          log.debug("[mt#1962] init retry controller", { minRetryIntervalMs });
+          const initController = new RetryingInitController({
+            initializer: () =>
+              container.initialize().then(() => {
+                profileCheckpoint("background_container_initialized");
+              }),
+            minRetryIntervalMs,
+            onAttemptSettled: (result) => {
+              if (result.error === undefined) {
+                if (result.attempt > 1) {
+                  // PR #1188 R1 NB1: success-on-retry is good news, not an
+                  // actionable warning. Operators expect WARN to be actionable;
+                  // log at info instead so transient self-heal doesn't generate
+                  // alert noise.
+                  log.info("[mt#1962] container.initialize() succeeded on retry", {
+                    attempt: result.attempt,
+                  });
+                }
+                return;
+              }
+              log.error("[mt#1962] container.initialize() failed", {
+                attempt: result.attempt,
+                consecutiveFailures: result.consecutiveFailures,
+                error: getErrorMessage(result.error),
+              });
+            },
           });
 
-          server.setInitPromise(initPromise);
+          // PR #1063 R2 BLOCKING (preserved across mt#1962): kick off the
+          // first attempt eagerly in the background, preserving mt#1751's
+          // cold-start optimization (DI runs while the MCP `initialize`
+          // handshake proceeds in parallel). The side-effect-only `.catch`
+          // on a FORKED reference consumes the rejection so Node never
+          // emits `unhandledRejection` if init fails and no tool call ever
+          // awaits — the controller's internal state stays intact and a
+          // later tool-call `awaitReady()` surfaces the rejection (or
+          // triggers a retry, subject to backoff). The structured log line
+          // is emitted via `onAttemptSettled`, not from here.
+          initController.awaitReady().catch(() => {
+            // Side-effect-only; controller logs via onAttemptSettled.
+          });
+
+          server.setInitController(initController);
           profileCheckpoint("background_init_kicked_off");
         }
 
@@ -1074,6 +1285,78 @@ export function createStartCommand(
             });
         }
 
+        // mt#2265: wire the ask state-counts provider so debug.systemInfo
+        // surfaces asks count-by-state (the stuck-pipeline detector). Same
+        // fire-and-forget pattern as SubagentDispatchTracker above.
+        if (container) {
+          import("../../adapters/shared/commands/asks")
+            .then(async ({ buildAskRepository }) => {
+              const repo = await buildAskRepository(container);
+              if (repo) {
+                const { setAskStateCountsRepository } = await import(
+                  "@minsky/domain/ask/state-counts-provider"
+                );
+                setAskStateCountsRepository(repo);
+                log.debug("[mt#2265] Ask state-counts provider wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#2265] Ask state-counts provider unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#2147: wire the EmbeddingsHealthTracker singleton so it can emit
+        // embeddings.provider_degraded events to system_events. Same fire-and-
+        // forget pattern as SubagentDispatchTracker above.
+        if (container) {
+          wireEmbeddingsHealthTracker(container)
+            .then((wired) => {
+              if (wired) {
+                log.debug("[mt#2147] EmbeddingsHealthTracker wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#2147] EmbeddingsHealthTracker unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#2562/mt#2567: Pre-warm the PresenceClaimRepository so writeTaskClaim's
+        // first call skips the per-call DB connection build (fast-path optimization).
+        // This is now a WARM-UP ONLY — writeTaskClaim has its own per-call fallback
+        // that builds the repo from the container on every call when this hasn't fired.
+        // So if this async block doesn't complete before the first tool call (e.g.
+        // on a proxy/staleness-respawned server), the write path still works.
+        if (container) {
+          (async () => {
+            try {
+              const { buildPresenceClaimRepository } = await import(
+                "@minsky/domain/presence/index"
+              );
+              const provider = container.has("persistence")
+                ? (container.get("persistence") as {
+                    getDatabaseConnection?: () => Promise<unknown>;
+                  })
+                : undefined;
+              if (provider?.getDatabaseConnection) {
+                const db = await provider.getDatabaseConnection();
+                const repo = buildPresenceClaimRepository(db);
+                if (repo) {
+                  server.setPresenceClaimRepository(repo);
+                  log.debug("[mt#2562] PresenceClaimRepository pre-warmed");
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#2562] PresenceClaimRepository pre-warm unavailable", {
+                error: getErrorMessage(err),
+              });
+            }
+          })();
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
         profileCheckpoint("knowledge_resources_registered");
@@ -1099,11 +1382,11 @@ export function createStartCommand(
                 // Read oauth config from the configuration subsystem (best-effort).
                 // Falls back to undefined so the provider uses its defaults
                 // (provider = "in-process", issuer derived from request host).
-                let oauthConfig: import("../../domain/configuration/schemas/oauth").OAuthConfig;
+                let oauthConfig: import("@minsky/domain/configuration/schemas/oauth").OAuthConfig;
                 try {
-                  const { getConfiguration } = await import("../../domain/configuration/index");
+                  const { getConfiguration } = await import("@minsky/domain/configuration/index");
                   const fullConfig = getConfiguration() as {
-                    oauth?: import("../../domain/configuration/schemas/oauth").OAuthConfig;
+                    oauth?: import("@minsky/domain/configuration/schemas/oauth").OAuthConfig;
                   };
                   oauthConfig = fullConfig.oauth;
                 } catch {
@@ -1112,7 +1395,7 @@ export function createStartCommand(
                 // mt#1719 Intervention 2: function-local dynamic import.
                 // OAuth provider pulls in oidc-provider + Koa middleware
                 // closure; deferring keeps it off the stdio import graph.
-                const { resolveOAuthProvider } = await import("../../domain/oauth/registry");
+                const { resolveOAuthProvider } = await import("@minsky/domain/oauth/registry");
                 oauthProvider = resolveOAuthProvider(oauthConfig, {
                   db,
                   endpointPath: normalizeEndpointPath(options.endpoint),
@@ -1169,6 +1452,15 @@ export function createStartCommand(
           }
         }
 
+        // mt#1625 spike: compose the static memory bundle for `instructions`
+        // injection at MCP `initialize`. Unlike the mt#1588 middleware (which
+        // is fire-and-forget), this MUST be awaited before server.start() so
+        // the bundle is in place when the first `initialize` handshake arrives.
+        // No embedding call is needed (list by accessCount, not semantic search),
+        // so this adds ~10-50ms to cold start rather than ~835ms.
+        // R1 BLOCKING #2 fix: bundle is now composed BEFORE server construction
+        // and passed via `serverConfig.instructions`. See the block above.
+
         // Start the server
         if (transportType === "http") {
           await startHttpServer(
@@ -1204,6 +1496,36 @@ export function createStartCommand(
             );
           })
           .catch(() => {}); // Embedding sweep is best-effort
+
+        // Fire-and-forget background transcript ingest for new JSONL sessions (mt#2051)
+        import("../../adapters/shared/commands/transcripts/startup-transcript-ingest")
+          .then(({ triggerStartupTranscriptIngest }) => {
+            if (!container) return;
+            return triggerStartupTranscriptIngest(container.get("persistence"));
+          })
+          // mt#2192 (SC2): de-silence the boot sweep — a failed startup ingest
+          // must leave an operator-findable signal, not vanish into .catch(()=>{}).
+          .catch((err) => {
+            log.warn("Startup transcript ingest failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
+        // Fire-and-forget background sweep bridging the disconnect-tracker's
+        // JSONL log into `system_events` as `mcp.disconnect` rows (mt#2537).
+        // HWM-gated internally so repeated boots (the MCP server restarts
+        // frequently — see CLAUDE.md's disconnect-cadence rule) only emit new
+        // disconnects since the last successful sweep.
+        import("../../mcp/disconnect-event-sweep")
+          .then(({ triggerMcpDisconnectEventSweep }) => {
+            if (!container) return;
+            return triggerMcpDisconnectEventSweep(container.get("persistence"));
+          })
+          .catch((err) => {
+            log.warn("mcp.disconnect event sweep failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
 
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start
@@ -1304,10 +1626,12 @@ export function createStartCommand(
           }
         };
 
-        const proc = process as Record<string, unknown>;
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
+        // process.on is on the NodeJS.Process EventEmitter API; direct call
+        // satisfies both TS and the no-excessive-as-unknown lint rule.
+        // Retired prior bracket-notation cast workaround per mt#1981.
+        process.on("SIGTERM", cleanup);
+        process.on("SIGINT", cleanup);
+        process.on("SIGHUP", cleanup);
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard

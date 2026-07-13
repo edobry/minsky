@@ -5,7 +5,7 @@
  * output, with and without per-value source annotations.
  */
 
-import { TaskBackend } from "../../../../domain/configuration/backend-detection";
+import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import {
   getBackendDisplayName,
   getSessionBackendDisplayName,
@@ -35,7 +35,7 @@ export function formatResolvedConfigurationWithSources(
   // Task Storage
   const taskBackend = r.tasks?.backend || r.backend;
   const persistenceConfig = r.persistence;
-  const persistenceBackend = persistenceConfig?.backend || "sqlite";
+  const persistenceBackend = persistenceConfig?.backend || "postgres";
 
   // Don't show separate task storage if it's using the same database as persistence
   if (taskBackend === "minsky" && persistenceBackend === "postgres") {
@@ -182,7 +182,7 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
   const taskBackend = r.tasks?.backend || r.backend;
   const persistenceConfig = r.persistence;
-  const persistenceBackend = persistenceConfig?.backend || "sqlite";
+  const persistenceBackend = persistenceConfig?.backend || "postgres";
 
   // Don't show separate task storage if it's using the same database as persistence
   if (taskBackend === "minsky" && persistenceBackend === "postgres") {
@@ -235,7 +235,7 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   if (persistenceConfig) {
     // Only show separate persistence if tasks aren't using the same backend
     const innerTaskBackend = r.tasks?.backend || r.backend;
-    const innerPersistenceBackend = persistenceConfig.backend || "sqlite";
+    const innerPersistenceBackend = persistenceConfig.backend || "postgres";
 
     if (innerTaskBackend === "minsky" && innerPersistenceBackend === "postgres") {
       // Both using same database - don't duplicate
@@ -245,12 +245,7 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
       output += `   • Backend: ${getSessionBackendDisplayName(innerPersistenceBackend)}\n`;
     }
 
-    if (innerPersistenceBackend === "sqlite" && persistenceConfig.sqlite?.dbPath) {
-      output += `   • Database: ${persistenceConfig.sqlite.dbPath}\n`;
-    } else if (
-      innerPersistenceBackend === "postgres" &&
-      persistenceConfig.postgres?.connectionString
-    ) {
+    if (innerPersistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
       output += "   • Connection: configured\n";
     }
   }

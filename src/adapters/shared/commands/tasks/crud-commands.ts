@@ -7,8 +7,8 @@
 import { type CommandExecutionContext } from "../../command-registry";
 // Domain task functions are lazy-imported inside execute methods to avoid
 // loading the entire domain layer at command registration time.
-import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
-import { getErrorMessage } from "../../../../errors/index";
+import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import {
   tasksListParams,
@@ -16,13 +16,13 @@ import {
   tasksCreateParams,
   tasksDeleteParams,
 } from "./task-parameters";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
-import type { SessionProviderInterface } from "../../../../domain/session/types";
-import type { AskRepository } from "../../../../domain/ask/repository";
-import type { AskKind } from "../../../../domain/ask/types";
-import { log } from "../../../../utils/logger";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { SessionProviderInterface } from "@minsky/domain/session/types";
+import type { AskRepository } from "@minsky/domain/ask/repository";
+import type { AskKind } from "@minsky/domain/ask/types";
+import { log } from "@minsky/shared/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 
 /** Shape of the blockingAsk field returned in tasks_list (JSON) and tasks_get. */
@@ -46,6 +46,8 @@ interface TasksListParams extends BaseTaskParams {
   hierarchical?: boolean;
   showDeps?: boolean;
   showAttention?: boolean;
+  /** When true, skip project-scope filtering (ADR-021, mt#2416). */
+  allProjects?: boolean;
 }
 
 /**
@@ -63,7 +65,8 @@ interface TasksGetParams extends BaseTaskParams {
  */
 interface TasksCreateParams extends BaseTaskParams {
   title: string;
-  description?: string;
+  // mt#2742: removed the ghost `description?` field — it was never a declared
+  // command param, so `params.description` was always undefined (dead fallback).
   spec?: string;
   force?: boolean;
   githubRepo?: string;
@@ -88,6 +91,10 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   readonly id = "tasks.list";
   readonly name = "list";
   readonly description = "List tasks with optional filtering";
+  // Served from the central task DB (minsky backend) — works from any
+  // directory, no project init required (mt#1428). The github backend's
+  // repo detection degrades gracefully outside a git checkout.
+  readonly requiresSetup = false;
   readonly parameters = tasksListParams;
 
   constructor(
@@ -102,7 +109,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
   async execute(params: TasksListParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
     this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
-    const { listTasksFromParams } = await import("../../../../domain/tasks");
+    const { listTasksFromParams } = await import("@minsky/domain/tasks");
 
     // Normalize tag param to string array for domain layer
     const tags = params.tag ? (Array.isArray(params.tag) ? params.tag : [params.tag]) : undefined;
@@ -126,6 +133,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         filter: params.filter,
         limit: params.limit,
         tags,
+        allProjects: params.allProjects,
       },
       { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
@@ -252,8 +260,8 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       try {
         const askRepo = await this.getAskRepository();
         if (askRepo) {
-          const { getOpenAsksByTaskIds } = await import("../../../../domain/ask/queries");
-          const { deriveBlockedSubtype } = await import("../../../../domain/ask/blocked-subtype");
+          const { getOpenAsksByTaskIds } = await import("@minsky/domain/ask/queries");
+          const { deriveBlockedSubtype } = await import("@minsky/domain/ask/blocked-subtype");
           const openAsks = await getOpenAsksByTaskIds(askRepo, blockedTaskIds);
           for (const [taskId, ask] of openAsks) {
             const subtype = deriveBlockedSubtype(ask);
@@ -279,13 +287,13 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     // Enrich with attention rollup if --show-attention is set (opt-in)
     const attentionRollupMap: Map<
       string,
-      import("../../../../domain/ask/accounting/index").TaskRollup
+      import("@minsky/domain/ask/accounting/index").TaskRollup
     > = new Map();
     if (params.showAttention && this.getAskRepository) {
       try {
         const askRepo = await this.getAskRepository();
         if (askRepo) {
-          const { getRollupForTask } = await import("../../../../domain/ask/accounting/index");
+          const { getRollupForTask } = await import("@minsky/domain/ask/accounting/index");
           await Promise.all(
             tasks.map(async (t) => {
               try {
@@ -417,7 +425,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 
       // Get task details
       this.debug("About to call getTaskFromParams");
-      const { getTaskFromParams } = await import("../../../../domain/tasks");
+      const { getTaskFromParams } = await import("@minsky/domain/tasks");
       const taskParams = {
         ...this.createTaskParams(params),
         taskId: validatedTaskId,
@@ -497,7 +505,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
         try {
           const askRepo = await this.getAskRepository();
           if (askRepo) {
-            const { getOpenAskForTask } = await import("../../../../domain/ask/queries");
+            const { getOpenAskForTask } = await import("@minsky/domain/ask/queries");
             const openAsk = await getOpenAskForTask(askRepo, validatedTaskId);
             if (openAsk) {
               const blockingAsk: BlockingAskInfo = {
@@ -520,7 +528,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 
       // Optionally fetch spec content
       if (params.includeSpec) {
-        const { getTaskSpecContentFromParams } = await import("../../../../domain/tasks");
+        const { getTaskSpecContentFromParams } = await import("@minsky/domain/tasks");
         try {
           const specResult = await getTaskSpecContentFromParams(
             { ...this.createTaskParams(params), taskId: validatedTaskId },
@@ -540,7 +548,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
         const sessionProvider = this.getSessionProvider?.();
         if (sessionProvider) {
           try {
-            const { deriveSessionLiveness } = await import("../../../../domain/session/types");
+            const { deriveSessionLiveness } = await import("@minsky/domain/session/types");
             const session = await sessionProvider.getSessionByTaskId(validatedTaskId);
             if (session) {
               extras.session = {
@@ -627,8 +635,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       // Validate required parameters
       this.validateRequired(params.title, "title");
 
-      // Resolve spec content: prefer params.spec, fall back to deprecated params.description
-      const specContent = params.spec || params.description;
+      // Resolve spec content. mt#2742: removed the dead `|| params.description`
+      // fallback — `description` was never a declared param (always undefined), so
+      // a description-only call silently created an EMPTY-spec task.
+      const specContent = params.spec;
 
       // Validate that spec content is provided
       if (!specContent) {
@@ -649,7 +659,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       }
 
       // Create the task using the same function as main branch
-      const { createTaskFromTitleAndSpec } = await import("../../../../domain/tasks");
+      const { createTaskFromTitleAndSpec } = await import("@minsky/domain/tasks");
       const result = await createTaskFromTitleAndSpec(
         {
           title: params.title,
@@ -821,7 +831,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
     }
 
     // Delete the task
-    const { deleteTaskFromParams } = await import("../../../../domain/tasks");
+    const { deleteTaskFromParams } = await import("@minsky/domain/tasks");
     const result = await deleteTaskFromParams(
       {
         ...this.createTaskParams(params),
@@ -871,7 +881,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
    */
   private async confirmDeletion(taskId: string, params: TasksDeleteParams): Promise<void> {
     // Get task details for confirmation
-    const { getTaskFromParams } = await import("../../../../domain/tasks");
+    const { getTaskFromParams } = await import("@minsky/domain/tasks");
     const task = await getTaskFromParams(
       {
         ...this.createTaskParams(params),

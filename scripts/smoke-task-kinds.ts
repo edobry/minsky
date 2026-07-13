@@ -66,7 +66,7 @@ console.log(`  Database: ${connectionString.replace(/:[^:@]+@/, ":<REDACTED>@")}
 console.log("");
 
 // Bootstrap persistence
-const { PersistenceService } = await import("../src/domain/persistence/service.ts");
+const { PersistenceService } = await import("@minsky/domain/persistence/service");
 const service = new PersistenceService();
 
 try {
@@ -87,10 +87,10 @@ if (!db) {
 }
 
 const { tasksTable, taskSpecsTable } = await import(
-  "../src/domain/storage/schemas/task-embeddings.ts"
+  "@minsky/domain/storage/schemas/task-embeddings"
 );
-const { validateStatusTransition } = await import("../src/domain/tasks/status-transitions.ts");
-const { WORKFLOWS, getWorkflow } = await import("../src/domain/tasks/workflows.ts");
+const { validateStatusTransition } = await import("@minsky/domain/tasks/status-transitions");
+const { WORKFLOWS, getWorkflow } = await import("@minsky/domain/tasks/workflows");
 
 // ---------------------------------------------------------------------------
 // Check 1: kind column exists and is readable

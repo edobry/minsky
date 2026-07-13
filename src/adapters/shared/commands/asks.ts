@@ -15,44 +15,65 @@
  *   Ask through `responded → closed` with the operator's message as the
  *   response payload. Wired as mt#1458 (per mt#454 slim research: v1 verb
  *   set is `list` + `respond` only).
+ * - `asks.edit` — content-update surface (mt#2668). Updates a non-terminal
+ *   Ask's question/title/options/contextRefs/metadata in place WITHOUT
+ *   consuming it — a suspended Ask stays suspended and stays in the operator
+ *   queue. Appends an editHistory provenance note on every edit.
  */
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { ValidationError } from "../../../errors/index";
-import { log } from "../../../utils/logger";
+import { ValidationError } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import {
   DrizzleAskRepository,
   type AskRepository,
   type CreateAskInput,
-} from "../../../domain/ask/repository";
-import { ConcurrentTransitionError } from "../../../domain/ask/repository";
-import type { Ask, AskKind, AskState, AskOption, ContextRef } from "../../../domain/ask/types";
-import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler";
+} from "@minsky/domain/ask/repository";
+import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
+import {
+  editAskContent,
+  providedEditableFields,
+  FORBIDDEN_METADATA_KEYS,
+  type EditAskContentParams,
+} from "@minsky/domain/ask/edit";
+import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
+import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
   PersistentWakeSignalSink,
   type WakeSignalSink,
-} from "../../../domain/ask/wake-on-respond";
-import { DrizzleWakePendingRepository } from "../../../domain/ask/wake-pending-repository";
+} from "@minsky/domain/ask/wake-on-respond";
+import { DrizzleWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
 import {
   policyFirstRoute,
+  buildPolicyClosedEvent,
   type RoutedAsk,
   type SuspendedAsk,
   type PolicyFirstRouteOptions,
   isSuspendedAsk,
-} from "../../../domain/ask/router";
+} from "@minsky/domain/ask/router";
 import {
   dispatchToElicitation,
   type ElicitationClosedAsk,
-} from "../../../domain/ask/transports/elicitation";
-import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+} from "@minsky/domain/ask/transports/elicitation";
+import { routeResultToOutcomeWrite } from "@minsky/domain/ask/advancement";
+import {
+  askWaitForResponse,
+  type AskWaitForResponseResult,
+} from "@minsky/domain/ask/wait-for-response";
+import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
-import { getServiceWindowDefault } from "../../../domain/ask/service-window-defaults";
+import { emitSystemEventBestEffort } from "./system-event-emit";
+import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
+import { createEventEmitter } from "@minsky/domain/events/emitter";
+import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
+import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -117,6 +138,32 @@ async function buildCompositeWakeSink(
 }
 
 /**
+ * Resolve the raw Postgres connection from the DI container's persistence
+ * provider. Shared by `buildAskRepository` (below) and the mt#2696
+ * id-prefix-resolution helper so both use the same connection-resolution
+ * logic instead of two independently maintained copies.
+ *
+ * Returns null on any resolution problem (no container, no SQL capability,
+ * no connection) — never throws. Callers surface their own clear error.
+ */
+async function getAskDb(
+  container: AppContainerInterface | undefined
+): Promise<PostgresJsDatabase | null> {
+  if (!container?.has("persistence")) return null;
+  try {
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    if (!persistenceProvider.getDatabaseConnection) return null;
+    const db = await persistenceProvider.getDatabaseConnection();
+    return db ?? null;
+  } catch (err: unknown) {
+    log.warn("asks: could not resolve database connection", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Build a `DrizzleAskRepository` from the persistence provider's DB connection.
  *
  * Returns null when the provider does not support SQL capability or when no
@@ -125,19 +172,36 @@ async function buildCompositeWakeSink(
 export async function buildAskRepository(
   container: AppContainerInterface | undefined
 ): Promise<AskRepository | null> {
-  if (!container?.has("persistence")) return null;
-  try {
-    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
-    if (!persistenceProvider.getDatabaseConnection) return null;
-    const db = await persistenceProvider.getDatabaseConnection();
-    if (!db) return null;
-    return new DrizzleAskRepository(db);
-  } catch (err: unknown) {
-    log.warn("asks: could not initialize AskRepository", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
+  const db = await getAskDb(container);
+  return db ? new DrizzleAskRepository(db) : null;
+}
+
+/**
+ * Resolve a caller-supplied ask id (full UUID or unambiguous prefix, mt#2696)
+ * to the full UUID `asks.id` before it reaches any `eq(asksTable.id, ...)`
+ * comparison in the repository. A full UUID passes through unchanged with no
+ * query. A short/no-match/ambiguous prefix throws a clean tool-level error
+ * (never a raw Postgres "invalid input syntax for type uuid" error).
+ *
+ * When no DB connection is resolvable here, the raw input passes through —
+ * the immediately-following `buildAskRepository` call in every command
+ * surfaces the "AskRepository unavailable" error instead.
+ */
+async function resolveAskIdInput(
+  id: string,
+  container: AppContainerInterface | undefined
+): Promise<string> {
+  const db = await getAskDb(container);
+  if (!db) return id;
+
+  return resolveIdPrefixOrThrow({
+    db,
+    table: asksTable,
+    idColumn: asksTable.id,
+    labelColumn: asksTable.title,
+    input: id,
+    entityName: "ask",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +225,12 @@ const asksListParams = {
     required: false,
     defaultValue: 50,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
+  },
 };
 
 interface AsksListResult {
@@ -172,16 +242,17 @@ interface AsksListResult {
 async function gatherAsks(
   repo: AskRepository,
   state: AskState | undefined,
-  kind: AskKind | undefined
+  kind: AskKind | undefined,
+  projectScope?: import("@minsky/domain/project/scope").ProjectScope
 ): Promise<Ask[]> {
   if (state) {
-    const subset = await repo.listByState(state);
+    const subset = await repo.listByState(state, projectScope);
     return kind ? subset.filter((a) => a.kind === kind) : subset;
   }
   // No state filter — gather across all states.
   const all: Ask[] = [];
   for (const s of ALL_STATES) {
-    const subset = await repo.listByState(s);
+    const subset = await repo.listByState(s, projectScope);
     all.push(...subset);
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
@@ -289,66 +360,31 @@ export async function respondToAsk(
 ): Promise<RespondToAskResult> {
   validateRespondParams(params);
 
-  const persisted = await repo.getById(params.id);
-  if (!persisted) {
-    throw new Error(`asks.respond: Ask not found: ${params.id}`);
-  }
-
-  if (persisted.state !== "suspended") {
-    throw new Error(
-      `asks.respond: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
-        `(detected/classified/routed: no transport has dispatched yet; ` +
-        `closed/cancelled/expired: terminal.)`
-    );
-  }
-
   // Trim before constructing the payload so direct programmatic callers
   // see the same normalized message that CLI/MCP callers do (the schema
   // applies trim() at the surface).
   const message = params.message.trim();
-  const responder = params.responder?.trim() || "operator";
 
-  // Two-stage response payload, matching the Ask.response contract in
-  // types.ts: `attentionCost` is filled on close only. The respond stage
-  // gets responder + payload; the close stage adds attentionCost.
-  const respondPayload = {
-    responder,
-    payload: { message },
-  };
-  const closePayload = {
-    responder,
+  // Delegates the suspended-state precondition check, responder trimming,
+  // and ConcurrentTransitionError handling to the shared domain function
+  // (mt#2615) — this surface's only job is to shape the plain-message
+  // payload and the fixed inbox/CLI attentionCost.
+  const { ask } = await respondAndCloseAsk(repo, {
+    id: params.id,
+    responder: params.responder,
     payload: { message },
     attentionCost: {
       // The operator responded via the inbox/CLI surface. The original
       // transport is preserved on the Ask record; the attentionCost.transport
       // here records the surface that *resolved* it.
-      transport: "inbox" as const,
-      resolvedIn: "inbox" as const,
+      transport: "inbox",
+      resolvedIn: "inbox",
       // operatorCost is intentionally absent at v1 — deferred to mt#454-impl
       // along with claim/release semantics.
     },
-  };
+  });
 
-  // Atomic walk suspended → closed via the repository's combined operation.
-  // Catch ConcurrentTransitionError and re-throw with the same friendly
-  // not-suspended message the pre-check uses, so callers see ONE error shape
-  // for "Ask is not in suspended state" regardless of cause.
-  try {
-    const closed = await repo.respondAndClose(
-      params.id,
-      { response: respondPayload },
-      { response: closePayload }
-    );
-    return { ask: closed };
-  } catch (err) {
-    if (err instanceof ConcurrentTransitionError) {
-      throw new Error(
-        `asks.respond: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
-          `(Concurrent actor transitioned the Ask between read and write.)`
-      );
-    }
-    throw err;
-  }
+  return { ask };
 }
 
 // ---------------------------------------------------------------------------
@@ -513,49 +549,13 @@ export interface CreateAskParams {
   windowKey?: string;
   /** Bypass window check and route immediately (default false). */
   forceImmediate?: boolean;
-}
-
-/**
- * Walk a persisted Ask forward to `"suspended"` from any pre-suspended state.
- *
- * Used by the strand-recovery path in `createAsk` when the router decided
- * elicitation but no active MCP server is reachable. Mirrors the helper in
- * the elicitation transport but lives here to avoid an import cycle (the
- * transport imports from `router.ts`, which is upstream of this file).
- *
- * Throws on terminal/post-suspended states — re-suspending a closed Ask is
- * a programming error.
- */
-async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): Promise<void> {
-  const persisted = await repo.getById(askId);
-  if (!persisted) {
-    throw new Error(`asks.create: Ask not found: ${askId}`);
-  }
-  switch (persisted.state) {
-    case "detected":
-      await repo.transition(askId, "classified");
-      await repo.transition(askId, "routed");
-      await repo.transition(askId, "suspended");
-      return;
-    case "classified":
-      await repo.transition(askId, "routed");
-      await repo.transition(askId, "suspended");
-      return;
-    case "routed":
-      await repo.transition(askId, "suspended");
-      return;
-    case "suspended":
-      return;
-    case "responded":
-    case "closed":
-    case "cancelled":
-    case "expired":
-      throw new Error(
-        `asks.create: cannot strand-suspend Ask in terminal state "${persisted.state}"`
-      );
-    default:
-      throw new Error(`asks.create: unhandled Ask state "${persisted.state}"`);
-  }
+  /**
+   * Resolved project uuid to stamp on the new Ask (ADR-021, mt#2563). The
+   * `asks.create` execute path resolves this via `resolveCurrentProjectScope`;
+   * direct callers (tests, programmatic emitters) may pass it explicitly or omit
+   * it (unscoped Ask).
+   */
+  projectId?: string;
 }
 
 /**
@@ -617,6 +617,9 @@ export async function createAsk(
     contextRefs: params.contextRefs,
     parentTaskId: params.parentTaskId,
     parentSessionId: params.parentSessionId,
+    // Project scope stamped at create time (ADR-021, mt#2563). Threaded from the
+    // execute callsite's resolveCurrentProjectScope; undefined → unscoped Ask.
+    projectId: params.projectId,
     deadline: params.deadline,
     metadata: params.metadata,
     // Service-window fields (mt#1411 spine — mt#1488)
@@ -635,62 +638,242 @@ export async function createAsk(
   const ask = await repo.create(input);
   const routed = await policyFirstRoute(ask, routerOptions);
 
-  // Window-deferred path: Ask is suspended pending a service window.
-  // Walk the DB row to "suspended" immediately so the persisted state
-  // matches the router decision. The reaper (mt#1490) transitions it
-  // to "routed" and dispatches when the window opens.
+  // Live elicitation path: dispatch synchronously when an active server is
+  // available — dispatchToElicitation owns its own persistence walk. The
+  // no-active-server race (disconnect between hasElicitation() and the
+  // server lookup) falls through to the shared persist path below, which
+  // lands it as operator-suspended for recovery via the cockpit/CLI.
+  if (!isSuspendedAsk(routed) && routed.transport.kind === "elicitation") {
+    const registry = routerOptions.capabilityRegistry;
+    const server = registry?.activeElicitationServer();
+    if (server) {
+      return await dispatchToElicitation(routed, { server, repo });
+    }
+    log.warn(
+      "createAsk: elicitation routed but no active server — persisting as operator-suspended for recovery",
+      {
+        askId: routed.id,
+      }
+    );
+  }
+
+  // All remaining paths (mt#2265): persist the route outcome atomically so
+  // the row reflects the router decision. Before this fix, async transports
+  // (inbox / subagent / mesh / retriever) and policy closes returned an
+  // in-memory result while the row stayed "detected" forever — the
+  // write-only-graveyard root cause. The returned object is reconciled from
+  // the persisted row so the tool response never narrates unpersisted state.
+  const { write } = routeResultToOutcomeWrite(routed);
+  const persisted = await repo.persistRouteOutcome(ask.id, write);
+
+  if (write.state === "suspended") {
+    // Operator-bound (inbox / elicitation-fallback) or window-deferred:
+    // suspended = waiting for a response; visible on the cockpit /asks
+    // surface and respondable via respondAndClose.
+    const suspended: SuspendedAsk = {
+      ...routed,
+      state: "suspended",
+      routingTarget: routed.routingTarget,
+      transport: routed.transport,
+      packagedPayload: routed.packagedPayload,
+      routedAt: persisted.routedAt,
+      suspendedAt: persisted.suspendedAt,
+      suspendedForWindowKey: isSuspendedAsk(routed) ? routed.suspendedForWindowKey : undefined,
+    };
+    return suspended;
+  }
+
+  // write.state is "routed" (async transport awaiting delivery) or "closed"
+  // (policy-covered) — both only arise from RoutedAsk router results.
   if (isSuspendedAsk(routed)) {
-    await advanceRoutedAskToSuspended(repo, ask.id);
-    // Persist the routing target the router resolved in Phase 3 so the
-    // Ask the reaper reloads at dispatch time carries the necessary
-    // target. Without this, repo.getById returns routingTarget=undefined
-    // and the dispatch callback can't decide where to deliver. R5 fix.
-    if (routed.routingTarget !== undefined) {
-      await repo.updateRoutingTarget(ask.id, routed.routingTarget);
-    }
+    // Unreachable by construction (suspended results map to write.state
+    // "suspended" above); defensive return keeps the type sound.
     return routed;
   }
-
-  // Non-elicitation paths: return the routed Ask as-is. Async transports
-  // (subagent, inbox, mesh, retriever) are dispatched elsewhere; policy
-  // coverage already produced state="closed" via closeWithPolicy.
-  if (routed.transport.kind !== "elicitation") {
-    return routed;
-  }
-
-  // Elicitation path: dispatch synchronously when an active server is
-  // available. The capabilityRegistry came from routerOptions (the same
-  // path the router used to choose elicitation); reading it again here
-  // keeps the dispatch decision colocated with the rest of the elicitation
-  // logic.
-  const registry = routerOptions.capabilityRegistry;
-  const server = registry?.activeElicitationServer();
-  if (server) {
-    return await dispatchToElicitation(routed, { server, repo });
-  }
-
-  // Defensive: capability registry said hasElicitation() but no server is
-  // currently active (race between hasElicitation() returning true and
-  // activeElicitationServer() lookup — disconnect mid-call, etc.). Walk
-  // the Ask to "suspended" so the operator CLI (mt#1458) can recover.
-  log.warn(
-    "createAsk: elicitation routed but no active server — walking to suspended for recovery",
-    {
-      askId: routed.id,
-    }
-  );
-  await advanceRoutedAskToSuspended(repo, routed.id);
-  const suspended: ElicitationClosedAsk = {
+  return {
     ...routed,
-    state: "suspended",
-    routingTarget: "operator",
+    routedAt: persisted.routedAt ?? routed.routedAt,
+    closedAt: persisted.closedAt ?? routed.closedAt,
   };
-  return suspended;
+}
+
+// ---------------------------------------------------------------------------
+// asks.wait-for-response — schemas + render helper (mt#2266)
+// ---------------------------------------------------------------------------
+
+const asksWaitForResponseParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description: "Ask ID (UUID) to wait on until it reaches responded/closed",
+    required: true,
+  },
+  timeoutSeconds: {
+    schema: z.number().int().positive(),
+    description: "Max seconds to wait (default 600; clamped to [1, 1800])",
+    required: false,
+    defaultValue: 600,
+  },
+  intervalSeconds: {
+    schema: z.number().int().positive(),
+    description: "Polling interval in seconds (default 15; clamped to [5, 60])",
+    required: false,
+    defaultValue: 15,
+  },
+};
+
+/**
+ * Render the text-mode message for an `asks.wait-for-response` result.
+ * Exported (pure) so the format contract can be unit-tested independently of
+ * the wait tool's dependency chain — mirrors `formatMatchMessage` /
+ * `formatTimeoutMessage` in the session PR wait-for-review adapter.
+ */
+export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
+  const secs = Math.round(result.elapsedMs / 1000);
+  if (result.resolved) {
+    const payload = result.response.payload;
+    const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    return [
+      `✓ Ask resolved (${result.state}) by ${result.response.responder} ` +
+        `after ${secs}s / ${result.pollCount} poll(s)`,
+      "",
+      payloadStr,
+    ].join("\n");
+  }
+  if (result.terminal) {
+    return (
+      `✗ Ask reached terminal state "${result.lastState}" without a response ` +
+      `after ${secs}s / ${result.pollCount} poll(s). It can no longer be answered.`
+    );
+  }
+  return (
+    `⏳ Ask still pending (state "${result.lastState}") after ${secs}s / ` +
+    `${result.pollCount} poll(s). Timeout reached without a response — re-wait or act on the pending state.`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// asks.edit — schemas + validation (mt#2668)
+// ---------------------------------------------------------------------------
+
+const asksEditParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description: "Ask ID (UUID) to edit",
+    required: true,
+  },
+  title: {
+    schema: z.string().min(1).optional(),
+    description: "Replacement title (list rendering / notifications)",
+    required: false,
+  },
+  question: {
+    schema: z.string().min(1).optional(),
+    description: "Replacement question body",
+    required: false,
+  },
+  options: {
+    schema: z.array(askOptionSchema).optional(),
+    description: "Replacement decision-frame options (wholesale replace, not merge)",
+    required: false,
+  },
+  contextRefs: {
+    schema: z.array(contextRefSchema).optional(),
+    description: "Replacement context refs (wholesale replace, not merge)",
+    required: false,
+  },
+  metadata: {
+    schema: z.record(z.string(), z.unknown()).optional(),
+    description:
+      "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+    required: false,
+  },
+  editor: {
+    schema: z.string().trim().min(1).optional(),
+    description:
+      "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+    required: false,
+  },
+};
+
+/**
+ * Cross-field validation for `asks.edit` MCP params:
+ *
+ * 1. At least one editable field must be provided — an edit that touches
+ *    nothing is a caller error caught at the parameter boundary, not a
+ *    silent no-op.
+ * 2. `metadata` must not contain forbidden keys (`__proto__`, `prototype`,
+ *    `constructor`) — prototype-pollution hardening at the MCP boundary,
+ *    aligned with the domain layer's `sanitizeMetadata` on the same
+ *    `FORBIDDEN_METADATA_KEYS` policy constant (PR #1831 review,
+ *    defense-in-depth at both layers).
+ *
+ * Exported for direct testing without the full command factory setup. The
+ * `asks.edit` command's `validate` hook delegates to this function.
+ *
+ * @throws {ValidationError} when no editable field is provided, or when
+ *         metadata contains a forbidden key
+ */
+export function validateAsksEditParams(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): void {
+  if (providedEditableFields(params).length === 0) {
+    throw new ValidationError(
+      "asks.edit: at least one editable field (title, question, options, contextRefs, metadata) must be provided."
+    );
+  }
+  if (params.metadata !== undefined) {
+    const forbidden = Object.keys(params.metadata).filter((key) =>
+      (FORBIDDEN_METADATA_KEYS as readonly string[]).includes(key)
+    );
+    if (forbidden.length > 0) {
+      throw new ValidationError(
+        `asks.edit: metadata contains forbidden key(s): ${forbidden.join(", ")}. ` +
+          `The keys __proto__, prototype, and constructor are rejected (prototype-pollution hardening).`
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve the current project's uuid for project-scoped Ask reads and writes
+ * (ADR-021 — mt#2416 read-side, mt#2563 write-side). Single source of truth so
+ * `asks.create` stamps the SAME project the `asks.list` default filter reads by:
+ * create/list scope parity. Returns the project uuid, or `undefined` when
+ * persistence is unavailable, the project is unidentified (hosted server /
+ * cockpit daemon with no single-repo cwd), or resolution fails — fail-open to an
+ * unscoped read/write, never a throw.
+ */
+async function resolveCurrentProjectScope(
+  container: AppContainerInterface | undefined,
+  caller: string
+): Promise<string | undefined> {
+  if (!container?.has("persistence")) return undefined;
+  try {
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    if (!persistenceProvider.getDatabaseConnection) return undefined;
+    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { isAllProjects } = await import("@minsky/domain/project/scope");
+    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+    if (identity.kind !== "resolved") return undefined;
+    const rawDb = await persistenceProvider.getDatabaseConnection();
+    if (!rawDb) return undefined;
+    const scope = await resolveProjectScope(
+      identity,
+      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+    );
+    return isAllProjects(scope) ? undefined : scope;
+  } catch (err: unknown) {
+    log.debug(`[${caller}] Project scope resolution failed; defaulting to unscoped`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
 
 /**
  * Register the asks commands in the shared command registry.
@@ -718,8 +901,17 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const state = params.state as AskState | undefined;
         const kind = params.kind as AskKind | undefined;
         const limit = (params.limit as number | undefined) ?? 50;
+        const allProjects = params.allProjects as boolean | undefined;
 
-        const asks = await gatherAsks(repo, state, kind);
+        // ADR-021 / mt#2416: resolve project scope so list returns only this
+        // project's asks by default. When allProjects=true, skip resolution.
+        // Shares resolveCurrentProjectScope with asks.create (mt#2563) so the
+        // read filter and the write stamp agree on the same project_id.
+        const projectScope = allProjects
+          ? undefined
+          : await resolveCurrentProjectScope(container, "asks.list");
+
+        const asks = await gatherAsks(repo, state, kind, projectScope);
         return {
           asks: asks.slice(0, limit),
           total: asks.length,
@@ -748,8 +940,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         let tokenProvider;
         try {
-          const { getConfiguration } = await import("../../../domain/configuration/index");
-          const { createTokenProvider } = await import("../../../domain/auth");
+          const { getConfiguration } = await import("@minsky/domain/configuration/index");
+          const { createTokenProvider } = await import("@minsky/domain/auth");
           const cfg = getConfiguration();
           const userToken = cfg.github?.token ?? "";
           const githubCfg = cfg.github ?? {};
@@ -786,7 +978,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "Respond to any suspended Ask (mt#1458, ADR-008). " +
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
-        "(closed/cancelled/expired) states are rejected with a clear error.",
+        "(closed/cancelled/expired) states are rejected with a clear error. " +
+        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
       // requiresSetup: false — asks.respond depends only on the persistence
       // provider, not on global Minsky configuration. The execute() closure
       // surfaces a clear "AskRepository unavailable" error if persistence
@@ -801,10 +994,43 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // mt#2696: resolve a short-prefix citation to the full uuid before it
+        // ever reaches a Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
         return respondToAsk(repo, {
-          id: params.id as string,
+          id,
           message: params.message as string,
           responder: params.responder as string | undefined,
+        }).then(async (result) => {
+          // Best-effort system event for the plant-board activity stream (mt#2489).
+          // mt#2696 R1 (reviewer finding 3): `askId` is the RESOLVED full uuid
+          // (`id`, not the raw `params.id` prefix a caller may have passed).
+          // Verified this is the correct/expected form for every current
+          // consumer of `ask.answered`'s `askId` payload field — no consumer
+          // parses or compares against a short-prefix form:
+          //   - `system-events-schema.ts` documents the payload shape as
+          //     `{ askId: string; ... }` with no length/format constraint
+          //     tied to the short-prefix convention.
+          //   - `plant-gestures.ts`'s `ask.answered` case triggers a visual
+          //     pulse from the event TYPE alone; it does not read
+          //     `payload.askId` at all.
+          //   - `ActivityPage.tsx`'s `eventSummary()` switch has no
+          //     `ask.answered` case (falls through), so no reader there
+          //     dereferences `payload.askId` today either.
+          //   - The one place askId IS compared for equality against a live
+          //     record, `AskPage.tsx:54` (`asks.find((a) => a.id === askId)`),
+          //     compares against `Ask.id` — a full uuid — so a full-uuid
+          //     `askId` is the format every existing/plausible-future
+          //     consumer expects; a short prefix would be the wrong choice.
+          await emitSystemEventBestEffort(container, {
+            eventType: "ask.answered",
+            payload: {
+              askId: id,
+              responder: (params.responder as string | undefined) ?? null,
+            },
+          });
+          return result;
         });
       },
     })
@@ -831,6 +1057,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
+        // ADR-021 / mt#2563: resolve the current project and stamp it on the new
+        // Ask so it is visible to the default project-scoped asks.list — completes
+        // the Phase-1.3b write-stamping deferred by mt#2416. Shares
+        // resolveCurrentProjectScope with asks.list, so create and the default
+        // read filter agree on the same project_id (create/list scope parity).
+        const resolvedProjectId = await resolveCurrentProjectScope(container, "asks.create");
+
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch
         // through the active MCP Server.
@@ -842,7 +1075,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? { capabilityRegistry }
           : {};
 
-        return await createAsk(
+        const result = await createAsk(
           repo,
           {
             kind: params.kind as AskKind,
@@ -864,9 +1097,139 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
               | undefined,
             windowKey: params.windowKey as string | undefined,
             forceImmediate: params.forceImmediate as boolean | undefined,
+            // ADR-021 / mt#2563: stamp the resolved project on the new Ask.
+            projectId: resolvedProjectId,
           },
           routerOptions
         );
+
+        // Emit ask.created event (best-effort via EventEmitter — never throws).
+        // Resolve DB connection from the same container the repo used.
+        if (container?.has("persistence")) {
+          try {
+            const persistenceProvider = container.get(
+              "persistence"
+            ) as SqlCapablePersistenceProvider;
+            if (persistenceProvider.getDatabaseConnection) {
+              const db = await persistenceProvider.getDatabaseConnection();
+              if (db) {
+                const eventEmitter = createEventEmitter(
+                  db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+                );
+                await eventEmitter.emit({
+                  eventType: "ask.created",
+                  payload: {
+                    askId: result.id,
+                    kind: result.kind,
+                    title: result.title,
+                    question: result.question,
+                  },
+                  actor: (params.requestor as string) ?? undefined,
+                  relatedTaskId: (params.parentTaskId as string) ?? undefined,
+                  relatedSessionId: (params.parentSessionId as string) ?? undefined,
+                });
+                // Audit surfacing for phase-1 policy closures (mt#2666 SC4):
+                // reviewable via events_list — see buildPolicyClosedEvent.
+                const policyClosedEvent = buildPolicyClosedEvent(result);
+                if (policyClosedEvent) {
+                  await eventEmitter.emit(policyClosedEvent);
+                }
+              }
+            }
+          } catch (err: unknown) {
+            // Best-effort: swallow any errors resolving the DB or building the emitter.
+            log.warn("asks.create: failed to emit ask.created event (best-effort, swallowed)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        return result;
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.wait-for-response",
+      category: CommandCategory.TOOLS,
+      name: "wait-for-response",
+      description:
+        "Block until an Ask reaches responded/closed (returns the response payload), " +
+        "or a cancelled/expired terminal state, or the timeout elapses. " +
+        "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
+        "Caller-managed gating: does NOT mutate task status. " +
+        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+      // requiresSetup: false — depends only on the persistence provider
+      // (like asks.respond), not on global Minsky configuration.
+      requiresSetup: false,
+      parameters: asksWaitForResponseParams,
+      execute: async (params): Promise<AskWaitForResponseResult> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.wait-for-response: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
+        return askWaitForResponse(
+          {
+            id,
+            timeoutSeconds: params.timeoutSeconds as number | undefined,
+            intervalSeconds: params.intervalSeconds as number | undefined,
+          },
+          { repo }
+        );
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.edit",
+      category: CommandCategory.TOOLS,
+      name: "edit",
+      description:
+        "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place " +
+        "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
+        "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
+        "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
+        "to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+      // requiresSetup: false — asks.edit depends only on the persistence
+      // provider, not on global Minsky configuration (same posture as
+      // asks.respond / asks.wait-for-response).
+      requiresSetup: false,
+      parameters: asksEditParams,
+      validate: async (params) => {
+        // At least one editable field must be provided — reject at the
+        // parameter boundary so callers get immediate, actionable feedback.
+        validateAsksEditParams(params);
+      },
+      execute: async (params): Promise<{ ask: Ask }> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.edit: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
+        return editAskContent(repo, {
+          id,
+          title: params.title as string | undefined,
+          question: params.question as string | undefined,
+          options: params.options as AskOption[] | undefined,
+          contextRefs: params.contextRefs as ContextRef[] | undefined,
+          metadata: params.metadata as Record<string, unknown> | undefined,
+          editor: params.editor as string | undefined,
+        });
       },
     })
   );

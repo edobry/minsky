@@ -15,7 +15,6 @@ export const TOKENS = {
   gitService: "gitService",
   taskService: "taskService",
   workspaceUtils: "workspaceUtils",
-  repositoryBackend: "repositoryBackend",
   taskGraphService: "taskGraphService",
   taskRoutingService: "taskRoutingService",
 } as const;

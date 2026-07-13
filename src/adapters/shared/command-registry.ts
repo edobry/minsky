@@ -7,11 +7,11 @@
  */
 
 import { z } from "zod";
-import { MinskyError } from "../../errors/index";
+import { MinskyError } from "@minsky/domain/errors/index";
 import {
   validateCommandDefinition,
   validateCommandRegistrationOptions,
-} from "../../schemas/command-registry";
+} from "@minsky/domain/schemas/command-registry";
 
 /** Brand symbol for validated command context (ADR-004 Phase 2) */
 declare const ValidatedBrand: unique symbol;
@@ -50,6 +50,9 @@ export enum CommandCategory {
   TRANSCRIPTS = "TRANSCRIPTS",
   DETECTORS = "DETECTORS",
   OBSERVABILITY = "OBSERVABILITY",
+  PRINCIPAL_CORPUS = "PRINCIPAL_CORPUS",
+  FORGE = "FORGE",
+  EVENTS = "EVENTS",
 }
 
 /**
@@ -67,7 +70,18 @@ export interface CommandExecutionContext {
   /** Workspace path for the current context */
   workspacePath?: string;
   /** DI container — provides access to services via typed dependency resolution. */
-  container?: import("../../composition/types").AppContainerInterface;
+  container?: import("@minsky/domain/composition/types").AppContainerInterface;
+  /**
+   * mt#2677: reports a human-readable progress message for a long-running
+   * command. Present only when the calling interface supports out-of-band
+   * progress (currently: MCP, only when the client requested it via
+   * `_meta.progressToken` — see `src/mcp/server.ts`'s `buildProgressReporter`).
+   * Absent on the CLI interface and on MCP calls that didn't opt in. Commands
+   * that poll (e.g. `session.pr.drive`, `session.pr.wait-for-review`) call
+   * `context.onProgress?.("...")` once per poll interval so a legitimate
+   * long-running wait produces transport activity instead of silence.
+   */
+  onProgress?: (message: string) => void;
 }
 
 /**

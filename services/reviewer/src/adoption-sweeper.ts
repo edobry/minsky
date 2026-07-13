@@ -22,9 +22,9 @@
  * ## Cadence
  *
  * Default: 24 hours (86_400_000 ms). Configurable via
- * ADOPTION_SWEEPER_INTERVAL_MS. DEFAULT DISABLED until mt#1711 (env-var
- * wiring) ships and operator confirms the reviewer-service environment can
- * host another scheduler. Set ADOPTION_SWEEPER_ENABLED=true to activate.
+ * ADOPTION_SWEEPER_INTERVAL_MS. Disabled by default; set
+ * ADOPTION_SWEEPER_ENABLED=true to activate. Env-var wiring is in place
+ * (mt#1811); the sweeper only needs operator opt-in.
  *
  * ## Idempotent task creation
  *
@@ -85,6 +85,7 @@
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { callMcp } from "./mcp-client";
+import { log } from "./logger";
 import {
   extractAdoptionSignals,
   buildGrepPattern,
@@ -96,7 +97,7 @@ import type { AdoptionSignal } from "@minsky/shared/adoption/signal-extraction";
 // ---------------------------------------------------------------------------
 
 export interface AdoptionSweeperConfig {
-  /** Whether the sweeper is enabled. Default: false (disabled until mt#1711 ships). */
+  /** Whether the sweeper is enabled. Default: false (operator opt-in). */
   enabled: boolean;
   /** Sweep interval in milliseconds. Default: 86_400_000 (24 hours). */
   intervalMs: number;
@@ -172,7 +173,7 @@ export interface AdoptionSweepResult {
  * implementation. Passed explicitly so any future change to the helper's
  * default does not silently regress sweep behavior.
  *
- * Observability: `callMcp` emits structured `console.warn` events with the
+ * Observability: `callMcp` emits structured `log.warn` events with the
  * `adoption_sweeper.mcp` prefix; the legacy
  * `adoption_sweeper.mcp_{http_error,rpc_error,fetch_error}` events are
  * preserved at the same prefix.
@@ -333,13 +334,11 @@ export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<Adoptio
     errors: [],
   };
 
-  console.log(
-    JSON.stringify({
-      event: "adoption_sweeper.run_started",
-      timestamp: startedAt,
-      lookbackDays: deps.lookbackDays,
-    })
-  );
+  log.info("adoption_sweeper.run_started", {
+    event: "adoption_sweeper.run_started",
+    timestamp: startedAt,
+    lookbackDays: deps.lookbackDays,
+  });
 
   // Step 1: List DONE tasks updated within the lookback window.
   // PR #1034 R1 BLOCKING fix: previously used `tasks_search` without a recency
@@ -359,12 +358,10 @@ export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<Adoptio
 
     if (!listText) {
       result.errors.push("tasks_list returned no content");
-      console.warn(
-        JSON.stringify({
-          event: "adoption_sweeper.list_failed",
-          reason: "no_content",
-        })
-      );
+      log.warn("adoption_sweeper.list_failed", {
+        event: "adoption_sweeper.list_failed",
+        reason: "no_content",
+      });
       return result;
     }
 
@@ -388,22 +385,18 @@ export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<Adoptio
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     result.errors.push(`Failed to list DONE tasks: ${msg}`);
-    console.error(
-      JSON.stringify({
-        event: "adoption_sweeper.list_error",
-        error: msg,
-      })
-    );
+    log.error("adoption_sweeper.list_error", {
+      event: "adoption_sweeper.list_error",
+      error: msg,
+    });
     return result;
   }
 
   result.tasksChecked = tasks.length;
-  console.log(
-    JSON.stringify({
-      event: "adoption_sweeper.tasks_found",
-      count: tasks.length,
-    })
-  );
+  log.info("adoption_sweeper.tasks_found", {
+    event: "adoption_sweeper.tasks_found",
+    count: tasks.length,
+  });
 
   // Step 2–5: Process each task.
   // Cap concurrency at 3 to avoid rate-limiting the MCP server.
@@ -431,26 +424,22 @@ export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<Adoptio
 
         result.totalGapsFiled += checkResult.gapsFiled;
 
-        console.log(
-          JSON.stringify({
-            event: "adoption_sweeper.task_checked",
-            taskId,
-            signalsFound: checkResult.signalsFound,
-            callsitesFound: checkResult.callsitesFound,
-            gapsFiled: checkResult.gapsFiled,
-            followUpTaskIds: checkResult.followUpTaskIds,
-          })
-        );
+        log.info("adoption_sweeper.task_checked", {
+          event: "adoption_sweeper.task_checked",
+          taskId,
+          signalsFound: checkResult.signalsFound,
+          callsitesFound: checkResult.callsitesFound,
+          gapsFiled: checkResult.gapsFiled,
+          followUpTaskIds: checkResult.followUpTaskIds,
+        });
       })
     );
   }
 
-  console.log(
-    JSON.stringify({
-      event: "adoption_sweeper.run_completed",
-      ...result,
-    })
-  );
+  log.info("adoption_sweeper.run_completed", {
+    event: "adoption_sweeper.run_completed",
+    ...result,
+  });
 
   return result;
 }
@@ -525,14 +514,12 @@ async function checkTaskAdoption(
 
       if (existingId) {
         // Already filed — idempotent skip.
-        console.log(
-          JSON.stringify({
-            event: "adoption_sweeper.gap_already_tracked",
-            taskId,
-            signalName: signal.name,
-            existingFollowUpId: existingId,
-          })
-        );
+        log.info("adoption_sweeper.gap_already_tracked", {
+          event: "adoption_sweeper.gap_already_tracked",
+          taskId,
+          signalName: signal.name,
+          existingFollowUpId: existingId,
+        });
         continue;
       }
 
@@ -557,15 +544,36 @@ async function checkTaskAdoption(
           checkResult.gapsFiled++;
           checkResult.followUpTaskIds.push(newId);
 
-          console.log(
-            JSON.stringify({
-              event: "adoption_sweeper.gap_filed",
+          log.info("adoption_sweeper.gap_filed", {
+            event: "adoption_sweeper.gap_filed",
+            parentTaskId: taskId,
+            signalKind: signal.kind,
+            signalName: signal.name,
+            followUpTaskId: newId,
+          });
+
+          // Emit task.auto_created event via MCP (mt#2134).
+          // Best-effort: failure is logged but never blocks the sweep.
+          try {
+            await callMcpTool(deps.mcpUrl, deps.mcpToken, "events_emit", {
+              eventType: "task.auto_created",
+              payload: {
+                taskId: newId,
+                title: followUpTitle,
+                createdBy: "adoption-sweeper",
+                sourceRule: signal.name,
+              },
+              actor: "adoption-sweeper",
+              relatedTaskId: taskId,
+            });
+          } catch (emitErr: unknown) {
+            log.warn("adoption_sweeper.event_emit_failed", {
+              event: "adoption_sweeper.event_emit_failed",
               parentTaskId: taskId,
-              signalKind: signal.kind,
-              signalName: signal.name,
               followUpTaskId: newId,
-            })
-          );
+              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+            });
+          }
         }
       } catch (createErr) {
         const msg = createErr instanceof Error ? createErr.message : String(createErr);
@@ -626,8 +634,8 @@ function buildFollowUpSpec(parentTaskId: string, signal: AdoptionSignal): string
  * Start the adoption sweeper on an in-process interval.
  *
  * Same pattern as merge-state-sweeper.ts. Opt-in via
- * ADOPTION_SWEEPER_ENABLED=true (disabled by default until mt#1711 ships).
- * Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN.
+ * ADOPTION_SWEEPER_ENABLED=true (disabled by default; env-var wiring
+ * is in place via mt#1811). Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN.
  *
  * Returns an object with a `stop()` method to clean up the interval, or null
  * if the sweeper is disabled or credentials are missing.
@@ -637,37 +645,31 @@ export function startAdoptionSweeper(
   sweeperConfig: AdoptionSweeperConfig
 ): { stop: () => void } | null {
   if (!sweeperConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "adoption_sweeper.disabled",
-        message:
-          "Adoption sweeper is disabled (ADOPTION_SWEEPER_ENABLED=false). " +
-          "Set ADOPTION_SWEEPER_ENABLED=true to activate (requires mt#1711 env-var wiring).",
-      })
-    );
+    log.info("adoption_sweeper.disabled", {
+      event: "adoption_sweeper.disabled",
+      message:
+        "Adoption sweeper is disabled (ADOPTION_SWEEPER_ENABLED=false). " +
+        "Set ADOPTION_SWEEPER_ENABLED=true to activate.",
+    });
     return null;
   }
 
   if (!sweeperConfig.mcpUrl || !sweeperConfig.mcpToken) {
-    console.warn(
-      JSON.stringify({
-        event: "adoption_sweeper.missing_credentials",
-        message:
-          "ADOPTION_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
-          "Adoption sweeper will not start.",
-      })
-    );
+    log.warn("adoption_sweeper.missing_credentials", {
+      event: "adoption_sweeper.missing_credentials",
+      message:
+        "ADOPTION_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+        "Adoption sweeper will not start.",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "adoption_sweeper.enabled",
-      intervalMs: sweeperConfig.intervalMs,
-      mcpUrl: sweeperConfig.mcpUrl,
-      lookbackDays: sweeperConfig.lookbackDays,
-    })
-  );
+  log.info("adoption_sweeper.enabled", {
+    event: "adoption_sweeper.enabled",
+    intervalMs: sweeperConfig.intervalMs,
+    mcpUrl: sweeperConfig.mcpUrl,
+    lookbackDays: sweeperConfig.lookbackDays,
+  });
 
   let isRunning = false;
 
@@ -679,12 +681,10 @@ export function startAdoptionSweeper(
 
   const handle = setInterval(() => {
     if (isRunning) {
-      console.warn(
-        JSON.stringify({
-          event: "adoption_sweeper.skip_reentrant",
-          message: "Previous adoption sweep still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("adoption_sweeper.skip_reentrant", {
+        event: "adoption_sweeper.skip_reentrant",
+        message: "Previous adoption sweep still in progress; skipping this interval tick.",
+      });
       return;
     }
     isRunning = true;
@@ -692,12 +692,10 @@ export function startAdoptionSweeper(
     runAdoptionSweep(deps)
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "adoption_sweeper.cycle_error",
-            error: message,
-          })
-        );
+        log.error("adoption_sweeper.cycle_error", {
+          event: "adoption_sweeper.cycle_error",
+          error: message,
+        });
       })
       .finally(() => {
         isRunning = false;

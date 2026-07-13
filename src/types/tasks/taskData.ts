@@ -3,13 +3,13 @@
  * These types represent the pure data structures used in task operations
  */
 
-import type { TaskStatus } from "../../domain/tasks/taskConstants";
-import type { GitServiceInterface } from "../../domain/git/types";
-import type { FsLike } from "../../domain/interfaces/fs-like";
+import type { TaskStatus } from "@minsky/domain/tasks/taskConstants";
+import type { GitServiceInterface } from "@minsky/domain/git/types";
+import type { FsLike } from "@minsky/domain/interfaces/fs-like";
 
 // Re-export task status types from centralized location
-export type { TaskStatus } from "../../domain/tasks/taskConstants";
-export { TaskStatus as TaskStatusType } from "../../domain/tasks/taskConstants";
+export type { TaskStatus } from "@minsky/domain/tasks/taskConstants";
+export { TaskStatus as TaskStatusType } from "@minsky/domain/tasks/taskConstants";
 
 /**
  * TaskData represents the pure data representation of a task

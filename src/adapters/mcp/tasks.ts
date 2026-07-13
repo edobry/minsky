@@ -4,14 +4,14 @@
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerTaskCommandsWithMcp } from "./shared-command-integration";
 import { registerTaskEditTools } from "./task-edit-tools";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers task tools with the MCP command mapper
  */
 export function registerTaskTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug(
     "Exposing task commands via shared command integration (commands already registered during CLI init)"

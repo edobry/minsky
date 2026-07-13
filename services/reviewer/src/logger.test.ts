@@ -177,6 +177,37 @@ describe("redactString", () => {
     expect(placeholderCount).toBe(2);
   });
 
+  test("masks URL userinfo credentials, keeping scheme and host (mt#2463)", () => {
+    const result = redactString(
+      'connect ECONNREFUSED for "postgresql://minsky:s3cretPW@db.example.supabase.com:6543/postgres"' // gitleaks:allow
+    );
+    expect(result).toContain("postgresql://***:***@db.example.supabase.com:6543/postgres");
+    expect(result).not.toContain("s3cretPW");
+    expect(result).not.toContain("minsky:s3cretPW");
+  });
+
+  test("masks credentials in any URL scheme (redis, https)", () => {
+    expect(redactString("redis://default:hunter2@cache:6379")).toBe("redis://***:***@cache:6379"); // gitleaks:allow
+    // gitleaks:allow
+    expect(redactString("https://user:tok3n@api.example.com/path")).toBe(
+      "https://***:***@api.example.com/path"
+    );
+  });
+
+  test("leaves credential-free URLs unchanged", () => {
+    const url = "postgresql://db.example.supabase.com:6543/postgres?sslmode=require";
+    expect(redactString(url)).toBe(url);
+  });
+
+  test("masks password=... fragments in libpq-style conninfo strings (mt#2463)", () => {
+    const result = redactString(
+      "connection failed: host=db port=5432 user=minsky password=pw123 dbname=minsky"
+    );
+    expect(result).toContain("password=***");
+    expect(result).not.toContain("pw123");
+    expect(result).toContain("host=db");
+  });
+
   test("leaves non-sensitive strings unchanged", () => {
     const msg = "MCP lookup failed for PR 42: connection refused";
     expect(redactString(msg)).toBe(msg);
@@ -315,11 +346,12 @@ describe("redaction acceptance: mcpToken never emitted", () => {
 // ---------------------------------------------------------------------------
 
 describe("redaction acceptance: 401 error log does not contain bearer token", () => {
-  test("simulates a callAuthorshipGet 401 error log — artifactId present, token absent", () => {
+  test("simulates a mcp-client 401 error log — artifactId present, token absent", () => {
     const secretToken = "secret-bearer-value-xyz";
     const artifactId = "42";
 
-    // Simulate the exact message that callAuthorshipGet produces on HTTP 401:
+    // Simulate the error message shape produced by mcp-client on HTTP 401
+    // (callAuthorshipGet was removed in mt#2121; this tests the log format, not the function):
     // log.error(`[mcp-client] authorship.get(${artifactId}) HTTP 401 Unauthorized`)
     // with NO context that includes the token (the function never passes mcpToken to log.error).
     const errorMsg = `[mcp-client] authorship.get(${artifactId}) HTTP 401 Unauthorized`;

@@ -5,10 +5,10 @@
  * dependencies.
  */
 
-import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import { type TaskServiceInterface } from "../../../../domain/tasks/taskService";
-import { getErrorMessage } from "../../../../errors/index";
-import { elementAt } from "../../../../utils/array-safety";
+import { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { type TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { elementAt } from "@minsky/shared/array-safety";
 import type { TaskNode } from "./deps-rendering-types";
 
 /**

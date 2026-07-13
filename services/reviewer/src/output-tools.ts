@@ -1,11 +1,14 @@
 /**
  * Output tools for the reviewer model.
  *
- * Defines the four structured output tools the reviewer model uses to compose
+ * Defines the seven structured output tools the reviewer model uses to compose
  * a PR review. Each tool corresponds to one kind of review artifact:
  *   - submit_finding: a discrete review finding with severity and location
  *   - submit_inline_comment: a targeted inline comment on a specific line
  *   - submit_spec_verification: a verification result for one spec criterion
+ *   - submit_documentation_impact: documentation-impact assessment (mt#2053)
+ *   - submit_adoption_sweep: adoption sweep result per new public export (mt#2059)
+ *   - submit_thread_resolve: resolve an existing review thread (mt#1345)
  *   - conclude_review: the final review conclusion (approve / request-changes / comment)
  *
  * This module is schema-only — no provider wiring, no composition logic. It is
@@ -85,6 +88,17 @@ export const SubmitInlineCommentArgsSchema = z.object({
   body: z.string().min(1),
 
   /**
+   * Which side of the diff the line refers to:
+   *   "RIGHT" — the new/head version of the file (an added or context line)
+   *   "LEFT"  — the old/base version of the file (a removed line)
+   * Omit for the common case (defaults to RIGHT). Mirrors `submit_finding`'s
+   * `side`. Threaded through to anchor pre-validation (mt#2350): a LEFT-side
+   * comment that cannot be resolved against the diff is demoted to the review
+   * body rather than 422'ing the whole review.
+   */
+  side: z.enum(["LEFT", "RIGHT"]).optional(),
+
+  /**
    * When replying to an existing review-thread comment, set this to the parent
    * comment's database ID. Obtain from `reviewThreads[].comments[].databaseId`
    * (the numeric REST id) in the context provided by the worker.
@@ -151,6 +165,106 @@ export const SubmitSpecVerificationArgsSchema = z.object({
 export type SubmitSpecVerificationArgs = z.infer<typeof SubmitSpecVerificationArgsSchema>;
 
 /**
+ * Args for the `submit_documentation_impact` tool.
+ *
+ * Records whether the PR's changes affect any project documentation. Submit
+ * exactly one call per review (or zero if the PR is purely internal — e.g., a
+ * tests-only or internal-refactor PR where documentation impact does not
+ * apply). Mirrors the three outcomes for the reviewer bot's documentation impact
+ * assessment:
+ *   - "no-update-needed"      — bugfix, internal refactor, cosmetic; docs do not change.
+ *   - "updated-in-pr"         — the PR includes documentation updates alongside the code.
+ *   - "blocking-needs-update" — the PR affects documented behavior but does NOT update
+ *                               the docs. This is a blocking concern (the docs and code
+ *                               drift apart on merge); the reviewer should also emit a
+ *                               `submit_finding` with severity BLOCKING for the same issue.
+ *
+ * The reviewer service composes a `## Documentation impact` section in the
+ * GitHub review body from this call so the merge gate can verify
+ * documentation impact was explicitly assessed.
+ */
+export const SubmitDocumentationImpactArgsSchema = z.object({
+  /**
+   * The PR's documentation-impact classification. See the schema-level
+   * comment above for the meaning of each value.
+   */
+  kind: z.enum(["no-update-needed", "updated-in-pr", "blocking-needs-update"]),
+
+  /**
+   * Justification for the verdict. Reference the specific docs (or absence
+   * thereof) that drove the call. Examples:
+   *   - "Pure internal refactor — no user-facing or documented behavior changed."
+   *   - "Updated docs/configuration-guide.md to describe the new MINSKY_FOO env var."
+   *   - "Adds a new MCP tool but does not update docs/architecture.md tool inventory."
+   */
+  evidence: z.string().min(1),
+
+  /**
+   * Optional list of documentation file paths affected (or required to be
+   * updated). For `updated-in-pr`, list the docs the PR updated. For
+   * `blocking-needs-update`, list the docs that need updating. Omit for
+   * `no-update-needed`.
+   */
+  affectedDocs: z.array(z.string().min(1)).optional(),
+});
+
+export type SubmitDocumentationImpactArgs = z.infer<typeof SubmitDocumentationImpactArgsSchema>;
+
+/**
+ * Args for the `submit_adoption_sweep` tool.
+ *
+ * Records the adoption-sweep result for one new public export introduced by
+ * this PR. Submit one call per new public export (function, class, type, CLI
+ * command, MCP tool, hook). When the PR introduces more than 10 new exports,
+ * emit a single cost-bounded call with `kind: "capability"` to avoid
+ * exhausting the tool-call budget on mechanical enumeration.
+ */
+export const SubmitAdoptionSweepArgsSchema = z.object({
+  /**
+   * The fully-qualified name of the new export being swept.
+   * Examples: "Reviewer.runReview", "tasks_orchestrate", "/declare-framework",
+   * "submit_adoption_sweep". For cost-bounded calls, use the form
+   * "<N> new exports (cost-bounding rule)".
+   */
+  symbol: z.string().min(1),
+
+  /**
+   * The kind of export being swept. Used as a rendering discriminator:
+   *   "function"    — a new exported function
+   *   "class"       — a new exported class
+   *   "type"        — a new exported type or interface
+   *   "cli-command" — a new CLI subcommand
+   *   "mcp-tool"    — a new MCP tool
+   *   "hook"        — a new hook entry point
+   *   "capability"  — catchall for cost-bounded summary calls (>10 new exports)
+   */
+  kind: z.enum(["function", "class", "type", "cli-command", "mcp-tool", "hook", "capability"]),
+
+  /**
+   * List of callsites / consumers found in the codebase. Each entry is a short
+   * description of the consumer (e.g., "src/foo.ts:42 — passes value via …").
+   * Empty when no consumers are found.
+   */
+  consumersFound: z.array(z.string()).default([]),
+
+  /**
+   * Adoption classification:
+   *   "Adopted"           — consumers were found; the export is in use.
+   *   "Missing consumers" — no consumers were found; the export has no wiring.
+   */
+  classification: z.enum(["Adopted", "Missing consumers"]),
+
+  /**
+   * Optional free-form rationale. Use to explain why consumers are missing
+   * (e.g., "wiring planned in mt#XXXX") or to note that spec-required wiring
+   * is absent (which would also warrant a BLOCKING submit_finding call).
+   */
+  notes: z.string().optional(),
+});
+
+export type SubmitAdoptionSweepArgs = z.infer<typeof SubmitAdoptionSweepArgsSchema>;
+
+/**
  * Args for the `conclude_review` tool.
  *
  * Signals the end of the review and provides a top-level summary. This tool
@@ -200,7 +314,7 @@ export interface OutputToolDefinition {
 }
 
 /**
- * The four output tools registered with the model for structured review
+ * The six output tools registered with the model for structured review
  * composition. Mirrors the style of REVIEWER_TOOL_DEFINITIONS in providers.ts.
  */
 export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
@@ -294,6 +408,13 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             minLength: 1,
             description: "Comment body. Markdown is supported.",
           },
+          side: {
+            type: "string",
+            enum: ["LEFT", "RIGHT"],
+            description:
+              "Diff side: RIGHT for an added or context line (new file), LEFT for a removed " +
+              "line (old file). Omit for the common case (defaults to RIGHT).",
+          },
           inReplyTo: {
             type: "integer",
             minimum: 1,
@@ -350,7 +471,9 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "Call this once per criterion listed in the spec's 'Success Criteria' section. " +
         "status: 'Met' if the PR satisfies the criterion; 'Not Met' if it does not; " +
         "'N/A' if the criterion does not apply to this PR. " +
-        "evidence must reference specific file paths or code to justify the verdict.",
+        "evidence must reference specific file paths or code to justify the verdict. " +
+        "When status is 'Not Met', the evidence field must explain what was deferred and why, " +
+        "and indicate that the spec needs updating or follow-up tasks need filing.",
       parameters: {
         type: "object",
         properties: {
@@ -373,6 +496,107 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
           },
         },
         required: ["criterion", "status", "evidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_documentation_impact",
+      description:
+        "Record whether the PR's changes affect any project documentation. " +
+        "Call this exactly once per review — every review MUST include this call. " +
+        "kind: 'no-update-needed' for bugfix/internal-refactor/cosmetic PRs that do not " +
+        "change documented behavior; 'updated-in-pr' when the PR ships documentation " +
+        "updates alongside the code; 'blocking-needs-update' when the PR affects " +
+        "documented behavior but does NOT update the docs (the reviewer should also " +
+        "emit a submit_finding with severity BLOCKING for the same issue). " +
+        "evidence must justify the verdict and reference specific docs when applicable. " +
+        "affectedDocs is optional but recommended for 'updated-in-pr' and " +
+        "'blocking-needs-update' — list the affected documentation file paths.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["no-update-needed", "updated-in-pr", "blocking-needs-update"],
+            description:
+              "Documentation-impact classification: no-update-needed, updated-in-pr, or blocking-needs-update.",
+          },
+          evidence: {
+            type: "string",
+            minLength: 1,
+            description:
+              "Justification for the verdict. Reference specific docs (or absence thereof).",
+          },
+          affectedDocs: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            description:
+              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — do not speculatively list docs based on topic area alone.",
+          },
+        },
+        required: ["kind", "evidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_adoption_sweep",
+      description:
+        "Record the adoption-sweep result for one new public export introduced by this PR. " +
+        "Call this once per new public export (function, class, type, CLI command, MCP tool, hook). " +
+        "A 'new public export' is any symbol added to the public API surface: exported functions, " +
+        "classes, types, CLI subcommands, MCP tools, or hooks that callers outside the module can use. " +
+        "For each symbol, search the codebase for existing consumers (callsites, imports, registrations). " +
+        "classification: 'Adopted' when consumers are found; 'Missing consumers' when none are found. " +
+        "When the PR introduces more than 10 new public exports, emit a SINGLE call with " +
+        "kind: 'capability', symbol: '<N> new exports (cost-bounding rule)', classification: 'Missing consumers', " +
+        "and a notes field recommending a follow-up adoption task. Do NOT emit N individual calls. " +
+        "When a spec criterion requires specific consumer wiring (e.g., 'the tool must be registered in X'), " +
+        "a missing-consumer finding for that symbol is BLOCKING — also emit a submit_finding with " +
+        "severity BLOCKING for the same issue.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            minLength: 1,
+            description:
+              "Fully-qualified name of the new export (e.g. 'Reviewer.runReview', 'tasks_orchestrate', " +
+              "'/declare-framework', 'submit_adoption_sweep'). For cost-bounded calls: '<N> new exports (cost-bounding rule)'.",
+          },
+          kind: {
+            type: "string",
+            enum: ["function", "class", "type", "cli-command", "mcp-tool", "hook", "capability"],
+            description:
+              "Kind of export: function, class, type, cli-command, mcp-tool, hook, " +
+              "or capability (catchall for cost-bounded summary calls with >10 new exports).",
+          },
+          consumersFound: {
+            type: "array",
+            items: { type: "string" },
+            default: [],
+            description:
+              "List of callsites / consumers found in the codebase. Each entry is a short description " +
+              "(e.g. 'src/foo.ts:42 — passes value via …'). Empty array when no consumers are found.",
+          },
+          classification: {
+            type: "string",
+            enum: ["Adopted", "Missing consumers"],
+            description:
+              "Adoption classification: 'Adopted' when consumers found; 'Missing consumers' when none found.",
+          },
+          notes: {
+            type: "string",
+            description:
+              "Optional free-form rationale (e.g. 'wiring planned in mt#XXXX' or 'spec requires this to be registered in Y').",
+          },
+        },
+        required: ["symbol", "kind", "consumersFound", "classification"],
         additionalProperties: false,
       },
     },
@@ -425,6 +649,8 @@ export type ReviewToolCall =
   | { name: "submit_finding"; args: SubmitFindingArgs }
   | { name: "submit_inline_comment"; args: SubmitInlineCommentArgs }
   | { name: "submit_spec_verification"; args: SubmitSpecVerificationArgs }
+  | { name: "submit_documentation_impact"; args: SubmitDocumentationImpactArgs }
+  | { name: "submit_adoption_sweep"; args: SubmitAdoptionSweepArgs }
   | { name: "conclude_review"; args: ConcludeReviewArgs }
   | { name: "submit_thread_resolve"; args: SubmitThreadResolveArgs };
 
@@ -433,6 +659,8 @@ const TOOL_SCHEMAS = {
   submit_finding: SubmitFindingArgsSchema,
   submit_inline_comment: SubmitInlineCommentArgsSchema,
   submit_spec_verification: SubmitSpecVerificationArgsSchema,
+  submit_documentation_impact: SubmitDocumentationImpactArgsSchema,
+  submit_adoption_sweep: SubmitAdoptionSweepArgsSchema,
   conclude_review: ConcludeReviewArgsSchema,
   submit_thread_resolve: SubmitThreadResolveArgsSchema,
 } as const;
@@ -449,7 +677,7 @@ function isToolName(name: string): name is ToolName {
  * @param name     - The tool name emitted by the model (e.g. "submit_finding").
  * @param argsJson - The raw JSON string of arguments from the model.
  * @returns The discriminated-union tool call with validated args.
- * @throws If `name` is not one of the five known output tools.
+ * @throws If `name` is not one of the six known output tools.
  * @throws If `argsJson` is not valid JSON.
  * @throws If the parsed args fail zod validation for the named tool.
  */
@@ -485,6 +713,10 @@ export function parseToolCall(name: string, argsJson: string): ReviewToolCall {
       return { name, args: result.data as SubmitInlineCommentArgs };
     case "submit_spec_verification":
       return { name, args: result.data as SubmitSpecVerificationArgs };
+    case "submit_documentation_impact":
+      return { name, args: result.data as SubmitDocumentationImpactArgs };
+    case "submit_adoption_sweep":
+      return { name, args: result.data as SubmitAdoptionSweepArgs };
     case "conclude_review":
       return { name, args: result.data as ConcludeReviewArgs };
     case "submit_thread_resolve":

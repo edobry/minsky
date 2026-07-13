@@ -1,10 +1,10 @@
 /**
  * Shared types and helpers for session command factories.
  */
-import { getErrorMessage } from "../../../../errors/index";
-import { log } from "../../../../utils/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import type { CommandDefinition, CommandExecutionContext } from "../../command-registry";
-import type { SessionDeps } from "../../../../domain/session/session-service";
+import type { SessionDeps } from "@minsky/domain/session/session-service";
 
 /**
  * Common dependencies injected into session command factories.
@@ -29,7 +29,9 @@ export type LazySessionDeps = () => Promise<SessionCommandDependencies>;
  * session/task/repo context from arbitrary command params.
  */
 interface LoggableSessionParams {
-  name?: string;
+  // mt#2742: session commands declare `sessionId`, not `name`; logging base.name
+  // always printed `session: undefined`. Use the actual declared key.
+  sessionId?: string;
   task?: string;
   repo?: string;
   json?: boolean;
@@ -49,7 +51,7 @@ export function withErrorLogging<T extends Record<string, unknown>, R>(
     } catch (error) {
       const base = params as LoggableSessionParams;
       log.debug(`Error in ${commandId}`, {
-        session: base.name,
+        session: base.sessionId,
         task: base.task,
         repo: base.repo,
         error: getErrorMessage(error),

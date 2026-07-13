@@ -19,9 +19,9 @@
  *     classification for additive overlay.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
-import type { TaskServiceInterface } from "../../domain/tasks/taskService";
-import type { TaskGraphService } from "../../domain/tasks/task-graph-service";
+import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored verbatim in TaskGraph.tsx (no server imports
@@ -172,10 +172,10 @@ function normaliseStatus(raw: string): GraphNode["status"] {
 // ---------------------------------------------------------------------------
 // Default production widget
 //
-// Uses lazily-initialised singletons so the cockpit server can register
-// this without a DI container. The same bootstrap pattern as agents.ts:
-// `new PersistenceService() + .initialize() + getProvider()`.
+// Uses the cockpit-wide PersistenceService singleton (shared-persistence.ts).
 // ---------------------------------------------------------------------------
+
+import { getSharedPersistenceService } from "../shared-persistence";
 
 let _cachedDeps: TaskGraphDeps | null = null;
 
@@ -184,12 +184,10 @@ async function defaultDepsFactory(): Promise<TaskGraphDeps> {
     return _cachedDeps;
   }
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
-  const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
-  const { TaskGraphService } = await import("../../domain/tasks/task-graph-service");
+  const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+  const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
   const taskService = await createConfiguredTaskService({
@@ -199,7 +197,7 @@ async function defaultDepsFactory(): Promise<TaskGraphDeps> {
 
   // TaskGraphService needs a raw Drizzle DB connection
   const sqlProvider =
-    provider as import("../../domain/persistence/types").SqlCapablePersistenceProvider;
+    provider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
   const db = await sqlProvider.getDatabaseConnection();
   const taskGraphService = new TaskGraphService(
     db as import("drizzle-orm/postgres-js").PostgresJsDatabase

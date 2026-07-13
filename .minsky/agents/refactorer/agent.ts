@@ -1,4 +1,4 @@
-import { defineAgent, loadMarkdown } from "../../../src/domain/definitions/factories";
+import { defineAgent, loadMarkdown } from "../../../packages/domain/src/definitions/factories";
 
 export default defineAgent({
   name: "refactorer",

@@ -7,9 +7,9 @@
 
 import { z } from "zod";
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
-import { sessionPrReviewContext } from "../../../../domain/session/commands/pr-review-context-subcommand";
+import { sessionPrReviewContext } from "@minsky/domain/session/commands/pr-review-context-subcommand";
 
 // ── Parameter definitions ────────────────────────────────────────────────
 

@@ -5,21 +5,21 @@
  * Supports multi-backend editing with proper delegation to backend implementations.
  */
 import { type CommandExecutionContext } from "../../command-registry";
-import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
-import { getErrorMessage } from "../../../../errors/index";
+import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
-import { getTaskFromParams } from "../../../../domain/tasks";
-import type { Task } from "../../../../domain/tasks/types";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import { getTaskFromParams } from "@minsky/domain/tasks";
+import type { Task } from "@minsky/domain/tasks/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { promises as fs } from "fs";
-import { readTextFile } from "../../../../utils/fs";
+import { readTextFile } from "@minsky/shared/fs";
 import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
-import { isKnownKind, WORKFLOWS } from "../../../../domain/tasks/workflows";
+import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
 
 /**
  * Parameters for tasks edit command
@@ -191,10 +191,10 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       this.debug(`Tags update: ${JSON.stringify(newTags)}`);
     }
 
-    // Handle kind update (reclassification across workflow registry)
+    // Handle kind update (reclassification across workflow registry; mt#1812 / mt#2661)
     if (hasKindOperation) {
       updates.kind = params.kind;
-      this.debug(`Kind update: ${params.kind}`);
+      this.debug(`Kind update: "${params.kind}"`);
     }
 
     // Show preview if not executing
@@ -247,6 +247,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         );
       }
 
+      // Check if backend supports setTaskKind for workflow-kind updates (mt#2661)
+      if (updates.kind && !backend.setTaskKind) {
+        throw new ValidationError(`Backend "${backend.name}" does not support kind editing`);
+      }
+
       // Apply updates
       if (updates.spec && backend.setTaskMetadata) {
         // Update both title and spec via setTaskMetadata
@@ -271,17 +276,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
         this.debug("Updated task tags");
       }
 
-      // Apply kind reclassification separately. The backend's setTaskKind is optional —
-      // backends that do not support reclassification (e.g. github-issues currently)
-      // surface a clear error rather than silently no-op.
-      if (updates.kind !== undefined) {
-        if (!backend.setTaskKind) {
-          throw new ValidationError(
-            `Backend "${backend.name}" does not support kind reclassification`
-          );
-        }
+      // Apply kind update separately (mt#2661 back-annotation support; unsupported
+      // backends were already rejected by the up-front setTaskKind check above)
+      if (updates.kind && backend.setTaskKind) {
         await backend.setTaskKind(validatedTaskId, updates.kind);
-        this.debug(`Updated task kind to ${updates.kind}`);
+        this.debug(`Updated task kind to "${updates.kind}"`);
       }
 
       // Fire-and-forget embedding re-index if content that affects embeddings changed
@@ -341,7 +340,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       if (!params.json) {
         const errorMsg = getErrorMessage(error);
         let errorMessage = "";
-        if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
+        if (errorMsg.includes("Backend") && errorMsg.includes("does not support kind editing")) {
+          // Kind-edit capability failures must not be coerced into the
+          // specification-editing message below (mt#2661 review finding).
+          errorMessage = chalk.red(`❌ Failed to update task: ${errorMsg}`);
+          errorMessage += `\n${chalk.yellow(
+            "   Tip: Some backends may have limited editing capabilities. Check backend documentation."
+          )}`;
+        } else if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
           errorMessage = chalk.red(
             `❌ Failed to update task specification: Backend does not support specification editing`
           );
@@ -451,7 +457,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     if (updates.tags !== undefined) {
       parts.push("tags");
     }
-    if (updates.kind !== undefined) {
+    if (updates.kind) {
       parts.push("kind");
     }
 
@@ -506,10 +512,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       message += `  ${chalk.green("+ ")}${updates.tags.length > 0 ? updates.tags.join(", ") : "(none)"}\n\n`;
     }
 
-    if (updates.kind !== undefined) {
+    if (updates.kind) {
       message += `${chalk.bold("Kind change:")}\n`;
-      const currentKind = (currentTask as { kind?: string }).kind || "implementation";
-      message += `  ${chalk.red("- ")}${currentKind}\n`;
+      message += `  ${chalk.red("- ")}${currentTask.kind || "implementation"}\n`;
       message += `  ${chalk.green("+ ")}${updates.kind}\n\n`;
     }
 

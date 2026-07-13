@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { tasksTable, taskSpecsTable } from "../../../domain/storage/schemas/task-embeddings";
-import { taskRelationshipsTable } from "../../../domain/storage/schemas/task-relationships";
+import { tasksTable, taskSpecsTable } from "@minsky/domain/storage/schemas/task-embeddings";
+import { taskRelationshipsTable } from "@minsky/domain/storage/schemas/task-relationships";
 import {
   buildAuditResult,
   fetchChildSnapshots,
   listEpicChildIds,
   type AuditDb,
 } from "./epic-decomposition";
-import type { EpicStalenessCandidate } from "../../../domain/detectors/epic-decomposition-staleness";
+import type { EpicStalenessCandidate } from "@minsky/domain/detectors/epic-decomposition-staleness";
 
 // ---------------------------------------------------------------------------
 // Test helpers: in-memory db stub

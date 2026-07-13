@@ -5,11 +5,12 @@
  */
 
 import { Octokit } from "@octokit/rest";
-import { getConfiguration } from "../../domain/configuration/index";
-import { environmentMappings } from "../../domain/configuration/sources/environment";
-import { getUserConfigDir } from "../../domain/configuration/sources/user";
-import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
-import { log } from "../../utils/logger";
+import { createTimeoutFetch } from "@minsky/domain/github/octokit-timeout";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import { environmentMappings } from "@minsky/domain/configuration/sources/environment";
+import { getUserConfigDir } from "@minsky/domain/configuration/sources/user";
+import { getGitHubBackendConfig } from "@minsky/domain/tasks/githubBackendConfig";
+import { log } from "@minsky/shared/logger";
 
 interface TestOptions {
   verbose?: boolean;
@@ -58,6 +59,10 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
     // Step 2: Test API connectivity
     const octokit = new Octokit({
       auth: githubToken,
+      // Bound every request (mt#2270 sweep; see octokit-timeout.ts). This is a
+      // one-shot CLI diagnostic, not a long-lived process, but bounding keeps
+      // the connectivity test from hanging indefinitely on a stalled endpoint.
+      request: { fetch: createTimeoutFetch() },
     });
 
     const { data: user } = await octokit.rest.users.getAuthenticated();

@@ -7,14 +7,14 @@
 
 import { readFileSync as nodeReadFileSync } from "fs";
 import { execSync as nodeExecSync } from "child_process";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // Import actual validation logic instead of duplicating it
-import { isDuplicateContent } from "../domain/session/pr-validation";
+import { isDuplicateContent } from "@minsky/domain/session/pr-validation";
 import {
   CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
   CONVENTIONAL_COMMIT_TYPES_DISPLAY,
-} from "../domain/git/conventional-commit-types";
+} from "@minsky/domain/git/conventional-commit-types";
 
 export interface CommitMsgResult {
   success: boolean;

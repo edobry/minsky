@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client";
-import type { TokenProvider } from "../../../domain/auth";
+import type { TokenProvider } from "@minsky/domain/auth";
 
 function makeFakeTokenProvider(captureScope?: { scope?: string }): TokenProvider {
   return {

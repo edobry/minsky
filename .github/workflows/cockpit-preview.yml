@@ -1,0 +1,161 @@
+# Per-PR cockpit preview deploy (mt#2096).
+#
+# Deploys the cockpit server to Railway when a PR touches cockpit source
+# files. Verifies the deploy actually works (health + data endpoints),
+# then posts the preview URL as a PR comment. Redeploys production on
+# PR close/merge to restore main-branch state.
+#
+# Architecture: single Railway environment (production) — each PR push
+# overwrites the prior deploy. Sufficient for a single-operator workflow
+# where parallel cockpit previews are not needed. If parallel previews
+# become necessary, upgrade to per-PR Railway environments with a
+# workspace-level API token.
+#
+# Prerequisites (one-time manual setup):
+#   1. Railway project + service created for cockpit-preview
+#   2. RAILWAY_COCKPIT_TOKEN secret set on this repo (project token scoped to production env)
+#   3. Real resource IDs in services/cockpit/railway.config.ts
+#   4. Read-only Supabase DB role created (see scripts/supabase-preview-role.sql)
+
+name: Cockpit Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "src/cockpit/**"
+      - "services/cockpit/**"
+
+concurrency:
+  group: cockpit-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PREVIEW_URL: https://cockpit-preview-production.up.railway.app
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy cockpit preview
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          railway up \
+            --service cockpit-preview \
+            --detach
+
+      - name: Verify preview is live
+        run: |
+          echo "Waiting for preview to come up..."
+          for i in $(seq 1 60); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL/api/health" 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Health endpoint: 200 OK"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "FAIL: health endpoint did not return 200 after 5 minutes (last: $HTTP_CODE)"
+              exit 1
+            fi
+            sleep 5
+          done
+
+          # Verify the domain layer initialized (not just Express serving).
+          # /api/widgets returns the widget registry; an empty array or error
+          # means the config/persistence layer failed to boot.
+          WIDGETS=$(curl -s "$PREVIEW_URL/api/widgets" 2>/dev/null || echo "FETCH_FAILED")
+          if echo "$WIDGETS" | grep -q '"status":"error"'; then
+            echo "FAIL: /api/widgets returned error response"
+            echo "Response: $WIDGETS"
+            exit 1
+          fi
+          WIDGET_COUNT=$(echo "$WIDGETS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+          if [ "$WIDGET_COUNT" -lt 1 ]; then
+            echo "FAIL: /api/widgets returned 0 widgets — domain layer likely failed to initialize"
+            echo "Response: $WIDGETS"
+            exit 1
+          fi
+          echo "Widget API: $WIDGET_COUNT widgets registered"
+
+          # Verify preview mode blocks mutations (curl WITHOUT -f so 403 is captured)
+          MUTATION_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PREVIEW_URL/api/asks/smoke-test/resolve" \
+            -H "Content-Type: application/json" -d '{"responder":"operator","payload":{}}')
+          if [ "$MUTATION_CODE" != "403" ]; then
+            echo "FAIL: POST to mutation endpoint returned $MUTATION_CODE (expected 403)"
+            exit 1
+          fi
+          echo "Preview guard: mutations blocked (403)"
+          echo "All verification checks passed."
+
+      - name: Post preview URL comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              '### Cockpit Preview',
+              '',
+              `**Preview URL:** ${process.env.PREVIEW_URL}`,
+              '',
+              `Deployed from commit \`${context.payload.pull_request.head.sha.slice(0, 9)}\`.`,
+              'Preview runs in **read-only mode** — mutations are disabled.',
+              '',
+              `_Updated by [Cockpit Preview](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})._`,
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.body?.includes('### Cockpit Preview') &&
+              c.user?.login === 'github-actions[bot]'
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  restore:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Restore main-branch deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          railway up \
+            --service cockpit-preview \
+            --detach

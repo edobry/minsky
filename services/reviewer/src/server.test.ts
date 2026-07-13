@@ -17,6 +17,7 @@ import { sign } from "@octokit/webhooks-methods";
 import type { ReviewerConfig } from "./config";
 import type { ReviewResult } from "./review-worker";
 import { createApp, type RunReviewFn } from "./server";
+import type { AlertSink } from "./alert-sink";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures
@@ -105,8 +106,9 @@ async function sendWebhook(
  * Capture lines written to process.stdout during a test.
  *
  * Winston's Console transport writes to process.stdout.write directly,
- * bypassing console.log. We intercept at the stream level so that both
- * the old console.log path and the new winston path are captured.
+ * bypassing the standard `console` global. We intercept at the stream
+ * level so the winston path is captured regardless of which logger API
+ * the code under test uses.
  */
 function captureConsoleLogs(): { logs: string[]; restore: () => void } {
   const logs: string[] = [];
@@ -436,5 +438,232 @@ describe("gracefulShutdown", () => {
 
     // Shutdown must complete even though the review errored.
     await expect(gracefulShutdown()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /retrigger auth (mt#2346): authenticated by the MCP auth token (cfg.mcpToken,
+// from MINSKY_MCP_AUTH_TOKEN), NOT the webhook HMAC secret.
+// ---------------------------------------------------------------------------
+
+describe("/retrigger auth (mt#2346)", () => {
+  const MCP_TOKEN = "test-mcp-auth-token";
+  const CONFIG_WITH_MCP_TOKEN: ReviewerConfig = { ...BASE_CONFIG, mcpToken: MCP_TOKEN };
+
+  // runReview is never reached by these auth-focused tests: they either fail
+  // auth, or pass auth and fail body validation before any dispatch.
+  const noopRunReview: RunReviewFn = async () => STUB_REVIEW_RESULT;
+
+  async function postRetrigger(
+    baseUrl: string,
+    auth: string | undefined,
+    body: unknown
+  ): Promise<Response> {
+    return fetch(`${baseUrl}/retrigger`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        ...(auth !== undefined ? { authorization: auth } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("accepts the MCP auth token — passes auth, reaches body validation (400, not 401)", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      // Correct token but an invalid (empty) body: a 400 — rather than 401 —
+      // proves the request got PAST the auth gate to body validation.
+      const res = await postRetrigger(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`, {});
+      expect(res.status).toBe(400);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects the webhook HMAC secret — no longer valid retrigger auth (SC: secret is webhook-only)", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      const res = await postRetrigger(
+        `http://localhost:${server.port}`,
+        `Bearer ${CONFIG_WITH_MCP_TOKEN.webhookSecret}`,
+        { pr: 1, owner: "o", repo: "r" }
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a missing Authorization header with 401", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      const res = await postRetrigger(`http://localhost:${server.port}`, undefined, {
+        pr: 1,
+        owner: "o",
+        repo: "r",
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("returns 503 when MINSKY_MCP_AUTH_TOKEN is unset on the service (fail closed)", async () => {
+    // BASE_CONFIG has mcpToken: undefined.
+    const { server } = createApp(BASE_CONFIG, noopRunReview);
+    try {
+      const res = await postRetrigger(`http://localhost:${server.port}`, `Bearer anything`, {
+        pr: 1,
+        owner: "o",
+        repo: "r",
+      });
+      expect(res.status).toBe(503);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /alert-test (mt#2451): on-demand test send through the deployed alert sink.
+// Same bearer auth as /retrigger (cfg.mcpToken). Mirrors the /retrigger tests.
+// ---------------------------------------------------------------------------
+
+describe("/alert-test (mt#2451)", () => {
+  const MCP_TOKEN = "test-mcp-auth-token";
+  const CONFIG_WITH_MCP_TOKEN: ReviewerConfig = { ...BASE_CONFIG, mcpToken: MCP_TOKEN };
+  const noopRunReview: RunReviewFn = async () => STUB_REVIEW_RESULT;
+
+  type RecordingSink = AlertSink & {
+    calls: Array<{ severity: string; title: string; body: string }>;
+  };
+
+  /** Fake AlertSink that records each notify() call. */
+  function makeFakeSink(): RecordingSink {
+    const calls: Array<{ severity: string; title: string; body: string }> = [];
+    return {
+      calls,
+      async notify(severity, title, body) {
+        calls.push({ severity, title, body });
+      },
+    };
+  }
+
+  async function postAlertTest(baseUrl: string, auth: string | undefined): Promise<Response> {
+    return fetch(`${baseUrl}/alert-test`, {
+      method: "POST",
+      headers: { ...(auth !== undefined ? { authorization: auth } : {}) },
+    });
+  }
+
+  test("returns 503 when MINSKY_MCP_AUTH_TOKEN is unset (fail closed)", async () => {
+    // BASE_CONFIG has mcpToken: undefined.
+    const { server } = createApp(BASE_CONFIG, noopRunReview);
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, "Bearer anything");
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("alert-test auth not configured");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a missing Authorization header with 401", async () => {
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      makeFakeSink()
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, undefined);
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a wrong bearer token with 401", async () => {
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      makeFakeSink()
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, "Bearer wrong-token");
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("returns 503 with an actionable message when authed but no sink is configured", async () => {
+    // Inject null to represent ALERT_SINK_TYPE unset/off.
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview, undefined, undefined, null);
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: string; hint?: string };
+      expect(body.error).toBe("no alert sink configured");
+      expect(body.hint).toContain("ALERT_SINK_TYPE");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("authed + sink configured → 200 and sends an info-severity message through the PROVIDED sink instance", async () => {
+    // Injecting the sink exercises the same code path server-main uses: it
+    // builds one sink at start and passes that single instance to createApp.
+    // Asserting on `fake.calls` proves the route used the PROVIDED instance
+    // (not a freshly-built one). The undefined→build-fresh fallback is a
+    // separate path, only hit when no instance is passed (e.g. minimal tests).
+    const fake = makeFakeSink();
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview, undefined, undefined, fake);
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; deliveryAttempted: boolean };
+      expect(body.ok).toBe(true);
+      expect(body.deliveryAttempted).toBe(true);
+      // The send path was actually invoked on the injected (shared) sink.
+      expect(fake.calls.length).toBe(1);
+      expect(fake.calls[0]?.severity).toBe("info");
+      expect(fake.calls[0]?.title).toContain("alert test");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a throwing sink yields 503 (never 500) and does not echo the raw error", async () => {
+    // AlertSink is contracted fail-open; a throw is a contract violation. The
+    // probe must stay resilient (no 500) and must not leak the error body,
+    // which could carry credentials (mt#2463 redaction lesson).
+    const secretLeak = "boom postgres://user:pw@host/db";
+    const throwingSink: AlertSink = {
+      async notify() {
+        throw new Error(secretLeak);
+      },
+    };
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      throwingSink
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(503);
+      const raw = await res.text();
+      expect(raw).toContain("alert sink threw");
+      expect(raw).not.toContain("pw@host");
+    } finally {
+      server.stop(true);
+    }
   });
 });

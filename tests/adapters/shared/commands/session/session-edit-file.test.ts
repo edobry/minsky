@@ -59,5 +59,11 @@ describe("session edit-file command definition", () => {
       expect(schema.createDirs.required).toBe(false);
       expect(schema.createDirs.defaultValue).toBe(true);
     });
+
+    test("should have optional fullReplace parameter with default false (mt#2612)", () => {
+      expect(schema.fullReplace).toBeDefined();
+      expect(schema.fullReplace.required).toBe(false);
+      expect(schema.fullReplace.defaultValue).toBe(false);
+    });
   });
 });

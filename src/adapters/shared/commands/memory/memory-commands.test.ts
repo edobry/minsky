@@ -12,8 +12,8 @@ import type {
   MemoryRecord,
   MemoryCreateInput,
   MemorySearchResult,
-} from "../../../../domain/memory/types";
-import type { MemoryServiceSurface } from "../../../../domain/memory/memory-service";
+} from "@minsky/domain/memory/types";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
 
@@ -45,6 +45,7 @@ function makeRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
     confidence: null,
     supersededBy: null,
     metadata: null,
+    associations: {},
     createdAt: new Date("2025-01-01"),
     updatedAt: new Date("2025-01-01"),
     lastAccessedAt: null,
@@ -186,10 +187,35 @@ describe("Memory Commands", () => {
       registerMemoryCommands(registry, makeDeps({ getResult: null }));
 
       const cmd = registry.getCommand(GET_CMD);
+      // mt#2696 R1: message names how the id was interpreted. "missing-id" is
+      // not a valid hex prefix (contains non-hex letters), so it falls
+      // through to the generic "not found with id" phrasing rather than the
+      // "for id prefix" phrasing reserved for genuinely prefix-shaped input.
       // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
       await expect(cmd!.execute({ id: "missing-id" }, {})).rejects.toThrow(
-        'Memory not found: "missing-id"'
+        'Memory not found with id "missing-id"'
       );
+    });
+
+    test("names the id as a prefix (not a raw echo) when the input is a valid hex prefix that resolved but no longer has a live row", async () => {
+      // mt#2696 R1 (reviewer finding 2): a prefix that resolved to a full id
+      // (via classifyIdInput, which is pure and doesn't need a live DB — this
+      // test has no persistence container, so resolveMemoryIdInput passes
+      // the raw prefix through unchanged) but then finds no row must name
+      // BOTH the original prefix input and how it was interpreted, not just
+      // echo the raw input as if it were an opaque id.
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ getResult: null }));
+
+      const cmd = registry.getCommand(GET_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const err = await cmd!.execute({ id: "d8591800" }, {}).then(
+        () => null,
+        (e: unknown) => e as Error
+      );
+      // Exact match (not substring): the pass-through path must NOT claim
+      // "(resolved to ...)" — no resolution occurred (mt#2696 R2).
+      expect(err?.message).toBe('Memory not found for id prefix "d8591800"');
     });
   });
 
@@ -238,6 +264,9 @@ describe("Memory Commands", () => {
       expect(cmd?.name).toBe("create");
       expect(cmd?.parameters["content"]?.required).toBe(true);
       expect(cmd?.parameters["force"]?.required).toBe(false);
+      // mt#2663: scope is optional at the command layer, defaulting to "project".
+      expect(cmd?.parameters["scope"]?.required).toBe(false);
+      expect(cmd?.parameters["scope"]?.defaultValue).toBe("project");
     });
 
     test("rejects derivable content without force", async () => {
@@ -299,6 +328,69 @@ describe("Memory Commands", () => {
         {}
       )) as MemoryRecord;
       expect(result.id).toBe("clean-1");
+    });
+
+    // mt#2663: an omitted scope must default to "project" at the command
+    // layer (the site that produced the live NOT NULL failure), not just at
+    // the service/DB layer.
+    test("defaults scope to 'project' when omitted from execute() params", async () => {
+      let capturedInput: MemoryCreateInput | undefined;
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {
+        memoryService: {
+          ...makeFakeMemoryService(),
+          create: async (input) => {
+            capturedInput = input;
+            return makeRecord({ id: "no-scope-1", scope: input.scope });
+          },
+        },
+      });
+
+      const cmd = registry.getCommand(CREATE_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute(
+        {
+          type: "user",
+          name: "No scope supplied",
+          description: "Regression test for mt#2663",
+          content: "edobry omitted scope on this memory.create call",
+          // scope intentionally omitted
+        },
+        {}
+      )) as MemoryRecord;
+
+      expect(capturedInput?.scope).toBe("project");
+      expect(result.scope).toBe("project");
+    });
+
+    test("respects an explicit scope when provided", async () => {
+      let capturedInput: MemoryCreateInput | undefined;
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {
+        memoryService: {
+          ...makeFakeMemoryService(),
+          create: async (input) => {
+            capturedInput = input;
+            return makeRecord({ id: "explicit-scope-1", scope: input.scope });
+          },
+        },
+      });
+
+      const cmd = registry.getCommand(CREATE_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute(
+        {
+          type: "user",
+          name: "Explicit scope",
+          description: "Regression test for mt#2663",
+          content: "edobry supplied scope=cross_project explicitly",
+          scope: "cross_project",
+        },
+        {}
+      )) as MemoryRecord;
+
+      expect(capturedInput?.scope).toBe("cross_project");
+      expect(result.scope).toBe("cross_project");
     });
   });
 

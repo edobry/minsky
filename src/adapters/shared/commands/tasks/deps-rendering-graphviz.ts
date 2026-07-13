@@ -6,13 +6,13 @@
  */
 
 import { writeFileSync } from "fs";
-import { execAsync, safeShellQuote } from "../../../../utils/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm";
-import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import { type TaskServiceInterface } from "../../../../domain/tasks/taskService";
-import { type Task } from "../../../../domain/tasks/types";
-import { getErrorMessage } from "../../../../errors/index";
+import { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { type TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { type Task } from "@minsky/domain/tasks/types";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { LayoutOptions, TaskNode } from "./deps-rendering-types";
 
 /**

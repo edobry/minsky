@@ -30,7 +30,7 @@
  * That requires a deployed reviewer service with credentials + a real DONE
  * task with zero callsites — outside the scope of in-tree CI smoke.
  * This script covers the structural prerequisites; the operator runs the
- * full e2e against a deployed instance (post-mt#1711) and pastes redacted
+ * full e2e against a deployed instance and pastes redacted
  * output into the PR body's "## Live verification" section per §7a.
  *
  * Usage:
@@ -348,7 +348,7 @@ async function main(): Promise<void> {
       `PASS: ${results.length}/${results.length} tests passed. ` +
         "Structural prerequisites for adoption sweeper verified. " +
         "Run with SMOKE_ADOPTION_RUN_LIVE_SWEEP=true against a deployed reviewer service " +
-        "(post-mt#1711) to validate the full path."
+        "to validate the full path."
     );
     process.exit(0);
   }

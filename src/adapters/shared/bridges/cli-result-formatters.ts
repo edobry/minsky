@@ -6,8 +6,8 @@
  *
  * TASK 283: Updated to use formatTaskIdForDisplay() for consistent # prefix display.
  */
-import { log } from "../../../utils/logger";
-import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
+import { log } from "@minsky/shared/logger";
+import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 
 /**
  * Returns a colored liveness indicator dot for terminal output.

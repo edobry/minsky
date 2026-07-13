@@ -15,10 +15,15 @@
  *   - MAX_REVIEWS_FETCHED cap: more than 500 reviews triggers a warning and truncation
  */
 
-import { describe, test, expect, mock, spyOn } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import type { Octokit } from "@octokit/rest";
+import type { ReviewerConfig } from "./config";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
+  createOctokit,
+  createAppIdentityOctokit,
   fetchPriorReviews,
   fetchListFiles,
   MAX_FILES_FETCHED,
@@ -234,22 +239,24 @@ describe("fetchPriorReviews", () => {
       })
     );
 
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     const octokit = buildFakeOctokit([manyReviews]);
 
+    const { logs, restore } = captureConsoleLogs();
+    let results: Awaited<ReturnType<typeof fetchPriorReviews>>;
     try {
-      const results = await fetchPriorReviews(octokit, "owner", "repo", 1);
-
-      // Truncated to MAX_REVIEWS_FETCHED (500)
-      expect(results.length).toBeLessThanOrEqual(500);
-      // Warning was emitted
-      expect(warnSpy).toHaveBeenCalled();
-      const warnMessage = warnSpy.mock.calls[0]?.[0] as string;
-      expect(warnMessage).toContain("501");
-      expect(warnMessage).toContain("500");
+      results = await fetchPriorReviews(octokit, "owner", "repo", 1);
     } finally {
-      warnSpy.mockRestore();
+      restore();
     }
+
+    // Truncated to MAX_REVIEWS_FETCHED (500)
+    expect(results.length).toBeLessThanOrEqual(500);
+
+    const capLog = findLogEvent(logs, "reviewer.prior_reviews_cap_exceeded");
+    expect(capLog).not.toBeNull();
+    expect(capLog?.pr).toBe(1);
+    expect(capLog?.count).toBe(501);
+    expect(capLog?.cap).toBe(500);
   });
 });
 
@@ -262,7 +269,18 @@ describe("fetchPriorReviews", () => {
  * fetchListFiles calls octokit.paginate(octokit.rest.pulls.listFiles, ...).
  */
 function buildListFilesOctokit(
-  paginateImpl: (endpoint: unknown, options: unknown) => Promise<Array<{ filename: string }>>
+  paginateImpl: (
+    endpoint: unknown,
+    options: unknown
+  ) => Promise<
+    Array<{
+      filename: string;
+      status?: string;
+      additions?: number;
+      deletions?: number;
+      patch?: string;
+    }>
+  >
 ): Octokit {
   return {
     paginate: mock(paginateImpl),
@@ -276,7 +294,9 @@ function buildListFilesOctokit(
 
 describe("fetchListFiles", () => {
   test("calls octokit.paginate (not listFiles directly) to follow Link headers", async () => {
-    const octokit = buildListFilesOctokit(async () => [{ filename: "src/foo.ts" }]);
+    const octokit = buildListFilesOctokit(async () => [
+      { filename: "src/foo.ts", status: "modified", additions: 10, deletions: 5 },
+    ]);
 
     await fetchListFiles(octokit, "owner", "repo", 42);
 
@@ -287,15 +307,32 @@ describe("fetchListFiles", () => {
     ).toHaveLength(0);
   });
 
-  test("returns filenames from all pages on success", async () => {
+  test("returns file entries with patch data on success", async () => {
     const octokit = buildListFilesOctokit(async () => [
-      { filename: "src/foo.ts" },
-      { filename: "src/bar.ts" },
-      { filename: "README.md" },
+      {
+        filename: "src/foo.ts",
+        status: "modified",
+        additions: 10,
+        deletions: 5,
+        patch: "@@ -1,5 +1,10 @@",
+      },
+      { filename: "src/bar.ts", status: "added", additions: 20, deletions: 0 },
+      {
+        filename: "README.md",
+        status: "modified",
+        additions: 3,
+        deletions: 1,
+        patch: "@@ -1 +1 @@",
+      },
     ]);
 
     const result = await fetchListFiles(octokit, "owner", "repo", 1);
-    expect(result).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
+    expect(result).toHaveLength(3);
+    expect(result[0]?.filename).toBe("src/foo.ts");
+    expect(result[0]?.patch).toBe("@@ -1,5 +1,10 @@");
+    expect(result[1]?.filename).toBe("src/bar.ts");
+    expect(result[1]?.patch).toBeUndefined();
+    expect(result.map((f) => f.filename)).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
   });
 
   test("returns [] and emits pr_scope_listfiles_error structured log on paginate error", async () => {
@@ -303,73 +340,58 @@ describe("fetchListFiles", () => {
       throw new Error("API rate limit exceeded");
     });
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: import("./github-client").PrFileEntry[];
     try {
-      const result = await fetchListFiles(octokit, "owner", "repo", 7);
-
-      expect(result).toEqual([]);
-      // Must emit a structured JSON log with event: pr_scope_listfiles_error
-      const logCalls = logSpy.mock.calls;
-      const errorLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "pr_scope_listfiles_error");
-      expect(errorLog).not.toBeNull();
-      expect(errorLog?.pr).toBe(7);
-      expect(errorLog?.error).toContain("rate limit");
+      result = await fetchListFiles(octokit, "owner", "repo", 7);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const errorLog = findLogEvent(logs, "pr_scope_listfiles_error");
+    expect(errorLog).not.toBeNull();
+    expect(errorLog?.pr).toBe(7);
+    expect(errorLog?.error).toContain("rate limit");
   });
 
   test("returns [] and emits pr_scope_files_cap_exceeded when file count exceeds MAX_FILES_FETCHED", async () => {
-    // Create MAX_FILES_FETCHED + 1 files to exceed the cap.
     const tooManyFiles = Array.from({ length: MAX_FILES_FETCHED + 1 }, (_, i) => ({
       filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
     }));
     const octokit = buildListFilesOctokit(async () => tooManyFiles);
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: import("./github-client").PrFileEntry[];
     try {
-      const result = await fetchListFiles(octokit, "owner", "repo", 99);
-
-      expect(result).toEqual([]);
-      // Must emit pr_scope_files_cap_exceeded structured log
-      const logCalls = logSpy.mock.calls;
-      const capLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "pr_scope_files_cap_exceeded");
-      expect(capLog).not.toBeNull();
-      expect(capLog?.pr).toBe(99);
-      expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
-      expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
+      result = await fetchListFiles(octokit, "owner", "repo", 99);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const capLog = findLogEvent(logs, "pr_scope_files_cap_exceeded");
+    expect(capLog).not.toBeNull();
+    expect(capLog?.pr).toBe(99);
+    expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
+    expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
   });
 
-  test("returns filenames (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
-    // MAX_FILES_FETCHED files — exactly at the limit, not over it.
+  test("returns entries (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
     const exactlyAtCap = Array.from({ length: MAX_FILES_FETCHED }, (_, i) => ({
       filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
     }));
     const octokit = buildListFilesOctokit(async () => exactlyAtCap);
 
     const result = await fetchListFiles(octokit, "owner", "repo", 1);
-    // Should return filenames, not fall back to []
     expect(result).toHaveLength(MAX_FILES_FETCHED);
-    expect(result[0]).toBe("src/file0.ts");
+    expect(result[0]?.filename).toBe("src/file0.ts");
   });
 });
 
@@ -567,26 +589,18 @@ describe("fetchReviewThreads", () => {
     });
     const octokit = { graphql: graphqlMock } as unknown as Octokit;
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: Awaited<ReturnType<typeof fetchReviewThreads>>;
     try {
-      const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
-
-      expect(result).toEqual([]);
-      const logCalls = logSpy.mock.calls;
-      const errorLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "reviewer_fetch_threads_error");
-      expect(errorLog).not.toBeNull();
-      expect(errorLog?.pr).toBe(42);
+      result = await fetchReviewThreads(octokit, "owner", "repo", 42);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const errorLog = findLogEvent(logs, "reviewer_fetch_threads_error");
+    expect(errorLog).not.toBeNull();
+    expect(errorLog?.pr).toBe(42);
   });
 
   test("returns [] when repository.pullRequest is null (permissions / not found)", async () => {
@@ -777,5 +791,84 @@ describe("submitReview", () => {
 
     const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
     expect(args.comments).toBeUndefined();
+  });
+});
+
+// ── createOctokit (mt#2717) ──────────────────────────────────────────────────
+
+/**
+ * Minimal ReviewerConfig for createOctokit — only appId/privateKey/installationId
+ * are read; the remaining fields are filler to satisfy the type.
+ */
+function testConfig(privateKey: string): ReviewerConfig {
+  return {
+    appId: 12345,
+    privateKey,
+    installationId: 67890,
+    webhookSecret: "test-secret",
+    provider: "openai",
+    providerApiKey: "test-key",
+    providerModel: "gpt-5",
+    tier2Enabled: false,
+    mcpUrl: undefined,
+    mcpToken: undefined,
+    port: 3000,
+    logLevel: "info",
+    modelTimeoutMs: 120_000,
+    githubTimeoutMs: 30_000,
+  };
+}
+
+describe("createOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // The pre-mt#2717 body signed a JWT and minted an installation token AT
+    // CONSTRUCTION (`const { token } = await auth({ type: "installation" })`),
+    // so a malformed private key threw here. The authStrategy form defers all
+    // auth to the first request, so construction must succeed regardless of key
+    // validity — the property that makes the reused, self-refreshing client
+    // correct (it never re-extracts a stale token).
+    const octokit = await createOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the refreshing App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = await createOctokit(testConfig(privateKey));
+
+    // With authStrategy: createAppAuth, requesting an APP-level JWT is a purely
+    // LOCAL RS256 signing operation (no network) — only possible when the
+    // app-auth strategy is installed. A static-token Octokit could not satisfy
+    // `{ type: "app" }`.
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    // A JWT is three dot-separated base64url segments.
+    expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+describe("createAppIdentityOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // Same property as createOctokit: the pre-mt#2717 getAppIdentity path
+    // extracted a static App JWT at construction (`await auth({ type: "app" })`)
+    // and threw on a malformed key. The authStrategy form defers auth to the
+    // first request, so construction must not throw.
+    const octokit = createAppIdentityOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = createAppIdentityOctokit(testConfig(privateKey));
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    expect(appAuth.token.split(".")).toHaveLength(3);
   });
 });

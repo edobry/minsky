@@ -5,7 +5,7 @@
  * and generic config section formatting.
  */
 
-import { TaskBackend } from "../../../../domain/configuration/backend-detection";
+import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 
 /** Shape of a resolved Minsky config object for display/formatting purposes */
 export interface ResolvedConfigShape {
@@ -13,7 +13,6 @@ export interface ResolvedConfigShape {
   backend?: string;
   persistence?: {
     backend?: string;
-    sqlite?: { dbPath?: string };
     postgres?: { connectionString?: string };
   };
   backendConfig?: Record<string, Record<string, unknown>>;
@@ -56,8 +55,6 @@ export function getSessionBackendDisplayName(backend: string): string {
   switch (backend) {
     case "json":
       return "JSON files";
-    case "sqlite":
-      return "SQLite database";
     case "postgres":
       return "PostgreSQL database";
     default:

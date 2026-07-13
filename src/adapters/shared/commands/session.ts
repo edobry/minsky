@@ -1,10 +1,11 @@
 /**
  * Session Command Registration
  *
- * Constructs and registers all session commands (and changeset aliases)
- * in the shared command registry.
+ * Constructs and registers all session commands in the shared command
+ * registry.
  */
-import type { AppContainerInterface } from "../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./session/types";
 import {
   createSessionListCommand,
@@ -29,11 +30,13 @@ import {
   createSessionPrMergeCommand,
   createSessionPrCreateCommand,
   createSessionPrEditCommand,
+  createSessionPrCloseCommand,
   createSessionPrListCommand,
   createSessionPrGetCommand,
   createSessionPrOpenCommand,
   createSessionPrChecksCommand,
   createSessionPrWaitForReviewCommand,
+  createSessionPrDriveCommand,
   createSessionPrReviewContextCommand,
   createSessionPrReviewSubmitCommand,
   createSessionPrReviewDismissCommand,
@@ -44,13 +47,11 @@ import { createSessionConflictsCommand } from "./session/conflicts-command";
 import { createSessionRepairCommand } from "./session/repair-command";
 import { createSessionEditFileCommand } from "./session/file-commands";
 import { createSessionGeneratePromptCommand } from "./session/prompt-command";
-import { registerSessionChangesetCommands } from "./session/changeset-aliases";
 import { createApplyPostMergeStateSyncCommand } from "./session/apply-post-merge-state-sync-command";
 import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
 /**
- * Register all session commands (including changeset aliases) in the shared
- * command registry.
+ * Register all session commands in the shared command registry.
  */
 export async function registerSessionCommands(
   _partialDeps?: Partial<SessionCommandDependencies>,
@@ -70,11 +71,26 @@ export async function registerSessionCommands(
     return cachedDeps;
   };
 
+  // Optional (non-throwing) persistence provider for best-effort event emission
+  // (mt#2487 session.started). Returns undefined when persistence isn't wired
+  // (e.g., CLI without a DB) so the emit skips silently rather than throwing.
+  //
+  // Injected as a separate getter — mirroring how the task commands receive
+  // `getPersistenceProvider` (src/adapters/shared/commands/tasks/registry-setup.ts)
+  // — rather than widening the domain `SessionDeps` bundle. SessionDeps is the
+  // session-service dependency superset (gitService/taskService/workspaceUtils/…);
+  // persistence is an adapter-composition concern for this best-effort emit and is
+  // deliberately kept out of that domain type, matching the tasks-command convention.
+  const getOptionalPersistenceProvider = (): PersistenceProvider | undefined => {
+    if (!container?.has("persistence")) return undefined;
+    return container.get("persistence") as PersistenceProvider;
+  };
+
   const commands: CommandDefinition[] = [
     // Basic
-    createSessionListCommand(getDeps),
+    createSessionListCommand(getDeps, getOptionalPersistenceProvider),
     createSessionGetCommand(getDeps),
-    createSessionStartCommand(getDeps),
+    createSessionStartCommand(getDeps, getOptionalPersistenceProvider),
     createSessionDirCommand(getDeps),
     createSessionSearchCommand(getDeps),
     createSessionExecCommand(getDeps),
@@ -98,9 +114,11 @@ export async function registerSessionCommands(
     createSessionPrGetCommand(getDeps),
     createSessionPrOpenCommand(getDeps),
     createSessionPrApproveCommand(getDeps),
+    createSessionPrCloseCommand(getDeps),
     createSessionPrMergeCommand(getDeps),
     createSessionPrChecksCommand(getDeps),
     createSessionPrWaitForReviewCommand(getDeps),
+    createSessionPrDriveCommand(getDeps),
     createSessionPrReviewContextCommand(getDeps),
     createSessionPrReviewSubmitCommand(getDeps),
     createSessionPrReviewDismissCommand(getDeps),
@@ -125,6 +143,4 @@ export async function registerSessionCommands(
   for (const cmd of commands) {
     sharedCommandRegistry.registerCommand(cmd);
   }
-
-  registerSessionChangesetCommands();
 }

@@ -11,7 +11,7 @@ import {
 } from "../command-registry";
 import { createToolsIndexEmbeddingsCommand } from "./tools/index-embeddings-command";
 import { createToolsSearchCommand, createToolsSimilarCommand } from "./tools/similarity-commands";
-import type { AppContainerInterface } from "../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Register all tools commands in the shared command registry

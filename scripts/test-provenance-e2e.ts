@@ -22,17 +22,17 @@ import "reflect-metadata";
 import { setupConfiguration } from "../src/config-setup";
 await setupConfiguration();
 
-import { getConfiguration } from "../src/domain/configuration/index";
-import { PersistenceService } from "../src/domain/persistence/service";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import { PersistenceService } from "@minsky/domain/persistence/service";
 import {
   ProvenanceService,
   AgentTranscriptService,
   AuthorshipJudge,
-} from "../src/domain/provenance";
-import { createCompletionService } from "../src/domain/ai/service-factory";
-import type { ResolvedConfig } from "../src/domain/configuration/types";
+} from "@minsky/domain/provenance";
+import { createCompletionService } from "@minsky/domain/ai/service-factory";
+import type { ResolvedConfig } from "@minsky/domain/configuration/types";
 import { eq } from "drizzle-orm";
-import { provenanceTable } from "../src/domain/storage/schemas/provenance-schema";
+import { provenanceTable } from "@minsky/domain/storage/schemas/provenance-schema";
 
 const persistence = new PersistenceService();
 await persistence.initialize();

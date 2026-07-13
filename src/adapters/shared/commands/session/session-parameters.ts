@@ -5,7 +5,7 @@
  * Extracted from session.ts as part of modularization effort.
  */
 import { z } from "zod";
-import { CONVENTIONAL_COMMIT_TYPES } from "../../../../domain/git/conventional-commit-types";
+import { CONVENTIONAL_COMMIT_TYPES } from "@minsky/domain/git/conventional-commit-types";
 
 /**
  * Common parameter building blocks for session commands
@@ -103,6 +103,12 @@ export const sessionListCommandParams = {
       "Include full session record (PR state, pull request info). Default omits these large fields.",
     required: false,
     defaultValue: false,
+  },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return sessions from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false,
   },
 };
 
@@ -260,11 +266,24 @@ export const sessionUpdateCommandParams = {
  * Session approve command parameters.
  * Only includes fields relevant to the approve action (not merge-only flags).
  */
-export const sessionApproveCommandParams = {
+// mt#2742: base params shared by approve + merge. `reviewComment` is approve-only
+// (a merge posts no review comment), so it lives on sessionApproveCommandParams — NOT
+// the base — otherwise sessionMergeCommandParams (which spreads the base) would inherit
+// a param its handler never reads (a declared-but-unread bug, the very class this task fixes).
+const sessionApproveBaseParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+};
+
+export const sessionApproveCommandParams = {
+  ...sessionApproveBaseParams,
+  reviewComment: {
+    schema: z.string(),
+    description: "Optional review comment posted alongside the approval",
+    required: false,
+  },
 };
 
 /**
@@ -272,7 +291,9 @@ export const sessionApproveCommandParams = {
  * Extends the approve base with merge-only flags.
  */
 export const sessionMergeCommandParams = {
-  ...sessionApproveCommandParams,
+  // mt#2742: spread the BASE (not sessionApproveCommandParams) so merge does NOT
+  // inherit the approve-only `reviewComment` param (its handler never reads it).
+  ...sessionApproveBaseParams,
   skipCleanup: {
     schema: z.boolean(),
     description: "Skip session cleanup after merge (preserves session files)",
@@ -282,15 +303,42 @@ export const sessionMergeCommandParams = {
   acceptStaleReviewerSilence: {
     schema: z.boolean(),
     description:
-      "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). " +
-      "All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; " +
+      "Operator-override waiver: allow merge when the reviewer bot (reviewer.botLogin, default minsky-reviewer[bot]) is absent (webhook-miss class). " +
+      "All five constraints must hold: (1) PR author must be the configured bot identity (github.botIdentityLogin, default minsky-ai[bot]) -- waiver never applies to human-authored PRs; " +
       "(2) at least one COMMENTED review from the same identity as the PR author must exist; " +
       "(3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); " +
-      "(4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; " +
+      "(4) no review from the configured reviewer bot may exist -- waiver is inapplicable when the reviewer bot has already acted; " +
       "(5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. " +
       "Emits an audit log entry at INFO level when the waiver is applied. Default: false.",
     required: false,
     defaultValue: false,
+  },
+  forceBypass: {
+    schema: z.boolean(),
+    description:
+      "Audited reviewer-convergence-failure bypass (mt#2215): merge a self-authored bot PR " +
+      "blocked by a CHANGES_REQUESTED review that is a VERIFIED false-positive (per mt#2211), " +
+      "or by reviewer CoT-leakage / self-reversal / >5min webhook silence (per " +
+      "feedback_self_authored_pr_merge_constraints). Distinct from acceptStaleReviewerSilence, " +
+      "which only covers reviewer ABSENCE and refuses when CHANGES_REQUESTED exists. forceBypass " +
+      "requires a non-empty bypassReason, requires at least one prior review round to have " +
+      "occurred, refuses when a required status check is failing (CI-not-green, where " +
+      "status-check data is available) and when any " +
+      "non-approval merge blocker is active (draft / conflict / closed). It auto-dismisses every " +
+      "non-DISMISSED CHANGES_REQUESTED review (using bypassReason as the dismissal evidence) and " +
+      "writes the canonical audit-trail signature plus the reason into the merge-commit body. " +
+      "merge_method=merge is always enforced (never squash). Default: false.",
+    required: false,
+    defaultValue: false,
+  },
+  bypassReason: {
+    schema: z.string(),
+    description:
+      "Required when forceBypass=true: a non-empty evidence string explaining why the bypass is " +
+      "justified (e.g. which review was a verified false-positive and the verification, or the " +
+      "reviewer convergence-failure class). Used both as the CHANGES_REQUESTED dismissal message " +
+      "and written into the merge-commit body alongside the canonical bypass audit signature.",
+    required: false,
   },
 };
 
@@ -474,6 +522,40 @@ export const sessionPrEditCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
+  debug: commonSessionParams.debug,
+};
+
+/**
+ * Session PR Close Command Parameters (mt#1955)
+ *
+ * Closes a session's PR without merging, optionally posting a comment
+ * before the state flip. The per-tool behavioral spec lives in the tool's
+ * `description` field on `createSessionPrCloseCommand`; banned-tool
+ * mappings live in the `.claude/hooks/block-git-gh-cli.ts` and
+ * `block-github-mcp-pr-writes.ts` denial messages.
+ */
+export const sessionPrCloseCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  prNumber: {
+    schema: z.union([z.number().int().positive(), z.string()]),
+    description:
+      "PR number to close (alternative to identifying via session). Required when " +
+      "no `task`/`sessionId` is provided. When both are passed, `prNumber` wins as the " +
+      "address and the session backend is reused; the session DB is updated only if the " +
+      "closed PR matches the session's recorded PR.",
+    required: false,
+  },
+  comment: {
+    schema: z.string(),
+    description:
+      "Optional comment to post on the PR before closing. Useful for absorb-and-close: " +
+      "name the PR that subsumes this work. Posted as a regular PR comment (not a review) " +
+      "so it appears chronologically before the close event.",
+    required: false,
+  },
+  json: commonSessionParams.json,
   debug: commonSessionParams.debug,
 };
 
@@ -667,16 +749,166 @@ export const sessionPrWaitForReviewCommandParams = {
   reviewer: {
     schema: z.string(),
     description:
-      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). " +
-      "Case-insensitive. Defaults to any reviewer.",
+      "Only match reviews from this reviewer. Accepts either: " +
+      '(1) a TokenRole identifier ("reviewer" or "implementer", ' +
+      "case-insensitive) — resolved at call setup against the configured GitHub " +
+      "App identity; throws a typed error if the role's service account is not " +
+      "configured. (2) a literal GitHub login (e.g., minsky-reviewer[bot] or " +
+      "the bare minsky-reviewer form, or any human reviewer's login) — " +
+      "case-insensitive with optional trailing [bot] suffix on either side. " +
+      "Role identifiers shadow literal logins of the same name; pass the " +
+      "[bot]-suffixed form to disambiguate. Defaults to any reviewer.",
     required: false,
   },
   since: {
     schema: z.string(),
     description:
-      "ISO-8601 timestamp; only reviews submitted at or after this time count as matches " +
-      "(inclusive lower bound). Defaults to the call's start time.",
+      "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as matches " +
+      "(exclusive lower bound, mt#2656 — an exactly-equal submittedAt does not re-match, so " +
+      "you can safely pass a previous review's exact submittedAt to wait for its successor). " +
+      "Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by " +
+      "default. Pass an explicit value to narrow the window (e.g., wait only for reviews " +
+      "newer than a known stale one).",
     required: false,
+  },
+  requireCurrentHead: {
+    schema: z.boolean(),
+    description:
+      "When true (default), only a review whose commit SHA matches the PR's current HEAD " +
+      "counts as a match, so a stale review of a superseded commit no longer resolves a " +
+      "re-review wait (mt#2586). Set false to accept any review regardless of commit " +
+      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support.",
+    required: false,
+    defaultValue: true,
+  },
+  fullBody: {
+    schema: z.boolean(),
+    description:
+      "When true, return the full review (raw markdown body, spec-verification table, " +
+      "embedded provenance JSON comment) instead of the default trimmed payload (mt#2656: " +
+      "state, submittedAt, reviewer, blocking/non-blocking finding counts, and a findings " +
+      "list of severity + file:line + one-sentence summary). Defaults to false.",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Session PR Drive command parameters (mt#2647)
+ *
+ * Convergence-tail driver: composes wait-for-review + checks-wait (default
+ * mode), or the postMerge deploy-watch mode when `postMerge: true`. Does NOT
+ * merge — the caller makes the `session.pr.merge` call itself so every
+ * harness-side merge-gate hook still fires normally.
+ */
+export const sessionPrDriveCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  postMerge: {
+    schema: z.boolean(),
+    description:
+      "When true, switch to the post-merge deploy-watch mode: run " +
+      "deployment.wait-for-latest for every deploy service the merged PR's changed " +
+      "files affect (or an explicit `services` override), and report results. Call " +
+      "this AFTER your own session.pr.merge call succeeds — it does not merge " +
+      "anything. When false (default), run the review-wait + checks-wait " +
+      "convergence-tail mode.",
+    required: false,
+    defaultValue: false,
+  },
+  // --- convergence-tail mode params ---
+  reviewer: {
+    schema: z.string(),
+    description:
+      "Only match reviews from this reviewer. Accepts a TokenRole identifier " +
+      '("reviewer" or "implementer") or a literal GitHub login (e.g. ' +
+      "minsky-reviewer[bot]). See session.pr.wait-for-review's `reviewer` param " +
+      "for full precedence rules. Defaults to any reviewer. Ignored in postMerge mode.",
+    required: false,
+  },
+  since: {
+    schema: z.string(),
+    description:
+      "ISO-8601 timestamp; only reviews submitted strictly AFTER this time count as " +
+      "matches (exclusive lower bound, mt#2656). Pass the previous terminal result's " +
+      "review.submittedAt when re-invoking after pushing a fix for " +
+      "CHANGES_REQUESTED/COMMENT — the exact same review will not re-match. Defaults to " +
+      "the PR's created_at timestamp. Ignored in postMerge mode.",
+    required: false,
+  },
+  requireCurrentHead: {
+    schema: z.boolean(),
+    description:
+      "When true (default), only a review of the PR's current HEAD commit counts " +
+      "as a match (mt#2586). Ignored in postMerge mode.",
+    required: false,
+    defaultValue: true,
+  },
+  fullBody: {
+    schema: z.boolean(),
+    description:
+      "When true, return the full review body and full per-check breakdown instead of " +
+      "the default trimmed payloads (mt#2656). Defaults to false. Ignored in postMerge mode.",
+    required: false,
+    defaultValue: false,
+  },
+  reviewTimeoutSeconds: {
+    schema: z.number().int().min(1).max(1800),
+    description: "Maximum seconds to wait for a matching review (default 600, max 1800).",
+    required: false,
+    defaultValue: 600,
+  },
+  reviewIntervalSeconds: {
+    schema: z.number().int().min(5).max(60),
+    description: "Review polling interval in seconds (default 15, min 5, max 60).",
+    required: false,
+    defaultValue: 15,
+  },
+  checksTimeoutSeconds: {
+    schema: z.number(),
+    description: "Maximum seconds to wait for CI checks to complete (default 600).",
+    required: false,
+    defaultValue: 600,
+  },
+  checksIntervalSeconds: {
+    schema: z.number(),
+    description: "Checks polling interval in seconds (default 30).",
+    required: false,
+    defaultValue: 30,
+  },
+  skipChecks: {
+    schema: z.boolean(),
+    description:
+      "Skip the checks-wait step entirely (e.g. the repo has no CI configured). " +
+      "An APPROVED review alone resolves to READY_TO_MERGE. Ignored in postMerge mode.",
+    required: false,
+    defaultValue: false,
+  },
+  // --- postMerge mode params ---
+  services: {
+    schema: z.array(z.string()),
+    description:
+      "postMerge mode only: explicit list of deploy services to watch, overriding " +
+      "auto-detection from the merged PR's changed files. Pass `[]` to explicitly " +
+      "watch nothing. When omitted, services are auto-detected via the deploy-surface " +
+      "pattern list against the services that declare a deploy.config.ts.",
+    required: false,
+  },
+  deployTimeoutSeconds: {
+    schema: z.number().int().positive(),
+    description:
+      "postMerge mode only: maximum seconds to wait for each service's deployment " +
+      "(default 600).",
+    required: false,
+    defaultValue: 600,
+  },
+  deployIntervalSeconds: {
+    schema: z.number().int().positive(),
+    description: "postMerge mode only: poll cadence for each deployment wait (default 10).",
+    required: false,
+    defaultValue: 10,
   },
 };
 
@@ -949,7 +1181,11 @@ export const sessionRepairCommandParams = {
 
 /**
  * Session edit-file command parameters
- * CLI wrapper for session.edit_file MCP tool
+ *
+ * CLI wrapper for session.edit_file MCP tool (mt#2612): both entry points now
+ * delegate to the same canonical apply-model operation
+ * (`applySessionFileEditOperation`, `packages/domain/src/session/session-file-edit-operation.ts`),
+ * including the mt#2400 FAIL-CLOSED guard.
  */
 export const sessionEditFileCommandParams = {
   sessionId: commonSessionParams.sessionId,
@@ -979,6 +1215,15 @@ export const sessionEditFileCommandParams = {
     description: "Create parent directories if they don't exist",
     required: false,
     defaultValue: true,
+  },
+  fullReplace: {
+    schema: z.boolean(),
+    description:
+      "Override the marker-less fail-closed guard (mt#2400). When false (default), editing " +
+      "an EXISTING file with marker-less content is REFUSED (it would silently overwrite the " +
+      "whole file). Set true to intentionally replace the entire file content.",
+    required: false,
+    defaultValue: false,
   },
   json: commonSessionParams.json,
   debug: commonSessionParams.debug,

@@ -14,6 +14,7 @@ import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
 import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
 import { withTimeout } from "./with-timeout";
+import { log } from "./logger";
 
 /**
  * Default GitHub-API timeout used when these helpers are called without an
@@ -27,15 +28,31 @@ import { withTimeout } from "./with-timeout";
 const DEFAULT_GITHUB_TIMEOUT_MS = 30_000;
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
+  // mt#2717: install `createAppAuth` as the Octokit `authStrategy` rather than
+  // extracting a static installation-token STRING. The prior form —
+  //   const { token } = await auth({ type: "installation" });
+  //   return new Octokit({ auth: token });
+  // — pinned the client to `@octokit/auth-token` (a static strategy) holding a
+  // token GitHub expires after ~60 minutes. Any client reused past that mark
+  // (both sweepers cache one for the whole process lifetime) then returns
+  // `401 "Bad credentials"` on EVERY subsequent call and never self-recovers —
+  // the merge-state sweeper alone logged 1,730 such failures in one ~15.5h
+  // deployment window. The webhook review path escaped only because it builds a
+  // fresh Octokit per review, never crossing the 1h boundary.
+  //
+  // The `authStrategy` form is the canonical `@octokit/auth-app` usage: the auth
+  // hook runs per request and `@octokit/auth-app` "transparently creates an
+  // installation access token the first time it is needed and refreshes it when
+  // it expires" (cached and reused until ~59 min, then refreshed). This makes a
+  // single long-lived reused instance correct — exactly what both sweepers want.
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+      installationId: config.installationId,
+    },
   });
-
-  const { token } = await auth({ type: "installation" });
-
-  return new Octokit({ auth: token });
 }
 
 export interface PullRequestContext {
@@ -63,9 +80,14 @@ export interface PullRequestContext {
   /**
    * List of file paths changed by this PR (relative to repo root).
    * Used by the scope classifier (mt#1188) to determine docs-only / test-only.
-   * Fetched from the pulls.listFiles endpoint alongside the diff.
+   * Derived from `fileEntries` for backward compatibility.
    */
   filesChanged: string[];
+  /**
+   * Per-file entries with patch, additions, deletions, and status (mt#2120).
+   * Used by chunked review to build per-chunk prompts from per-file patches.
+   */
+  fileEntries: PrFileEntry[];
   /**
    * Authoritative changed-files count from the PR API (`pulls.get` →
    * `changed_files`). The classifier compares this against
@@ -85,9 +107,20 @@ export interface PullRequestContext {
  */
 export const MAX_FILES_FETCHED = 1000;
 
+export interface PrFileEntry {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previousFilename?: string;
+}
+
 /**
  * Fetch the list of files changed by a PR, following Link headers via
- * octokit.paginate. Returns an array of filename strings.
+ * octokit.paginate. Returns per-file entries with patch, additions,
+ * deletions, and status. The `patch` field is omitted by GitHub for
+ * files >1MB or binary files.
  *
  * Safety cap: if more than MAX_FILES_FETCHED files are returned the cap is
  * exceeded and [] is returned (scope classifier falls through to normal).
@@ -101,17 +134,17 @@ export async function fetchListFiles(
   owner: string,
   repo: string,
   prNumber: number,
-  // mt#1086: per-call timeout. Optional + defaulted so existing test
-  // sites and scripts that call this directly continue to work; production
-  // callers pass `config.githubTimeoutMs`.
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
-): Promise<string[]> {
-  let allFiles: Array<{ filename: string }>;
+): Promise<PrFileEntry[]> {
+  let allFiles: Array<{
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+    previous_filename?: string;
+  }>;
   try {
-    // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
-    // via `request: { signal }` so the underlying HTTP request is
-    // actually cancelled when the timeout fires (not just the
-    // Promise.race short-circuited locally).
     allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, (signal) =>
       octokit.paginate(octokit.rest.pulls.listFiles, {
         owner,
@@ -123,33 +156,36 @@ export async function fetchListFiles(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_listfiles_error",
-        owner,
-        repo,
-        pr: prNumber,
-        error: message,
-      })
-    );
+    log.info("pr_scope_listfiles_error", {
+      event: "pr_scope_listfiles_error",
+      owner,
+      repo,
+      pr: prNumber,
+      error: message,
+    });
     return [];
   }
 
   if (allFiles.length > MAX_FILES_FETCHED) {
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_files_cap_exceeded",
-        owner,
-        repo,
-        pr: prNumber,
-        fileCount: allFiles.length,
-        cap: MAX_FILES_FETCHED,
-      })
-    );
+    log.info("pr_scope_files_cap_exceeded", {
+      event: "pr_scope_files_cap_exceeded",
+      owner,
+      repo,
+      pr: prNumber,
+      fileCount: allFiles.length,
+      cap: MAX_FILES_FETCHED,
+    });
     return [];
   }
 
-  return allFiles.map((f) => f.filename);
+  return allFiles.map((f) => ({
+    filename: f.filename,
+    status: f.status,
+    additions: f.additions,
+    deletions: f.deletions,
+    patch: f.patch,
+    ...(f.previous_filename ? { previousFilename: f.previous_filename } : {}),
+  }));
 }
 
 export async function fetchPullRequestContext(
@@ -162,7 +198,7 @@ export async function fetchPullRequestContext(
   // max(timeoutMs) rather than 3*timeoutMs.
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse, filesChanged] = await Promise.all([
+  const [prResponse, diffResponse, fileEntries] = await Promise.all([
     // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
     // via `request: { signal }` so abort actually cancels the request.
     withTimeout("github.pulls.get", timeoutMs, (signal) =>
@@ -205,7 +241,8 @@ export async function fetchPullRequestContext(
     baseBranch: pr.base.ref,
     diff,
     headSha: pr.head.sha,
-    filesChanged,
+    filesChanged: fileEntries.map((f) => f.filename),
+    fileEntries,
     changedFilesCount: pr.changed_files,
   };
 }
@@ -347,10 +384,12 @@ export async function fetchPriorReviews(
 
   let rawReviews = allReviews;
   if (rawReviews.length > MAX_REVIEWS_FETCHED) {
-    console.warn(
-      `[fetchPriorReviews] PR #${prNumber} has ${rawReviews.length} reviews, ` +
-        `exceeding the cap of ${MAX_REVIEWS_FETCHED}. Only the first ${MAX_REVIEWS_FETCHED} will be used.`
-    );
+    log.warn("reviewer.prior_reviews_cap_exceeded", {
+      event: "reviewer.prior_reviews_cap_exceeded",
+      pr: prNumber,
+      count: rawReviews.length,
+      cap: MAX_REVIEWS_FETCHED,
+    });
     rawReviews = rawReviews.slice(0, MAX_REVIEWS_FETCHED);
   }
 
@@ -746,15 +785,13 @@ export async function fetchReviewThreads(
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.log(
-        JSON.stringify({
-          event: "reviewer_fetch_threads_error",
-          owner,
-          repo,
-          pr: prNumber,
-          error: message,
-        })
-      );
+      log.info("reviewer_fetch_threads_error", {
+        event: "reviewer_fetch_threads_error",
+        owner,
+        repo,
+        pr: prNumber,
+        error: message,
+      });
       return allThreads;
     }
 
@@ -767,15 +804,13 @@ export async function fetchReviewThreads(
 
     for (const node of nodes) {
       if (allThreads.length >= MAX_REVIEW_THREADS) {
-        console.log(
-          JSON.stringify({
-            event: "reviewer_threads_cap_exceeded",
-            owner,
-            repo,
-            pr: prNumber,
-            cap: MAX_REVIEW_THREADS,
-          })
-        );
+        log.info("reviewer_threads_cap_exceeded", {
+          event: "reviewer_threads_cap_exceeded",
+          owner,
+          repo,
+          pr: prNumber,
+          cap: MAX_REVIEW_THREADS,
+        });
         return allThreads;
       }
 
@@ -828,6 +863,34 @@ export async function resolveThread(
 }
 
 /**
+ * Dismiss a pull-request review via the `pulls.dismissReview` REST endpoint.
+ *
+ * Used by the `/resolve` command (mt#2173) to clear stale CHANGES_REQUESTED
+ * reviews so they no longer block the merge gate. The dismissal message is
+ * shown in the GitHub UI alongside the dismissed review.
+ */
+export async function dismissReview(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  reviewId: number,
+  message: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<void> {
+  await withTimeout("github.pulls.dismissReview", timeoutMs, (signal) =>
+    octokit.rest.pulls.dismissReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      review_id: reviewId,
+      message,
+      request: { signal },
+    })
+  );
+}
+
+/**
  * Return the reviewer App's bot identity (login name) via the /app endpoint.
  *
  * This must use App-level JWT auth, not installation token auth. `/user`
@@ -841,20 +904,39 @@ export async function resolveThread(
  */
 let cachedAppIdentity: { login: string } | null = null;
 
+/**
+ * Construct the App-JWT-authed Octokit used to read the reviewer App's own
+ * identity (`GET /app`).
+ *
+ * mt#2717: installs `createAppAuth` as the `authStrategy` so the App-level JWT
+ * is minted and refreshed per request, rather than extracting a static JWT
+ * string (`new Octokit({ auth: token })`) — the same static-token anti-pattern
+ * the sweepers' `createOctokit` hit. Only `appId`/`privateKey` are needed for
+ * the App-level `/app` route (no `installationId`); `@octokit/auth-app` supplies
+ * a JWT automatically for App-level endpoints. Exported for tests.
+ */
+export function createAppIdentityOctokit(config: ReviewerConfig): Octokit {
+  return new Octokit({
+    authStrategy: createAppAuth,
+    auth: {
+      appId: config.appId,
+      privateKey: config.privateKey,
+    },
+  });
+}
+
+/** TEST-ONLY: reset the cached App identity so a test can re-exercise the fetch. */
+export function _resetAppIdentityCacheForTests(): void {
+  cachedAppIdentity = null;
+}
+
 export async function getAppIdentity(config: ReviewerConfig): Promise<{ login: string }> {
   if (cachedAppIdentity) return cachedAppIdentity;
 
-  const auth = createAppAuth({
-    appId: config.appId,
-    privateKey: config.privateKey,
-    installationId: config.installationId,
-  });
-
-  // `type: "app"` returns an App-level JWT (not an installation token), which
-  // is required for `/app` endpoints.
-  const { token } = await auth({ type: "app" });
-
-  const appOctokit = new Octokit({ auth: token });
+  // mt#2717: authStrategy-based client (see createAppIdentityOctokit) so the
+  // App JWT mints/refreshes per request. `apps.getAuthenticated` (GET /app) is
+  // an App-level route, so @octokit/auth-app supplies a fresh JWT automatically.
+  const appOctokit = createAppIdentityOctokit(config);
   const response = await appOctokit.rest.apps.getAuthenticated();
   if (!response.data) {
     throw new Error(

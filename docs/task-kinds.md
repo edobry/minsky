@@ -8,7 +8,7 @@ Linear, Jira).
 This document covers:
 
 - What task kind is and why it exists
-- The v1 kinds: `implementation` and `umbrella`
+- The v1 kinds: `implementation`, `umbrella`, and `state-ops`
 - The workflow definition shape (state machine + mapping tables)
 - How to add a new kind
 - Cross-references and backfill
@@ -23,10 +23,10 @@ Task kind operates on the **lifecycle axis**: which state machine applies to thi
 It is orthogonal to the **work-content axis** (mt#455), which classifies what kind of
 work a task involves (research, design, implementation, refactor, docs, test, chore).
 
-| Field  | Axis         | Values (v1)                  | Answers                              |
-| ------ | ------------ | ---------------------------- | ------------------------------------ |
-| `kind` | Lifecycle    | `implementation`, `umbrella` | Which state machine applies?         |
-| `type` | Work content | (mt#455)                     | What kind of work does this task do? |
+| Field  | Axis         | Values (v1)                               | Answers                              |
+| ------ | ------------ | ----------------------------------------- | ------------------------------------ |
+| `kind` | Lifecycle    | `implementation`, `umbrella`, `state-ops` | Which state machine applies?         |
+| `type` | Work content | (mt#455)                                  | What kind of work does this task do? |
 
 ### Why kind exists
 
@@ -128,6 +128,54 @@ CLOSED     → TODO (reopen)
 
 Linear's natural primitive for umbrella tasks is **Project** (not Issue), which is
 reflected in `mappings.linear.type = "Project"`. Jira's natural primitive is **Epic**.
+
+---
+
+### `state-ops`
+
+No-code / pure-state tasks — triage sweeps, config-only ops, decision records — that
+terminate honestly without a session workspace or a PR (mt#2661).
+
+**States:** `TODO`, `PLANNING`, `READY`, `IN-PROGRESS`, `COMPLETED`, `CLOSED`
+
+**Transitions:**
+
+```
+TODO        → PLANNING, CLOSED
+PLANNING    → READY, TODO, CLOSED
+READY       → IN-PROGRESS, PLANNING, CLOSED
+IN-PROGRESS → COMPLETED, PLANNING, CLOSED
+COMPLETED   → CLOSED
+CLOSED      → TODO (reopen)
+```
+
+**Terminal states:** `COMPLETED`, `CLOSED`
+
+**Key differences from `implementation`:**
+
+- `COMPLETED` (not `DONE`) is the success terminal state — same convention as `umbrella`.
+- `READY → IN-PROGRESS` is a **legal direct transition** via `tasks_status_set`. The
+  implementation-kind special case that reserves this transition for `session_start`
+  (`status-transitions.ts`) is gated on `kind === "implementation"` and does not apply
+  here — a state-ops task has no code workspace to create a session for.
+- No `IN-REVIEW` state — no PR review phase (no PR is produced).
+- No `BLOCKED` state — a blocked state-ops task can revert to `PLANNING` instead.
+
+**Key difference from `umbrella`:**
+
+- `state-ops` **keeps the `READY` planning gate** that `umbrella` skips. A state-ops
+  task still goes through `/plan-task` before work starts; it just doesn't require a
+  session workspace to move past `READY` into `IN-PROGRESS`.
+
+**Tool mappings:**
+| State | GitHub Issues | Linear | Jira |
+|-------|--------------|--------|------|
+| TODO | open | Backlog | To Do |
+| PLANNING | open | Todo | In Planning |
+| READY | open | Todo | Ready |
+| IN-PROGRESS | open | In Progress | In Progress |
+| COMPLETED | closed | Done | Done |
+| CLOSED | closed | Canceled | Canceled |
 
 ---
 
@@ -284,9 +332,11 @@ mt#1768's transition to COMPLETED proved the umbrella terminal-state path end-to
 
 - `mt#1812` — this feature's tracking task
 - `mt#1768` — originating incident (Cockpit bundle umbrella, CLOSED with workaround note)
+- `mt#2661` — `state-ops` kind (no-code tasks cannot terminate honestly); back-annotated
+  mt#2625 and mt#2645, the two originating CLOSED-as-delivered workarounds
 - `mt#455` — work-content type classification (orthogonal axis)
-- `src/domain/tasks/workflows.ts` — the workflow registry
-- `src/domain/tasks/status-transitions.ts` — the gate that dispatches on kind
+- `packages/domain/src/tasks/workflows.ts` — the workflow registry
+- `packages/domain/src/tasks/status-transitions.ts` — the gate that dispatches on kind
 - `src/domain/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
 - `scripts/migrate-task-kinds.ts` — kind backfill script
 - `scripts/smoke-task-kinds.ts` — smoke test for the system

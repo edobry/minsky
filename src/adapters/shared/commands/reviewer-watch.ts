@@ -15,14 +15,16 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   MissedReviewDedupState,
   runReviewerWatchCycle,
   type ReviewerWatchConfig,
   type ReviewerWatchCycleResult,
-} from "../../../domain/reviewer-watch";
-import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
+} from "@minsky/domain/reviewer-watch";
+import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
+import { resolveBotIdentities } from "@minsky/domain/configuration/bot-identity";
+import { REVIEWER_BOT_LOGIN } from "@minsky/domain/constants";
 import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client";
 
 // ---------------------------------------------------------------------------
@@ -32,17 +34,32 @@ import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client
 /** Default poll interval (ms). Mirrors the Railway sweeper's 10-minute cadence. */
 const DEFAULT_INTERVAL_MS = 600_000;
 
-/** Default reviewer-bot login. */
-const DEFAULT_BOT_LOGIN = "minsky-reviewer[bot]";
-
 /** Default alert threshold — alert on any missed review. */
 const DEFAULT_THRESHOLD = 1;
 
 /**
- * Resolve a `ReviewerWatchConfig` from explicit parameters, falling back to
- * environment variables, then to hard-coded defaults. Pure — no I/O.
+ * Resolve the configured reviewer login defensively. `resolveBotIdentities()`
+ * already degrades to the constant when configuration is unavailable, but
+ * option resolution for a CLI command must stay robust even if that contract
+ * regresses — reviewer-watch worked with pure env/constant fallback before
+ * mt#2392 and must never fail earlier than it used to. Exported for tests.
  */
-function resolveWatchConfig(params: {
+export function resolveConfiguredReviewerLogin(): string {
+  try {
+    return resolveBotIdentities().reviewerBotLogin;
+  } catch {
+    return REVIEWER_BOT_LOGIN;
+  }
+}
+
+/**
+ * Resolve a `ReviewerWatchConfig` from explicit parameters, falling back to
+ * environment variables, then to the configured reviewer-bot identity
+ * (`reviewer.botLogin` ← `MINSKY_REVIEWER_BOT_LOGIN`, default
+ * `minsky-reviewer[bot]` — mt#2392), then to hard-coded defaults. No I/O
+ * beyond the in-memory configuration read. Exported for tests.
+ */
+export function resolveWatchConfig(params: {
   owner?: string;
   repo?: string;
   botLogin?: string;
@@ -51,7 +68,9 @@ function resolveWatchConfig(params: {
   const owner = params.owner ?? process.env["MINSKY_REVIEWER_WATCH_OWNER"] ?? "edobry";
   const repo = params.repo ?? process.env["MINSKY_REVIEWER_WATCH_REPO"] ?? "minsky";
   const botLogin =
-    params.botLogin ?? process.env["MINSKY_REVIEWER_WATCH_BOT_LOGIN"] ?? DEFAULT_BOT_LOGIN;
+    params.botLogin ??
+    process.env["MINSKY_REVIEWER_WATCH_BOT_LOGIN"] ??
+    resolveConfiguredReviewerLogin();
   const threshold =
     params.threshold ??
     parseInt(process.env["MINSKY_REVIEWER_WATCH_THRESHOLD"] ?? `${DEFAULT_THRESHOLD}`, 10);
@@ -66,11 +85,11 @@ function resolveWatchConfig(params: {
 
 /** Build a TokenProvider from the project's standard configuration. */
 async function buildTokenProviderFromConfig(): Promise<{
-  tokenProvider: import("../../../domain/auth").TokenProvider;
+  tokenProvider: import("@minsky/domain/auth").TokenProvider;
 }> {
   try {
-    const { getConfiguration } = await import("../../../domain/configuration/index");
-    const { createTokenProvider } = await import("../../../domain/auth");
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
     const cfg = getConfiguration();
     const userToken = cfg.github?.token ?? "";
     const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
@@ -104,7 +123,7 @@ const reviewerWatchRunParams = {
   botLogin: {
     schema: z.string().min(1).optional(),
     description:
-      "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+      "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN, then the configured reviewer.botLogin, then 'minsky-reviewer[bot]')",
     required: false,
   },
   threshold: {

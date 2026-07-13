@@ -55,6 +55,33 @@ export const convergenceMetricsTable = pgTable(
     /** Best-effort count of findings acknowledged-as-addressed in the review body. */
     acknowledgedAddressedCount: integer("acknowledged_addressed_count").notNull(),
 
+    /**
+     * Git branch name of the PR head at review time (e.g. "task/mt-2076").
+     *
+     * Nullable — rows written before this column was added (0000–0004 migrations)
+     * retain NULL. Used by the cockpit reviewer-bot-status widget to derive the
+     * Minsky task ID from the branch name via the extractTaskIdFromBranch pattern.
+     * Populated from `pr.branchName` (= `pr.head.ref`) at the call site in
+     * review-worker.ts (~L2079–2090). Additive; immutable-migration-compliant
+     * (new 0005_*.sql migration only — 0000–0004 untouched). (mt#2076)
+     */
+    headRef: text("head_ref"),
+
+    /**
+     * Per-review verdict: the GitHub review event the reviewer submitted for
+     * this iteration, lowercased. Accepted values: "approve" |
+     * "request_changes" | "comment" | NULL.
+     *
+     * Nullable — rows written before this column was added (0000-0007 era)
+     * retain NULL; that is the documented cut-off (no backfill from
+     * reviewer_webhook_events.body JSONB). Populated from the review-submission
+     * event (`outcome.event` on the prose path, `event` on the output-tools
+     * path) at both call sites in review-worker.ts. A plain nullable text
+     * column is used instead of a pg enum for additive-migration simplicity
+     * (mt#2287).
+     */
+    verdict: text("verdict"),
+
     /** Row insertion timestamp (UTC). */
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

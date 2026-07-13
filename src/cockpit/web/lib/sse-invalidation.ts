@@ -22,7 +22,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Channel name constants — mirrors server.ts COCKPIT_SSE_CHANNELS values.
+// Channel name constants — mirrors routes/events.ts COCKPIT_SSE_CHANNELS values.
 // Kept inline (no server import) because the frontend bundle is separate.
 // ---------------------------------------------------------------------------
 
@@ -57,8 +57,8 @@ export const CHANNEL_TO_QUERY_KEYS: Readonly<
   Record<string, ReadonlyArray<ReadonlyArray<string | number>>>
 > = {
   // Attention events — trigger refetch of the attention widget
-  [CHANNEL_ATTENTION_OPENED]: [["attention"]],
-  [CHANNEL_ATTENTION_CLOSED]: [["attention"]],
+  [CHANNEL_ATTENTION_OPENED]: [["attention"], ["asks"]],
+  [CHANNEL_ATTENTION_CLOSED]: [["attention"], ["asks"]],
 
   // Session events — trigger refetch of agents widget (session liveness)
   // Workstreams is prop-driven; will add once it migrates to useQuery.
@@ -66,14 +66,13 @@ export const CHANNEL_TO_QUERY_KEYS: Readonly<
   [CHANNEL_SESSION_SCOPE_CHANGED]: [["agents"]],
 
   // Task events:
-  //   - `task.status_changed` has no useQuery-based consumer yet (TaskGraph and
-  //     Workstreams are prop-driven via App-level polling). Mapped to empty
-  //     array; when a self-fetching task-data widget is added, route it here.
+  //   - `task.status_changed` triggers refetch of the task-list widget (mt#2078).
+  //     TaskGraph and Workstreams are still prop-driven via App-level polling.
   //   - `task.blocking` is intentionally routed to `["attention"]` because the
   //     Attention widget's cohort can include blocking-class asks (per ADR-008
   //     §Ask kinds), so a new blocking event should trigger an attention refetch.
-  [CHANNEL_TASK_STATUS_CHANGED]: [],
-  [CHANNEL_TASK_BLOCKING]: [["attention"]],
+  [CHANNEL_TASK_STATUS_CHANGED]: [["task-list"]],
+  [CHANNEL_TASK_BLOCKING]: [["attention"], ["asks"]],
 
   // Credential invalidation — trigger refetch of the credentials widget.
   [CHANNEL_CREDENTIAL_INVALIDATED]: [["credentials"]],

@@ -94,8 +94,11 @@ if (!GITHUB_TOKEN) {
 // Dynamic import to allow the script to exit cleanly if env is missing.
 async function bootstrapMinsky() {
   try {
-    const { createSessionDbAdapter } = await import("../src/domain/session/session-db-adapter.ts");
-    const { createTaskService } = await import("../src/domain/tasks/taskService.ts");
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
+    const createSessionDbAdapter = createSessionProvider;
+    const { createTaskService } = await import("@minsky/domain/tasks/taskService");
     return { createSessionDbAdapter, createTaskService };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -254,7 +257,7 @@ async function main() {
 
   // Load applyPostMergeStateSync
   const { applyPostMergeStateSync } = await import(
-    "../src/domain/session/session-merge-operations.ts"
+    "@minsky/domain/session/session-merge-operations"
   );
 
   // List PR_OPEN sessions (or the specific session if requested)

@@ -25,6 +25,7 @@ import {
 import type { AdoptionSweepDeps } from "./adoption-sweeper";
 import { resetMcpClientSessions } from "./mcp-client";
 import type { ReviewerConfig } from "./config";
+import { silenceConsoleLogs } from "./test-helpers/log-capture";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -69,9 +70,10 @@ type FetchHandler = (url: string, init: RequestInit) => Promise<Response>;
 let originalFetch: typeof globalThis.fetch;
 let fetchHandler: FetchHandler | null = null;
 
-let originalConsoleWarn: typeof console.warn;
-let originalConsoleLog: typeof console.log;
-let originalConsoleError: typeof console.error;
+// The sweeper emits structured log lines via the reviewer-local winston
+// logger (routed to process.stdout). Per-test silencing keeps `bun test`
+// output clean.
+let stdoutSilencer: { restore: () => void } | null = null;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
@@ -119,19 +121,15 @@ beforeEach(() => {
     throw new Error(`fetch called but no handler installed: ${url}`);
   }) as typeof globalThis.fetch;
 
-  originalConsoleWarn = console.warn;
-  originalConsoleLog = console.log;
-  originalConsoleError = console.error;
-  console.warn = () => {};
-  console.log = () => {};
-  console.error = () => {};
+  stdoutSilencer = silenceConsoleLogs();
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  console.warn = originalConsoleWarn;
-  console.log = originalConsoleLog;
-  console.error = originalConsoleError;
+  if (stdoutSilencer) {
+    stdoutSilencer.restore();
+    stdoutSilencer = null;
+  }
 });
 
 // ---------------------------------------------------------------------------

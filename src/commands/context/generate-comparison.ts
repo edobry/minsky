@@ -4,8 +4,8 @@
  * Handles cross-model context comparison and display.
  */
 
-import { log } from "../../utils/logger";
-import { TaskStatus } from "../../domain/tasks/taskConstants";
+import { log } from "@minsky/shared/logger";
+import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import type {
   GenerateRequest,
   GenerateOptions,
@@ -13,7 +13,7 @@ import type {
   ComponentBreakdown,
 } from "./generate-types";
 import { generateContext, getDefaultComponents } from "./generate-core";
-import { first } from "../../utils/array-safety";
+import { first } from "@minsky/shared/array-safety";
 import { analyzeGeneratedContext } from "./generate-analysis";
 import { displayContextVisualization } from "./generate-visualization";
 
