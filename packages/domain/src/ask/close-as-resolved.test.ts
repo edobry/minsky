@@ -218,10 +218,9 @@ describe("selectOpenReviewAsksForMergedPr", () => {
     expect(selectOpenReviewAsksForMergedPr([authz], 123)).toEqual([]);
   });
 
-  it("with an undefined merged PR number, includes no-ref asks but excludes ref-bearing ones", async () => {
+  it("with an undefined merged PR number, selects nothing (conservative under incomplete metadata)", async () => {
     const withRef = await reviewAsk(123);
     const noRef = await reviewAsk(null);
-    const selected = selectOpenReviewAsksForMergedPr([withRef, noRef], undefined);
-    expect(selected.map((a) => a.id)).toEqual([noRef.id]);
+    expect(selectOpenReviewAsksForMergedPr([withRef, noRef], undefined)).toEqual([]);
   });
 });

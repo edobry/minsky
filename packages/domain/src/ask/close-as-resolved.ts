@@ -169,9 +169,14 @@ export function selectOpenReviewAsksForMergedPr(
   asks: Ask[],
   mergedPrNumber: number | undefined
 ): Ask[] {
+  // Conservative under incomplete PR metadata (reviewer R3, PR #1890): with no
+  // merged PR number we cannot attribute a no-ref review Ask to *this* merge, so
+  // select nothing rather than risk over-closing unrelated same-task review Asks.
+  if (mergedPrNumber == null) return [];
   return asks.filter((a) => {
     if (a.kind !== "quality.review" || isTerminal(a.state)) return false;
     const ref = findPrRef(a);
-    return ref === null || (mergedPrNumber != null && ref.prNumber === mergedPrNumber);
+    // No PR ref -> same-task fallback; with a ref -> require it matches.
+    return ref === null || ref.prNumber === mergedPrNumber;
   });
 }
