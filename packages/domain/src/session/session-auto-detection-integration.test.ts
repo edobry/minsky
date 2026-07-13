@@ -1,0 +1,233 @@
+/**
+ * Session Command Domain Logic Tests
+ *
+ * These tests verify that session commands (get, delete, update) properly
+ * use explicit session resolution without global state interference.
+ *
+ * Following testing-boundaries approach: test domain logic directly,
+ * not interface layers or auto-detection that depends on global state.
+ */
+
+import { describe, test, expect, beforeEach } from "bun:test";
+import {
+  getSessionImpl as sessionGet,
+  deleteSessionImpl as sessionDelete,
+} from "./session-lifecycle-operations";
+import { type SessionProviderInterface } from "../session";
+import { ResourceNotFoundError } from "../errors/index";
+import { FakeSessionProvider } from "./fake-session-provider";
+
+describe("Session Command Domain Logic", () => {
+  let mockSessionProvider: SessionProviderInterface;
+
+  beforeEach(() => {
+    mockSessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
+          sessionId: "test-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "md#123",
+        },
+        {
+          sessionId: "task#456",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          createdAt: "2024-01-02T00:00:00Z",
+          taskId: "md#456",
+        },
+      ],
+    });
+  });
+
+  describe("sessionGet domain logic", () => {
+    test("resolves session by explicit name", async () => {
+      const result = await sessionGet(
+        {
+          sessionId: "test-session",
+          json: false,
+        },
+        {
+          sessionDB: mockSessionProvider,
+        }
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.sessionId).toBe("test-session");
+      expect(result?.taskId).toBe("md#123");
+    });
+
+    test("resolves session by explicit task ID", async () => {
+      const result = await sessionGet(
+        {
+          task: "md#456",
+          json: false,
+        },
+        {
+          sessionDB: mockSessionProvider,
+        }
+      );
+
+      expect(result).not.toBeNull();
+      expect(result?.sessionId).toBe("task#456");
+      expect(result?.taskId).toBe("md#456");
+    });
+
+    test("throws ResourceNotFoundError for non-existent session", async () => {
+      await expect(
+        sessionGet(
+          {
+            sessionId: "non-existent",
+            json: false,
+          },
+          {
+            sessionDB: mockSessionProvider,
+          }
+        )
+      ).rejects.toThrow(ResourceNotFoundError);
+    });
+
+    test("throws ResourceNotFoundError for non-existent task", async () => {
+      await expect(
+        sessionGet(
+          {
+            task: "md#999",
+            json: false,
+          },
+          {
+            sessionDB: mockSessionProvider,
+          }
+        )
+      ).rejects.toThrow(ResourceNotFoundError);
+    });
+  });
+
+  describe("sessionDelete domain logic", () => {
+    test("deletes session by explicit name", async () => {
+      const result = await sessionDelete(
+        {
+          sessionId: "test-session",
+          force: true,
+          json: false,
+        },
+        {
+          sessionDB: mockSessionProvider,
+        }
+      );
+
+      expect(result.deleted).toBe(true);
+    });
+
+    test("deletes session by explicit task ID", async () => {
+      const result = await sessionDelete(
+        {
+          task: "md#456",
+          force: true,
+          json: false,
+        },
+        {
+          sessionDB: mockSessionProvider,
+        }
+      );
+
+      expect(result.deleted).toBe(true);
+    });
+
+    test("throws ResourceNotFoundError for non-existent session", async () => {
+      // Create a specific mock that returns false for non-existent sessions
+      const mockProviderWithProperDelete = new FakeSessionProvider({
+        initialSessions: [
+          {
+            sessionId: "test-session",
+            repoName: "test-repo",
+            repoUrl: "https://github.com/test/repo.git",
+            createdAt: "2024-01-01T00:00:00Z",
+            taskId: "123",
+          },
+        ],
+      });
+
+      const result = await sessionDelete(
+        {
+          sessionId: "non-existent",
+          force: true,
+          json: false,
+        },
+        {
+          sessionDB: mockProviderWithProperDelete,
+        }
+      );
+
+      expect(result.deleted).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+  });
+
+  describe("domain logic consistency", () => {
+    test("all commands resolve the same session by task ID", async () => {
+      const taskId = "md#456";
+      const expectedSessionId = "task#456";
+
+      // Test sessionGet
+      const getResult = await sessionGet(
+        { task: taskId, json: false },
+        { sessionDB: mockSessionProvider }
+      );
+      expect(getResult?.sessionId).toBe(expectedSessionId);
+
+      // Test sessionDelete
+      const deleteResult = await sessionDelete(
+        { task: taskId, force: true, json: false },
+        { sessionDB: mockSessionProvider }
+      );
+      expect(deleteResult.deleted).toBe(true);
+
+      // All commands should have resolved to the same session
+    });
+
+    test("all commands provide consistent error messages for missing sessions", () => {
+      const expectedErrorPattern = /No session detected.*session ID.*task ID.*session workspace/;
+
+      // Test error messages are consistent across commands
+      expect(() => {
+        throw new ResourceNotFoundError(
+          "No session detected. Please provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
+        );
+      }).toThrow(expectedErrorPattern);
+    });
+  });
+
+  describe("pure function behavior", () => {
+    test("session provider mock is used directly without global state", async () => {
+      // Test that the mock provider is being used by checking its exact behavior
+      const session = await mockSessionProvider.getSession("test-session");
+      expect(session).not.toBeNull();
+      expect(session?.taskId).toBe("md#123");
+
+      // Test the same behavior through the domain function
+      const result = await sessionGet(
+        { sessionId: "test-session", json: false },
+        { sessionDB: mockSessionProvider }
+      );
+      expect(result?.taskId).toBe("md#123");
+    });
+
+    test("session resolution is deterministic with same inputs", async () => {
+      // Run the same operation multiple times to ensure deterministic behavior
+      const results = await Promise.all([
+        sessionGet({ sessionId: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ sessionId: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+        sessionGet({ sessionId: "test-session", json: false }, { sessionDB: mockSessionProvider }),
+      ]);
+
+      // All results should be identical
+      expect(results[0]?.sessionId).toBe("test-session");
+      expect(results[1]?.sessionId).toBe("test-session");
+      expect(results[2]?.sessionId).toBe("test-session");
+      expect(results[0]?.taskId).toBe("md#123");
+      expect(results[1]?.taskId).toBe("md#123");
+      expect(results[2]?.taskId).toBe("md#123");
+    });
+  });
+});

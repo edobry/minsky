@@ -45,6 +45,24 @@ To keep the dashboard config in this repo as a checkable artifact, the runbook d
 
 That file isn't shipped yet — it's a follow-up; for now the table in this doc is the canonical reference.
 
+## Resolving the Management API token (`just supabase-usage`)
+
+The `just supabase-usage` recipe (and any other Management API caller) resolves the Supabase
+Personal Access Token in the following precedence (highest wins):
+
+1. **`$SUPABASE_ACCESS_TOKEN` env var** — set in the calling shell, e.g. via
+   `export SUPABASE_ACCESS_TOKEN="$(cat "$HOME/Library/Application Support/supabase/access-token")"`.
+2. **Minsky config** — `supabase.accessToken` in `~/.config/minsky/config.yaml`, or set via
+   `MINSKY_SUPABASE_ACCESS_TOKEN` env var (which routes to the same path).
+3. **Error** — neither set.
+
+The minsky-config path is the durable option: set it once, every shell session can run
+`just supabase-usage` without re-exporting. The `$SUPABASE_ACCESS_TOKEN` env var still wins
+when present, so per-shell overrides remain trivial.
+
+Tokens come from https://supabase.com/dashboard/account/tokens (generate a scoped PAT) or
+from the Supabase CLI's auto-managed file (after `supabase login`).
+
 ## Verifying after a project restart
 
 The 2026-04-28 incident bounced the instance via Pro upgrade + compute restart. After any restart:

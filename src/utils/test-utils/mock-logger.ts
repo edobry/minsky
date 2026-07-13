@@ -5,7 +5,7 @@
  * eliminating noise in test output while preserving the ability to test logging behavior.
  */
 
-import { type LoggerConfig, LogMode, type LogContext } from "../logger";
+import { type LoggerConfig, LogMode, type LogContext } from "@minsky/shared/logger";
 
 export interface LogEntry {
   level: string;

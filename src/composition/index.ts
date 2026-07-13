@@ -7,14 +7,15 @@
  * Domain code should NEVER import from this module.
  */
 
-export { TsyringeContainer } from "./container";
+export { TsyringeContainer } from "@minsky/domain/composition/container";
 export { TOKENS } from "./tokens";
 export { createCliContainer } from "./cli";
-export { createTestContainer } from "./test";
+export { createDomainContainer } from "@minsky/domain/composition/domain";
+export { createTestContainer } from "@minsky/domain/composition/test";
 export type {
   AppServices,
   ServiceKey,
   ServiceFactory,
   RegisterOptions,
   AppContainerInterface,
-} from "./types";
+} from "@minsky/domain/composition/types";

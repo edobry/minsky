@@ -15,10 +15,22 @@
  *   - MAX_REVIEWS_FETCHED cap: more than 500 reviews triggers a warning and truncation
  */
 
-import { describe, test, expect, mock, spyOn } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import type { Octokit } from "@octokit/rest";
+import type { ReviewerConfig } from "./config";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
-import { fetchPriorReviews, fetchListFiles, MAX_FILES_FETCHED } from "./github-client";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
+import {
+  createOctokit,
+  createAppIdentityOctokit,
+  fetchPriorReviews,
+  fetchListFiles,
+  MAX_FILES_FETCHED,
+  fetchReviewThreads,
+  resolveThread,
+  submitReview,
+} from "./github-client";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -227,22 +239,24 @@ describe("fetchPriorReviews", () => {
       })
     );
 
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     const octokit = buildFakeOctokit([manyReviews]);
 
+    const { logs, restore } = captureConsoleLogs();
+    let results: Awaited<ReturnType<typeof fetchPriorReviews>>;
     try {
-      const results = await fetchPriorReviews(octokit, "owner", "repo", 1);
-
-      // Truncated to MAX_REVIEWS_FETCHED (500)
-      expect(results.length).toBeLessThanOrEqual(500);
-      // Warning was emitted
-      expect(warnSpy).toHaveBeenCalled();
-      const warnMessage = warnSpy.mock.calls[0]?.[0] as string;
-      expect(warnMessage).toContain("501");
-      expect(warnMessage).toContain("500");
+      results = await fetchPriorReviews(octokit, "owner", "repo", 1);
     } finally {
-      warnSpy.mockRestore();
+      restore();
     }
+
+    // Truncated to MAX_REVIEWS_FETCHED (500)
+    expect(results.length).toBeLessThanOrEqual(500);
+
+    const capLog = findLogEvent(logs, "reviewer.prior_reviews_cap_exceeded");
+    expect(capLog).not.toBeNull();
+    expect(capLog?.pr).toBe(1);
+    expect(capLog?.count).toBe(501);
+    expect(capLog?.cap).toBe(500);
   });
 });
 
@@ -255,7 +269,18 @@ describe("fetchPriorReviews", () => {
  * fetchListFiles calls octokit.paginate(octokit.rest.pulls.listFiles, ...).
  */
 function buildListFilesOctokit(
-  paginateImpl: (endpoint: unknown, options: unknown) => Promise<Array<{ filename: string }>>
+  paginateImpl: (
+    endpoint: unknown,
+    options: unknown
+  ) => Promise<
+    Array<{
+      filename: string;
+      status?: string;
+      additions?: number;
+      deletions?: number;
+      patch?: string;
+    }>
+  >
 ): Octokit {
   return {
     paginate: mock(paginateImpl),
@@ -269,7 +294,9 @@ function buildListFilesOctokit(
 
 describe("fetchListFiles", () => {
   test("calls octokit.paginate (not listFiles directly) to follow Link headers", async () => {
-    const octokit = buildListFilesOctokit(async () => [{ filename: "src/foo.ts" }]);
+    const octokit = buildListFilesOctokit(async () => [
+      { filename: "src/foo.ts", status: "modified", additions: 10, deletions: 5 },
+    ]);
 
     await fetchListFiles(octokit, "owner", "repo", 42);
 
@@ -280,15 +307,32 @@ describe("fetchListFiles", () => {
     ).toHaveLength(0);
   });
 
-  test("returns filenames from all pages on success", async () => {
+  test("returns file entries with patch data on success", async () => {
     const octokit = buildListFilesOctokit(async () => [
-      { filename: "src/foo.ts" },
-      { filename: "src/bar.ts" },
-      { filename: "README.md" },
+      {
+        filename: "src/foo.ts",
+        status: "modified",
+        additions: 10,
+        deletions: 5,
+        patch: "@@ -1,5 +1,10 @@",
+      },
+      { filename: "src/bar.ts", status: "added", additions: 20, deletions: 0 },
+      {
+        filename: "README.md",
+        status: "modified",
+        additions: 3,
+        deletions: 1,
+        patch: "@@ -1 +1 @@",
+      },
     ]);
 
     const result = await fetchListFiles(octokit, "owner", "repo", 1);
-    expect(result).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
+    expect(result).toHaveLength(3);
+    expect(result[0]?.filename).toBe("src/foo.ts");
+    expect(result[0]?.patch).toBe("@@ -1,5 +1,10 @@");
+    expect(result[1]?.filename).toBe("src/bar.ts");
+    expect(result[1]?.patch).toBeUndefined();
+    expect(result.map((f) => f.filename)).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
   });
 
   test("returns [] and emits pr_scope_listfiles_error structured log on paginate error", async () => {
@@ -296,72 +340,535 @@ describe("fetchListFiles", () => {
       throw new Error("API rate limit exceeded");
     });
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: import("./github-client").PrFileEntry[];
     try {
-      const result = await fetchListFiles(octokit, "owner", "repo", 7);
-
-      expect(result).toEqual([]);
-      // Must emit a structured JSON log with event: pr_scope_listfiles_error
-      const logCalls = logSpy.mock.calls;
-      const errorLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "pr_scope_listfiles_error");
-      expect(errorLog).not.toBeNull();
-      expect(errorLog?.pr).toBe(7);
-      expect(errorLog?.error).toContain("rate limit");
+      result = await fetchListFiles(octokit, "owner", "repo", 7);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const errorLog = findLogEvent(logs, "pr_scope_listfiles_error");
+    expect(errorLog).not.toBeNull();
+    expect(errorLog?.pr).toBe(7);
+    expect(errorLog?.error).toContain("rate limit");
   });
 
   test("returns [] and emits pr_scope_files_cap_exceeded when file count exceeds MAX_FILES_FETCHED", async () => {
-    // Create MAX_FILES_FETCHED + 1 files to exceed the cap.
     const tooManyFiles = Array.from({ length: MAX_FILES_FETCHED + 1 }, (_, i) => ({
       filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
     }));
     const octokit = buildListFilesOctokit(async () => tooManyFiles);
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: import("./github-client").PrFileEntry[];
     try {
-      const result = await fetchListFiles(octokit, "owner", "repo", 99);
-
-      expect(result).toEqual([]);
-      // Must emit pr_scope_files_cap_exceeded structured log
-      const logCalls = logSpy.mock.calls;
-      const capLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "pr_scope_files_cap_exceeded");
-      expect(capLog).not.toBeNull();
-      expect(capLog?.pr).toBe(99);
-      expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
-      expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
+      result = await fetchListFiles(octokit, "owner", "repo", 99);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const capLog = findLogEvent(logs, "pr_scope_files_cap_exceeded");
+    expect(capLog).not.toBeNull();
+    expect(capLog?.pr).toBe(99);
+    expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
+    expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
   });
 
-  test("returns filenames (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
-    // MAX_FILES_FETCHED files — exactly at the limit, not over it.
+  test("returns entries (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
     const exactlyAtCap = Array.from({ length: MAX_FILES_FETCHED }, (_, i) => ({
       filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
     }));
     const octokit = buildListFilesOctokit(async () => exactlyAtCap);
 
     const result = await fetchListFiles(octokit, "owner", "repo", 1);
-    // Should return filenames, not fall back to []
     expect(result).toHaveLength(MAX_FILES_FETCHED);
-    expect(result[0]).toBe("src/file0.ts");
+    expect(result[0]?.filename).toBe("src/file0.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchReviewThreads tests (mt#1345)
+// ---------------------------------------------------------------------------
+
+/**
+ * GQL response shape for a single page of review threads.
+ */
+interface FakeGqlPage {
+  nodes: Array<{
+    id: string;
+    path: string;
+    line: number | null;
+    startLine: number | null;
+    isResolved: boolean;
+    isOutdated: boolean;
+    isCollapsed: boolean;
+    comments: {
+      totalCount: number;
+      nodes: Array<{
+        databaseId: number;
+        author: { login: string } | null;
+        body: string;
+        createdAt: string;
+      }>;
+    };
+  }>;
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+function buildThreadOctokit(pages: FakeGqlPage[]): Octokit {
+  let pageIndex = 0;
+  const graphqlMock = mock(async (_query: string, _vars: unknown) => {
+    const page = pages[pageIndex++] ?? {
+      nodes: [],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
+    return {
+      repository: {
+        pullRequest: {
+          reviewThreads: page,
+        },
+      },
+    };
+  });
+  return { graphql: graphqlMock } as unknown as Octokit;
+}
+
+function makeThread(overrides: Partial<FakeGqlPage["nodes"][0]> = {}): FakeGqlPage["nodes"][0] {
+  return {
+    id: "PRRT_kwDOX1",
+    path: "src/foo.ts",
+    line: 42,
+    startLine: null,
+    isResolved: false,
+    isOutdated: false,
+    isCollapsed: false,
+    comments: {
+      totalCount: 1,
+      nodes: [
+        {
+          databaseId: 100001,
+          author: { login: "minsky-reviewer[bot]" },
+          body: "Still a concern.",
+          createdAt: "2026-05-01T00:00:00Z",
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+describe("fetchReviewThreads", () => {
+  test("single page: threads mapped correctly including databaseId", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [
+          makeThread({ id: "T_1", path: "src/a.ts", line: 10 }),
+          makeThread({ id: "T_2", path: "src/b.ts", line: 20, isResolved: true }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.id).toBe("T_1");
+    expect(result[0]?.path).toBe("src/a.ts");
+    expect(result[0]?.line).toBe(10);
+    expect(result[0]?.isResolved).toBe(false);
+    expect(result[0]?.comments[0]?.databaseId).toBe(100001);
+    expect(result[1]?.isResolved).toBe(true);
+  });
+
+  test("null author maps to null in comments", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [
+          makeThread({
+            id: "T_null_author",
+            comments: {
+              totalCount: 1,
+              nodes: [
+                {
+                  databaseId: 99999,
+                  author: null,
+                  body: "Bot deleted",
+                  createdAt: "2026-05-01T00:00:00Z",
+                },
+              ],
+            },
+          }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result[0]?.comments[0]?.author).toBeNull();
+  });
+
+  test("truncatedComments: true when totalCount > comments.nodes.length", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [
+          makeThread({
+            comments: {
+              totalCount: 15, // more than the 1 node we return
+              nodes: [
+                {
+                  databaseId: 111,
+                  author: { login: "alice" },
+                  body: "First comment",
+                  createdAt: "2026-05-01T00:00:00Z",
+                },
+              ],
+            },
+          }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result[0]?.truncatedComments).toBe(true);
+  });
+
+  test("truncatedComments: false when totalCount equals comments.nodes.length", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [makeThread()], // totalCount:1, nodes.length:1
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result[0]?.truncatedComments).toBe(false);
+  });
+
+  test("pagination: calls graphql twice when hasNextPage=true on first page", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [makeThread({ id: "T_page1" })],
+        pageInfo: { hasNextPage: true, endCursor: "cursor1" },
+      },
+      {
+        nodes: [makeThread({ id: "T_page2" })],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result).toHaveLength(2);
+    expect(result[0]?.id).toBe("T_page1");
+    expect(result[1]?.id).toBe("T_page2");
+    // graphql was called twice
+    expect((octokit.graphql as unknown as ReturnType<typeof mock>).mock.calls).toHaveLength(2);
+  });
+
+  test("empty PR: returns empty array when pullRequest has no threads", async () => {
+    const octokit = buildThreadOctokit([
+      { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result).toEqual([]);
+  });
+
+  test("returns [] and emits reviewer_fetch_threads_error on GraphQL error", async () => {
+    const graphqlMock = mock(async () => {
+      throw new Error("GraphQL rate limit exceeded");
+    });
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    const { logs, restore } = captureConsoleLogs();
+    let result: Awaited<ReturnType<typeof fetchReviewThreads>>;
+    try {
+      result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    } finally {
+      restore();
+    }
+
+    expect(result).toEqual([]);
+    const errorLog = findLogEvent(logs, "reviewer_fetch_threads_error");
+    expect(errorLog).not.toBeNull();
+    expect(errorLog?.pr).toBe(42);
+  });
+
+  test("returns [] when repository.pullRequest is null (permissions / not found)", async () => {
+    const graphqlMock = mock(async () => ({
+      repository: { pullRequest: null },
+    }));
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveThread tests (mt#1345)
+// ---------------------------------------------------------------------------
+
+describe("resolveThread", () => {
+  test("calls octokit.graphql with the mutation and threadId", async () => {
+    const graphqlMock = mock(async (_query: string, vars: unknown) => ({
+      resolveReviewThread: { thread: { id: "PRRT_kwDOX1", isResolved: true } },
+    }));
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    await resolveThread(octokit, "PRRT_kwDOX1");
+
+    expect(graphqlMock.mock.calls).toHaveLength(1);
+    const [_query, vars] = graphqlMock.mock.calls[0] as [string, { threadId: string }];
+    expect(vars.threadId).toBe("PRRT_kwDOX1");
+  });
+
+  test("throws when graphql mutation returns an error", async () => {
+    const graphqlMock = mock(async () => {
+      throw new Error("Not authorized to resolve thread");
+    });
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    await expect(resolveThread(octokit, "PRRT_kwDOX1")).rejects.toThrow("Not authorized");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// submitReview tests (PR #1069 R1 BLOCKING #2 — Octokit payload shape)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal fake Octokit that exposes only `rest.pulls.createReview`
+ * as a mock. The mock returns the response shape `submitReview` reads
+ * (`{ data: { id, html_url } }`). Tests inspect the call args.
+ */
+function buildFakeCreateReviewOctokit() {
+  const createReviewMock = mock(
+    async (_args: unknown): Promise<{ data: { id: number; html_url: string } }> => ({
+      data: { id: 999, html_url: "https://example/pr/1#pullrequestreview-999" },
+    })
+  );
+  const octokit = {
+    rest: {
+      pulls: {
+        createReview: createReviewMock,
+      },
+    },
+  } as unknown as Octokit;
+  return { octokit, createReviewMock };
+}
+
+describe("submitReview", () => {
+  // Guard message used when narrowing `args.comments` after asserting it's defined.
+  // Tests assert `expect(comments).toBeDefined()` before this throw — the throw is
+  // a TypeScript-narrowing convenience, not an expected runtime path in passing tests.
+  const COMMENTS_MISSING = "comments missing";
+
+  test("top-level inline comment payload includes side='RIGHT' default + path + line + body, no in_reply_to", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "src/foo.ts", line: 42, body: "issue here" },
+    ]);
+
+    expect(createReviewMock.mock.calls).toHaveLength(1);
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    expect(comments).toBeDefined();
+    expect(comments).toHaveLength(1);
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    const c = comments[0];
+    expect(c).toEqual({
+      path: "src/foo.ts",
+      line: 42,
+      side: "RIGHT",
+      body: "issue here",
+    });
+  });
+
+  test("top-level inline comment honors explicit side='LEFT'", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "src/foo.ts", line: 42, side: "LEFT", body: "issue here" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments[0]).toEqual({
+      path: "src/foo.ts",
+      line: 42,
+      side: "LEFT",
+      body: "issue here",
+    });
+  });
+
+  test("reply comment (inReplyTo set) payload contains only body + in_reply_to, no path/line/side", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "src/foo.ts", line: 42, body: "still applies", inReplyTo: 12345 },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toEqual({
+      body: "still applies",
+      in_reply_to: 12345,
+    });
+  });
+
+  test("mixed array produces both top-level and reply shapes correctly", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "REQUEST_CHANGES", "body", undefined, [
+      { path: "a.ts", line: 1, body: "new finding" },
+      { path: "b.ts", line: 2, body: "reply", inReplyTo: 555 },
+      { path: "c.ts", line: 3, body: "another new finding", side: "LEFT" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments).toHaveLength(3);
+
+    // First: top-level, default side
+    expect(comments[0]).toEqual({
+      path: "a.ts",
+      line: 1,
+      side: "RIGHT",
+      body: "new finding",
+    });
+
+    // Second: reply, only body + in_reply_to
+    expect(comments[1]).toEqual({
+      body: "reply",
+      in_reply_to: 555,
+    });
+
+    // Third: top-level, explicit LEFT side
+    expect(comments[2]).toEqual({
+      path: "c.ts",
+      line: 3,
+      side: "LEFT",
+      body: "another new finding",
+    });
+  });
+
+  test("empty inline comments array → no comments field in Octokit payload", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "APPROVE", "body", undefined, []);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
+  });
+
+  test("undefined inline comments → no comments field in Octokit payload", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "APPROVE", "body");
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
+  });
+});
+
+// ── createOctokit (mt#2717) ──────────────────────────────────────────────────
+
+/**
+ * Minimal ReviewerConfig for createOctokit — only appId/privateKey/installationId
+ * are read; the remaining fields are filler to satisfy the type.
+ */
+function testConfig(privateKey: string): ReviewerConfig {
+  return {
+    appId: 12345,
+    privateKey,
+    installationId: 67890,
+    webhookSecret: "test-secret",
+    provider: "openai",
+    providerApiKey: "test-key",
+    providerModel: "gpt-5",
+    tier2Enabled: false,
+    mcpUrl: undefined,
+    mcpToken: undefined,
+    port: 3000,
+    logLevel: "info",
+    modelTimeoutMs: 120_000,
+    githubTimeoutMs: 30_000,
+  };
+}
+
+describe("createOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // The pre-mt#2717 body signed a JWT and minted an installation token AT
+    // CONSTRUCTION (`const { token } = await auth({ type: "installation" })`),
+    // so a malformed private key threw here. The authStrategy form defers all
+    // auth to the first request, so construction must succeed regardless of key
+    // validity — the property that makes the reused, self-refreshing client
+    // correct (it never re-extracts a stale token).
+    const octokit = await createOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the refreshing App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = await createOctokit(testConfig(privateKey));
+
+    // With authStrategy: createAppAuth, requesting an APP-level JWT is a purely
+    // LOCAL RS256 signing operation (no network) — only possible when the
+    // app-auth strategy is installed. A static-token Octokit could not satisfy
+    // `{ type: "app" }`.
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    // A JWT is three dot-separated base64url segments.
+    expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+describe("createAppIdentityOctokit (mt#2717)", () => {
+  test("defers auth to request time (no eager mint/sign at construction)", async () => {
+    // Same property as createOctokit: the pre-mt#2717 getAppIdentity path
+    // extracted a static App JWT at construction (`await auth({ type: "app" })`)
+    // and threw on a malformed key. The authStrategy form defers auth to the
+    // first request, so construction must not throw.
+    const octokit = createAppIdentityOctokit(testConfig("not-a-real-private-key"));
+    expect(typeof octokit.request).toBe("function");
+  });
+
+  test("installs the App auth strategy (produces an App JWT locally)", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const octokit = createAppIdentityOctokit(testConfig(privateKey));
+    const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
+    expect(appAuth.type).toBe("app");
+    expect(appAuth.token.split(".")).toHaveLength(3);
   });
 });

@@ -6,13 +6,13 @@
  */
 
 import { writeFileSync } from "fs";
-import { execAsync } from "../../../../utils/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm";
-import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import { type TaskServiceInterface } from "../../../../domain/tasks/taskService";
-import { type Task } from "../../../../domain/tasks/types";
-import { getErrorMessage } from "../../../../errors/index";
+import { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import { type TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { type Task } from "@minsky/domain/tasks/types";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { LayoutOptions, TaskNode } from "./deps-rendering-types";
 
 /**
@@ -298,7 +298,11 @@ export async function renderGraphvizFormat(
               : process.platform === "win32"
                 ? "start"
                 : "xdg-open";
-          await execAsync(`${openCommand} "${finalOutputPath}"`);
+          // mt#1829: finalOutputPath is operator-supplied (CLI --out flag);
+          // wrap with safeShellQuote so shell metacharacters in path don't
+          // activate. openCommand is a platform-bound literal ("open" /
+          // "start" / "xdg-open"), no quoting needed.
+          await execAsync(`${openCommand} ${safeShellQuote(finalOutputPath)}`);
           return {
             message: `✅ Rendered task dependency graph to: ${finalOutputPath} (opened in default application)`,
             filePath: finalOutputPath,

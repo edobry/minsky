@@ -252,7 +252,8 @@ export const sessionCommitCommandParams = composeParams(
     },
     noFiles: {
       schema: z.boolean(),
-      description: "Hide the per-file list in output",
+      description:
+        "Allow committing without staged file changes (uses --allow-empty when tree is clean) — used to wake webhooks or produce audit-trail commits",
       required: false,
       defaultValue: false,
     },

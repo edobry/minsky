@@ -1,0 +1,22 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "services/reviewer/Dockerfile",
+    "watchPatterns": [
+      "services/reviewer/**",
+      "packages/shared/src/**",
+      "packages/shared/package.json",
+      "packages/shared/tsconfig.json",
+      "packages/domain/src/**",
+      "packages/domain/package.json",
+      "packages/domain/tsconfig.json",
+      "services/site/package.json",
+      "services/cockpit/package.json",
+      "package.json",
+      "bun.lock",
+      "bunfig.toml",
+      "tsconfig.json"
+    ]
+  }
+}

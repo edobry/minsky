@@ -1,29 +1,23 @@
 import { describe, expect, test } from "bun:test";
-import type { ReviewerConfig } from "./config";
-import type { TasksSpecGetResult } from "./mcp-client";
-import { extractTaskId, resolveTaskSpec, type TasksSpecGetFn } from "./task-spec-fetch";
+import type { TaskServiceInterface } from "@minsky/domain/tasks";
+import { extractTaskId, resolveTaskSpec } from "./task-spec-fetch";
 
 const SAMPLE_SPEC_BODY = "## Summary\n\nThe spec body.";
 
-const baseConfig: ReviewerConfig = {
-  appId: 1,
-  privateKey: "",
-  installationId: 1,
-  webhookSecret: "",
-  provider: "openai",
-  providerApiKey: "",
-  providerModel: "gpt-5",
-  tier2Enabled: true,
-  mcpUrl: "https://mcp.example/mcp",
-  mcpToken: "token",
-  port: 3000,
-  logLevel: "info",
-};
-
-const stubFetcher =
-  (result: TasksSpecGetResult): TasksSpecGetFn =>
-  async () =>
-    result;
+/**
+ * Build a minimal fake TaskServiceInterface for task-spec-fetch tests.
+ * Only getTaskSpecContent is relevant here.
+ */
+function makeTaskService(spec: string | null): TaskServiceInterface {
+  return {
+    getTaskSpecContent: async (_taskId: string) => {
+      if (spec === null) {
+        throw new Error("task not found");
+      }
+      return { task: {} as never, specPath: "/fake/path", content: spec };
+    },
+  } as unknown as TaskServiceInterface;
+}
 
 describe("extractTaskId", () => {
   test("pulls mt#NNNN from a task/mt-XXXX branch name", () => {
@@ -70,24 +64,21 @@ describe("extractTaskId", () => {
 });
 
 describe("resolveTaskSpec", () => {
-  test("returns disabled when MCP config is missing (no URL)", async () => {
+  test("returns disabled when taskService is absent (null)", async () => {
     const { taskSpec, fetchResult } = await resolveTaskSpec({
       branchName: "task/mt-1187",
       prTitle: "",
-      config: { ...baseConfig, mcpUrl: undefined },
-      fetcher: stubFetcher({ kind: "found", content: SAMPLE_SPEC_BODY }),
+      taskService: null,
     });
     expect(taskSpec).toBeNull();
     expect(fetchResult.status).toBe("disabled");
     expect(fetchResult.taskId).toBeUndefined();
   });
 
-  test("returns disabled when MCP config is missing (no token)", async () => {
+  test("returns disabled when taskService is absent (undefined)", async () => {
     const { taskSpec, fetchResult } = await resolveTaskSpec({
       branchName: "task/mt-1187",
       prTitle: "",
-      config: { ...baseConfig, mcpToken: undefined },
-      fetcher: stubFetcher({ kind: "found", content: SAMPLE_SPEC_BODY }),
     });
     expect(taskSpec).toBeNull();
     expect(fetchResult.status).toBe("disabled");
@@ -97,19 +88,17 @@ describe("resolveTaskSpec", () => {
     const { taskSpec, fetchResult } = await resolveTaskSpec({
       branchName: "main",
       prTitle: "misc cleanup",
-      config: baseConfig,
-      fetcher: stubFetcher({ kind: "found", content: SAMPLE_SPEC_BODY }),
+      taskService: makeTaskService(SAMPLE_SPEC_BODY),
     });
     expect(taskSpec).toBeNull();
     expect(fetchResult.status).toBe("no-task-id");
   });
 
-  test("returns found with specLength when the MCP returns content", async () => {
+  test("returns found with specLength when the TaskService returns content", async () => {
     const { taskSpec, fetchResult } = await resolveTaskSpec({
       branchName: "task/mt-1187",
       prTitle: "",
-      config: baseConfig,
-      fetcher: stubFetcher({ kind: "found", content: SAMPLE_SPEC_BODY }),
+      taskService: makeTaskService(SAMPLE_SPEC_BODY),
     });
     expect(taskSpec).toBe(SAMPLE_SPEC_BODY);
     expect(fetchResult.status).toBe("found");
@@ -117,28 +106,34 @@ describe("resolveTaskSpec", () => {
     expect(fetchResult.specLength).toBe(SAMPLE_SPEC_BODY.length);
   });
 
-  test("returns not-found when the MCP returns no content for the task", async () => {
+  test("returns not-found when the TaskService returns null content", async () => {
+    // makeTaskService(null) throws a "task not found" error — which resolveTaskSpec
+    // maps to not-found via the /not.found|does not exist|no such/i regex.
     const { taskSpec, fetchResult } = await resolveTaskSpec({
       branchName: "task/mt-9999",
       prTitle: "",
-      config: baseConfig,
-      fetcher: stubFetcher({ kind: "not-found" }),
+      taskService: makeTaskService(null),
     });
     expect(taskSpec).toBeNull();
     expect(fetchResult.status).toBe("not-found");
     expect(fetchResult.taskId).toBe("mt#9999");
   });
 
-  test("returns error with message when the MCP returns an error", async () => {
+  test("returns error with message when the TaskService throws an unexpected error", async () => {
+    const errorService = {
+      getTaskSpecContent: async (_taskId: string) => {
+        throw new Error("Database connection failed");
+      },
+    } as unknown as TaskServiceInterface;
+
     const { taskSpec, fetchResult } = await resolveTaskSpec({
       branchName: "task/mt-42",
       prTitle: "",
-      config: baseConfig,
-      fetcher: stubFetcher({ kind: "error", message: "Developer setup incomplete" }),
+      taskService: errorService,
     });
     expect(taskSpec).toBeNull();
     expect(fetchResult.status).toBe("error");
     expect(fetchResult.taskId).toBe("mt#42");
-    expect(fetchResult.error).toBe("Developer setup incomplete");
+    expect(fetchResult.error).toBe("Database connection failed");
   });
 });

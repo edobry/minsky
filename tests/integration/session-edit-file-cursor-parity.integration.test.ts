@@ -7,7 +7,7 @@ import {
   initializeConfiguration,
   getConfiguration,
   CustomConfigFactory,
-} from "../../src/domain/configuration/index.js";
+} from "@minsky/domain/configuration/index";
 
 // Mock file system for testing
 export const mockFiles = new Map<string, string>();
@@ -69,7 +69,7 @@ async function loggingApplyEditPattern(
 
   // Import utilities
   const { analyzeEditPattern, createMorphCompletionParams } = await import(
-    "../../src/domain/ai/edit-pattern-utils.js"
+    "@minsky/domain/ai/edit-pattern-utils"
   );
 
   console.log("\n📋 INPUT PARAMETERS:");
@@ -113,10 +113,8 @@ async function loggingApplyEditPattern(
 
   try {
     // Use the same import pattern as session-edit-tools.ts
-    const { DefaultAICompletionService } = await import(
-      "../../src/domain/ai/completion-service.js"
-    );
-    const { getConfiguration } = await import("../../src/domain/configuration/index.js");
+    const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
 
     const config = getConfiguration();
     console.log("\n📋 AI CONFIGURATION:");

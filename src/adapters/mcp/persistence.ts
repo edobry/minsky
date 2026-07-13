@@ -3,14 +3,14 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerPersistenceCommandsWithMcp } from "./shared-command-integration";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers persistence tools with the MCP command mapper
  */
 export function registerPersistenceTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug("Registering persistence commands via shared command integration");
 
@@ -29,15 +29,4 @@ export function registerPersistenceTools(
   });
 
   log.debug("Persistence commands registered successfully via shared integration");
-}
-
-/**
- * Legacy sessiondb tools registration (for backward compatibility)
- */
-export function registerSessiondbTools(
-  commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
-): void {
-  // Forward to persistence tools for backward compatibility
-  registerPersistenceTools(commandMapper, container);
 }

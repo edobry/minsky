@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { log } from "./logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Robust temp directory creation utility.

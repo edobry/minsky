@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { readContentFromFileIfExists, parseGlobs } from "../../../src/utils/rules-helpers";
+import { readContentFromFileIfExists, parseGlobs } from "@minsky/domain/utils/rules-helpers";
 
 // Test to verify the helper functions work correctly
 describe("Rules CLI Helper Functions Integration", () => {

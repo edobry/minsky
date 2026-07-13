@@ -48,11 +48,13 @@ declare module "child_process" {
 declare const process: {
   arch: string;
   argv: string[];
+  chdir(directory: string): void;
   cwd(): string;
   env: Record<string, string | undefined>;
   exit(code?: number): never;
   exitCode?: number;
   nextTick(callback: (...args: any[]) => void, ...args: any[]): void;
+  on(event: string, listener: (...args: any[]) => void): any;
   pid: number;
   platform: string;
   version: string;

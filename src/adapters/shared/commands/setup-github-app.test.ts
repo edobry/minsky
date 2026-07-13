@@ -16,8 +16,8 @@ import {
   type AppCredentials,
   type AppProvisioner,
   type CredentialStore,
-} from "../../../domain/setup/github-app";
-import { ValidationError } from "../../../errors/index";
+} from "@minsky/domain/setup/github-app";
+import { ValidationError } from "@minsky/domain/errors/index";
 
 setupTestMocks();
 

@@ -11,17 +11,17 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { DrizzleAskRepository, type AskRepository } from "../../../domain/ask/repository";
-import type { AskKind } from "../../../domain/ask/types";
+import { log } from "@minsky/shared/logger";
+import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
+import type { AskKind } from "@minsky/domain/ask/types";
 import {
   getRollupForTask,
   getRollupForKind,
   type TaskRollup,
   type KindRollup,
-} from "../../../domain/ask/accounting/index";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+} from "@minsky/domain/ask/accounting/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Constants

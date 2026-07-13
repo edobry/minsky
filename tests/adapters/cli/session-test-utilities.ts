@@ -6,7 +6,7 @@
 
 import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
-import type { SessionProviderInterface } from "../../../src/domain/session";
+import type { SessionProviderInterface } from "@minsky/domain/session";
 
 // Set up automatic mock cleanup
 setupTestMocks();

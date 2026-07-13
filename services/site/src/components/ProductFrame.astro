@@ -1,0 +1,111 @@
+---
+// Product frame — the right-side product-proof surface for the hero
+// and substrate-walkthrough sections. The default (no slot) renders a
+// terminal-style placeholder that exercises the brand tokens so the
+// layout reads even before real screenshots land.
+---
+
+<div class="product-frame">
+  <div class="chrome-bar" aria-hidden="true">
+    <span class="dot dot-r"></span>
+    <span class="dot dot-y"></span>
+    <span class="dot dot-g"></span>
+    <span class="chrome-title">minsky · session task/mt-1934</span>
+  </div>
+  <div class="product-surface">
+    <slot>
+      <pre class="terminal"><span class="prompt">›</span> <span class="cmd">minsky session start mt#1934</span>
+<span class="muted">[ok]</span> session <span class="signal">a23c1326</span> · branch <span class="signal">task/mt-1934</span>
+<span class="muted">[ok]</span> task <span class="signal">mt#1934</span> · READY → IN-PROGRESS
+
+<span class="prompt">›</span> <span class="cmd">minsky session pr create --task mt#1934</span>
+<span class="muted">[ok]</span> PR <span class="signal">#1184</span> opened
+<span class="muted">[wait]</span> minsky-reviewer[bot] reviewing<span class="cursor">_</span></pre>
+    </slot>
+  </div>
+</div>
+
+<style>
+  .product-frame {
+    background-color: var(--color-bg-elevated);
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow:
+      0 1px 0 color-mix(in oklch, var(--color-text-primary) 4%, transparent) inset,
+      0 24px 48px -16px rgba(0, 0, 0, 0.5);
+  }
+
+  .chrome-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 6%, transparent);
+    background-color: color-mix(in oklch, var(--color-bg-elevated) 80%, var(--color-bg-base) 20%);
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    opacity: 0.6;
+  }
+  .dot-r {
+    background-color: var(--color-warn-red);
+  }
+  .dot-y {
+    background-color: var(--color-warn-amber);
+  }
+  .dot-g {
+    background-color: oklch(0.745 0.18 145);
+  }
+  .chrome-title {
+    margin-left: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--color-text-subtle);
+    letter-spacing: 0.02em;
+  }
+
+  .product-surface {
+    padding: 1.25rem 1.5rem;
+    min-height: 280px;
+  }
+  .terminal {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.65;
+    color: var(--color-text-primary);
+    margin: 0;
+    white-space: pre-wrap;
+  }
+  .terminal .prompt {
+    color: var(--color-signal);
+  }
+  .terminal .cmd {
+    color: var(--color-text-primary);
+  }
+  .terminal .muted {
+    color: var(--color-text-muted);
+  }
+  .terminal .signal {
+    color: var(--color-signal);
+  }
+  .terminal .cursor {
+    display: inline-block;
+    width: 0.6em;
+    background-color: var(--color-signal);
+    color: transparent;
+    animation: blink 1.2s steps(2) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .terminal .cursor {
+      animation: none;
+    }
+  }
+</style>

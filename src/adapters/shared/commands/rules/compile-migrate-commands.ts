@@ -1,18 +1,18 @@
 /**
  * Rules compile and migrate commands
  */
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { resolveWorkspacePath } from "../../../../domain/workspace";
-import { compileRules, migrateRules } from "../../../../domain/rules/rules-command-operations";
+import { log } from "@minsky/shared/logger";
+import { resolveWorkspacePath } from "@minsky/domain/workspace";
+import { compileRules, migrateRules } from "@minsky/domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
-import type { MemoryLoadingMode } from "../../../../domain/configuration/schemas/memory";
+import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
 
 export function registerCompileMigrateCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
@@ -34,9 +34,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
         // Read memory.loadingMode from config; fall back gracefully if config unavailable
         let memoryLoadingMode: MemoryLoadingMode | undefined;
         try {
-          const { getConfigurationProvider } = await import(
-            "../../../../domain/configuration/index"
-          );
+          const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
           const config = getConfigurationProvider().getConfig();
           memoryLoadingMode = config.memory?.loadingMode;
         } catch {

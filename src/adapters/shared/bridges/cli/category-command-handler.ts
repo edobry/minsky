@@ -5,7 +5,7 @@
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
 import { Command } from "commander";
-import { log } from "../../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { sharedCommandRegistry, CommandCategory, type SharedCommand } from "../../command-registry";
 import {
   type CommandCustomizationManager,

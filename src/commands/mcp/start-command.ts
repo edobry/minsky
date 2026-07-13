@@ -1,40 +1,77 @@
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
-import express from "express";
+// mt#1719 Intervention 2: `express`, `launchInspector`/`isInspectorAvailable`,
+// and `resolveOAuthProvider` were top-level imports. They are HTTP-only
+// (express, OAuth) or inspector-only (inspector-launcher) — pulling them
+// in at module-load time costs ~10-30ms each on stdio cold-start where
+// none of them run. Each is converted to function-local dynamic import
+// at its sole use site below. Type positions (`import("express").Request`)
+// remain top-level since TS erases them at runtime.
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
-import { log } from "../../utils/logger";
+import { RetryingInitController } from "../../mcp/init-retry";
+import { log } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
-import { getErrorMessage } from "../../errors/index";
-import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
-import { exit } from "../../utils/process";
-
-import { registerDebugTools } from "../../adapters/mcp/debug";
-import { registerGitTools } from "../../adapters/mcp/git";
-import { registerRepoTools } from "../../adapters/mcp/repo";
-import { registerInitTools } from "../../adapters/mcp/init";
-import { registerRulesTools } from "../../adapters/mcp/rules";
-import { registerSessionTools } from "../../adapters/mcp/session";
+import { exit } from "@minsky/shared/process";
+import { CommandCategory } from "../../adapters/shared/command-registry";
+import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
-import { registerPersistenceTools } from "../../adapters/mcp/persistence";
-import { registerTaskTools } from "../../adapters/mcp/tasks";
-import { registerChangesetTools } from "../../adapters/mcp/changeset";
-import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
-import { registerValidateTools } from "../../adapters/mcp/validate";
-import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
+import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
-import { setHostedMode } from "../../domain/configuration/guard";
+
+// Re-export the dispatch table for consumers that prefer importing from
+// `start-command.ts`. Source of truth: `./discovery-config.ts` — a side-
+// effect-free module that smoke scripts and unit tests can import without
+// pulling in the MCP-server / HTTP / OAuth dependency graph.
+//
+// mt#2037: the prior exclusion-constant re-export was deleted alongside
+// the constant itself. No in-repo consumers ever imported it; out-of-repo
+// consumers (if any exist) would need to update their imports to remove
+// the deleted symbol. The deletion is intentional, not a backward-compat
+// break — the symbol has zero realistic consumers per the mt#2017 caller-
+// graph analysis.
+export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
+import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
+import {
+  isInstructionsBundleEnabled,
+  composeMemoryBundle,
+} from "../../mcp/middleware/memory-bundle";
+// mt#1719 Intervention 2: `resolveOAuthProvider` top-level import deferred —
+// pulls in `oidc-provider` + Koa middleware closure (~30-50ms estimated).
+// Sole call site is inside `if (transportType === "http" && container)`
+// block, so stdio mode never needs it. The type imports below are erased
+// at runtime by TypeScript and stay top-level.
+import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
+import { profileCheckpoint } from "../../utils/cold-start-profile";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
 const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
+
+/**
+ * Vector dimension for the memory embeddings store.
+ *
+ * **TODO (mt#1631):** This dimension is hard-coded across three independent
+ * MemoryService construction sites — `resolveMemoryService` (pre-existing),
+ * `buildMemoryServiceForSpike` (this file), and `scripts/import-claude-code-memory.ts`.
+ * Centralize via an embedding-service-derived dimension getter or a single
+ * shared constant when those three sites are unified (PR #974 R2 BLOCKING).
+ * Today's value (1536) matches `text-embedding-3-small`/`text-embedding-ada-002`,
+ * which is what Minsky configures by default.
+ */
+const MEMORY_EMBEDDING_DIMENSION = 1536;
 
 /**
  * Check a bearer-token authorization header against the expected token.
@@ -52,53 +89,192 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
 }
 
 /**
+ * Extract the raw bearer token string from an Authorization header.
+ *
+ * Returns the token string (without the "Bearer " prefix) if the header is
+ * well-formed, or null if the header is absent or malformed.
+ *
+ * Exported for tests.
+ */
+export function extractBearer(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+/**
+ * Validate an OAuth bearer token and enforce RFC 8707 audience binding.
+ *
+ * - Calls `oauthProvider.validateToken(bearer)`.
+ * - On `{ valid: true }`, checks that the token's `audience` matches `endpointUrl`
+ *   (audience is allowed to be null only when endpointUrl is also null, i.e., no
+ *   audience binding required — currently unused; production always passes an endpointUrl).
+ *
+ * Returns:
+ *   `{ ok: true, agentId }` — token valid, audience matches, agentId ready to inject.
+ *   `{ ok: false, reason }` — validation failed or audience mismatch.
+ *
+ * Exported for tests.
+ */
+export async function validateOAuthBearer(
+  bearer: string,
+  oauthProvider: OAuthIdentityProvider,
+  endpointUrl: string | null
+): Promise<
+  | { ok: true; agentId: string; validation: OAuthValidationResult & { valid: true } }
+  | { ok: false; reason: string }
+> {
+  let result: OAuthValidationResult;
+  try {
+    result = await oauthProvider.validateToken(bearer);
+  } catch (err) {
+    log.error("[mt#1666] validateToken threw unexpectedly", { error: getErrorMessage(err) });
+    return { ok: false, reason: "malformed" };
+  }
+
+  if (!result.valid) {
+    return { ok: false, reason: result.reason };
+  }
+
+  // RFC 8707 audience binding: when the token was issued for a specific resource,
+  // it must match the resource being accessed.
+  if (result.audience !== null && endpointUrl !== null && result.audience !== endpointUrl) {
+    log.warn("[mt#1666] audience mismatch", {
+      tokenAudience: result.audience,
+      endpointUrl,
+    });
+    return { ok: false, reason: "audience_mismatch" };
+  }
+
+  return { ok: true, agentId: result.principal.agentId, validation: result };
+}
+
+/**
+ * Inject an OAuth-derived agentId into a JSON-RPC message's `params._meta`.
+ *
+ * mt#1765: The MCP SDK's `JSONRPCRequestSchema` is `.strict()` — any extra
+ * top-level key fails the union parse and the SDK returns `-32700 Parse error:
+ * Invalid JSON-RPC message`. Request-scoped `_meta` must live inside
+ * `params._meta`, which the SDK surfaces to handlers as `RequestHandlerExtra._meta`
+ * (the location Layer 2's `readLayer2` reads from).
+ *
+ * Behavior:
+ * - Only injects when `params` is a non-array object (or absent — in which case a
+ *   fresh `params: { _meta: {...} }` is created). When `params` is an array
+ *   (positional parameters, valid per JSON-RPC 2.0 but not used by MCP today)
+ *   or any other non-object value, the message is returned unchanged so the
+ *   middleware never clobbers caller-provided positional payloads (PR #1064 R1
+ *   BLOCKING).
+ * - Cooperative Layer 2: if the caller has already declared
+ *   `params._meta[AGENT_ID_META_KEY]`, the existing value wins and the message
+ *   is returned unchanged.
+ *
+ * Exported for tests so the regression suite exercises the real implementation
+ * rather than a hand-mirrored copy (PR #1064 R1 NON-BLOCKING #1).
+ */
+export function injectAgentIdMeta(
+  msg: Record<string, unknown>,
+  agentId: string
+): Record<string, unknown> {
+  // Array params (positional) is valid JSON-RPC 2.0; do not clobber it.
+  // Any non-object, non-undefined `params` value is also left untouched.
+  if (msg.params !== undefined) {
+    if (typeof msg.params !== "object" || msg.params === null || Array.isArray(msg.params)) {
+      return msg;
+    }
+  }
+  const existingParams = (msg.params as Record<string, unknown> | undefined) ?? {};
+  const existingParamsMeta =
+    existingParams._meta &&
+    typeof existingParams._meta === "object" &&
+    !Array.isArray(existingParams._meta)
+      ? (existingParams._meta as Record<string, unknown>)
+      : {};
+  if (existingParamsMeta[AGENT_ID_META_KEY]) return msg;
+  return {
+    ...msg,
+    params: {
+      ...existingParams,
+      _meta: { ...existingParamsMeta, [AGENT_ID_META_KEY]: agentId },
+    },
+  };
+}
+
+/**
  * Register all MCP tool adapters on the given command mapper.
+ *
+ * Uses a discovery loop over `Object.values(CommandCategory)` (mt#2010,
+ * subsumes mt#1521). Categories in `MCP_CATEGORY_ADAPTERS` use their
+ * per-category adapter(s) (preserving per-command overrides); categories
+ * without an entry are auto-bridged via `registerSharedCommandsWithMcp`.
+ *
+ * Native MCP tools (session-workspace, session-files, session-edit-tools)
+ * register directly via `commandMapper.addCommand` rather than going through
+ * the shared command registry, so they are NOT covered by the discovery loop —
+ * they are invoked explicitly below.
+ *
+ * mt#2037: the prior narrowed-deployment opt-out (mt#1521 / mt#1227 / mt#1254
+ * hook) was deleted per the mt#2017 investigation — none of the realistic
+ * narrowing use cases needed the boot-time function-parameter shape.
+ * Per-request narrowing belongs at OAuth-scope (mt#1666); per-deployment
+ * belongs at env-var read in `createStartCommand`. See ADR-011 §Retraction
+ * and the inline comment in discovery-config.ts.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): Promise<void> {
-  // Ensure the container is initialized before registering tools.
-  // MCP tool invocations bypass Commander's preAction hook, so initialization
-  // must happen here — making it impossible to register tools without persistence.
-  if (container && !container.has("persistence")) {
-    await container.initialize();
-    log.debug("Container initialized for MCP server");
-  }
+  // mt#1751: Tool handlers (which need persistence) await the server's
+  // `initPromise` before dispatching, so the container is NOT eagerly
+  // initialized here. For stdio mode, the caller in `createStartCommand`
+  // kicks off `container.initialize()` in the background and wires it via
+  // `server.setInitPromise()`. For HTTP mode, `src/cli.ts`'s preAction has
+  // already run init synchronously before this function is called.
+  //
+  // Pre-mt#1751 a defensive eager `container.initialize()` ran here as a
+  // safety net. That defense is gone: it would defeat the stdio defer.
 
-  // Health check: verify critical dependencies are available after init
-  if (container && !container.has("sessionProvider")) {
+  // Health check (HTTP-mode only — preAction already ran init eagerly).
+  // For stdio mode, sessionProvider becomes available after the background
+  // init resolves, so the check is meaningless until then.
+  if (container && container.has("persistence") && !container.has("sessionProvider")) {
     log.error(
       "MCP startup health check failed: sessionProvider not available after container init. " +
         "Session tools will fail. Check database connectivity."
     );
   }
 
-  // Register debug tools first to ensure they're available for debugging
-  registerDebugTools(commandMapper, container);
-
-  // Register main application tools
-  log.debug("[MCP] About to register task tools");
-  registerTaskTools(commandMapper, container);
-  log.debug("[MCP] About to register session tools");
-  registerSessionTools(commandMapper, container);
+  // Native MCP tools — registered directly via commandMapper.addCommand
+  // (NOT bridged through the shared command registry). These are session
+  // file/edit tools with bespoke runtime semantics; the discovery loop
+  // below covers everything else.
   registerSessionWorkspaceTools(commandMapper, container);
   registerSessionFileTools(commandMapper, container);
   registerSessionEditTools(commandMapper, container);
 
-  // Register persistence tools for agent querying
-  log.debug("[MCP] About to register persistence tools");
-  registerPersistenceTools(commandMapper, container);
-
-  registerGitTools(commandMapper, container);
-  registerRepoTools(commandMapper, container);
-
-  registerInitTools(commandMapper, container);
-  registerRulesTools(commandMapper, container);
-  registerConfigTools(commandMapper, container);
-  registerChangesetTools(commandMapper, container);
-  registerValidateTools(commandMapper, container);
-  registerMcpManagementTools(commandMapper, container);
+  // Discovery loop: every CommandCategory gets bridged exactly once. Dispatch
+  // to per-category adapter(s) if registered; otherwise auto-bridge with no
+  // overrides. New categories added to the enum + registered with shared
+  // commands surface in MCP `tools/list` without editing this file.
+  for (const category of Object.values(CommandCategory)) {
+    const adapters = MCP_CATEGORY_ADAPTERS[category];
+    if (adapters && adapters.length > 0) {
+      log.debug(`[MCP] Registering category ${category} via ${adapters.length} adapter(s)`);
+      for (const adapter of adapters) {
+        adapter(commandMapper, container);
+      }
+    } else {
+      // Auto-bridge: no per-category adapter, no overrides. The bridge
+      // function is idempotent on empty categories (CORE has no commands),
+      // so this is safe to call unconditionally.
+      log.debug(`[MCP] Auto-bridging category ${category} (no per-category adapter)`);
+      registerSharedCommandsWithMcp(commandMapper, {
+        categories: [category],
+        container,
+      });
+    }
+  }
 }
 
 /**
@@ -134,6 +310,71 @@ function resolveProjectContext(
 }
 
 /**
+ * Compose the externally-observed base URL of an incoming request, honoring
+ * Express's `trust proxy` config so the result reflects the public-facing
+ * URL (e.g. `https://minsky-mcp-production.up.railway.app`) rather than the
+ * internal listener (`http://0.0.0.0:8080`). Used for OAuth Discovery
+ * metadata's `issuer` and `resource` fields, which RFC 8414/9728 require to
+ * match the URL the client used to fetch the metadata.
+ *
+ * Falls back to "localhost" only if `req.hostname` is missing entirely
+ * (very rare; usually only in malformed requests). The metadata document is
+ * served best-effort in that case rather than 500'ing the probe.
+ */
+export function composeRequestBaseUrl(req: import("express").Request): string {
+  const host = req.hostname || "localhost";
+  return `${req.protocol}://${host}`;
+}
+
+/**
+ * Build the RFC 9728 §5.1 `WWW-Authenticate: Bearer ...` challenge for a 401
+ * from the OAuth-protected MCP endpoint. Always includes the `resource_metadata`
+ * parameter pointing at this server's protected-resource-metadata document
+ * (`${baseUrl}/.well-known/oauth-protected-resource`), so a spec-compliant MCP
+ * client can discover the authorization server straight from the 401 instead of
+ * having to know to probe the well-known path itself. Optional RFC 6750
+ * `error` / `error_description` parameters describe an invalid/expired/revoked
+ * token. The base URL is derived from the request (honoring `trust proxy`), so
+ * it matches the URL the client actually used to reach the resource. mt#2493.
+ */
+/**
+ * Escape a value for use inside an RFC 7230 `quoted-string` (the form
+ * `WWW-Authenticate` auth-param values take). Backslash MUST be escaped before
+ * the double-quote, otherwise the backslash inserted to escape a `"` would
+ * itself be re-escaped. Today's callers pass fixed token-like strings, but the
+ * helper is exported, so this guards a future caller from passing a value with
+ * a `"` or `\` that would otherwise break header framing or inject a parameter.
+ */
+function escapeQuotedString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+export function composeWwwAuthenticate(
+  req: import("express").Request,
+  opts?: { error?: string; errorDescription?: string }
+): string {
+  const resourceMetadataUrl = `${composeRequestBaseUrl(req)}/.well-known/oauth-protected-resource`;
+  const params: string[] = [];
+  if (opts?.error) params.push(`error="${escapeQuotedString(opts.error)}"`);
+  if (opts?.errorDescription) {
+    params.push(`error_description="${escapeQuotedString(opts.errorDescription)}"`);
+  }
+  params.push(`resource_metadata="${escapeQuotedString(resourceMetadataUrl)}"`);
+  return `Bearer ${params.join(", ")}`;
+}
+
+/**
+ * Ensure a route path starts with a single leading slash. Used when the
+ * user-configurable `--endpoint` value is embedded into a public metadata
+ * URL: `--endpoint mcp` (no leading slash) would otherwise produce an
+ * invalid URL like `https://example.commcp`.
+ */
+export function normalizeEndpointPath(endpoint: string): string {
+  if (endpoint.startsWith("/")) return endpoint;
+  return `/${endpoint}`;
+}
+
+/**
  * Start the MCP server with HTTP transport.
  */
 async function startHttpServer(
@@ -144,9 +385,21 @@ async function startHttpServer(
     endpoint: string;
     requireAuth?: boolean;
   },
-  projectContext?: ReturnType<typeof createProjectContext>
+  projectContext?: ReturnType<typeof createProjectContext>,
+  oauthProvider?: OAuthIdentityProvider
 ): Promise<void> {
+  // mt#1719 Intervention 2: function-local dynamic import. Express is only
+  // needed in HTTP mode; deferring this off the stdio-mode import graph
+  // shaves the express closure (~10-20ms) off `mcp_command_module_loaded`.
+  const { default: express } = await import("express");
   const app = express();
+  // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
+  // to `1` rather than `true` limits the X-Forwarded-* trust to one upstream
+  // and avoids the unbounded-chain risk where a malicious client could spoof
+  // their `req.ip`/`req.protocol` by injecting forged X-Forwarded-* headers
+  // along multiple unverified hops. Required for the OAuth Discovery
+  // endpoints to advertise the correct public `https://` URL.
+  app.set("trust proxy", 1);
   app.use(express.json());
 
   // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
@@ -185,11 +438,101 @@ async function startHttpServer(
     }
   });
 
-  // Set up MCP endpoint (auth-gated when enabled)
+  // Set up MCP endpoint (auth-gated when EITHER static-bearer OR OAuth is configured).
+  //
+  // Gating logic: enforce auth when `auth.enabled` (static bearer configured) OR
+  // `oauthProvider` (OAuth provider wired) is present. If NEITHER is configured,
+  // the endpoint is open — same as before this PR; the WARN log on startup
+  // surfaces this state.
+  //
+  // Auth precedence within the gate: static-bearer match short-circuits (preserves
+  // the local Claude Code daemon path); else fall through to OAuth validation when
+  // oauthProvider is available.
   app.all(options.endpoint, async (req, res) => {
-    if (auth.enabled) {
+    const authRequired = auth.enabled || !!oauthProvider;
+    if (authRequired) {
       const header = req.header("authorization") ?? req.header("Authorization");
-      if (!checkBearerAuth(header, auth.token)) {
+      const staticOk = auth.enabled && checkBearerAuth(header, auth.token);
+
+      if (staticOk) {
+        // Static-bearer path: existing agentId logic (Layer 1 / Layer 2 from _meta).
+        // No agentId injection needed — caller may declare their own via _meta.
+      } else if (oauthProvider) {
+        // OAuth-token path: try to validate as an OAuth-issued token.
+        const bearer = extractBearer(header);
+        if (!bearer) {
+          // mt#2493: advertise OAuth discovery on the 401 per RFC 9728 §5.1.
+          res.set("WWW-Authenticate", composeWwwAuthenticate(req));
+          res.status(401).json({
+            error: "unauthorized",
+            message: "valid bearer token required",
+          });
+          return;
+        }
+
+        // Compose the endpoint URL for RFC 8707 audience binding.
+        // The audience in the token must match the resource URL the token was issued for.
+        //
+        // Strict equality is intentional per Minsky's hosted MCP convention:
+        // `/.well-known/oauth-protected-resource` advertises the resource as the
+        // FULL endpoint URL (`${issuer}/mcp`), not just the origin. Tokens MUST be
+        // issued with `resource=${issuer}/mcp` (RFC 8707) and matched here against
+        // the same path-inclusive value. If a future operational mode needs
+        // origin-only matching, that's a config flag — not a relaxation of the
+        // default check.
+        const baseUrl = composeRequestBaseUrl(req);
+        const endpointUrl = `${baseUrl}${normalizeEndpointPath(options.endpoint)}`;
+
+        const oauthResult = await validateOAuthBearer(bearer, oauthProvider, endpointUrl);
+        if (!oauthResult.ok) {
+          const errorCode =
+            oauthResult.reason === "audience_mismatch" ? "invalid_token" : "unauthorized";
+          const description =
+            oauthResult.reason === "audience_mismatch"
+              ? "audience mismatch"
+              : oauthResult.reason === "expired"
+                ? "token expired"
+                : oauthResult.reason === "revoked"
+                  ? "token revoked"
+                  : "invalid token";
+          // mt#2493: advertise OAuth discovery + the RFC 6750 token error on the
+          // 401 per RFC 9728 §5.1, so a spec-compliant client can re-discover and
+          // re-authorize.
+          res.set(
+            "WWW-Authenticate",
+            composeWwwAuthenticate(req, { error: errorCode, errorDescription: description })
+          );
+          res.status(401).json({
+            error: errorCode,
+            error_description: description,
+          });
+          return;
+        }
+
+        // Inject agentId into the MCP request body's params._meta so Layer 2 picks it up.
+        // mt#1765: see `injectAgentIdMeta` above for rationale (the SDK's JSON-RPC envelope
+        // is strictly typed; _meta must live in params._meta, not at top level).
+        // Only inject for POST requests that carry a body — GET (SSE) connections don't
+        // carry a JSON body and don't have tool-call context.
+        if (req.method === "POST" && req.body && typeof req.body === "object") {
+          if (Array.isArray(req.body)) {
+            // Batch request: inject per-item, preserving any item that isn't a plain object.
+            req.body = req.body.map((item: unknown) =>
+              item && typeof item === "object" && !Array.isArray(item)
+                ? injectAgentIdMeta(item as Record<string, unknown>, oauthResult.agentId)
+                : item
+            );
+          } else {
+            req.body = injectAgentIdMeta(req.body as Record<string, unknown>, oauthResult.agentId);
+          }
+        }
+      } else {
+        // No OAuth provider available; static-bearer check already failed.
+        // mt#2493: emit a bare RFC 6750 Bearer challenge. No `resource_metadata`
+        // here — without an OAuth provider the
+        // `/.well-known/oauth-protected-resource` route is not registered, so
+        // there is nothing to advertise for discovery.
+        res.set("WWW-Authenticate", "Bearer");
         res.status(401).json({
           error: "unauthorized",
           message: "valid bearer token required",
@@ -223,7 +566,193 @@ async function startHttpServer(
     });
   });
 
+  // OAuth discovery + Dynamic Client Registration (mt#1634c).
+  //
+  // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
+  // determine whether the server supports OAuth. When an oauthProvider is
+  // available (wired via resolveOAuthProvider from the persistence container),
+  // the real RFC 8414/9728/7591 implementations are used. Without a provider
+  // (e.g., no DB at startup), the well-known endpoints return 503 Service
+  // Unavailable and /register returns 400 with a parseable RFC 7591 error.
+  //
+  // Public-access posture (intentional): all of these endpoints sit
+  // outside the bearer-auth check, parallel to /health. The probe must
+  // succeed before the SDK has any auth credentials to send, otherwise
+  // the fall-through never fires. The bodies leak no internal state.
+  app.get("/.well-known/oauth-authorization-server", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      const metadata = await oauthProvider.discoveryMetadata(req);
+      res.json(metadata);
+    } catch (err) {
+      log.error("OAuth discovery metadata error", { error: getErrorMessage(err) });
+      res.status(500).json({
+        error: "server_error",
+        error_description: "Failed to build OAuth authorization server metadata",
+      });
+    }
+  });
+
+  app.get("/.well-known/oauth-protected-resource", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      const metadata = await oauthProvider.protectedResourceMetadata(req);
+      res.json(metadata);
+    } catch (err) {
+      log.error("OAuth protected-resource metadata error", { error: getErrorMessage(err) });
+      res.status(500).json({
+        error: "server_error",
+        error_description: "Failed to build OAuth protected resource metadata",
+      });
+    }
+  });
+
+  app.post("/register", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(400).json({
+        error: "registration_not_supported",
+        error_description:
+          "Dynamic Client Registration is not available; database connection required",
+      });
+      return;
+    }
+    try {
+      const result = await oauthProvider.registerClient(req.body);
+      res.status(201).json(result);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      log.error("DCR /register error", { error: message });
+      // RFC 7591 §3.2.2: registration errors use error + error_description
+      res.status(400).json({
+        error: "invalid_client_metadata",
+        error_description: message,
+      });
+    }
+  });
+
+  // OAuth authorize + token endpoints (mt#1665).
+  // Delegates to the OAuthIdentityProvider (oidc-provider under the hood),
+  // which enforces PKCE (S256 only), refresh-token rotation, and RFC 8707
+  // audience binding internally.
+  // When no provider is available (no DB), returns 503 service_unavailable —
+  // consistent with the discovery endpoint pattern from mt#1664.
+  app.get("/oauth/authorize", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.authorize(req, res);
+    } catch (err) {
+      log.error("OAuth authorize error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Authorization endpoint error",
+        });
+      }
+    }
+  });
+
+  app.post("/oauth/token", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.token(req, res);
+    } catch (err) {
+      log.error("OAuth token error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Token endpoint error",
+        });
+      }
+    }
+  });
+
+  // mt#1731 Bug-B fix: forward /interaction/:uid requests to the oidc-provider
+  // PR #1042 R1: anchor the regex so it matches /interaction/<uid>(/anything)? but
+  // NOT bare /interaction/ — oidc-provider's interaction routes always have at
+  // least one path segment after /interaction/ (e.g. /interaction/:uid, /interaction/:uid/abort).
+  app.all(/^\/interaction\/[^/]+/, async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.forwardInteraction(req, res);
+    } catch (err) {
+      log.error("OAuth interaction error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Interaction endpoint error",
+        });
+      }
+    }
+  });
+
+  // mt#1753: forward /auth/<uid> requests to oidc-provider. After devInteractions
+  // consent is submitted, oidc-provider 302-redirects to /auth/<uid> (its internal
+  // authorization-continuation endpoint) to issue the auth code and redirect back
+  // to the client's redirect_uri. Express has no match for this path unless we
+  // explicitly mount it. Mirrors the /interaction/<uid> handler exactly — same
+  // forwardInteraction() method because /auth/<uid> is already oidc-provider's
+  // internal path (no URL rewrite needed). The regex anchors after /auth/ to
+  // require a uid segment, so the bare /oauth/authorize → /auth (rewritten) path
+  // from mt#1731 is unaffected.
+  app.all(/^\/auth\/[^/]+/, async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.forwardInteraction(req, res);
+    } catch (err) {
+      log.error("OAuth /auth/<uid> error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Authorization-continuation endpoint error",
+        });
+      }
+    }
+  });
+
   // Start the HTTP server
+  // NOTE: the `http://...` URLs printed below are the INTERNAL listener
+  // (i.e., what Express binds to inside the container). In TLS-fronted
+  // deployments (e.g., Railway), the externally-observed URL is `https://`
+  // and may use a different host. The OAuth Discovery handlers above
+  // derive the public URL from request headers via `composeRequestBaseUrl`
+  // / `trust proxy`, so the metadata they emit reflects the externally-
+  // observed URL even though these log lines do not.
   const httpPort = parseInt(options.port, 10);
   app.listen(httpPort, options.host, () => {
     log.cli("Minsky MCP Server started with HTTP transport");
@@ -241,10 +770,213 @@ async function startHttpServer(
 }
 
 /**
+ * Construct a MemoryService for the mt#1588 spike enrichment middleware.
+ *
+ * Spike-scope inline duplication of `resolveMemoryService`'s real-path branch
+ * in `src/adapters/shared/commands/memory/index.ts`. If this spike graduates,
+ * extract the shared construction logic into a `src/domain/memory/build.ts`
+ * helper and have both call sites consume it.
+ *
+ * Returns null on any construction failure — the middleware degrades to a
+ * no-op (the dispatcher behaves identically to pre-mt#1588).
+ *
+ * @see mt#1588 — this spike
+ */
+/**
+ * Build the wake-pending service + session resolver for the mt#1661 v0
+ * wake-enrichment middleware. Returns null when persistence is unavailable.
+ *
+ * The session resolver mirrors `writeAgentIdToSession`'s args-extraction order
+ * (session/sessionId direct → task/taskId via session lookup). v0 covers only
+ * the unambiguous addressing case; cross-session / agent-handoff delivery is
+ * out of scope per mt#1506.
+ *
+ * @see mt#1661 — v0 short-term bridge spec
+ * @see mt#1506 — long-term InterfaceBinding model that retires this v0
+ */
+async function buildWakeServiceForBridge(container: AppContainerInterface): Promise<{
+  service: import("../../mcp/middleware/wake-enrichment").WakeServiceSurface;
+  resolver: import("../../mcp/middleware/wake-enrichment").SessionResolver;
+} | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const { DrizzleWakePendingRepository } = await import(
+      "@minsky/domain/ask/wake-pending-repository"
+    );
+    const wakeRepo = new DrizzleWakePendingRepository(
+      connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+
+    const sessionProvider = container.has("sessionProvider")
+      ? (container.get(
+          "sessionProvider"
+        ) as import("@minsky/domain/session/types").SessionProviderInterface)
+      : undefined;
+
+    const resolver: import("../../mcp/middleware/wake-enrichment").SessionResolver = {
+      async resolveParentSessionId(args: Record<string, unknown>): Promise<string | null> {
+        // Priority 1: direct session arg matches `Ask.parentSessionId` produced
+        // by mt#1180-class call sites that file Asks with parentSessionId = sessionId.
+        const sessionName =
+          (typeof args.session === "string" ? args.session : undefined) ||
+          (typeof args.sessionId === "string" ? args.sessionId : undefined);
+        if (sessionName) return sessionName;
+
+        // Priority 2: task → session lookup. Mirrors `writeAgentIdToSession`'s
+        // taskId-normalization (strip "mt#" prefix). Returns null when no
+        // session exists for the task or sessionProvider is unavailable.
+        const taskId =
+          (typeof args.task === "string" ? args.task : undefined) ||
+          (typeof args.taskId === "string" ? args.taskId : undefined);
+        if (!taskId || !sessionProvider) return null;
+        const storageTaskId = taskId.replace(/^mt#/i, "");
+        const record = await sessionProvider.getSessionByTaskId(storageTaskId);
+        return record?.sessionId ?? null;
+      },
+    };
+
+    return { service: wakeRepo, resolver };
+  } catch (err) {
+    log.debug("[mt#1661] buildWakeServiceForBridge threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
+
+async function buildMemoryServiceForSpike(
+  container: AppContainerInterface
+): Promise<MemoryServiceSurface | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const { createEmbeddingServiceFromConfig } = await import(
+      "@minsky/domain/ai/embedding-service-factory"
+    );
+    const embeddingService = await createEmbeddingServiceFromConfig();
+
+    const { createVectorStorageForDomain } = await import(
+      "@minsky/domain/storage/vector/vector-storage-factory"
+    );
+    const vectorStorage = await createVectorStorageForDomain(
+      "memory",
+      MEMORY_EMBEDDING_DIMENSION,
+      persistence
+    );
+
+    const { MemoryService } = await import("@minsky/domain/memory");
+    type MemoryServiceDb = import("@minsky/domain/memory/memory-service").MemoryServiceDb;
+    return new MemoryService({
+      db: connection as MemoryServiceDb,
+      vectorStorage,
+      embeddingService,
+    });
+  } catch (err) {
+    log.debug("[mt#1588] buildMemoryServiceForSpike threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Wire the SubagentDispatchTracker singleton (mt#1738).
+ *
+ * Calls `SubagentDispatchTracker.setInstance(db)` once the DB connection is
+ * resolved. After this call, `debug.systemInfo` returns real dispatch cadence
+ * aggregates rather than the zero-filled no-op defaults.
+ *
+ * Returns null when persistence is unavailable (CLI path, no Postgres
+ * connection, or construction failure) — the singleton stays as the no-op
+ * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
+ *
+ * @see mt#1738 — this wiring
+ * @see mt#1736 — SubagentDispatchTracker implementation
+ */
+async function buildSubagentDispatchTracker(container: AppContainerInterface): Promise<boolean> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return false;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return false;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return false;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return false;
+
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
+    return true;
+  } catch (err) {
+    log.debug("[mt#1738] buildSubagentDispatchTracker threw", {
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Wire the EmbeddingsHealthTracker singleton to a production EventEmitter (mt#2147).
+ *
+ * Called once the DB connection is resolved. After this call, the tracker can
+ * emit `embeddings.provider_degraded` events to the `system_events` table.
+ * Without this wiring, the tracker still tracks health in-memory (for
+ * debug_systemInfo) but cannot persist events.
+ */
+async function wireEmbeddingsHealthTracker(container: AppContainerInterface): Promise<boolean> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return false;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return false;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return false;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return false;
+
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    const { EmbeddingsHealthTracker } = await import("@minsky/domain/ai/embeddings-health-tracker");
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    EmbeddingsHealthTracker.getInstance().setEventEmitter(createEventEmitter(db));
+    return true;
+  } catch (err) {
+    log.debug("[mt#2147] wireEmbeddingsHealthTracker threw", {
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
-  container?: import("../../composition/types").AppContainerInterface
+  externalContainer?: import("@minsky/domain/composition/types").AppContainerInterface
 ): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the MCP server");
@@ -273,6 +1005,20 @@ export function createStartCommand(
     )
     .action(async (options) => {
       try {
+        // mt#1745: cold-start profiling. `profileCheckpoint` is shared with
+        // `src/cli.ts` so all checkpoint `t=` values are relative to the
+        // SAME baseline (set at cli.ts module load).
+        profileCheckpoint("action_entry");
+
+        // mt#2098: When no container is passed (standalone MCP server boot
+        // without the CLI composition root), create one from the portable
+        // domain bootstrap. This makes the MCP server independently bootable.
+        let container = externalContainer;
+        if (!container) {
+          const { createDomainContainer } = await import("@minsky/domain/composition/domain");
+          container = await createDomainContainer();
+        }
+
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
@@ -301,6 +1047,43 @@ export function createStartCommand(
           container.set("clientCapabilityRegistry", clientCapabilityRegistry);
         }
 
+        // mt#1625 spike: compose the static memory bundle BEFORE the
+        // MinskyMCPServer constructor so the SDK Server receives the bundle
+        // natively via its `instructions` constructor option. No embedding
+        // call is needed (list by accessCount, not semantic search), so this
+        // adds ~10-50ms to cold start rather than ~835ms. R1 BLOCKING #2 fix
+        // — replaces the previous post-construction private-field mutation.
+        let instructionsBundle: string | undefined;
+        if (isInstructionsBundleEnabled()) {
+          if (container) {
+            try {
+              const memSvcForBundle = await buildMemoryServiceForSpike(container);
+              if (memSvcForBundle) {
+                const bundle = await composeMemoryBundle(memSvcForBundle);
+                if (bundle) {
+                  instructionsBundle = bundle;
+                  log.debug("[mt#1625] Instructions bundle composed", {
+                    bundleChars: bundle.length,
+                  });
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#1625] Instructions bundle composition failed; proceeding without it", {
+                error: getErrorMessage(err),
+              });
+            }
+          } else {
+            // R1 NON-BLOCKING #2: explicit diagnostic for the
+            // flag-set-but-container-absent case (some test/CLI paths invoke
+            // mcp start without a DI container). Previously this was silently
+            // skipped, leaving operators puzzled about why the env var had no
+            // effect.
+            log.cli(
+              "[mt#1625] MINSKY_MCP_INSTRUCTIONS_BUNDLE is set but no DI container is available — bundle composition skipped. This flag requires a persistence-backed container."
+            );
+          }
+        }
+
         // Prepare server configuration
         const serverConfig = {
           name: "Minsky MCP Server",
@@ -308,6 +1091,7 @@ export function createStartCommand(
           projectContext,
           transportType: transportType as "stdio" | "http",
           clientCapabilityRegistry,
+          ...(instructionsBundle && { instructions: instructionsBundle }),
           ...(transportType === "http" && {
             httpConfig: {
               port: parseInt(options.port, 10),
@@ -327,22 +1111,315 @@ export function createStartCommand(
 
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
+        profileCheckpoint("server_constructed");
 
-        // Register tools via adapter-based approach (initializes container if needed)
+        // Register tools via adapter-based approach. Note: tool DEFINITIONS
+        // register synchronously; HANDLERS (which need persistence) await
+        // the server's init promise before dispatching — see setInitPromise
+        // below and the `await this.initPromise` in server.ts's CallTool
+        // handler. The container is NOT initialized inside registerAllTools.
         const commandMapper = new CommandMapper(server, server.getProjectContext());
+        profileCheckpoint("mapper_constructed");
         await registerAllTools(commandMapper, container);
+        profileCheckpoint("tools_registered");
 
-        // Wire the container into the server so agentId can be written to session records
-        // (must happen after registerAllTools which triggers container.initialize())
+        // mt#1751: For stdio mode, kick off `container.initialize()` in the
+        // background AFTER tool registration but BEFORE `server.start()`.
+        // The MCP `initialize` JSON-RPC handshake (~17ms post-connect)
+        // doesn't need DI; tool handlers await `initPromise` before running.
+        // This drops perceived cold-start time from ~1500ms to ~400ms on
+        // the source path (mt#1745 measured DI at 72-75% of total). For
+        // HTTP mode, preAction (`src/cli.ts`) has already initialized
+        // synchronously — no defer needed (Profile B is long-lived).
+        if (container && transportType === "stdio" && !container.has("persistence")) {
+          // mt#1962: retry-aware controller. Pre-mt#1962 this site stored a
+          // single long-lived `Promise<void>` whose rejection would poison
+          // every subsequent tool call indefinitely (promises are at-most-
+          // once; the side-effect-only `.catch` for logging didn't reset
+          // the original promise's rejected state). A single transient
+          // init failure (DB unreachable, missing migrations folder, slow
+          // Postgres handshake, port collision) became a hard outage that
+          // required `proxy_restart_server` or process kill to clear.
+          //
+          // The controller tracks attempt state and re-invokes the
+          // initializer on demand when a prior attempt rejected (subject
+          // to a 30s default backoff so repeated failures don't tight-
+          // loop the database; tunable via MINSKY_MCP_INIT_RETRY_INTERVAL_MS
+          // for environments with different recovery cadences). Concurrent
+          // tool calls during an in-flight retry collapse to a single
+          // `container.initialize()` invocation.
+          const DEFAULT_INIT_RETRY_INTERVAL_MS = 30_000;
+          const rawInterval = Number.parseInt(
+            process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS ?? "",
+            10
+          );
+          const minRetryIntervalMs =
+            Number.isFinite(rawInterval) && rawInterval > 0
+              ? rawInterval
+              : DEFAULT_INIT_RETRY_INTERVAL_MS;
+          if (rawInterval && minRetryIntervalMs !== rawInterval) {
+            log.warn("[mt#1962] MINSKY_MCP_INIT_RETRY_INTERVAL_MS invalid; using default", {
+              raw: process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS,
+              defaultMs: DEFAULT_INIT_RETRY_INTERVAL_MS,
+            });
+          }
+          log.debug("[mt#1962] init retry controller", { minRetryIntervalMs });
+          const initController = new RetryingInitController({
+            initializer: () =>
+              container.initialize().then(() => {
+                profileCheckpoint("background_container_initialized");
+              }),
+            minRetryIntervalMs,
+            onAttemptSettled: (result) => {
+              if (result.error === undefined) {
+                if (result.attempt > 1) {
+                  // PR #1188 R1 NB1: success-on-retry is good news, not an
+                  // actionable warning. Operators expect WARN to be actionable;
+                  // log at info instead so transient self-heal doesn't generate
+                  // alert noise.
+                  log.info("[mt#1962] container.initialize() succeeded on retry", {
+                    attempt: result.attempt,
+                  });
+                }
+                return;
+              }
+              log.error("[mt#1962] container.initialize() failed", {
+                attempt: result.attempt,
+                consecutiveFailures: result.consecutiveFailures,
+                error: getErrorMessage(result.error),
+              });
+            },
+          });
+
+          // PR #1063 R2 BLOCKING (preserved across mt#1962): kick off the
+          // first attempt eagerly in the background, preserving mt#1751's
+          // cold-start optimization (DI runs while the MCP `initialize`
+          // handshake proceeds in parallel). The side-effect-only `.catch`
+          // on a FORKED reference consumes the rejection so Node never
+          // emits `unhandledRejection` if init fails and no tool call ever
+          // awaits — the controller's internal state stays intact and a
+          // later tool-call `awaitReady()` surfaces the rejection (or
+          // triggers a retry, subject to backoff). The structured log line
+          // is emitted via `onAttemptSettled`, not from here.
+          initController.awaitReady().catch(() => {
+            // Side-effect-only; controller logs via onAttemptSettled.
+          });
+
+          server.setInitController(initController);
+          profileCheckpoint("background_init_kicked_off");
+        }
+
+        // Wire the container into the server so agentId can be written to session records.
+        // Safe to call before background init resolves — setContainer just stores the
+        // reference; consumers that need resolved services await initPromise.
         if (container) {
           server.setContainer(container);
         }
 
+        // mt#1588 spike: construct a MemoryService and wire it into the server
+        // for the enrichment middleware. Gated behind the
+        // MINSKY_MCP_MEMORY_ENRICHMENT opt-in env var (default OFF) per PR #974
+        // R1 BLOCKING — the spike's "iterate, do not graduate" decision means
+        // the wiring must not activate in production unless explicitly opted
+        // in. Construction failure leaves the middleware as a no-op.
+        //
+        // Note (PR #974 R2 NON-BLOCKING): opt-in is read at startup-only here
+        // for the wiring decision. `enrichToolResponse` ALSO checks the env
+        // var on every call, so toggling MINSKY_MCP_MEMORY_ENRICHMENT to "0"
+        // at runtime takes effect immediately (the middleware short-circuits)
+        // even though the MemoryService stays wired. Setting the var from
+        // unset → "1" at runtime requires a restart for wiring to take effect.
+        if (container && isEnrichmentEnabled()) {
+          buildMemoryServiceForSpike(container)
+            .then((memoryService) => {
+              if (memoryService) {
+                server.setMemoryService(memoryService);
+                log.debug("[mt#1588] Memory enrichment middleware wired (opt-in)");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1588] Memory enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#1661 v0: wire wake-pending service + session resolver for the
+        // wake-enrichment middleware. When persistence + sessionProvider are
+        // available, the middleware drains undelivered `quality.review` Ask
+        // wake events on subsequent allowlisted MCP tool calls. v0 covers
+        // only the unambiguous addressing case (caller args carry session/task).
+        // No env-var gate — the wake_pending table only fills when reconcile
+        // runs, so an empty table makes the middleware a quiet no-op.
+        if (container) {
+          buildWakeServiceForBridge(container)
+            .then((wired) => {
+              if (wired) {
+                server.setWakeService(wired.service, wired.resolver);
+                log.debug("[mt#1661] Wake-enrichment middleware wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1661] Wake-enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#1738: wire the SubagentDispatchTracker singleton so debug.systemInfo
+        // returns real dispatch cadence aggregates instead of the zero-filled
+        // no-op defaults. The call is fire-and-forget — if the DB is unavailable,
+        // the singleton stays as the no-op tracker and subagentDispatches returns
+        // zero-filled aggregates (graceful degradation).
+        if (container) {
+          buildSubagentDispatchTracker(container)
+            .then((wired) => {
+              if (wired) {
+                log.debug("[mt#1738] SubagentDispatchTracker wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1738] SubagentDispatchTracker unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#2265: wire the ask state-counts provider so debug.systemInfo
+        // surfaces asks count-by-state (the stuck-pipeline detector). Same
+        // fire-and-forget pattern as SubagentDispatchTracker above.
+        if (container) {
+          import("../../adapters/shared/commands/asks")
+            .then(async ({ buildAskRepository }) => {
+              const repo = await buildAskRepository(container);
+              if (repo) {
+                const { setAskStateCountsRepository } = await import(
+                  "@minsky/domain/ask/state-counts-provider"
+                );
+                setAskStateCountsRepository(repo);
+                log.debug("[mt#2265] Ask state-counts provider wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#2265] Ask state-counts provider unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#2147: wire the EmbeddingsHealthTracker singleton so it can emit
+        // embeddings.provider_degraded events to system_events. Same fire-and-
+        // forget pattern as SubagentDispatchTracker above.
+        if (container) {
+          wireEmbeddingsHealthTracker(container)
+            .then((wired) => {
+              if (wired) {
+                log.debug("[mt#2147] EmbeddingsHealthTracker wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#2147] EmbeddingsHealthTracker unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#2562/mt#2567: Pre-warm the PresenceClaimRepository so writeTaskClaim's
+        // first call skips the per-call DB connection build (fast-path optimization).
+        // This is now a WARM-UP ONLY — writeTaskClaim has its own per-call fallback
+        // that builds the repo from the container on every call when this hasn't fired.
+        // So if this async block doesn't complete before the first tool call (e.g.
+        // on a proxy/staleness-respawned server), the write path still works.
+        if (container) {
+          (async () => {
+            try {
+              const { buildPresenceClaimRepository } = await import(
+                "@minsky/domain/presence/index"
+              );
+              const provider = container.has("persistence")
+                ? (container.get("persistence") as {
+                    getDatabaseConnection?: () => Promise<unknown>;
+                  })
+                : undefined;
+              if (provider?.getDatabaseConnection) {
+                const db = await provider.getDatabaseConnection();
+                const repo = buildPresenceClaimRepository(db);
+                if (repo) {
+                  server.setPresenceClaimRepository(repo);
+                  log.debug("[mt#2562] PresenceClaimRepository pre-warmed");
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#2562] PresenceClaimRepository pre-warm unavailable", {
+                error: getErrorMessage(err),
+              });
+            }
+          })();
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
+        profileCheckpoint("knowledge_resources_registered");
+
+        // Resolve the OAuth identity provider for HTTP-mode DCR + discovery endpoints.
+        // Requires a SQL-capable persistence provider (Postgres). Falls back to
+        // undefined (provider-less mode) when no DB is available — the route handlers
+        // return 503/400 gracefully in that case.
+        let oauthProvider: OAuthIdentityProvider | undefined;
+        if (transportType === "http" && container) {
+          try {
+            const persistence = container.has("persistence")
+              ? container.get("persistence")
+              : undefined;
+            const persistenceAny = persistence as Record<string, unknown> | undefined;
+            if (persistenceAny && typeof persistenceAny["getDatabaseConnection"] === "function") {
+              const db = await (
+                persistenceAny["getDatabaseConnection"] as () => Promise<
+                  import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+                >
+              )();
+              if (db) {
+                // Read oauth config from the configuration subsystem (best-effort).
+                // Falls back to undefined so the provider uses its defaults
+                // (provider = "in-process", issuer derived from request host).
+                let oauthConfig: import("@minsky/domain/configuration/schemas/oauth").OAuthConfig;
+                try {
+                  const { getConfiguration } = await import("@minsky/domain/configuration/index");
+                  const fullConfig = getConfiguration() as {
+                    oauth?: import("@minsky/domain/configuration/schemas/oauth").OAuthConfig;
+                  };
+                  oauthConfig = fullConfig.oauth;
+                } catch {
+                  oauthConfig = undefined;
+                }
+                // mt#1719 Intervention 2: function-local dynamic import.
+                // OAuth provider pulls in oidc-provider + Koa middleware
+                // closure; deferring keeps it off the stdio import graph.
+                const { resolveOAuthProvider } = await import("@minsky/domain/oauth/registry");
+                oauthProvider = resolveOAuthProvider(oauthConfig, {
+                  db,
+                  endpointPath: normalizeEndpointPath(options.endpoint),
+                });
+                log.debug("[mt#1664] OAuth provider wired for HTTP DCR + discovery endpoints");
+              } else {
+                log.warn("[mt#1664] No DB connection available; OAuth provider not wired");
+              }
+            }
+          } catch (err) {
+            log.warn("[mt#1664] OAuth provider construction failed; proceeding without it", {
+              error: getErrorMessage(err),
+            });
+          }
+        }
 
         // Launch inspector if requested
         if (options.withInspector) {
+          // mt#1719 Intervention 2: function-local dynamic import. Inspector
+          // launcher is only needed when --with-inspector is passed; deferring
+          // keeps it off every other invocation's import graph.
+          const { launchInspector, isInspectorAvailable } = await import(
+            "../../mcp/inspector-launcher"
+          );
           if (!isInspectorAvailable()) {
             log.cliError(
               "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
@@ -375,6 +1452,15 @@ export function createStartCommand(
           }
         }
 
+        // mt#1625 spike: compose the static memory bundle for `instructions`
+        // injection at MCP `initialize`. Unlike the mt#1588 middleware (which
+        // is fire-and-forget), this MUST be awaited before server.start() so
+        // the bundle is in place when the first `initialize` handshake arrives.
+        // No embedding call is needed (list by accessCount, not semantic search),
+        // so this adds ~10-50ms to cold start rather than ~835ms.
+        // R1 BLOCKING #2 fix: bundle is now composed BEFORE server construction
+        // and passed via `serverConfig.instructions`. See the block above.
+
         // Start the server
         if (transportType === "http") {
           await startHttpServer(
@@ -385,12 +1471,14 @@ export function createStartCommand(
               endpoint: options.endpoint,
               requireAuth: options.requireAuth,
             },
-            projectContext
+            projectContext,
+            oauthProvider
           );
         } else {
           // Stdio transport
           if (!options.withInspector) {
             await server.start();
+            profileCheckpoint("server_started");
             if (projectContext) {
               log.cli(`Repository path: ${projectContext.repositoryPath}`);
             }
@@ -408,6 +1496,36 @@ export function createStartCommand(
             );
           })
           .catch(() => {}); // Embedding sweep is best-effort
+
+        // Fire-and-forget background transcript ingest for new JSONL sessions (mt#2051)
+        import("../../adapters/shared/commands/transcripts/startup-transcript-ingest")
+          .then(({ triggerStartupTranscriptIngest }) => {
+            if (!container) return;
+            return triggerStartupTranscriptIngest(container.get("persistence"));
+          })
+          // mt#2192 (SC2): de-silence the boot sweep — a failed startup ingest
+          // must leave an operator-findable signal, not vanish into .catch(()=>{}).
+          .catch((err) => {
+            log.warn("Startup transcript ingest failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
+        // Fire-and-forget background sweep bridging the disconnect-tracker's
+        // JSONL log into `system_events` as `mcp.disconnect` rows (mt#2537).
+        // HWM-gated internally so repeated boots (the MCP server restarts
+        // frequently — see CLAUDE.md's disconnect-cadence rule) only emit new
+        // disconnects since the last successful sweep.
+        import("../../mcp/disconnect-event-sweep")
+          .then(({ triggerMcpDisconnectEventSweep }) => {
+            if (!container) return;
+            return triggerMcpDisconnectEventSweep(container.get("persistence"));
+          })
+          .catch((err) => {
+            log.warn("mcp.disconnect event sweep failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
 
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start
@@ -508,10 +1626,12 @@ export function createStartCommand(
           }
         };
 
-        const proc = process as Record<string, unknown>;
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
+        // process.on is on the NodeJS.Process EventEmitter API; direct call
+        // satisfies both TS and the no-excessive-as-unknown lint rule.
+        // Retired prior bracket-notation cast workaround per mt#1981.
+        process.on("SIGTERM", cleanup);
+        process.on("SIGINT", cleanup);
+        process.on("SIGHUP", cleanup);
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard

@@ -9,11 +9,11 @@ import { describe, it, expect } from "bun:test";
 import {
   validateJournalTimestamps,
   assertMigrationCountMatch,
-} from "../../../src/domain/persistence/postgres-migration-operations";
+} from "@minsky/domain/persistence/postgres-migration-operations";
 import type {
   Journal,
   JournalEntry,
-} from "../../../src/domain/persistence/postgres-migration-operations";
+} from "@minsky/domain/persistence/postgres-migration-operations";
 
 // Shared migration tags used across the test journal fixtures.
 const MIGRATION_A = "0000_migration_a";

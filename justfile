@@ -40,14 +40,19 @@ test-binary: build
 # ---------------------------------------------------------------------------
 # Supabase operations
 # ---------------------------------------------------------------------------
-# `supabase-usage` needs SUPABASE_ACCESS_TOKEN in env (Management API call).
+# `supabase-usage` resolves a Supabase Management API token in this precedence:
+#   1. $SUPABASE_ACCESS_TOKEN env var (highest)
+#   2. minsky config: supabase.accessToken (e.g. via ~/.config/minsky/config.yaml)
+#   3. ERROR (none set)
 # `supabase-health` only needs the local Supabase CLI to be linked — no PAT.
 #
-# Sourcing the token (when needed):
+# Token sources (any of these, set whichever is most convenient):
 #   - macOS: SUPABASE_ACCESS_TOKEN="$(cat "$HOME/Library/Application Support/supabase/access-token")"
 #   - Linux: SUPABASE_ACCESS_TOKEN="$(cat "$HOME/.config/supabase/access-token")"
 #   - Windows: see Supabase CLI docs (path varies)
-#   - Or generate a scoped PAT at https://supabase.com/dashboard/account/tokens
+#   - Generate a scoped PAT at https://supabase.com/dashboard/account/tokens
+#   - Persist it in ~/.config/minsky/config.yaml under `supabase.accessToken`
+#     (or set MINSKY_SUPABASE_ACCESS_TOKEN env var)
 #
 # `:= "..."` is just's string-literal syntax; the value substituted via
 # {{PROJECT_REF}} is the unquoted string `yvkkrpyjhoiilmizlnac`.
@@ -57,9 +62,21 @@ PROJECT_REF := "yvkkrpyjhoiilmizlnac"  # minsky (dev 2)
 
 # List the project's daily/usage stats — useful for setting threshold values
 supabase-usage:
-    @[ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "SUPABASE_ACCESS_TOKEN not set; see justfile header"; exit 1; }
-    curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/usage" | jq
+    #!/bin/sh
+    set -eu
+    token="${SUPABASE_ACCESS_TOKEN:-}"
+    if [ -z "$token" ]; then
+        token="$(minsky config get supabase.accessToken 2>/dev/null || true)"
+    fi
+    if [ -z "$token" ]; then
+        echo "Supabase access token not found; see justfile header for sources" >&2
+        exit 1
+    fi
+    # Capture curl output separately so a non-zero curl exit (e.g., 401, 5xx)
+    # is not masked by jq's exit code under POSIX `sh` (no `pipefail`).
+    response="$(curl -fsS -H "Authorization: Bearer $token" \
+        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/usage")"
+    printf '%s\n' "$response" | jq
 
 # Probe DB health via the local supabase CLI's auth (no PAT required if linked)
 supabase-health:
@@ -67,6 +84,18 @@ supabase-health:
     supabase projects list
     @echo "---"
     @echo "DB ping via execute_sql is in the Minsky MCP supabase tool; no CLI equivalent."
+
+# Restart the Supabase project (full restart — resets Supavisor circuit breaker).
+# DESTRUCTIVE. Default: dry-run (preview only). Add EXECUTE=1 to actually restart.
+# See scripts/supabase/restart-project.ts and docs/incidents/2026-06-28-supabase-connectivity-breaker.md
+supabase-restart:
+    #!/bin/sh
+    set -eu
+    if [ "${EXECUTE:-}" = "1" ]; then
+        bun scripts/supabase/restart-project.ts --execute
+    else
+        bun scripts/supabase/restart-project.ts
+    fi
 
 # Test macOS binaries specifically (runs on macOS)
 test-macos-binaries: build-macos build-macos-arm64

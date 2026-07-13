@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { registerTranscriptSearchCommand } from "./search-command";
-import type { AppContainerInterface } from "../../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const COMMAND_ID = "transcripts.search";
 

@@ -16,9 +16,9 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { MemoryService, type MemoryServiceDb } from "../../../src/domain/memory/memory-service";
-import { MemoryVectorStorage } from "../../../src/domain/storage/vector/memory-vector-storage";
-import type { MemoryRecord } from "../../../src/domain/memory/types";
+import { MemoryService, type MemoryServiceDb } from "@minsky/domain/memory/memory-service";
+import { MemoryVectorStorage } from "@minsky/domain/storage/vector/memory-vector-storage";
+import type { MemoryRecord } from "@minsky/domain/memory/types";
 
 // ── Deterministic mock embedding service ─────────────────────────────────────
 
@@ -69,6 +69,7 @@ type MemoryRow = {
   confidence: number | null;
   superseded_by: string | null;
   metadata: Record<string, unknown> | null;
+  associations: Record<string, string[]>;
   created_at: Date;
   updated_at: Date;
   last_accessed_at: Date | null;
@@ -146,6 +147,17 @@ function evalSqlWhere(sql: string, params: unknown[], row: MemoryRow): boolean {
     return paramNums.includes(row[colName]);
   }
 
+  // Pattern: "memories"."associations" @> $N::jsonb (JSONB containment)
+  const containsMatch = /^"memories"\."associations" @> \$(\d+)::jsonb$/.exec(s.trim());
+  if (containsMatch) {
+    const paramIdx = Number(containsMatch[1]) - 1;
+    const needle = JSON.parse(params[paramIdx] as string) as Record<string, string[]>;
+    const haystack = row.associations ?? {};
+    return Object.entries(needle).every(([key, vals]) =>
+      vals.every((v) => (haystack[key] ?? []).includes(v))
+    );
+  }
+
   // Unknown — pass through (permissive for test purposes)
   return true;
 }
@@ -165,6 +177,41 @@ function splitTopLevel(sql: string, keyword: string): string[] {
   }
   parts.push(sql.slice(start).trim());
   return parts;
+}
+
+/**
+ * Evaluate a Drizzle SQL expression for associations update.
+ * Handles the single-statement JSONB merge pattern:
+ *   associations || $patch::jsonb  (merge)
+ *   (...) - $key                   (remove)
+ * Falls back to plain object assignment for non-SQL values.
+ */
+function evalAssociationsUpdate(
+  value: unknown,
+  current: Record<string, string[]>
+): Record<string, string[]> {
+  if (typeof value === "object" && value !== null && "getSQL" in value) {
+    const { params } = pgDialect.sqlToQuery((value as { getSQL: () => any }).getSQL());
+    const merged = { ...current };
+    for (const param of params) {
+      if (typeof param === "string") {
+        try {
+          const parsed = JSON.parse(param);
+          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+            for (const [k, v] of Object.entries(parsed)) {
+              if (Array.isArray(v) && v.length > 0) merged[k] = v as string[];
+            }
+          } else if (typeof parsed === "string") {
+            delete merged[parsed];
+          }
+        } catch {
+          delete merged[param];
+        }
+      }
+    }
+    return merged;
+  }
+  return value as Record<string, string[]>;
 }
 
 let idCounter = 1;
@@ -256,6 +303,7 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
             confidence: data["confidence"] ?? null,
             superseded_by: data["supersededBy"] ?? data["superseded_by"] ?? null,
             metadata: (data["metadata"] as Record<string, unknown> | null | undefined) ?? null,
+            associations: (data["associations"] as Record<string, string[]>) ?? {},
             created_at: new Date(),
             updated_at: new Date(),
             last_accessed_at: null,
@@ -312,6 +360,14 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
                         : {}),
                       ...("metadata" in data
                         ? { metadata: data["metadata"] as Record<string, unknown> | null }
+                        : {}),
+                      ...(data["associations"] !== undefined
+                        ? {
+                            associations: evalAssociationsUpdate(
+                              data["associations"],
+                              row.associations
+                            ),
+                          }
                         : {}),
                       updated_at: new Date(),
                     };
@@ -420,6 +476,25 @@ describe("MemoryService", () => {
     it("get() returns null for an unknown id", async () => {
       const result = await service.get("nonexistent-id");
       expect(result).toBeNull();
+    });
+
+    // mt#2663: create() without an explicit scope must default to "project"
+    // rather than passing `undefined` through to the insert (which would hit
+    // the memories.scope NOT NULL constraint against a real Postgres DB).
+    it("defaults scope to 'project' when omitted from the input", async () => {
+      const record = await service.create({
+        type: "user",
+        name: "No scope supplied",
+        description: "Regression test for mt#2663",
+        content: "content",
+      } as Parameters<MemoryService["create"]>[0]);
+
+      expect(record.scope).toBe("project");
+    });
+
+    it("respects an explicit scope when provided", async () => {
+      const record = await service.create(makeInput({ scope: "cross_project" }));
+      expect(record.scope).toBe("cross_project");
     });
   });
 
@@ -762,6 +837,7 @@ describe("MemoryService", () => {
         confidence: null,
         superseded_by: idB,
         metadata: null,
+        associations: {},
         created_at: new Date(),
         updated_at: new Date(),
         last_accessed_at: null,
@@ -781,6 +857,7 @@ describe("MemoryService", () => {
         confidence: null,
         superseded_by: idA,
         metadata: null,
+        associations: {},
         created_at: new Date(),
         updated_at: new Date(),
         last_accessed_at: null,
@@ -819,6 +896,7 @@ describe("MemoryService", () => {
           confidence: null,
           superseded_by: nextId,
           metadata: null,
+          associations: {},
           created_at: new Date(),
           updated_at: new Date(),
           last_accessed_at: null,
@@ -914,6 +992,7 @@ describe("MemoryService", () => {
         confidence: rec.confidence,
         superseded_by: rec.supersededBy,
         metadata: rec.metadata,
+        associations: rec.associations,
         created_at: rec.createdAt,
         updated_at: rec.updatedAt,
         last_accessed_at: rec.lastAccessedAt,
@@ -929,6 +1008,150 @@ describe("MemoryService", () => {
       expect(fetched).not.toBeNull();
       if (!fetched) throw new Error("fetched is null");
       expect(fetched.id).toBe(rec.id);
+    });
+  });
+
+  // ── Associations (ADR-012) ──────────────────────────────────────────────
+
+  describe("associations", () => {
+    it("create with associations returns them in the record", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      const record = await svc.create({
+        type: "feedback",
+        name: "Bridge memory",
+        description: "desc",
+        content: "content",
+        scope: "project",
+        associations: { tracksTask: ["mt#2053"] },
+      });
+
+      expect(record.associations).toEqual({ tracksTask: ["mt#2053"] });
+    });
+
+    it("create without associations defaults to empty object", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      const record = await svc.create({
+        type: "feedback",
+        name: "No associations",
+        description: "desc",
+        content: "content",
+        scope: "user",
+      });
+
+      expect(record.associations).toEqual({});
+    });
+
+    it("update merges associations: adds new keys, replaces existing, removes empty", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      const record = await svc.create({
+        type: "feedback",
+        name: "Merge test",
+        description: "desc",
+        content: "content",
+        scope: "user",
+        associations: { tracksTask: ["mt#100"], relatedTask: ["mt#200"] },
+      });
+
+      const updated = await svc.update(record.id, {
+        associations: {
+          relatedTask: [],
+          originatesRule: ["hook-files.mdc"],
+        },
+      });
+
+      expect(updated).not.toBeNull();
+      if (!updated) throw new Error("updated is null");
+      expect(updated.associations).toEqual({
+        tracksTask: ["mt#100"],
+        originatesRule: ["hook-files.mdc"],
+      });
+    });
+
+    it("list filters by association type + target", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "Has task",
+        description: "d",
+        content: "c",
+        scope: "user",
+        associations: { tracksTask: ["mt#500"] },
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "Different task",
+        description: "d",
+        content: "c2",
+        scope: "user",
+        associations: { tracksTask: ["mt#600"] },
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "No associations",
+        description: "d",
+        content: "c3",
+        scope: "user",
+      });
+
+      const filtered = await svc.list({
+        association: { type: "tracksTask", targetId: "mt#500" },
+      });
+
+      expect(filtered).toHaveLength(1);
+      const match = filtered[0];
+      if (!match) throw new Error("filtered[0] is undefined");
+      expect(match.name).toBe("Has task");
+    });
+
+    it("search results include associations field", async () => {
+      const db = createFakeDb();
+      const vectorStorage = new MemoryVectorStorage(DIMENSIONS);
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage,
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "Searchable",
+        description: "desc",
+        content: "unique searchable content",
+        scope: "user",
+        associations: { tracksTask: ["mt#999"] },
+      });
+
+      const results = await svc.search("unique searchable content");
+      expect(results.results.length).toBeGreaterThan(0);
+      const first = results.results[0];
+      if (!first) throw new Error("results.results[0] is undefined");
+      expect(first.record.associations).toEqual({ tracksTask: ["mt#999"] });
     });
   });
 });

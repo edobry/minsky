@@ -3,7 +3,7 @@
  * Tests schema defaults and the new limit/files_only/max_context_lines parameters
  */
 import { describe, test, expect } from "bun:test";
-import { GrepSearchSchema } from "../../../src/domain/schemas/file-schemas";
+import { GrepSearchSchema } from "@minsky/domain/schemas/file-schemas";
 
 describe("GrepSearchSchema — pagination parameters", () => {
   test("default limit is 50", () => {

@@ -7,40 +7,32 @@
  */
 
 import { z } from "zod";
-import { writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
-import { readTextFileSync } from "../../../utils/fs";
+import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { readTextFileSync } from "@minsky/shared/fs";
 import { dirname, join } from "path";
-import { getErrorMessage, ensureError } from "../../../errors/index";
+import { getErrorMessage, ensureError } from "@minsky/domain/errors/index";
 import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
-import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
-import { log } from "../../../utils/logger";
-import type { SessionRecord } from "../../../domain/session/session-db";
-import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../../utils/paths";
-import { runSchemaMigrationsForConfiguredBackend } from "../../../domain/persistence/migration-operations";
-import {
-  validateSqliteBackend,
-  validatePostgresBackend,
-} from "../../../domain/persistence/validation-operations";
-import { getEffectivePersistenceConfig } from "../../../domain/configuration/persistence-config";
-import type { AppContainerInterface } from "../../../composition/types";
+import { PersistenceProviderFactory } from "@minsky/domain/persistence/factory";
+import { log } from "@minsky/shared/logger";
+import type { SessionRecord } from "@minsky/domain/session/session-db";
+import { getMinskyStateDir } from "@minsky/shared/paths";
+import { runSchemaMigrationsForConfiguredBackend } from "@minsky/domain/persistence/migration-operations";
+import { validatePostgresBackend } from "@minsky/domain/persistence/validation-operations";
+import { getEffectivePersistenceConfig } from "@minsky/domain/configuration/persistence-config";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Parameters for the persistence migrate command
  */
 const persistenceMigrateCommandParams = {
   to: {
-    schema: z.enum(["sqlite", "postgres"]).optional(),
+    schema: z.enum(["postgres"]).optional(),
     description: "Target backend type (if omitted, run schema migrations for current backend)",
     required: false,
   },
   from: {
     schema: z.string(),
     description: "Source file path (auto-detect if not provided)",
-    required: false,
-  },
-  sqlitePath: {
-    schema: z.string(),
-    description: "SQLite database path",
     required: false,
   },
   backup: {
@@ -51,11 +43,6 @@ const persistenceMigrateCommandParams = {
   execute: {
     schema: z.boolean(),
     description: "Actually perform the migration (default is preview mode)",
-    required: false,
-  },
-  setDefault: {
-    schema: z.boolean(),
-    description: "Update configuration to use migrated backend as default",
     required: false,
   },
   dryRun: {
@@ -76,13 +63,8 @@ const persistenceMigrateCommandParams = {
  * Parameters for the persistence check command
  */
 const persistenceCheckCommandParams = {
-  file: {
-    schema: z.string(),
-    description: "Path to database file to check (SQLite only)",
-    required: false,
-  },
   backend: {
-    schema: z.enum(["sqlite", "postgres"]),
+    schema: z.enum(["postgres"]),
     description: "Force specific backend validation",
     required: false,
   },
@@ -120,37 +102,13 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
     requiresSetup: false,
     parameters: persistenceMigrateCommandParams,
     async execute(params, context) {
-      const {
-        to,
-        from,
-        sqlitePath,
-        backup = true,
-        execute,
-        setDefault,
-        dryRun: _dryRun = false,
-      } = params;
+      const { to, from, backup = true, execute, dryRun: _dryRun = false } = params;
 
-      // If no target backend provided, run schema migrations for current backend
+      // If no target backend provided, run schema migrations for the configured
+      // (Postgres-only, ADR-018 / mt#2349) backend.
       if (!to) {
         try {
-          // Auto-detect backend and run appropriate migration flow
-          const { getConfiguration } = await import("../../../domain/configuration/index");
-          const config = getConfiguration();
-          const backend = getEffectivePersistenceConfig(config).backend as "sqlite" | "postgres";
-
           const shouldApply = Boolean(execute);
-
-          if (backend === "postgres") {
-            if (!shouldApply) {
-              const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: true });
-              return result;
-            }
-
-            const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: false });
-            return result;
-          }
-
-          // SQLite: reuse existing helper (preview or apply)
           const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: !shouldApply });
 
           if (context.format === "human") {
@@ -160,9 +118,9 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
               return resultObj.message as string;
             }
             if (resultObj.dryRun) {
-              return `Schema migration (dry run) for ${resultObj.backend || "sqlite"}`;
+              return `Schema migration (dry run) for ${resultObj.backend || "postgres"}`;
             }
-            return `Schema migration applied for ${resultObj.backend || "sqlite"}`;
+            return `Schema migration applied for ${resultObj.backend || "postgres"}`;
           }
 
           return result;
@@ -175,15 +133,10 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
       const isPreviewMode = !execute;
 
       try {
-        // Guard against unsupported targets (JSON removed)
-        if (to !== "sqlite" && to !== "postgres") {
-          throw new Error(
-            `❌ Unsupported backend target: ${String(to)}. Supported backends: sqlite, postgres`
-          );
-        }
-
-        // Import configuration system for config-driven behavior
-        const { getConfiguration } = await import("../../../domain/configuration/index");
+        // `to` is constrained to "postgres" by the param schema (sessions are
+        // Postgres-only, ADR-018 / mt#2329). Import configuration system for
+        // config-driven behavior.
+        const { getConfiguration } = await import("@minsky/domain/configuration/index");
         const config = getConfiguration();
 
         log.cli(`🚀 Persistence Migration - Target: ${to}`);
@@ -195,8 +148,6 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         let sourceData: Record<string, unknown> = {};
         let sourceCount = 0;
         let sourceDescription = "configured session backend";
-        let sourceBackendKind: "sqlite" | "postgres" | "file-json" | "unknown" = "unknown";
-        let sqliteSourcePath: string | undefined;
 
         if (from && existsSync(from)) {
           // Read from specific file
@@ -204,37 +155,27 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           sourceData = JSON.parse(fileContent);
           sourceCount = Object.keys(sourceData).length;
           sourceDescription = `backup file: ${from}`;
-          sourceBackendKind = "file-json";
           log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
         } else {
           // Read from CURRENT configured backend (no JSON fallback)
           const effectivePersistence = getEffectivePersistenceConfig(config);
-          const configuredBackend = effectivePersistence.backend as "sqlite" | "postgres";
+          const configuredBackend = effectivePersistence.backend;
           if (!configuredBackend) {
             throw new Error(
-              "No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config."
+              "No persistence backend configured. Configure postgres in persistence config."
             );
           }
 
           const sourceConfig: Record<string, unknown> = { backend: configuredBackend };
-          if (configuredBackend === "sqlite") {
-            const dbPath = effectivePersistence.dbPath ?? getDefaultSqliteDbPath();
-            sourceConfig.sqlite = { dbPath };
-            sourceDescription = `SQLite backend: ${dbPath}`;
-            sourceBackendKind = "sqlite";
-            sqliteSourcePath = dbPath;
-          } else if (configuredBackend === "postgres") {
-            const connectionString = effectivePersistence.connectionString;
-            if (!connectionString) {
-              throw new Error(
-                "PostgreSQL connection string not found in configuration or MINSKY_POSTGRES_URL."
-              );
-            }
-            // Use the full postgres sub-object so pool settings (maxConnections, etc.) are preserved.
-            sourceConfig.postgres = effectivePersistence.postgres ?? { connectionString };
-            sourceDescription = "PostgreSQL backend (configured)";
-            sourceBackendKind = "postgres";
+          const connectionString = effectivePersistence.connectionString;
+          if (!connectionString) {
+            throw new Error(
+              "PostgreSQL connection string not found in configuration or MINSKY_POSTGRES_URL."
+            );
           }
+          // Use the full postgres sub-object so pool settings (maxConnections, etc.) are preserved.
+          sourceConfig.postgres = effectivePersistence.postgres ?? { connectionString };
+          sourceDescription = "PostgreSQL backend (configured)";
 
           // Get sessions through SessionProviderInterface via DI closure
           const { sessionProvider } = getPersistenceDeps();
@@ -288,18 +229,11 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           operations.push(`Skip ${skippedLegacy} legacy session(s) without a taskId`);
         }
         if (backup) {
-          if (sourceBackendKind === "sqlite" && sqliteSourcePath) {
-            operations.push(`Create SQLite file backup of source before migration`);
-          } else {
-            operations.push(`Create JSON backup of source before migration`);
-          }
+          operations.push(`Create JSON backup of source before migration`);
         }
         operations.push(
           `Write ${normalizedRecords.length} session(s) to target '${to}' backend (full replacement)`
         );
-        if (setDefault) {
-          operations.push(`Update configuration to set default backend to '${to}'`);
-        }
 
         // PREVIEW MODE: show plan and exit
         if (isPreviewMode) {
@@ -316,84 +250,82 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           };
         }
 
-        // Create backup if requested
+        // Create backup if requested (JSON snapshot of the source data)
         let backupPath: string | undefined;
         if (backup) {
           const stateDir = getMinskyStateDir();
-          if (sourceBackendKind === "sqlite" && sqliteSourcePath) {
-            backupPath = join(stateDir, `session-backup-${Date.now()}.db`);
-            const backupDir = dirname(backupPath);
-            if (!existsSync(backupDir)) {
-              mkdirSync(backupDir, { recursive: true });
-            }
-            copyFileSync(sqliteSourcePath, backupPath);
-            log.cli(`SQLite backup created: ${backupPath}`);
-          } else {
-            backupPath = join(stateDir, `session-backup-${Date.now()}.json`);
-            const backupDir = dirname(backupPath);
-            if (!existsSync(backupDir)) {
-              mkdirSync(backupDir, { recursive: true });
-            }
-            writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
-            log.cli(`Backup created: ${backupPath}`);
+          backupPath = join(stateDir, `session-backup-${Date.now()}.json`);
+          const backupDir = dirname(backupPath);
+          if (!existsSync(backupDir)) {
+            mkdirSync(backupDir, { recursive: true });
           }
+          writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
+          log.cli(`Backup created: ${backupPath}`);
         }
 
-        // Create target storage with config-driven approach
+        // Create target storage. `to` is "postgres" (sessions are Postgres-only,
+        // ADR-018 / mt#2329).
         const targetConfig: Record<string, unknown> = { backend: to };
-        let targetSqlitePath: string | undefined;
-        let _targetPostgresConn: string | undefined;
-
-        if (to === "sqlite") {
-          targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
-          targetConfig.sqlite = {
-            dbPath: targetSqlitePath,
-          };
-        } else if (to === "postgres") {
-          const effectiveTarget = getEffectivePersistenceConfig(config);
-          const connectionString = effectiveTarget.connectionString;
-
-          if (!connectionString) {
-            throw new Error(
-              "PostgreSQL connection string not found. " +
-                "Please configure persistence.postgres.connectionString (or sessiondb.postgres.connectionString) in config file or set MINSKY_POSTGRES_URL environment variable."
-            );
-          }
-
-          log.cli(
-            `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
-          );
-          _targetPostgresConn = connectionString;
-          // Use the full postgres sub-object so pool settings are preserved.
-          targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
-        }
-
-        // Use SessionProviderInterface for data migration via DI closure
-        const { sessionProvider: sessionProvider2 } = getPersistenceDeps();
-        if (!sessionProvider2) {
+        const effectiveTarget = getEffectivePersistenceConfig(config);
+        const connectionString = effectiveTarget.connectionString;
+        if (!connectionString) {
           throw new Error(
-            "DI container missing 'sessionProvider'. Ensure container.initialize() was called before command execution."
+            "PostgreSQL connection string not found. " +
+              "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
           );
         }
-        const sessions = await sessionProvider2.listSessions();
+        log.cli(
+          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+        );
+        // Use the full postgres sub-object so pool settings are preserved.
+        targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
 
+        // Source sessions for the write: use the normalized records computed
+        // above — they honor `--from` when a backup file was supplied and skip
+        // legacy taskId-less rows. (R2 BLOCKING fix: EXECUTE previously did a
+        // second listSessions() re-read, ignoring `--from`. The bug pre-dates this
+        // PR — the top-of-command source read already used listSessions for the
+        // configured backend — but it is fixed here while this path is touched.)
         const sourceState = {
-          sessions,
+          sessions: normalizedRecords,
           baseDir: getMinskyStateDir(),
         };
 
-        log.cli(`✅ Read ${sourceState.sessions.length} sessions from source backend`);
+        log.cli(`✅ Migrating ${sourceState.sessions.length} session(s) to the target backend`);
 
         // Create target provider with new backend
         const newTargetConfig = { ...targetConfig, backend: to };
         const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
         await targetProvider.initialize();
 
-        const targetStorage = targetProvider.getStorage();
-        const writeResult = await targetStorage.writeState(sourceState);
-        if (!writeResult.success) {
-          throw new Error(`Failed to write to target: ${writeResult.error?.message}`);
+        // Full replacement (preserves the retired writeState semantics that the
+        // plan text above promises): clear the target sessions table and bulk-
+        // insert the source rows in ONE transaction. (R3 BLOCKING: the per-record
+        // addSession loop did blind inserts — not a replacement — which could
+        // conflict on a same-DB target and contradicted the "full replacement"
+        // plan wording.) Sessions are Postgres-only (ADR-018); the broader migrate
+        // rework is mt#2349.
+        const { postgresSessions, toPostgresInsert } = await import(
+          "@minsky/domain/storage/schemas/session-schema"
+        );
+        const targetDb = (await targetProvider.getDatabaseConnection?.()) as
+          | import("drizzle-orm/postgres-js").PostgresJsDatabase
+          | undefined;
+        if (!targetDb) {
+          throw new Error(
+            "Target provider returned no Postgres connection for the migration write."
+          );
         }
+        await targetDb.transaction(async (tx) => {
+          await tx.delete(postgresSessions);
+          const BATCH_SIZE = 250;
+          for (let i = 0; i < sourceState.sessions.length; i += BATCH_SIZE) {
+            const slice = sourceState.sessions.slice(i, i + BATCH_SIZE);
+            if (slice.length > 0) {
+              await tx.insert(postgresSessions).values(slice.map((s) => toPostgresInsert(s)));
+            }
+          }
+        });
 
         log.cli(
           `✅ Data successfully migrated to ${to} backend (${sourceState.sessions.length} sessions)`
@@ -412,13 +344,13 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
     description: "Check database integrity and detect issues",
     requiresSetup: false,
     parameters: persistenceCheckCommandParams,
-    async execute(params, context) {
-      const { file, backend, fix, report } = params;
+    async execute(params, _context) {
+      const { backend, fix, report } = params;
 
       try {
-        const { getConfiguration } = await import("../../../domain/configuration/index");
+        const { getConfiguration } = await import("@minsky/domain/configuration/index");
 
-        let targetBackend: "sqlite" | "postgres";
+        let targetBackend: "postgres";
         let sourceInfo: string;
 
         if (backend) {
@@ -428,49 +360,29 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           const config = getConfiguration();
           const configuredBackend = getEffectivePersistenceConfig(config).backend;
 
-          if (configuredBackend && !["sqlite", "postgres"].includes(configuredBackend as string)) {
-            throw new Error(
-              `❌ CRITICAL: Unsupported backend configured: ${configuredBackend}. ` +
-                "Supported backends: sqlite, postgres"
-            );
-          }
-
-          if (!configuredBackend || !["sqlite", "postgres"].includes(configuredBackend)) {
+          if (!configuredBackend || configuredBackend !== "postgres") {
             throw new Error(
               `❌ CRITICAL: Invalid or unsupported backend configured: ${configuredBackend}. ` +
-                "Supported backends: sqlite, postgres"
+                "Supported backend: postgres"
             );
           }
 
-          targetBackend = configuredBackend as "sqlite" | "postgres";
+          targetBackend = "postgres";
           sourceInfo = `Backend auto-detected from configuration: ${targetBackend}`;
         }
 
         log.cli(`🔍 Persistence Check - ${sourceInfo}`);
 
-        let validationResult: {
+        const { persistence: persistenceProvider } = getPersistenceDeps();
+        if (!persistenceProvider) {
+          throw new Error("persistenceProvider is required for postgres backend validation");
+        }
+        const validationResult: {
           success: boolean;
           details: string;
           issues?: string[];
           suggestions?: string[];
-        };
-
-        if (targetBackend === "sqlite") {
-          validationResult = await validateSqliteBackend(file);
-        } else if (targetBackend === "postgres") {
-          const { persistence: persistenceProvider } = getPersistenceDeps();
-          if (!persistenceProvider) {
-            throw new Error("persistenceProvider is required for postgres backend validation");
-          }
-          validationResult = await validatePostgresBackend(persistenceProvider);
-        } else {
-          const { getAvailableBackendsString } = await import(
-            "../../../domain/tasks/taskConstants"
-          );
-          throw new Error(
-            `Unknown backend: ${targetBackend}. Available backends: ${getAvailableBackendsString()}`
-          );
-        }
+        } = await validatePostgresBackend(persistenceProvider);
 
         if (report || !validationResult.success) {
           log.cli(`\n📊 Validation Results:`);

@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { registerTranscriptIndexEmbeddingsCommand } from "./index-embeddings-command";
-import type { AppContainerInterface } from "../../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const COMMAND_ID = "transcripts.index-embeddings";
 
@@ -65,7 +65,7 @@ describe("transcripts.index-embeddings command", () => {
       // pass an empty context and assert the validation error fires first.
       const minimalContext = { interface: "cli" as const };
       await expect(getCommand().execute({}, minimalContext)).rejects.toThrow(
-        /requires either --all or --session/
+        /requires either --all or --conversationId/
       );
     });
 

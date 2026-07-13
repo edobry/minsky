@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { first } from "../../../src/utils/array-safety";
-import { EmbeddingsSimilarityBackend } from "../../../src/domain/similarity/backends/embeddings-backend";
-import type { SimilarityQuery } from "../../../src/domain/similarity/types";
-import { MemoryVectorStorage } from "../../../src/domain/storage/vector/memory-vector-storage";
+import { EmbeddingsSimilarityBackend } from "@minsky/domain/similarity/backends/embeddings-backend";
+import type { SimilarityQuery } from "@minsky/domain/similarity/types";
+import { MemoryVectorStorage } from "@minsky/domain/storage/vector/memory-vector-storage";
 
 // Mock embedding service for predictable results
 const mockEmbeddingService = {
@@ -19,7 +19,7 @@ describe("Task Search Server-Side Filtering Integration", () => {
 
   beforeAll(async () => {
     const { initializeConfiguration, CustomConfigFactory } = await import(
-      "../../../src/domain/configuration/index"
+      "@minsky/domain/configuration/index"
     );
     await initializeConfiguration(new CustomConfigFactory(), {
       enableCache: true,

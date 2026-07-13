@@ -1,0 +1,276 @@
+name: Deploy MCP
+
+# mt#2104 — CI-built Docker image → GHCR → Railway deploy pipeline.
+#
+# Builds the Docker image, smoke-tests it (boot + /health probe), and on
+# push to main pushes to GHCR and triggers a Railway redeploy. On PRs the
+# Docker build + smoke runs without pushing or deploying — this closes the
+# mt#2103 coverage gap where the bundle-boot-smoke tested the local build
+# but not the Docker build, missing a Bun-version-specific bundler
+# regression that only surfaced in the Docker/Railway environment.
+#
+# mt#2461 — paths filter scopes the trigger to minsky-mcp's actual build
+# closure (the root Dockerfile's COPY set + Dockerfile itself). Commits
+# that only touch services/cockpit/web/**, docs/**, or other unrelated
+# paths no longer trigger a Docker build or Railway redeploy, eliminating
+# the ~10-20 unnecessary redeploys/day that were rotating Railway logs and
+# dropping in-flight requests. This `paths:` filter is the SINGLE SOURCE of
+# minsky-mcp's build closure: minsky-mcp is a GHCR image-based (sourceImage)
+# Railway service, which cannot use Railway config-as-code (config_path), so
+# there is no railway.json for it (mt#2472 removed the one mt#2461 added —
+# Railway rejects config_path on a source_image service). Keep this list in
+# sync with the root Dockerfile's COPY set.
+#
+# Prerequisites (one-time setup):
+# 1. RAILWAY_TOKEN secret in GitHub Actions (Railway dashboard > Account >
+#    Tokens > create; add as repo secret).
+# 2. Railway minsky-mcp service configured to use image source
+#    ghcr.io/edobry/minsky:latest (Railway dashboard > service > Settings >
+#    Source > Docker Image).
+# 3. GHCR package visibility set to match repo visibility (ghcr.io Settings
+#    > Manage access > set visibility).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/shared/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "packages/domain/src/**"
+      - "services/reviewer/package.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - ".minsky/config.yaml"
+      - "src/**"
+      - ".github/workflows/deploy-minsky-mcp.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "packages/shared/package.json"
+      - "packages/shared/tsconfig.json"
+      - "packages/shared/src/**"
+      - "packages/domain/package.json"
+      - "packages/domain/tsconfig.json"
+      - "packages/domain/src/**"
+      - "services/reviewer/package.json"
+      - "services/site/package.json"
+      - "services/cockpit/package.json"
+      - ".minsky/config.yaml"
+      - "src/**"
+      - ".github/workflows/deploy-minsky-mcp.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Only one deploy at a time. cancel-in-progress is FALSE (mt#2505): the job now
+# runs a prod migration step, and cancelling mid-migration could leave held
+# locks or a partially-applied migration set. Serialize instead — a new push
+# queues behind the in-flight deploy rather than cancelling it. (Cost: redundant
+# builds are no longer auto-cancelled; acceptable for prod-migration safety.)
+concurrency:
+  group: deploy-minsky-mcp-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/edobry/minsky
+
+jobs:
+  docker-build-smoke:
+    name: docker-build-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE:ci .
+
+      - name: Boot container and probe /health
+        run: |
+          set -euo pipefail
+
+          PORT=$(( 30000 + RANDOM % 20000 ))
+          echo "Boot port: $PORT"
+
+          docker run --rm -d --name minsky-smoke \
+            -e PORT=$PORT \
+            -e MINSKY_MCP_AUTH_TOKEN=smoke-test \
+            -p $PORT:$PORT \
+            $IMAGE:ci
+
+          cleanup() {
+            docker stop minsky-smoke 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          DEADLINE=$(( $(date +%s) + 30 ))
+          while [ "$(date +%s)" -lt $DEADLINE ]; do
+            if curl -fsS "http://127.0.0.1:$PORT/health" > /tmp/health.json 2>/dev/null; then
+              echo "/health responded within deadline:"
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          echo "/health did not respond 200 within 30s"
+          docker logs minsky-smoke 2>&1 | tail -50 || true
+          exit 1
+
+      # mt#2505 — deploy-keyed, single-runner PROD migration. Runs INSIDE the
+      # freshly-built image (the exact artifact about to deploy), BEFORE the
+      # :latest push that triggers the Railway deploy. Migrate therefore GATES
+      # the deploy: a failure here aborts the job, the image is never pushed, and
+      # Railway keeps the prior version running against the unchanged schema
+      # (Heroku-release-phase semantics). Idempotent (drizzle high-water-mark =
+      # no-op when nothing is pending); the workflow `concurrency` group keeps it
+      # single-runner. This is the controlled prod-touch that replaces
+      # auto-migrate-on-boot (the default flip ships separately, AFTER this is
+      # live + verified — the mt#2505 sequencing constraint).
+      #
+      # SECURITY: this step (like every secret-using step) is gated to
+      # push/workflow_dispatch on main; the workflow triggers on `pull_request`
+      # (NOT pull_request_target) and GitHub does not pass secrets to fork PRs,
+      # so the mt#1477 pwn-request class does not apply. NEVER convert this
+      # workflow to pull_request_target.
+      - name: Apply migrations to production
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          # Same canonical connection var the minsky-mcp service uses
+          # (infra/index.ts: MINSKY_PERSISTENCE_POSTGRES_URL ← sealed
+          # 'minsky-persistence-postgres-url'), stored here as a repo secret.
+          # mt#2439: the bundle reads MINSKY_PERSISTENCE_POSTGRES_URL — NOT
+          # MINSKY_POSTGRES_URL/DATABASE_URL — or it silently targets the wrong DB.
+          #
+          # Secret handling (PR #1737 R2 non-blocking): GitHub auto-masks
+          # `secrets.*` in all step logs, and the value is forwarded into the
+          # container BY NAME (`-e MINSKY_PERSISTENCE_POSTGRES_URL` below, no
+          # value on the command line) and never echoed — so it cannot reach the
+          # logs even with ACTIONS_STEP_DEBUG enabled. No `::add-mask::` needed.
+          MINSKY_PERSISTENCE_POSTGRES_URL: ${{ secrets.MINSKY_PERSISTENCE_POSTGRES_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MINSKY_PERSISTENCE_POSTGRES_URL:-}" ]; then
+            echo "::error::MINSKY_PERSISTENCE_POSTGRES_URL secret not set — refusing to deploy."
+            echo "Add the prod Postgres connection as a repo secret to enable the deploy-keyed"
+            echo "migration (mt#2505). Failing the job avoids shipping new code against an"
+            echo "unmigrated schema (the out-of-band-coordination hazard)."
+            exit 1
+          fi
+
+          # Forward the secret by NAME (no value on the command line / in logs).
+          # MINSKY_PERSISTENCE_BACKEND mirrors the service env (infra/index.ts:69).
+          # Wrapped in `timeout` (mt#2505 R1): a hung DB connection / lock must
+          # fail the deploy fast, not sit until the GH Actions job cap (~6h). The
+          # migrator is idempotent (drizzle HWM), so a retried run resumes safely.
+          set +e
+          timeout 600 docker run --rm \
+            -e MINSKY_PERSISTENCE_BACKEND=postgres \
+            -e MINSKY_PERSISTENCE_POSTGRES_URL \
+            "$IMAGE:ci" \
+            bun run --preload reflect-metadata dist/minsky.js persistence migrate --execute
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -eq 124 ]; then
+              echo "::error::prod migration timed out after 600s — failing the deploy (no image pushed)."
+            else
+              echo "::error::prod migration failed (exit $rc) — failing the deploy (no image pushed)."
+            fi
+            exit "$rc"
+          fi
+          echo "Prod migration step completed (exit 0)."
+
+      - name: Login to GHCR
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push image
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker tag $IMAGE:ci $IMAGE:latest
+          docker tag $IMAGE:ci $IMAGE:sha-${SHORT_SHA}
+          docker push $IMAGE:latest
+          docker push $IMAGE:sha-${SHORT_SHA}
+          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+
+      - name: Trigger Railway redeploy
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::warning::RAILWAY_TOKEN not set — skipping Railway redeploy. Add the secret to enable auto-deploy."
+            exit 0
+          fi
+
+          # Railway service identifiers from services/minsky-mcp/deploy.config.ts
+          SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
+          ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
+
+          # This explicit redeploy trigger is REDUNDANT (mt#2342): Railway auto-deploys
+          # the pushed ghcr.io/edobry/minsky:latest image independently (verified:
+          # minsky-mcp deploys per-commit without this call). Therefore EVERY failure
+          # branch below is warn-not-fail — a failure here must NOT red the build.
+          # (Re-scope the RAILWAY_TOKEN secret to re-enable the explicit trigger; not
+          # required for deploys to happen.)
+          RESP_FILE="$(mktemp)"
+          HTTP_STATUS=$(curl -sS -o "${RESP_FILE}" -w "%{http_code}" -X POST https://backboard.railway.com/graphql/v2 \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}") || {
+              echo "::warning::Railway redeploy request failed (curl/network error). Non-fatal — Railway auto-deploys the pushed image independently."
+              exit 0
+            }
+
+          echo "Railway API HTTP ${HTTP_STATUS}; body: $(cat "${RESP_FILE}")"
+
+          if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
+            echo "::warning::Railway redeploy got HTTP ${HTTP_STATUS}. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
+          fi
+
+          if ! jq -e . > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy response was not valid JSON. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
+          fi
+
+          if jq -e '.errors and (.errors | length > 0)' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
+            jq '.errors' < "${RESP_FILE}"
+            exit 0
+          fi
+
+          # Positive success gate (shape-agnostic): Railway's serviceInstanceRedeploy
+          # return type is undocumented, so accept any present, non-null, non-false
+          # data value as success and warn otherwise — never report false success.
+          if jq -e '.data.serviceInstanceRedeploy != null and .data.serviceInstanceRedeploy != false' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "Railway redeploy triggered successfully"
+          else
+            echo "::warning::Railway redeploy did not confirm success (data.serviceInstanceRedeploy missing/null/false). Non-fatal — Railway auto-deploys the pushed image independently."
+            jq . < "${RESP_FILE}"
+            exit 0
+          fi

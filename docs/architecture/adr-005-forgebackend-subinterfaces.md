@@ -89,7 +89,7 @@ const checks = await backend.ci.getChecksForPR(prNumber);
 
 ### Why `submitReview` is Optional
 
-The core `ReviewOperations` methods (`approve`, `getApprovalStatus`) are universal across forges. `submitReview` — which posts arbitrary-event reviews (APPROVE/COMMENT/REQUEST_CHANGES) with line-level comments — has forge-specific nuances (GitHub reviews vs GitLab approval rules vs Bitbucket's simpler approve/unapprove). Marking it optional lets backends ship without this capability and evolve it independently. The `/review-pr` skill falls back to the GitHub MCP server's review endpoint when the backend doesn't implement `submitReview`.
+The core `ReviewOperations` methods (`approve`, `getApprovalStatus`) are universal across forges. `submitReview` — which posts arbitrary-event reviews (APPROVE/COMMENT/REQUEST_CHANGES) with line-level comments — has forge-specific nuances (GitHub reviews vs GitLab approval rules vs Bitbucket's simpler approve/unapprove). Marking it optional lets backends ship without this capability and evolve it independently. The `mcp__minsky__session_pr_review_submit` tool falls back to the GitHub MCP server's review endpoint when the backend doesn't implement `submitReview`.
 
 ## Consequences
 

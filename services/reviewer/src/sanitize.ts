@@ -19,6 +19,8 @@
  * Task: mt#1212
  */
 
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
 export type SanitizeAction = "passthrough" | "stripped" | "errored";
 
 export interface SanitizeResult {
@@ -142,7 +144,7 @@ const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
  * `reviewer.cot_leak_detected` events for calibration (mt#1264).
  */
 export function redactForLog(text: string, maxChars = 200): string {
-  const snippet = text.slice(0, maxChars);
+  const snippet = safeTruncate(text, maxChars, "head");
   return snippet.replace(URL_PATTERN, "[url]").replace(EMAIL_PATTERN, "[email]");
 }
 

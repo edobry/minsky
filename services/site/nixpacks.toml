@@ -1,0 +1,25 @@
+# Railway Nixpacks config for the minsky-site marketing service.
+#
+# Assumed deploy shape: Railway service's `Source repository` is
+# edobry/minsky and the service's `Root Directory` is `services/site`.
+# Under that setup, `bun install` / `bun run build` / `bun run start`
+# all execute with services/site/ as cwd and services/site/package.json
+# as the local manifest. The repo-root bun.lock is still resolvable
+# because Railway clones the whole repo and Bun's workspace resolver
+# walks up to find the root `workspaces` declaration in /app/package.json.
+#
+# If the Railway service is instead configured with Root Directory at the
+# repo root, replace the `cmds` below with `cd services/site && <cmd>`.
+# The setup is documented in services/site/README.md.
+
+[phases.setup]
+nixPkgs = ["bun"]
+
+[phases.install]
+cmds = ["bun install --frozen-lockfile"]
+
+[phases.build]
+cmds = ["bun run build"]
+
+[start]
+cmd = "bun run start"

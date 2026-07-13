@@ -4,7 +4,7 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   formatResolvedConfiguration,
   formatConfigurationSources,
@@ -86,6 +86,67 @@ function formatFlattenedConfiguration(resolved: Record<string, unknown>): string
 
   const flatEntries = flatten(resolved);
   return flatEntries.join("\n");
+}
+
+/**
+ * Render a config value for terminal output. Scalars print bare (`sk-XXX`,
+ * `42`, `true`) so the result is shell-pipeable; objects/arrays print as
+ * pretty-JSON with a BigInt-safe replacer so nested bigints stringify
+ * as their decimal representation rather than throwing. The handler upstream
+ * guarantees `value !== undefined` on the success path, so we only handle
+ * the null branch defensively.
+ */
+export function formatConfigValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return JSON.stringify(value, (_key, v: unknown) => (typeof v === "bigint" ? v.toString() : v), 2);
+}
+
+/**
+ * Pure renderers for config-command results. Return the line to print; the
+ * outputFormatter wrappers below pass the return value to log.cli. Separating
+ * "what to print" from "where to print" makes the renderers unit-testable
+ * without module-level log mocks.
+ */
+export function renderConfigGetResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+  if (result.success && result.exists) {
+    return formatConfigValue(result.value);
+  }
+  const message =
+    typeof result.error === "string" && result.error.length > 0
+      ? result.error
+      : `Configuration path '${result.key ?? "<unknown>"}' not found`;
+  return `Error: ${message}`;
+}
+
+export function renderConfigSetResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+  if (!result.success) {
+    return `Error: ${result.error ?? "unknown error"}`;
+  }
+  const key = String(result.key ?? "");
+  const newValue = formatConfigValue(result.newValue);
+  return `${key} = ${newValue}`;
+}
+
+export function renderConfigUnsetResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+  if (!result.success) {
+    return `Error: ${result.error ?? "unknown error"}`;
+  }
+  const key = String(result.key ?? "");
+  return `unset ${key}`;
 }
 
 /**
@@ -171,6 +232,37 @@ export function getConfigCustomizations(): {
             }
           },
         },
+        "config.get": {
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigGetResult(result));
+          },
+        },
+        "config.set": {
+          parameters: {
+            key: {
+              asArgument: true,
+              description: "Configuration key path",
+            },
+            value: {
+              asArgument: true,
+              description: "Value to set",
+            },
+          },
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigSetResult(result));
+          },
+        },
+        "config.unset": {
+          parameters: {
+            key: {
+              asArgument: true,
+              description: "Configuration key path",
+            },
+          },
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigUnsetResult(result));
+          },
+        },
       },
     },
   };
@@ -193,19 +285,17 @@ export function getPersistenceCustomizations(): {
           parameters: {
             to: {
               asArgument: true,
-              description: "Target backend (sqlite, postgres)",
+              description: "Target backend (postgres)",
             },
             from: {
-              description: "Source backend (auto-detect if not specified)",
-            },
-            sqlitePath: {
-              description: "SQLite database file path",
+              description: "Source backup file path (auto-detect if not specified)",
             },
             connectionString: {
               description: "PostgreSQL connection string",
             },
             backup: {
-              description: "Create backup in specified directory",
+              description:
+                "Create a JSON backup of the source before migration, written to the Minsky state dir with an auto-generated filename (default: true)",
             },
             dryRun: {
               alias: "n",
@@ -219,20 +309,5 @@ export function getPersistenceCustomizations(): {
         },
       },
     },
-  };
-}
-/**
- * Legacy sessiondb customizations (for backward compatibility)
- * @deprecated Use getPersistenceCustomizations() instead
- */
-export function getSessiondbCustomizations(): {
-  category: CommandCategory;
-  options: CategoryCommandOptions;
-} {
-  // Forward to persistence customizations for compatibility
-  const persistenceConfig = getPersistenceCustomizations();
-  return {
-    category: CommandCategory.PERSISTENCE, // Keep legacy category for existing registration
-    options: persistenceConfig.options,
   };
 }

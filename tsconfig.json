@@ -46,6 +46,7 @@
     "build",
     "scripts",
     "src/scripts",
+    "src/cockpit/web",
     "tests/fixtures",
     "tests/integration/fixtures"
   ]

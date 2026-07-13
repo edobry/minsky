@@ -3,10 +3,10 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrListCommandParams } from "./session-parameters";
-import { sessionPrList } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrList } from "@minsky/domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
 
 function formatRelativeTime(isoString: string): string {
@@ -32,7 +32,37 @@ function formatRelativeTime(isoString: string): string {
   }
 }
 
-export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDefinition {
+/**
+ * Maps the `session.pr.list` command params to the domain `sessionPrList` filter args.
+ *
+ * Extracted + exported for regression testing (mt#2516): the command's parameter
+ * schema (`sessionPrListCommandParams`) exposes the identity key as `sessionId`, so
+ * the handler MUST read `params.sessionId`. The prior code read `params.session`,
+ * which is never populated — silently dropping the session filter.
+ */
+export function mapSessionPrListParams(params: Record<string, unknown>) {
+  return {
+    session: params.sessionId as string | undefined,
+    task: params.task as string | undefined,
+    status: params.status as string | undefined,
+    backend: params.backend as "github" | undefined,
+    since: params.since as string | undefined,
+    until: params.until as string | undefined,
+    repo: params.repo as string | undefined,
+    json: params.json as boolean | undefined,
+    verbose: params.verbose as boolean | undefined,
+  };
+}
+
+/**
+ * @param listFn injectable domain call — defaults to the real `sessionPrList`; the
+ *   default keeps existing one-arg callers working, and lets tests stub the domain
+ *   call to assert the command honors the `sessionId` filter at the execute boundary.
+ */
+export function createSessionPrListCommand(
+  getDeps: LazySessionDeps,
+  listFn: typeof sessionPrList = sessionPrList
+): CommandDefinition {
   return {
     id: "session.pr.list",
     category: CommandCategory.SESSION,
@@ -42,20 +72,9 @@ export function createSessionPrListCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging("session.pr.list", async (params: Record<string, unknown>) => {
       try {
         const deps = await getDeps();
-        const result = await sessionPrList(
-          {
-            session: params.session as string | undefined,
-            task: params.task as string | undefined,
-            status: params.status as string | undefined,
-            backend: params.backend as "github" | undefined,
-            since: params.since as string | undefined,
-            until: params.until as string | undefined,
-            repo: params.repo as string | undefined,
-            json: params.json as boolean | undefined,
-            verbose: params.verbose as boolean | undefined,
-          },
-          { sessionDB: deps.sessionProvider }
-        );
+        const result = await listFn(mapSessionPrListParams(params), {
+          sessionDB: deps.sessionProvider,
+        });
 
         if (params.json) {
           return { success: true, ...result };

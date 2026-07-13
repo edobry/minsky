@@ -66,6 +66,7 @@ export default {
               context.report({
                 node,
                 messageId: "cliExecutionInTest",
+                // eslint-disable-next-line custom/no-unsafe-string-truncation -- known-ASCII: ESLint rule processing JS source code text (identifiers are ASCII)
                 data: { pattern: `${node.callee.name}(\`${templateText.substring(0, 30)}...\`)` },
               });
             }

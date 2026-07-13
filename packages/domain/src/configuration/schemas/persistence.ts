@@ -1,0 +1,112 @@
+/**
+ * Persistence Configuration Schema
+ *
+ * Defines the configuration schema for the PersistenceProvider system.
+ * Supports the PostgreSQL storage backend.
+ */
+
+import { z } from "zod";
+
+/**
+ * Returns a Zod schema for a seconds-scale timeout field.
+ *
+ * Validation order inside superRefine (runs after .min(1) passes):
+ * 1. Value >= 1000 → looks like a milliseconds value from the old API; emit a
+ *    migration message with the seconds-equivalent. This takes priority so the
+ *    user sees the actionable hint rather than a generic "too big" message.
+ * 2. Value > maxSeconds (but < 1000) → standard out-of-range message.
+ * 3. Value in [1, maxSeconds] → valid.
+ */
+function secondsTimeoutSchema(fieldName: string, maxSeconds: number) {
+  return z
+    .number()
+    .int()
+    .min(1)
+    .superRefine((val, ctx) => {
+      if (val >= 1000) {
+        const secondsEquiv = Math.round(val / 1000);
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${fieldName} is now in seconds (was milliseconds). ${val} ms ≈ ${secondsEquiv} s — try ${fieldName}: ${secondsEquiv}`,
+        });
+      } else if (val > maxSeconds) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Number must be less than or equal to ${maxSeconds}`,
+        });
+      }
+    });
+}
+
+/**
+ * PostgreSQL persistence configuration schema
+ */
+const postgresConfigSchema = z.object({
+  connectionString: z.string(),
+  /**
+   * Optional session-mode connection string for LISTEN/NOTIFY operations (mt#1852).
+   *
+   * Supavisor's transaction pooler (:6543) is incompatible with LISTEN because
+   * LISTEN state is per-connection and the pooler may route each command to a
+   * different backend connection. Session-mode pooler (:5432 on Supabase/Supavisor)
+   * keeps the same backend connection for the lifetime of the session.
+   *
+   * When unset: the provider auto-derives a session-mode URL from connectionString
+   * by swapping :6543 → :5432 (Supavisor port-swap). For non-Supavisor hosts the
+   * connectionString is assumed to already be session-mode-capable and is used as-is.
+   */
+  sessionConnectionString: z.string().optional(),
+  maxConnections: z.number().min(1).max(100).optional(),
+  // connectTimeout: seconds (1–300). Passed directly to postgres-js connect_timeout
+  // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
+  connectTimeout: secondsTimeoutSchema("connectTimeout", 300).optional(), // 1s - 5min
+  // idleTimeout: seconds (1–600). Passed directly to postgres-js idle_timeout
+  // which is a seconds value. Using seconds avoids a conversion at the provider boundary.
+  idleTimeout: secondsTimeoutSchema("idleTimeout", 600).optional(), // 1s - 10min
+  prepareStatements: z.boolean().optional(),
+});
+
+/**
+ * Persistence provider backend types
+ */
+export const persistenceBackendSchema = z.enum(["postgres"]);
+
+/**
+ * Main persistence configuration schema
+ */
+export const persistenceConfigSchema = z.object({
+  backend: persistenceBackendSchema,
+  postgres: postgresConfigSchema.optional(),
+});
+
+/**
+ * TypeScript types inferred from schemas
+ */
+export type PersistenceBackend = z.infer<typeof persistenceBackendSchema>;
+export type PostgresConfig = z.infer<typeof postgresConfigSchema>;
+export type PersistenceConfig = z.infer<typeof persistenceConfigSchema>;
+
+/**
+ * Validation helper for persistence configuration
+ */
+export const persistenceValidation = {
+  /**
+   * Validate that the configuration has the required backend-specific options
+   */
+  validateBackendConfig: (config: PersistenceConfig): { valid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+
+    switch (config.backend) {
+      case "postgres":
+        if (!config.postgres?.connectionString) {
+          errors.push("PostgreSQL backend requires connectionString");
+        }
+        break;
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  },
+} as const;

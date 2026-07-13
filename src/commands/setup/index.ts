@@ -5,9 +5,9 @@
  * keeping logic DRY while presenting `setup` as a top-level CLI command rather
  * than a subcommand nested under an INIT category wrapper.
  */
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 export function createSetupCommand(): Command {
   const cmd = new Command("setup");
@@ -33,6 +33,140 @@ export function createSetupCommand(): Command {
           overwrite: options.overwrite ?? false,
           repo: options.repo,
           workspacePath: options.workspacePath,
+        },
+        { interface: "cli" }
+      );
+
+      const typed = result as { success: boolean; message?: string };
+      if (typed.message) console.log(typed.message);
+      if (!typed.success) process.exit(1);
+    } catch (error: unknown) {
+      console.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+  cmd.addCommand(createSetupGithubAppCommand());
+  cmd.addCommand(createSetupDbCommand());
+
+  return cmd;
+}
+
+function createSetupDbCommand(): Command {
+  const cmd = new Command("db");
+  cmd.description(
+    "Configure Postgres persistence: capture a connection string, write config, run migrations, and verify connectivity (Docker / Supabase / bring-your-own)"
+  );
+
+  cmd.option(
+    "--connection-string <url>",
+    "Postgres connection string (required in non-interactive mode; otherwise captured via the wizard)"
+  );
+  cmd.option("--yes", "Skip the confirmation prompt before writing config", false);
+
+  cmd.action(async (options) => {
+    try {
+      const commandDef = sharedCommandRegistry.getCommand("setup.db");
+      if (!commandDef) {
+        console.error("Shared command 'setup.db' not found in registry");
+        process.exit(1);
+      }
+
+      const result = await commandDef.execute(
+        {
+          connectionString: options.connectionString,
+          yes: options.yes ?? false,
+        },
+        { interface: "cli" }
+      );
+
+      const typed = result as { success: boolean; message?: string };
+      if (typed.message) console.log(typed.message);
+      if (!typed.success) process.exit(1);
+    } catch (error: unknown) {
+      console.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
+
+  return cmd;
+}
+
+function createSetupGithubAppCommand(): Command {
+  const cmd = new Command("github-app");
+  cmd.description(
+    "Create and install a GitHub App via the manifest flow (or guided wizard fallback), or update an existing App's events/permissions"
+  );
+
+  cmd.requiredOption("--name <name>", "App name (also used as file prefix under outputDir)");
+  cmd.option(
+    "--repo <owner/repo>",
+    "Target repo in owner/repo form (required for create, not for --update)"
+  );
+  cmd.option("--via <provisioner>", "Provisioner: manifest (default) or wizard");
+  cmd.option("--output-dir <path>", "Where to write credentials (default: ~/.config/minsky)");
+  cmd.option("--force", "Re-provision even if credentials already exist", false);
+  cmd.option("--update", "Update an existing App's events/permissions via PATCH /app", false);
+  cmd.option(
+    "--execute",
+    "Apply changes (without this flag, --update shows a dry-run preview)",
+    false
+  );
+  cmd.option(
+    "--permissions <k:v,...>",
+    "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)"
+  );
+  cmd.option("--events <e1,e2,...>", "Comma-separated GitHub event names");
+  cmd.option("--webhook-url <url>", "Webhook URL to prefill in hook_attributes");
+  cmd.option(
+    "--inactive",
+    "Create with hook_attributes.active=false (no webhook deliveries)",
+    false
+  );
+  cmd.option(
+    "--port <n>",
+    "Local callback port for the manifest flow (1-65535; default: 9847)",
+    (v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n)) {
+        throw new InvalidArgumentError(`--port must be an integer, got "${v}".`);
+      }
+      return n;
+    }
+  );
+  cmd.option(
+    "--api-base-url <url>",
+    "GitHub API base URL for the wizard (default: https://api.github.com; set for GHE)"
+  );
+  cmd.option(
+    "--web-base-url <url>",
+    "GitHub web base URL for the wizard (default: https://github.com; set for GHE)"
+  );
+
+  cmd.action(async (options) => {
+    try {
+      const commandDef = sharedCommandRegistry.getCommand("setup.github-app");
+      if (!commandDef) {
+        console.error("Shared command 'setup.github-app' not found in registry");
+        process.exit(1);
+      }
+
+      const result = await commandDef.execute(
+        {
+          name: options.name,
+          repo: options.repo,
+          via: options.via,
+          outputDir: options.outputDir,
+          force: options.force ?? false,
+          update: options.update ?? false,
+          execute: options.execute ?? false,
+          permissions: options.permissions,
+          events: options.events,
+          webhookUrl: options.webhookUrl,
+          inactive: options.inactive ?? false,
+          port: options.port,
+          apiBaseUrl: options.apiBaseUrl,
+          webBaseUrl: options.webBaseUrl,
         },
         { interface: "cli" }
       );

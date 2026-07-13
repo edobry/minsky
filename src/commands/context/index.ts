@@ -2,8 +2,7 @@
  * Context command implementation
  *
  * Main command for context management, including rule suggestions.
- * Designed to coordinate with Task 082 (context analysis/visualization)
- * and provide testbench for modular context components.
+ * Provides a testbench for modular context components.
  */
 
 import { Command } from "commander";

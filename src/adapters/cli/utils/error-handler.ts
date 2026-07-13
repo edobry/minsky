@@ -14,10 +14,10 @@ import {
   ConfigurationError,
   GitOperationError,
   ensureError,
-} from "../../../errors/index";
+} from "@minsky/domain/errors/index";
 import { ZodError } from "zod";
-import { log, isStructuredMode } from "../../../utils/logger";
-import { exit } from "../../../utils/process";
+import { log, isStructuredMode } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
 /**
  * Determines if debug mode is enabled based on environment variables
  */

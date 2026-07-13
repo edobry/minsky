@@ -4,7 +4,7 @@ import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/m
 import {
   ProjectConfigReader,
   type ProjectConfigReaderFs,
-} from "../../../src/domain/project/config-reader";
+} from "@minsky/domain/project/config-reader";
 
 // Test constants to avoid magic string duplication
 const ESLINT_JSON_COMMAND = "eslint . --format json";

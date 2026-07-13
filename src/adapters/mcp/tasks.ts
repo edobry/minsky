@@ -4,14 +4,14 @@
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerTaskCommandsWithMcp } from "./shared-command-integration";
 import { registerTaskEditTools } from "./task-edit-tools";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers task tools with the MCP command mapper
  */
 export function registerTaskTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug(
     "Exposing task commands via shared command integration (commands already registered during CLI init)"
@@ -26,7 +26,26 @@ export function registerTaskTools(
     debug: true,
     commandOverrides: {
       "tasks.list": {
-        description: "List all tasks in the current repository",
+        description:
+          "List active tasks (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW). " +
+          "Default: up to 50 tasks; pass `limit` to override. Pass " +
+          "`all: true` to include DONE/CLOSED history — when `all: true` is " +
+          "set the default limit is lifted so the full history is returned. " +
+          "Use `status` to filter to a single status.",
+        // mt#1786: MCP-only defaults. The full active-task list is ~440 rows
+        // and ~84KB serialized — too large for a default tool response in a
+        // fresh Claude Desktop / Claude Code session. The CLI's default
+        // behavior is intentionally unchanged (the field is only consumed by
+        // the MCP adapter); CLI users page via the terminal.
+        //
+        // PR R2: the limit default is conditional on `all`. When the caller
+        // passes `all: true`, they have explicitly opted into the historical
+        // full-history view (spec criterion #2), so the limit default is
+        // skipped and the call returns all matching tasks. Callers who want
+        // both `all: true` AND a cap can still pass `limit: N` explicitly.
+        argDefaults: {
+          limit: (args: Record<string, unknown>) => (args.all === true ? undefined : 50),
+        },
       },
       "tasks.get": {
         description: "Get a specific task by ID",

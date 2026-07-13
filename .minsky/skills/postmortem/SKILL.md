@@ -1,0 +1,362 @@
+---
+name: postmortem
+description: >-
+  Blameless postmortem for a production / infrastructure incident — a real
+  outage, degradation, data-loss event, or near-miss affecting shared/prod
+  state or customers. Produces a docs/incidents/<date>-<topic>.md analysis
+  grounded in industry best practice (Google SRE Ch.15, Allspaw blameless
+  culture, Cook "How Complex Systems Fail"): quantified impact, a UTC timeline,
+  contributing factors (NOT a single root cause), and typed action items
+  tracked as Minsky tasks. Use when an incident is RESOLVED and the user asks
+  for a "postmortem", "post-incident review", "PIR", "what caused the outage",
+  "why did it go down", "root cause of the incident", or when a SEV-1/SEV-2
+  production incident closes. Distinct from /retrospective (agent cognitive /
+  process failures) and /incident-memo (end-of-session cross-incident
+  synthesis).
+user-invocable: true
+---
+
+# Postmortem Skill
+
+Blameless analysis of a **production / infrastructure incident** — an outage,
+degradation, data-loss, or near-miss against shared/prod state. Produces a
+durable `docs/incidents/<date>-<topic>.md` artifact and a set of tracked action
+items. The goal is organizational learning and structural prevention, never
+assigning fault.
+
+## Arguments
+
+Optional: an incident description, the incident/tracking task ID, or a date. If
+omitted, analyze the most recently resolved incident in the conversation.
+
+## When to invoke — and which skill
+
+This skill is for a **single production/infra incident with external impact**.
+Route correctly:
+
+| Situation                                                                                                | Skill                         |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| An outage / degradation / data-loss / near-miss hit shared or prod state (DB, deploy, service, pipeline) | **`postmortem`** (this skill) |
+| The _agent_ made a cognitive/process error (wrong tool, skipped step, bad assumption, repeated feedback) | `/retrospective`              |
+| Multiple incidents across one working session need a cross-cutting synthesis                             | `/incident-memo`              |
+
+A single incident can warrant BOTH a postmortem (the production failure) and one
+or more retrospectives (any agent-process failures _during_ the incident, e.g. a
+misdiagnosis). Run the postmortem for the system failure; spin a `/retrospective`
+for each distinct agent-process failure it surfaces.
+
+**Trigger criteria (invoke when ANY holds), per Google SRE:**
+
+- User asks: "postmortem", "post-incident review", "PIR", "what caused the
+  outage", "why did it go down", "root cause of the incident".
+- A SEV-1 or SEV-2 incident (see severity table) has been resolved.
+- Any data loss occurred (even SEV-3+).
+- Emergency procedures were invoked (manual DB restart, rollback, traffic
+  rerouting, killing processes, disabling a safety control like a spend cap).
+- Resolution time exceeded a few hours, OR monitoring failed (the incident was
+  found manually / by user report / by accident rather than by an automated
+  alert).
+- A near-miss: a failure that _didn't_ cause impact this time but easily could
+  have ("where we got lucky").
+
+Severity (adapt to Minsky's single-principal, customer-facing context):
+
+| SEV   | Meaning                                                                                         | Postmortem                     |
+| ----- | ----------------------------------------------------------------------------------------------- | ------------------------------ |
+| SEV-1 | Full outage of a shared/prod surface (DB, MCP, cockpit, reviewer); data loss; security exposure | Mandatory                      |
+| SEV-2 | Major degradation; a core surface unusable or a prod safety control disabled                    | Mandatory                      |
+| SEV-3 | Partial/minor degradation with a workaround                                                     | Recommended                    |
+| SEV-4 | Cosmetic / negligible                                                                           | Skip (a memory entry suffices) |
+
+Postmortems are triggered by **impact, not by fault**. The question is never
+"who caused this" — it is "what was the impact and what can we learn".
+
+## The blameless frame (state it before you start)
+
+A blameless postmortem analyzes **how** the failure became possible — the system
+conditions and the information available to operators (human OR agent) at the
+time — not **who** did what wrong (Allspaw, _Blameless PostMortems and a Just
+Culture_; Google SRE Ch.15). In a complex system, operators act locally
+rationally on incomplete information under time pressure; punishing those actions
+destroys the candor the analysis depends on. Blameless != unaccountable: everyone
+is on the hook for helping the system get safer.
+
+**This applies to a _prior agent's_ diagnosis too.** If an earlier session (or
+your earlier self) misdiagnosed the incident, frame it as a systemic gap
+("the live disk metric wasn't in context; the dashboard number was ambiguous")
+— not "the prior agent was careless". A wrong early hypothesis that anchored the
+response is a contributing factor to analyze, not a person to indict.
+
+Language:
+
+- **Do:** "the alert did not fire", "the runbook lacked a step for X", "the
+  metric was ambiguous and was read as Y", "any operator with that context would
+  plausibly have concluded Z".
+- **Avoid:** "X should have known / obviously / clearly" (hindsight bias);
+  naming an individual making an error in the prose; "human error" or "agent
+  error" as a _terminal_ finding (it is always the _start_ of the
+  investigation); evaluative adjectives ("inexplicably", "which is absurd").
+
+Counter the named biases explicitly: **hindsight** (analyze forward from before
+the incident, not backward from the outcome), **confirmation** (challenge the
+first hypothesis — appoint yourself devil's advocate), **fundamental attribution
+error** (prefer situational over dispositional explanations).
+
+## Process
+
+### Step 0: Confirm resolution and scope
+
+A postmortem is written _after_ mitigation/resolution, while context is fresh
+(Google SRE: SEV-1 within ~3 days, SEV-2 within ~5). Confirm the incident is
+actually resolved (don't postmortem an active fire — stabilize first). State the
+SEV level and the one-line scope.
+
+### Step 1: Gather evidence (and note its limits)
+
+Collect the evidence base BEFORE narrating, so the timeline rests on facts:
+
+- Logs (service, DB, pooler), with the query commands used.
+- Metrics/graphs (the dashboard panels, with the actual numbers).
+- Deploy/restart records, process listings, config changes.
+- The tracking task(s) and any chat/transcript of the response.
+
+**Record retention limits explicitly.** Runtime observability often has short
+windows (provider logs rotate; a log _stream_ can freeze independently of the DB;
+a dashboard number may not be reproducible later). Add an **Evidence / retention
+disclaimer** to the doc naming what was captured when and what is no longer
+reproducible. An unconfirmable claim must be marked as such — never upgrade a
+"can't reproduce" into a fact. (See the 2026-05-20 reviewer-triple-failure doc
+for the disclaimer pattern.)
+
+### Step 2: Build the timeline (UTC, factual)
+
+Chronological record from the first anomaly through full resolution. Conventions:
+
+- **All timestamps UTC**, `HH:MM:SS UTC — [actor/system]: observed event -> action -> effect`.
+- **Phase markers** (visually distinct): `OUTAGE BEGINS` (first impact),
+  `DETECTED` (first discovery + how), `DECLARED` (response started),
+  `MITIGATED` (impact materially reduced), `RESOLVED` (full restoration),
+  `CLOSED` (cleanup/postmortem done).
+- **Facts, not evaluation.** "Probed SELECT 1 -> connection timeout" not "wasted
+  a probe". Each entry needs a source (log line, graph, message).
+- Don't anchor the start on when it was _declared_ — anchor on when impact
+  _began_. The DETECTED-minus-OUTAGE_BEGINS gap is your detection lag (MTTD) and
+  is itself a finding.
+- Include "nothing observed" windows — they explain detection lag.
+
+### Step 3: Analyze — trigger + contributing factors + detection gap
+
+**Do NOT write a single root cause.** Complex systems fail through multiple
+latent conditions aligning; each is _necessary_ but only _jointly sufficient_
+(Cook, _How Complex Systems Fail_; Allspaw, _Each Necessary But Only Jointly
+Sufficient_). Ask **"how"**, not "why" — "why" elicits justification and routes
+to blame; "how" elicits the conditions (Allspaw, _The Infinite Hows_). The 5
+Whys is at most a prompt to dig one level past a symptom — never the framework.
+
+Produce three explicit buckets:
+
+- **Trigger** — the proximate event that started the sequence (where a naive
+  investigation incorrectly stops).
+- **Contributing factors** — the pre-existing latent conditions that made the
+  trigger dangerous (missing idempotency, unbounded retry, a leak, an absent
+  guard, a self-sustaining feedback loop). These are the real prevention targets.
+- **Detection gap** — why discovery was slow/manual (no alert, alert mis-routed,
+  no continuous probe).
+
+Run a **wrong-hypothesis check**: was the response anchored on an early story
+that later evidence disproved? Name it as a contributing factor (anchoring is a
+real failure mode and a learning), and verify your _final_ causal claims against
+the evidence rather than the first narrative. If "single root cause" is the only
+thing you can write, you have not finished the analysis.
+
+### Step 4: Quantify impact
+
+Concrete, not "significant": affected surfaces, duration (outage->resolution),
+what work/requests/state were lost or stranded, any safety control disabled and
+its exposure window, cost incurred. Compute the response metrics where the
+evidence supports them: **MTTD** (begin->detect), **MTTR** (begin->resolve), and
+note where each gap was spent (detection vs investigation vs fix).
+
+### Step 5: Lessons learned (all three — Google SRE)
+
+- **What went well** — effective actions to reinforce (don't omit; counters
+  negativity bias).
+- **What went wrong** — the gaps (systemic phrasing).
+- **Where we got lucky** — risks that didn't bite this time but easily could
+  (the highest-value section; surfaces latent SEV-1s).
+
+### Step 6: Action items (typed, owned, tracked)
+
+Every action item must be SMART, have a **single owner**, be **tracked as a
+Minsky task** (file it — an item that lives only in the doc will not close), be
+prioritized, and carry a **type**:
+
+| Type         | Targets                                       | Example                                                    |
+| ------------ | --------------------------------------------- | ---------------------------------------------------------- |
+| **Prevent**  | Make the trigger impossible / non-propagating | "make migrate run once per deploy, not per process boot"   |
+| **Mitigate** | Cap blast radius when it recurs               | "bound concurrent connections; reap orphaned children"     |
+| **Detect**   | Close the detection gap                       | "alert + out-of-band watchdog on shared-DB unreachability" |
+| **Process**  | Runbook / docs / procedure                    | "document the pooler-breaker-vs-disk-full distinction"     |
+
+A healthy postmortem produces items across **multiple types**. All-Process items
+means the systemic causes weren't found. **Ban "try harder" non-actions** —
+"be more careful", "pay closer attention", "remember to X" are not action items;
+design so the failure can't recur even with normal fallibility ("plan for a
+future where we're as fallible as today" — SRE Workbook). File each as a task;
+prefer extending an existing tracking task over a near-duplicate (search first).
+
+### Step 7: Write the document
+
+Path: `docs/incidents/<YYYY-MM-DD>-<short-topic>.md` (per the Documentation
+Taxonomy — per-incident postmortems live in the repo, version with the code).
+Use the template below. Then file/link the action-item tasks and cross-reference
+the incident task(s).
+
+### Step 8: Close the loop
+
+- File every action item as a task (one owner, type, priority); link them in the
+  doc.
+- Update the incident tracking task(s) with the doc path and the contributing-
+  factors summary.
+- If the incident surfaced an _agent-process_ failure (e.g. a misdiagnosis),
+  run `/retrospective` for that, separately.
+- Save a single `feedback` memory ONLY if there's a durable, generalizable
+  agent-facing lesson (e.g. "X breaker is pooler-level, a DB reboot won't reset
+  it") — not a duplicate of the doc.
+
+## Document template
+
+```markdown
+# <YYYY-MM-DD> <Incident title>
+
+**Incident task:** <id> **Severity:** SEV-<n> **Status:** <Draft|Reviewed|Closed>
+**Impact window:** <UTC start> - <UTC end> (~<duration>)
+**Detection:** <how discovered + when> (MTTD ~<gap>)
+**Authors:** <who>
+
+## Summary
+
+<One paragraph: what happened, scope of impact, the contributing-factors phrase,
+how it was resolved. Readable in 60 seconds.>
+
+## Impact
+
+<Quantified: surfaces affected, duration, work/state lost, safety controls
+disabled + exposure window, cost. MTTD / MTTR.>
+
+## Timeline (UTC)
+
+| Time (UTC) | Event               |
+| ---------- | ------------------- |
+| ...        | OUTAGE BEGINS - ... |
+| ...        | DETECTED - ...      |
+| ...        | MITIGATED - ...     |
+| ...        | RESOLVED - ...      |
+
+## Analysis
+
+### Trigger
+
+<the proximate initiating event>
+### Contributing factors
+1. <latent condition> - <how it contributed>
+2. ...
+### Detection gap
+<why discovery was slow/manual>
+### Wrong-hypothesis note (if any)
+<early story that anchored the response and was later disproven, and the
+systemic reason it was plausible>
+
+## Lessons learned
+
+### What went well
+
+### What went wrong
+
+### Where we got lucky
+
+## Action items
+
+| ID (task) | Type (Prevent/Mitigate/Detect/Process) | Owner | Priority | Item |
+| --------- | -------------------------------------- | ----- | -------- | ---- |
+
+## Evidence & retention
+
+<sources, query commands, dashboard numbers captured-at, and what is no longer
+reproducible.>
+
+## Cross-references
+
+<incident task(s), related tasks, prior related incidents, memories, theory.>
+```
+
+## Output to user
+
+After writing the doc and filing action items, report:
+
+```markdown
+## Postmortem: <title> — SEV-<n>
+
+**Doc:** docs/incidents/<file>.md
+**Impact:** <one line + duration>
+**Trigger:** <one line> **Top contributing factors:** <2-3, one line each>
+**Action items filed:** <N> (<x Prevent / y Detect / ...>) — <task ids>
+**Where we got lucky:** <one line>
+```
+
+Keep the agent-facing summary short; the doc is the long-form artifact.
+
+## Anti-patterns (reject these in your own draft)
+
+- **Single root cause.** If you wrote one cause, you stopped early — enumerate
+  contributing factors.
+- **Blame / named individual making an error** in the prose; "human/agent error"
+  as a terminal finding.
+- **Hindsight language** — "should have", "obviously", "clearly".
+- **Narrative anchored on the first (wrong) hypothesis** — verify final claims
+  against evidence, not the early story.
+- **Fabricating a cause to fill a gap** — an unconfirmable claim is marked
+  unconfirmable, not upgraded to fact.
+- **"Try harder" action items** — vague behavioral prescriptions with no owner,
+  no ticket, no system change.
+- **Action items only in the doc** — file them as tasks or they won't close.
+- **All-Process action items** — a sign the systemic/technical causes were
+  missed.
+- **Postmortem-as-paperwork** — depth of investigation over form-completion.
+
+## Key principles
+
+- **Blameless, systems-thinking.** How, not why. Conditions, not culprits.
+- **Contributing factors, not a single root cause** (Cook; Allspaw).
+- **Impact-triggered, not fault-triggered.**
+- **Evidence-grounded; retention-honest.** Mark the unconfirmable.
+- **Action items are tracked tasks, typed, single-owner** — or they don't exist.
+- **"Where we got lucky" is mandatory** — it surfaces the next incident.
+- **Connected to Minsky philosophy** — variety management (Ashby): an incident
+  means regulatory variety (detection + prevention) was insufficient for the
+  system's complexity; action items amplify it. Detection-type items are the
+  feedback channel; prevention-type items reduce the disturbance source.
+
+## References (community best practice)
+
+- Google SRE Book Ch.15 "Postmortem Culture" + Appendix D example; SRE Workbook
+  "Postmortem Culture".
+- PagerDuty postmortem docs (postmortems.pagerduty.com) — structure, blameless,
+  severity/timing, action-item tracking.
+- John Allspaw — "Blameless PostMortems and a Just Culture" (Etsy); "The
+  Infinite Hows" (5-Whys critique); "Each Necessary, But Only Jointly
+  Sufficient".
+- Richard Cook — "How Complex Systems Fail".
+- Atlassian / Rootly — MTTD / MTTA / MTTR / MTBF definitions.
+
+## Cross-references
+
+- `/retrospective` — agent cognitive/process failures (this skill's sibling for
+  the agent layer; run both when an incident also exposed an agent misstep).
+- `/incident-memo` — end-of-session cross-incident synthesis (Notion).
+- Documentation Taxonomy (CLAUDE.md) — incident memos live at
+  `docs/incidents/<date>-<topic>.md`.
+- `docs/incidents/2026-05-20-reviewer-triple-failure.md` — format precedent
+  (layered root causes, UTC timeline, evidence disclaimer).
+- `docs/incidents/2026-06-28-supabase-connectivity-breaker.md` — first
+  application of this skill.

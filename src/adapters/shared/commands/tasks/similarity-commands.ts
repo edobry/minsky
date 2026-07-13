@@ -1,9 +1,9 @@
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import type { CommandExecutionContext } from "../../command-registry";
-import { TaskStatus } from "../../../../domain/tasks/taskConstants";
-import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
+import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
+import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
@@ -36,7 +36,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   readonly parameters = tasksSimilarParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => import("../../../../domain/persistence/types").PersistenceProvider,
+    private readonly getPersistenceProvider: () => import("@minsky/domain/persistence/types").PersistenceProvider,
     private readonly getTaskService: () => TaskServiceInterface
   ) {
     super();
@@ -126,7 +126,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     // Show degraded warning to stderr unless JSON/quiet
     if (response.degraded) {
       try {
-        const { log } = await import("../../../../utils/logger");
+        const { log } = await import("@minsky/shared/logger");
         const quiet = Boolean(params.quiet);
         const json = Boolean(params.json) || ctx.format === "json";
         if (!quiet && !json) {
@@ -163,7 +163,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   readonly parameters = tasksSearchParams;
 
   constructor(
-    private readonly getPersistenceProvider: () => import("../../../../domain/persistence/types").PersistenceProvider,
+    private readonly getPersistenceProvider: () => import("@minsky/domain/persistence/types").PersistenceProvider,
     private readonly getTaskService: () => TaskServiceInterface
   ) {
     super();
@@ -248,7 +248,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
 
     // Immediate progress hint to stderr unless JSON/quiet
     try {
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       const quiet = Boolean(params.quiet);
       const json = Boolean(params.json) || ctx.format === "json";
       if (!quiet && !json) {
@@ -261,12 +261,12 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     // Optional human-friendly diagnostics (no global debug needed)
     if (params.details) {
       try {
-        const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
+        const cfg = await (await import("@minsky/domain/configuration")).getConfiguration();
         const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
         const model = cfg.embeddings?.model || "text-embedding-3-small";
         const effThreshold = threshold ?? service.getConfig()?.similarityThreshold ?? "(default)";
         // Print to CLI in human-friendly lines
-        const { log } = await import("../../../../utils/logger");
+        const { log } = await import("@minsky/shared/logger");
         // Write diagnostics to stderr so --json stays clean on stdout
         log.cliWarn(`Search provider: ${provider}`);
         log.cliWarn(`Model: ${model}`);
@@ -277,7 +277,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       }
     }
 
-    // Build filters from CLI parameters for server-side filtering
+    // Build domain filters from CLI parameters. These are applied at READ TIME against
+    // the live `tasks` table inside TaskSimilarityService.searchByText (over-fetch +
+    // post-filter), NOT pushed into the vector store as denormalized-column filters.
+    // See docs/architecture/adr-013-filtered-vector-search.md.
     const filters: Record<string, unknown> = {};
 
     // Add backend filter if provided
@@ -299,7 +302,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
 
     // Show backend info to stderr unless JSON/quiet
     try {
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       const quiet = Boolean(params.quiet);
       const json = Boolean(params.json) || ctx.format === "json";
       if (!quiet && !json) {
@@ -319,11 +322,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       // ignore logging failures
     }
 
-    // Enhance results with task details for better usability
+    // Enhance results with task details for better usability. response.results is
+    // already filtered and truncated to `limit` by the service's read-time domain
+    // filter, so no client-side filtering is needed here.
     const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
-
-    // Server-side filtering handles all filtering - no client-side filtering needed
-    // This eliminates redundant filtering and improves performance
 
     return this.formatResult(
       {
@@ -340,12 +342,12 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
   }
 }
 
-import { createEmbeddingServiceFromConfig } from "../../../../domain/ai/embedding-service-factory";
-import { getConfiguration } from "../../../../domain/configuration";
-import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
+import { createEmbeddingServiceFromConfig } from "@minsky/domain/ai/embedding-service-factory";
+import { getConfiguration } from "@minsky/domain/configuration";
+import { getEmbeddingDimension } from "@minsky/domain/ai/embedding-models";
 
 export async function createTaskSimilarityService(
-  persistenceProvider: import("../../../../domain/persistence/types").BasePersistenceProvider,
+  persistenceProvider: import("@minsky/domain/persistence/types").BasePersistenceProvider,
   taskService: TaskServiceInterface
 ): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
@@ -359,16 +361,16 @@ export async function createTaskSimilarityService(
   // Check vector capability
   if (
     !resolvedProvider.capabilities.vectorStorage ||
-    !("getVectorStorage" in resolvedProvider) ||
-    typeof (resolvedProvider as Record<string, unknown>).getVectorStorage !== "function"
+    !("getVectorStorageForDomain" in resolvedProvider) ||
+    typeof (resolvedProvider as Record<string, unknown>).getVectorStorageForDomain !== "function"
   ) {
     throw new Error(
       `Persistence provider ${resolvedProvider.constructor.name} does not support vector storage`
     );
   }
   const vectorStorage = (
-    resolvedProvider as import("../../../../domain/persistence/types").VectorCapablePersistenceProvider
-  ).getVectorStorage(dimension);
+    resolvedProvider as import("@minsky/domain/persistence/types").VectorCapablePersistenceProvider
+  ).getVectorStorageForDomain("tasks", dimension);
 
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});

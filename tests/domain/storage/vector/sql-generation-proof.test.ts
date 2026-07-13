@@ -7,7 +7,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { first } from "../../../../src/utils/array-safety";
 
 // Test constants to avoid magic string duplication
-const POSTGRES_VEC_MODULE_PATH = "../../../../src/domain/storage/vector/postgres-vector-storage";
+const POSTGRES_VEC_MODULE_PATH = "@minsky/domain/storage/vector/postgres-vector-storage";
 const TASKS_EMBEDDINGS_TABLE = "tasks_embeddings";
 
 describe("SQL Generation Proof for Server-Side Filtering", () => {

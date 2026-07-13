@@ -23,21 +23,25 @@ import {
   type CommandParameterMap,
   type CommandDefinition,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
-import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
-import type { VectorStorage } from "../../../../domain/storage/vector/types";
-import type { MemoryServiceSurface } from "../../../../domain/memory/memory-service";
-import type { MemoryServiceDb } from "../../../../domain/memory/memory-service";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
+import type { VectorStorage } from "@minsky/domain/storage/vector/types";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import type {
   MemoryType,
   MemoryScope,
   MemoryRecord,
   MemoryCreateInput,
   MemorySearchResult,
-} from "../../../../domain/memory/types";
-import { MEMORY_TYPES, MEMORY_SCOPES } from "../../../../domain/memory/types";
-import { checkDerivation } from "../../../../domain/memory/validation";
+  MemoryAssociations,
+} from "@minsky/domain/memory/types";
+import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
+import { checkDerivation } from "@minsky/domain/memory/validation";
+import { emitSystemEventBestEffort } from "../system-event-emit";
+import { memoriesTable } from "@minsky/domain/storage/schemas/memory-embeddings";
+import { classifyIdInput, resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
@@ -53,6 +57,7 @@ export interface MemorySearchParams {
   scope?: MemoryScope;
   projectId?: string;
   excludeSuperseded?: boolean;
+  allProjects?: boolean;
 }
 
 export interface MemoryGetParams {
@@ -67,6 +72,9 @@ export interface MemoryListParams {
   stale?: boolean;
   stalenessDays?: number;
   limit?: number;
+  associationType?: string;
+  associationTarget?: string;
+  allProjects?: boolean;
 }
 
 export interface MemoryLineageParams {
@@ -78,12 +86,14 @@ export interface MemoryCreateParams {
   name: string;
   description: string;
   content: string;
-  scope: MemoryScope;
+  /** Scope of the memory. Optional — defaults to "project" when omitted (mt#2663). */
+  scope?: MemoryScope;
   projectId?: string | null;
   tags?: string[];
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
+  associations?: MemoryAssociations;
   force?: boolean;
 }
 
@@ -99,6 +109,7 @@ export interface MemoryUpdateParams {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
+  associations?: MemoryAssociations;
 }
 
 export interface MemoryDeleteParams {
@@ -162,6 +173,12 @@ const memorySearchParams = {
     required: false as const,
     defaultValue: false,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false as const,
+  },
 } satisfies CommandParameterMap;
 
 const memoryGetParams = {
@@ -211,6 +228,24 @@ const memoryListParams = {
     description: "Maximum number of results to return",
     required: false as const,
   },
+  associationType: {
+    schema: z.string(),
+    description:
+      "Filter by association type (e.g., 'tracksTask'). Must be used together with associationTarget.",
+    required: false as const,
+  },
+  associationTarget: {
+    schema: z.string(),
+    description:
+      "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
+    required: false as const,
+  },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)",
+    required: false as const,
+  },
 } satisfies CommandParameterMap;
 
 const memoryLineageParams = {
@@ -244,8 +279,10 @@ const memoryCreateParams = {
   },
   scope: {
     schema: z.enum(memoryScopeValues),
-    description: "Scope of the memory (project | user | cross_project)",
-    required: true as const,
+    description:
+      'Scope of the memory (project | user | cross_project). Defaults to "project" when omitted (mt#2663).',
+    required: false as const,
+    defaultValue: MEMORY_SCOPES.project,
   },
   projectId: {
     schema: z.string().nullable(),
@@ -270,6 +307,12 @@ const memoryCreateParams = {
   confidence: {
     schema: z.number().nullable(),
     description: "Confidence score (0–1), reserved for Phase 3",
+    required: false as const,
+  },
+  associations: {
+    schema: z.record(z.string(), z.array(z.string())),
+    description:
+      'Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). See ADR-012 for type-string conventions.',
     required: false as const,
   },
   force: {
@@ -334,6 +377,12 @@ const memoryUpdateParams = {
   confidence: {
     schema: z.number().nullable(),
     description: "New confidence score",
+    required: false as const,
+  },
+  associations: {
+    schema: z.record(z.string(), z.array(z.string())),
+    description:
+      "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
     required: false as const,
   },
 } satisfies CommandParameterMap;
@@ -457,7 +506,7 @@ async function resolveMemoryService(
   if (deps?.createMemoryService) {
     // Provide minimal no-op stubs so factory can be called from tests
     const { MemoryVectorStorage } = await import(
-      "../../../../domain/storage/vector/memory-vector-storage"
+      "@minsky/domain/storage/vector/memory-vector-storage"
     );
     const noopEmbedding: EmbeddingService = {
       generateEmbedding: async () => [],
@@ -485,20 +534,20 @@ async function resolveMemoryService(
     : undefined;
 
   const { createEmbeddingServiceFromConfig } = await import(
-    "../../../../domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
   const embeddingService = await createEmbeddingServiceFromConfig();
 
   let vectorStorage: VectorStorage;
   if (persistence) {
-    const { createVectorStorageFromConfig } = await import(
-      "../../../../domain/storage/vector/vector-storage-factory"
+    const { createVectorStorageForDomain } = await import(
+      "@minsky/domain/storage/vector/vector-storage-factory"
     );
-    vectorStorage = await createVectorStorageFromConfig(1536, persistence);
+    vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
   } else {
     log.warn("[memory] No persistence provider; using in-memory vector storage");
     const { MemoryVectorStorage } = await import(
-      "../../../../domain/storage/vector/memory-vector-storage"
+      "@minsky/domain/storage/vector/memory-vector-storage"
     );
     vectorStorage = new MemoryVectorStorage(1536);
   }
@@ -513,7 +562,7 @@ async function resolveMemoryService(
     );
   }
 
-  const { PersistenceProvider } = await import("../../../../domain/persistence/types");
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
   if (!(persistence instanceof PersistenceProvider)) {
     throw new Error(
       "Memory service requires a PersistenceProvider instance; got incompatible DI binding."
@@ -536,8 +585,116 @@ async function resolveMemoryService(
 
   const db = connection as MemoryServiceDb;
 
-  const { MemoryService: MemoryServiceClass } = await import("../../../../domain/memory");
+  const { MemoryService: MemoryServiceClass } = await import("@minsky/domain/memory");
   return new MemoryServiceClass({ db, vectorStorage, embeddingService });
+}
+
+// ─── ADR-021 project scope resolution ────────────────────────────────────────
+
+/**
+ * Resolve the current project scope for memory queries (ADR-021, mt#2416).
+ *
+ * Returns a project UUID string when this workspace maps to a known project,
+ * or undefined when allProjects=true, no persistence is available, the project
+ * is unidentified, or resolution fails (fail-open: never throws).
+ */
+async function resolveMemoryProjectScope(
+  allProjects: boolean | undefined,
+  ctx: CommandExecutionContext
+): Promise<string | undefined> {
+  if (allProjects) return undefined;
+
+  const persistence = ctx?.container?.has("persistence")
+    ? ctx.container.get("persistence")
+    : undefined;
+  if (!persistence) return undefined;
+
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+  if (!(persistence instanceof PersistenceProvider)) return undefined;
+  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+    return undefined;
+  }
+
+  try {
+    const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+    const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+    const { isAllProjects } = await import("@minsky/domain/project/scope");
+    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+    if (identity.kind !== "resolved") return undefined;
+    const rawDb = await persistence.getDatabaseConnection();
+    if (!rawDb) return undefined;
+    const { type: _t, ...db } =
+      rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb &
+        Record<string, unknown>;
+    const scope = await resolveProjectScope(
+      identity,
+      db as import("@minsky/domain/project/scope-resolver").ScopeResolverDb
+    );
+    return isAllProjects(scope) ? undefined : scope;
+  } catch (err: unknown) {
+    log.debug("[memory] Project scope resolution failed; defaulting to all projects", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return undefined;
+  }
+}
+
+// ─── mt#2696: id-prefix resolution ────────────────────────────────────────────
+
+/**
+ * Resolve the raw Postgres connection for a prefix-resolution lookup, without
+ * building a full MemoryService. Fails soft (returns null) on any resolution
+ * problem — the caller falls back to passing the raw input through, letting
+ * `resolveMemoryService` (called immediately after in every command) surface
+ * its own descriptive "persistence provider required" error.
+ */
+async function resolveMemoryDbForPrefix(
+  ctx: CommandExecutionContext
+): Promise<MemoryServiceDb | null> {
+  const persistence = ctx?.container?.has("persistence")
+    ? ctx.container.get("persistence")
+    : undefined;
+  if (!persistence) return null;
+
+  try {
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    return connection ? (connection as MemoryServiceDb) : null;
+  } catch (err: unknown) {
+    log.debug("[memory] DB resolution for id-prefix lookup failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * Resolve a caller-supplied memory id (full UUID or unambiguous prefix, mt#2696)
+ * to the full UUID `memories.id` before it reaches any `eq(memoriesTable.id, ...)`
+ * comparison. A full UUID passes through unchanged with no query. A short/no-match/
+ * ambiguous prefix throws a clean tool-level error (never a raw Postgres
+ * "invalid input syntax for type uuid" error).
+ *
+ * When no DB connection is resolvable here, the raw input is passed through —
+ * the immediately-following `resolveMemoryService` call in every command
+ * surfaces the "persistence provider required" error instead.
+ */
+async function resolveMemoryIdInput(id: string, ctx: CommandExecutionContext): Promise<string> {
+  const db = await resolveMemoryDbForPrefix(ctx);
+  if (!db) return id;
+
+  return resolveIdPrefixOrThrow({
+    db,
+    table: memoriesTable,
+    idColumn: memoriesTable.id,
+    labelColumn: memoriesTable.name,
+    input: id,
+    entityName: "memory",
+  });
 }
 
 // ─── Registration function ────────────────────────────────────────────────────
@@ -561,6 +718,9 @@ export function registerMemoryCommands(
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
+      // ADR-021 / mt#2416: resolve project scope for this query.
+      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+
       try {
         const response = await service.search(params.query, {
           limit: params.limit ?? 10,
@@ -568,6 +728,7 @@ export function registerMemoryCommands(
             type: params.type,
             scope: params.scope,
             projectId: params.projectId,
+            projectScope,
             excludeSuperseded: params.excludeSuperseded,
           },
         });
@@ -585,16 +746,38 @@ export function registerMemoryCommands(
     id: "memory.get",
     category: CommandCategory.MEMORY,
     name: "get",
-    description: "Fetch a single memory record by its identifier.",
+    description:
+      "Fetch a single memory record by its identifier. Accepts a full UUID or an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff.",
     parameters: memoryGetParams,
     execute: async (params: MemoryGetParams, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.get", { id: params.id });
 
+      // mt#2696: resolve a short-prefix citation to the full uuid before it
+      // ever reaches a Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const record = await service.get(params.id);
+      const record = await service.get(id);
 
       if (!record) {
-        throw new Error(`Memory not found: "${params.id}"`);
+        // mt#2696 R1: name both what the caller passed AND how it was
+        // interpreted (full UUID vs prefix) rather than echoing the raw
+        // input unconditionally — a resolved prefix that no longer matches
+        // a live row (e.g. deleted between resolution and this read) reads
+        // very differently from a syntactically full UUID that never
+        // existed, and the diagnostic should say which happened.
+        const classification = classifyIdInput(params.id);
+        // Only claim a resolution happened when one actually did — when no DB
+        // was available, resolveMemoryIdInput passes the prefix through
+        // unchanged, and "(resolved to <the same prefix>)" would be false.
+        const message =
+          classification.kind === "prefix"
+            ? id !== params.id
+              ? `Memory not found for id prefix "${params.id}" (resolved to "${id}")`
+              : `Memory not found for id prefix "${params.id}"`
+            : `Memory not found with id "${id}"`;
+        throw new Error(message);
       }
 
       return record;
@@ -616,13 +799,22 @@ export function registerMemoryCommands(
       });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
+
+      // ADR-021 / mt#2416: resolve project scope for this query.
+      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+
       let records = await service.list({
         type: params.type,
         scope: params.scope,
         projectId: params.projectId,
+        projectScope,
         excludeSuperseded: params.excludeSuperseded,
         stale: params.stale,
         stalenessDays: params.stalenessDays,
+        association:
+          params.associationType && params.associationTarget
+            ? { type: params.associationType, targetId: params.associationTarget }
+            : undefined,
       });
 
       if (params.limit !== undefined) {
@@ -659,20 +851,44 @@ export function registerMemoryCommands(
 
       const service = await resolveMemoryService(deps, ctx ?? {});
 
+      // ADR-021 / mt#2416: default projectId to the resolved current project
+      // scope when the caller has not explicitly supplied one. An explicit
+      // params.projectId is always respected (even if it differs from the
+      // current-project scope — e.g., a migration tool). When scope is
+      // ALL_PROJECTS / unidentified, the returned value is undefined → null,
+      // which preserves current behavior (cross-project inserts).
+      const resolvedProjectId =
+        params.projectId != null
+          ? params.projectId
+          : ((await resolveMemoryProjectScope(false, ctx ?? {})) ?? null);
+
       const input: MemoryCreateInput = {
         type: params.type,
         name: params.name,
         description: params.description,
         content: params.content,
-        scope: params.scope,
-        projectId: params.projectId ?? null,
+        // mt#2663: scope is optional at this layer (defaultValue: "project" on
+        // the parameter definition above); defend here too in case execute()
+        // is invoked directly (e.g. tests) bypassing the MCP/CLI default-value
+        // application.
+        scope: params.scope ?? MEMORY_SCOPES.project,
+        projectId: resolvedProjectId,
         tags: params.tags ?? [],
         sourceAgentId: params.sourceAgentId ?? null,
         sourceSessionId: params.sourceSessionId ?? null,
         confidence: params.confidence ?? null,
+        associations: params.associations,
       };
 
       const record = await service.create(input);
+
+      // Best-effort system event for the plant-board activity stream (mt#2489).
+      // Never affects the create outcome.
+      await emitSystemEventBestEffort(ctx?.container, {
+        eventType: "memory.created",
+        payload: { memoryId: record.id, memoryType: record.type, scope: record.scope },
+      });
+
       return record;
     },
   });
@@ -724,13 +940,18 @@ export function registerMemoryCommands(
     name: "similar",
     description:
       "Find memory records semantically similar to an existing one. " +
-      "Excludes the source memory from results.",
+      "Excludes the source memory from results. Accepts a full UUID or an " +
+      "unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
     parameters: memorySimilarParams,
     execute: async (params: MemorySimilarParams, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.similar", { id: params.id, limit: params.limit });
 
+      // mt#2696: resolve a short-prefix citation before it reaches a
+      // Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const results: MemorySearchResult[] = await service.similar(params.id, {
+      const results: MemorySearchResult[] = await service.similar(id, {
         limit: params.limit ?? 10,
         threshold: params.threshold,
       });
@@ -783,13 +1004,18 @@ export function registerMemoryCommands(
     name: "lineage",
     description:
       "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. " +
-      "Each step carries the supersession_reason in its metadata.",
+      "Each step carries the supersession_reason in its metadata. Accepts a full UUID or " +
+      "an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
     parameters: memoryLineageParams,
     execute: async (params: MemoryLineageParams, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.lineage", { id: params.id });
 
+      // mt#2696: resolve a short-prefix citation before it reaches a
+      // Postgres `uuid` column comparison.
+      const id = await resolveMemoryIdInput(params.id, ctx ?? {});
+
       const service = await resolveMemoryService(deps, ctx ?? {});
-      const result = await service.lineage(params.id);
+      const result = await service.lineage(id);
       return result;
     },
   });

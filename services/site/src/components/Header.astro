@@ -1,0 +1,73 @@
+---
+// Header — site identity + nav rail.
+// Wordmark glyph rotates ~10s per cycle (ambient identity motion per
+// docs/brand-system.md §3). prefers-reduced-motion collapse is handled
+// globally in global.css.
+---
+
+<header class="w-full border-b border-white/[0.06]">
+  <div class="max-w-[1200px] mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-3 group" aria-label="Minsky home">
+      <span class="wordmark-glyph" aria-hidden="true">
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 32 32"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="16"
+            cy="16"
+            r="13"
+            stroke="var(--color-signal)"
+            stroke-width="1.5"
+            stroke-dasharray="2 4"
+          />
+          <circle cx="16" cy="16" r="3" fill="var(--color-signal)" />
+        </svg>
+      </span>
+      <span class="font-sans text-[15px] tracking-tight font-medium">Minsky</span>
+    </a>
+    <nav class="flex items-center gap-7" aria-label="Primary">
+      <a class="nav-link" href="#substrate">Substrate</a>
+      <a class="nav-link" href="#how-it-works">How it works</a>
+      <a class="nav-link" href="https://github.com/edobry/minsky">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .wordmark-glyph {
+    display: inline-flex;
+    animation: wordmark-rotate 10s linear infinite;
+    transform-origin: center;
+  }
+  @keyframes wordmark-rotate {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark-glyph {
+      animation: none;
+    }
+  }
+
+  .nav-link {
+    font-family: var(--font-mono);
+    font-size: var(--text-eyebrow);
+    letter-spacing: var(--text-eyebrow--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    transition: color 180ms ease;
+    line-height: 24px;
+    padding: 10px 4px;
+  }
+  .nav-link:hover {
+    color: var(--color-text-primary);
+  }
+</style>

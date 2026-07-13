@@ -1,0 +1,125 @@
+---
+import SubstrateScene from "./SubstrateScene.astro";
+
+/*
+ * Eight scenes per marketing-site-design/SKILL.md §9.
+ * Headlines are three- to four-word conceptual per docs/brand-system.md §4.
+ * Real screenshots land in followup once principal authorizes capture; until
+ * then each scene renders the brand-tokened placeholder via ProductFrame.
+ */
+const scenes = [
+  {
+    eyebrow: "Sessions · Scene 01",
+    title: "Sessions that isolate.",
+    body: "Each task gets its own session workspace — branch, env, file scope. The agent never operates on main; the principal never adjudicates a merge conflict that came from agent-side drift.",
+    screenshot: undefined,
+    screenshotAlt: "CLI: minsky session start mt#1934",
+  },
+  {
+    eyebrow: "Substrate · Scene 02",
+    title: "Tools that compose.",
+    body: "Minsky exposes its substrate over MCP — tasks, sessions, memory, review — so a flock of agents reads the same surface. One contract, every harness.",
+    screenshot: undefined,
+    screenshotAlt: "MCP tool call surfaced through Claude Code",
+  },
+  {
+    eyebrow: "Cockpit · Scene 03",
+    title: "Attention that allocates.",
+    body: "The cockpit renders the principal's working set: in-flight tasks, open PRs, asks awaiting decision, hook denials worth knowing about. Mission-control density, not consumer-app whitespace.",
+    screenshot: undefined,
+    screenshotAlt: "Cockpit web home — attention surface",
+  },
+  {
+    eyebrow: "Review · Scene 04",
+    title: "Reviews that hold.",
+    body: "minsky-reviewer[bot] reviews every PR adversarially with a cross-family model and no implementer context. Chinese-wall by construction; merges block until the reviewer converges.",
+    screenshot: undefined,
+    screenshotAlt: "minsky-reviewer[bot] adversarial review on a PR",
+  },
+  {
+    eyebrow: "Graph · Scene 05",
+    title: "Tasks that converge.",
+    body: "Tasks decompose into subtasks and resolve as a DAG. The status state-machine is enforced in the domain layer — TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE — not as convention.",
+    screenshot: undefined,
+    screenshotAlt: "Task dependency graph with subtask DAG",
+  },
+  {
+    eyebrow: "Memory · Scene 06",
+    title: "Memory that compounds.",
+    body: "Durable findings land in the Minsky memory store and surface on demand. The same lesson never has to be relearned across sessions, harnesses, or agents.",
+    screenshot: undefined,
+    screenshotAlt: "Memory recall at conversation start",
+  },
+  {
+    eyebrow: "Hooks · Scene 07",
+    title: "Hooks that catch.",
+    body: "Structural guardrails fire at the action surface — branch-freshness, contract-propagation, bypass-merge, generated-file edits. The agent runs into the wall before the principal does.",
+    screenshot: undefined,
+    screenshotAlt: "PreToolUse hook denying a stale-branch merge",
+  },
+  {
+    eyebrow: "Asks · Scene 08",
+    title: "Decisions that surface.",
+    body: "When a choice is principal-reserved — naming, framework selection, scope change — Minsky packages the question and the options instead of guessing. The principal stays load-bearing on principal-level decisions.",
+    screenshot: undefined,
+    screenshotAlt: "Asks subsystem packaging a principal decision",
+  },
+];
+---
+
+<section id="substrate" aria-labelledby="substrate-heading">
+  <header class="substrate-header">
+    <div class="substrate-header-inner">
+      <p class="eyebrow">The substrate</p>
+      <h2 id="substrate-heading" class="substrate-headline">
+        Eight surfaces. One substrate.
+      </h2>
+      <p class="substrate-sub">
+        The flock operates on a common substrate. Each surface is a real organ
+        of the cognitive system — not a marketing tile.
+      </p>
+    </div>
+  </header>
+  {
+    scenes.map((s, i) => (
+      <SubstrateScene
+        eyebrow={s.eyebrow}
+        title={s.title}
+        body={s.body}
+        screenshot={s.screenshot}
+        screenshotAlt={s.screenshotAlt}
+        reverse={i % 2 === 1}
+      />
+    ))
+  }
+</section>
+
+<style>
+  .substrate-header {
+    padding: 5rem 1.5rem 2.5rem;
+  }
+  .substrate-header-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .substrate-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.022em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .substrate-sub {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    line-height: 1.55;
+    color: var(--color-text-muted);
+    max-width: 36rem;
+    margin: 0;
+  }
+</style>

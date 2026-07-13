@@ -4,10 +4,11 @@
  * Lazy initialization to avoid circular dependencies.
  */
 import { TaskCommandRegistry } from "./base-task-command";
-import type { AppContainerInterface } from "../../../../composition/types";
-import { DrizzleAskRepository } from "../../../../domain/ask/repository";
-import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
-import { log } from "../../../../utils/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { DrizzleAskRepository } from "@minsky/domain/ask/repository";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { log } from "@minsky/shared/logger";
+import { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 
 let registry: TaskCommandRegistry | null = null;
 
@@ -82,6 +83,41 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       return null;
     }
   };
+  // Optional SubagentDispatchTracker factory — best-effort, returns null when unavailable (mt#1737)
+  let _cachedTracker: SubagentDispatchTracker | null = null;
+  let _trackerInitAttempted = false;
+  const getTracker = (): SubagentDispatchTracker | null => {
+    if (_trackerInitAttempted) return _cachedTracker;
+    _trackerInitAttempted = true;
+    try {
+      if (!container?.has("persistence")) return null;
+      const provider = container.get("persistence") as SqlCapablePersistenceProvider;
+      if (!provider.getDatabaseConnection) return null;
+      // Tracker requires a PostgresJsDatabase. We kick off async init here;
+      // if it resolves before the first dispatch call the tracker is available.
+      // If not, the first dispatch will find null and skip silently.
+      (async () => {
+        try {
+          const db = await provider.getDatabaseConnection();
+          if (db) {
+            _cachedTracker = new SubagentDispatchTracker(
+              db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+            );
+          }
+        } catch (err: unknown) {
+          log.debug("[tasks] Could not initialize SubagentDispatchTracker", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+      return null; // Async init; first call may not have the tracker yet
+    } catch (err: unknown) {
+      log.debug("[tasks] Could not initialize SubagentDispatchTracker (sync error)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
@@ -117,6 +153,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksEstimateCommand,
     createTasksAnalyzeCommand,
   } = require("./context-commands");
+  const { createTasksClaimsListCommand } = require("./claims-command");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
@@ -162,7 +199,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       getPersistenceProvider,
       getSessionProvider,
       getTaskGraphService,
-      getTaskService
+      getTaskService,
+      getTracker
     ),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
@@ -170,5 +208,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDecomposeCommand(getTaskGraphService, getTaskService),
     createTasksEstimateCommand(getTaskGraphService, getTaskService),
     createTasksAnalyzeCommand(getTaskGraphService, getTaskService),
+    // Presence/claim commands (mt#2562)
+    createTasksClaimsListCommand(getPersistenceProvider),
   ];
 }

@@ -29,15 +29,15 @@ import * as path from "path";
 import * as crypto from "crypto";
 import matter from "gray-matter";
 import { readTextFileSync } from "../src/utils/fs";
-import { checkDerivation } from "../src/domain/memory/validation";
-import type { MemoryServiceSurface, MemoryServiceDb } from "../src/domain/memory/memory-service";
+import { checkDerivation } from "@minsky/domain/memory/validation";
+import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import type {
   MemoryType,
   MemoryScope,
   MemoryCreateInput,
   MemoryRecord,
-} from "../src/domain/memory/types";
-import { MEMORY_TYPES } from "../src/domain/memory/types";
+} from "@minsky/domain/memory/types";
+import { MEMORY_TYPES } from "@minsky/domain/memory/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -161,7 +161,13 @@ interface ParseError {
 }
 
 function parseMemoryFile(fileContent: string): ParseResult | ParseError {
-  const parsed = matter(fileContent);
+  let parsed: ReturnType<typeof matter>;
+  try {
+    parsed = matter(fileContent);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: `YAML parse error: ${msg.split("\n")[0] ?? msg}` };
+  }
   const fm = parsed.data as Record<string, unknown>;
   const body = parsed.content.trim();
 
@@ -380,17 +386,17 @@ function saveReport(report: ImportReport): string {
 
 async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
-    "../src/domain/configuration"
+    "@minsky/domain/configuration"
   );
   const { createCliContainer } = await import("../src/composition/cli");
-  const { PersistenceProvider } = await import("../src/domain/persistence/types");
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
   const { createEmbeddingServiceFromConfig } = await import(
-    "../src/domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
-  const { createVectorStorageFromConfig } = await import(
-    "../src/domain/storage/vector/vector-storage-factory"
+  const { createVectorStorageForDomain } = await import(
+    "@minsky/domain/storage/vector/vector-storage-factory"
   );
-  const { MemoryService } = await import("../src/domain/memory");
+  const { MemoryService } = await import("@minsky/domain/memory");
 
   await initializeConfiguration(new CustomConfigFactory(), {
     workingDirectory: process.cwd(),
@@ -431,7 +437,7 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const db = connection as MemoryServiceDb;
 
   const embeddingService = await createEmbeddingServiceFromConfig();
-  const vectorStorage = await createVectorStorageFromConfig(1536, persistence);
+  const vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
 
   return new MemoryService({ db, vectorStorage, embeddingService });
 }

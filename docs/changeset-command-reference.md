@@ -2,7 +2,7 @@
 
 ## Overview
 
-Minsky provides unified changeset abstraction that works across different VCS platforms (GitHub PRs, GitLab MRs, local git, etc.) with consistent terminology and functionality.
+Minsky provides a unified changeset abstraction with consistent terminology and functionality. The abstraction is platform-shaped, but **GitHub PRs are the only implemented backend** (mt#2613 removed the speculative GitLab/Bitbucket adapters, which had zero callers).
 
 ## Command Architecture
 
@@ -20,7 +20,7 @@ minsky repo changeset search "authentication fix" [--status open] [--author user
 # Get detailed information about any changeset
 minsky repo changeset get 154 [--details]
 
-# Show platform capabilities (GitHub features, local git features, etc.)
+# Show platform capabilities
 minsky repo changeset info [--json]
 
 # Filter by specific session
@@ -30,9 +30,7 @@ minsky repo changeset search "bug fix" --session my-session
 
 ### Session-Specific Operations
 
-Use `session pr` for current session workflow or `session changeset`/`session cs` aliases for consistent terminology:
-
-#### Primary Commands (Original)
+Use `session pr` for current session workflow (workspace-scoped):
 
 ```bash
 minsky session pr create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
@@ -43,70 +41,20 @@ minsky session pr approve [--review-comment "LGTM"]
 minsky session pr merge
 ```
 
-#### Changeset Aliases (Same Functionality)
-
-```bash
-minsky session changeset create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
-minsky session changeset edit --title "Updated title" [--body "..."]
-minsky session changeset list [--all]
-minsky session changeset get [id]
-minsky session changeset approve [--review-comment "LGTM"]
-minsky session changeset merge
-```
-
-#### Short Aliases
-
-```bash
-minsky session cs create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
-minsky session cs edit --title "Updated title" [--body "..."]
-minsky session cs list [--all]
-minsky session cs get [id]
-minsky session cs approve [--review-comment "LGTM"]
-minsky session cs merge
-```
+`session pr *` and repo-scoped `repo changeset *` are the canonical command
+families. Earlier `session changeset *` / `session cs *` aliases over the same
+functionality were retired (mt#2611) — migrate any remaining usages to
+`session pr *` above.
 
 ## Platform Support
 
-### GitHub
+**GitHub is the only implemented changeset backend.** `detectPlatform()` fails fast with a clear error for non-GitHub repositories (mt#2613).
 
 - ✅ Full PR support with reviews, comments, status checks
 - ✅ Draft PRs, branch protection, auto-merge
-- ✅ GitHub API integration for rich metadata
+- ✅ Rich metadata via the shared `repository/github-pr-*` layer (single Octokit construction path)
 
-### Local Git
-
-- ✅ Prepared merge commit workflow (existing)
-- ✅ pr/ branch management
-- ✅ Session integration with task references
-
-### GitLab (Future)
-
-- 🔄 Merge Requests (MRs) support
-- 🔄 GitLab API integration
-- 🔄 Pipeline status tracking
-
-### Bitbucket (Future)
-
-- 🔄 Pull Request support
-- 🔄 Bitbucket API integration
-
-### Other VCS (Future)
-
-- 🔄 Fossil changesets
-- 🔄 Jujutsu changes
-- 🔄 Mercurial commits
-
-## Feature Comparison
-
-| Feature           | GitHub | Local Git | GitLab\* | Bitbucket\* |
-| ----------------- | ------ | --------- | -------- | ----------- |
-| Approval Workflow | ✅     | ✅        | 🔄       | 🔄          |
-| Draft Changesets  | ✅     | ❌        | 🔄       | ❌          |
-| File Comments     | ✅     | ❌        | 🔄       | ✅          |
-| Status Checks     | ✅     | ❌        | 🔄       | ❌          |
-| Auto Merge        | ✅     | ✅        | 🔄       | ✅          |
-
-\*Future implementation
+The session-domain prepared-merge-commit workflow (pr/ branches for local git) exists in the session layer and is not a changeset adapter. Adding another platform (GitLab, Bitbucket, etc.) means implementing a new `ChangesetAdapter` and registering its factory; the `ChangesetPlatform` union deliberately retains the other platform identifiers as stable public API for that future.
 
 ## Usage Examples
 
@@ -130,14 +78,14 @@ minsky repo changeset get 42 --details
 minsky session start --task mt#123
 
 # Create changeset when ready
-minsky session cs create --title "Implement feature" --type feat
+minsky session pr create --title "Implement feature" --type feat
 
 # List current session's changesets
-minsky session cs list
+minsky session pr list
 
 # Approve and merge
-minsky session cs approve --review-comment "LGTM"
-minsky session cs merge
+minsky session pr approve --review-comment "LGTM"
+minsky session pr merge
 ```
 
 ### Platform Information
@@ -171,8 +119,7 @@ All existing `session pr` commands continue to work without changes. The new cha
 
 All changeset commands are also available via MCP tools for remote access and integration:
 
-- `changeset.list`, `changeset.search`, `changeset.get`, `changeset.info`
-- `session.changeset.create`, `session.changeset.approve`, etc.
-- `session.cs.create`, `session.cs.approve`, etc.
+- `changeset_list`, `changeset_search`, `changeset_get`, `changeset_info` (repo-scoped, backend-agnostic)
+- `session_pr_create`, `session_pr_approve`, `session_pr_merge`, etc. (workspace-scoped)
 
 This enables programmatic access to changeset operations for automation and integration scenarios.

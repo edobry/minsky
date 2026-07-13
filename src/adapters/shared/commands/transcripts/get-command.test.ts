@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createSharedCommandRegistry, CommandCategory } from "../../command-registry";
 import { registerTranscriptGetCommand } from "./get-command";
-import type { AppContainerInterface } from "../../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 const COMMAND_ID = "transcripts.get";
 
@@ -42,22 +42,53 @@ describe("transcripts.get command", () => {
       expect(command.description).toContain("turn range");
     });
 
-    test("declares sessionId and turnRange parameters", () => {
+    test("declares conversationId (canonical), sessionId (deprecated alias), and turnRange", () => {
       const command = getCommand();
       const params = command.parameters as Record<string, unknown>;
-      expect(params.sessionId).toBeDefined();
+      expect(params.conversationId).toBeDefined();
+      expect(params.sessionId).toBeDefined(); // back-compat alias (mt#2526)
       expect(params.turnRange).toBeDefined();
     });
 
-    test("sessionId is required; turnRange is optional with no default", () => {
+    test("conversation id is required at runtime (not a schema flag); turnRange optional", () => {
       const command = getCommand();
       const params = command.parameters as Record<
         string,
         { required?: boolean; defaultValue?: unknown } | undefined
       >;
-      expect(params.sessionId?.required).toBe(true);
+      // Required-ness is enforced at execute time (resolveConversationId) so the
+      // deprecated sessionId alias still satisfies it — neither key is schema-required.
+      expect(params.conversationId?.required).toBeFalsy();
+      expect(params.sessionId?.required).toBeFalsy();
       expect(params.turnRange?.required).toBeFalsy();
       expect(params.turnRange?.defaultValue).toBeUndefined();
+    });
+
+    test("execute throws when neither conversationId nor sessionId is provided", async () => {
+      const minimalContext = { interface: "cli" as const };
+      await expect(getCommand().execute({}, minimalContext)).rejects.toThrow(
+        /requires conversationId/
+      );
+    });
+
+    test("conversationId (canonical) and sessionId (alias) both resolve past to the DI guard", async () => {
+      const containerWithoutPersistence: ContainerSubset = {
+        has: (_key: string) => false,
+        get: (_key: string) => {
+          throw new Error("not bound");
+        },
+      };
+      const ctx = {
+        interface: "cli" as const,
+        container: containerWithoutPersistence as AppContainerInterface,
+      };
+      // Both keys get past resolution to the DI guard — proving the alias is honored.
+      await expect(getCommand().execute({ conversationId: "conv-abc" }, ctx)).rejects.toThrow(
+        /persistence/
+      );
+      await expect(getCommand().execute({ sessionId: "conv-abc" }, ctx)).rejects.toThrow(
+        /persistence/
+      );
     });
   });
 

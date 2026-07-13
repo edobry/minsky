@@ -3,10 +3,10 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrOpenCommandParams } from "./session-parameters";
-import { sessionPrOpen } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrOpen } from "@minsky/domain/session/commands/pr-subcommands";
 
 export function createSessionPrOpenCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {

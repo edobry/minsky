@@ -5,10 +5,10 @@
  */
 
 import { describe, it, expect, beforeAll, mock } from "bun:test";
-import { DefaultRuleSuggestionService } from "../../domain/context/rule-suggestion";
-import type { RuleSuggestionRequest } from "../../domain/context/types";
-import type { Rule } from "../../domain/rules/types";
-import { first, elementAt } from "../../utils/array-safety";
+import { DefaultRuleSuggestionService } from "@minsky/domain/context/rule-suggestion";
+import type { RuleSuggestionRequest } from "@minsky/domain/context/types";
+import type { Rule } from "@minsky/domain/rules/types";
+import { first, elementAt } from "@minsky/shared/array-safety";
 import { RULES_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("suggest-rules service integration", () => {
