@@ -29,16 +29,16 @@ export class EmbeddingsSimilarityBackend implements SimilarityBackend {
     // mt#2744: phase timing to attribute embeddings-search latency between the
     // remote query-embedding call and the (HNSW-indexed) vector query — the only
     // two per-call costs in this shared path. Debug-level; near-zero overhead.
-    const embedStart = performance.now();
+    const embedStart = Date.now();
     const vector = await this.embeddingService.generateEmbedding(text);
-    const embedMs = performance.now() - embedStart;
+    const embedMs = Date.now() - embedStart;
 
-    const searchStart = performance.now();
+    const searchStart = Date.now();
     const results = await this.vectorStorage.search(vector, {
       limit,
       filters: query.filters,
     });
-    const vectorSearchMs = performance.now() - searchStart;
+    const vectorSearchMs = Date.now() - searchStart;
 
     log.debug("embeddings-search phase timing (mt#2744)", {
       embedMs: Math.round(embedMs),

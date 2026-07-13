@@ -116,7 +116,7 @@ export class TaskSimilarityService {
     // embed-vs-vector split per getSearchService().search() call; this summary adds
     // the filtered-path overhead (fetch-all-tasks for live filtering + a possible
     // second "widen" vector search) that the backend-level timing cannot see.
-    const searchStartTs = performance.now();
+    const searchStartTs = Date.now();
 
     // Fast path: no domain filter (used by similarToTask / searchSimilarTasks) — search
     // the full corpus directly with no extra task lookups.
@@ -125,7 +125,7 @@ export class TaskSimilarityService {
       log.debug("tasks searchByText timing (mt#2744)", {
         path: "fast",
         searches: 1,
-        totalMs: Math.round(performance.now() - searchStartTs),
+        totalMs: Math.round(Date.now() - searchStartTs),
         limit,
       });
       return {
@@ -138,9 +138,9 @@ export class TaskSimilarityService {
 
     // Live source of truth for every task's status/backend (one query, lightweight
     // metadata — spec content is loaded separately and not included here).
-    const allTasksFetchStart = performance.now();
+    const allTasksFetchStart = Date.now();
     const allTasks = await this.searchTasks({});
-    const allTasksFetchMs = performance.now() - allTasksFetchStart;
+    const allTasksFetchMs = Date.now() - allTasksFetchStart;
     const taskById = new Map(allTasks.map((t) => [t.id, t]));
     const passes = (task: Task | undefined): boolean => {
       if (!task) return false; // orphaned embedding (no live task) — drop
@@ -191,7 +191,7 @@ export class TaskSimilarityService {
 
     log.debug("tasks searchByText timing (mt#2744)", {
       path: "filtered",
-      totalMs: Math.round(performance.now() - searchStartTs),
+      totalMs: Math.round(Date.now() - searchStartTs),
       allTasksFetchMs: Math.round(allTasksFetchMs),
       allTasksCount: total,
       vectorSearches,
