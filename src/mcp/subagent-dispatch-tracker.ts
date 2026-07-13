@@ -45,9 +45,10 @@ import {
   type SubagentInvocationInsert,
   type SubagentInvocationOutcome,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
-} from "../domain/storage/schemas/subagent-invocations-schema";
-import { log } from "../utils/logger";
-import { getErrorMessage } from "../errors/index";
+} from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { EventEmitter } from "@minsky/domain/events/emitter";
 
 // ---------------------------------------------------------------------------
 // Escalation threshold constants (tunable from a single place)
@@ -74,6 +75,17 @@ export const DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5;
  * 3 rate-limit hits/day suggests a structural capacity problem.
  */
 export const DAILY_RATE_LIMITED_THRESHOLD = 3;
+
+/**
+ * Sentinel `agentType` value used by callers that don't have the real
+ * dispatch-time agent type available (e.g. the SubagentStop hook, which only
+ * observes the workspace at Stop time — see `.claude/hooks/record-subagent-invocation.ts`).
+ * `agent_type` is a NOT NULL column, so callers must supply SOME string; this
+ * sentinel marks "no real value known" so the UPDATE path (see
+ * `recordSubagentInvocation` below) can avoid clobbering the real value that
+ * was written at dispatch time (mt#2653).
+ */
+export const UNKNOWN_AGENT_TYPE = "unknown";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -165,8 +177,8 @@ export class SubagentDispatchTracker {
    * Called from the MCP start-command once the DB connection is resolved.
    * Idempotent — subsequent calls replace the instance (useful for tests).
    */
-  static setInstance(db: PostgresJsDatabase): SubagentDispatchTracker {
-    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+  static setInstance(db: PostgresJsDatabase, eventEmitter?: EventEmitter): SubagentDispatchTracker {
+    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db, eventEmitter);
     return SubagentDispatchTracker._instance;
   }
 
@@ -179,7 +191,10 @@ export class SubagentDispatchTracker {
     return SubagentDispatchTracker._instance;
   }
 
-  constructor(private readonly db: PostgresJsDatabase) {}
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    private readonly eventEmitter?: EventEmitter
+  ) {}
 
   /**
    * Insert a new invocation row, or update an existing one identified by
@@ -202,11 +217,21 @@ export class SubagentDispatchTracker {
    * @param input  The invocation record to persist.
    */
   async recordSubagentInvocation(input: SubagentInvocationInput): Promise<void> {
+    // mt#2653 R1: events must carry the PERSISTED agentType, not necessarily
+    // `input.agentType` — when the UPDATE path omits the sentinel (see below),
+    // the row keeps its EXISTING (dispatch-time) value, which can differ from
+    // what this call's `input` carried. Defaults to `input.agentType` for the
+    // INSERT paths, where "persisted" and "input" are the same value by
+    // construction; reassigned below on the UPDATE path.
+    let resolvedAgentType: string = input.agentType;
     try {
       if (input.subagentSessionId != null) {
         // Upsert path: check for an existing row by subagentSessionId.
         const existing = await this.db
-          .select({ id: subagentInvocationsTable.id })
+          .select({
+            id: subagentInvocationsTable.id,
+            agentType: subagentInvocationsTable.agentType,
+          })
           .from(subagentInvocationsTable)
           .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId))
           .limit(1);
@@ -223,7 +248,31 @@ export class SubagentDispatchTracker {
           // lifecycle (SubagentStop classifying the outcome) must not overwrite
           // the dispatch-time timestamp, which `lastDispatch` and `byHourLast24h`
           // depend on for chronology.
-          const { id: _id, startedAt: _startedAt, ...updateFields } = input;
+          const { id: _id, startedAt: _startedAt, agentType, ...restFields } = input;
+
+          // mt#2653: also preserve `agentType` when the caller only has the
+          // `UNKNOWN_AGENT_TYPE` sentinel. The SubagentStop hook writes this
+          // sentinel unconditionally (it has no way to recover the real
+          // dispatch-time agentType from the workspace alone), but the
+          // dispatch-time INSERT already wrote the real value
+          // (`promptResult.agentType`) — an unconditional `.set({ agentType })`
+          // on UPDATE would clobber it with "unknown" on every SubagentStop.
+          // Omitting the field here leaves the existing column value
+          // untouched; a caller that genuinely has a real (non-sentinel)
+          // agentType still updates it normally.
+          const updateFields: Partial<SubagentInvocationInput> =
+            agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
+
+          // The value that will actually be PERSISTED after this UPDATE: the
+          // existing row's agentType when the sentinel is omitted, otherwise
+          // the new value being written. Events below must use this, not the
+          // raw `input.agentType`, or they'd report "unknown" even though the
+          // DB row (and thus every future read of it) preserves the real
+          // dispatch-time value — the exact DB-vs-telemetry divergence this
+          // fixes (mt#2653 R1).
+          resolvedAgentType =
+            agentType === UNKNOWN_AGENT_TYPE ? firstExisting.agentType : agentType;
+
           await this.db
             .update(subagentInvocationsTable)
             .set(updateFields)
@@ -235,6 +284,48 @@ export class SubagentDispatchTracker {
       } else {
         // No session key — always INSERT a new row.
         await this.db.insert(subagentInvocationsTable).values(input);
+      }
+
+      // Emit subagent.failed event for failure outcomes (mt#2095).
+      // Best-effort — EventEmitter.emit() never throws.
+      if (
+        this.eventEmitter &&
+        (input.outcome === "crashed-no-output" ||
+          input.outcome === "partial-uncommitted-no-handoff")
+      ) {
+        await this.eventEmitter.emit({
+          eventType: "subagent.failed",
+          payload: {
+            taskId: input.taskId,
+            agentType: resolvedAgentType,
+            outcome: input.outcome,
+            errorSummary: input.errorSummary,
+          },
+          relatedTaskId: input.taskId ?? undefined,
+          relatedSessionId: input.parentSessionId ?? undefined,
+        });
+      }
+
+      // Emit subagent.completed event for success outcomes (mt#2487).
+      // Co-located with the subagent.failed branch above; the two are
+      // mutually exclusive (rate-limited emits neither). Best-effort —
+      // EventEmitter.emit() never throws.
+      if (
+        this.eventEmitter &&
+        (input.outcome === "completed-with-pr" ||
+          input.outcome === "committed-no-pr" ||
+          input.outcome === "partial-committed-handoff-written")
+      ) {
+        await this.eventEmitter.emit({
+          eventType: "subagent.completed",
+          payload: {
+            taskId: input.taskId,
+            agentType: resolvedAgentType,
+            outcome: input.outcome,
+          },
+          relatedTaskId: input.taskId ?? undefined,
+          relatedSessionId: input.parentSessionId ?? undefined,
+        });
       }
     } catch (err) {
       log.warn("subagent_dispatch_tracker: failed to record invocation", {
@@ -251,10 +342,16 @@ export class SubagentDispatchTracker {
    *
    * All aggregations are performed in a single round of queries. Returns a
    * zero-filled cadence object when the table is empty or on DB error.
+   *
+   * @param now  Reference "now" for the 24h window cutoff used by
+   *   `byHourLast24h`. Defaults to the real wall clock. Callers normally omit
+   *   this — it exists as an injectable clock seam so tests can pin
+   *   time-window assertions to a fixed reference date instead of the real
+   *   wall clock (mt#2654).
    */
-  async getCadence(): Promise<SubagentDispatchCadence> {
+  async getCadence(now: Date = new Date()): Promise<SubagentDispatchCadence> {
     try {
-      return await this._queryCadence();
+      return await this._queryCadence(now);
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getCadence failed", {
         error: getErrorMessage(err),
@@ -277,10 +374,14 @@ export class SubagentDispatchTracker {
    *     recently seen `parentSessionId` value in the table).
    *
    * Returns "none" below both thresholds, or if a DB error occurs.
+   *
+   * @param now  Reference "now" for the 24h window cutoff used by the daily
+   *   checks. Defaults to the real wall clock. See `getCadence`'s `now` doc —
+   *   same injectable-clock seam (mt#2654).
    */
-  async getEscalation(): Promise<"none" | "session" | "daily"> {
+  async getEscalation(now: Date = new Date()): Promise<"none" | "session" | "daily"> {
     try {
-      return await this._queryEscalation();
+      return await this._queryEscalation(now);
     } catch (err) {
       log.warn("subagent_dispatch_tracker: getEscalation failed", {
         error: getErrorMessage(err),
@@ -293,8 +394,7 @@ export class SubagentDispatchTracker {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private async _queryCadence(): Promise<SubagentDispatchCadence> {
-    const now = new Date();
+  private async _queryCadence(now: Date): Promise<SubagentDispatchCadence> {
     const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // ── 1. Total count + last dispatch ──────────────────────────────────────
@@ -376,8 +476,7 @@ export class SubagentDispatchTracker {
     };
   }
 
-  private async _queryEscalation(): Promise<"none" | "session" | "daily"> {
-    const now = new Date();
+  private async _queryEscalation(now: Date): Promise<"none" | "session" | "daily"> {
     const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     // ── 1. Daily checks ──────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
-import { log } from "../utils/logger";
-import { getErrorMessage, getErrorStack } from "../errors/index";
-import { processCwd } from "../utils/process";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage, getErrorStack } from "@minsky/domain/errors/index";
+import { processCwd } from "@minsky/shared/process";
 
 /**
  * Configuration options for the MCP Inspector

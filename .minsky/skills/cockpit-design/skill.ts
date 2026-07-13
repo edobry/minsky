@@ -1,4 +1,4 @@
-import { defineSkill, loadMarkdown } from "../../../src/domain/definitions/factories";
+import { defineSkill, loadMarkdown } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
   name: "cockpit-design",

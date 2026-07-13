@@ -8,4 +8,4 @@
  * @see src/domain/memory/validation.ts
  */
 
-export { checkDerivation, type DerivationIssue } from "../../../../domain/memory/validation";
+export { checkDerivation, type DerivationIssue } from "@minsky/domain/memory/validation";

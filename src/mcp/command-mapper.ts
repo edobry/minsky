@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
-import { getErrorMessage } from "../errors/index";
-import type { MinskyMCPServer, ToolDefinition } from "./server";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { MinskyMCPServer, ToolDefinition, ToolProgressReporter } from "./server";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
@@ -128,7 +128,8 @@ export class CommandMapper {
     parameters?: z.ZodType;
     handler?: (
       args: Record<string, unknown>,
-      context?: ProjectContext
+      context?: ProjectContext,
+      progress?: ToolProgressReporter
     ) => Promise<string | Record<string, unknown>>;
     /**
      * mt#1792: lazy handler thunk. When provided (without `handler`), the tool
@@ -139,7 +140,8 @@ export class CommandMapper {
     getHandler?: () => Promise<
       (
         args: Record<string, unknown>,
-        context?: ProjectContext
+        context?: ProjectContext,
+        progress?: ToolProgressReporter
       ) => Promise<string | Record<string, unknown>>
     >;
     /**
@@ -186,7 +188,7 @@ export class CommandMapper {
         inputSchema,
         mutating: command.mutating,
         requiresInit: command.requiresInit,
-        handler: async (args) => {
+        handler: async (args, progress) => {
           try {
             log.debug("Executing MCP command", {
               methodName: normalizedName,
@@ -194,7 +196,7 @@ export class CommandMapper {
               hasProjectContext: !!capturedContext,
             });
 
-            const result = await eagerHandler(args || {}, capturedContext);
+            const result = await eagerHandler(args || {}, capturedContext, progress);
 
             log.debug("MCP command executed successfully", {
               methodName: normalizedName,
@@ -230,14 +232,14 @@ export class CommandMapper {
           const resolvedFn = await lazyGetHandler();
           // Return a wrapped handler that injects project context + logging,
           // matching the eager path's behaviour exactly.
-          return async (args: Record<string, unknown>) => {
+          return async (args: Record<string, unknown>, progress?: ToolProgressReporter) => {
             try {
               log.debug("Executing MCP command (lazy-resolved)", {
                 methodName: normalizedName,
                 args: args || {},
                 hasProjectContext: !!capturedContext,
               });
-              const result = await resolvedFn(args || {}, capturedContext);
+              const result = await resolvedFn(args || {}, capturedContext, progress);
               log.debug("MCP command executed successfully (lazy-resolved)", {
                 methodName: normalizedName,
                 resultType: typeof result,

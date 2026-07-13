@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { mock } from "bun:test";
-import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
+import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
   isSessionWorkspace,
@@ -10,7 +10,7 @@ import {
   getSessionFromRepo,
   getCurrentSession,
   resolveWorkspacePath,
-} from "../../../src/domain/workspace.js";
+} from "@minsky/domain/workspace";
 import { join } from "path";
 
 // Set up automatic mock cleanup
@@ -29,9 +29,22 @@ const mockGitRootExecAsync = (stdout: string): any => {
 };
 
 describe("Workspace Domain Methods", () => {
+  // Saved so the real process.cwd can be restored after every test. Bun's
+  // mock.restore() (wired via setupTestMocks()) only rewinds spies created
+  // via spyOn/mock.module — it does NOT undo a raw property reassignment
+  // like `process.cwd = mock(...)`, so without this restore the mocked
+  // "/mock/projects/minsky" leaks into every subsequent test file in the
+  // same bun test process (mt#2608 — same class of bug found in
+  // packages/domain/src/errors/message-templates.test.ts).
+  const realCwd = process.cwd;
+
   beforeEach(() => {
     // Mock process.cwd() to return consistent mock directory
     (process as unknown as Record<string, unknown>).cwd = mock(() => "/mock/projects/minsky");
+  });
+
+  afterEach(() => {
+    (process as unknown as Record<string, unknown>).cwd = realCwd;
   });
 
   describe("isSessionRepository (async workspace checking)", () => {

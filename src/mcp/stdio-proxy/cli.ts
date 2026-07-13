@@ -12,9 +12,9 @@
 
 import { Command } from "commander";
 import { runProxy } from "./proxy";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
-import { exit } from "../../utils/process";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { exit } from "@minsky/shared/process";
 
 /**
  * Parse a --child-args option value into an array of argument strings.

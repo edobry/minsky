@@ -1,0 +1,6 @@
+{
+  "name": "@minsky/cockpit-preview",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Per-PR cockpit preview deploy service (mt#2096)"
+}

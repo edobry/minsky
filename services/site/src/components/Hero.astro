@@ -1,0 +1,90 @@
+---
+import CtaButton from "./CtaButton.astro";
+import ProductFrame from "./ProductFrame.astro";
+---
+
+<section class="hero">
+  <div class="hero-grid">
+    <div class="hero-caption">
+      <p class="eyebrow">Minsky · cyberbrain substrate</p>
+      <h1 class="hero-headline tracking-display">
+        The cyberbrain for software organizations led by a principal.
+      </h1>
+      <p class="hero-sub">
+        Minsky orchestrates tasks, sessions, and review across a flock of
+        agents — a substrate that extends a principal's cognition without
+        becoming a team tool.
+      </p>
+      <div class="hero-cta-row">
+        <CtaButton href="https://github.com/edobry/minsky" variant="primary" external>
+          Read the code
+        </CtaButton>
+        <CtaButton href="#substrate" variant="secondary">
+          See the substrate
+        </CtaButton>
+      </div>
+    </div>
+    <div class="hero-product">
+      <ProductFrame />
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    padding: 4.5rem 1.5rem 6rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 6%, transparent);
+  }
+  .hero-grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  @media (min-width: 960px) {
+    .hero-grid {
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+      gap: 4.5rem;
+    }
+    .hero {
+      padding: 7rem 1.5rem 8rem;
+    }
+  }
+
+  .hero-caption {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .hero-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(2.5rem, 5.2vw, 4.25rem);
+    font-weight: 500;
+    line-height: 1.05;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+
+  .hero-sub {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    line-height: 1.55;
+    color: var(--color-text-muted);
+    max-width: 32rem;
+    margin: 0;
+  }
+
+  .hero-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+
+  .hero-product {
+    width: 100%;
+  }
+</style>

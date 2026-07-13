@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" font-family="'JetBrains Mono', ui-monospace, monospace">
+  <defs>
+    <linearGradient id="laneFill" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#0E0E0E"/>
+      <stop offset="1" stop-color="#050608"/>
+    </linearGradient>
+    <linearGradient id="rail" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#00BFD8" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#0080A0" stop-opacity="0.25"/>
+    </linearGradient>
+    <radialGradient id="ballGrad" cx="0.38" cy="0.34" r="0.75">
+      <stop offset="0" stop-color="#7FE9F4"/>
+      <stop offset="0.5" stop-color="#00BFD8"/>
+      <stop offset="1" stop-color="#0080A0"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- lane bed -->
+  <polygon points="360,580 840,580 648,150 552,150" fill="url(#laneFill)" stroke="#1a1a1a" stroke-width="1"/>
+
+  <!-- board seams (perspective) -->
+  <g stroke="#141a1c" stroke-width="1">
+    <line x1="420" y1="580" x2="567" y2="150"/>
+    <line x1="480" y1="580" x2="582" y2="150"/>
+    <line x1="540" y1="580" x2="594" y2="150"/>
+    <line x1="660" y1="580" x2="606" y2="150"/>
+    <line x1="720" y1="580" x2="618" y2="150"/>
+    <line x1="780" y1="580" x2="633" y2="150"/>
+  </g>
+
+  <!-- center guide line (the intended trajectory) -->
+  <line x1="600" y1="560" x2="600" y2="150" stroke="#00BFD8" stroke-width="2"
+        stroke-dasharray="4 10" opacity="0.55"/>
+
+  <!-- bumpers raised: glowing rails standing off the gutters, both sides -->
+  <g filter="url(#glow)">
+    <!-- left rail top edge -->
+    <polyline points="332,580 528,150" fill="none" stroke="url(#rail)" stroke-width="6" stroke-linecap="round"/>
+    <!-- right rail top edge -->
+    <polyline points="868,580 672,150" fill="none" stroke="url(#rail)" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <!-- rail posts (left) -->
+  <g stroke="#00BFD8" stroke-width="3" opacity="0.7">
+    <line x1="360" y1="580" x2="332" y2="580"/>
+    <line x1="429" y1="430" x2="406" y2="430"/>
+    <line x1="492" y1="295" x2="473" y2="295"/>
+    <line x1="540" y1="190" x2="525" y2="190"/>
+  </g>
+  <!-- rail posts (right) -->
+  <g stroke="#00BFD8" stroke-width="3" opacity="0.7">
+    <line x1="840" y1="580" x2="868" y2="580"/>
+    <line x1="771" y1="430" x2="794" y2="430"/>
+    <line x1="708" y1="295" x2="727" y2="295"/>
+    <line x1="660" y1="190" x2="675" y2="190"/>
+  </g>
+
+  <!-- pins at the far end -->
+  <g fill="#EEEEEE">
+    <ellipse cx="600" cy="158" rx="6.5" ry="13"/>
+    <ellipse cx="588" cy="168" rx="7"  ry="14"/>
+    <ellipse cx="612" cy="168" rx="7"  ry="14"/>
+    <ellipse cx="576" cy="180" rx="7.5" ry="15"/>
+    <ellipse cx="600" cy="180" rx="7.5" ry="15"/>
+    <ellipse cx="624" cy="180" rx="7.5" ry="15"/>
+  </g>
+
+  <!-- ball + motion trail down the center -->
+  <g>
+    <circle cx="600" cy="300" r="9"  fill="#00BFD8" opacity="0.12"/>
+    <circle cx="600" cy="360" r="13" fill="#00BFD8" opacity="0.18"/>
+    <circle cx="600" cy="430" r="19" fill="#00BFD8" opacity="0.28"/>
+    <circle cx="600" cy="510" r="30" fill="url(#ballGrad)" filter="url(#glow)"/>
+  </g>
+</svg>

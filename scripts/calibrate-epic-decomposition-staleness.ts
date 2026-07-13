@@ -37,7 +37,7 @@ import {
   detectEpicDecompositionStaleness,
   type EpicChildSnapshot,
   type EpicStalenessCandidate,
-} from "../src/domain/detectors/epic-decomposition-staleness";
+} from "@minsky/domain/detectors/epic-decomposition-staleness";
 
 const DEFAULT_EPICS = ["mt#1552", "mt#1110", "mt#1335"];
 

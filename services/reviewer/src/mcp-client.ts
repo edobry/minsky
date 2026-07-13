@@ -8,11 +8,17 @@
  * every `tools/call` to fail with `-32600 "Invalid Request: first request must
  * be initialize"` — the mt#1821 bug.
  *
- * This module is the single shared client for the reviewer service. All five
- * prior hand-rolled callers (merge-state-sweeper, server.ts at-merge handler,
- * adoption-sweeper, pr-watch-scheduler, asks-reconcile-scheduler) plus the two
- * specialised helpers in this file (callAuthorshipGet, callTasksSpecGet) use
- * `callMcp` so the handshake exists in exactly one place.
+ * This module is the single shared client for the reviewer service. Active
+ * callers (as of mt#2121):
+ * - server.ts — at-merge webhook handler (`runMergeStateSyncViaTaskId`)
+ * - adoption-sweeper.ts — adoption signal ingestion (pending mt#2101 migration)
+ *
+ * Former callers migrated to direct domain imports (mt#2121):
+ * - merge-state-sweeper.ts — uses @minsky/domain/session directly
+ * - tier-routing.ts — uses ProvenanceService directly
+ * - task-spec-fetch.ts — uses TaskServiceInterface directly
+ * - pr-watch-scheduler.ts — uses @minsky/domain container directly
+ * - asks-reconcile-scheduler.ts — uses @minsky/domain container directly
  *
  * Design constraints:
  * - Plain fetch only — no @modelcontextprotocol/sdk dependency.
@@ -22,7 +28,6 @@
  * - On -32001 "Session not found" OR HTTP 404, the cache is invalidated and one retry runs.
  */
 
-import type { ReviewerConfig } from "./config";
 import { log } from "./logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
@@ -30,23 +35,7 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Narrow shape returned by the authorship.get MCP tool. */
-export interface AuthorshipResult {
-  tier: number | null;
-  rationale?: string;
-  policyVersion?: string;
-  judgingModel?: string;
-  [key: string]: unknown;
-}
-
-/** Outcome of calling `tasks.spec.get` on the hosted MCP. */
-export type TasksSpecGetResult =
-  | { kind: "found"; content: string }
-  | { kind: "disabled" }
-  | { kind: "not-found" }
-  | { kind: "error"; message: string };
-
-/** Minimal MCP config — extracted from ReviewerConfig or constructed directly. */
+/** Minimal MCP config — extracted from the reviewer config or constructed directly. */
 export interface McpClientConfig {
   mcpUrl: string;
   mcpToken: string;
@@ -64,7 +53,7 @@ export interface CallMcpOptions {
    */
   logPrefix?: string;
   /**
-   * Logger function. Defaults to console.warn with structured JSON.
+   * Logger function. Defaults to `log.warn` (reviewer-local winston logger).
    * Used for transport/protocol-level warnings; tool-result content is never logged.
    */
   logger?: (event: Record<string, unknown>) => void;
@@ -167,7 +156,8 @@ export function resetMcpClientSessions(): void {
 // ---------------------------------------------------------------------------
 
 function defaultLogger(event: Record<string, unknown>): void {
-  console.warn(JSON.stringify(event));
+  const name = typeof event["event"] === "string" ? (event["event"] as string) : "mcp_client.event";
+  log.warn(name, event);
 }
 
 // ---------------------------------------------------------------------------
@@ -587,154 +577,4 @@ export async function callMcp(
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-// ---------------------------------------------------------------------------
-// callAuthorshipGet — narrow wrapper around callMcp
-// ---------------------------------------------------------------------------
-
-/**
- * Call the authorship.get MCP tool on the hosted Minsky server.
- *
- * Returns the narrow authorship result on success, or null if:
- * - The record does not exist (tool returns null).
- * - The MCP server is unreachable or returns an error.
- * - The response body cannot be parsed.
- *
- * Errors are logged but never re-thrown — callers should fall back gracefully.
- */
-export async function callAuthorshipGet(
-  artifactId: string,
-  artifactType: string,
-  config: ReviewerConfig
-): Promise<AuthorshipResult | null> {
-  const { mcpUrl, mcpToken } = config;
-  if (!mcpUrl || !mcpToken) return null;
-
-  const result = await callMcp(
-    "authorship.get",
-    { artifactId, artifactType },
-    { mcpUrl, mcpToken },
-    {
-      timeoutMs: 10_000,
-      logPrefix: "mcp_client.authorship_get",
-      logger: (event) => {
-        // Re-route through winston so existing log inspection patterns hold.
-        log.error(`[mcp-client] ${JSON.stringify(event)}`);
-      },
-    }
-  );
-
-  if (!result.ok) {
-    // log.error already emitted via the logger above.
-    return null;
-  }
-
-  // Prefer pre-parsed JSON entry; fall back to concatenated text chunks.
-  let record: unknown = result.contentJson;
-  if (record === null && result.contentText !== null) {
-    try {
-      record = JSON.parse(result.contentText);
-    } catch {
-      log.error(`[mcp-client] authorship.get(${artifactId}): could not parse content text`);
-      return null;
-    }
-  }
-
-  if (record === null || typeof record !== "object") {
-    // Tool returned null (no authorship record exists) OR result had no content.
-    return null;
-  }
-
-  return record as AuthorshipResult;
-}
-
-// ---------------------------------------------------------------------------
-// callTasksSpecGet — narrow wrapper around callMcp
-// ---------------------------------------------------------------------------
-
-/**
- * Call the tasks.spec.get MCP tool on the hosted Minsky server.
- *
- * Returns a discriminated result: `found` with the spec markdown, `not-found`
- * when the MCP returned no content, `disabled` when MCP config is missing,
- * or `error` with the tool-level / transport error message.
- */
-export async function callTasksSpecGet(
-  taskId: string,
-  config: ReviewerConfig
-): Promise<TasksSpecGetResult> {
-  const { mcpUrl, mcpToken } = config;
-  if (!mcpUrl || !mcpToken) return { kind: "disabled" };
-
-  const result = await callMcp(
-    "tasks.spec.get",
-    { taskId },
-    { mcpUrl, mcpToken },
-    {
-      timeoutMs: 10_000,
-      logPrefix: "mcp_client.tasks_spec_get",
-      logger: (event) => {
-        log.error(`[mcp-client] ${JSON.stringify(event)}`);
-      },
-    }
-  );
-
-  if (!result.ok) {
-    switch (result.reason) {
-      case "config-missing":
-        return { kind: "disabled" };
-      case "fetch-error":
-        return { kind: "error", message: `fetch failed: ${result.message}` };
-      case "init-failed":
-        return { kind: "error", message: `initialize failed: ${result.message}` };
-      case "http-error":
-        return { kind: "error", message: result.message };
-      case "rpc-error":
-        return { kind: "error", message: result.message };
-      case "tool-error":
-        return { kind: "error", message: result.message };
-      case "parse-error":
-        return { kind: "error", message: result.message };
-    }
-  }
-
-  // Try the pre-parsed JSON entry first.
-  type EnvelopeShape = { success?: unknown; content?: unknown; error?: unknown };
-  let envelope: EnvelopeShape | null = null;
-
-  if (result.contentJson !== null && typeof result.contentJson === "object") {
-    envelope = result.contentJson as EnvelopeShape;
-  } else if (result.contentText !== null) {
-    try {
-      envelope = JSON.parse(result.contentText) as EnvelopeShape;
-    } catch {
-      // Defensive: plain markdown body without JSON envelope.
-      return result.contentText.length > 0
-        ? { kind: "found", content: result.contentText }
-        : { kind: "not-found" };
-    }
-  } else {
-    return { kind: "not-found" };
-  }
-
-  if (envelope && typeof envelope === "object" && envelope.success === false) {
-    const message =
-      typeof envelope.error === "string" && envelope.error.length > 0
-        ? envelope.error
-        : "tool returned success:false with no error message";
-    return { kind: "error", message };
-  }
-
-  if (
-    envelope &&
-    typeof envelope === "object" &&
-    envelope.success === true &&
-    typeof envelope.content === "string" &&
-    envelope.content.length > 0
-  ) {
-    return { kind: "found", content: envelope.content };
-  }
-
-  return { kind: "not-found" };
 }

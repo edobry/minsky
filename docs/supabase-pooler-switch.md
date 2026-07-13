@@ -57,7 +57,7 @@ Two changes: username `postgres.yvkkrpyjhoiilmizlnac` → `postgres`, host `aws-
 
 Service ID: `a7c5195f-55de-472a-87e4-34e921a15171` (per `project_minsky_mcp_deployment.md`).
 
-The current persistence contract (post-mt#1271, per `docs/deploy-minsky-railway.md`) requires both an explicit backend selector AND the connection string. The legacy single-var shortcut (`MINSKY_SESSIONDB_POSTGRES_URL` alone) does NOT flip the backend and silently falls back to SQLite — the canonical paired form below avoids that:
+The current persistence contract (post-mt#1271, per `docs/deploy-minsky-railway.md`) requires both an explicit backend selector AND the connection string. The legacy single-var shortcut (`MINSKY_SESSIONDB_POSTGRES_URL` alone) does NOT flip the backend selector; historically (pre-mt#2339) this silently fell back to SQLite, but SQLite has since been removed entirely, so an unset backend selector now fails loudly with a "PostgreSQL configuration required" error at boot instead — the canonical paired form below avoids the ambiguity either way:
 
 ```bash
 # Canonical: backend selector + connection string
@@ -67,7 +67,8 @@ railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL='postgresql://postgres:<
 # Legacy (still accepted post-mt#1271 but only when paired with the SESSIONDB selector):
 #   MINSKY_SESSIONDB_BACKEND=postgres + MINSKY_SESSIONDB_POSTGRES_URL=...
 # The single-var MINSKY_POSTGRES_URL fallback alone is NOT sufficient — it skips
-# the backend selector and lands on SQLite. See feedback_railway_config memory.
+# the backend selector. Historically this landed on SQLite; SQLite has since been
+# removed (mt#2339), so this now fails fast at boot instead. See feedback_railway_config memory.
 ```
 
 Trigger redeploy; verify health endpoint:

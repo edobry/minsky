@@ -63,6 +63,8 @@ export interface ComposedInlineComment {
   file: SubmitInlineCommentArgs["file"];
   line: SubmitInlineCommentArgs["line"];
   body: SubmitInlineCommentArgs["body"];
+  /** Diff side (mt#2350). Threaded through so anchor pre-validation can honor it. */
+  side?: SubmitInlineCommentArgs["side"];
   inReplyTo?: number;
 }
 
@@ -81,6 +83,53 @@ export interface ComposeReviewResult {
    * in the worker — the composed result now carries the full shape.
    */
   inlineComments: ComposedInlineComment[];
+  /**
+   * True when `event` was forced to `REQUEST_CHANGES` by
+   * {@link reconcileEventWithBlockingCount} because outstanding BLOCKING
+   * findings disagreed with the model's own (or the last chunk's) terminal
+   * verdict (mt#2655). False when the terminal event needed no correction.
+   */
+  reconciled: boolean;
+}
+
+/**
+ * Reconcile a terminal review event against outstanding BLOCKING findings
+ * (mt#2655).
+ *
+ * In chunked-review mode, each chunk emits its own `conclude_review` call and
+ * `composeReviewBody` uses only the LAST one to derive the raw event — so an
+ * earlier chunk's BLOCKING finding can survive into the aggregated findings
+ * list even when the last chunk's own verdict was APPROVE or COMMENT. That
+ * produced incoherent terminal states in production: APPROVE events carrying
+ * `[BLOCKING]`-labeled findings (#1812 R2, #1819 R2) and COMMENT events whose
+ * rendered findings counts disagreed with the embedded provenance blob
+ * (#1821 R1).
+ *
+ * This function is a pure, deterministic function of the finding severities
+ * actually present — it does not matter whether the caller is composing the
+ * posted review body (`composeReviewBody`) or extracting the provenance blob
+ * (`extractProvenance` in `review-provenance.ts`); as long as both are given
+ * the same `toolCalls`, they reconcile to the identical event, keeping the
+ * posted body and the embedded provenance agreement structural rather than
+ * coincidental.
+ *
+ * Relabeling a lingering BLOCKING finding down to a lower severity ("gets
+ * relabeled with stated reason", per the task spec) would require the
+ * model's own judgment — not available post-hoc from a deterministic
+ * aggregator — so the only reconciled direction is toward REQUEST_CHANGES,
+ * never a silent downgrade of the findings themselves.
+ */
+export function reconcileEventWithBlockingCount(
+  rawEvent: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+  blockingCount: number
+): {
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  reconciledFrom: "APPROVE" | "COMMENT" | null;
+} {
+  if (blockingCount > 0 && rawEvent !== "REQUEST_CHANGES") {
+    return { event: "REQUEST_CHANGES", reconciledFrom: rawEvent };
+  }
+  return { event: rawEvent, reconciledFrom: null };
 }
 
 /**
@@ -101,6 +150,7 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       event: "COMMENT",
       threadResolves: [],
       inlineComments: [],
+      reconciled: false,
     };
   }
 
@@ -119,6 +169,16 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   const specVerifications = toolCalls.filter(
     (tc): tc is Extract<ReviewToolCall, { name: "submit_spec_verification" }> =>
       tc.name === "submit_spec_verification"
+  );
+
+  const documentationImpacts = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_documentation_impact" }> =>
+      tc.name === "submit_documentation_impact"
+  );
+
+  const adoptionSweepCalls = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_adoption_sweep" }> =>
+      tc.name === "submit_adoption_sweep"
   );
 
   const concludeCalls = toolCalls.filter(
@@ -142,6 +202,7 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     file: tc.args.file,
     line: tc.args.line,
     body: tc.args.body,
+    ...(tc.args.side !== undefined ? { side: tc.args.side } : {}),
     ...(tc.args.inReplyTo !== undefined ? { inReplyTo: tc.args.inReplyTo } : {}),
   }));
 
@@ -155,26 +216,46 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
 
   // When conclude_review is absent, derive the event from severity counts:
   // any BLOCKING finding → REQUEST_CHANGES; otherwise → COMMENT.
+  const blockingFindingsCount = findings.filter((tc) => tc.args.severity === "BLOCKING").length;
   let event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   if (concludeCall !== undefined) {
     event = concludeCall.args.event;
   } else {
-    const blockingCount = findings.filter((tc) => tc.args.severity === "BLOCKING").length;
-    event = blockingCount > 0 ? "REQUEST_CHANGES" : "COMMENT";
+    event = blockingFindingsCount > 0 ? "REQUEST_CHANGES" : "COMMENT";
   }
+
+  // Chunk-review / label reconciliation (mt#2655): a lingering BLOCKING
+  // finding forces REQUEST_CHANGES regardless of what conclude_review (or
+  // the fallback derivation above, which is already self-consistent) said.
+  // See reconcileEventWithBlockingCount's doc comment for the full incident
+  // context.
+  const reconciliation = reconcileEventWithBlockingCount(event, blockingFindingsCount);
+  event = reconciliation.event;
 
   // ------------------------------------------------------------------
   // Build body sections
   // ------------------------------------------------------------------
   const sections: string[] = [];
 
+  // Section -1: Reconciliation notice (mt#2655) — surfaced FIRST, ahead of
+  // the executive summary, so the disagreement between the model's own
+  // verdict and the actual finding severities is impossible to miss.
+  if (reconciliation.reconciledFrom !== null) {
+    sections.push(
+      `⚠️ **Event reconciled from \`${reconciliation.reconciledFrom}\` to \`REQUEST_CHANGES\`.** ` +
+        `${blockingFindingsCount} outstanding \`[BLOCKING]\` finding(s) remain in this review — ` +
+        `possibly emitted by a different chunk than the one that concluded the review. A ` +
+        `\`${reconciliation.reconciledFrom}\` event cannot coexist with a BLOCKING finding; see the ` +
+        `Findings section below for the finding(s) driving this reconciliation.`
+    );
+  }
+
   // Section 0: Warning if no conclude_review was emitted; Section 1: Executive summary
   if (noConclude || concludeCall === undefined) {
-    const blockingCount = findings.filter((tc) => tc.args.severity === "BLOCKING").length;
     const nonBlockingCount = findings.filter((tc) => tc.args.severity === "NON-BLOCKING").length;
     const preExistingCount = findings.filter((tc) => tc.args.severity === "PRE-EXISTING").length;
     sections.push(
-      `⚠️ **Reviewer did not emit a \`conclude_review\` call.** Event derived from severity counts: ${event} (${blockingCount} BLOCKING / ${nonBlockingCount} NON-BLOCKING / ${preExistingCount} PRE-EXISTING findings). Executive summary unavailable.`
+      `⚠️ **Reviewer did not emit a \`conclude_review\` call.** Event derived from severity counts: ${event} (${blockingFindingsCount} BLOCKING / ${nonBlockingCount} NON-BLOCKING / ${preExistingCount} PRE-EXISTING findings). Executive summary unavailable.`
     );
   } else {
     sections.push(concludeCall.args.summary);
@@ -229,10 +310,74 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     sections.push(lines.join("\n"));
   }
 
+  // Section 4b: Adoption sweep (optional)
+  //
+  // Emitted when the model calls submit_adoption_sweep. Positioned AFTER
+  // spec verification and BEFORE documentation impact. Section is omitted
+  // entirely when no submit_adoption_sweep calls were made.
+  if (adoptionSweepCalls.length > 0) {
+    const lines: string[] = [
+      "## Adoption sweep",
+      "",
+      "| Symbol | Kind | Consumers found | Classification | Notes |",
+      "| --- | --- | --- | --- | --- |",
+    ];
+    let missingConsumersCount = 0;
+    for (const tc of adoptionSweepCalls) {
+      const symbol = escapeTableCell(tc.args.symbol);
+      const kind = escapeTableCell(tc.args.kind);
+      const consumers = escapeTableCell(
+        tc.args.consumersFound.length > 0 ? tc.args.consumersFound.join(", ") : "—"
+      );
+      const classification = escapeTableCell(tc.args.classification);
+      const notes = escapeTableCell(tc.args.notes ?? "");
+      lines.push(`| ${symbol} | ${kind} | ${consumers} | ${classification} | ${notes} |`);
+      if (tc.args.classification === "Missing consumers") {
+        missingConsumersCount++;
+      }
+    }
+    if (missingConsumersCount > 0) {
+      lines.push(
+        "",
+        `Recommendation: file a follow-up adoption task to wire ${missingConsumersCount} missing consumer${missingConsumersCount === 1 ? "" : "s"}.`
+      );
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  // Section 5: Documentation impact (optional)
+  //
+  // Emitted when the model calls submit_documentation_impact. The merge-gate
+  // hook (.claude/hooks/require-review-before-merge.ts) text-matches
+  // /documentation[- ]impact/i on the rendered body, so the literal section
+  // heading "## Documentation impact" must remain.
+  //
+  // Multi-call handling: the prompt instructs the model to call this tool
+  // exactly once per review. In practice the model may emit more than one
+  // (self-correction, retries). Mirror the conclude_review pattern and use
+  // the LAST call's args — newer emissions supersede older ones. Single bullet
+  // rendered regardless of N to avoid duplicate-content drift.
+  const lastDocImpact = documentationImpacts[documentationImpacts.length - 1];
+  if (lastDocImpact !== undefined) {
+    const lines: string[] = ["## Documentation impact", ""];
+    lines.push(`- **${lastDocImpact.args.kind}** — ${lastDocImpact.args.evidence}`);
+    if (lastDocImpact.args.affectedDocs && lastDocImpact.args.affectedDocs.length > 0) {
+      lines.push(`  Affected: ${lastDocImpact.args.affectedDocs.join(", ")}`);
+    }
+    sections.push(lines.join("\n"));
+  } else {
+    sections.push(
+      "## Documentation impact\n\n" +
+        "- **missing** — `submit_documentation_impact` was not called by the reviewer model. " +
+        "The merge gate requires this assessment. This is a reviewer-bot output gap, not a PR defect."
+    );
+  }
+
   return {
     body: sections.join("\n\n"),
     event,
     threadResolves,
     inlineComments,
+    reconciled: reconciliation.reconciledFrom !== null,
   };
 }

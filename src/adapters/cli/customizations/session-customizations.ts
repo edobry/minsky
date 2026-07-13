@@ -4,8 +4,8 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
-import { log } from "../../../utils/logger";
-import { getMinskyStateDir } from "../../../utils/paths";
+import { log } from "@minsky/shared/logger";
+import { getMinskyStateDir } from "@minsky/shared/paths";
 
 /**
  * Get session command customizations configuration
@@ -64,36 +64,29 @@ export function getSessionCustomizations(): {
               return;
             }
 
-            // Format the session start success message
+            // Format the session start success message. Plain, information-only
+            // output (mt#2213) — no emojis, success banner, or "Next steps"
+            // tutorial, per the project's professional-communication preference.
+            // Labels are padded to a common width so the values align.
             if (result.success && result.session) {
               const session = result.session as Record<string, unknown>;
-              // Display a user-friendly success message for session creation
-              log.cli("✅ Session started successfully!");
-              log.cli("");
+              log.cli("Session started.");
 
               if (session.taskId) {
-                log.cli(`🎯 Task: ${session.taskId}`);
+                log.cli(`Task:       ${session.taskId}`);
               }
 
               if (session.branch) {
-                log.cli(`🌿 Branch: ${session.branch}`);
+                log.cli(`Branch:     ${session.branch}`);
               }
 
               if (session.sessionId) {
-                log.cli(`📁 Session ID: ${session.sessionId}`);
+                log.cli(`Session ID: ${session.sessionId}`);
               }
 
               if (session.repoName) {
-                log.cli(`📦 Repository: ${session.repoName}`);
+                log.cli(`Repository: ${session.repoName}`);
               }
-
-              log.cli("");
-              log.cli("🚀 Ready to start development!");
-              log.cli("");
-              log.cli("💡 Next steps:");
-              log.cli("   • Your session workspace is ready for editing");
-              log.cli("   • All changes will be tracked on your session branch");
-              log.cli('   • Run "minsky session pr" when ready to create a pull request');
             } else {
               // Fallback to JSON output if result structure is unexpected
               log.cli(JSON.stringify(result, null, 2));
@@ -328,6 +321,11 @@ export function getSessionCustomizations(): {
             },
             createDirs: {
               description: "Create parent directories if they don't exist",
+            },
+            fullReplace: {
+              description:
+                "Override the marker-less fail-closed guard (mt#2400) to intentionally " +
+                "replace an existing file's entire content",
             },
             json: {
               description: "Output in JSON format",

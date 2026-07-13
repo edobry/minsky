@@ -1,7 +1,7 @@
 ---
 name: Task Lifecycle — External-Deliverable Closeout
 description: Convention for closing tasks whose primary deliverable is external to the repo (Notion pages, deployed services, hosted resources) via a direct READY → DONE transition with spec-verified closeout evidence.
-alwaysApply: true
+alwaysApply: false
 tags:
   - minsky
   - tasks
@@ -81,7 +81,7 @@ documenting the outcome. To close such a task via this path:
 
 ## Implementation reference
 
-- State-machine enforcement: `src/domain/tasks/commands/mutation-commands.ts` (READY → DONE spec check)
-- Helper: `src/domain/tasks/status-transitions.ts` → `hasCloseoutEvidence()`
+- State-machine enforcement: `packages/domain/src/tasks/commands/mutation-commands.ts` (READY → DONE spec check)
+- Helper: `packages/domain/src/tasks/status-transitions.ts` → `hasCloseoutEvidence()`
 - Error message: `READY_TO_DONE_MISSING_EVIDENCE_MESSAGE` (exported from `status-transitions.ts`)
 - Originating retrospective: mt#1743 (extends mt#1718 — Notion engineering-blog post closeout gap)

@@ -7,18 +7,35 @@
  * Minsky's own infrastructure for consistent configuration and error handling.
  */
 
-import { execAsync } from "../utils/exec";
-import { execGitWithTimeout } from "../utils/git-exec";
-import { stat } from "fs/promises";
+import { execAsync } from "@minsky/shared/exec";
+import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
+import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
-import { ProjectConfigReader } from "../domain/project/config-reader";
-import { log } from "../utils/logger";
+import { ProjectConfigReader } from "@minsky/domain/project/config-reader";
+import { log } from "@minsky/shared/logger";
 import {
   detectNulByteViolations,
   isPathAllowlisted,
   isOverrideTruthy,
   NUL_BYTE_CHECK_OVERRIDE_ENV,
 } from "./nul-byte-detector";
+import { discoverProtectedDockerfiles } from "./workspace-copy-detector";
+import {
+  detectMissingJournalEntries,
+  MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV,
+  type JournalEntry,
+} from "./migration-journal-check";
+import {
+  runDeployDomainCheck as runDeployDomainDetector,
+  isDeployDomainOverrideTruthy,
+  DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV,
+} from "./deploy-domain-detector";
+import {
+  detectImmutableMigrationViolations,
+  isImmutableMigrationOverrideTruthy,
+  IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
+  MIGRATION_DIRS,
+} from "./immutable-migration-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -74,11 +91,26 @@ export class PreCommitHook {
         return formatResult;
       }
 
-      // Step 2: Console usage validation (~1s)
-      const consoleResult = await this.runConsoleValidation();
-      if (!consoleResult.success) {
-        return consoleResult;
+      // Step 1b: Completion-manifest regeneration (mt#2622). Unlike the
+      // "compile --check" family below (Step 9 / 9b), which BLOCK the commit
+      // and tell the operator to re-run a generator by hand, this step
+      // auto-regenerates the shell-completion manifest and re-stages it —
+      // the same auto-fix-and-restage shape as Step 1's lint-staged, not the
+      // detect-and-block shape. That distinction is deliberate: the manifest
+      // is a mechanically-derived structural artifact (Commander-tree walk +
+      // Zod enum extraction) with zero editorial content, so silently
+      // re-staging a corrected version carries none of the "don't want an
+      // unreviewed content rewrite auto-committed" risk that motivates the
+      // rules/skills compile checks blocking instead of auto-fixing.
+      const completionManifestResult = await this.runCompletionManifestRegen();
+      if (!completionManifestResult.success) {
+        return completionManifestResult;
       }
+
+      // Console-usage validation moved into ESLint as the `custom/no-raw-console`
+      // rule (mt#1960). Step 2 ran the standalone regex-based `lint:console:strict`
+      // script; that script and its package.json scripts were retired with mt#1960.
+      // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
       const variableResult = await this.runVariableNamingCheck();
@@ -99,6 +131,55 @@ export class PreCommitHook {
       const nulByteResult = await this.runNulByteCheck();
       if (!nulByteResult.success) {
         return nulByteResult;
+      }
+
+      // Step 3c: Dockerfile workspace-COPY regeneration (mt#1984 + mt#1992
+      // + mt#2621). Regenerates the workspace package.json COPY block in
+      // every Dockerfile that runs `bun install --frozen-lockfile` (root +
+      // sub-project Dockerfiles under services/* and packages/*) from the
+      // same `workspaces` glob bun itself resolves, and re-stages any file
+      // that changed. Replaces the mt#1984/mt#1992 detect-and-block guard —
+      // instead of catching drift after the fact, the COPY block can no
+      // longer drift by hand at all (mirrors the mt#2622 completion-
+      // manifest auto-fix-and-restage pattern). Eliminates the drift class
+      // that caused mt#1977 (75-minute root-Dockerfile outage) and mt#1991
+      // (4-hour reviewer-Dockerfile outage).
+      const dockerfileWorkspaceCopyResult = await this.runDockerfileWorkspaceCopyRegen();
+      if (!dockerfileWorkspaceCopyResult.success) {
+        return dockerfileWorkspaceCopyResult;
+      }
+
+      // Step 3d: Migration journal consistency (mt#2087). Verify that every
+      // SQL file under packages/domain/src/storage/migrations/pg/ has a corresponding
+      // entry in meta/_journal.json. Prevents the mt#2086 class where a
+      // hand-written SQL file ships without a journal entry, making it
+      // invisible to Drizzle's migrator.
+      const migrationJournalResult = await this.runMigrationJournalCheck();
+      if (!migrationJournalResult.success) {
+        return migrationJournalResult;
+      }
+
+      // Step 3e-a: Immutable-migration check (mt#2268). Block staged
+      // MODIFICATIONS (not additions) to .sql files under the migration
+      // directories whose tag is already listed in meta/_journal.json.
+      // Editing an applied migration drifts Drizzle's sha256 ledger —
+      // the mt#1641/mt#2250 root cause (migrations 0002/0014/0015).
+      const immutableMigrationResult = await this.runImmutableMigrationCheck();
+      if (!immutableMigrationResult.success) {
+        return immutableMigrationResult;
+      }
+
+      // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
+      // mt#2193). Verify every domain ASSERTED as a deployment target in
+      // deploy/site config (infra/index.ts SITE_URL, services/*/deploy.config.ts,
+      // services/*/astro.config.ts, services/*/README.md "Deployed at" claims)
+      // is a domain we actually control (listed in infra/controlled-domains.json).
+      // Prevents recurrence of the minsky.dev class: an illustrative example URL
+      // that hardened into authoritative config + a false "Deployed at" claim,
+      // never ownership-verified.
+      const deployDomainResult = await this.runDeployDomainCheck();
+      if (!deployDomainResult.success) {
+        return deployDomainResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -137,10 +218,16 @@ export class PreCommitHook {
         return ruleTestsResult;
       }
 
-      // Step 9: Rules compile staleness check
+      // Step 9: Rules compile staleness check (legacy `rules compile` system)
       const rulesCheckResult = await this.runRulesCompileCheck();
       if (!rulesCheckResult.success) {
         return rulesCheckResult;
+      }
+
+      // Step 9b: Compile staleness check (new `compile` system — mt#2252)
+      const compileCheckResult = await this.runCompileCheck();
+      if (!compileCheckResult.success) {
+        return compileCheckResult;
       }
 
       log.cli("✅ All checks passed! Commit proceeding...");
@@ -180,7 +267,14 @@ export class PreCommitHook {
       try {
         const result = await execAsync(lintJsonCommand, {
           cwd: this.projectRoot,
-          timeout: 30000, // 30 second timeout
+          // Full-repo eslint wall time has grown to ~29s (measured 2026-06-13,
+          // mt#1859 session) — the former 30s timeout fired on any loaded run,
+          // blocking every commit with a bare "Command failed". 120s gives
+          // repo-growth headroom; a hung eslint still gets killed.
+          timeout: 120000,
+          // The --format json payload is ~850KB and grows with file count;
+          // the 1MB exec default truncate-kills the process at the boundary.
+          maxBuffer: 64 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();
@@ -551,6 +645,38 @@ export class PreCommitHook {
    * Throws on non-zero exit (gitlinks, deleted-then-modified edge cases,
    * etc.); callers handle via `Promise.allSettled`.
    */
+  /**
+   * Run a git subcommand via `Bun.spawn` argv (no shell) and return its
+   * decoded stdout, throwing on non-zero exit. Used by
+   * `runCompletionManifestRegen`'s diff/add calls instead of
+   * `execGitWithTimeout` to avoid embedding a path into an interpolated
+   * shell command string — the same argv-bypasses-shell rationale as
+   * {@link gitShowStagedBytes} (reviewer-bot BLOCKING finding, mt#2622 PR
+   * review round 1: an unquoted path containing spaces or shell
+   * metacharacters could break the command or enable argument injection,
+   * even though `manifestPath` is a hardcoded constant today).
+   */
+  private async runGitArgv(args: string[], timeoutMs = 5000): Promise<string> {
+    const proc = Bun.spawn(["git", "-C", this.projectRoot, ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), timeoutMs);
+    try {
+      const stdoutPromise = new Response(proc.stdout).text();
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) {
+        const stderrText = await new Response(proc.stderr).text();
+        throw new Error(
+          `git ${args.join(" ")} exited ${exitCode}: ${stderrText.trim() || "no stderr"}`
+        );
+      }
+      return await stdoutPromise;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async gitShowStagedBytes(file: string): Promise<Buffer> {
     const TIMEOUT_MS = 5000;
     const proc = Bun.spawn(["git", "-C", this.projectRoot, "show", `:${file}`], {
@@ -680,6 +806,418 @@ export class PreCommitHook {
   }
 
   /**
+   * Regenerate the workspace package.json COPY block in every protected
+   * Dockerfile and re-stage any that changed (mt#2621). Replaces the
+   * mt#1984/mt#1992 static missing-COPY detector — instead of DETECTING
+   * drift between the `workspaces` glob and the Dockerfile's hand-typed
+   * COPY list and blocking the commit, this step ELIMINATES the drift
+   * class by generating the COPY block from the same glob bun itself
+   * resolves, then auto-fixing and re-staging (the mt#2622 completion-
+   * manifest pattern) — the same auto-fix-and-restage shape as Step 1b's
+   * completion-manifest regen, not the detect-and-block shape the old
+   * guard used.
+   *
+   * Originating incidents this eliminates the drift class for: mt#1977
+   * (75-minute root-Dockerfile outage) and mt#1991 (4-hour
+   * reviewer-Dockerfile outage) — both caused by the hand-maintained COPY
+   * list silently falling out of sync with the `workspaces` glob.
+   *
+   * Unconditional, like Step 1b — no override. A thrown error here means a
+   * protected Dockerfile is missing the generated-block markers (a
+   * one-time setup gap, not staleness); the operator adds the markers
+   * once (see Dockerfile / services/reviewer/Dockerfile /
+   * services/cockpit/Dockerfile for the block shape) and the generator
+   * handles the rest going forward.
+   *
+   * See `src/hooks/workspace-copy-detector.ts` for the pure-function
+   * discovery/templating primitives and
+   * `scripts/generate-dockerfile-workspace-copies.ts` for the script this
+   * step invokes.
+   */
+  private async runDockerfileWorkspaceCopyRegen(): Promise<HookResult> {
+    const protectedDockerfiles = discoverProtectedDockerfiles(this.projectRoot);
+    if (protectedDockerfiles.length === 0) {
+      return {
+        success: true,
+        message: "No protected Dockerfiles found",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      await execAsync("bun run generate:dockerfile-workspace-copies", {
+        cwd: this.projectRoot,
+        timeout: 15000,
+      });
+    } catch (error) {
+      const result = classifyDockerfileWorkspaceCopyRegenError(error);
+      for (const line of result.logLines) {
+        log.cli(line);
+      }
+      return { success: false, message: result.message, exitCode: 1 };
+    }
+
+    let diffStdout: string;
+    try {
+      diffStdout = await this.runGitArgv(["diff", "--name-only", "--", ...protectedDockerfiles]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not diff regenerated Dockerfile(s): ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not diff regenerated Dockerfile(s): ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    const changedFiles = diffStdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    if (changedFiles.length === 0) {
+      return {
+        success: true,
+        message: "Dockerfile workspace-COPY blocks up-to-date",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      await this.runGitArgv(["add", "--", ...changedFiles]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not stage regenerated Dockerfile(s): ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not stage regenerated Dockerfile(s): ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    log.cli(
+      `✅ Dockerfile workspace-COPY block(s) regenerated and staged (was out of date): ${changedFiles.join(", ")}`
+    );
+    return {
+      success: true,
+      message: "Dockerfile workspace-COPY blocks regenerated and staged",
+      exitCode: 0,
+    };
+  }
+
+  private async runMigrationJournalCheck(): Promise<HookResult> {
+    if (isOverrideTruthy(process.env[MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:migration-journal] override ${MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV}=${process.env[MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — migration journal check skipped`
+      );
+      return {
+        success: true,
+        message: "Migration journal check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      const migrationsDir = join(this.projectRoot, "packages/domain/src/storage/migrations/pg");
+      const metaDir = join(migrationsDir, "meta");
+
+      let sqlFiles: string[];
+      try {
+        const entries = await readdir(migrationsDir);
+        sqlFiles = entries.filter((f) => f.endsWith(".sql")).sort();
+      } catch {
+        return {
+          success: true,
+          message: "Migration journal check skipped (no migrations dir)",
+          exitCode: 0,
+        };
+      }
+
+      if (sqlFiles.length === 0) {
+        return {
+          success: true,
+          message: "Migration journal check skipped (no SQL files)",
+          exitCode: 0,
+        };
+      }
+
+      let journalEntries: JournalEntry[];
+      try {
+        const raw = String(await readFile(join(metaDir, "_journal.json"), "utf-8"));
+        const parsed = JSON.parse(raw) as { entries: JournalEntry[] };
+        journalEntries = parsed.entries ?? [];
+      } catch {
+        return {
+          success: false,
+          message: "Migration journal check failed: could not read meta/_journal.json",
+          exitCode: 1,
+        };
+      }
+
+      const result = detectMissingJournalEntries(sqlFiles, journalEntries);
+
+      if (result.success) {
+        return { success: true, message: result.message, exitCode: 0 };
+      }
+
+      log.cli("");
+      log.cli(result.message);
+      log.cli("");
+
+      return { success: false, message: "Migration journal consistency check failed", exitCode: 1 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, message: `Migration journal check error: ${msg}`, exitCode: 1 };
+    }
+  }
+
+  /**
+   * Block staged modifications to already-applied SQL migration files (mt#2268).
+   *
+   * Drizzle records sha256(full .sql) at apply-time; editing an applied
+   * migration causes it to re-apply on the next `migrate --execute`, silently
+   * drifting the ledger from actual DB state (mt#1641/mt#2250 root cause).
+   *
+   * Only staged MODIFICATIONS are blocked — additions are the correct path for
+   * new migrations and are always allowed.
+   *
+   * Override: setting `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK` to `1` / `true`
+   * / `yes` skips the check and emits a one-line audit message to stdout.
+   * Use only for the rare legitimate case (e.g. fixing a never-applied
+   * migration before its first deploy).
+   */
+  private async runImmutableMigrationCheck(): Promise<HookResult> {
+    if (isImmutableMigrationOverrideTruthy(process.env[IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:immutable-migration] override ${IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV}=${process.env[IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — immutable-migration check skipped`
+      );
+      return {
+        success: true,
+        message: "Immutable-migration check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      // Get staged files with their status. We include renames (R) as well as
+      // modifications (M): a rename-with-edit of an applied migration would
+      // otherwise slip past an M-only filter (mt#2268 review). `--name-status`
+      // output is `<status>\t<path>` for M, and `R<score>\t<old>\t<new>` for
+      // renames — for a rename we flag the OLD (applied) path.
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-status --diff-filter=MR",
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
+
+      const statusLines = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (statusLines.length === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
+      }
+
+      // Build staged modifications map (path -> 'M'). Renames map their OLD path
+      // to 'M' so the detector treats moving an applied migration as a violation.
+      const stagedModifications = new Map<string, string>();
+      for (const line of statusLines) {
+        const parts = line.split("\t");
+        const status = parts[0] ?? "";
+        if (status.startsWith("R") && parts.length >= 3) {
+          // Rename: parts = [R<score>, oldPath, newPath] — flag the old (applied) path.
+          stagedModifications.set(parts[1] as string, "M");
+        } else if (status === "M" && parts[1]) {
+          stagedModifications.set(parts[1] as string, "M");
+        }
+      }
+      if (stagedModifications.size === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
+      }
+
+      // Load journal tags for each migration directory.
+      const journalTagsByDir = new Map<string, ReadonlySet<string>>();
+      for (const dir of MIGRATION_DIRS) {
+        const journalPath = join(this.projectRoot, dir, "meta", "_journal.json");
+        try {
+          const raw = String(await readFile(journalPath, "utf-8"));
+          const parsed = JSON.parse(raw) as { entries?: Array<{ tag: string }> };
+          const tags = new Set((parsed.entries ?? []).map((e) => e.tag));
+          journalTagsByDir.set(dir, tags);
+        } catch {
+          // No journal for this dir — skip (e.g. dir doesn't exist yet)
+        }
+      }
+
+      const violations = detectImmutableMigrationViolations(stagedModifications, journalTagsByDir);
+
+      if (violations.length === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed",
+          exitCode: 0,
+        };
+      }
+
+      log.cli("");
+      log.cli(
+        `${violations.length} applied migration file(s) staged for modification. Commit blocked.`
+      );
+      log.cli("");
+      for (const v of violations) {
+        log.cli(`   ${v.filePath}  (tag: ${v.tag})`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli(
+        "   Applied migrations are IMMUTABLE. Drizzle records sha256(full .sql) at apply-time;"
+      );
+      log.cli("   editing an applied file causes it to re-apply on the next migrate --execute,");
+      log.cli("   silently drifting the schema ledger from actual DB state.");
+      log.cli("   Originating incidents: mt#1641, mt#2250 (migrations 0002/0014/0015).");
+      log.cli("");
+      log.cli("To fix: write a NEW migration that makes the desired schema change.");
+      log.cli("   Run `bun run db:generate:pg` to generate it.");
+      log.cli("   See .minsky/rules/migration-authoring.mdc for the canonical workflow.");
+      log.cli("");
+      log.cli(`If a modification is genuinely legitimate (e.g. fixing a never-applied migration),`);
+      log.cli(
+        `set ${IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV}=1 to override. The skip is audit-logged.`
+      );
+      return {
+        success: false,
+        message: `Immutable-migration check failed: ${violations.length} applied migration(s) staged for modification`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Immutable-migration check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Immutable-migration check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
+   * Run the deploy-domain ownership check (mt#2208, live successor to mt#2193).
+   *
+   * Verifies every domain ASSERTED as a deployment target in deploy/site config
+   * is a domain we control (listed in `infra/controlled-domains.json`). Covers
+   * `infra/index.ts` (SITE_URL etc.), `services/<svc>/deploy.config.ts`,
+   * `services/<svc>/astro.config.ts`, and "Deployed at"/"serves at" claims in
+   * `services/<svc>/README.md`.
+   *
+   * Originating incident (2026-05-31): `minsky.dev`, an illustrative example URL
+   * from Jul-2025 analysis prose, hardened into authoritative deploy config and a
+   * false "Deployed at" README claim with no ownership-verification step; an agent
+   * later read it back as ground truth. `minsky.dev` is registered to a third
+   * party (verified via Cloudflare API + RDAP + crt.sh).
+   *
+   * The detector strips comments before extracting domains from code files and
+   * only extracts phrase-anchored domains from markdown, so the corrected repo's
+   * WARNING-comment mentions of `minsky.dev` ("do not set this to a domain we do
+   * not control") do not trip the check.
+   *
+   * Override: setting `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK` to `1` / `true` / `yes`
+   * skips the check and emits a one-line audit message. Use only when the
+   * domain is genuinely controlled but not yet allowlisted AND the allowlist
+   * entry is being added separately.
+   *
+   * See `src/hooks/deploy-domain-detector.ts` for the pure-function detector
+   * this method wraps.
+   */
+  private async runDeployDomainCheck(): Promise<HookResult> {
+    if (isDeployDomainOverrideTruthy(process.env[DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:deploy-domain-check] override ${DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV}=${process.env[DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — deploy-domain ownership check skipped`
+      );
+      return {
+        success: true,
+        message: "Deploy-domain check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      const result = runDeployDomainDetector(this.projectRoot);
+
+      // null = no allowlist file => check inapplicable for this repo. Silent pass.
+      if (result === null) {
+        return {
+          success: true,
+          message: "Deploy-domain check inapplicable (no infra/controlled-domains.json)",
+          exitCode: 0,
+        };
+      }
+
+      if (result.violations.length === 0) {
+        return {
+          success: true,
+          message: `Deploy-domain check passed (${result.scannedFiles.length} file(s) scanned)`,
+          exitCode: 0,
+        };
+      }
+
+      log.cli("");
+      log.cli(`${result.violations.length} deploy-domain ownership violation(s). Commit blocked.`);
+      log.cli("");
+      for (const v of result.violations) {
+        log.cli(`   ${v.filePath}:${v.line} asserts deploy domain "${v.host}" (apex: ${v.apex})`);
+        log.cli(`     not in infra/controlled-domains.json`);
+        if (v.excerpt) {
+          log.cli(`     > ${v.excerpt}`);
+        }
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli("   - Tracking task:        mt#2208 (live successor to mt#2193)");
+      log.cli(
+        "   - Originating incident: minsky.dev hardened into config, never ownership-verified"
+      );
+      log.cli("   - Bridge memory:        ac1a6761 (assertion-without-verification family)");
+      log.cli("");
+      log.cli("A domain asserted as a deploy target must be one we actually control.");
+      log.cli("   If you DO control this domain, verify it (e.g. confirm it is a zone in");
+      log.cli("   our Cloudflare account) and add its apex/host to infra/controlled-domains.json.");
+      log.cli("");
+      log.cli(
+        `If the domain is controlled but not yet allowlisted, set ${DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `Deploy-domain check failed: ${result.violations.length} uncontrolled domain assertion(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Deploy-domain check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Deploy-domain check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
    * Run unit tests
    */
   private async runUnitTests(): Promise<HookResult> {
@@ -688,10 +1226,17 @@ export class PreCommitHook {
 
     try {
       await execAsync(
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain",
+        // mt#2608: packages/domain (336 test files, the mt#2108 extraction
+        // target) and the four orphaned tests/{unit,mcp,dev-tooling,
+        // architecture} subdirs had zero pre-commit coverage until this
+        // line added them. Kept aligned with the canonical `test` script's
+        // path list (package.json) so pre-commit and CI test the same
+        // surface — reviewer R1 flagged the original packages/domain-only
+        // version as drifting from the canonical script.
+        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain ./tests/unit ./tests/mcp ./tests/dev-tooling ./tests/architecture ./packages/domain",
         {
           cwd: this.projectRoot,
-          timeout: 60000, // Allow more time for full test suite
+          timeout: 120000, // mt#2608: packages/domain adds ~40s; bump budget accordingly
           env: { ...process.env, AGENT: "1" },
         }
       );
@@ -746,7 +1291,8 @@ export class PreCommitHook {
   }
 
   /**
-   * Check that all .claude/hooks/*.ts files staged for commit have execute permission
+   * Check that all shebang-bearing entry points staged for commit have execute permission.
+   * Covers .claude/hooks/*.ts (hook files) and scripts/cli-entry.ts (CLI binary entry).
    */
   private async runHookPermissionCheck(): Promise<HookResult> {
     log.cli("🔐 Checking hook file permissions...");
@@ -759,17 +1305,17 @@ export class PreCommitHook {
       );
 
       const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
-      const hookFiles = stagedFiles.filter(
-        (f) => f.startsWith(".claude/hooks/") && f.endsWith(".ts")
+      const executableEntryPoints = stagedFiles.filter(
+        (f) => (f.startsWith(".claude/hooks/") && f.endsWith(".ts")) || f === "scripts/cli-entry.ts"
       );
 
-      if (hookFiles.length === 0) {
-        log.cli("✅ No hook files staged.");
-        return { success: true, message: "No hook files to check", exitCode: 0 };
+      if (executableEntryPoints.length === 0) {
+        log.cli("✅ No executable entry points staged.");
+        return { success: true, message: "No executable entry points to check", exitCode: 0 };
       }
 
       const nonExecutable: string[] = [];
-      for (const file of hookFiles) {
+      for (const file of executableEntryPoints) {
         // Use fs.stat programmatically instead of `execAsync("test -x \"${file}\" ...")`
         // (mt#1829): file paths from `git diff --cached --name-only` are
         // git-controlled and may contain shell metacharacters. Programmatic
@@ -799,17 +1345,17 @@ export class PreCommitHook {
       }
 
       if (nonExecutable.length > 0) {
-        log.cli("❌ Hook files missing execute permission! Commit blocked.");
+        log.cli("❌ Executable entry points missing execute permission! Commit blocked.");
         log.cli(`🔧 Fix with: chmod +x ${nonExecutable.join(" ")}`);
         return {
           success: false,
-          message: `Hook files missing +x: ${nonExecutable.join(", ")}`,
+          message: `Files missing +x: ${nonExecutable.join(", ")}`,
           exitCode: 1,
         };
       }
 
-      log.cli("✅ All hook files have execute permission.");
-      return { success: true, message: "Hook permission check passed", exitCode: 0 };
+      log.cli("✅ All executable entry points have execute permission.");
+      return { success: true, message: "Execute permission check passed", exitCode: 0 };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       log.error(`❌ Hook permission check failed: ${errorMsg}`);
@@ -837,24 +1383,96 @@ export class PreCommitHook {
   }
 
   /**
-   * Run console usage validation
+   * Regenerate the shell-completion manifest and re-stage it if it changed
+   * (mt#2622). Unconditional — the generator is a pure function of the
+   * current CLI source tree (Commander tree walk + Zod enum extraction, no
+   * DB/network access) and completes in well under a second, so there is no
+   * benefit to gating on which files are staged: any narrower heuristic
+   * (e.g., "only run if src/adapters/shared/commands/** changed") risks
+   * silently missing a CLI-shape change made through a path it didn't
+   * anticipate, reintroducing exactly the staleness this step exists to
+   * prevent. This mirrors the "compile --check" family's unconditional,
+   * repo-wide scope (Step 9 / 9b) rather than lint-staged's staged-file
+   * scoping (Step 1) — but AUTO-FIXES and re-stages instead of blocking, per
+   * the Step 1b rationale above.
    */
-  private async runConsoleValidation(): Promise<HookResult> {
-    log.cli("🔇 Checking for console usage violations...");
+  private async runCompletionManifestRegen(): Promise<HookResult> {
+    log.cli("🔧 Regenerating shell-completion manifest...");
+
+    const manifestPath = "src/generated/completion-manifest.json";
 
     try {
-      await execAsync("bun run lint:console:strict", {
+      // Reuses the same `build:completion-manifest` package.json script that
+      // `bun run build` invokes, so there is exactly one place that names the
+      // generator's invocation path.
+      await execAsync("bun run build:completion-manifest", {
         cwd: this.projectRoot,
-        timeout: 30000,
+        timeout: 15000,
       });
-      log.cli("✅ No console usage violations found.");
-      return { success: true, message: "Console validation passed", exitCode: 0 };
     } catch (error) {
-      log.cli("❌ Console usage violations found! These cause test output pollution.");
-      log.cli("💡 Replace console.* calls with logger.* or mock logger utilities");
-      log.cli("📖 See docs/testing/global-test-setup.md for guidance");
-      return { success: false, message: "Console usage violations found", exitCode: 1 };
+      const result = classifyCompletionManifestRegenError(error);
+      for (const line of result.logLines) {
+        log.cli(line);
+      }
+      return { success: false, message: result.message, exitCode: 1 };
     }
+
+    // The generator (scripts/build-completion-manifest.ts) now formats its own
+    // output with the project's Prettier config, so the regenerated manifest is
+    // already canonical — no separate `bunx prettier --write` pass is needed
+    // here before diff/stage (mt#2732). This removes the redundant format
+    // subprocess the mt#2622 R2 review added back when the generator still
+    // emitted raw JSON.stringify output that diverged from the committed copy.
+    // Regression backstop: the generator uses the same .prettierrc.json config
+    // as CI's `format:check` (which globs the committed manifest), so any future
+    // format drift fails loudly at the CI gate — no local check needed here.
+
+    // Compare the regenerated working-tree copy against the index. `git diff`
+    // (no --quiet) always exits 0 and simply prints nothing when there is no
+    // difference, so this never throws on the common "already up to date" path.
+    // Uses `runGitArgv` (Bun.spawn argv, no shell) rather than
+    // `execGitWithTimeout` — reviewer-bot BLOCKING finding, mt#2622 PR review
+    // round 1: embedding `manifestPath` into an interpolated shell command
+    // string is a bad precedent even though the path is a hardcoded constant.
+    let changed = false;
+    try {
+      const diffStdout = await this.runGitArgv(["diff", "--name-only", "--", manifestPath]);
+      changed = manifestDiffIndicatesChange(diffStdout);
+    } catch (error) {
+      // A failure here is a git-plumbing problem, not a generator problem —
+      // fail closed rather than silently skip staging a possibly-changed file.
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not diff the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not diff the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    if (!changed) {
+      log.cli("✅ Completion manifest already up-to-date.");
+      return { success: true, message: "Completion manifest up-to-date", exitCode: 0 };
+    }
+
+    try {
+      await this.runGitArgv(["add", "--", manifestPath]);
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      log.cli(`❌ Could not stage the regenerated completion manifest: ${errMsg}`);
+      return {
+        success: false,
+        message: `Could not stage the regenerated completion manifest: ${errMsg}`,
+        exitCode: 1,
+      };
+    }
+
+    log.cli("✅ Completion manifest regenerated and staged (was out of date).");
+    return {
+      success: true,
+      message: "Completion manifest regenerated and staged",
+      exitCode: 0,
+    };
   }
 
   /**
@@ -946,19 +1564,260 @@ export class PreCommitHook {
           timeout: 30000,
         });
       } catch (error) {
-        log.cli(`❌ Rules compile output for target "${target}" is stale.`);
-        log.cli(`💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`);
-        return {
-          success: false,
-          message: `Rules compile output for target "${target}" is stale`,
-          exitCode: 1,
-        };
+        const result = classifyCompileCheckError(error, target);
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
       }
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+
+  /**
+   * Run `compile --check` for the NEW definition-compile system's targets
+   * (distinct from the legacy `rules compile` system handled by
+   * runRulesCompileCheck). This closes the mt#2182 gap: the `claude-skills`
+   * target silently skipped all sources for weeks with no staleness guard.
+   *
+   * Targets checked (opted in when their `.minsky/` source dir exists):
+   * - `claude-skills`  (.minsky/skills/) — the mt#2182 originating target.
+   * - `cursor-rules-ts` (.minsky/rules/) — verified in sync as of mt#2252.
+   * - `claude-agents`  (.minsky/agents/) — enabled by mt#2497 after the
+   *   source↔output drift was reconciled (auditor/reviewer/fixture sources
+   *   regenerated to reproduce their committed outputs). Before mt#2497 this
+   *   was excluded because the outputs were richer than their sources, so a
+   *   recompile silently reverted ~130 lines of mt#1551/#1606/#1611 content;
+   *   the gap let that drift accumulate unguarded. mt#2497 subsumes the prior
+   *   tracking task mt#1654 ("Reconcile agent source-of-truth split").
+   */
+  private async runCompileCheck(): Promise<HookResult> {
+    log.cli(
+      "📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts, claude-agents, claude-hooks)..."
+    );
+
+    const fsp = await import("fs/promises");
+    const dirExists = async (p: string): Promise<boolean> => {
+      try {
+        await fsp.access(p);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const targetsToCheck = compileCheckTargets({
+      skills: await dirExists(`${this.projectRoot}/.minsky/skills`),
+      rules: await dirExists(`${this.projectRoot}/.minsky/rules`),
+      agents: await dirExists(`${this.projectRoot}/.minsky/agents`),
+      hooks: await dirExists(`${this.projectRoot}/.minsky/hooks`),
+    });
+
+    if (targetsToCheck.length === 0) {
+      log.cli("✅ No new-compile-system outputs detected — skipping compile check.");
+      return { success: true, message: "No compile targets to check", exitCode: 0 };
+    }
+
+    for (const target of targetsToCheck) {
+      try {
+        // `target` is from the locally-built `targetsToCheck` array which
+        // contains only the hardcoded literals "claude-skills",
+        // "cursor-rules-ts", "claude-agents", and "claude-hooks". Bounded enum, no shell
+        // metacharacters — no safeShellQuote needed (mirrors
+        // runRulesCompileCheck / mt#1829).
+        await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
+          cwd: this.projectRoot,
+          timeout: 30000,
+        });
+      } catch (error) {
+        const result = classifyCompileCheckError(error, target, "compile");
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
+      }
+    }
+
+    log.cli(`✅ All compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
+    return { success: true, message: "Compile check passed", exitCode: 0 };
+  }
+}
+
+/**
+ * True iff `git diff --name-only -- <manifestPath>`'s stdout indicates the
+ * regenerated completion manifest differs from the index. `git diff` (no
+ * `--quiet`) always exits 0, so this is a pure string check rather than an
+ * exit-code check. Pure + exported for unit testing (mt#2622).
+ */
+export function manifestDiffIndicatesChange(diffStdout: string): boolean {
+  return diffStdout.trim().length > 0;
+}
+
+/**
+ * Build the failure result for a completion-manifest regeneration error.
+ * Unlike {@link classifyCompileCheckError}, there is no STALE-vs-broken
+ * distinction to make here: `runCompletionManifestRegen` always regenerates
+ * (never `--check`s), so ANY thrown error means the generator itself failed —
+ * re-running the commit will not help until the generator is fixed. Pure +
+ * exported for unit testing (mt#2622).
+ */
+export function classifyCompletionManifestRegenError(error: unknown): {
+  logLines: string[];
+  message: string;
+} {
+  const execError = error as { stdout?: string; stderr?: string };
+  // `||`, not `??`: an EMPTY-string stderr must fall through to stdout (mirrors
+  // classifyCompileCheckError's `stderr.trim() || stdout.trim()` below) — `??`
+  // would treat `""` as "present" and never reach stdout.
+  const detail = (execError.stderr ?? "").trim() || (execError.stdout ?? "").trim();
+  const errorDetail = detail || (error instanceof Error ? error.message : String(error));
+  const logLines = [
+    "❌ Completion-manifest regeneration failed:",
+    ...errorDetail.split("\n").map((line) => `   ${line}`),
+    "💡 Fix the error above and retry the commit. This is a generator bug, not staleness — " +
+      "re-running the commit will NOT help until the generator itself is fixed.",
+  ];
+  return {
+    logLines,
+    message: `Completion-manifest regeneration failed: ${errorDetail.split("\n")[0]}`,
+  };
+}
+
+/**
+ * Build the failure result for a Dockerfile workspace-COPY regeneration
+ * error (mt#2621). Mirrors {@link classifyCompletionManifestRegenError}:
+ * `runDockerfileWorkspaceCopyRegen` always regenerates (never blocks on
+ * ordinary drift), so any thrown error here means the generator script
+ * itself failed — most likely a protected Dockerfile is missing the
+ * generated-block markers (see `applyGeneratedWorkspaceCopyBlock`'s error
+ * message), which is a one-time setup gap rather than staleness. Pure +
+ * exported for unit testing.
+ */
+export function classifyDockerfileWorkspaceCopyRegenError(error: unknown): {
+  logLines: string[];
+  message: string;
+} {
+  const execError = error as { stdout?: string; stderr?: string };
+  // `??`, not `||`-only: an EMPTY-string stderr must fall through to stdout
+  // (mirrors classifyCompletionManifestRegenError above).
+  const detail = (execError.stderr ?? "").trim() || (execError.stdout ?? "").trim();
+  const errorDetail = detail || (error instanceof Error ? error.message : String(error));
+  const logLines = [
+    "❌ Dockerfile workspace-COPY regeneration failed:",
+    ...errorDetail.split("\n").map((line) => `   ${line}`),
+    "💡 A protected Dockerfile is likely missing the generated-block markers — see " +
+      "Dockerfile / services/reviewer/Dockerfile for the expected shape.",
+  ];
+  return {
+    logLines,
+    message: `Dockerfile workspace-COPY regeneration failed: ${errorDetail.split("\n")[0]}`,
+  };
+}
+
+/**
+ * Maps which `.minsky/` source dirs are present to the compile targets the
+ * pre-commit check verifies. Each target is opted in only when its source dir
+ * exists, so repos without a given source tree skip that check. Pure +
+ * exported for unit testing (mt#2497).
+ */
+export function compileCheckTargets(present: {
+  skills: boolean;
+  rules: boolean;
+  agents: boolean;
+  hooks: boolean;
+}): string[] {
+  const targets: string[] = [];
+  if (present.skills) targets.push("claude-skills");
+  if (present.rules) targets.push("cursor-rules-ts");
+  if (present.agents) targets.push("claude-agents");
+  if (present.hooks) targets.push("claude-hooks");
+  return targets;
+}
+
+/**
+ * Classify a failed compile-check subprocess error as either genuine staleness
+ * or an unrelated compile-command error (e.g., setup-incomplete). Serves BOTH
+ * compile systems via `kind`: the legacy `rules compile --check` (kind="rules")
+ * and the new `compile --check` (kind="compile"). All user-facing hints derive
+ * the command name from `kind` so they never name the wrong system.
+ *
+ * When the CLI detects stale output it prints a `[<cmd> --check] ... is STALE`
+ * marker to stdout before throwing. Any other non-zero exit means the compile
+ * command itself failed — telling the operator to "regenerate" would be
+ * misleading because the same error will recur.
+ *
+ * Exported for unit testing; not part of the public hook API.
+ */
+export function classifyCompileCheckError(
+  error: unknown,
+  target: string,
+  // Which compile system emitted the check: the legacy `rules compile` command
+  // or the new `compile` command. Determines both the STALE-marker prefix to
+  // match and the regenerate hint to print. Defaults to "rules" for backward
+  // compatibility with existing callers/tests.
+  kind: "rules" | "compile" = "rules"
+): { logLines: string[]; message: string } {
+  const execError = error as { stdout?: string; stderr?: string };
+  const stdout = execError.stdout ?? "";
+  const stderr = execError.stderr ?? "";
+
+  // The two CLIs emit a marker line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE   (legacy)
+  //   [compile --check] Target "<target>" is STALE          (new)
+  // to stdout only when output is verified out-of-date. Match this with a
+  // per-target line-anchored regex so near-misses (a STALE marker for a
+  // different target, or incidental prose) do not count.
+  const cmd = kind === "rules" ? "rules compile" : "compile";
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const staleLineRe = new RegExp(`\\[${cmd} --check\\] Target "${escapedTarget}" is STALE`, "m");
+  const isGenuinelyStale = staleLineRe.test(stdout);
+
+  if (isGenuinelyStale) {
+    return {
+      logLines: [
+        `❌ Compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
+      ],
+      message: `Compile output for target "${target}" is stale`,
+    };
+  }
+
+  // Compile command errored. Surface the actual error so the operator knows
+  // what to fix — re-running the compile command will NOT help.
+  const rawDetail = stderr.trim() || stdout.trim();
+  const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
+
+  // Detect setup-incomplete: the CLI emits "Validation error: Developer setup incomplete"
+  // when the Minsky setup has not been run. Telling the operator to "regenerate" is
+  // misleading in that case — the correct action is to run the setup command.
+  const isSetupIncomplete = /Validation error: Developer setup incomplete/i.test(errorDetail);
+
+  const indented = errorDetail
+    .split("\n")
+    .map((line) => `   ${line}`)
+    .join("\n");
+
+  if (isSetupIncomplete) {
+    return {
+      logLines: [
+        `❌ Compile check for target "${target}" failed: developer setup is incomplete.`,
+        indented,
+        `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
+        `   (Re-running "${cmd}" will NOT fix this — the setup must be completed first.)`,
+      ],
+      message: `Compile check for target "${target}" failed: developer setup incomplete`,
+    };
+  }
+
+  return {
+    logLines: [
+      `❌ Compile check for target "${target}" failed (not a staleness issue):`,
+      indented,
+      `💡 Fix the error above before retrying. ("${cmd}" will NOT fix this.)`,
+    ],
+    message: `Compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+  };
 }
 
 // CLI entry point

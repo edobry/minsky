@@ -35,7 +35,7 @@
  */
 
 import { realpathSync, existsSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { dirname, join, basename } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
 
@@ -60,7 +60,7 @@ export interface FsDeps {
 export interface ExecDeps {
   /** Run `git rev-parse HEAD` in the given cwd. Returns stdout or "" on failure. */
   gitRevParseHead(cwd: string): string;
-  /** Run `bun build --target=bun --outfile=<bundlePath> <sourcePath>` in cwd. Returns exit code. */
+  /** Run `bun build --target=bun --outdir=<dir> --entry-naming <name> --sourcemap=external <sourcePath>` in cwd. Returns exit code. */
   bunBuild(args: { cwd: string; bundlePath: string; sourcePath: string }): number;
 }
 
@@ -168,9 +168,19 @@ function makeProductionExecDeps(): ExecDeps {
       return result.stdout?.trim() ?? "";
     },
     bunBuild({ cwd, bundlePath, sourcePath }): number {
+      const outDir = dirname(bundlePath);
+      const entryName = basename(bundlePath);
       const result = spawnSync(
         "bun",
-        ["build", "--target=bun", `--outfile=${bundlePath}`, sourcePath],
+        [
+          "build",
+          "--target=bun",
+          `--outdir=${outDir}`,
+          "--entry-naming",
+          entryName,
+          "--sourcemap=external",
+          sourcePath,
+        ],
         { cwd, stdio: "inherit" }
       );
       return result.status ?? 1;
@@ -197,15 +207,41 @@ if (import.meta.main) {
     write: (msg) => process.stderr.write(msg),
   };
 
+  const fsDeps = makeProductionFsDeps();
+  const execDeps = makeProductionExecDeps();
+
   const decision = computeBundleDecision(
     packageRoot,
     bundlePath,
     stampPath,
     sourcePath,
-    makeProductionFsDeps(),
-    makeProductionExecDeps(),
+    fsDeps,
+    execDeps,
     stderrDeps
   );
+
+  // mt#2335: record loaded-source freshness facts into process env BEFORE the
+  // import so src/mcp/source-freshness.ts (surfaced in debug.systemInfo) can
+  // report whether the running code is current with HEAD. Must be set before
+  // import(): the freshness module lives inside the bundle and cannot be called
+  // from here. For a bundle run, the loaded commit is the build stamp (the
+  // commit the imported bundle reflects, post-rebuild-attempt); for a
+  // source-fallback run, it is the live HEAD. All three vars are registered in
+  // HOOK_ONLY_ENV_VARS so the config parser skips them at boot (mt#1785 class).
+  const runMode = decision.bundlePresent ? "bundle" : "source-fallback";
+  let loadedCommit = "";
+  if (runMode === "bundle") {
+    try {
+      loadedCommit = fsDeps.readFileSync(stampPath).trim();
+    } catch {
+      loadedCommit = "";
+    }
+  } else {
+    loadedCommit = execDeps.gitRevParseHead(packageRoot);
+  }
+  process.env.MINSKY_LOADED_COMMIT = loadedCommit;
+  process.env.MINSKY_RUN_MODE = runMode;
+  process.env.MINSKY_PACKAGE_ROOT = packageRoot;
 
   if (decision.bundlePresent) {
     // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.

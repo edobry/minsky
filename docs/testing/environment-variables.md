@@ -99,10 +99,13 @@ bun run test:slow       # Show slow tests
 
 ### Console Linting
 
+Console-usage linting was migrated from a standalone script to the ESLint
+custom rule `custom/no-raw-console` (mt#1960). Run it via the normal lint
+pipeline; there is no separate `lint:console` command anymore.
+
 ```bash
-# Console usage validation
-bun run lint:console        # Show violations (non-blocking)
-bun run lint:console:strict # Show violations (exit 1 on errors)
+bunx eslint .                       # Reports all rule violations, including raw console.*
+bunx eslint --rule "custom/no-raw-console: error" .   # Run just the no-raw-console rule
 ```
 
 ## Direct Environment Variable Usage
@@ -180,8 +183,8 @@ The pre-commit hook uses these environment variables:
 # Tests run with agent mode but clean output
 AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail
 
-# Console linting runs in strict mode
-bun run lint:console:strict  # (exits 1 on violations)
+# Console linting runs as the `custom/no-raw-console` ESLint rule (mt#1960),
+# exercised in the normal ESLint pre-commit pass; no separate command.
 ```
 
 ## Common Debugging Patterns
@@ -257,14 +260,18 @@ bun run test:integration
 
 **Problem**: Pre-commit fails on console usage
 
-**Solution**: Use appropriate logging:
+**Solution**: Use appropriate logging.
+
+The `custom/no-raw-console` ESLint rule (mt#1960) flags raw `console.{log,info,warn,error,debug,...}`
+calls. Replace each violation with the structured logger (`log.info(...)`, `log.error(...)`, etc.).
+For tests, use the mock logger utilities under `tests/utils/`.
 
 ```bash
-# Check violations
-bun run lint:console
+# Check violations against the entire repo
+bunx eslint .
 
-# Fix by replacing console.* with logger.*
-# Or use mock logger utilities in tests
+# Auto-fix where `log` is in scope (console.log → log.info, etc.)
+bunx eslint --fix .
 ```
 
 ## Best Practices
@@ -273,7 +280,7 @@ bun run lint:console
 
 1. **Use debug mode for troubleshooting**: `DEBUG_TESTS=1` when investigating test failures
 2. **Check quality regularly**: `bun run test:quality` to monitor test health
-3. **Validate console usage**: `bun run lint:console` before committing
+3. **Validate console usage**: `bunx eslint .` before committing (the `custom/no-raw-console` rule fires on raw `console.*` calls)
 
 ### CI/CD
 

@@ -2,8 +2,8 @@
  * Helper to compose and validate conventional commit titles for PR commands
  */
 
-import { ValidationError } from "../../../../errors/index";
-import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "../../../../domain/git/conventional-commit-types";
+import { ValidationError } from "@minsky/domain/errors/index";
+import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "@minsky/domain/git/conventional-commit-types";
 
 // Allow leading whitespace so titles like `"  mt#1265: foo"` are detected and
 // stripped — without `\s*` the strip + mismatch checks silently fail.

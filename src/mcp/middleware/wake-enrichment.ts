@@ -21,8 +21,8 @@
  * Reference: mt#1519 §5, mt#1661 spec.
  */
 
-import type { WakeSignalPayload } from "../../domain/ask/wake-on-respond";
-import { log } from "../../utils/logger";
+import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Surface the middleware uses against the wake-pending store. Subset of

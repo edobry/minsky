@@ -85,6 +85,18 @@ supabase-health:
     @echo "---"
     @echo "DB ping via execute_sql is in the Minsky MCP supabase tool; no CLI equivalent."
 
+# Restart the Supabase project (full restart — resets Supavisor circuit breaker).
+# DESTRUCTIVE. Default: dry-run (preview only). Add EXECUTE=1 to actually restart.
+# See scripts/supabase/restart-project.ts and docs/incidents/2026-06-28-supabase-connectivity-breaker.md
+supabase-restart:
+    #!/bin/sh
+    set -eu
+    if [ "${EXECUTE:-}" = "1" ]; then
+        bun scripts/supabase/restart-project.ts --execute
+    else
+        bun scripts/supabase/restart-project.ts
+    fi
+
 # Test macOS binaries specifically (runs on macOS)
 test-macos-binaries: build-macos build-macos-arm64
     @echo "Testing macOS x64 binary:"

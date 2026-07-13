@@ -12,11 +12,11 @@
  * @see mt#1292 — production wiring follow-up to mt#1240
  */
 
-import { listReviews } from "../../../domain/repository/github-pr-review";
-import type { GitHubContext } from "../../../domain/repository/github-pr-operations";
-import type { GithubReview, GithubReviewClient } from "../../../domain/ask/reconciler";
-import type { TokenProvider } from "../../../domain/auth";
-import type { ReviewListEntry } from "../../../domain/repository/index";
+import { listReviews } from "@minsky/domain/repository/github-pr-review";
+import type { GitHubContext } from "@minsky/domain/repository/github-pr-operations";
+import type { GithubReview, GithubReviewClient } from "@minsky/domain/ask/reconciler";
+import type { TokenProvider } from "@minsky/domain/auth";
+import type { ReviewListEntry } from "@minsky/domain/repository/index";
 
 /**
  * The subset of `listReviews` that `makeProductionGithubReviewClient` needs.

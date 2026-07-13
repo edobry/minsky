@@ -1,5 +1,5 @@
 /**
- * Unit tests for the merge-state sweeper (mt#1614, mt#1752).
+ * Unit tests for the merge-state sweeper (mt#1614, mt#1752, mt#2121).
  *
  * Verifies:
  *   - runMergeStateSweep returns sessionsScanned=N when N sessions are listed.
@@ -9,11 +9,12 @@
  *     of stored state — mt#1752.
  *   - Sessions without a pullRequest.number are skipped gracefully.
  *   - loadMergeStateSweeperConfig reads from env vars correctly.
- *   - startMergeStateSweeper returns null when disabled or credentials absent.
+ *   - startMergeStateSweeper returns null when disabled or domain services absent.
  *
- * fetch is mocked for MCP calls (session.list, session.apply_post_merge_state_sync).
- * Octokit is passed as a fake object directly to runMergeStateSweep (mt#1752
- * threaded it as a parameter).
+ * Domain services are injected via fake SessionProviderInterface objects —
+ * the MCP-over-HTTP infrastructure was retired in mt#2121 and replaced with
+ * direct domain imports. fetch is no longer mocked. Octokit is passed as a
+ * fake object directly to runMergeStateSweep.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
@@ -21,17 +22,19 @@ import {
   runMergeStateSweep,
   loadMergeStateSweeperConfig,
   startMergeStateSweeper,
+  type MergeStateSweeperConfig,
+  type MergeStateSweeperDeps,
 } from "./merge-state-sweeper";
-import { resetMcpClientSessions } from "./mcp-client";
 import type { ReviewerConfig } from "./config";
 import type { Octokit } from "@octokit/rest";
+import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session";
+import type { TaskServiceInterface } from "@minsky/domain/tasks";
+import { silenceConsoleLogs, captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const MCP_URL = "http://localhost:9999/mcp";
-const MCP_TOKEN = "test-token";
 const OWNER = "edobry";
 const REPO = "minsky";
 const GITHUB_TIMEOUT_MS = 30_000;
@@ -59,130 +62,98 @@ const BASE_REVIEWER_CONFIG: ReviewerConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Fake fetch infrastructure
+// Fake domain services
 // ---------------------------------------------------------------------------
 
-type FetchHandler = (url: string, init: RequestInit) => Promise<Response>;
-
-let originalFetch: typeof globalThis.fetch;
-let fetchHandler: FetchHandler | null = null;
-
-// Store original console methods to restore after each test.
-// The sweeper calls console.warn and console.log internally. Replacing them
-// per-test prevents cross-file contamination when bun test runs files in
-// parallel with other tests that use spyOn(console, "warn").
-let originalConsoleWarn: typeof console.warn;
-let originalConsoleLog: typeof console.log;
-let originalConsoleError: typeof console.error;
-
-beforeEach(() => {
-  originalFetch = globalThis.fetch;
-  fetchHandler = null;
-  // Reset MCP client session cache between tests so initialize replays for each.
-  resetMcpClientSessions();
-
-  // Install fake fetch — cast to typeof globalThis.fetch to satisfy Bun's
-  // fetch type (which has methods like `preconnect` we don't model in the wrapper).
-  // The wrapper transparently handles the MCP initialize handshake (mt#1821) so
-  // existing per-tool fetchHandler implementations only see tools/call requests.
-  globalThis.fetch = (async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.href
-          : (input as { url: string }).url;
-
-    // Phase 1: initialize → 200 with Mcp-Session-Id header.
-    // Phase 2: notifications/initialized → 202.
-    // Phase 3 onward: delegate to per-test fetchHandler.
-    const bodyText = typeof init?.body === "string" ? init.body : "";
-    let method: string | undefined;
-    try {
-      method = (JSON.parse(bodyText) as { method?: string }).method;
-    } catch {
-      // Non-JSON body — fall through to handler.
-    }
-    if (method === "initialize") {
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          result: { protocolVersion: "2025-03-26", capabilities: {} },
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Mcp-Session-Id": "test-session-id" },
-        }
-      );
-    }
-    if (method === "notifications/initialized") {
-      return new Response(null, { status: 202 });
-    }
-    if (fetchHandler) {
-      return fetchHandler(url, init ?? {});
-    }
-    throw new Error(`fetch called but no handler installed: ${url}`);
-  }) as typeof globalThis.fetch;
-
-  // Isolate console to prevent sweeper's internal console calls from
-  // contaminating concurrent test files' console spies.
-  originalConsoleWarn = console.warn;
-  originalConsoleLog = console.log;
-  originalConsoleError = console.error;
-  console.warn = () => {};
-  console.log = () => {};
-  console.error = () => {};
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-  console.warn = originalConsoleWarn;
-  console.log = originalConsoleLog;
-  console.error = originalConsoleError;
-});
-
-/** Build a fake Response with given JSON body. */
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-/** Build an MCP tools/call response with the given data in result.content[0].text. */
-function mcpResponse(data: unknown): Response {
-  return jsonResponse({
-    jsonrpc: "2.0",
-    id: "test",
-    result: {
-      content: [{ type: "text", text: JSON.stringify(data) }],
+/**
+ * Build a minimal fake SessionProviderInterface for testing.
+ * listSessions() returns the provided sessions array.
+ * All other methods throw (not needed by the sweeper).
+ */
+function makeSessionProvider(sessions: SessionRecord[]): SessionProviderInterface {
+  return {
+    listSessions: async () => sessions,
+    getSession: async () => {
+      throw new Error("getSession: not implemented in fake");
     },
-  });
+    getSessionByTaskId: async () => {
+      throw new Error("getSessionByTaskId: not implemented in fake");
+    },
+    addSession: async () => {
+      throw new Error("addSession: not implemented in fake");
+    },
+    updateSession: async () => {
+      throw new Error("updateSession: not implemented in fake");
+    },
+    deleteSession: async () => {
+      throw new Error("deleteSession: not implemented in fake");
+    },
+    getRepoPath: async () => {
+      throw new Error("getRepoPath: not implemented in fake");
+    },
+    getSessionWorkdir: async () => {
+      throw new Error("getSessionWorkdir: not implemented in fake");
+    },
+  } as unknown as SessionProviderInterface;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: build a session list MCP response
-// ---------------------------------------------------------------------------
+/**
+ * Minimal fake TaskServiceInterface (not called by the sweeper directly;
+ * passed through to applySyncFn deps).
+ */
+const fakeTaskService: TaskServiceInterface = {} as TaskServiceInterface;
 
-interface FakeSession {
-  sessionId: string;
-  taskId?: string;
-  status?: string;
-  pullRequest?: {
-    number?: number;
-    state?: string;
+/**
+ * Build a MergeStateSweeperDeps with the given session list and an
+ * optional spy for the sync calls.
+ */
+function makeDeps(
+  sessions: SessionRecord[],
+  syncSpy?: (params: {
+    sessionId: string;
+    mergeSha?: string;
     mergedAt?: string;
-    github?: { htmlUrl?: string };
+    trigger: string;
+  }) => Promise<void>
+): MergeStateSweeperDeps {
+  return {
+    sessionProvider: makeSessionProvider(sessions),
+    taskService: fakeTaskService,
+    applySyncFn: syncSpy ?? (async () => {}),
   };
 }
 
-function sessionListResponse(sessions: FakeSession[]): Response {
-  return mcpResponse({ sessions });
-}
+// ---------------------------------------------------------------------------
+// Helper: build a minimal SessionRecord for PR_OPEN sessions
+// ---------------------------------------------------------------------------
 
-function applySyncResponse(sessionId: string): Response {
-  return mcpResponse({ success: true, sessionId, taskStatusUpdated: true });
+/**
+ * Build a minimal SessionRecord with PR_OPEN status.
+ * The sweeper only accesses: sessionId, taskId, status, pullRequest.number.
+ */
+function makePrOpenSession(opts: {
+  sessionId: string;
+  taskId?: string;
+  prNumber?: number;
+}): SessionRecord {
+  return {
+    sessionId: opts.sessionId,
+    taskId: opts.taskId,
+    status: "PR_OPEN" as SessionRecord["status"],
+    ...(opts.prNumber !== undefined
+      ? {
+          pullRequest: {
+            number: opts.prNumber,
+            url: `https://github.com/${OWNER}/${REPO}/pull/${opts.prNumber}`,
+            state: "open" as const,
+            createdAt: "2026-05-01T00:00:00Z",
+            headBranch: "task/mt-9999",
+            baseBranch: "main",
+            lastSynced: "2026-05-01T00:00:00Z",
+          },
+        }
+      : {}),
+  } as SessionRecord;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,28 +196,34 @@ function makeFakeOctokit(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// runMergeStateSweep — tests
+// Log silencer
+// ---------------------------------------------------------------------------
+
+// The sweeper emits structured log lines via the reviewer-local winston
+// logger (routed to process.stdout). Per-test silencing keeps `bun test`
+// output clean and isolates tests from each other when bun runs files in
+// parallel.
+let stdoutSilencer: { restore: () => void } | null = null;
+
+beforeEach(() => {
+  stdoutSilencer = silenceConsoleLogs();
+});
+
+afterEach(() => {
+  if (stdoutSilencer) {
+    stdoutSilencer.restore();
+    stdoutSilencer = null;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — no sessions
 // ---------------------------------------------------------------------------
 
 describe("runMergeStateSweep — no sessions", () => {
-  it("returns sessionsScanned=0 when session.list returns empty array", async () => {
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") {
-        return sessionListResponse([]);
-      }
-      throw new Error(`Unexpected tool call: ${body.params.name}`);
-    };
-
+  it("returns sessionsScanned=0 when session list returns empty array", async () => {
     const octokit = makeFakeOctokit({ prResponses: {} });
-    const result = await runMergeStateSweep(
-      octokit,
-      OWNER,
-      REPO,
-      MCP_URL,
-      MCP_TOKEN,
-      GITHUB_TIMEOUT_MS
-    );
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, makeDeps([]), GITHUB_TIMEOUT_MS);
 
     expect(result.sessionsScanned).toBe(0);
     expect(result.missedSyncs).toBe(0);
@@ -255,17 +232,13 @@ describe("runMergeStateSweep — no sessions", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — open PRs not synced
+// ---------------------------------------------------------------------------
+
 describe("runMergeStateSweep — open PRs not synced", () => {
   it("skips a session whose PR is still open on GitHub", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "s1", taskId: "mt#100", status: "PR_OPEN", pullRequest: { number: 10 } },
-    ];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") return sessionListResponse(sessions);
-      throw new Error(`Unexpected tool call: ${body.params.name}`);
-    };
+    const sessions = [makePrOpenSession({ sessionId: "s1", taskId: "mt#100", prNumber: 10 })];
 
     const octokit = makeFakeOctokit({
       prResponses: { 10: { merged: false } },
@@ -274,8 +247,7 @@ describe("runMergeStateSweep — open PRs not synced", () => {
       octokit,
       OWNER,
       REPO,
-      MCP_URL,
-      MCP_TOKEN,
+      makeDeps(sessions),
       GITHUB_TIMEOUT_MS
     );
 
@@ -287,25 +259,7 @@ describe("runMergeStateSweep — open PRs not synced", () => {
   it("skips a session whose PR is closed but unmerged on GitHub (mt#1752: trust live state)", async () => {
     // Regression guard for mt#1752: even if some other source said the PR was merged,
     // if GitHub says `merged: false` (e.g., the PR was closed without merge), do nothing.
-    const sessions: FakeSession[] = [
-      // Stored state claims merged, but live GitHub state is the source of truth.
-      {
-        sessionId: "s1b",
-        taskId: "mt#100b",
-        status: "PR_OPEN",
-        pullRequest: {
-          number: 11,
-          state: "closed",
-          mergedAt: "stale-stored-value",
-        },
-      },
-    ];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") return sessionListResponse(sessions);
-      throw new Error(`Unexpected tool call: ${body.params.name}`);
-    };
+    const sessions = [makePrOpenSession({ sessionId: "s1b", taskId: "mt#100b", prNumber: 11 })];
 
     const octokit = makeFakeOctokit({
       prResponses: { 11: { merged: false, merged_at: null, merge_commit_sha: null } },
@@ -314,8 +268,7 @@ describe("runMergeStateSweep — open PRs not synced", () => {
       octokit,
       OWNER,
       REPO,
-      MCP_URL,
-      MCP_TOKEN,
+      makeDeps(sessions),
       GITHUB_TIMEOUT_MS
     );
 
@@ -324,32 +277,22 @@ describe("runMergeStateSweep — open PRs not synced", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — merged PR triggers sync
+// ---------------------------------------------------------------------------
+
 describe("runMergeStateSweep — merged PR triggers sync", () => {
-  it("detects a merged PR on GitHub and calls apply_post_merge_state_sync", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "s2", taskId: "mt#200", status: "PR_OPEN", pullRequest: { number: 20 } },
-    ];
+  it("detects a merged PR on GitHub and calls applyPostMergeStateSync", async () => {
+    const sessions = [makePrOpenSession({ sessionId: "s2", taskId: "mt#200", prNumber: 20 })];
 
     const syncCalledFor: { sessionId: string; mergeSha?: string; mergedAt?: string }[] = [];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
-      };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
-
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push({
-          sessionId: args["sessionId"] as string,
-          mergeSha: args["mergeSha"] as string | undefined,
-          mergedAt: args["mergedAt"] as string | undefined,
-        });
-        return applySyncResponse(args["sessionId"] as string);
-      }
-      throw new Error(`Unexpected tool call: ${toolName}`);
-    };
+    const deps = makeDeps(sessions, async (params) => {
+      syncCalledFor.push({
+        sessionId: params.sessionId,
+        mergeSha: params.mergeSha,
+        mergedAt: params.mergedAt,
+      });
+    });
 
     const octokit = makeFakeOctokit({
       prResponses: {
@@ -360,14 +303,7 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         },
       },
     });
-    const result = await runMergeStateSweep(
-      octokit,
-      OWNER,
-      REPO,
-      MCP_URL,
-      MCP_TOKEN,
-      GITHUB_TIMEOUT_MS
-    );
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
 
     expect(result.sessionsScanned).toBe(1);
     expect(result.missedSyncs).toBe(1);
@@ -387,35 +323,12 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
     // Octokit's live `pulls.get`, NOT via the stored session.pullRequest.state.
     // Six historical drift incidents (mt#1772, mt#1773, mt#1774, mt#1777,
     // mt#1742, mt#1787) had session.pullRequest.state="open" stored despite
-    // their PRs being merged on GitHub for hours. The sweeper would miss them
-    // under the prior `session.pr.get`-based predicate.
-    const sessions: FakeSession[] = [
-      {
-        sessionId: "s_stale_open",
-        taskId: "mt#1787",
-        status: "PR_OPEN",
-        pullRequest: { number: 1083, state: "open" }, // stored state is stale
-      },
+    // their PRs being merged on GitHub for hours.
+    const sessions = [
+      makePrOpenSession({ sessionId: "s_stale_open", taskId: "mt#1787", prNumber: 1083 }),
     ];
 
     let prGetCallCount = 0;
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
-      };
-      const toolName = body.params.name;
-      // Critical: the sweeper must NOT call session.pr.get anymore.
-      if (toolName === "session.pr.get") {
-        prGetCallCount++;
-        throw new Error("regression: sweeper should NOT call session.pr.get (mt#1752)");
-      }
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.apply_post_merge_state_sync") {
-        return applySyncResponse(body.params.arguments["sessionId"] as string);
-      }
-      throw new Error(`Unexpected tool call: ${toolName}`);
-    };
-
     const octokit = makeFakeOctokit({
       prResponses: {
         1083: {
@@ -424,34 +337,26 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
           merge_commit_sha: "6c53e872c",
         },
       },
+      onCall: () => {
+        prGetCallCount++;
+      },
     });
     const result = await runMergeStateSweep(
       octokit,
       OWNER,
       REPO,
-      MCP_URL,
-      MCP_TOKEN,
+      makeDeps(sessions),
       GITHUB_TIMEOUT_MS
     );
 
-    expect(prGetCallCount).toBe(0);
+    // The sweeper MUST call pulls.get (live GitHub check), not rely on stored state.
+    expect(prGetCallCount).toBe(1);
     expect(result.missedSyncs).toBe(1);
     expect(result.syncsTriggered).toBe(1);
   });
 
   it("forwards owner/repo and pull_number to Octokit correctly", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "s_pr_42", status: "PR_OPEN", pullRequest: { number: 42 } },
-    ];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") return sessionListResponse(sessions);
-      if (body.params.name === "session.apply_post_merge_state_sync") {
-        return applySyncResponse("s_pr_42");
-      }
-      throw new Error(`Unexpected tool call: ${body.params.name}`);
-    };
+    const sessions = [makePrOpenSession({ sessionId: "s_pr_42", prNumber: 42 })];
 
     const calledPrNumbers: number[] = [];
     const octokit = makeFakeOctokit({
@@ -460,7 +365,7 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         calledPrNumbers.push(n);
       },
     });
-    await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN, GITHUB_TIMEOUT_MS);
+    await runMergeStateSweep(octokit, OWNER, REPO, makeDeps(sessions), GITHUB_TIMEOUT_MS);
 
     expect(calledPrNumbers).toEqual([42]);
   });
@@ -470,15 +375,7 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
   // Promise.all chunk indefinitely (which would leave isRunning=true and
   // cause skip_reentrant on subsequent ticks).
   it("aborts on octokit hang via withTimeout (PR #1116 R1 BLOCKING #1)", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "s_hang", status: "PR_OPEN", pullRequest: { number: 99 } },
-    ];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") return sessionListResponse(sessions);
-      throw new Error(`Unexpected: ${body.params.name}`);
-    };
+    const sessions = [makePrOpenSession({ sessionId: "s_hang", prNumber: 99 })];
 
     // Build a fake Octokit whose pulls.get hangs forever unless aborted.
     const hangingOctokit = {
@@ -508,8 +405,7 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
       hangingOctokit,
       OWNER,
       REPO,
-      MCP_URL,
-      MCP_TOKEN,
+      makeDeps(sessions),
       SHORT_TIMEOUT_MS
     );
     const elapsed = performance.now() - start;
@@ -527,22 +423,26 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — skips sessions without PR number
+// ---------------------------------------------------------------------------
+
 describe("runMergeStateSweep — skips sessions without PR number", () => {
   it("skips a PR_OPEN session that has no pullRequest.number", async () => {
-    const sessions: FakeSession[] = [
+    const sessions: SessionRecord[] = [
       // No pullRequest at all
-      { sessionId: "s4", taskId: "mt#400", status: "PR_OPEN" },
-      // Has pullRequest but no number
-      { sessionId: "s5", taskId: "mt#500", status: "PR_OPEN", pullRequest: {} },
+      makePrOpenSession({ sessionId: "s4", taskId: "mt#400" }),
+      // Has pullRequest but no number — use a record with an empty-ish pullRequest
+      {
+        sessionId: "s5",
+        taskId: "mt#500",
+        status: "PR_OPEN" as SessionRecord["status"],
+        // pullRequest present but number set to 0 (falsy) — sweeper skips falsy PR numbers
+        pullRequest: undefined,
+      } as SessionRecord,
     ];
 
     let octokitCalls = 0;
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") return sessionListResponse(sessions);
-      throw new Error(`Unexpected tool call: ${body.params.name}`);
-    };
 
     const octokit = makeFakeOctokit({
       prResponses: {},
@@ -554,8 +454,7 @@ describe("runMergeStateSweep — skips sessions without PR number", () => {
       octokit,
       OWNER,
       REPO,
-      MCP_URL,
-      MCP_TOKEN,
+      makeDeps(sessions),
       GITHUB_TIMEOUT_MS
     );
 
@@ -565,30 +464,22 @@ describe("runMergeStateSweep — skips sessions without PR number", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — handles multiple sessions
+// ---------------------------------------------------------------------------
+
 describe("runMergeStateSweep — handles multiple sessions", () => {
   it("processes multiple sessions in parallel, applies sync to all merged ones", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "sa", taskId: "mt#1", status: "PR_OPEN", pullRequest: { number: 1 } },
-      { sessionId: "sb", taskId: "mt#2", status: "PR_OPEN", pullRequest: { number: 2 } },
-      { sessionId: "sc", taskId: "mt#3", status: "PR_OPEN", pullRequest: { number: 3 } },
+    const sessions = [
+      makePrOpenSession({ sessionId: "sa", taskId: "mt#1", prNumber: 1 }),
+      makePrOpenSession({ sessionId: "sb", taskId: "mt#2", prNumber: 2 }),
+      makePrOpenSession({ sessionId: "sc", taskId: "mt#3", prNumber: 3 }),
     ];
 
     const syncCalledFor: string[] = [];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
-      };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
-
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push(args["sessionId"] as string);
-        return applySyncResponse(args["sessionId"] as string);
-      }
-      throw new Error(`Unexpected tool call: ${toolName}`);
-    };
+    const deps = makeDeps(sessions, async (params) => {
+      syncCalledFor.push(params.sessionId);
+    });
 
     const octokit = makeFakeOctokit({
       prResponses: {
@@ -597,14 +488,7 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
         3: { merged: true, merged_at: "2026-05-06T11:00:00Z", merge_commit_sha: "ccc" },
       },
     });
-    const result = await runMergeStateSweep(
-      octokit,
-      OWNER,
-      REPO,
-      MCP_URL,
-      MCP_TOKEN,
-      GITHUB_TIMEOUT_MS
-    );
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
 
     expect(result.sessionsScanned).toBe(3);
     expect(result.missedSyncs).toBe(2);
@@ -613,30 +497,26 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// runMergeStateSweep — error handling
+// ---------------------------------------------------------------------------
+
 describe("runMergeStateSweep — error handling", () => {
-  it("returns errors array and continues when session.list returns no content", async () => {
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "session.list") {
-        // Simulate MCP error
-        return jsonResponse({
-          jsonrpc: "2.0",
-          id: "test",
-          error: { message: "DB unavailable" },
-        });
-      }
-      throw new Error("Unexpected tool call");
+  it("returns errors array and continues when sessionProvider.listSessions throws", async () => {
+    const failingProvider: SessionProviderInterface = {
+      listSessions: async () => {
+        throw new Error("DB unavailable");
+      },
+    } as unknown as SessionProviderInterface;
+
+    const deps: MergeStateSweeperDeps = {
+      sessionProvider: failingProvider,
+      taskService: fakeTaskService,
+      applySyncFn: async () => {},
     };
 
     const octokit = makeFakeOctokit({ prResponses: {} });
-    const result = await runMergeStateSweep(
-      octokit,
-      OWNER,
-      REPO,
-      MCP_URL,
-      MCP_TOKEN,
-      GITHUB_TIMEOUT_MS
-    );
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
 
     // Should surface the error gracefully
     expect(result.errors.length).toBeGreaterThan(0);
@@ -644,41 +524,22 @@ describe("runMergeStateSweep — error handling", () => {
   });
 
   it("continues sweep even when a single session's Octokit lookup fails", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "se1", status: "PR_OPEN", pullRequest: { number: 1 } },
-      { sessionId: "se2", status: "PR_OPEN", pullRequest: { number: 2 } },
+    const sessions = [
+      makePrOpenSession({ sessionId: "se1", prNumber: 1 }),
+      makePrOpenSession({ sessionId: "se2", prNumber: 2 }),
     ];
 
     const syncCalledFor: string[] = [];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
-      };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
-
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push(args["sessionId"] as string);
-        return applySyncResponse(args["sessionId"] as string);
-      }
-      throw new Error(`Unexpected: ${toolName}`);
-    };
+    const deps = makeDeps(sessions, async (params) => {
+      syncCalledFor.push(params.sessionId);
+    });
 
     const octokit = makeFakeOctokit({
       // se1's Octokit lookup throws; se2 is merged.
       prResponses: { 2: { merged: true, merged_at: "2026-05-06T10:00:00Z" } },
       throwForPrNumber: 1,
     });
-    const result = await runMergeStateSweep(
-      octokit,
-      OWNER,
-      REPO,
-      MCP_URL,
-      MCP_TOKEN,
-      GITHUB_TIMEOUT_MS
-    );
+    const result = await runMergeStateSweep(octokit, OWNER, REPO, deps, GITHUB_TIMEOUT_MS);
 
     // se1 failed (recorded as error), se2 still synced
     expect(result.errors.length).toBeGreaterThan(0);
@@ -856,61 +717,248 @@ describe("startMergeStateSweeper", () => {
     const handle = startMergeStateSweeper(BASE_REVIEWER_CONFIG, {
       enabled: false,
       intervalMs: 600_000,
-      mcpUrl: MCP_URL,
-      mcpToken: MCP_TOKEN,
       owner: OWNER,
       repo: REPO,
       ownerDefaulted: false,
       repoDefaulted: false,
       githubTimeoutMs: GITHUB_TIMEOUT_MS,
+      // mt#2684: off here — this test never reaches the boot catch-up branch
+      // (the `enabled` guard returns first), but the field is required.
+      bootCatchupEnabled: false,
     });
     expect(handle).toBeNull();
   });
 
-  it("returns null when enabled but missing mcpUrl", () => {
-    const handle = startMergeStateSweeper(BASE_REVIEWER_CONFIG, {
-      enabled: true,
-      intervalMs: 600_000,
-      mcpUrl: "", // Empty
-      mcpToken: MCP_TOKEN,
-      owner: OWNER,
-      repo: REPO,
-      ownerDefaulted: false,
-      repoDefaulted: false,
-      githubTimeoutMs: GITHUB_TIMEOUT_MS,
-    });
+  it("returns null when enabled but domain services deps not provided", () => {
+    // After mt#2121: the sweeper requires domain services deps (sessionProvider +
+    // taskService), not MCP credentials. Returns null when deps are absent.
+    const handle = startMergeStateSweeper(
+      BASE_REVIEWER_CONFIG,
+      {
+        enabled: true,
+        intervalMs: 600_000,
+        owner: OWNER,
+        repo: REPO,
+        ownerDefaulted: false,
+        repoDefaulted: false,
+        githubTimeoutMs: GITHUB_TIMEOUT_MS,
+        // mt#2684: off here — this test never reaches the boot catch-up
+        // branch (the missing-deps guard returns first).
+        bootCatchupEnabled: false,
+      }
+      // deps intentionally omitted — should return null
+    );
     expect(handle).toBeNull();
   });
 
-  it("returns null when enabled but missing mcpToken", () => {
-    const handle = startMergeStateSweeper(BASE_REVIEWER_CONFIG, {
-      enabled: true,
-      intervalMs: 600_000,
-      mcpUrl: MCP_URL,
-      mcpToken: "", // Empty
-      owner: OWNER,
-      repo: REPO,
-      ownerDefaulted: false,
-      repoDefaulted: false,
-      githubTimeoutMs: GITHUB_TIMEOUT_MS,
-    });
-    expect(handle).toBeNull();
-  });
-
-  it("returns an interval handle when properly configured", () => {
-    const handle = startMergeStateSweeper(BASE_REVIEWER_CONFIG, {
-      enabled: true,
-      intervalMs: 600_000,
-      mcpUrl: MCP_URL,
-      mcpToken: MCP_TOKEN,
-      owner: OWNER,
-      repo: REPO,
-      ownerDefaulted: false,
-      repoDefaulted: false,
-      githubTimeoutMs: GITHUB_TIMEOUT_MS,
-    });
+  it("returns an interval handle when properly configured with domain services", () => {
+    const handle = startMergeStateSweeper(
+      BASE_REVIEWER_CONFIG,
+      {
+        enabled: true,
+        intervalMs: 600_000,
+        owner: OWNER,
+        repo: REPO,
+        ownerDefaulted: false,
+        repoDefaulted: false,
+        githubTimeoutMs: GITHUB_TIMEOUT_MS,
+        // mt#2684: off here — no octokitOverride is supplied in this test, so
+        // a boot catch-up cycle would call the real createOctokit() (a live
+        // GitHub App auth handshake) in the background. Dedicated boot
+        // catch-up tests below opt back in explicitly with an octokitOverride.
+        bootCatchupEnabled: false,
+      },
+      {
+        sessionProvider: makeSessionProvider([]),
+        taskService: fakeTaskService,
+        applySyncFn: async () => {},
+      }
+    );
     expect(handle).not.toBeNull();
     // Clean up the interval so the test process can exit cleanly.
     if (handle) clearInterval(handle);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startMergeStateSweeper — boot catch-up sweep (mt#2684)
+// ---------------------------------------------------------------------------
+
+const EVENT_CYCLE_END = "merge_state_sweeper.cycle_end";
+
+/**
+ * Poll `logs` until `findLogEvent` finds `eventName` or `maxMs` elapses.
+ *
+ * Mirrors sweeper.test.ts's mt#2660 boot-catch-up polling helper: the boot
+ * catch-up cycle is fire-and-forget (chained off the octokitOverride promise
+ * + listSessions()), so a flat `setTimeout` wait would be sensitive to
+ * CI/scheduler jitter. In practice this resolves within a couple of `stepMs`
+ * ticks since the underlying work here is already-resolved fake promises;
+ * `maxMs` is a generous ceiling, not the expected wait — widened to 3000ms
+ * (from an initial 500ms) per reviewer non-blocking nit: 500ms left little
+ * headroom for scheduler jitter under CI load. Early-exit polling (5ms
+ * steps) means a healthy run still returns in a couple ticks; only a truly
+ * stalled cycle pays the full ceiling.
+ */
+async function waitForLogEvent(
+  logs: string[],
+  eventName: string,
+  maxMs = 3_000
+): Promise<Record<string, unknown> | null> {
+  const stepMs = 5;
+  for (let waited = 0; waited < maxMs; waited += stepMs) {
+    const found = findLogEvent(logs, eventName);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return findLogEvent(logs, eventName);
+}
+
+describe("loadMergeStateSweeperConfig — boot catch-up opt-out (mt#2684)", () => {
+  const BOOT_CATCHUP_ENV_VAR = "MERGE_STATE_SWEEPER_BOOT_CATCHUP_ENABLED";
+
+  it("bootCatchupEnabled defaults to true when env var is not set", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    delete process.env[BOOT_CATCHUP_ENV_VAR];
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(true);
+    } finally {
+      if (saved !== undefined) process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+    }
+  });
+
+  it("bootCatchupEnabled=false when env var is explicitly false", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    process.env[BOOT_CATCHUP_ENV_VAR] = "false";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(false);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      } else {
+        delete process.env[BOOT_CATCHUP_ENV_VAR];
+      }
+    }
+  });
+
+  it("bootCatchupEnabled=true when env var is explicitly true", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    process.env[BOOT_CATCHUP_ENV_VAR] = "true";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      } else {
+        delete process.env[BOOT_CATCHUP_ENV_VAR];
+      }
+    }
+  });
+});
+
+describe("startMergeStateSweeper — boot catch-up sweep (mt#2684)", () => {
+  // Long interval — if the immediate boot cycle didn't fire, no
+  // merge_state_sweeper.cycle_end would ever appear within a test's lifetime.
+  const BASE_BOOT_SWEEPER_CONFIG: MergeStateSweeperConfig = {
+    enabled: true,
+    intervalMs: 3_600_000,
+    owner: OWNER,
+    repo: REPO,
+    ownerDefaulted: false,
+    repoDefaulted: false,
+    githubTimeoutMs: GITHUB_TIMEOUT_MS,
+    bootCatchupEnabled: true,
+  };
+
+  it("bootCatchupEnabled=true: runs a sweep cycle immediately at boot, without waiting for the interval", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const octokit = makeFakeOctokit({ prResponses: {} });
+      handle = startMergeStateSweeper(
+        BASE_REVIEWER_CONFIG,
+        BASE_BOOT_SWEEPER_CONFIG,
+        makeDeps([]),
+        octokit
+      );
+
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "merge_state_sweeper.boot_catchup_start")).not.toBeNull();
+    expect(findLogEvent(logs, "merge_state_sweeper.cycle_start")).not.toBeNull();
+    expect(findLogEvent(logs, EVENT_CYCLE_END)).not.toBeNull();
+  });
+
+  it("bootCatchupEnabled=false: does NOT run a sweep cycle at boot; only the periodic tick would", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const octokit = makeFakeOctokit({ prResponses: {} });
+      handle = startMergeStateSweeper(
+        BASE_REVIEWER_CONFIG,
+        { ...BASE_BOOT_SWEEPER_CONFIG, bootCatchupEnabled: false },
+        makeDeps([]),
+        octokit
+      );
+
+      // No wait needed here: with bootCatchupEnabled=false, runCycle() is
+      // never called from startMergeStateSweeper — there is no async work in
+      // flight to wait for, so asserting immediately is both correct and
+      // non-flaky.
+      expect(findLogEvent(logs, "merge_state_sweeper.boot_catchup_skipped")).not.toBeNull();
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "merge_state_sweeper.boot_catchup_start")).toBeNull();
+    expect(findLogEvent(logs, "merge_state_sweeper.cycle_start")).toBeNull();
+  });
+
+  it("boot catch-up detects and syncs a missed merge immediately (mt#2684 acceptance scenario)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    const sessions = [
+      makePrOpenSession({ sessionId: "s_boot", taskId: "mt#2684", prNumber: 2684 }),
+    ];
+    const syncCalledFor: string[] = [];
+    try {
+      const octokit = makeFakeOctokit({
+        prResponses: {
+          2684: {
+            merged: true,
+            merged_at: "2026-07-08T00:00:00Z",
+            merge_commit_sha: "boot1234",
+          },
+        },
+      });
+      handle = startMergeStateSweeper(
+        BASE_REVIEWER_CONFIG,
+        BASE_BOOT_SWEEPER_CONFIG,
+        makeDeps(sessions, async (params) => {
+          syncCalledFor.push(params.sessionId);
+        }),
+        octokit
+      );
+
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    // The boot cycle fires immediately, without waiting for the (1-hour)
+    // interval, and processes the missed merge in one pass.
+    expect(syncCalledFor).toEqual(["s_boot"]);
+    const cycleEnd = findLogEvent(logs, EVENT_CYCLE_END);
+    expect(cycleEnd?.syncsTriggered).toBe(1);
+    expect(cycleEnd?.missedSyncs).toBe(1);
   });
 });

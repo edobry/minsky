@@ -15,8 +15,12 @@ import { registerTaskEditTools } from "../../../src/adapters/mcp/task-edit-tools
 
 /**
  * Build a mock container + mock task service that stores spec content in memory.
+ *
+ * Resolves the lazy `getHandler` thunks (mt#1792) into concrete handler
+ * functions — the command objects expose `getHandler`, not `handler`, so the
+ * real-handler tests must await the thunk to get the dispatch function.
  */
-function buildMockSetup(initialSpec: string) {
+async function buildMockSetup(initialSpec: string) {
   let storedSpec = initialSpec;
 
   const mockTaskService = {
@@ -53,8 +57,14 @@ function buildMockSetup(initialSpec: string) {
 
   registerTaskEditTools(mockCommandMapper as any, mockContainer as any);
 
+  const resolveHandler = async (name: string) => {
+    const cmd = registeredTools[name];
+    return cmd.handler ?? (await cmd.getHandler());
+  };
+
   return {
-    handler: registeredTools["tasks.spec.search_replace"].handler,
+    handler: await resolveHandler("tasks.spec.search_replace"),
+    patchHandler: await resolveHandler("tasks.spec.patch"),
     getStoredSpec: () => storedSpec,
   };
 }
@@ -70,7 +80,7 @@ describe("task-edit-tools", () => {
       const replaceText = "see `$`[-_]key` for details";
       const originalSpec = `## Summary\n\n${searchToken}\n\n## Details\n\nSome detail text`;
 
-      const { handler, getStoredSpec } = buildMockSetup(originalSpec);
+      const { handler, getStoredSpec } = await buildMockSetup(originalSpec);
 
       const result = await handler({
         taskId: "mt#1361",
@@ -98,7 +108,7 @@ describe("task-edit-tools", () => {
       const replaceText = "$&-literal-suffix";
       const originalSpec = `Start\n${searchToken}\nEnd`;
 
-      const { handler, getStoredSpec } = buildMockSetup(originalSpec);
+      const { handler, getStoredSpec } = await buildMockSetup(originalSpec);
 
       const result = await handler({
         taskId: "mt#1361",
@@ -114,27 +124,86 @@ describe("task-edit-tools", () => {
     });
 
     test("should error when search text not found", async () => {
-      const { handler } = buildMockSetup("Some spec content without the search text");
+      const { handler } = await buildMockSetup("Some spec content without the search text");
 
-      await expect(
-        handler({
-          taskId: "mt#1361",
-          search: "nonexistent text",
-          replace: "replacement",
-        })
-      ).rejects.toThrow("Search text not found");
+      const result = await handler({
+        taskId: "mt#1361",
+        search: "nonexistent text",
+        replace: "replacement",
+      });
+      expect(result.success).toBe(false);
+      expect(String(result.error)).toContain("Search text not found");
     });
 
     test("should error when search text found more than once", async () => {
-      const { handler } = buildMockSetup("foo bar foo");
+      const { handler } = await buildMockSetup("foo bar foo");
 
-      await expect(
-        handler({
-          taskId: "mt#1361",
-          search: "foo",
-          replace: "baz",
-        })
-      ).rejects.toThrow("found 2 times");
+      const result = await handler({
+        taskId: "mt#1361",
+        search: "foo",
+        replace: "baz",
+      });
+      expect(result.success).toBe(false);
+      expect(String(result.error)).toContain("found 2 times");
+    });
+
+    test("mt#2408: empty search string is rejected fast (no hang) and leaves the spec intact", async () => {
+      const original = "## Summary\n\nfoo bar foo";
+      const { handler, getStoredSpec } = await buildMockSetup(original);
+
+      const result = await handler({
+        taskId: "mt#2408",
+        search: "",
+        replace: "baz",
+      });
+      expect(result.success).toBe(false);
+      expect(String(result.error)).toContain("non-empty");
+      expect(getStoredSpec()).toBe(original);
+    });
+  });
+
+  describe("tasks.spec.patch — mt#2400 fail-closed guard", () => {
+    test("marker-less content on a non-empty spec is refused and leaves the spec intact", async () => {
+      const originalSpec =
+        "## Summary\n\nThe whole original spec body.\n\n## Success Criteria\n\n- One\n- Two";
+      const { patchHandler, getStoredSpec } = await buildMockSetup(originalSpec);
+
+      const result = await patchHandler({
+        taskId: "mt#2400",
+        content: "## Replacement\n\nJust this chunk, no markers.",
+      });
+
+      // The handler returns a structured error envelope rather than throwing.
+      expect(result.success).toBe(false);
+      expect(String(result.error)).toContain("Refusing to patch");
+      expect(String(result.error)).toContain("tasks_edit");
+      // Critical: the original spec must NOT have been overwritten.
+      expect(getStoredSpec()).toBe(originalSpec);
+    });
+
+    test("marker-less content on an empty/new spec is allowed (creates the spec)", async () => {
+      const { patchHandler, getStoredSpec } = await buildMockSetup("");
+
+      const newBody = "## Summary\n\nBrand-new spec content.";
+      const result = await patchHandler({
+        taskId: "mt#2400",
+        content: newBody,
+      });
+
+      expect(result.success).toBe(true);
+      expect(getStoredSpec()).toBe(newBody);
+    });
+
+    test("marker content on a non-existent spec still errors (pre-existing guard preserved)", async () => {
+      const { patchHandler } = await buildMockSetup("");
+
+      const result = await patchHandler({
+        taskId: "mt#2400",
+        content: "// ... existing code ...\n## New\nstuff",
+      });
+
+      expect(result.success).toBe(false);
+      expect(String(result.error)).toContain("existing code markers");
     });
   });
 });

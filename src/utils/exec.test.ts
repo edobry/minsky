@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { safeShellQuote } from "./exec";
+import { safeShellQuote } from "@minsky/shared/exec";
 
 // ---------------------------------------------------------------------------
 // safeShellQuote (mt#1742) — POSIX single-quote wrapping for shell arguments

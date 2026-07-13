@@ -9,8 +9,8 @@ profileCheckpoint("cli_top");
 
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it
-import { setupConfiguration } from "./config-setup";
-import { ConfigValidationError } from "./domain/configuration/loader";
+import { setupConfiguration } from "@minsky/domain/config-setup";
+import { ConfigValidationError } from "@minsky/domain/configuration/loader";
 
 // Wait for configuration to be initialized before proceeding with other imports.
 // Schema-validation failures get a clean one-line user-facing error here at
@@ -40,12 +40,12 @@ try {
 profileCheckpoint("config_setup_complete");
 
 import { Command } from "commander";
-import { log } from "./utils/logger";
-import { exit } from "./utils/process";
+import { log } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
-import { validateError } from "./schemas/error";
-import type { AppContainerInterface } from "./composition/types";
-import { isMcpStartStdio } from "./cli-discriminators";
+import { validateError } from "@minsky/domain/schemas/error";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { isMcpStartStdio, isCompletionInvocation, isCockpitInvocation } from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 
 /**
@@ -98,6 +98,26 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     if (isMcpStartStdio(actionCommand)) {
       profileCheckpoint("preaction_skipped_for_mcp_stdio");
       log.debug("Container init deferred for mcp start stdio (mt#1751)");
+      return;
+    }
+
+    // mt#1892: shell-completion TAB handler must not touch DB / DI container.
+    // Latency budget is 300ms; container init alone is ~1s. Skip outright.
+    if (isCompletionInvocation(actionCommand)) {
+      profileCheckpoint("preaction_skipped_for_completions_complete");
+      log.debug("Container init skipped for completions complete (mt#1892)");
+      return;
+    }
+
+    // mt#2699: the cockpit is a standalone Express server with no tsyringe
+    // container (createCockpitCommand discards the parameter; cockpit data
+    // paths bootstrap their own lazy PersistenceService singleton). The eager
+    // init here (~2.6 s network-bound DB connect) was the dominant share of
+    // the cockpit daemon's cold-boot latency — the deeplink white-window gap
+    // (mt#2688). Skip outright; nothing on the cockpit path awaits it.
+    if (isCockpitInvocation(actionCommand)) {
+      profileCheckpoint("preaction_skipped_for_cockpit");
+      log.debug("Container init skipped for cockpit commands (mt#2699)");
       return;
     }
 
@@ -165,6 +185,20 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     const { createCockpitCommand } = await import("./commands/cockpit/index");
     cli.addCommand(createCockpitCommand(container));
   }
+  if (needsAll || requestedCommand === "completions" || requestedCommand === "completion-server") {
+    const { createCompletionsCommand, createCompletionServerCommand } = await import(
+      "./commands/completions/index"
+    );
+    cli.addCommand(createCompletionsCommand());
+    // Hidden top-level command invoked by the user's shell on TAB.
+    // `tabtab` generates shell scripts that call `minsky completion-server`,
+    // not `minsky completions complete`, so this MUST be top-level.
+    cli.addCommand(createCompletionServerCommand(), { hidden: true });
+  }
+  if (needsAll || requestedCommand === "ops") {
+    const { createOpsCommand } = await import("./commands/ops/index");
+    cli.addCommand(createOpsCommand(container));
+  }
 
   // Set error handler
   cli.configureOutput({
@@ -196,14 +230,23 @@ async function main(): Promise<void> {
   exit(0);
 }
 
-// Run the CLI
-main().catch((err) => {
-  const validatedError = validateError(err);
-  log.systemDebug(`Error caught in main: ${err}`);
-  log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);
-  log.error(`Unhandled error in CLI: ${validatedError.message}`);
-  if (validatedError.stack) log.debug(validatedError.stack);
-  exit(1);
-});
+// Run the CLI.
+//
+// MINSKY_SKIP_CLI_AUTORUN gate (mt#1892): build scripts that need to import
+// `createCli` (e.g., scripts/build-completion-manifest.ts) set this env var
+// so importing this module does NOT auto-run the CLI. Without the gate, the
+// import alone would trigger parseAsync() and exit the build script. The
+// env var is registered in HOOK_ONLY_ENV_VARS per the custom ESLint rule
+// (mt#1788) so the config-loader skips it.
+if (!process.env.MINSKY_SKIP_CLI_AUTORUN) {
+  main().catch((err) => {
+    const validatedError = validateError(err);
+    log.systemDebug(`Error caught in main: ${err}`);
+    log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);
+    log.error(`Unhandled error in CLI: ${validatedError.message}`);
+    if (validatedError.stack) log.debug(validatedError.stack);
+    exit(1);
+  });
+}
 
 export default cli;

@@ -31,10 +31,10 @@
  * @see mt#762 — RFC framing the MCP-middleware pattern (for enforcement; this is enrichment)
  */
 
-import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
-import type { MemorySearchResult } from "../../domain/memory/types";
-import { log } from "../../utils/logger";
-import { safeTruncate } from "../../utils/safe-truncate";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { MemorySearchResult } from "@minsky/domain/memory/types";
+import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
  * Tools the spike enriches. Hardcoded for spike scope. Production graduation

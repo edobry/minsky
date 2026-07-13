@@ -5,17 +5,32 @@
  * Filters out orphaned sessions and sessions in terminal statuses (MERGED, CLOSED).
  *
  * The widget is constructed via createAgentsWidget(), which accepts a
- * getSessionProvider async factory so the cockpit server can inject the
- * real persistence provider while tests inject a lightweight double.
+ * getSessionProvider async factory and an optional getTaskProvider async factory
+ * so the cockpit server can inject the real persistence providers while tests
+ * inject lightweight doubles.
  *
- * The default export `agentsWidget` uses a lazy PersistenceService singleton
+ * The default export `agentsWidget` uses lazy PersistenceService singletons
  * for production use (no DI container needed).
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import type { SessionProviderInterface, SessionRecord } from "../../domain/session/types";
-import { SessionStatus } from "../../domain/session/types";
-import { deriveSessionLiveness } from "../../domain/session/types";
-import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
+import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session/types";
+import { SessionStatus } from "@minsky/domain/session/types";
+import { deriveSessionLiveness } from "@minsky/domain/session/types";
+import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+
+/**
+ * Minimal interface for task title look-up. Keeps coupling thin and test
+ * doubles trivial.
+ *
+ * - `getTask(id)` — single look-up; `id` is in display form (e.g. `"mt#123"`).
+ * - `getTasks(ids)` — optional batch look-up. IDs are in display form. Returns
+ *   only found tasks (missing IDs are omitted, not returned as null). Returned
+ *   `id` values must match the input display-form IDs.
+ */
+export interface TaskProviderLike {
+  getTask(taskId: string): Promise<{ title: string } | null>;
+  getTasks?(ids: string[]): Promise<{ id: string; title: string }[]>;
+}
 
 /** Shape of a single agent row emitted in the payload */
 export interface AgentRow {
@@ -23,6 +38,9 @@ export interface AgentRow {
   title: string;
   liveness: "healthy" | "idle" | "stale" | "orphaned";
   taskId: string | null;
+  /** Human-readable task title sourced from the task backend; null when taskId
+   *  is absent or the task could not be resolved. */
+  taskTitle: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
@@ -32,17 +50,153 @@ export interface AgentRow {
 /** Full payload returned by this widget when state === "ok" */
 export interface AgentsPayload {
   agents: AgentRow[];
+  totalCount: number;
 }
 
 /** Terminal session statuses that should be filtered out */
 const TERMINAL_STATUSES: Set<SessionStatus> = new Set([SessionStatus.MERGED, SessionStatus.CLOSED]);
 
+const DEFAULT_TASK_TITLE_TTL_MS = 60_000;
+
+class TaskTitleCache {
+  private cache = new Map<string, string>();
+  private attempted = new Set<string>();
+  private lastPopulatedAt = 0;
+  private populatePromise: Promise<void> | null = null;
+
+  constructor(
+    private readonly getTaskProvider: () => Promise<TaskProviderLike>,
+    private readonly ttlMs: number = DEFAULT_TASK_TITLE_TTL_MS
+  ) {}
+
+  private isStale(): boolean {
+    return Date.now() - this.lastPopulatedAt > this.ttlMs;
+  }
+
+  async getTitles(taskIds: string[]): Promise<Map<string, string>> {
+    if (!this.isStale() && this.cache.size > 0) {
+      const result = new Map<string, string>();
+      const missing: string[] = [];
+      for (const id of taskIds) {
+        const title = this.cache.get(id);
+        if (title != null) {
+          result.set(id, title);
+        } else if (!this.attempted.has(id)) {
+          missing.push(id);
+        }
+      }
+
+      if (missing.length > 0) {
+        await this.fetchAndCache(missing);
+        for (const id of missing) {
+          const title = this.cache.get(id);
+          if (title != null) result.set(id, title);
+        }
+      }
+
+      return result;
+    }
+
+    if (this.populatePromise) {
+      await this.populatePromise;
+      const result = new Map<string, string>();
+      for (const id of taskIds) {
+        const title = this.cache.get(id);
+        if (title != null) result.set(id, title);
+      }
+      return result;
+    }
+
+    this.populatePromise = this.populate(taskIds);
+    try {
+      await this.populatePromise;
+    } finally {
+      this.populatePromise = null;
+    }
+
+    const result = new Map<string, string>();
+    for (const id of taskIds) {
+      const title = this.cache.get(id);
+      if (title != null) result.set(id, title);
+    }
+    return result;
+  }
+
+  private async fetchAndCache(ids: string[]): Promise<void> {
+    try {
+      const taskProvider = await this.getTaskProvider();
+      if (typeof taskProvider.getTasks === "function") {
+        const tasks = await taskProvider.getTasks(ids);
+        for (const task of tasks) {
+          this.cache.set(task.id, task.title);
+        }
+      } else {
+        const results = await Promise.all(
+          ids.map(async (displayId) => {
+            const task = await taskProvider.getTask(displayId);
+            return { displayId, title: task?.title ?? null };
+          })
+        );
+        for (const { displayId, title } of results) {
+          if (title != null) {
+            this.cache.set(displayId, title);
+          }
+        }
+      }
+      for (const id of ids) {
+        this.attempted.add(id);
+      }
+    } catch {
+      // Non-fatal — missing IDs stay uncached
+    }
+  }
+
+  private async populate(taskIds: string[]): Promise<void> {
+    try {
+      const taskProvider = await Promise.race([
+        this.getTaskProvider(),
+        new Promise<TaskProviderLike>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("Task provider init timeout (5s)")), 5000)
+        ),
+      ]);
+
+      if (typeof taskProvider.getTasks === "function") {
+        const tasks = await taskProvider.getTasks(taskIds);
+        for (const task of tasks) {
+          this.cache.set(task.id, task.title);
+        }
+      } else {
+        const results = await Promise.all(
+          taskIds.map(async (displayId) => {
+            const task = await taskProvider.getTask(displayId);
+            return { displayId, title: task?.title ?? null };
+          })
+        );
+        for (const { displayId, title } of results) {
+          if (title != null) {
+            this.cache.set(displayId, title);
+          }
+        }
+      }
+      this.lastPopulatedAt = Date.now();
+      for (const id of taskIds) {
+        this.attempted.add(id);
+      }
+    } catch {
+      // Task provider failure is non-fatal — rows degrade to taskTitle: null.
+    }
+  }
+}
+
 /**
  * Map a SessionRecord to an AgentRow.
  * Derives liveness via the domain function; leaves agentId as null
  * until mt#1078 populates it.
+ *
+ * @param record  The session record to map.
+ * @param taskTitle  Pre-fetched task title (or null when unavailable).
  */
-function toAgentRow(record: SessionRecord): AgentRow {
+function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
   const liveness = deriveSessionLiveness(record);
 
   // Title precedence: prefer the human-meaningful git branch when present,
@@ -71,6 +225,7 @@ function toAgentRow(record: SessionRecord): AgentRow {
     title,
     liveness,
     taskId,
+    taskTitle,
     prNumber,
     prStatus,
     lastActivityAt,
@@ -85,37 +240,81 @@ function toAgentRow(record: SessionRecord): AgentRow {
  *   Called on each fetch() so callers can lazily initialise the provider.
  *   If the call throws, fetch() catches and returns a degraded state.
  *
+ * @param getTaskProvider  Optional async factory that returns a TaskProviderLike.
+ *   When provided, task titles are looked up in a single parallel batch for all
+ *   unique non-null taskIds in the current session list. When absent or when the
+ *   factory throws, taskTitle fields are null (graceful degradation).
+ *
  * @example
  *   // Production use (cockpit default):
- *   export const agentsWidget = createAgentsWidget(defaultProviderFactory);
+ *   export const agentsWidget = createAgentsWidget(defaultProviderFactory, defaultTaskProviderFactory);
  *
- *   // Test use:
+ *   // Test use (session provider only, no task enrichment):
  *   const widget = createAgentsWidget(async () => mockProvider);
+ *
+ *   // Test use (with task enrichment):
+ *   const widget = createAgentsWidget(async () => mockProvider, async () => mockTaskProvider);
  */
 export function createAgentsWidget(
-  getProvider: () => Promise<SessionProviderInterface>
+  getProvider: () => Promise<SessionProviderInterface>,
+  getTaskProvider?: () => Promise<TaskProviderLike>
 ): WidgetModule {
+  const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
+
   return {
     id: "agents",
     title: "Agents",
     updateMode: { type: "polling", intervalMs: 5000 },
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
         const provider = await getProvider();
-        const records = await provider.listSessions();
 
-        const agents: AgentRow[] = records
-          .filter((r) => {
-            // Filter terminal statuses
-            if (r.status && TERMINAL_STATUSES.has(r.status)) return false;
-            // Filter orphaned liveness
-            const liveness = deriveSessionLiveness(r);
-            if (liveness === "orphaned") return false;
-            return true;
-          })
-          .map(toAgentRow);
+        const limit = ctx.query?.limit ? parseInt(ctx.query.limit, 10) : undefined;
+        const offset = ctx.query?.offset ? parseInt(ctx.query.offset, 10) : undefined;
+        const isPaginated = limit != null && !isNaN(limit);
 
-        const payload: AgentsPayload = { agents };
+        // Filter terminal statuses at DB level; orphaned liveness is derived
+        // in JS (no DB column) so it stays as a post-fetch filter.
+        const allRecords = await provider.listSessions({
+          statusNotIn: [...TERMINAL_STATUSES],
+        });
+
+        const filtered = allRecords.filter((r) => {
+          const liveness = deriveSessionLiveness(r);
+          if (liveness === "orphaned") return false;
+          return true;
+        });
+
+        const totalCount = filtered.length;
+
+        const page = isPaginated ? filtered.slice(offset ?? 0, (offset ?? 0) + limit) : filtered;
+
+        // Batch-fetch task titles — uses TTL cache to avoid re-querying on each poll.
+        const taskTitleMap = new Map<string, string>();
+        if (titleCache) {
+          const uniqueTaskIds = Array.from(
+            new Set(
+              page
+                .map((r) => r.taskId)
+                .filter((id): id is string => id != null)
+                .map(formatTaskIdForDisplay)
+            )
+          );
+          if (uniqueTaskIds.length > 0) {
+            const titles = await titleCache.getTitles(uniqueTaskIds);
+            for (const [id, title] of titles) {
+              taskTitleMap.set(id, title);
+            }
+          }
+        }
+
+        const agents: AgentRow[] = page.map((r) => {
+          const displayTaskId = r.taskId ? formatTaskIdForDisplay(r.taskId) : null;
+          const taskTitle = displayTaskId ? (taskTitleMap.get(displayTaskId) ?? null) : null;
+          return toAgentRow(r, taskTitle);
+        });
+
+        const payload: AgentsPayload = { agents, totalCount };
         return { state: "ok", payload };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -128,29 +327,23 @@ export function createAgentsWidget(
 // ---------------------------------------------------------------------------
 // Default production widget
 //
-// Uses a lazily-initialised PersistenceService singleton so the cockpit
-// server can register this without a DI container.  The provider is
-// created once on first fetch(); subsequent calls reuse the cached instance.
-//
-// The `new PersistenceService() + .initialize() + .getProvider()` pattern
-// here mirrors the canonical persistence-bootstrap in
-// `src/composition/cli.ts:31-32` and `src/hooks/post-commit.ts:98-105`. The
-// cockpit is a standalone Express server with no tsyringe container, so
-// constructing a singleton inline is the established pattern, not a
-// deviation. Switching to a shared DI container is a separate concern
-// (cockpit/DI integration RFC).
+// Uses the cockpit-wide PersistenceService singleton (src/cockpit/shared-persistence.ts)
+// so all widgets share one connection pool. The provider is created once on first
+// fetch(); subsequent calls reuse the cached instance.
 // ---------------------------------------------------------------------------
+
+import { getSharedPersistenceService } from "../shared-persistence";
 
 let _cachedProvider: SessionProviderInterface | null = null;
 
 async function defaultProviderFactory(): Promise<SessionProviderInterface> {
   if (_cachedProvider) return _cachedProvider;
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
-  const { createSessionProvider } = await import("../../domain/session/session-db-adapter");
+  const { createSessionProvider } = await import(
+    "@minsky/domain/session/drizzle-session-repository"
+  );
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const provider = await createSessionProvider(undefined, {
     persistenceService: {
       isInitialized: () => true,
@@ -161,5 +354,37 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
   return provider;
 }
 
+// ---------------------------------------------------------------------------
+// Default task provider — lazy singleton sharing PersistenceService with
+// the session provider above (mt#2079).
+//
+// Uses createConfiguredTaskService (the same path the CLI uses) so the widget
+// benefits from multi-backend task resolution (mt# Minsky DB + gh# GitHub).
+// ---------------------------------------------------------------------------
+
+let _cachedTaskProvider: TaskProviderLike | null = null;
+
+async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
+  if (_cachedTaskProvider) return _cachedTaskProvider;
+
+  const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+
+  const svc = await getSharedPersistenceService();
+  const persistenceProvider = svc.getProvider();
+
+  const workspacePath = process.cwd();
+
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    persistenceProvider,
+  });
+
+  _cachedTaskProvider = taskService;
+  return _cachedTaskProvider;
+}
+
 /** Default agents widget — ready to drop into WIDGET_REGISTRY */
-export const agentsWidget: WidgetModule = createAgentsWidget(defaultProviderFactory);
+export const agentsWidget: WidgetModule = createAgentsWidget(
+  defaultProviderFactory,
+  defaultTaskProviderFactory
+);

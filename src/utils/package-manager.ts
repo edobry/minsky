@@ -4,8 +4,8 @@
 import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { execSync } from "child_process";
-import { log } from "./logger";
-import { getErrorMessage } from "../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * Supported package manager types
@@ -30,7 +30,7 @@ export interface PackageManagerDependencies {
   process: {
     execSync: (
       command: string,
-      options?: { cwd?: string; stdio?: string | string[] }
+      options?: { cwd?: string; stdio?: string | string[]; maxBuffer?: number }
     ) => Buffer | null;
   };
   logger?: {
@@ -103,6 +103,54 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
 }
 
 /**
+ * Cap for captured install stdout/stderr. execSync's default maxBuffer is
+ * ~1MB; once output is piped (rather than inherited), a verbose monorepo
+ * install can exceed that and throw ERR_CHILD_PROCESS_STDIO_MAXBUFFER. 64MB
+ * is comfortably above realistic install output while still bounding memory.
+ * (mt#2209)
+ */
+const INSTALL_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Coerce a captured stdio stream (Buffer | string | undefined) to a trimmed
+ * string. Returns "" for anything that isn't a non-empty Buffer or string.
+ */
+function streamToString(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  // execSync returns/throws Buffers, which subclass Uint8Array. Avoid
+  // Buffer.isBuffer (not present on the domain package's Buffer shim) and
+  // decode the bytes directly.
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value).trim();
+  return "";
+}
+
+/**
+ * Build a diagnostic message from a failed `execSync` install. When stdio is
+ * "pipe" (non-quiet mode, mt#2209), the thrown error carries the captured
+ * `stdout`/`stderr` — surface those so a failed install stays diagnosable
+ * even though the success-path output was suppressed. Falls back to the
+ * error's message alone when no captured streams are present (e.g. a
+ * package-manager-detection error, or a mocked execSync that throws a bare
+ * Error).
+ *
+ * Exported for direct unit testing.
+ */
+export function formatInstallError(error: unknown): string {
+  const base = getErrorMessage(error);
+  const streams: string[] = [];
+  if (error && typeof error === "object") {
+    const e = error as { stderr?: unknown; stdout?: unknown };
+    const stderr = streamToString(e.stderr);
+    const stdout = streamToString(e.stdout);
+    if (stderr) streams.push(stderr);
+    if (stdout) streams.push(stdout);
+  }
+  if (streams.length === 0) return base;
+  return `${base}\n${streams.join("\n")}`;
+}
+
+/**
  * Installs dependencies in a repository
  * @param repoPath Path to the repository
  * @param options Configuration options
@@ -142,10 +190,20 @@ export async function installDependencies(
       deps.logger.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
 
-    // Execute the install command
+    // Execute the install command. In non-quiet mode we CAPTURE stdout/stderr
+    // (the two "pipe" slots) rather than streaming them, so a successful
+    // install's package list and progress bars don't pollute every
+    // `session start` (mt#2209). stdin stays attached to the TTY ("inherit")
+    // so a package manager or postinstall script that prompts still works
+    // interactively. The captured output is discarded on success and surfaced
+    // only on failure (see the catch block via formatInstallError). A generous
+    // maxBuffer avoids execSync's default ~1MB cap throwing
+    // ERR_CHILD_PROCESS_STDIO_MAXBUFFER on verbose installs. quiet mode
+    // discards everything ("ignore").
     const result = deps.process.execSync(installCmd, {
       cwd: repoPath,
-      stdio: options.quiet ? "ignore" : "inherit",
+      stdio: options.quiet ? "ignore" : ["inherit", "pipe", "pipe"],
+      maxBuffer: INSTALL_OUTPUT_MAX_BUFFER_BYTES,
     });
 
     // Handle the case where execSync returns null when stdio is "ignore"
@@ -153,7 +211,10 @@ export async function installDependencies(
 
     return { success: true, output };
   } catch (error) {
-    const errorMessage = getErrorMessage(error);
+    // formatInstallError surfaces the captured stderr/stdout carried on the
+    // thrown error (present when stdio is "pipe"), so a failed install stays
+    // diagnosable even though success-path noise was suppressed.
+    const errorMessage = formatInstallError(error);
 
     if (!options.quiet && deps.logger) {
       deps.logger.error(`Failed to install dependencies: ${errorMessage}`);

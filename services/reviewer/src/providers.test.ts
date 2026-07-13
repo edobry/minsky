@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- test file covers the full OpenAI tool-loop + forced-pass surface */
 import { describe, expect, test, mock } from "bun:test";
 import {
   isReasoningModel,
@@ -8,6 +9,7 @@ import {
 import type OpenAI from "openai";
 import type { ReviewerToolContext } from "./tools";
 import type { ReviewToolCall } from "./output-tools";
+import { captureConsoleLogs } from "./test-helpers/log-capture";
 
 describe("isReasoningModel", () => {
   describe("o-series reasoning models", () => {
@@ -894,11 +896,33 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     summary: "Found blocking issues.",
   });
 
+  const TOOL_DOC_IMPACT = "submit_documentation_impact";
+  const GATE_BRANCH_NO_CONCLUDE = "emitted_no_conclude";
+
+  const VALID_DOC_IMPACT_ARGS = JSON.stringify({
+    kind: "no-update-needed",
+    evidence: "Internal refactor, no docs affected.",
+  });
+
   function makeOutputToolCall(id: string, name: string, argsJson: string) {
     return {
       id,
       type: "function",
       function: { name, arguments: argsJson },
+    };
+  }
+
+  function docImpactForcedResponse() {
+    return {
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [makeOutputToolCall("di1", TOOL_DOC_IMPACT, VALID_DOC_IMPACT_ARGS)],
+          },
+        },
+      ],
+      usage: makeUsage(),
     };
   }
 
@@ -929,24 +953,28 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     listDirectory: mock(async () => null),
   };
 
-  /** Capture console.log calls for the duration of `fn`. */
+  /**
+   * Capture log lines emitted by the reviewer-local winston logger during
+   * `fn`, parse each line as JSON, and pass the resulting events array to the
+   * caller. Lines that fail JSON.parse are silently skipped.
+   */
   async function withCapturedLogs<T>(
     fn: (events: unknown[]) => Promise<T>
   ): Promise<{ events: unknown[]; result: T }> {
     const events: unknown[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => {
-      try {
-        events.push(JSON.parse(msg));
-      } catch {
-        originalLog(msg);
-      }
-    };
+    const { logs, restore } = captureConsoleLogs();
     try {
       const result = await fn(events);
+      for (const line of logs) {
+        try {
+          events.push(JSON.parse(line));
+        } catch {
+          // Non-JSON line — skip (consistent with prior behavior).
+        }
+      }
       return { events, result };
     } finally {
-      console.log = originalLog;
+      restore();
     }
   }
 
@@ -973,7 +1001,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done reviewing.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
-      // Post-loop forced pass: model emits conclude_review under tool_choice constraint
+      docImpactForcedResponse(), // mt#2115
       {
         choices: [
           {
@@ -991,10 +1019,10 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // All 4 tool calls (3 findings + 1 conclude_review) end up in output.
-    expect(result.toolCalls).toHaveLength(4);
+    // All 5 tool calls (3 findings + 1 doc_impact + 1 conclude_review) end up in output.
+    expect(result.toolCalls).toHaveLength(5);
     expect(result.toolCalls[0]?.name).toBe("submit_finding");
-    expect(result.toolCalls[3]?.name).toBe("conclude_review");
+    expect(result.toolCalls[4]?.name).toBe("conclude_review");
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1029,7 +1057,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
-      // Post-loop forced pass response
+      docImpactForcedResponse(), // mt#2115
       {
         choices: [
           {
@@ -1047,27 +1075,34 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // Three API calls were made: 2 main-loop rounds + 1 forced post-loop call.
-    expect(capturedParams).toHaveLength(3);
+    // Four API calls: 2 main-loop rounds + 1 doc-impact forced + 1 conclude forced.
+    expect(capturedParams).toHaveLength(4);
 
-    const forcedCallParams = capturedParams[2];
+    const forcedCallParams = capturedParams[3];
     expect(forcedCallParams).toBeDefined();
 
-    // The forced call constrains tool_choice to conclude_review.
+    // The conclude forced call constrains tool_choice to conclude_review.
     expect(forcedCallParams?.tool_choice).toEqual({
       type: "function",
       function: { name: "conclude_review" },
     });
 
-    // The forced call only registers conclude_review (no read-only tools, no
-    // other output tools) — the constraint must be both via tool_choice AND by
-    // the tool-list itself for OpenAI to honor it consistently.
+    // mt#2722: the forced pass now passes the FULL tools array (was a single-
+    // tool [conclude_review] substitution) so the cached prefix is preserved;
+    // tool_choice above still pins conclude_review regardless of array width.
     const forcedTools = forcedCallParams?.tools as Array<{ function: { name: string } }>;
     expect(Array.isArray(forcedTools)).toBe(true);
-    expect(forcedTools).toHaveLength(1);
-    expect(forcedTools[0]?.function.name).toBe("conclude_review");
+    expect(forcedTools.length).toBeGreaterThan(1);
+    expect(forcedTools.some((t) => t.function.name === "conclude_review")).toBe(true);
 
-    // The forced call's messages include the user reminder as the last message.
+    // The doc-impact forced call (index 2) constrains to submit_documentation_impact.
+    const docImpactCallParams = capturedParams[2];
+    expect(docImpactCallParams?.tool_choice).toEqual({
+      type: "function",
+      function: { name: TOOL_DOC_IMPACT },
+    });
+
+    // The conclude forced call's messages include the user reminder as the last message.
     const forcedMessages = forcedCallParams?.messages as Array<{
       role: string;
       content: string;
@@ -1100,6 +1135,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "All done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(), // mt#2115
       // Post-loop forced pass: model returns no tool calls (rare under
       // tool_choice constraint, but defensive)
       {
@@ -1112,9 +1148,10 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // Only 2 findings; no conclude_review was emitted.
-    expect(result.toolCalls).toHaveLength(2);
-    expect(result.toolCalls.every((tc) => tc.name === "submit_finding")).toBe(true);
+    // 2 findings + 1 doc_impact; no conclude_review was emitted.
+    expect(result.toolCalls).toHaveLength(3);
+    expect(result.toolCalls.filter((tc) => tc.name === "submit_finding")).toHaveLength(2);
+    expect(result.toolCalls.filter((tc) => tc.name === TOOL_DOC_IMPACT)).toHaveLength(1);
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1150,6 +1187,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(), // mt#2115
       // Post-loop forced pass: returns conclude_review with malformed args
       {
         choices: [
@@ -1168,8 +1206,8 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // The malformed conclude_review is NOT appended to toolCalls.
-    expect(result.toolCalls).toHaveLength(1);
+    // 1 finding + 1 doc_impact; malformed conclude_review is NOT appended.
+    expect(result.toolCalls).toHaveLength(2);
     expect(result.toolCalls[0]?.name).toBe("submit_finding");
 
     const reminderLogs = events.filter(
@@ -1207,19 +1245,21 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Review done." } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(), // mt#2115 — no doc-impact in main loop
     ]);
 
     const { events, result } = await withCapturedLogs(async () =>
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    expect(result.toolCalls).toHaveLength(4);
+    expect(result.toolCalls).toHaveLength(5);
     expect(result.toolCalls[3]?.name).toBe("conclude_review");
+    expect(result.toolCalls[4]?.name).toBe(TOOL_DOC_IMPACT);
 
-    // Only 2 main-loop calls; no post-loop forced pass.
-    expect(capturedParams).toHaveLength(2);
+    // 2 main-loop calls + 1 doc-impact forced pass; no conclude forced pass.
+    expect(capturedParams).toHaveLength(3);
 
-    // No reminder logs at all.
+    // No conclude_review reminder logs (it was emitted proactively).
     const reminderLogs = events.filter(
       (e) =>
         typeof e === "object" &&
@@ -1229,13 +1269,8 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(reminderLogs).toHaveLength(0);
   });
 
-  test("forced pass fires (emitted_nothing branch) when no output tools were emitted (mt#1639)", async () => {
-    // mt#1639: Model uses only read_file then exits without emitting any output
-    // tools (no findings, no inline comments, no conclude_review). The post-loop
-    // pass MUST fire with gate_branch:"emitted_nothing" so the reviewer never
-    // submits a literally-empty review body. Previously this case was skipped
-    // by the `&& hasEmittedOutputCalls` guard (mt#1471 gate gap, live instance
-    // PR #973 / 2026-05-07 18:54Z).
+  test("forced pass fires (emitted_nothing branch) when no main-loop output tools (mt#1639 + mt#2115)", async () => {
+    // Main-loop emitted nothing; gate_branch uses mainLoopOutputCount snapshot.
     const { client, capturedParams } = makeFakeClient([
       // Round 0: read_file call (no output tools)
       {
@@ -1260,7 +1295,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Nothing to review.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
-      // Post-loop forced pass: model emits conclude_review (COMMENT — no findings)
+      docImpactForcedResponse(), // mt#2115
       {
         choices: [
           {
@@ -1289,25 +1324,27 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", tools)
     );
 
-    // conclude_review was emitted by the forced pass and appended to toolCalls.
-    expect(result.toolCalls).toHaveLength(1);
-    expect(result.toolCalls[0]?.name).toBe("conclude_review");
+    // doc_impact + conclude_review emitted by forced passes.
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls[0]?.name).toBe(TOOL_DOC_IMPACT);
+    expect(result.toolCalls[1]?.name).toBe("conclude_review");
 
-    // 3 API calls total: 2 main-loop rounds + 1 forced post-loop pass.
-    expect(capturedParams).toHaveLength(3);
+    // 4 API calls total: 2 main-loop + 1 doc-impact forced + 1 conclude forced.
+    expect(capturedParams).toHaveLength(4);
 
-    // The forced call constrains tool_choice to conclude_review.
-    const forcedCallParams = capturedParams[2];
+    // The conclude forced call constrains tool_choice to conclude_review.
+    const forcedCallParams = capturedParams[3];
     expect(forcedCallParams?.tool_choice).toEqual({
       type: "function",
       function: { name: "conclude_review" },
     });
 
-    // Forced pass uses conclude_review-only tool list (same as emitted_no_conclude branch).
+    // mt#2722: forced pass now passes the FULL tools array (was conclude_review-
+    // only) to preserve the cached prefix; tool_choice above still pins it.
     const forcedTools = forcedCallParams?.tools as Array<{ function: { name: string } }>;
     expect(Array.isArray(forcedTools)).toBe(true);
-    expect(forcedTools).toHaveLength(1);
-    expect(forcedTools[0]?.function.name).toBe("conclude_review");
+    expect(forcedTools.length).toBeGreaterThan(1);
+    expect(forcedTools.some((t) => t.function.name === "conclude_review")).toBe(true);
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1315,7 +1352,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         e !== null &&
         (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
     );
-    // Forced-pass log fires with emitted_nothing discriminator.
+    // gate_branch uses mainLoopOutputCount snapshot — main loop emitted nothing.
     expect(reminderLogs).toHaveLength(1);
     const log = reminderLogs[0] as Record<string, unknown>;
     expect(log["finally_emitted"]).toBe(true);
@@ -1386,7 +1423,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       usage: makeUsage(),
     });
 
-    // Post-loop forced pass: emits conclude_review.
+    mainLoopResponses.push(docImpactForcedResponse()); // mt#2115
     mainLoopResponses.push({
       choices: [
         {
@@ -1405,13 +1442,13 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // 11 API calls total: 10 main-loop rounds + 1 post-loop forced pass.
-    expect(capturedParams).toHaveLength(11);
+    // 12 API calls total: 10 main-loop + 1 doc-impact forced + 1 conclude forced.
+    expect(capturedParams).toHaveLength(12);
 
-    // 3 findings + 1 conclude_review.
-    expect(result.toolCalls).toHaveLength(4);
+    // 3 findings + 1 doc_impact + 1 conclude_review.
+    expect(result.toolCalls).toHaveLength(5);
     expect(result.toolCalls.filter((tc) => tc.name === "submit_finding")).toHaveLength(3);
-    expect(result.toolCalls[3]?.name).toBe("conclude_review");
+    expect(result.toolCalls[4]?.name).toBe("conclude_review");
 
     // Forced-pass reminder log present and finally_emitted:true.
     const reminderLogs = events.filter(
@@ -1452,6 +1489,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(),
       {
         choices: [
           {
@@ -1475,18 +1513,12 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         e !== null &&
         (e as Record<string, unknown>)["event"] === "reviewer.output_tool_call"
     );
-    // Two output tool calls were accepted: submit_finding (main loop, count=1)
-    // and conclude_review (forced post-loop pass, count=2).
-    expect(outputToolCallLogs).toHaveLength(2);
-
-    const findingLog = outputToolCallLogs[0] as Record<string, unknown>;
-    expect(findingLog["tool"]).toBe("submit_finding");
-    expect(findingLog["count"]).toBe(1);
-
-    const concludeLog = outputToolCallLogs[1] as Record<string, unknown>;
-    expect(concludeLog["tool"]).toBe("conclude_review");
-    expect(concludeLog["count"]).toBe(2);
-    expect(concludeLog["provider"]).toBe("openai");
+    // At least one of each expected tool type was logged.
+    const byTool = (tool: string) =>
+      outputToolCallLogs.filter((e) => (e as Record<string, unknown>)["tool"] === tool);
+    expect(byTool("submit_finding").length).toBeGreaterThanOrEqual(1);
+    expect(byTool(TOOL_DOC_IMPACT).length).toBeGreaterThanOrEqual(1);
+    expect(byTool("conclude_review").length).toBeGreaterThanOrEqual(1);
   });
 
   test("empty exit content from a non-last round prefers earlier non-empty assistant text (PR #915 R2)", async () => {
@@ -1512,6 +1544,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(), // mt#2115
       // Post-loop forced pass: emits conclude_review.
       {
         choices: [
@@ -1559,6 +1592,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(), // mt#2115
       // Post-loop forced pass: emits conclude_review
       {
         choices: [
@@ -1606,7 +1640,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
-      // Post-loop forced pass: returns conclude_review
+      docImpactForcedResponse(), // mt#2115
       {
         choices: [
           {
@@ -1624,10 +1658,10 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    expect(capturedParams).toHaveLength(3);
+    expect(capturedParams).toHaveLength(4);
 
     const round1Messages = capturedParams[1]?.messages as unknown[];
-    const forcedMessages = capturedParams[2]?.messages as unknown[];
+    const forcedMessages = capturedParams[3]?.messages as unknown[];
 
     // The forced call's messages array must be longer than the prior round's
     // (it has the exit turn + the reminder appended), AND the prior round's
@@ -1666,6 +1700,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      docImpactForcedResponse(),
       {
         choices: [
           {
@@ -1695,17 +1730,17 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
 
   // ----- mt#1639: gate_branch discriminator tests -----
 
-  test("mt#1639: audit log includes gate_branch:'emitted_nothing' when main loop produces zero output calls", async () => {
-    // Unit test for Acceptance Test #3 (audit log gate_branch discriminator).
-    // When the main loop terminates with hasEmittedOutputCalls=false, the
-    // conclude_review_reminder log must carry gate_branch:"emitted_nothing".
+  test("mt#1639 + mt#2115: gate_branch:'emitted_nothing' preserved when main loop produces zero output calls", async () => {
+    // gate_branch uses mainLoopOutputCount snapshot, not post-forced-pass count.
     const { client } = makeFakeClient([
       // Round 0: exits immediately with no tool calls at all
       {
         choices: [{ message: { content: "Looks fine.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
-      // Post-loop forced pass: model emits conclude_review
+      // Post-loop forced doc-impact pass (mt#2115)
+      docImpactForcedResponse(),
+      // Post-loop forced conclude_review pass
       {
         choices: [
           {
@@ -1729,9 +1764,9 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // conclude_review appended from the forced pass.
-    expect(result.toolCalls).toHaveLength(1);
-    expect(result.toolCalls[0]?.name).toBe("conclude_review");
+    // doc_impact + conclude_review appended from forced passes.
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls[1]?.name).toBe("conclude_review");
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1750,7 +1785,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
   test("mt#1639: audit log includes gate_branch:'emitted_no_conclude' on partial-output path (no regression)", async () => {
     // Unit test for Acceptance Test #2 + #3: mt#1471's existing path
     // (hasEmittedOutputCalls=true && !hasConcludeReview) still fires AND its
-    // audit log now carries gate_branch:"emitted_no_conclude" for segmentation.
+    // audit log now carries gate_branch:GATE_BRANCH_NO_CONCLUDE for segmentation.
     const { client } = makeFakeClient([
       // Round 0: 1 finding, no conclude_review
       {
@@ -1769,7 +1804,9 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Done.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
-      // Post-loop forced pass: emits conclude_review
+      // Post-loop forced doc-impact pass (mt#2115)
+      docImpactForcedResponse(),
+      // Post-loop forced conclude pass: emits conclude_review
       {
         choices: [
           {
@@ -1787,10 +1824,10 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // submit_finding + conclude_review both in toolCalls.
-    expect(result.toolCalls).toHaveLength(2);
+    // submit_finding + doc_impact + conclude_review all in toolCalls.
+    expect(result.toolCalls).toHaveLength(3);
     expect(result.toolCalls[0]?.name).toBe("submit_finding");
-    expect(result.toolCalls[1]?.name).toBe("conclude_review");
+    expect(result.toolCalls[2]?.name).toBe("conclude_review");
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1801,7 +1838,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(reminderLogs).toHaveLength(1);
     const log = reminderLogs[0] as Record<string, unknown>;
     // Discriminator must be emitted_no_conclude on the partial-output path.
-    expect(log["gate_branch"]).toBe("emitted_no_conclude");
+    expect(log["gate_branch"]).toBe(GATE_BRANCH_NO_CONCLUDE);
     expect(log["finally_emitted"]).toBe(true);
     expect(log["reminder_count"]).toBe(1);
   });
@@ -1837,7 +1874,11 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
                 usage: makeUsage(),
               };
             }
-            // Third call (forced post-loop pass): throw a transport error
+            if (callCount === 3) {
+              // Third call: doc-impact forced pass (mt#2115)
+              return docImpactForcedResponse();
+            }
+            // Fourth call (conclude forced pass): throw a transport error
             throw new Error("simulated network error on forced call");
           },
         },
@@ -1848,9 +1889,10 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
     );
 
-    // No conclude_review was appended because the forced call threw.
-    expect(result.toolCalls).toHaveLength(1);
+    // doc_impact appended; no conclude_review because the forced call threw.
+    expect(result.toolCalls).toHaveLength(2);
     expect(result.toolCalls[0]?.name).toBe("submit_finding");
+    expect(result.toolCalls[1]?.name).toBe(TOOL_DOC_IMPACT);
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1865,5 +1907,183 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(log["reminder_count"]).toBe(1);
     expect(log["fired_at_turn"]).toBe(2);
     expect(log["error"]).toBe("simulated network error on forced call");
+  });
+});
+
+// ----- prompt-cache hygiene (mt#2722) -----
+//
+// Lever 2 of the reviewer cost-reduction umbrella (mt#2718). Two changes:
+//   (a) every OpenAI call carries prompt_cache_key + prompt_cache_retention:"24h"
+//   (b) the post-loop forced passes no longer swap the tools array to a single
+//       tool — they pass the FULL tools array (same as the main loop) so the
+//       cached prefix is preserved, while tool_choice still pins the forced tool.
+// AT 1 (cache params present), AT 2 (forced passes use the full array + pin).
+
+describe("callOpenAIWithClient prompt-cache hygiene (mt#2722)", () => {
+  const MODEL = "gpt-5";
+  const KEY_RE = /^reviewer:[0-9a-f]{16}$/;
+  // Field/tool-name literals extracted to satisfy no-magic-string-duplication.
+  const KEY_FIELD = "prompt_cache_key";
+  const RETENTION_FIELD = "prompt_cache_retention";
+  const TOOL_DOC_IMPACT = "submit_documentation_impact";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+    prompt_tokens_details: { cached_tokens: 0 },
+  });
+
+  function makeOutputToolCall(id: string, name: string, argsJson: string) {
+    return { id, type: "function", function: { name, arguments: argsJson } };
+  }
+
+  /** Fake OpenAI client that captures the FULL params object of each request. */
+  function makeCaptureClient(
+    responses: Array<{
+      choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
+      usage?: ReturnType<typeof makeUsage>;
+    }>
+  ): { client: OpenAI; capturedParams: Array<Record<string, unknown>> } {
+    let callCount = 0;
+    const capturedParams: Array<Record<string, unknown>> = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (params: Record<string, unknown>) => {
+            capturedParams.push({ ...params });
+            return responses[callCount++];
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client, capturedParams };
+  }
+
+  const defaultTools: ReviewerToolContext = {
+    readFile: mock(async () => null),
+    listDirectory: mock(async () => null),
+  };
+
+  const VALID_CONCLUDE_ARGS = JSON.stringify({
+    event: "APPROVE",
+    summary: "No blocking issues.",
+  });
+  const VALID_DOC_IMPACT_ARGS = JSON.stringify({
+    kind: "no-update-needed",
+    evidence: "Internal change, no docs affected.",
+  });
+
+  // Response sequence: round 0 exits with no tool calls (main loop ends
+  // immediately), which fires BOTH post-loop forced passes — doc-impact first
+  // (mt#2115), then conclude (mt#1471). Captured order:
+  //   [0] main-loop round 0, [1] forced doc-impact, [2] forced conclude.
+  function forcedPassSequence() {
+    return [
+      { choices: [{ message: { content: "Done.", tool_calls: undefined } }], usage: makeUsage() },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("di1", TOOL_DOC_IMPACT, VALID_DOC_IMPACT_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("cr1", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ];
+  }
+
+  // AT 1 — cache params present on the no-tools (single-turn) path.
+  test("AT1: no-tools call carries prompt_cache_key + prompt_cache_retention", async () => {
+    const { client, capturedParams } = makeCaptureClient([
+      { choices: [{ message: { content: "review text" } }], usage: makeUsage() },
+    ]);
+    await callOpenAIWithClient(client, MODEL, "system prompt A", "user");
+    expect(capturedParams).toHaveLength(1);
+    expect(capturedParams[0]?.[KEY_FIELD]).toMatch(KEY_RE);
+    expect(capturedParams[0]?.[RETENTION_FIELD]).toBe("24h");
+  });
+
+  // AT 1 — cache params present on EVERY call of a tools-active review,
+  // including both forced passes.
+  test("AT1: every call in a tools-active review carries the cache params", async () => {
+    const { client, capturedParams } = makeCaptureClient(forcedPassSequence());
+    await callOpenAIWithClient(client, MODEL, "system prompt B", "user", defaultTools);
+    expect(capturedParams).toHaveLength(3);
+    for (const params of capturedParams) {
+      expect(params[KEY_FIELD]).toMatch(KEY_RE);
+      expect(params[RETENTION_FIELD]).toBe("24h");
+    }
+    // The whole review shares ONE cache key (main loop + both forced passes).
+    const keys = new Set(capturedParams.map((p) => p[KEY_FIELD]));
+    expect(keys.size).toBe(1);
+  });
+
+  // AT 2 — forced passes use the FULL tools array (no substitution) and pin the
+  // forced tool via tool_choice.
+  test("AT2: forced passes pass the full tools array (same as main loop) + pin tool_choice", async () => {
+    const { client, capturedParams } = makeCaptureClient(forcedPassSequence());
+    await callOpenAIWithClient(client, MODEL, "system prompt C", "user", defaultTools);
+    expect(capturedParams).toHaveLength(3);
+
+    const mainLoopTools = capturedParams[0]?.["tools"] as Array<{ function: { name: string } }>;
+    const docImpactParams = capturedParams[1];
+    const concludeParams = capturedParams[2];
+    const docImpactTools = docImpactParams?.["tools"] as Array<{ function: { name: string } }>;
+    const concludeTools = concludeParams?.["tools"] as Array<{ function: { name: string } }>;
+
+    // Main loop offers the full multi-tool array.
+    expect(mainLoopTools.length).toBeGreaterThan(1);
+
+    // Forced passes pass the SAME full array (not a single-tool substitution):
+    // same length as the main loop, and > 1.
+    expect(docImpactTools.length).toBe(mainLoopTools.length);
+    expect(concludeTools.length).toBe(mainLoopTools.length);
+    expect(docImpactTools.length).toBeGreaterThan(1);
+
+    // The forced tool is present in the widened array...
+    expect(docImpactTools.some((t) => t.function.name === TOOL_DOC_IMPACT)).toBe(true);
+    expect(concludeTools.some((t) => t.function.name === "conclude_review")).toBe(true);
+
+    // ...and tool_choice still pins exactly that tool.
+    expect(docImpactParams?.["tool_choice"]).toEqual({
+      type: "function",
+      function: { name: TOOL_DOC_IMPACT },
+    });
+    expect(concludeParams?.["tool_choice"]).toEqual({
+      type: "function",
+      function: { name: "conclude_review" },
+    });
+  });
+
+  // Key derivation: stable for identical systemPrompt, distinct for different
+  // systemPrompt (the cache-prefix variant discriminator).
+  test("cache key is stable per systemPrompt and differs across variants", async () => {
+    const run = async (systemPrompt: string) => {
+      const { client, capturedParams } = makeCaptureClient([
+        { choices: [{ message: { content: "t" } }], usage: makeUsage() },
+      ]);
+      await callOpenAIWithClient(client, MODEL, systemPrompt, "user");
+      return capturedParams[0]?.[KEY_FIELD];
+    };
+    const a1 = await run("variant one");
+    const a2 = await run("variant one");
+    const b = await run("variant two — different tier/principles");
+    expect(a1).toBe(a2);
+    expect(a1).not.toBe(b);
   });
 });

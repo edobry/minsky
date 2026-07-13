@@ -84,10 +84,19 @@ describe("DI enforcement", () => {
       "log",
       "EXEMPT_COMMANDS",
       "testConfigManager",
+      // mt#2608: re-pointing this test at packages/domain/src (see comment
+      // below) surfaced these three for the first time. Same class as
+      // EXEMPT_COMMANDS above — plain readonly Set<string> constants, not
+      // DI-managed singleton services.
+      "HOSTED_SAFE_SESSION_COMMANDS",
+      "KNOWN_TOP_LEVEL_KEYS",
+      "HOOK_ONLY_ENV_VARS",
     ]);
 
     test("no export const x = new X() outside allowlist", () => {
-      const srcDomain = path.join(ROOT, "src/domain");
+      // mt#2108 moved the domain implementation to packages/domain/src;
+      // src/domain now only holds a small calibration module (mt#2608).
+      const srcDomain = path.join(ROOT, "packages/domain/src");
       const result = execStr(
         `grep -rn "export const .* = new " "${srcDomain}" --include="*.ts" | grep -v node_modules | grep -v ".test.ts"`,
         { stdio: ["pipe", "pipe", "pipe"] }
@@ -118,9 +127,28 @@ describe("DI enforcement", () => {
         "StorageErrorClassifier",
         "StorageErrorRecovery",
         "StorageErrorMonitor",
+        // mt#2608: re-pointing this test at packages/domain/src (mt#2108
+        // moved the domain implementation there; this test previously
+        // scanned the now-near-empty src/domain and silently found nothing)
+        // surfaced these six pre-existing matches for the first time. All
+        // six are constructed directly via `new X(...)` in production code
+        // (session-merge-operations.ts, cockpit/server.ts,
+        // adapters/shared/commands/{authorship,transcripts}.ts,
+        // service-window-reaper.ts's own factory) — never resolved through
+        // the tsyringe container — so @injectable() would be dead weight,
+        // same rationale as the Storage* error-utility exceptions above.
+        "AgentTranscriptIngestService",
+        "AgentTranscriptService",
+        "ServiceWindowReaper",
+        // Error classes matching the loose "*Service*" substring pattern.
+        "AmbiguousDeploymentServiceError",
+        "NoDeploymentServicesError",
+        "ServiceUnavailableError",
       ]);
 
-      const srcDomain = path.join(ROOT, "src/domain");
+      // mt#2108 moved the domain implementation to packages/domain/src;
+      // src/domain now only holds a small calibration module (mt#2608).
+      const srcDomain = path.join(ROOT, "packages/domain/src");
       // Find all export class declarations matching the pattern
       const classLines = execStr(
         `grep -rn "export class \\w*\\(Service\\|Storage\\|Adapter\\)" "${srcDomain}" --include="*.ts" | grep -v node_modules | grep -v ".test.ts"`,

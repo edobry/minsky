@@ -4,7 +4,7 @@
  * Factories for session management operations (delete, update, migrate-backend).
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { ValidationError } from "../../../../errors/index";
+import { ValidationError } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionDeleteCommandParams,
@@ -30,7 +30,7 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
       }
     },
     execute: withErrorLogging("session.delete", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -60,11 +60,11 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
     parameters: sessionUpdateCommandParams,
     mutating: true,
     execute: withErrorLogging("session.update", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
-      await service.update({
+      const updateResult = await service.update({
         sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
@@ -80,10 +80,29 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
         skipIfAlreadyMerged: (params.skipIfAlreadyMerged as boolean | undefined) ?? false,
       });
 
-      return {
+      const payload: Record<string, unknown> = {
         success: true,
         session: params.sessionId || params.task,
       };
+
+      // Surface the stash lifecycle so parked work is never silent (mt#2325).
+      // When the update stashed an initially-dirty tree, report whether the
+      // changes were restored — and, if not, where they are parked + how to
+      // recover them — instead of returning a bare `{success: true}`.
+      const stashRestore = updateResult.stashRestore;
+      if (stashRestore) {
+        payload.stashRestore = stashRestore;
+        if (!stashRestore.restored) {
+          const parked = (stashRestore.parkedFiles ?? []).join(", ");
+          payload.warning =
+            `Session updated, but your uncommitted changes could NOT be restored and ` +
+            `remain parked in ${stashRestore.stashRef}${
+              parked ? ` (files: ${parked})` : ""
+            }${`. ${stashRestore.recovery ?? ""}`.trim()}`;
+        }
+      }
+
+      return payload;
     }),
   };
 }
@@ -108,10 +127,10 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
       async (params: Record<string, unknown>) => {
         const deps = await getDeps();
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
         const { extractGitHubInfoFromUrl } = await import(
-          "../../../../domain/session/repository-backend-detection"
+          "@minsky/domain/session/repository-backend-detection"
         );
 
         const sessionProvider = deps.sessionProvider;
@@ -288,9 +307,7 @@ export function createSessionMigrateCommand(getDeps: LazySessionDeps): CommandDe
     parameters: sessionMigrateCommandParams,
     execute: withErrorLogging("session.migrate", async (params: Record<string, unknown>) => {
       const deps = await getDeps();
-      const { SessionMigrationService } = await import(
-        "../../../../domain/session/migration-command"
-      );
+      const { SessionMigrationService } = await import("@minsky/domain/session/migration-command");
 
       const service = new SessionMigrationService(deps.sessionProvider);
 

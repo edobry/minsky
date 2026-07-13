@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { buildSessionMergeDeps } from "./workflow-commands";
-import { FakeAskRepository } from "../../../../domain/ask/repository";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
 
 describe("buildSessionMergeDeps (mt#1025)", () => {
   it("threads taskService, gitService, and sessionDB from DI deps", () => {

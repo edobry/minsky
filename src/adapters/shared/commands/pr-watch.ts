@@ -12,25 +12,25 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   DrizzlePrWatchRepository,
   type PrWatchRepository,
   type CreatePrWatchInput,
-} from "../../../domain/pr-watch/repository";
-import type { PrWatch, PrWatchEvent } from "../../../domain/pr-watch/types";
-import { runWatcher, type WatcherResult } from "../../../domain/pr-watch/watcher";
-import { makeProductionGithubPrClient } from "../../../domain/pr-watch/github-client";
-import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
+} from "@minsky/domain/pr-watch/repository";
+import type { PrWatch, PrWatchEvent } from "@minsky/domain/pr-watch/types";
+import { runWatcher, type WatcherResult } from "@minsky/domain/pr-watch/watcher";
+import { makeProductionGithubPrClient } from "@minsky/domain/pr-watch/github-client";
+import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
   PersistentWakeSignalSink,
   type WakeSignalSink,
-} from "../../../domain/ask/wake-on-respond";
-import { DrizzleWakePendingRepository } from "../../../domain/ask/wake-pending-repository";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+} from "@minsky/domain/ask/wake-on-respond";
+import { DrizzleWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,11 +77,11 @@ async function buildPrWatchRepository(
  * this module remains importable without a live config (e.g. in tests).
  */
 async function buildTokenProviderFromConfig(): Promise<{
-  tokenProvider: import("../../../domain/auth").TokenProvider;
+  tokenProvider: import("@minsky/domain/auth").TokenProvider;
 }> {
   try {
-    const { getConfiguration } = await import("../../../domain/configuration/index");
-    const { createTokenProvider } = await import("../../../domain/auth");
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
     const cfg = getConfiguration();
     const userToken = cfg.github?.token ?? "";
     const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
@@ -403,7 +403,32 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         // The persistent sink writes to wake_pending; enrichWakeResponse drains
         // it on the agent's next allowlisted tool call (pull-on-tool-call delivery).
         const wakeSink = await buildCompositeWakeSink(container);
-        return runWatcher(prWatchRepository, githubClient, operatorNotify, wakeSink);
+
+        // Resolve EventEmitter for system event emission (mt#2134).
+        let eventEmitter: import("@minsky/domain/events/emitter").EventEmitter | undefined;
+        try {
+          if (container?.has("persistence")) {
+            const pp = container.get(
+              "persistence"
+            ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
+            if (pp.getDatabaseConnection) {
+              const db = await pp.getDatabaseConnection();
+              if (db) {
+                const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+                eventEmitter = createEventEmitter(db);
+              }
+            }
+          }
+        } catch (emitErr: unknown) {
+          log.warn(
+            "pr.watch.run: EventEmitter resolution failed (proceeding without event emission)",
+            {
+              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+            }
+          );
+        }
+
+        return runWatcher(prWatchRepository, githubClient, operatorNotify, wakeSink, eventEmitter);
       },
     })
   );

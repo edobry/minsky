@@ -1,7 +1,8 @@
 import { z } from "zod";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
+import { resolveTaskId } from "./deps-commands";
 import {
   generateDependencyTree,
   generateDependencyGraph,
@@ -12,12 +13,19 @@ import {
 // Re-export types so callers that import from this file keep working
 export type { LayoutOptions, TaskNode } from "./deps-rendering";
 
-// Parameter definitions matching the CommandParameterMap interface
+// Parameter definitions matching the CommandParameterMap interface.
+// mt#2741: canonical `taskId` (tasks_* convention) + `task` back-compat alias,
+// resolved via resolveTaskId (shared with deps-commands.ts).
 const tasksDepsTreeParams = {
-  task: {
-    schema: z.string(),
+  taskId: {
+    schema: z.string().optional(),
     description: "ID of the task to show dependency tree for",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string().optional(),
+    description: "Legacy alias for taskId (also accepted; prefer taskId)",
+    required: false,
   },
   maxDepth: {
     schema: z.number().default(3),
@@ -85,8 +93,9 @@ const tasksDepsGraphParams = {
 } satisfies CommandParameterMap;
 
 interface TasksDepsTreeParams {
-  task: string;
-  maxDepth: number;
+  taskId?: string;
+  task?: string;
+  maxDepth?: number;
 }
 
 interface TasksDepsGraphParams {
@@ -114,10 +123,11 @@ export function createTasksDepsTreeCommand(
     description: "Show dependency tree for a specific task",
     parameters: tasksDepsTreeParams,
     execute: async (params: TasksDepsTreeParams) => {
+      const taskId = resolveTaskId(params, "tasks.deps.tree");
       const graphService = getTaskGraphService();
       const taskService = getTaskService();
       const output = await generateDependencyTree(
-        params.task,
+        taskId,
         graphService,
         taskService,
         params.maxDepth || 3

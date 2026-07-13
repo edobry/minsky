@@ -11,11 +11,8 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  MapLruStrikeTracker,
-  normalizeErrorSignature,
-} from "../../../src/domain/ask/strike-tracker";
-import { FakeAskRepository } from "../../../src/domain/ask/repository";
+import { MapLruStrikeTracker, normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
 
 // ---------------------------------------------------------------------------
 // normalizeErrorSignature

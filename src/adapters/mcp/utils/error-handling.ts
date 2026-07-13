@@ -4,8 +4,8 @@
  * Provides standardized error handling patterns that eliminate duplication
  * across MCP tool implementations.
  */
-import { getErrorMessage } from "../../../errors/index";
-import { log } from "../../../utils/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Standard context for MCP errors

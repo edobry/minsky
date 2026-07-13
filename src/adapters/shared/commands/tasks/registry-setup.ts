@@ -4,10 +4,10 @@
  * Lazy initialization to avoid circular dependencies.
  */
 import { TaskCommandRegistry } from "./base-task-command";
-import type { AppContainerInterface } from "../../../../composition/types";
-import { DrizzleAskRepository } from "../../../../domain/ask/repository";
-import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
-import { log } from "../../../../utils/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { DrizzleAskRepository } from "@minsky/domain/ask/repository";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import { log } from "@minsky/shared/logger";
 import { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 
 let registry: TaskCommandRegistry | null = null;
@@ -153,6 +153,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksEstimateCommand,
     createTasksAnalyzeCommand,
   } = require("./context-commands");
+  const { createTasksClaimsListCommand } = require("./claims-command");
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
@@ -207,5 +208,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDecomposeCommand(getTaskGraphService, getTaskService),
     createTasksEstimateCommand(getTaskGraphService, getTaskService),
     createTasksAnalyzeCommand(getTaskGraphService, getTaskService),
+    // Presence/claim commands (mt#2562)
+    createTasksClaimsListCommand(getPersistenceProvider),
   ];
 }

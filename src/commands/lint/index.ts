@@ -7,9 +7,9 @@
 
 import { Command } from "commander";
 import { execSync } from "child_process";
-import { log } from "../../utils/logger";
-import { exit } from "../../utils/process";
-import { ProjectConfigReader } from "../../domain/project/config-reader";
+import { log } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
+import { ProjectConfigReader } from "@minsky/domain/project/config-reader";
 
 interface LintOptions {
   json?: boolean;

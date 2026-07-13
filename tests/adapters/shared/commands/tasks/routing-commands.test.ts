@@ -3,9 +3,9 @@ import {
   createTasksAvailableCommand,
   createTasksRouteCommand,
 } from "../../../../../src/adapters/shared/commands/tasks/routing-commands";
-import type { PersistenceProvider } from "../../../../../src/domain/persistence/types";
-import type { TaskRoutingService } from "../../../../../src/domain/tasks/task-routing-service";
-import type { TaskServiceInterface } from "../../../../../src/domain/tasks/taskService";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 // Note: Integration tests for routing commands require complex database mocking
 // Core functionality is tested in task-routing-service.test.ts

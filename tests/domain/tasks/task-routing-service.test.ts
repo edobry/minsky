@@ -1,8 +1,8 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { first, elementAt } from "../../../src/utils/array-safety";
-import { TaskRoutingService } from "../../../src/domain/tasks/task-routing-service";
-import type { TaskGraphService } from "../../../src/domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../src/domain/tasks/taskService";
+import { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 // Mock implementations
 const mockTaskGraphService: TaskGraphService = {

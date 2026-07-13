@@ -29,8 +29,8 @@ import {
   writeFindings,
   readSignatureSeeds,
   readFindings,
-} from "../../../domain/detectors/unasked-direction-store";
-import type { AnalyzerOutput } from "../../../domain/detectors/unasked-direction-analyzer";
+} from "@minsky/domain/detectors/unasked-direction-store";
+import type { AnalyzerOutput } from "@minsky/domain/detectors/unasked-direction-analyzer";
 
 const CMD_LIST = "unasked-direction.list";
 const CMD_MARK_REAL = "unasked-direction.mark-real";

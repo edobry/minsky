@@ -15,6 +15,7 @@ import { getToolsCustomizations } from "../customizations/tools-customizations";
 import { getMcpCustomizations } from "../customizations/mcp-customizations";
 import { getInitCustomizations } from "../customizations/init-customizations";
 import { getCompileCustomizations } from "../customizations/compile-customizations";
+import { getAiCustomizations } from "../customizations/ai-customizations";
 
 /**
  * Helper function to setup common CLI command customizations
@@ -53,6 +54,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
   const compileConfig = getCompileCustomizations();
   cliFactory.customizeCategory(compileConfig.category, compileConfig.options);
+
+  const aiConfig = getAiCustomizations();
+  cliFactory.customizeCategory(aiConfig.category, aiConfig.options);
 }
 
 /**

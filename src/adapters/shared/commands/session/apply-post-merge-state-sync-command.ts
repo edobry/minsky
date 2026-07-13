@@ -13,7 +13,7 @@ import { z } from "zod";
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import type { SessionCommandDependencies } from "./types";
-import type { PostMergeStateSyncParams } from "../../../../domain/session/session-merge-operations";
+import type { PostMergeStateSyncParams } from "@minsky/domain/session/session-merge-operations";
 
 /**
  * Parameter schema for the session.apply_post_merge_state_sync MCP tool.
@@ -126,9 +126,9 @@ export function createApplyPostMergeStateSyncCommand(getDeps: LazySessionDeps): 
       "session.apply_post_merge_state_sync",
       async (params: Record<string, unknown>) => {
         const { applyPostMergeStateSync } = await import(
-          "../../../../domain/session/session-merge-operations"
+          "@minsky/domain/session/session-merge-operations"
         );
-        const { log } = await import("../../../../utils/logger");
+        const { log } = await import("@minsky/shared/logger");
         const deps = await getDeps();
 
         const resolvedSessionId = await resolveSessionIdFromParams(params, deps);

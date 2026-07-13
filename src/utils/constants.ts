@@ -1,16 +1,10 @@
-/**
- * Application-wide constants
- */
-
-// Default port for development server
-export const DEFAULT_DEV_PORT = 3000;
-
-// Network and size constants
-export const BYTES_PER_KB = 1024;
-export const HTTP_OK = 200;
-
-// Time constants
-export const MINUTE_IN_SECONDS = 60;
-
-// Timeout constants
-export const DEFAULT_TIMEOUT_MS = 30000;
+// Re-export from @minsky/shared. The canonical implementation now lives in
+// the workspace shared package. This file is kept as a thin re-export
+// so existing call sites under src/ don't need to update.
+export {
+  DEFAULT_DEV_PORT,
+  BYTES_PER_KB,
+  HTTP_OK,
+  MINUTE_IN_SECONDS,
+  DEFAULT_TIMEOUT_MS,
+} from "@minsky/shared/constants";

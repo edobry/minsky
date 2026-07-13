@@ -70,6 +70,7 @@ describe("isPathAllowlisted", () => {
     expect(isPathAllowlisted("dist/bundle.so")).toBe(true);
     expect(isPathAllowlisted("data.bin")).toBe(true);
     expect(isPathAllowlisted("archive.zip")).toBe(true);
+    expect(isPathAllowlisted("cockpit-tray/src-tauri/icons/icon.icns")).toBe(true);
   });
 
   test("extension match is case-insensitive", () => {

@@ -1,8 +1,8 @@
-# Minsky Configuration System Guide
+# Minsky configuration guide
 
 ## Overview
 
-The Minsky configuration system provides a centralized, validated approach to managing all configuration aspects including storage backends, session databases, AI providers, and credentials. This guide covers configuration precedence, validation, migration, and best practices.
+Minsky's configuration system resolves storage backends, session databases, AI providers, and credentials through a strict precedence chain — CLI args → env vars → user config → repo config → defaults. Every value is validated at load; type errors fail loud at boot. Unknown top-level keys are stripped and warned at ERROR level but do not crash the process (mt#2161) — this makes the config file resilient to multi-version writers (cockpit, CLI, MCP servers at different code versions). This guide walks the precedence order, the validation layer, the migration paths, and the operational defaults.
 
 ## Configuration Precedence Order
 
@@ -12,7 +12,7 @@ Minsky follows a strict configuration precedence order, where higher-priority so
 
 ```bash
 minsky tasks list --backend=github-issues
-minsky sessions start --sessiondb-backend=sqlite
+minsky session start --sessiondb-backend=sqlite
 ```
 
 ### 2. Environment Variables
@@ -68,8 +68,129 @@ workspace:
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
 
+## Task Backend Configuration
+
+### `tasks.githubBackend.enabled` (default: `false`)
+
+Controls whether the GitHub Issues task backend is registered at startup. The github backend
+is **disabled by default** — the Minsky DB (`mt#`) backend is the operational default.
+
+```yaml
+tasks:
+  githubBackend:
+    enabled: false # default — github-issues backend disabled
+```
+
+**When `false` (default):**
+
+- `tasks_create` with no explicit backend → Minsky (`mt#`) backend (unchanged)
+- `minsky tasks list` → Minsky tasks only
+- Explicit `--backend github` or `--backend github-issues` → throws:
+  ```
+  GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it.
+  ```
+- Multi-backend registration silently skips the github backend with an info-level log
+
+**When `true`:**
+
+- GitHub backend registers alongside Minsky when GitHub credentials (`GITHUB_TOKEN`,
+  owner, repo) are configured
+- `gh#` prefixed tasks become accessible
+- This restores the behavior from before the gate was introduced
+
+See [GitHub Issues Backend Guide](./github-issues-backend-guide.md) for full setup
+instructions and prerequisites.
+
+## Embeddings Configuration
+
+The `embeddings` section controls the embedding provider and optional fallback chain.
+
+### Provider selection
+
+```yaml
+embeddings:
+  provider: openai # Primary provider (default: "openai")
+  model: text-embedding-3-small # Model name (default: "text-embedding-3-small")
+  fallbackProvider: gemini # Fallback provider on quota exhaustion (optional)
+```
+
+Valid providers: `openai`, `gemini`, `local` (dev-only deterministic hash).
+
+### Fallback chain
+
+When `fallbackProvider` is set and the primary provider returns `insufficient_quota` or `RESOURCE_EXHAUSTED`, the system automatically routes to the fallback provider. Transient 429 rate limits are handled by the retry service and do not trigger fallback.
+
+The fallback provider must produce embeddings with the same dimensions as the primary (1536 for `text-embedding-3-small`). Google `gemini-embedding-001` supports `output_dimensionality: 1536` via Matryoshka learning; other providers (Voyage, Cohere) do not support 1536 dimensions.
+
+Fallback state is visible in `debug_systemInfo` under `embeddingsHealth.fallbackActive` and `embeddingsHealth.fallbackProvider`.
+
+### Google AI API key
+
+Required when `fallbackProvider: gemini` is set.
+
+```yaml
+ai:
+  providers:
+    google:
+      apiKey: <your-google-ai-api-key>
+```
+
+Environment variable: `GOOGLE_API_KEY` or `GOOGLE_AI_API_KEY`.
+
+Obtain a key at https://aistudio.google.com/apikey. Add via `minsky config credentials add google`.
+
 ## Postgres Persistence
 
 For Postgres-specific runtime settings — connection pool size (`persistence.postgres.maxConnections`,
 `MINSKY_POSTGRES_MAX_CONNECTIONS`), connection-exhaustion retry behavior, and MCP graceful shutdown —
 see [Postgres Persistence Configuration](./persistence-configuration.md).
+
+## Reviewer Configuration
+
+The `reviewer.retrigger` command re-triggers a review on a PR's current HEAD by calling the
+minsky-reviewer webhook service's `POST /retrigger` endpoint (mt#2269). As of mt#2346 it
+authenticates with the **Minsky MCP auth token** (`mcp.auth.token` ← `MINSKY_MCP_AUTH_TOKEN`)
+— the operator->service credential you already hold for the hosted Minsky MCP endpoint, which
+the reviewer service also has — **not** the webhook HMAC secret. Operators therefore never
+need to obtain or store the reviewer's webhook signing secret locally; that secret stays on
+the reviewer service for GitHub->reviewer webhook signature verification only.
+
+```yaml
+mcp:
+  auth:
+    # Bearer token for the hosted Minsky MCP endpoint. Also used by
+    # reviewer.retrigger to authenticate against the reviewer service.
+    token: "<mcp-auth-token>"
+reviewer:
+  # Base URL of the reviewer webhook service. Optional; when unset, falls back to
+  # the hosted production service (minsky-reviewer-webhook-production.up.railway.app).
+  # Set this only to point at a non-default deployment.
+  url: "https://minsky-reviewer-webhook-production.up.railway.app"
+```
+
+- `mcp.auth.token` — required for `reviewer.retrigger`'s direct endpoint path. Environment
+  override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
+- `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment
+  override: `MINSKY_REVIEWER_URL` → `reviewer.url`.
+- **`minsky config doctor` surfaces a warning when `mcp.auth.token` is absent, and
+  `minsky config doctor --fix` provisions it automatically** (mt#2660 detection; mt#2679
+  turnkey fix). The fix reads `MINSKY_MCP_AUTH_TOKEN` from
+  `~/.config/minsky/railway-secrets.json` (the deploy synthesizer's secret store, which
+  already holds it on any machine set up for deploys) and writes `mcp.auth.token` through the
+  standard config writer — no hand-editing, and the secret value is never printed. Long-lived
+  processes cache config at boot (mt#1427), so reconnect the MCP server (`/mcp`) after fixing.
+- **GitHub-auth fallback (mt#2679):** when `mcp.auth.token` is absent but `github.token` is
+  configured, `reviewer.retrigger` does not error — it posts a `/review` comment on the PR via
+  the GitHub credential (the reviewer service treats a first-line `/review` comment from an
+  OWNER/MEMBER/COLLABORATOR author as a retrigger command, mt#2127). The result names the path
+  used (`direct` vs `review-comment`); the fallback is asynchronous and applies to open PRs
+  only. Only when BOTH credentials are absent does the command error, naming both remediation
+  paths.
+- `reviewer.webhookSecret` (`MINSKY_REVIEWER_WEBHOOK_SECRET`) — **deprecated for retrigger
+  (mt#2346)**; no longer read by the command. The config key + env mapping are retained only
+  so a lingering value still parses safely at boot. The reviewer service reads its webhook
+  secret from its own loader, not this config path.
+- Per the precedence order above, environment variables override the config-file values.
+
+> Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
+> not require any token (the reviewer bot advertises it in its status comment).

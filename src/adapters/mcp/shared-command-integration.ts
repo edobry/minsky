@@ -6,19 +6,20 @@
  */
 
 import type { CommandMapper } from "../../mcp/command-mapper";
+import type { ToolProgressReporter } from "../../mcp/server";
 import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../shared/command-registry";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
 import { z } from "zod";
-import { guardProjectSetup } from "../../domain/configuration/guard";
-import type { StrikeTracker } from "../../domain/ask/strike-tracker";
-import { normalizeErrorSignature } from "../../domain/ask/strike-tracker";
-import type { AskRepository } from "../../domain/ask/repository";
+import { guardProjectSetup } from "@minsky/domain/configuration/guard";
+import type { StrikeTracker } from "@minsky/domain/ask/strike-tracker";
+import { normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
+import type { AskRepository } from "@minsky/domain/ask/repository";
 
 /**
  * Test whether a Zod schema accepts boolean values.
@@ -181,7 +182,7 @@ export interface McpSharedCommandConfig {
   /** Whether to enable debug logging */
   debug?: boolean;
   /** DI container — passed from MCP startup, avoids getAppContainer() Service Locator */
-  container?: import("../../composition/types").AppContainerInterface;
+  container?: import("@minsky/domain/composition/types").AppContainerInterface;
   /**
    * Optional 2-strikes tracker (mt#1464).
    * When provided, every MCP tool error increments the counter; a 2nd identical
@@ -388,7 +389,11 @@ export function registerSharedCommandsWithMcp(
         description,
         parameters: convertParametersToZodSchema(command.parameters),
         mutating: command.mutating,
-        handler: async (args: Record<string, unknown>) => {
+        handler: async (
+          args: Record<string, unknown>,
+          _projectContext,
+          progress?: ToolProgressReporter
+        ) => {
           const startTime = Date.now();
           log.debug(`[MCP] Starting command execution: ${command.id}`, { args: redact(args) });
 
@@ -402,6 +407,12 @@ export function registerSharedCommandsWithMcp(
               debug: args?.debug === true || args?.debug === "true",
               format: "json",
               container: config.container,
+              // mt#2677: threaded only when the calling client requested
+              // progress notifications for this request (see
+              // src/mcp/server.ts's buildProgressReporter — undefined
+              // otherwise, so poll loops' `context.onProgress?.(...)` calls
+              // are unconditionally safe no-ops when absent).
+              onProgress: progress,
             };
             // Omit `container` from debug logs: it holds the full DI container,
             // which is expensive to walk and produces huge [Circular]-laden output.
@@ -694,7 +705,8 @@ export function registerPersistenceCommandsWithMcp(
 }
 
 /**
- * Register changeset commands with MCP (repository changesets and session aliases)
+ * Register repository-scoped changeset commands with MCP (backend-agnostic
+ * `changeset.*` family: list/get/info/search).
  */
 export function registerChangesetCommandsWithMcp(
   commandMapper: CommandMapper,
@@ -715,19 +727,6 @@ export function registerMcpCommandsWithMcp(
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
     categories: [CommandCategory.MCP],
-    ...config,
-  });
-}
-
-/**
- * Register knowledge commands with MCP
- */
-export function registerKnowledgeCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.KNOWLEDGE],
     ...config,
   });
 }
@@ -766,93 +765,39 @@ export function registerDetectorsCommandsWithMcp(
 }
 
 /**
- * Register authorship commands with MCP.
+ * Register principal-corpus commands with MCP (mt#1930 — `principal_corpus.*`).
  *
- * This is the **least-privilege MCP entry point** for the authorship namespace.
- * Reviewer-style deployments that should NOT have access to the full provenance
- * record (transcript IDs, participants, substantive human input, etc.) should
- * call this function instead of `registerAllMainCommandsWithMcp` — the latter
- * intentionally exposes both `provenance.*` and `authorship.*` for admin/CLI use.
- *
- * The narrowing happens at two layers:
- *   1. Server surface: this function exposes only `CommandCategory.AUTHORSHIP`.
- *   2. Response shape: `authorship.get` returns `{ tier, rationale?, policyVersion?, judgingModel? }`,
- *      not the full ProvenanceRecord (see `authorship.ts`).
- *
- * `provenance.get` and `provenance.recompute` (deprecated alias) remain available
- * via `registerProvenanceCommandsWithMcp` / `registerAllMainCommandsWithMcp` for
- * admin and CLI consumers — that surface is INTENTIONAL, per mt#1227 / mt#1254.
+ * Follows the MEMORY single-path model — invoked once via the per-category
+ * adapter `registerPrincipalCorpusTools` in `start-command.ts`.
  */
-export function registerAuthorshipCommandsWithMcp(
+export function registerPrincipalCorpusCommandsWithMcp(
   commandMapper: CommandMapper,
   config: Omit<McpSharedCommandConfig, "categories"> = {}
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.AUTHORSHIP],
+    categories: [CommandCategory.PRINCIPAL_CORPUS],
     ...config,
   });
 }
 
 /**
- * Register workspace commands with MCP (e.g., workspace.info)
- */
-export function registerWorkspaceCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.WORKSPACE],
-    ...config,
-  });
-}
-
-/**
- * Register provenance commands with MCP
- */
-export function registerProvenanceCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.PROVENANCE],
-    ...config,
-  });
-}
-
-/**
- * Register all main command categories with MCP.
+ * Register forge commands with MCP (forge-agnostic CI / check-runs /
+ * branch-protection / labels — mt#1957). Follows the per-category function
+ * pattern used by every other category bridged through the shared registry.
  *
- * MEMORY and DETECTORS are intentionally NOT in this list. Their commands are
- * registered solely via the per-category adapters (`registerMemoryTools`,
- * `registerDetectorsTools`) invoked by `start-command.ts`. The dual-registration
- * shape that other categories exhibit (listed here AND independently registered
- * in start-command) is a latent silent-overwrite hazard via
- * `MinskyMCPServer.addTool()`'s Map semantics; mt#1521 owns the structural
- * source-of-truth resolution that may apply this same exclusion to the other
- * categories. Until then, MEMORY and DETECTORS are the model.
+ * Historical note: `registerAllMainCommandsWithMcp` was deleted in mt#2010 —
+ * it had zero production callers (the production path was per-category
+ * adapters in `start-command.ts`), and the silent-overwrite hazard it
+ * documented (dual registration via Map semantics) is now structurally
+ * impossible because `start-command.ts`'s discovery loop bridges each
+ * `CommandCategory` exactly once. See ADR-011.
  */
-export function registerAllMainCommandsWithMcp(
+export function registerForgeCommandsWithMcp(
   commandMapper: CommandMapper,
   config: Omit<McpSharedCommandConfig, "categories"> = {}
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
-    categories: [
-      CommandCategory.TASKS,
-      CommandCategory.GIT,
-      CommandCategory.REPO,
-      CommandCategory.SESSION,
-      CommandCategory.RULES,
-      CommandCategory.CONFIG,
-      CommandCategory.INIT,
-      CommandCategory.DEBUG,
-      CommandCategory.PERSISTENCE,
-      CommandCategory.MCP,
-      CommandCategory.KNOWLEDGE,
-      CommandCategory.PROVENANCE,
-      CommandCategory.AUTHORSHIP,
-      CommandCategory.WORKSPACE,
-      CommandCategory.TRANSCRIPTS,
-    ],
+    categories: [CommandCategory.FORGE],
     ...config,
   });
 }

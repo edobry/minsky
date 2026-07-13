@@ -199,13 +199,48 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 
 - **Class:** C (agent-driven poll, server-side)
 - **Shape:** MCP tool that polls the forge until a review appears (or timeout). Default
-  filters new reviews only; `reviewer: "minsky-reviewer[bot]"` filters identity.
+  `since` is the PR's `created_at` timestamp (mt#2043), so pre-existing reviews on the PR
+  match by default; `reviewer: "minsky-reviewer[bot]"` filters identity. On timeout the
+  result includes `lastSeenReviews` (each entry annotated with a `rejectionReason`) and
+  `sinceUsed` so the caller can diagnose the miss without a separate
+  `pull_request_read get_reviews` round-trip. Backends that don't implement
+  `ReviewOperations.getPullRequestCreatedAt` fall back to call-start (the pre-mt#2043
+  default) for the `since` threshold.
 - **Fit:** **today's correct answer for "babysit a PR through reviewer-bot iteration."**
   See worked example §6.
 - **Latency:** typical 30s–2min after push; bounded by the call's `timeoutSeconds`
   (1–1800).
 - **Production status:** **available (DONE).** Cited by `/implement-task §9` as the
   default mechanism.
+
+### 2.11a `mcp__minsky__session_pr_drive` — convergence-tail driver (review-wait + checks-wait)
+
+- **Class:** C (agent-driven poll, server-side) — composes two existing Class-C waiters.
+- **Shape:** MCP tool (mt#2647) that sequences `session_pr_wait-for-review` then, on an
+  APPROVED review, `session_pr_checks wait:true`, returning ONE terminal state:
+  `READY_TO_MERGE` / `CHANGES_REQUESTED` / `COMMENT` / `CHECKS_FAILED` / `CHECKS_TIMEOUT` /
+  `REVIEW_TIMEOUT` (plus `UNRECOGNIZED_REVIEW_STATE` for a forge review state neither
+  case, e.g. `DISMISSED`). `COMMENT` is never treated as approval. Reduces the ~6 manual
+  calls an orchestrator previously hand-drove per PR (wait → branch → checks wait → branch)
+  to 2: `session.pr.drive`, then — on `READY_TO_MERGE` — the orchestrator's own
+  `session.pr.merge` call.
+- **Design decision — deliberately does NOT merge.** Every merge gate in this repo
+  (bundle-boot-smoke, deploy-verification, bypass-merge guards, etc.) is a harness-side
+  Claude Code PreToolUse hook matched on the MCP tool name `mcp__minsky__session_pr_merge`.
+  A server-side driver that internally called the merge domain function would bypass every
+  one of those hooks. So this tool stops at the terminal state and the caller makes the
+  `session.pr.merge` call itself, so all gates fire normally. A server-side merge that
+  re-hosts the full gate battery is out of scope pending ADR-028's dispatcher.
+- **postMerge mode.** A second flag (`postMerge: true`) runs AFTER the caller's own merge
+  succeeds: `deployment.wait-for-latest` across every deploy service the merged PR's
+  changed files affect (via `findAffectedServices`, `@minsky/domain/deployment`;
+  auto-detected from `RepositoryBackend.review.listChangedFiles`, or an explicit `services`
+  override) and reports terminal deployment records per service.
+- **Fit:** the correct answer for "drive an APPROVED-bound PR to a mergeable/blocked
+  terminal state without hand-driving the wait → branch → wait sequence."
+- **Latency:** sum of the two composed waiters' latencies; each independently bounded by
+  its own `timeoutSeconds`.
+- **Production status:** **available (DONE, mt#2647).**
 
 ### 2.12 `mcp__minsky__pr_watch_create` + scheduler — registered PR-state watch
 
@@ -228,6 +263,26 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 - **Production status:** **available.** The dog-food consumer for the Ask system; works
   today without infrastructure changes.
 
+### 2.13a `mcp__minsky__asks_wait-for-response` — blocking Ask-response wait
+
+- **Class:** C (agent-driven poll, server-side)
+- **Shape:** MCP tool that blocks until an Ask reaches a response-bearing state
+  (`responded` / `closed`, returning the response payload), a non-response terminal
+  state (`cancelled` / `expired` — returns immediately without blocking to timeout), or
+  the timeout elapses (returns the still-pending state). Polls `AskRepository.getById`
+  server-side; clamps mirror `session_pr_wait-for-review` (timeout default 600s / [1, 1800];
+  interval default 15s / [5, 60]). The agent-side analogue of `session_pr_wait-for-review`
+  for the Ask system (mt#2266) — supersedes the `/loop` + `asks_list` poll workaround
+  for the "Ask responded" case.
+- **Gating semantics:** caller-managed — the tool does the wait only; it does NOT mutate
+  task status. Task↔ask linkage is the ask's `parentTaskId` (set at create time).
+- **Fit:** the correct answer for "I filed a `direction.decide` / `authorization.approve`
+  ask and need to block until the operator answers." Depends on the production advancement
+  loop (mt#2265) so the ask can actually reach `responded`.
+- **Latency:** bounded by the call's `timeoutSeconds`; sub-interval for an already-resolved
+  ask.
+- **Production status:** **available (mt#2266, DONE).**
+
 ### 2.14 `RemoteTrigger` / `PushNotification`
 
 - **Class:** A (push) — Claude Code-internal primitives.
@@ -244,16 +299,18 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 
 For each event, the _right class_ first, then the _concrete mechanism_ within it.
 
-| Event                            | Class today | Mechanism today                                      | Class with bridge | Mechanism with bridge |
-| -------------------------------- | ----------- | ---------------------------------------------------- | ----------------- | --------------------- |
-| Reviewer-bot review posted on PR | C           | `session_pr_wait-for-review`                         | B                 | mt#1588 + wake sink   |
-| `quality.review` Ask responded   | C           | `/loop` + `asks_list` poll                           | B                 | mt#1588 + wake sink   |
-| Sibling PR merged on `main`      | C / B       | `git_log` poll OR `pr_watch_create` (B post-mt#1725) | A (mt#1001)       | mesh push subscriber  |
-| CI completed on a PR             | C           | `pull_request_read get_check_runs` poll              | A (mt#1001)       | mesh push subscriber  |
-| Long subprocess finished         | C           | `Monitor` (line-by-line)                             | (no change)       | (no change)           |
-| Sweeper output ready             | C           | `asks_list` poll                                     | B                 | mt#1588 + wake sink   |
-| Cron-fired routine               | C           | `CronCreate` / `/schedule`                           | (no change)       | (no change)           |
-| MCP server became stale          | A (limited) | `notifications/message` + exit (mt#1315)             | (no change)       | (no change)           |
+| Event                                                 | Class today | Mechanism today                                                      | Class with bridge | Mechanism with bridge |
+| ----------------------------------------------------- | ----------- | -------------------------------------------------------------------- | ----------------- | --------------------- |
+| Reviewer-bot review posted on PR                      | C           | `session_pr_wait-for-review`                                         | B                 | mt#1588 + wake sink   |
+| PR convergence tail (review -> checks -> merge-ready) | C           | `session_pr_drive` (mt#2647, composes wait-for-review + checks-wait) | B                 | mt#1588 + wake sink   |
+| `quality.review` Ask responded                        | C           | `asks_wait-for-response` (mt#2266) OR `asks_list` poll               | B                 | mt#1588 + wake sink   |
+| `direction.decide` Ask responded                      | C           | `asks_wait-for-response` (mt#2266)                                   | B                 | mt#1588 + wake sink   |
+| Sibling PR merged on `main`                           | C / B       | `git_log` poll OR `pr_watch_create` (B post-mt#1725)                 | A (mt#1001)       | mesh push subscriber  |
+| CI completed on a PR                                  | C           | `pull_request_read get_check_runs` poll                              | A (mt#1001)       | mesh push subscriber  |
+| Long subprocess finished                              | C           | `Monitor` (line-by-line)                                             | (no change)       | (no change)           |
+| Sweeper output ready                                  | C           | `asks_list` poll                                                     | B                 | mt#1588 + wake sink   |
+| Cron-fired routine                                    | C           | `CronCreate` / `/schedule`                                           | (no change)       | (no change)           |
+| MCP server became stale                               | A (limited) | `notifications/message` + exit (mt#1315)                             | (no change)       | (no change)           |
 
 **Reading the table:** the "today" columns describe what works as of 2026-05-08. The
 "with bridge" columns describe what would work after the §5 short-term bridge ships and
@@ -451,9 +508,12 @@ The tool blocks server-side until a matching review appears or the timeout elaps
 Returns the review payload; the agent unblocks with full context. **This is Class C
 (agent-driven poll) but server-side, so the agent doesn't burn context per poll.**
 
-If the bot has already posted on this HEAD before the call, the default `since: <call-time>`
-filter ignores the existing review. Fetch existing reviews via `session_pr_get` or
-`pull_request_read get_reviews` first.
+If the bot has already posted on this HEAD before the call, the default `since` is the
+PR's `created_at` timestamp (mt#2043) so the existing review matches on the first poll —
+no separate `session_pr_get` / `pull_request_read get_reviews` pre-fetch needed. Backends
+that don't implement `ReviewOperations.getPullRequestCreatedAt` fall back to call-start
+(the pre-mt#2043 default), in which case a manual pre-fetch is still required. Pass an
+explicit `since` to narrow the window past a known-stale review.
 
 ### 6.2 Bridged pattern (post-§5 implementation)
 

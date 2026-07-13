@@ -13,9 +13,9 @@
 // tsyringe (used by PersistenceService) requires reflect-metadata polyfill
 import "reflect-metadata";
 
-import { execGitWithTimeout } from "../utils/git-exec";
-import { getSessionsDir } from "../utils/paths";
-import { SessionStatus } from "../domain/session/types";
+import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
+import { getSessionsDir } from "@minsky/shared/paths";
+import { SessionStatus } from "@minsky/domain/session/types";
 
 /**
  * Detect whether CWD is inside a Minsky session workspace and extract the session ID.
@@ -93,16 +93,18 @@ async function main(): Promise<void> {
 
   // Step 3: Initialize session provider via the standard CLI composition pattern
   // Must initialize configuration first — PersistenceService depends on it
-  const { setupConfiguration } = await import("../config-setup");
-  const { PersistenceService } = await import("../domain/persistence/service");
+  const { setupConfiguration } = await import("@minsky/domain/config-setup");
+  const { PersistenceService } = await import("@minsky/domain/persistence/service");
   const persistenceService = new PersistenceService();
-  let sessionProvider: import("../domain/session/types").SessionProviderInterface;
+  let sessionProvider: import("@minsky/domain/session/types").SessionProviderInterface;
   try {
     await setupConfiguration();
     await persistenceService.initialize();
     const persistenceProvider = persistenceService.getProvider();
 
-    const { createSessionProvider } = await import("../domain/session/session-db-adapter");
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
     sessionProvider = await createSessionProvider(undefined, persistenceProvider);
   } catch (err) {
     process.stderr.write(`[post-commit] Warning: could not initialize session provider: ${err}\n`);

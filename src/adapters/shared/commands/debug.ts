@@ -8,9 +8,11 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
+import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
+import { getSourceFreshness } from "../../../mcp/source-freshness";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -163,6 +165,12 @@ export function registerDebugCommands(): void {
           dispatchTracker.getEscalation(),
         ]);
 
+        // mt#2265: asks count-by-state — the stuck-pipeline detector. Wired
+        // by the MCP start-command; zero-filled `available: false` on the CLI
+        // path or before the DB connection resolves. Fail-safe (never throws).
+        const { getAskStateCounts } = await import("@minsky/domain/ask/state-counts-provider");
+        const askStateCounts = await getAskStateCounts();
+
         // Return formatted system information
         return {
           nodejs: {
@@ -219,6 +227,29 @@ export function registerDebugCommands(): void {
             ...dispatchCadence,
             escalation: dispatchEscalation,
           },
+          /**
+           * Asks count-by-state (mt#2265).
+           *
+           * The stuck-pipeline detector: a growing `detected` count means the
+           * advancement path (persist-at-create in `createAsk` + the cockpit
+           * advancement sweep) is not running. Before this signal, 3,195 asks
+           * sat in `detected` for 5+ weeks and were only found by manual DB
+           * probe (mt#2257). `available: false` = no DB wired in this context
+           * (CLI path) — counts are zero-filled, not meaningful.
+           */
+          asks: askStateCounts,
+          embeddingsHealth: EmbeddingsHealthTracker.getInstance().getSummary(),
+          /**
+           * Loaded-source freshness (mt#2335).
+           *
+           * Whether the running daemon's code is current with the repo HEAD.
+           * `bundleFresh: false` means a bundle rebuild is PENDING (benign
+           * latency after a merge — see memory `0e39c87e`), NOT necessarily a
+           * permanent staleness bug. Lets an agent distinguish rebuild-latency
+           * from real staleness without the multi-step `dist/.build-stamp` vs
+           * `git rev-parse HEAD` shell probe.
+           */
+          sourceFreshness: getSourceFreshness(),
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };

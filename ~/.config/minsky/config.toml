@@ -1,3 +1,0 @@
-[sessiondb]
-backend = "sqlite"
-dbPath = "~/.local/state/minsky/sessions.db"

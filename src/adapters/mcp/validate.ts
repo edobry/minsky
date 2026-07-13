@@ -9,7 +9,7 @@ import { registerToolsCommandsWithMcp } from "./shared-command-integration";
  */
 export function registerValidateTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   registerToolsCommandsWithMcp(commandMapper, {
     container,

@@ -13,7 +13,7 @@ import { z } from "zod";
 import { homedir } from "os";
 import { join } from "path";
 import { confirm, isCancel, note } from "@clack/prompts";
-import { getErrorMessage, ValidationError } from "../../../errors/index";
+import { getErrorMessage, ValidationError } from "@minsky/domain/errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -28,10 +28,11 @@ import {
   LocalConfigCredentialStore,
   ManifestFlowProvisioner,
   provisionGithubApp as defaultProvisionGithubApp,
+  updateGithubApp as defaultUpdateGithubApp,
   type AppManifestSpec,
   type AppProvisioner,
   type CredentialStore,
-} from "../../../domain/setup/github-app";
+} from "@minsky/domain/setup/github-app";
 
 /**
  * Test seam: dependency overrides for `setup.github-app`.
@@ -41,6 +42,7 @@ import {
  */
 export interface SetupGithubAppDeps {
   provisionGithubApp?: typeof defaultProvisionGithubApp;
+  updateGithubApp?: typeof defaultUpdateGithubApp;
   makeStore?: (outputDir: string) => CredentialStore;
   makeProvisioner?: (
     via: "manifest" | "wizard",
@@ -57,9 +59,9 @@ const setupGithubAppParams = composeParams(
       required: true,
     },
     repo: {
-      schema: z.string(),
-      description: "Target repo in owner/repo form",
-      required: true,
+      schema: z.string().optional(),
+      description: "Target repo in owner/repo form (required for create, not for --update)",
+      required: false,
     },
     via: {
       schema: z.string().optional(),
@@ -74,6 +76,16 @@ const setupGithubAppParams = composeParams(
     force: {
       schema: z.boolean().optional(),
       description: "Re-provision even if credentials already exist for this name",
+      required: false,
+    },
+    update: {
+      schema: z.boolean().optional(),
+      description: "Update an existing App's events/permissions via PATCH /app",
+      required: false,
+    },
+    execute: {
+      schema: z.boolean().optional(),
+      description: "Apply changes (without this flag, --update shows a dry-run preview)",
       required: false,
     },
   },
@@ -151,6 +163,7 @@ function expandHome(p: string): string {
 
 export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): void {
   const provisionGithubApp = deps.provisionGithubApp ?? defaultProvisionGithubApp;
+  const updateGithubApp = deps.updateGithubApp ?? defaultUpdateGithubApp;
   const makeStore =
     deps.makeStore ?? ((outputDir: string) => new LocalConfigCredentialStore(outputDir));
   const makeProvisioner =
@@ -172,6 +185,7 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
   // register exactly once.
   const allowOverwrite =
     deps.provisionGithubApp !== undefined ||
+    deps.updateGithubApp !== undefined ||
     deps.makeStore !== undefined ||
     deps.makeProvisioner !== undefined;
 
@@ -186,6 +200,38 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
       requiresSetup: false,
       execute: async (params, _ctx) => {
         try {
+          const outputDir = params.outputDir
+            ? expandHome(params.outputDir)
+            : join(homedir(), ".config", "minsky");
+
+          // --update mode: update existing App's events/permissions
+          if (params.update) {
+            const store = makeStore(outputDir);
+            const events = params.events ? parseEvents(params.events) : undefined;
+            const permissions = params.permissions
+              ? parsePermissions(params.permissions)
+              : undefined;
+
+            const result = await updateGithubApp({
+              name: params.name,
+              store,
+              events,
+              permissions,
+              execute: params.execute ?? false,
+              apiBaseUrl: params.apiBaseUrl,
+            });
+
+            return result;
+          }
+
+          // Create mode (existing behavior)
+          if (!params.repo) {
+            // eslint-disable-next-line custom/no-validation-error-in-execute
+            throw new ValidationError(
+              "--repo is required for App creation. Pass --update to update an existing App."
+            );
+          }
+
           const permissions = parsePermissions(params.permissions ?? DEFAULT_PERMISSIONS);
           const events = parseEvents(params.events ?? "");
 
@@ -216,14 +262,6 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
               );
             }
           }
-
-          // outputDir resolution: only expand `~` if the user passed an
-          // explicit path. When omitted, let LocalConfigCredentialStore's
-          // own default (os.homedir() + .config/minsky) take over to avoid
-          // duplicating the default in two places.
-          const outputDir = params.outputDir
-            ? expandHome(params.outputDir)
-            : join(homedir(), ".config", "minsky");
 
           const spec: AppManifestSpec = {
             name: params.name,

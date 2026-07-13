@@ -2,59 +2,109 @@
 @tailwind components;
 @tailwind utilities;
 
+/* -----------------------------------------------------------------------------
+ * Brand tokens (mt#1935)
+ *
+ * Migration HSL -> OKLCH per docs/brand-system.md §7. Tokens are stored as raw
+ * OKLCH component triplets (lightness chroma hue); tailwind.config.ts wraps
+ * each var with `oklch(... / <alpha-value>)`. Hex starting points and the
+ * source-of-truth conversions live in docs/brand-system.md §2.
+ *
+ * Browser-support floor: Chrome 111+, Safari 16.4+, Firefox 113+ (per
+ * docs/brand-system.md §2). Cockpit is local-only v0 (single principal);
+ * a sRGB-hex fallback shim is documented for public surfaces but is not
+ * shipped here.
+ * --------------------------------------------------------------------------- */
+
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
+  /* Light theme — placeholders; cockpit ships dark-first via <html class="dark"> */
+  --background: 1 0 0;
+  --foreground: 0.078 0 0;
+  --card: 1 0 0;
+  --card-foreground: 0.078 0 0;
+  --popover: 1 0 0;
+  --popover-foreground: 0.078 0 0;
+  --primary: 0.078 0 0;
+  --primary-foreground: 0.946 0 0;
+  --secondary: 0.945 0 0;
+  --secondary-foreground: 0.078 0 0;
+  --muted: 0.945 0 0;
+  --muted-foreground: 0.717 0 0;
+  --accent: 0.945 0 0;
+  --accent-foreground: 0.078 0 0;
+  --destructive: 0.585 0.219 27;
+  --destructive-foreground: 0.946 0 0;
+  --border: 0.910 0 0;
+  --input: 0.910 0 0;
+  --ring: 0.745 0.124 215;
   --radius: 0.5rem;
-  /* Liveness status dot tokens — semantic, dark-mode-first */
-  --liveness-healthy: 142 71% 45%;
-  --liveness-idle: 43 96% 56%;
-  --liveness-stale: 0 72% 51%;
-  --liveness-orphaned: 215 14% 60%;
+
+  /* Brand palette additions (mt#1935; docs/brand-system.md §2) */
+  --signal-cyan: 0.745 0.124 215;
+  --signal-cyan-dim: 0.560 0.092 220;
+  --warn-amber: 0.756 0.180 70;
+  --warn-red: 0.585 0.219 27;
+  --iso-pastel: 0.911 0.030 75;
+  --text-subtle: 0.517 0 0;
+  --bg-warm: 0.142 0.012 95;
+
+  /* Note: the light-theme :root block is placeholder-only; cockpit ships
+     dark-first via <html class="dark">. The light-theme --muted-foreground
+     should remain text.muted (0.717), distinct from --text-subtle (0.517). */
+
+  /* VSM organ palette — plant board (mt#2376; docs/brand-system.md §7)
+     These are the five VSM-organ colors + seam + learn, mapped from the
+     design reference mock. No raw hex; stored as OKLCH triplets per the
+     brand token convention above. */
+  --vsm-s1: 0.720 0.120 185;   /* S1 Operations — teal (from mock --s1:#4db6ac) */
+  --vsm-s2: 0.756 0.180 70;    /* S2 Coordination — amber (reuses --warn-amber) */
+  --vsm-s3: 0.745 0.124 215;   /* S3 Management+3★ — signal-cyan (reuses --signal-cyan) */
+  --vsm-s4: 0.620 0.110 295;   /* S4 Future — purple (from mock --s4:#9d7cd8) */
+  --vsm-s5: 0.717 0 0;         /* S5 Identity — neutral, near muted-foreground */
+  --vsm-seam: 0.680 0.210 355; /* Attention seam — pink (from mock --seam:#ff6b9d) */
+  --vsm-learn: 0.740 0.148 152;/* Learning loop — emerald (from mock --learn:#6ee7b7) */
+
+  /* Typography stacks (docs/brand-system.md §1; fonts loaded in index.html) */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --font-warm-mono: "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    monospace;
+
+  /* Liveness status sub-tokens — cockpit-local per docs/brand-system.md §7.
+     Preserve green/amber/red/gray semantic for operator legibility. */
+  --liveness-healthy: 0.638 0.150 145;
+  --liveness-idle: 0.756 0.180 70;
+  --liveness-stale: 0.585 0.219 27;
+  --liveness-orphaned: 0.560 0.020 240;
 }
 
 .dark {
-  --background: 222.2 47% 4%;
-  --foreground: 210 40% 98%;
-  --card: 222.2 47% 7%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222.2 47% 10%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 210 40% 98%;
-  --primary-foreground: 222.2 47.4% 11.2%;
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 212.7 26.8% 83.9%;
-  /* Liveness status dot tokens — tuned for dark elevation */
-  --liveness-healthy: 142 71% 38%;
-  --liveness-idle: 43 96% 48%;
-  --liveness-stale: 0 72% 44%;
-  --liveness-orphaned: 215 14% 42%;
+  --background: 0.078 0 0;
+  --foreground: 0.946 0 0;
+  --card: 0.155 0 0;
+  --card-foreground: 0.946 0 0;
+  --popover: 0.200 0 0;
+  --popover-foreground: 0.946 0 0;
+  --primary: 0.745 0.124 215;
+  --primary-foreground: 0.078 0 0;
+  --secondary: 0.200 0 0;
+  --secondary-foreground: 0.946 0 0;
+  --muted: 0.200 0 0;
+  --muted-foreground: 0.717 0 0;
+  --accent: 0.200 0 0;
+  --accent-foreground: 0.946 0 0;
+  --destructive: 0.585 0.219 27;
+  --destructive-foreground: 0.946 0 0;
+  --border: 0.270 0 0;
+  --input: 0.270 0 0;
+  --ring: 0.745 0.124 215;
+
+  /* Liveness — tuned slightly down for dark elevation */
+  --liveness-healthy: 0.580 0.140 145;
+  --liveness-idle: 0.720 0.175 70;
+  --liveness-stale: 0.560 0.215 27;
+  --liveness-orphaned: 0.470 0.020 240;
 }
 
 @layer base {
@@ -62,6 +112,153 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer utilities {
+  /* Keep an element horizontally scrollable while hiding the scrollbar chrome.
+     Used by the TabBar strip (fixed-height h-9): a native horizontal scrollbar
+     renders INSIDE the strip, squishing the tabs and looking broken at zoom.
+     This matches the browser tab-strip convention — scroll via trackpad /
+     shift-wheel; chrome hidden. */
+  .scrollbar-none {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none; /* Chromium / WebKit */
+  }
+}
+
+/* -----------------------------------------------------------------------------
+ * Motion budget (mt#1935; docs/brand-system.md §3)
+ *
+ * status-dot-pulse — for live indicators that reflect real product state.
+ * hook-denial-flash — one-shot signal on a blocked or denied action.
+ * Both honor `prefers-reduced-motion: reduce` per §3.
+ * --------------------------------------------------------------------------- */
+
+@keyframes status-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* VSM plant board animations (mt#2376)
+ * vsm-breath — slow 3s oscillation on tank fill levels; simulates the diurnal rhythm.
+ * vsm-ask-pulse — seam circle pulses when a pending ask is open.
+ * vsm-scan — 3★ audit sweep; CSS stroke-dashoffset (NOT SVG SMIL) so the universal
+ *   prefers-reduced-motion rule below disables it. All three honor reduced-motion.
+ */
+@keyframes vsm-breath {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes vsm-ask-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.vsm-breath {
+  animation: vsm-breath 3s ease-in-out infinite;
+}
+
+.vsm-ask-pulse {
+  animation: vsm-ask-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes vsm-scan {
+  to {
+    stroke-dashoffset: -180;
+  }
+}
+
+.vsm-scan {
+  animation: vsm-scan 9s linear infinite;
+}
+
+@keyframes hook-denial-flash {
+  0% {
+    background-color: oklch(var(--warn-amber) / 0.4);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Plant-board fast-clock gestures (mt#2377 v2.0 — honest motion).
+ * One-shot, event-driven: applied transiently by the gesture engine when a
+ * real system_events row lands; removed when the gesture expires. CSS-only,
+ * so the universal prefers-reduced-motion rule below gates them.
+ * --------------------------------------------------------------------------- */
+
+@keyframes vsm-gesture-pulse {
+  0% {
+    box-shadow: 0 0 0 0 oklch(var(--gesture-color, var(--vsm-s1)) / 0);
+  }
+  35% {
+    box-shadow: 0 0 22px 3px oklch(var(--gesture-color, var(--vsm-s1)) / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 oklch(var(--gesture-color, var(--vsm-s1)) / 0);
+  }
+}
+
+.vsm-gesture-pulse {
+  animation: vsm-gesture-pulse 1.8s ease-out;
+  border-radius: 6px;
+}
+
+@keyframes edge-gesture-flash {
+  0%,
+  100% {
+    stroke-opacity: 0.7;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+}
+
+.edge-gesture path.react-flow__edge-path {
+  animation: edge-gesture-flash 0.9s ease-in-out 4;
+  stroke-width: 3px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
   }
 }

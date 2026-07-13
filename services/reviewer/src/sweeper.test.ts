@@ -17,6 +17,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import type { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
   detectMissingReview,
   listOpenPRs,
@@ -26,6 +27,10 @@ import {
   type SweeperConfig,
   type SweeperDeps,
 } from "./sweeper";
+import { submissionFailureKey, type OpenCircuit } from "./submission-failure-tracker";
+import { DomainAskEmitter, type CircuitBreakerAlertContext } from "./ask-emitter";
+import { WebhookAlertSink } from "./alert-sink";
+import type { ReviewerDb } from "./db/client";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -55,6 +60,12 @@ const SWEEPER_CONFIG: SweeperConfig = {
   enabled: true,
   ownerDefaulted: false,
   repoDefaulted: false,
+  // Existing tests in this file predate the mt#2660 boot catch-up feature and
+  // don't inject a depsOverride, so keep it off by default here to avoid an
+  // unawaited real buildSweeperDeps() (Octokit/App-identity network call)
+  // firing in the background during unrelated tests. Dedicated boot-catchup
+  // tests below opt back in explicitly with a depsOverride.
+  bootCatchupEnabled: false,
 };
 
 const BOT_LOGIN = "minsky-reviewer[bot]";
@@ -65,6 +76,7 @@ const TIER1_BODY = "<!-- minsky:tier=1 -->";
 const TIER2_BODY = "<!-- minsky:tier=2 -->";
 const REASON_NO_REVIEW = "no_review_by_bot" as const;
 const PR_AUTHOR = "test-author";
+const EVENT_CYCLE_END = "sweeper.cycle_end";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -138,6 +150,31 @@ function makeFakeDeps(
     botLogin,
     runReviewFn,
   };
+}
+
+/**
+ * Poll `logs` until `findLogEvent` finds `eventName` or `maxMs` elapses.
+ *
+ * Used by the mt#2660 boot catch-up tests below in place of a flat
+ * `setTimeout` wait (reviewer nit — a single fixed delay is sensitive to
+ * CI/scheduler jitter; polling in short steps up to a generous bound is not).
+ * The underlying work here is a chain of already-resolved fake promises
+ * (depsOverride + a fake octokit that resolves synchronously), so in
+ * practice this resolves within a couple of `stepMs` ticks — `maxMs` is a
+ * generous ceiling, not the expected wait.
+ */
+async function waitForLogEvent(
+  logs: string[],
+  eventName: string,
+  maxMs = 500
+): Promise<Record<string, unknown> | null> {
+  const stepMs = 5;
+  for (let waited = 0; waited < maxMs; waited += stepMs) {
+    const found = findLogEvent(logs, eventName);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+  return findLogEvent(logs, eventName);
 }
 
 // ---------------------------------------------------------------------------
@@ -586,13 +623,28 @@ describe("runSweep", () => {
     expect(result.retriggeredCount).toBe(1);
     // runReview should have been called with the right args
     expect(runReviewFn).toHaveBeenCalledTimes(1);
-    expect(runReviewFn).toHaveBeenCalledWith(
-      BASE_CONFIG,
-      SWEEPER_CONFIG.owner,
-      SWEEPER_CONFIG.repo,
-      prNumber,
-      PR_AUTHOR
-    );
+    // runReview is called with (config, owner, repo, prNumber, authorLogin, deliveryId,
+    // headSha, deps). deliveryId is "sweeper-{timestamp}", headSha comes from the PR,
+    // and deps is undefined when no db is available.
+    const [
+      callConfig,
+      callOwner,
+      callRepo,
+      callPrNumber,
+      callAuthor,
+      callDeliveryId,
+      callSha,
+      callDeps,
+    ] = runReviewFn.mock.calls[0] as unknown[];
+    expect(callConfig).toBe(BASE_CONFIG);
+    expect(callOwner).toBe(SWEEPER_CONFIG.owner);
+    expect(callRepo).toBe(SWEEPER_CONFIG.repo);
+    expect(callPrNumber).toBe(prNumber);
+    expect(callAuthor).toBe(PR_AUTHOR);
+    expect(typeof callDeliveryId).toBe("string");
+    expect((callDeliveryId as string).startsWith("sweeper-")).toBe(true);
+    expect(callSha).toBe(HEAD_SHA);
+    expect(callDeps).toBeUndefined();
   });
 
   test("no open PRs: prsScanned=0, missing=[], retriggeredCount=0", async () => {
@@ -721,6 +773,37 @@ describe("loadSweeperConfig", () => {
       }
     }
   });
+
+  // mt#2660: boot catch-up opt-out toggle.
+  const BOOT_CATCHUP_ENV_VAR = "SWEEPER_BOOT_CATCHUP_ENABLED";
+
+  test("bootCatchupEnabled defaults to true when SWEEPER_BOOT_CATCHUP_ENABLED is not set", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    delete process.env[BOOT_CATCHUP_ENV_VAR];
+    try {
+      const cfg = loadSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      }
+    }
+  });
+
+  test("bootCatchupEnabled=false when SWEEPER_BOOT_CATCHUP_ENABLED=false", () => {
+    const saved = process.env[BOOT_CATCHUP_ENV_VAR];
+    process.env[BOOT_CATCHUP_ENV_VAR] = "false";
+    try {
+      const cfg = loadSweeperConfig();
+      expect(cfg.bootCatchupEnabled).toBe(false);
+    } finally {
+      if (saved !== undefined) {
+        process.env[BOOT_CATCHUP_ENV_VAR] = saved;
+      } else {
+        delete process.env[BOOT_CATCHUP_ENV_VAR];
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -820,5 +903,536 @@ describe("startSweeper", () => {
   test("startSweeper returns null when disabled", () => {
     const handle = startSweeper(BASE_CONFIG, { ...SWEEPER_CONFIG, enabled: false });
     expect(handle).toBeNull();
+  });
+
+  test("emits sweeper.low_interval_warning when intervalMs < 300_000 (mt#1898 PR #1154 R1)", () => {
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      // 2 min cadence — below the 5-min safe threshold.
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 120_000,
+      });
+
+      // Stop the setInterval immediately — we only care about the boot-time log.
+      if (handle) clearInterval(handle);
+    } finally {
+      restore();
+    }
+
+    const lowIntervalWarning = findLogEvent(logs, "sweeper.low_interval_warning");
+    expect(lowIntervalWarning).not.toBeNull();
+    expect(lowIntervalWarning?.intervalMs).toBe(120_000);
+    expect(lowIntervalWarning?.safeThresholdMs).toBe(300_000);
+  });
+
+  test("does NOT emit sweeper.low_interval_warning at the safe 10-min default (mt#1898 PR #1154 R1)", () => {
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 600_000,
+      });
+
+      if (handle) clearInterval(handle);
+    } finally {
+      restore();
+    }
+
+    expect(findLogEvent(logs, "sweeper.low_interval_warning")).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Boot catch-up sweep (mt#2660)
+  // ---------------------------------------------------------------------------
+
+  test("bootCatchupEnabled=true: runs a sweep cycle immediately at boot, without waiting for the interval", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const deps = makeFakeDeps({ openPRs: [], reviews: {} });
+      // Long interval — if the immediate boot cycle didn't fire, no
+      // sweeper.cycle_end would ever appear within this test's lifetime.
+      handle = startSweeper(
+        BASE_CONFIG,
+        { ...SWEEPER_CONFIG, bootCatchupEnabled: true, intervalMs: 3_600_000 },
+        undefined,
+        undefined,
+        undefined,
+        deps
+      );
+
+      // Poll for the fire-and-forget sweep (chained off the already-resolved
+      // depsOverride promise) to complete, rather than a flat sleep.
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "sweeper.boot_catchup_start")).not.toBeNull();
+    expect(findLogEvent(logs, "sweeper.cycle_start")).not.toBeNull();
+    expect(findLogEvent(logs, EVENT_CYCLE_END)).not.toBeNull();
+  });
+
+  test("bootCatchupEnabled=false: does NOT run a sweep cycle at boot; only the periodic tick would", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    try {
+      const deps = makeFakeDeps({ openPRs: [], reviews: {} });
+      handle = startSweeper(
+        BASE_CONFIG,
+        { ...SWEEPER_CONFIG, bootCatchupEnabled: false, intervalMs: 3_600_000 },
+        undefined,
+        undefined,
+        undefined,
+        deps
+      );
+
+      // No wait needed here: with bootCatchupEnabled=false, runCycle() is
+      // never called from startSweeper — there is no async work in flight to
+      // wait for, so asserting immediately is both correct and non-flaky.
+      // (Contrast the sibling "runs" tests above/below, which DO schedule
+      // fire-and-forget async work and poll for it via waitForLogEvent.)
+      expect(findLogEvent(logs, "sweeper.boot_catchup_skipped")).not.toBeNull();
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(findLogEvent(logs, "sweeper.boot_catchup_start")).toBeNull();
+    expect(findLogEvent(logs, "sweeper.cycle_start")).toBeNull();
+  });
+
+  test("boot catch-up retriggers a missing review immediately (mt#2660 acceptance scenario)", async () => {
+    const { logs, restore } = captureConsoleLogs();
+    let handle: ReturnType<typeof setInterval> | null = null;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "ok", tier: 3 as const })
+    );
+    try {
+      const deps = makeFakeDeps(
+        {
+          openPRs: [
+            {
+              number: 1812,
+              head: { sha: HEAD_SHA },
+              body: TIER3_BODY,
+              user: { login: PR_AUTHOR },
+            },
+          ],
+          reviews: { 1812: [] },
+        },
+        BOT_LOGIN,
+        runReviewFn
+      );
+
+      handle = startSweeper(
+        BASE_CONFIG,
+        { ...SWEEPER_CONFIG, bootCatchupEnabled: true, intervalMs: 3_600_000 },
+        undefined,
+        undefined,
+        undefined,
+        deps
+      );
+
+      await waitForLogEvent(logs, EVENT_CYCLE_END);
+    } finally {
+      if (handle) clearInterval(handle);
+      restore();
+    }
+
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    const cycleEnd = findLogEvent(logs, EVENT_CYCLE_END);
+    expect(cycleEnd?.retriggeredCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runSweep — circuit breaker (mt#2350)
+// ---------------------------------------------------------------------------
+
+describe("runSweep — circuit breaker (mt#2350)", () => {
+  // Minimal fake db so the inflight-marker prune/lookup paths no-op rather than
+  // erroring; the circuit-breaker path uses the injected listOpenCircuitsFn.
+  const fakeDb = {
+    execute: () => Promise.resolve([]),
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+  } as unknown as ReviewerDb;
+
+  // The non-retryable error class used by the fixture open circuit. Extracted
+  // so the helper and the assertions that check it share one source of truth.
+  const CIRCUIT_ERROR_CLASS = "non_retryable_4xx";
+
+  function openCircuit(prNumber: number, headSha: string, alerted: boolean): OpenCircuit {
+    return {
+      id: `row-${prNumber}`,
+      prNumber,
+      headSha,
+      errorClass: CIRCUIT_ERROR_CLASS,
+      lastStatus: 422,
+      consecutiveCount: 2,
+      alerted,
+    };
+  }
+
+  function circuitDeps(
+    prNumber: number,
+    openMap: Map<string, OpenCircuit>,
+    runReviewFn: SweeperDeps["runReviewFn"],
+    markCircuitAlertedFn: SweeperDeps["markCircuitAlertedFn"],
+    askEmitter?: SweeperDeps["askEmitter"],
+    alertSink?: SweeperDeps["alertSink"]
+  ): SweeperDeps {
+    return {
+      octokit: makeFakeOctokit({
+        openPRs: [
+          {
+            number: prNumber,
+            head: { sha: HEAD_SHA },
+            body: TIER3_BODY,
+            user: { login: PR_AUTHOR },
+          },
+        ],
+        reviews: { [prNumber]: [] },
+      }),
+      botLogin: BOT_LOGIN,
+      runReviewFn,
+      db: fakeDb,
+      listOpenCircuitsFn: () => Promise.resolve(openMap),
+      markCircuitAlertedFn,
+      askEmitter,
+      alertSink,
+    };
+  }
+
+  test("open circuit at HEAD → PR is NOT retriggered and an alert is emitted (SC-2/SC-4b)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn);
+    const { logs, restore } = captureConsoleLogs();
+    let result;
+    try {
+      result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+    } finally {
+      restore();
+    }
+
+    // The PR is dropped from the retrigger set (no wasted OpenAI cycle).
+    expect(runReviewFn).not.toHaveBeenCalled();
+    expect(result.retriggeredCount).toBe(0);
+    expect(result.missing).toHaveLength(0);
+    // One-shot operator alert fired and the row was marked alerted.
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+    expect(findLogEvent(logs, "sweeper.circuit_breaker_tripped")).not.toBeNull();
+    expect(findLogEvent(logs, "sweeper.circuit_open_skip")).not.toBeNull();
+  });
+
+  test("already-alerted open circuit → still skipped, but no duplicate alert", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, true),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn);
+    const { logs, restore } = captureConsoleLogs();
+    let result;
+    try {
+      result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+    } finally {
+      restore();
+    }
+
+    expect(runReviewFn).not.toHaveBeenCalled();
+    expect(result.retriggeredCount).toBe(0);
+    // No re-alert when already alerted.
+    expect(markCircuitAlertedFn).not.toHaveBeenCalled();
+    expect(findLogEvent(logs, "sweeper.circuit_breaker_tripped")).toBeNull();
+    // The skip itself is still logged.
+    expect(findLogEvent(logs, "sweeper.circuit_open_skip")).not.toBeNull();
+  });
+
+  test("no open circuit → PR is retriggered normally", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const deps = circuitDeps(prNumber, new Map(), runReviewFn, markCircuitAlertedFn);
+
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(runReviewFn).toHaveBeenCalledTimes(1);
+    expect(result.retriggeredCount).toBe(1);
+    expect(markCircuitAlertedFn).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#2363 / mt#1596 Phase 1: circuit-breaker trip routes into asks substrate
+  // -------------------------------------------------------------------------
+
+  test("open circuit (!alerted) → askEmitter.emitCircuitBreakerAlert called once with PR context (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    let captured: CircuitBreakerAlertContext | undefined;
+    const emitCircuitBreakerAlert = mock((c: CircuitBreakerAlertContext) => {
+      captured = c;
+      return Promise.resolve("created" as const);
+    });
+    const askEmitter = { emitCircuitBreakerAlert };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn, askEmitter);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(emitCircuitBreakerAlert).toHaveBeenCalledTimes(1);
+    expect(captured).toBeDefined();
+    const ctx = captured as CircuitBreakerAlertContext;
+    expect(ctx.owner).toBe(SWEEPER_CONFIG.owner);
+    expect(ctx.repo).toBe(SWEEPER_CONFIG.repo);
+    expect(ctx.prNumber).toBe(prNumber);
+    expect(ctx.headSha).toBe(HEAD_SHA);
+    expect(ctx.errorClass).toBe(CIRCUIT_ERROR_CLASS);
+    expect(ctx.lastStatus).toBe(422);
+    expect(ctx.consecutiveCount).toBe(2);
+    expect(ctx.circuitId).toBe(`row-${prNumber}`);
+    // Emit succeeded ("created") → circuit is deduped.
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+  });
+
+  test("already-alerted open circuit → askEmitter NOT called (dedup via alerted column) (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const emitCircuitBreakerAlert = mock(() => Promise.resolve("created" as const));
+    const askEmitter = { emitCircuitBreakerAlert };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, true),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn, askEmitter);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(emitCircuitBreakerAlert).not.toHaveBeenCalled();
+  });
+
+  test("transient emit failure does NOT crash the sweep AND does NOT dedup the circuit (recovering) (mt#2363 / reviewer R1)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    // A real DomainAskEmitter wrapping a repo whose create rejects. The
+    // emitter catches internally and returns "failed", so the sweep completes
+    // normally — but the circuit is NOT marked alerted, so the next cycle can
+    // retry once the substrate recovers.
+    const repoProvider = () =>
+      Promise.resolve({
+        create: () => Promise.reject(new Error("db down")),
+      } as unknown as import("@minsky/domain/ask/repository").AskRepository);
+    const askEmitter = new DomainAskEmitter(repoProvider);
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn, askEmitter);
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    // The PR is still dropped from the retrigger set; the sweep returns cleanly.
+    expect(runReviewFn).not.toHaveBeenCalled();
+    expect(result.retriggeredCount).toBe(0);
+    expect(result.missing).toHaveLength(0);
+    // Reviewer R1: a transient emit failure must NOT permanently suppress the
+    // alert — the circuit is left un-deduped so the next sweep retries.
+    expect(markCircuitAlertedFn).not.toHaveBeenCalled();
+  });
+
+  test("no emitter wired → circuit still deduped (mt#2350 log-once preserved) (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    // No askEmitter (undefined) → log-only mode preserves mt#2350 alert-once.
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#2364 / mt#1596 Phase 2: circuit-breaker trip also pushes to alertSink
+  // -------------------------------------------------------------------------
+
+  test("open circuit (!alerted) → alertSink.notify called once with error severity + PR context (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const notify = mock(() => Promise.resolve());
+    const alertSink = { notify };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      undefined,
+      alertSink
+    );
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [severity, title, body] = notify.mock.calls[0] as unknown as [string, string, string];
+    expect(severity).toBe("error");
+    expect(title).toContain(`#${prNumber}`);
+    expect(body).toContain(HEAD_SHA);
+    expect(body).toContain(CIRCUIT_ERROR_CLASS);
+    expect(body).toContain("422");
+  });
+
+  test("already-alerted open circuit → alertSink.notify NOT called (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const notify = mock(() => Promise.resolve());
+    const alertSink = { notify };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, true),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      undefined,
+      alertSink
+    );
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  test("alertSink fire does NOT affect dedup: circuit still marked alerted on Ask success (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    // Sink whose notify rejects internally would be a contract violation; a
+    // well-behaved sink resolves. The sweeper fires it fire-and-forget and does
+    // NOT gate dedup on it — dedup is gated on the Ask outcome ("created").
+    const notify = mock(() => Promise.resolve());
+    const alertSink = { notify };
+    const emitCircuitBreakerAlert = mock(() => Promise.resolve("created" as const));
+    const askEmitter = { emitCircuitBreakerAlert };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      askEmitter,
+      alertSink
+    );
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(emitCircuitBreakerAlert).toHaveBeenCalledTimes(1);
+    // Dedup gated on the Ask outcome only — sink does not change it.
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+    expect(result.retriggeredCount).toBe(0);
+  });
+
+  test("real (fail-open) WebhookAlertSink with throwing fetch → sweep completes cleanly (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    // A real WebhookAlertSink whose fetch rejects — notify catches internally,
+    // so the fire-and-forget at the seam never produces an unhandled rejection
+    // and the sweep completes.
+    const throwingFetch = (() =>
+      Promise.reject(new Error("network down"))) as unknown as import("./alert-sink").FetchFn;
+    const alertSink = new WebhookAlertSink("https://hook/x", undefined, throwingFetch);
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      undefined,
+      alertSink
+    );
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(result.retriggeredCount).toBe(0);
+    expect(result.missing).toHaveLength(0);
   });
 });
