@@ -21,6 +21,9 @@ const tasksAvailableParams = {
   },
   limit: {
     schema: z.number().default(20),
+    // defaultValue (not schema.default) is what the CLI/MCP bridges materialize for
+    // omitted args — a schema-only default is never applied at runtime (mt#2759).
+    defaultValue: 20,
     description: "Maximum number of tasks to show",
     required: false,
   },
@@ -41,6 +44,10 @@ const tasksAvailableParams = {
   },
   minReadiness: {
     schema: z.number().min(0).max(1).default(0.5),
+    // defaultValue is required for the bridges to apply the default; without it an
+    // omitted minReadiness reached the filter as undefined, and `score >= undefined`
+    // is false for every task — tasks_available returned [] at defaults (mt#2759).
+    defaultValue: 0.5,
     description: "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks",
     required: false,
   },
@@ -92,6 +99,11 @@ export function createTasksAvailableCommand(
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
 
+      // Belt-and-suspenders for bridge-materialized defaults (mt#2759): direct
+      // execute() callers (or a bridge that fails to materialize defaultValue)
+      // must still get the documented defaults.
+      const limit = (params.limit as number | undefined) ?? 20;
+
       // Track whether we have dependency data available
       let dependencyDataAvailable = true;
       let availableTasks;
@@ -106,7 +118,7 @@ export function createTasksAvailableCommand(
           availableTasks = await routingService.findAvailableTasks({
             statusFilter,
             backendFilter: params.backend,
-            limit: params.limit,
+            limit,
             showEffort: params.showEffort,
             showPriority: params.showPriority,
           });
@@ -141,7 +153,7 @@ export function createTasksAvailableCommand(
             ? filteredTasks.filter((task) => statusFilter.includes(task.status))
             : filteredTasks;
 
-        availableTasks = statusFilteredTasks.slice(0, params.limit).map((task) => ({
+        availableTasks = statusFilteredTasks.slice(0, limit).map((task) => ({
           taskId: task.id,
           title: task.title || "Unknown",
           status: task.status,
@@ -151,9 +163,12 @@ export function createTasksAvailableCommand(
         }));
       }
 
-      // Filter by readiness score (default 0.5 = shows partially-ready tasks)
+      // Filter by readiness score (default 0.5 = shows partially-ready tasks).
+      // Belt-and-suspenders: tolerate an absent value even if a bridge fails to
+      // materialize the declared default (the mt#2759 failure mode).
+      const minReadiness = (params.minReadiness as number | undefined) ?? 0.5;
       const readyTasks = (availableTasks ?? []).filter(
-        (task) => task.readinessScore >= params.minReadiness
+        (task) => task.readinessScore >= minReadiness
       );
 
       if (params.json) {
@@ -187,7 +202,7 @@ export function createTasksAvailableCommand(
         (t) => t.readinessScore > 0.5 && t.readinessScore < 1.0
       );
       const lowReadiness = readyTasks.filter(
-        (t) => t.readinessScore <= 0.5 && t.readinessScore >= params.minReadiness
+        (t) => t.readinessScore <= 0.5 && t.readinessScore >= minReadiness
       );
 
       if (fullyReady.length > 0) {
