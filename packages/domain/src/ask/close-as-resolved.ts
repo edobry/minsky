@@ -67,6 +67,56 @@ export type CloseAsResolvedOutcome =
  * @param input  Responder + audit payload.
  * @returns      The outcome (closed / cancelled / already-terminal / not-found / skipped).
  */
+/**
+ * Build the response payload attached when an Ask is closed (suspended and
+ * responded paths). Computes `attentionCost`, so callers MUST invoke it inside a
+ * try — this is why `closeByCurrentState` is only ever called from within
+ * `closeAskAsResolved`'s guarded blocks (the never-throws contract).
+ */
+function buildCloseResponse(input: CloseAsResolvedInput) {
+  return {
+    responder: input.responder,
+    payload: input.payload ?? {},
+    attentionCost: buildAttentionCost({ responder: input.responder }),
+  };
+}
+
+/**
+ * Close `ask` using the terminal state reachable from its CURRENT lifecycle
+ * state (state-machine.ts):
+ *   - already terminal            -> no-op
+ *   - `suspended`                 -> `closed` (respondAndClose, atomic, audit payload)
+ *   - `responded`                 -> `closed` (repo.close; `cancelled` is INVALID
+ *                                    from `responded`, and the Ask already carries
+ *                                    a response — e.g. a reconciler-posted review —
+ *                                    which is preserved)
+ *   - `detected`/`classified`/`routed` -> `cancelled` (the only terminal reachable
+ *                                    in one hop; `closed` needs a suspended/responded
+ *                                    predecessor)
+ *
+ * May throw on an invalid transition or a `buildAttentionCost` failure — the
+ * caller catches and either retries against a re-read state or returns `skipped`.
+ */
+async function closeByCurrentState(
+  repo: AskRepository,
+  ask: Ask,
+  input: CloseAsResolvedInput
+): Promise<CloseAsResolvedOutcome> {
+  if (isTerminal(ask.state)) return { kind: "already-terminal", askId: ask.id };
+  if (ask.state === "suspended") {
+    const response = buildCloseResponse(input);
+    await repo.respondAndClose(ask.id, { response }, { response });
+    return { kind: "closed", askId: ask.id };
+  }
+  if (ask.state === "responded") {
+    const response = ask.response ?? buildCloseResponse(input);
+    await repo.close(ask.id, { response });
+    return { kind: "closed", askId: ask.id };
+  }
+  await repo.transition(ask.id, "cancelled");
+  return { kind: "cancelled", askId: ask.id };
+}
+
 export async function closeAskAsResolved(
   repo: AskRepository,
   askId: string,
@@ -79,43 +129,22 @@ export async function closeAskAsResolved(
     return { kind: "skipped", askId, reason: err instanceof Error ? err.message : String(err) };
   }
   if (!ask) return { kind: "not-found", askId };
-  if (isTerminal(ask.state)) return { kind: "already-terminal", askId };
 
   try {
-    if (ask.state === "suspended") {
-      // suspended -> closed, atomically, preserving the audit payload.
-      // `buildAttentionCost` is computed INSIDE this try (not above it) so that a
-      // throw becomes a caught `cancelled`/`skipped` outcome rather than
-      // propagating — the never-throws contract must hold on the commit/merge hot
-      // paths. It is also only needed on this (closed) branch; the cancelled
-      // branch attaches no response.
-      const response = {
-        responder: input.responder,
-        payload: input.payload ?? {},
-        attentionCost: buildAttentionCost({ responder: input.responder }),
-      };
-      await repo.respondAndClose(askId, { response }, { response });
-      return { kind: "closed", askId };
-    }
-    // detected / classified / routed -> cancelled (the only terminal reachable
-    // from these states in one hop; `closed` requires a suspended predecessor).
-    await repo.transition(askId, "cancelled");
-    return { kind: "cancelled", askId };
-  } catch (err) {
+    return await closeByCurrentState(repo, ask, input);
+  } catch {
     // Race: the async advancer (mt#2265) transitioned the Ask between our read
-    // and our write. Re-read once and retry with `cancelled` — valid from every
-    // pre-terminal state. If it is already terminal, the close effectively
-    // happened (idempotent).
+    // and our write. Re-read once and retry against its now-current state (which
+    // may need a different terminal than the one we first attempted).
     let fresh;
     try {
       fresh = await repo.getById(askId);
     } catch {
       fresh = null;
     }
-    if (!fresh || isTerminal(fresh.state)) return { kind: "already-terminal", askId };
+    if (!fresh) return { kind: "already-terminal", askId };
     try {
-      await repo.transition(askId, "cancelled");
-      return { kind: "cancelled", askId };
+      return await closeByCurrentState(repo, fresh, input);
     } catch (err2) {
       const reason = err2 instanceof Error ? err2.message : String(err2);
       log.debug("closeAskAsResolved: could not close ask (best-effort)", { askId, reason });

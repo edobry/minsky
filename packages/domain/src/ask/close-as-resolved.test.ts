@@ -10,7 +10,9 @@ import { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "./close-as-
 
 // Repeated literals extracted to satisfy custom/no-magic-string-duplication.
 const COMMIT_LANDED = "system:commit-landed";
+const PR_MERGED = "system:pr-merged";
 const ALREADY_TERMINAL = "already-terminal";
+const REVIEW_RESPONDER = "reviewer:service:bot";
 
 /**
  * Seed an Ask into a specific lifecycle state by walking the state machine from
@@ -77,14 +79,14 @@ describe("closeAskAsResolved", () => {
 
   it("cancels a classified Ask", async () => {
     const id = await seed(repo, "classified");
-    const outcome = await closeAskAsResolved(repo, id, { responder: "system:pr-merged" });
+    const outcome = await closeAskAsResolved(repo, id, { responder: PR_MERGED });
     expect(outcome.kind).toBe("cancelled");
     expect((await repo.getById(id))?.state).toBe("cancelled");
   });
 
   it("cancels a routed Ask", async () => {
     const id = await seed(repo, "routed");
-    const outcome = await closeAskAsResolved(repo, id, { responder: "system:pr-merged" });
+    const outcome = await closeAskAsResolved(repo, id, { responder: PR_MERGED });
     expect(outcome.kind).toBe("cancelled");
     expect((await repo.getById(id))?.state).toBe("cancelled");
   });
@@ -116,6 +118,40 @@ describe("closeAskAsResolved", () => {
       responder: COMMIT_LANDED,
     });
     expect(outcome.kind).toBe("not-found");
+  });
+
+  it("closes a responded Ask to `closed` — `cancelled` is invalid from responded", async () => {
+    const id = await seed(repo, "responded");
+    const outcome = await closeAskAsResolved(repo, id, { responder: PR_MERGED });
+    expect(outcome.kind).toBe("closed");
+    expect((await repo.getById(id))?.state).toBe("closed");
+  });
+
+  it("closing a responded Ask preserves its existing response (e.g. a posted review)", async () => {
+    // Reach `responded` via repo.respond (reconciler-style) so the Ask carries a
+    // review response that must survive the merge-time close.
+    let ask = await repo.create({
+      kind: "quality.review",
+      classifierVersion: "v1",
+      requestor: "test",
+      title: "Review PR",
+      question: "Review?",
+    });
+    ask = await repo.transition(ask.id, "classified");
+    ask = await repo.transition(ask.id, "routed");
+    ask = await repo.transition(ask.id, "suspended");
+    await repo.respond(ask.id, {
+      response: {
+        responder: REVIEW_RESPONDER,
+        payload: { reviewId: 42 },
+        attentionCost: { transport: "subagent", resolvedIn: "subagent" },
+      },
+    });
+    const outcome = await closeAskAsResolved(repo, ask.id, { responder: PR_MERGED });
+    expect(outcome.kind).toBe("closed");
+    const closed = await repo.getById(ask.id);
+    expect(closed?.state).toBe("closed");
+    expect(closed?.response?.responder).toBe(REVIEW_RESPONDER);
   });
 });
 
