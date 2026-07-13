@@ -23,6 +23,7 @@ import {
   callReviewerWithRetry,
   validateReviewOutput,
   type CallWithRetryResult,
+  type CallReviewerFn,
 } from "./review-output-validation";
 import { log } from "./logger";
 
@@ -352,6 +353,12 @@ export interface RunChunkedReviewInput {
   repo: string;
   prNumber: number;
   totalDiffLines: number;
+  /**
+   * Test seam (mt#2739): injectable provider call. Defaults to the real
+   * `callReviewer` from `./providers`, so production callers (`runReviewBody`)
+   * are unaffected. Mirrors `callReviewerWithRetry`'s `callReviewerFn` seam.
+   */
+  callReviewerFn?: CallReviewerFn;
 }
 
 /**
@@ -377,6 +384,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
     repo,
     prNumber,
     totalDiffLines,
+    callReviewerFn = callReviewer,
   } = input;
 
   const chunks = chunkFiles(fileEntries);
@@ -398,7 +406,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
       systemPrompt,
       userPrompt,
       tools,
-      callReviewer,
+      callReviewerFn,
       outputToolsActive
     );
   }
@@ -418,7 +426,13 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalReasoningTokens = 0;
-  let lastText = "";
+  // mt#2739: accumulate every non-empty chunk's free-text scratch (output.text),
+  // not just the last chunk's. This aggregate feeds only the defensive CoT-leak
+  // scratch logging (review-worker.ts:960, sanitizeReviewBody(output.text)) — the
+  // posted body is composed from tool calls, not this field — so concatenating all
+  // chunks lets the sanitizer inspect every chunk's scratch, closing the gap where
+  // leaked reasoning in a non-final chunk went undetected.
+  const chunkTexts: string[] = [];
   const allRoundLatencies: number[] = [];
   let totalTimeoutCount = 0;
   const allRetryOutcomes: string[] = [];
@@ -432,7 +446,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
       systemPrompt,
       chunkPrompt,
       tools,
-      callReviewer,
+      callReviewerFn,
       outputToolsActive
     );
 
@@ -440,7 +454,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
     totalPromptTokens += chunkResult.output.usage?.promptTokens ?? 0;
     totalCompletionTokens += chunkResult.output.usage?.completionTokens ?? 0;
     totalReasoningTokens += chunkResult.output.usage?.reasoningTokens ?? 0;
-    lastText = chunkResult.output.text || lastText;
+    if (chunkResult.output.text) chunkTexts.push(chunkResult.output.text);
 
     if (chunkResult.output.timing) {
       allRoundLatencies.push(...chunkResult.output.timing.roundLatenciesMs);
@@ -462,7 +476,7 @@ export async function runChunkedReview(input: RunChunkedReviewInput): Promise<Ca
 
   const totalTokens = totalPromptTokens + totalCompletionTokens;
   const output: ReviewOutput = {
-    text: lastText,
+    text: chunkTexts.join("\n\n"),
     tokensUsed: totalTokens,
     usage: {
       promptTokens: totalPromptTokens,

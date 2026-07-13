@@ -20,6 +20,7 @@ import {
   chunkFiles,
   buildChunkDiff,
   buildChunkedReviewPrompt,
+  runChunkedReview,
   CHARS_PER_TOKEN,
   MAX_CHUNK_DIFF_TOKENS,
   MAX_FILE_PATCH_TOKENS,
@@ -29,6 +30,10 @@ import {
 } from "./chunked-review";
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
+import type { ReviewOutput } from "./providers";
+import type { CallReviewerFn } from "./review-output-validation";
+import type { ReviewerConfig } from "./config";
+import { sanitizeReviewBody } from "./sanitize";
 
 function makeFile(filename: string, patchChars: number, status = "modified"): PrFileEntry {
   return {
@@ -361,5 +366,142 @@ describe("buildChunkedReviewPrompt — migration baseline section (mt#2655)", ()
     expect(specIdx).toBeGreaterThan(-1);
     expect(migrationIdx).toBeGreaterThan(specIdx);
     expect(diffIdx).toBeGreaterThan(migrationIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runChunkedReview — output.text aggregation across chunks (mt#2739)
+//
+// The aggregate ReviewOutput.text is the model's free-text scratch channel,
+// consumed ONLY by the defensive CoT-leak scratch logging on the output-tools
+// path (review-worker.ts:960, sanitizeReviewBody(output.text)) — the posted
+// body is composed from tool calls, not this field. Before mt#2739, aggregation
+// kept only the LAST non-empty chunk's text (`lastText = output.text || lastText`),
+// so leaked reasoning in an EARLIER chunk was never inspected. mt#2739
+// concatenates every non-empty chunk's text with a blank-line separator so the
+// sanitizer sees all chunks' scratch.
+//
+// Tests use provider "google" so an empty chunk output returns as final without
+// the OpenAI empty-output retry (review-output-validation.ts:158), keeping the
+// per-chunk call count deterministic.
+// ---------------------------------------------------------------------------
+describe("runChunkedReview — output.text aggregation (mt#2739)", () => {
+  const fakeConfig = {
+    provider: "google",
+    providerApiKey: "fake",
+    providerModel: "gemini-2.5-pro",
+  } as unknown as ReviewerConfig;
+
+  const basePromptInput: Omit<ReviewPromptInput, "diff"> = {
+    prNumber: 2739,
+    prTitle: "Aggregation test",
+    prBody: "",
+    taskSpec: null,
+    authorshipTier: 3,
+    branchName: "task/mt-2739",
+    baseBranch: "main",
+  };
+
+  /** A CallReviewerFn that returns each queued text in sequence (one per chunk). */
+  function fakeReviewerReturningTexts(texts: string[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools) => {
+      const text = texts[i] ?? "";
+      i++;
+      const out: ReviewOutput = {
+        text,
+        provider: "google",
+        model: "gemini-2.5-pro",
+        toolCalls: [],
+      };
+      return out;
+    };
+  }
+
+  /** FILES_PER_CHUNK + 1 small files → chunkFiles yields exactly 2 chunks ([20, 1]). */
+  function twoChunkFiles(): PrFileEntry[] {
+    return Array.from({ length: FILES_PER_CHUNK + 1 }, (_, i) => makeFile(`f-${i}.ts`, 100));
+  }
+
+  function inputWith(callReviewerFn: CallReviewerFn, fileEntries: PrFileEntry[]) {
+    return {
+      config: fakeConfig,
+      systemPrompt: "sys",
+      userPrompt: "user",
+      basePromptInput,
+      tools: undefined,
+      outputToolsActive: false,
+      fileEntries,
+      diff: "",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 2739,
+      totalDiffLines: 42,
+      callReviewerFn,
+    };
+  }
+
+  test("concatenates every non-empty chunk's output.text with a blank-line separator", async () => {
+    const files = twoChunkFiles();
+    // Sanity: this fixture really produces >1 chunk (else the assertion is vacuous).
+    expect(chunkFiles(files).length).toBeGreaterThan(1);
+
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts(["scratch one", "scratch two"]), files)
+    );
+
+    // Both chunks represented, not just the last — the mt#2739 behavior change.
+    expect(result.output.text).toBe("scratch one\n\nscratch two");
+  });
+
+  test("skips empty chunk texts when concatenating (no leading/dangling separator)", async () => {
+    const files = twoChunkFiles();
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts(["", "only second"]), files)
+    );
+    // Empty first chunk contributes nothing; no leading "\n\n".
+    expect(result.output.text).toBe("only second");
+  });
+
+  test("CoT-leak signal fires on an EARLIER chunk's scratch — the gap mt#2739 closes", async () => {
+    // Earlier chunk leaks raw reasoning; last chunk is a clean structured review.
+    const earlierLeak = [
+      "I will review the auth module now.",
+      "Calling read_file on src/auth/session.ts.",
+      "Go.",
+      "This time for sure.",
+      "Let's try again.",
+    ].join("\n");
+    const lastClean =
+      "## Findings\n\n- [BLOCKING] src/auth/session.ts:10 — missing guard.\n\nAPPROVE";
+
+    // Baseline: sanitizing ONLY the last chunk passes through — last-chunk-only
+    // aggregation (pre-mt#2739) would have MISSED the earlier leak.
+    expect(sanitizeReviewBody(lastClean).action).toBe("passthrough");
+
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts([earlierLeak, lastClean]), twoChunkFiles())
+    );
+
+    // The aggregate now includes the earlier chunk's scratch...
+    expect(result.output.text).toContain("Calling read_file on src/auth/session.ts.");
+    // ...so the defensive sanitizer (review-worker.ts:960) detects the leak.
+    expect(sanitizeReviewBody(result.output.text).action).not.toBe("passthrough");
+  });
+
+  test("concatenating two clean chunk texts does not introduce a false positive", async () => {
+    // Two independently-clean structured reviews (each passes through on its own).
+    const cleanA = "## Findings\n\n- [NON-BLOCKING] src/a.ts:1 — nit.\n\nAPPROVE";
+    const cleanB = "## Findings\n\n- [BLOCKING] src/b.ts:2 — bug.\n\nEvent: REQUEST_CHANGES";
+    expect(sanitizeReviewBody(cleanA).action).toBe("passthrough");
+    expect(sanitizeReviewBody(cleanB).action).toBe("passthrough");
+
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts([cleanA, cleanB]), twoChunkFiles())
+    );
+
+    // The concatenated scratch is what the sanitizer would see on the chunked
+    // path; two clean chunks must not trip it (SC #2).
+    expect(sanitizeReviewBody(result.output.text).action).toBe("passthrough");
   });
 });
