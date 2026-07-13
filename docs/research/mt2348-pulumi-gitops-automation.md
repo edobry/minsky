@@ -39,6 +39,8 @@ Evaluated against Minsky's concrete setup: single repo, Railway TF-bridge provid
 | **Pulumi Deployments** (Pulumi Cloud managed) | Pulumi Cloud runs the apply; a GitHub App posts preview + commit checks; Review Stacks spin up ephemeral per-PR environments (created on open, destroyed on merge). Managed compute _and_ managed state.                                                                                                         | Good but heavier than needed: Review Stacks (ephemeral per-PR infra) are overkill for a single prod stack; managed apply-compute burns deployment minutes. The managed _state_ IS wanted.         | **Upgrade path** — adopt the managed state now; add managed apply / Review Stacks later only if per-PR environments become useful. |
 | **Atlantis / Spacelift / env0**               | Atlantis (self-hosted daemon) supports Terraform / OpenTofu / Terragrunt only — **no native Pulumi**. Pulumi PR-automation exists via a community "Atlantis-like" action or managed control planes (Spacelift, env0).                                                                                            | Poor: Atlantis needs a self-hosted daemon and doesn't do Pulumi; Spacelift/env0 add a _second_ vendor + control plane. Overkill for a solo operator + single repo.                                | **Rejected**                                                                                                                       |
 
+**Pulumi Kubernetes Operator — OUT (not applicable).** The Operator runs the GitOps reconcile loop as a Kubernetes controller (a `Stack` CRD reconciled in-cluster). Minsky's infrastructure is Railway-based with no Kubernetes cluster, so it does not apply — noted here per the mt#2348 Success Criteria requirement to disposition it in/out.
+
 ## Recommendation
 
 **Adopt Pulumi Cloud managed state (free Individual tier) and drive the apply loop with `pulumi/actions` in Minsky's existing GitHub Actions CI — phased: detection first (preview-on-PR + drift-cron), apply-on-merge only later (see Phasing below). Defer Pulumi Deployments/Review Stacks as an optional later upgrade. Reject Atlantis/Spacelift/env0 for this scale.**
@@ -74,7 +76,7 @@ Local `file://~` state + local-passphrase-encrypted `Pulumi.prod.yaml` is fundam
 
 ## Follow-up implementation
 
-Filed as **mt#2738** — "Implement Pulumi GitOps for `infra/`: Pulumi Cloud state + `pulumi/actions` preview-on-PR / apply-on-merge / drift-cron." It carries the state-backend migration, the three workflows (`infra-preview.yml`, `infra-apply.yml`, `infra-drift-cron.yml`), CI secret configuration, and the `docs/deploy-minsky-railway.md` update.
+**Tracking task: mt#2738** (linked by ID; Minsky tasks are DB-backed, referenced by ID per repo-doc convention) — "Implement Pulumi GitOps for `infra/`: Pulumi Cloud state + `pulumi/actions` preview-on-PR / apply-on-merge / drift-cron" (this research's deliverable, filed 2026-07-10). It carries the state-backend migration, the three workflows (`infra-preview.yml`, `infra-apply.yml`, `infra-drift-cron.yml`), CI secret configuration, and the `docs/deploy-minsky-railway.md` update.
 
 **Supersedes mt#1443** ("CI integration for Railway synthesizer"), which automated the now-retired `scripts/railway/apply.ts` synthesizer + `services/*/railway.config.ts` (both removed in the Pulumi migration). Its _goal_ — drift-check on PR + apply on merge + drift cron — lives on in mt#2738 for the Pulumi era.
 
