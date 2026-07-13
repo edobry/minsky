@@ -20,6 +20,7 @@ import {
   chunkFiles,
   buildChunkDiff,
   buildChunkedReviewPrompt,
+  runChunkedReview,
   CHARS_PER_TOKEN,
   MAX_CHUNK_DIFF_TOKENS,
   MAX_FILE_PATCH_TOKENS,
@@ -29,6 +30,9 @@ import {
 } from "./chunked-review";
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
+import type { ReviewOutput } from "./providers";
+import type { CallReviewerFn } from "./review-output-validation";
+import type { ReviewerConfig } from "./config";
 
 function makeFile(filename: string, patchChars: number, status = "modified"): PrFileEntry {
   return {
@@ -361,5 +365,135 @@ describe("buildChunkedReviewPrompt — migration baseline section (mt#2655)", ()
     expect(specIdx).toBeGreaterThan(-1);
     expect(migrationIdx).toBeGreaterThan(specIdx);
     expect(diffIdx).toBeGreaterThan(migrationIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runChunkedReview — output.text aggregation across chunks (mt#2739)
+//
+// The aggregate ReviewOutput.text is the model's free-text scratch channel,
+// consumed ONLY by the defensive CoT-leak scratch logging on the output-tools
+// path (review-worker.ts:960) — the posted body is composed from tool calls, not
+// this field. Before mt#2739, aggregation kept only the LAST non-empty chunk's
+// text (`lastText = output.text || lastText`), so leaked reasoning in an EARLIER
+// chunk was never inspected. mt#2739 concatenates every non-empty chunk's text
+// with a blank-line separator. These tests assert the AGGREGATION output directly
+// (all chunks present, single-blank-line separator, empty/whitespace skipped);
+// the leak-detection heuristics are covered by sanitize.test.ts, kept decoupled.
+//
+// Tests use provider "google" so an empty chunk output returns as final without
+// the OpenAI empty-output retry (review-output-validation.ts:158), keeping the
+// per-chunk call count deterministic.
+// ---------------------------------------------------------------------------
+describe("runChunkedReview — output.text aggregation (mt#2739)", () => {
+  const fakeConfig = {
+    provider: "google",
+    providerApiKey: "fake",
+    providerModel: "gemini-2.5-pro",
+  } as unknown as ReviewerConfig;
+
+  const basePromptInput: Omit<ReviewPromptInput, "diff"> = {
+    prNumber: 2739,
+    prTitle: "Aggregation test",
+    prBody: "",
+    taskSpec: null,
+    authorshipTier: 3,
+    branchName: "task/mt-2739",
+    baseBranch: "main",
+  };
+
+  /** A CallReviewerFn that returns each queued text in sequence (one per chunk). */
+  function fakeReviewerReturningTexts(texts: string[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools) => {
+      const text = texts[i] ?? "";
+      i++;
+      const out: ReviewOutput = {
+        text,
+        provider: "google",
+        model: "gemini-2.5-pro",
+        toolCalls: [],
+      };
+      return out;
+    };
+  }
+
+  /** FILES_PER_CHUNK + 1 small files → chunkFiles yields exactly 2 chunks ([20, 1]). */
+  function twoChunkFiles(): PrFileEntry[] {
+    return Array.from({ length: FILES_PER_CHUNK + 1 }, (_, i) => makeFile(`f-${i}.ts`, 100));
+  }
+
+  function inputWith(callReviewerFn: CallReviewerFn, fileEntries: PrFileEntry[]) {
+    return {
+      config: fakeConfig,
+      systemPrompt: "sys",
+      userPrompt: "user",
+      basePromptInput,
+      tools: undefined,
+      outputToolsActive: false,
+      fileEntries,
+      diff: "",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 2739,
+      totalDiffLines: 42,
+      callReviewerFn,
+    };
+  }
+
+  test("concatenates every non-empty chunk's output.text with a blank-line separator", async () => {
+    const files = twoChunkFiles();
+    // Sanity: this fixture really produces >1 chunk (else the assertion is vacuous).
+    expect(chunkFiles(files).length).toBeGreaterThan(1);
+
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts(["scratch one", "scratch two"]), files)
+    );
+
+    // Both chunks represented, not just the last — the mt#2739 behavior change.
+    expect(result.output.text).toBe("scratch one\n\nscratch two");
+  });
+
+  test("skips empty or whitespace-only chunk texts (no leading/dangling separator)", async () => {
+    // Whitespace-only is the stronger case flagged in PR #1884 R1; a genuinely
+    // empty "" trims to the same "" and is covered by the same guard.
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts(["  \n  ", "only second"]), twoChunkFiles())
+    );
+    expect(result.output.text).toBe("only second");
+  });
+
+  test("includes an EARLIER (non-last) chunk's scratch in the aggregate — the gap mt#2739 closes", async () => {
+    // Pre-mt#2739 kept only the LAST chunk, dropping earlier chunks' scratch, so
+    // the CoT-leak sanitizer (review-worker.ts:960) never saw it. The aggregator's
+    // job is to surface EVERY chunk's free-text into the channel the sanitizer
+    // consumes; whether the sanitizer then fires on given content is owned by
+    // sanitize.test.ts (kept decoupled here to avoid brittle cross-module coupling).
+    const earlierScratch = "Calling read_file on src/auth/session.ts.\nGo.";
+    const lastScratch = "Reviewed; findings submitted via tools.";
+
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts([earlierScratch, lastScratch]), twoChunkFiles())
+    );
+
+    // Earlier chunk is no longer dropped — its scratch reaches the aggregate,
+    // joined with the last chunk by exactly one blank line.
+    expect(result.output.text).toContain("Calling read_file on src/auth/session.ts.");
+    expect(result.output.text).toBe(`${earlierScratch}\n\n${lastScratch}`);
+  });
+
+  test("joins chunks with exactly one blank line, even when chunks carry surrounding blank lines", async () => {
+    // A chunk with trailing blank lines followed by one with leading blank lines
+    // must NOT combine into a 3+-newline run at the join (which could read as the
+    // PR #743 blank-line-run leak pattern). The per-chunk trim keeps it a single
+    // "\n\n" — this is the structural FP-avoidance guarantee at the aggregation
+    // layer; the sanitizer's own FP/TP behavior is owned by sanitize.test.ts.
+    const a = "chunk A body\n\n\n";
+    const b = "\n\nchunk B body";
+    const result = await runChunkedReview(
+      inputWith(fakeReviewerReturningTexts([a, b]), twoChunkFiles())
+    );
+    expect(result.output.text).toBe("chunk A body\n\nchunk B body");
+    expect(result.output.text).not.toMatch(/\n{3,}/);
   });
 });
