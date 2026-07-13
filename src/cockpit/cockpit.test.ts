@@ -51,7 +51,18 @@ async function startTestServer(opts?: Parameters<typeof createCockpitServer>[0])
   return { url, close };
 }
 
-const JSON_HEADERS = { "Content-Type": "application/json" } as const;
+// mt#2538: createCockpitServer now generates/persists a real bearer token on
+// first use unless overridden, and requires that token (or the bootstrap
+// cookie) on every mutation. Every `server()` call below injects this fixed
+// test token (see the `server()` helper), and JSON_HEADERS carries the
+// matching Authorization header so the many POST/DELETE tests in this file
+// keep authenticating without per-call plumbing.
+const TEST_TOKEN = "test-cockpit-token";
+
+const JSON_HEADERS = {
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${TEST_TOKEN}`,
+} as const;
 
 // Credential error codes — keep in sync with `CredentialErrorCode` in
 // src/cockpit/server.ts and `CredentialApiErrorCode` in
@@ -74,7 +85,7 @@ describe("Cockpit server", () => {
   });
 
   async function server(opts?: Parameters<typeof createCockpitServer>[0]) {
-    const s = await startTestServer(opts);
+    const s = await startTestServer({ overrideToken: TEST_TOKEN, ...opts });
     closeList.push(s.close);
     return s.url;
   }
@@ -1742,6 +1753,7 @@ describe("Cockpit server", () => {
     });
     const res = await fetch(`${url}/api/credentials/github`, {
       method: "DELETE",
+      headers: JSON_HEADERS,
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { removed: boolean };
@@ -1756,6 +1768,7 @@ describe("Cockpit server", () => {
     });
     const res = await fetch(`${url}/api/credentials/nonexistent`, {
       method: "DELETE",
+      headers: JSON_HEADERS,
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string; message: string } };
