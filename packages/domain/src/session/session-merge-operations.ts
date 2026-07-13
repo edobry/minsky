@@ -45,9 +45,7 @@ import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
 import type { AskRepository } from "../ask/repository";
-import { closeAskAsResolved } from "../ask/close-as-resolved";
-import { findPrRef } from "../ask/reconciler";
-import { isTerminal } from "../ask/state-machine";
+import { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "../ask/close-as-resolved";
 import { applyPostMergeStateSync } from "./session-merge-status-sync";
 import {
   validateSessionApprovedForMerge,
@@ -713,15 +711,10 @@ export async function mergeSessionPr(
   // review Asks emitted without a PR URL are still closed).
   if (deps.askRepository && sessionRecord.taskId) {
     try {
-      const mergedPrNumber = sessionRecord.pullRequest?.number;
       const askRepository = deps.askRepository;
-      const reviewAsks = (await askRepository.listByParentTask(sessionRecord.taskId)).filter(
-        (a) => {
-          if (a.kind !== "quality.review" || isTerminal(a.state)) return false;
-          const ref = findPrRef(a);
-          // No PR ref -> same-task fallback; with a ref -> require it matches.
-          return ref === null || (mergedPrNumber != null && ref.prNumber === mergedPrNumber);
-        }
+      const reviewAsks = selectOpenReviewAsksForMergedPr(
+        await askRepository.listByParentTask(sessionRecord.taskId),
+        sessionRecord.pullRequest?.number
       );
       for (const a of reviewAsks) {
         await closeAskAsResolved(askRepository, a.id, {

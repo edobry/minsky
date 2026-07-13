@@ -32,7 +32,7 @@ export { DrizzleAskRepository, FakeAskRepository, ConcurrentTransitionError } fr
 
 // Lifecycle closure — close an Ask when its triggering event resolves (mt#2593)
 export type { CloseAsResolvedInput, CloseAsResolvedOutcome } from "./close-as-resolved";
-export { closeAskAsResolved } from "./close-as-resolved";
+export { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "./close-as-resolved";
 
 // Reconciler
 export type {

@@ -29,8 +29,10 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import type { Ask } from "./types";
 import type { AskRepository } from "./repository";
 import { isTerminal } from "./state-machine";
+import { findPrRef } from "./reconciler";
 import { buildAttentionCost } from "./accounting/index";
 
 /** Input describing who/what resolved the Ask and the audit payload to attach. */
@@ -116,4 +118,27 @@ export async function closeAskAsResolved(
       return { kind: "skipped", askId, reason };
     }
   }
+}
+
+/**
+ * Select the open `quality.review` Asks that a just-merged PR resolves, from a
+ * candidate list (typically `listByParentTask(taskId)`).
+ *
+ * An Ask is selected when it is a non-terminal `quality.review` AND either:
+ *   - it carries a `github-pr` contextRef whose PR number matches `mergedPrNumber`, OR
+ *   - it carries no parseable PR ref (same-task fallback — review Asks emitted
+ *     without a PR URL are still resolved by the task's merge).
+ *
+ * A `quality.review` Ask referencing a DIFFERENT PR is not selected (a task can
+ * accrue more than one PR over its lifetime).
+ */
+export function selectOpenReviewAsksForMergedPr(
+  asks: Ask[],
+  mergedPrNumber: number | undefined
+): Ask[] {
+  return asks.filter((a) => {
+    if (a.kind !== "quality.review" || isTerminal(a.state)) return false;
+    const ref = findPrRef(a);
+    return ref === null || (mergedPrNumber != null && ref.prNumber === mergedPrNumber);
+  });
 }
