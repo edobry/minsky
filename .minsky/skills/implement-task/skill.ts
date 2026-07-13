@@ -227,6 +227,10 @@ A change is structural if its correctness depends on live external behavior that
 - New external-system probe (health check against a live API, feature-flag read from a hosted store)
 - New deploy-target wiring (Railway service, container start-up, environment variable resolution)
 - Schema migration with semantic changes (not additive-only column adds)
+- **New external-system integration** (new GitHub App permission/API scope, a new outbound
+  credentialed endpoint, a new webhook subscription) — see the dedicated subsection below;
+  this class has an ADDITIONAL requirement beyond shipping an artifact (the artifact must be
+  capable of exercising the LIVE integration surface, not just a code-level check)
 
 Counter-examples (NOT structural — no artifact needed):
 
@@ -258,6 +262,52 @@ This pattern was established by mt#1399 (smoke test for output-tools wiring — 
 
 - The redacted live-run output from running the artifact, OR
 - A documented override: the artifact has not been run because (a) the target has not been deployed yet, (b) the author lacks live-target access per documented policy, or (c) the target has a rate-limit or maintenance-window constraint. "I read the code carefully" is not a valid override.
+
+#### External-system integration changes: live-exercise required, not deploy-SUCCESS
+
+When the task adds or alters an **external-system integration** — a new GitHub App
+permission/API scope, a new outbound credentialed endpoint, or a new webhook subscription (the
+same trigger class as \`/plan-task\` gate (n)) — deploy-SUCCESS is **necessary but NOT
+sufficient** to claim the feature works. Per memory \`b73db534\`: "a deploy-touching change whose
+acceptance criterion IS live behavior cannot be reported complete on unit-green + deploy-SUCCESS
+while deferring the live exercise." \`deployment_wait-for-latest\` returning SUCCESS only proves
+the container started — it does not prove the external precondition (the scope/permission/
+credential) is actually granted and the integration call actually succeeds against the live
+external system.
+
+**The un-runnable-pre-merge case is UNVERIFIED, not "deferred/done."** A sealed secret, an
+App permission not yet granted, or a target not yet deployed makes the live exercise
+un-runnable AT PR-creation time — that is a legitimate reason to defer the RUN, but it is NOT a
+reason to report the feature as working. State explicitly in the PR body's "## Live
+verification" section: **"UNVERIFIED — live exercise deferred to §10 post-deploy because
+<reason>. This integration is NOT confirmed working until the §10 live exercise runs and
+succeeds."** Do not use language like "verification deferred" alone without the "UNVERIFIED"
+label — a bare deferral note reads as a completed step to a skimming reader; it is not.
+
+**Mandatory follow-through.** §10 (Post-merge deploy verification) below MUST, for this change
+class, exercise the NAMED integration surface live — the actual API call, the actual webhook
+delivery, the actual credentialed request — not just confirm deploy-SUCCESS. The task is not
+"done" (in the working-feature sense, independent of the DONE status the at-merge handler sets)
+until that live exercise runs and succeeds.
+
+**Originating incident — mt#2435 (2026-07-10/11).** A reviewer-service change added a
+\`checks:write\`-scoped \`octokit.rest.checks.create\` call. The PR merged green,
+\`deployment_wait-for-latest\` returned SUCCESS, and the task was reported done — but the
+\`checks:write\` permission had not actually been granted to the App yet (tracked separately as
+mt#2500, still TODO). In production \`POST /check-runs\` returned 403 and \`publishCheckRun\`
+degraded silently; the feature was inert for a day+ until a follow-up session (mt#2736) ran the
+live check-run POST and the operator granted the permission. Had this subsection's discipline
+applied at the time, the PR body would have read "UNVERIFIED — checks:write not yet granted
+(mt#2500 TODO)," and §10 would have required the live \`POST /check-runs\` exercise before the
+task could be considered functionally complete — surfacing the 403 immediately instead of a day
+later.
+
+**Enforcement tier (mt#2740 PR #1886 R1).** This subsection is verification **discipline**, not a
+hook — process-enforced by this skill, at the same tier as the rest of §7/§10. Its hook-tier
+sibling for the adjacent deploy-CRASH class is the mt#2353 deploy-verification merge gate +
+post-merge reminder; the automated backstop for THIS (external-integration) class — recognizing
+the trigger mechanically rather than relying on the agent, paired with \`/plan-task\` gate (n) — is
+tracked in mt#2755.
 
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 
@@ -395,7 +445,40 @@ candidates: Vercel, Cloudflare Pages, etc.). See
 on the failed deployment ID, inspect the failure, and either fix-forward
 in a new PR or surface to the user with the logs attached.
 
-**Three rules this step enforces (the mt#2345 incident violated all three):**
+#### External-system integration live-exercise (mandatory, distinct from deploy-health)
+
+The mechanism above (\`deployment_wait-for-latest\` → SUCCESS, \`/health\` 200) verifies the
+**deploy-CRASH** class: did the container start? For a task that added or altered an
+**external-system integration** — a new GitHub App permission/API scope, a new outbound
+credentialed endpoint, or a new webhook subscription (per \`/plan-task\` gate (n) and §7a's
+matching subsection) — deploy-SUCCESS is a DIFFERENT, WEAKER signal than "the feature works."
+Per memory \`b73db534\`: \`deployment_wait-for-latest\` returning SUCCESS is **necessary but NOT
+sufficient** — it proves the container booted, not that the external precondition is actually
+provisioned and the integration call actually succeeds.
+
+**Required action for this change class:** after \`deployment_wait-for-latest\` returns SUCCESS,
+additionally EXERCISE the named integration surface LIVE — make the actual API call, trigger the
+actual webhook, exchange the actual credential — and observe the real result (success payload,
+or an error like a 403 that reveals a missing precondition). This is not optional and is not
+satisfied by re-reading the code or re-confirming the deploy is healthy. If §7a's PR body
+recorded the change as "UNVERIFIED — live exercise deferred to §10," THIS is the point where
+that deferral is discharged: run it now, before reporting the task functionally complete.
+
+**Originating incident — mt#2435 (2026-07-10/11).** The reviewer check-run integration deployed
+SUCCESS and was reported done without a live \`POST /check-runs\` exercise. The 403 (missing
+\`checks:write\`) was discovered a day later only because a separate follow-up session (mt#2736)
+happened to run the live check. Under this subsection, the live check-run exercise is part of
+§10 itself for this change class — the gap would have surfaced within the same session as the
+deploy, not a day later via a separate task.
+
+**When the live exercise fails** (e.g., a 403 revealing a missing App permission): this is the
+exact signal gate (n) plan-time enumeration exists to prevent surfacing this late. Do not report
+the task done. Surface the failure with the specific error, identify the missing precondition,
+and either provision it now (if in scope and accessible) or escalate per \`decision-defaults.mdc
+§Missing MCP tool — escalate, don't silently work around\` / \`User Preferences §Probe before
+deferring\` — do not silently downgrade to "the deploy succeeded" as the completion claim.
+
+**Four rules this step enforces (the mt#2345/mt#2435 incidents each violated a subset):**
 
 1. **"Applied" is the ACTION, not the OUTCOME.** \`pulumi up\` exit-0, a 200 from a
    config API, or an apply call returning success means the change was
@@ -413,6 +496,13 @@ in a new PR or surface to the user with the logs attached.
    at merge, BEFORE the deploy completes, so this step does NOT change DONE status.
    DONE is necessary-but-not-sufficient; the deploy-health check above is the real
    completion signal for a deploy-touching task.
+4. **Deploy-SUCCESS ≠ feature-works, for external-system integrations.** A healthy
+   container proves the process started, not that a newly required App
+   permission/scope/credential/webhook is provisioned and functioning. For this
+   change class, the live-exercise requirement above is the real completion
+   signal — not \`deployment_wait-for-latest\` alone. This is the rule mt#2435
+   violated: deploy-SUCCESS was treated as sufficient evidence the check-run
+   integration worked.
 
 ## Constraints
 
@@ -439,5 +529,7 @@ These constraints apply throughout implementation:
 **mt#1403 — cluster verification (replay script pattern).** The PR shipped a content-routing cluster. Correctness required verifying that 0 of 15 items from the original posting-body leak corpus fired through the cluster. A replay-verification script was shipped in the same PR; the main agent ran it against the live corpus and appended a structured JSON results file to the PR body. No unit test covers the full corpus distribution.
 
 Both are the canonical instances of the live-verification gap pattern: subagent ships the artifact, main agent runs it.
+
+**mt#2435 — external-integration liveness gap (deploy-SUCCESS ≠ feature-works).** A reviewer-service change added a \`checks:write\`-scoped GitHub check-run POST. The PR merged green and \`deployment_wait-for-latest\` returned SUCCESS; the task was reported done. The App's \`checks:write\` permission had not actually been granted (tracked separately as mt#2500, still TODO at merge and never linked in the spec) — in production \`POST /check-runs\` returned 403 and degraded silently for a day+ until a follow-up session (mt#2736) ran a live check and the operator granted the permission. This is the canonical instance of the external-integration-liveness gap this task (mt#2740) closes: §7a/§10 now require the named integration surface to be exercised LIVE post-deploy for this change class, and \`/plan-task\` gate (n) requires the precondition to be enumerated and provisioned-or-linked before READY.
 `,
 });

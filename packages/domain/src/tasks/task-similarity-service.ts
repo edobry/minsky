@@ -112,10 +112,22 @@ export class TaskSimilarityService {
     const hasDomainFilter =
       Boolean(statusEquals) || (statusExclude?.length ?? 0) > 0 || Boolean(backendEquals);
 
+    // mt#2744: phase timing for the full tasks search path. The backend logs the
+    // embed-vs-vector split per getSearchService().search() call; this summary adds
+    // the filtered-path overhead (fetch-all-tasks for live filtering + a possible
+    // second "widen" vector search) that the backend-level timing cannot see.
+    const searchStartTs = Date.now();
+
     // Fast path: no domain filter (used by similarToTask / searchSimilarTasks) — search
     // the full corpus directly with no extra task lookups.
     if (!hasDomainFilter) {
       const response = await this.getSearchService().search({ queryText: query, limit });
+      log.debug("tasks searchByText timing (mt#2744)", {
+        path: "fast",
+        searches: 1,
+        totalMs: Math.round(Date.now() - searchStartTs),
+        limit,
+      });
       return {
         results: response.items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata })),
         backend: response.backend,
@@ -126,7 +138,9 @@ export class TaskSimilarityService {
 
     // Live source of truth for every task's status/backend (one query, lightweight
     // metadata — spec content is loaded separately and not included here).
+    const allTasksFetchStart = Date.now();
     const allTasks = await this.searchTasks({});
+    const allTasksFetchMs = Date.now() - allTasksFetchStart;
     const taskById = new Map(allTasks.map((t) => [t.id, t]));
     const passes = (task: Task | undefined): boolean => {
       if (!task) return false; // orphaned embedding (no live task) — drop
@@ -162,6 +176,7 @@ export class TaskSimilarityService {
       limit: candidateLimit,
     });
     let survivors = response.items.filter((i) => passes(taskById.get(i.id)));
+    let vectorSearches = 1;
 
     // Widen-if-short: if the initial window didn't yield `limit` survivors and a larger
     // (still bounded) window is available, re-search up to the candidate ceiling.
@@ -171,7 +186,19 @@ export class TaskSimilarityService {
         limit: candidateCeiling,
       });
       survivors = response.items.filter((i) => passes(taskById.get(i.id)));
+      vectorSearches = 2;
     }
+
+    log.debug("tasks searchByText timing (mt#2744)", {
+      path: "filtered",
+      totalMs: Math.round(Date.now() - searchStartTs),
+      allTasksFetchMs: Math.round(allTasksFetchMs),
+      allTasksCount: total,
+      vectorSearches,
+      candidateLimit,
+      survivors: survivors.length,
+      limit,
+    });
 
     return {
       results: survivors.slice(0, limit).map((i) => ({
