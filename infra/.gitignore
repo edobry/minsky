@@ -1,4 +1,9 @@
 /bin/
 /node_modules/
 /sdks/
+# Stack config files are gitignored by default (they can hold passphrase-encrypted
+# secrets). Pulumi.prod.yaml is the exception: its secrets are encrypted with
+# Pulumi Cloud's managed KMS key (mt#2738), so the ciphertext is safe to commit —
+# and CI needs it to run `pulumi preview`. See docs/deploy-minsky-railway.md.
 Pulumi.*.yaml
+!Pulumi.prod.yaml
