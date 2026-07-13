@@ -15,11 +15,78 @@ import {
   getErrorMessage,
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
-import type { ChecksResult } from "../../repository/index";
+import type { CheckRunResult, ChecksResult, RepositoryBackend } from "../../repository/index";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
+import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
+
+// ── Trimmed checks payload (mt#2656) ────────────────────────────────────
+
+/**
+ * Trimmed checks payload used by `session.pr.drive`'s convergence-tail mode
+ * (mt#2656). When every check passed, the per-check breakdown is dropped —
+ * the summary counts are all a caller needs to confirm green. When at least
+ * one check is not passing (failed or still pending), `failingChecks`
+ * carries just those entries (name/status/conclusion/url) so the caller can
+ * see what to fix or wait on, without the full list of already-passing
+ * check names.
+ */
+export interface TrimmedChecksResult {
+  allPassed: boolean;
+  timedOut?: boolean;
+  summary: ChecksResult["summary"];
+  /** Present (possibly empty) only when `allPassed` is false. */
+  failingChecks?: CheckRunResult[];
+}
+
+/** A check counts as "not passing" for the failingChecks filter below. */
+function isFailingOrPending(check: CheckRunResult): boolean {
+  if (check.status !== "completed") return true;
+  return (
+    check.conclusion !== "success" &&
+    check.conclusion !== "neutral" &&
+    check.conclusion !== "skipped"
+  );
+}
+
+/**
+ * Trim a full `ChecksResult` down to the mt#2656 default payload for
+ * `session.pr.drive`. Exported for unit tests and for the drive subcommand.
+ */
+export function trimChecksResult(result: ChecksResult): TrimmedChecksResult {
+  if (result.allPassed) {
+    return { allPassed: true, summary: result.summary };
+  }
+  return {
+    allPassed: false,
+    ...(result.timedOut ? { timedOut: true as const } : {}),
+    summary: result.summary,
+    failingChecks: result.checks.filter(isFailingOrPending),
+  };
+}
 
 export interface SessionPrChecksDependencies {
   sessionDB: SessionProviderInterface;
+  /**
+   * Test seam: override backend creation. Defaults to the session-derived
+   * backend. Mirrors `SessionPrWaitForReviewDependencies.createBackend` so
+   * composing callers (e.g. `session.pr.drive`, mt#2647) can inject a fake
+   * backend for both the review-wait and checks-wait steps.
+   */
+  createBackend?: (
+    sessionRecord: Parameters<typeof createRepositoryBackendFromSession>[0],
+    sessionDB: SessionProviderInterface
+  ) => Promise<RepositoryBackend>;
+  /** Test seam: override the clock. Defaults to Date.now. */
+  now?: () => number;
+  /** Test seam: override the delay between polls. Defaults to setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * mt#2677: optional progress callback, invoked once per poll iteration in
+   * wait mode (right before sleeping, when checks are still pending). See
+   * `SessionPrWaitForReviewDependencies.onProgress` for the full rationale —
+   * this is the checks-wait sibling of the same mechanism.
+   */
+  onProgress?: (message: string) => void;
 }
 
 export interface SessionPrChecksParams {
@@ -42,6 +109,10 @@ export async function sessionPrChecks(
   deps: SessionPrChecksDependencies
 ): Promise<ChecksResult> {
   const { sessionDB } = deps;
+  const now = deps.now ?? (() => Date.now());
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const createBackend = deps.createBackend ?? createRepositoryBackendFromSession;
   const timeoutMs = (params.timeoutSeconds ?? 600) * 1000;
   const intervalMs = (params.intervalSeconds ?? 30) * 1000;
 
@@ -70,7 +141,7 @@ export async function sessionPrChecks(
     }
 
     // Create repository backend from session record
-    const backend = await createRepositoryBackendFromSession(sessionRecord, deps.sessionDB);
+    const backend = await createBackend(sessionRecord, deps.sessionDB);
 
     /**
      * Inner helper: fetch checks via the backend's CI sub-interface.
@@ -86,11 +157,30 @@ export async function sessionPrChecks(
     }
 
     // Wait mode: poll until all checks complete or timeout
-    const deadline = Date.now() + timeoutMs;
-    let result = await fetchChecks();
+    const deadline = now() + timeoutMs;
 
-    while (!result.allPassed && result.summary.pending > 0 && Date.now() < deadline) {
-      const remaining = deadline - Date.now();
+    // mt#2677: bound every fetchChecks() call to the wait's own overall
+    // deadline (mirrors the same fix in pr-wait-for-review-subcommand.ts's
+    // poll loop) — a stalled backend.ci.getChecksForPR() call with no
+    // timeout of its own must not hang the wait past checksTimeoutSeconds.
+    // A DeadlineExceededError here is treated as "checks still pending" so
+    // the surrounding logic falls through to the same timedOut:true result
+    // the normal deadline-elapsed path returns.
+    let result: ChecksResult;
+    try {
+      result = await withDeadline(fetchChecks(), Math.max(0, deadline - now()));
+    } catch (ioError) {
+      if (!(ioError instanceof DeadlineExceededError)) throw ioError;
+      return {
+        allPassed: false,
+        summary: { total: 0, passed: 0, failed: 0, pending: 0 },
+        checks: [],
+        timedOut: true,
+      };
+    }
+
+    while (!result.allPassed && result.summary.pending > 0 && now() < deadline) {
+      const remaining = deadline - now();
       const sleepMs = Math.min(intervalMs, remaining);
       if (sleepMs <= 0) break;
 
@@ -98,9 +188,20 @@ export async function sessionPrChecks(
         `Waiting for ${result.summary.pending} pending check(s)... ` +
           `(${Math.round(remaining / 1000)}s remaining)`
       );
+      // mt#2677: once per poll interval — see SessionPrChecksDependencies.onProgress.
+      deps.onProgress?.(
+        `Waiting for ${result.summary.pending} pending check(s) ` +
+          `(${Math.round(remaining / 1000)}s remaining)`
+      );
 
-      await new Promise<void>((resolve) => setTimeout(resolve, sleepMs));
-      result = await fetchChecks();
+      await sleep(sleepMs);
+
+      try {
+        result = await withDeadline(fetchChecks(), Math.max(0, deadline - now()));
+      } catch (ioError) {
+        if (!(ioError instanceof DeadlineExceededError)) throw ioError;
+        break;
+      }
     }
 
     if (!result.allPassed && result.summary.pending > 0) {

@@ -26,7 +26,7 @@ import {
   resolvePRNumber,
   findPRNumberForBranch,
 } from "./github-pr-operations";
-import type { ReviewListEntry } from "./index";
+import type { ReviewListEntry, PrChangedFile } from "./index";
 import { applyReviewStateLabel } from "./review-state-labels";
 
 export { DiffAnchorError, type DiffAnchorFailure } from "./diff-anchor-validator";
@@ -604,6 +604,7 @@ export async function listReviews(
           reviewerLogin: r.user?.login ?? null,
           body: r.body ?? "",
           htmlUrl: r.html_url,
+          commitId: r.commit_id ?? undefined,
         },
       ];
     });
@@ -663,6 +664,115 @@ export async function getPullRequestCreatedAt(
     if (error instanceof MinskyError) throw error;
     handleOctokitError(error, {
       operation: "get pull request created_at",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Return the PR's current HEAD commit SHA (the tip of the PR branch).
+ *
+ * Introduced for mt#2586: `session_pr_wait_for_review` matches only reviews
+ * submitted against the current HEAD, so a stale review of a superseded commit
+ * no longer satisfies a re-review wait. Backend-agnostic at the interface level
+ * (`ReviewOperations.getPullRequestHeadSha`); this is the GitHub adapter.
+ * Auth goes through `gh.getToken()`. Read-only.
+ */
+export async function getPullRequestHeadSha(
+  gh: GitHubContext,
+  prIdentifier: string | number
+): Promise<string> {
+  const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    const token = await gh.getToken();
+    const ok = createOctokit(token);
+    return findPRNumberForBranch(branch, gh, ok);
+  });
+
+  try {
+    const token = await gh.getToken();
+    const octokit = createOctokit(token);
+
+    const { data } = await octokit.rest.pulls.get({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+    });
+
+    if (!data.head?.sha) {
+      // Should not happen — GitHub always populates head.sha — but guard
+      // defensively so a missing field surfaces as a typed error rather than
+      // silently returning undefined into the HEAD-freshness comparison.
+      throw new MinskyError(
+        `GitHub returned no head.sha for PR #${prNumber} (${gh.owner}/${gh.repo})`
+      );
+    }
+
+    return data.head.sha;
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "get pull request head sha",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+    throw error;
+  }
+}
+
+/**
+ * List all files changed by a GitHub pull request, across all pages.
+ *
+ * Uses `octokit.paginate` against `octokit.rest.pulls.listFiles` so the call
+ * returns every changed file, not just the first 30 (GitHub's default page
+ * size). Introduced for mt#2647: `session.pr.drive`'s postMerge deploy-watch
+ * mode maps this list through `findAffectedServices` to determine which
+ * deploy services to watch after merge.
+ *
+ * Auth goes through `gh.getToken()` (TokenProvider-aware). Read-only.
+ */
+export async function listChangedFiles(
+  gh: GitHubContext,
+  prIdentifier: string | number
+): Promise<PrChangedFile[]> {
+  const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    const token = await gh.getToken();
+    const ok = createOctokit(token);
+    return findPRNumberForBranch(branch, gh, ok);
+  });
+
+  try {
+    const token = await gh.getToken();
+    const octokit = createOctokit(token);
+
+    const files = await octokit.paginate(octokit.rest.pulls.listFiles, {
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+      per_page: 100,
+    });
+
+    log.debug("GitHub PR changed files listed", {
+      prNumber,
+      fileCount: files.length,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+
+    return files.map(
+      (f): PrChangedFile => ({
+        filename: f.filename,
+        status: f.status as PrChangedFile["status"],
+        previousFilename: f.previous_filename,
+      })
+    );
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "list pull request changed files",
       owner: gh.owner,
       repo: gh.repo,
       prNumber,

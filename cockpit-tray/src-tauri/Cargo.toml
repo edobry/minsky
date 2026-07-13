@@ -12,6 +12,11 @@ tauri-plugin-shell = "2"
 tauri-plugin-autostart = "2"
 # OS-toast notifications on cockpit-web build failure (mt#2306).
 tauri-plugin-notification = "2"
+# minsky:// URL-scheme handler (mt#2528). Registers CFBundleURLTypes via the
+# tauri.conf.json plugins.deep-link.desktop.schemes config and delivers opened
+# URLs to the on_open_url callback. macOS-first; Windows/Linux differ and are
+# tracked as a follow-up.
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json"] }

@@ -9,9 +9,23 @@
 
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
-import { buildReviewThreadsSection } from "./prompt";
+import {
+  buildReviewThreadsSection,
+  buildMigrationBaselineSection,
+  buildOutOfRepoSection,
+} from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import type { ReviewerConfig } from "./config";
+import type { ReviewerToolContext } from "./tools";
+import { callReviewer, type ReviewOutput } from "./providers";
+import {
+  callReviewerWithRetry,
+  validateReviewOutput,
+  type CallWithRetryResult,
+  type CallReviewerFn,
+} from "./review-output-validation";
+import { log } from "./logger";
 
 export const CHUNKED_REVIEW_FILE_THRESHOLD = 20;
 export const CHUNKED_REVIEW_LINE_THRESHOLD = 2000;
@@ -261,6 +275,23 @@ export function buildChunkedReviewPrompt(
     ? `## Task Specification\n\n${baseInput.taskSpec}`
     : `## Task Specification\n\n(No task spec found.)`;
 
+  // Migration/move baseline-awareness pre-check (mt#2655). Chunked reviews
+  // are exactly where the originating incident (mt#2304's #1812) occurred —
+  // each chunk only sees its own files' deletion/addition hunks, so every
+  // chunk needs this instruction independently, not just the single-pass path.
+  const migrationBaselineSection = buildMigrationBaselineSection(
+    baseInput.prBody,
+    baseInput.taskSpec
+  );
+  const migrationBaselineBlock = migrationBaselineSection ? `\n\n${migrationBaselineSection}` : "";
+
+  // Out-of-repo references pre-check: same parity argument as the migration
+  // baseline above — each chunk reviews independently, so the "no filesystem
+  // access to verify these paths" instruction must reach every chunk, not
+  // just the single-pass path.
+  const outOfRepoSection = buildOutOfRepoSection(baseInput.prBody, baseInput.taskSpec);
+  const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
+
   const priorReviewsSection =
     baseInput.priorReviews && baseInput.priorReviews.trim() ? `\n\n${baseInput.priorReviews}` : "";
 
@@ -289,7 +320,7 @@ ${fileList}
 
 ${baseInput.prBody || "(empty)"}
 
-${specSection}${priorReviewsSection}${reviewThreadsSection}
+${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})
 
@@ -298,4 +329,180 @@ ${chunkDiff}
 ---
 
 Review the files in this chunk per the Critic Constitution. Focus on the files listed above — other files are reviewed in separate chunks.`;
+}
+
+/**
+ * Inputs for {@link runChunkedReview}. All pre-computed by the caller
+ * (`runReviewBody`) so this stays a pure orchestrator over the chunk math +
+ * the per-chunk model call.
+ */
+export interface RunChunkedReviewInput {
+  config: ReviewerConfig;
+  systemPrompt: string;
+  /** Single-pass user prompt, used only on the empty-file-list fallback path. */
+  userPrompt: string;
+  /** Prompt input WITHOUT the diff — buildChunkedReviewPrompt adds each chunk's diff. */
+  basePromptInput: Omit<ReviewPromptInput, "diff">;
+  /** Tool context, already gated by the caller (`toolsActive ? toolContext : undefined`). */
+  tools?: ReviewerToolContext;
+  outputToolsActive: boolean;
+  fileEntries: PrFileEntry[];
+  /** Full PR diff, sliced per-chunk by buildChunkDiff. */
+  diff: string;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  totalDiffLines: number;
+  /**
+   * Test seam (mt#2739): injectable provider call. Defaults to the real
+   * `callReviewer` from `./providers`, so production callers (`runReviewBody`)
+   * are unaffected. Mirrors `callReviewerWithRetry`'s `callReviewerFn` seam.
+   */
+  callReviewerFn?: CallReviewerFn;
+}
+
+/**
+ * Run a chunked review (mt#2120): split the PR's files into chunks, review each
+ * chunk in its own model call, and aggregate the per-chunk tool calls + usage +
+ * timing into one ReviewOutput. Falls back to a single-pass call when the file
+ * list is empty (chunkFiles returns []). Returns the same shape as
+ * callReviewerWithRetry so the caller's post-model-call flow is unchanged.
+ *
+ * Extracted verbatim from runReviewBody (mt#2731); behavior-preserving.
+ */
+export async function runChunkedReview(input: RunChunkedReviewInput): Promise<CallWithRetryResult> {
+  const {
+    config,
+    systemPrompt,
+    userPrompt,
+    basePromptInput,
+    tools,
+    outputToolsActive,
+    fileEntries,
+    diff,
+    owner,
+    repo,
+    prNumber,
+    totalDiffLines,
+    callReviewerFn = callReviewer,
+  } = input;
+
+  const chunks = chunkFiles(fileEntries);
+
+  // Fallback: if fileEntries was empty (listFiles error/cap) but diff
+  // was large, chunks is []. Fall through to single-pass rather than
+  // hard-failing with a skip notice.
+  if (chunks.length === 0) {
+    log.info("reviewer.chunked_review_fallback_single_pass", {
+      event: "reviewer.chunked_review_fallback_single_pass",
+      owner,
+      repo,
+      pr: prNumber,
+      reason: "zero_chunks_from_empty_file_entries",
+      totalDiffLines,
+    });
+    return callReviewerWithRetry(
+      config,
+      systemPrompt,
+      userPrompt,
+      tools,
+      callReviewerFn,
+      outputToolsActive
+    );
+  }
+
+  log.info("reviewer.chunked_review_start", {
+    event: "reviewer.chunked_review_start",
+    owner,
+    repo,
+    pr: prNumber,
+    totalFiles: fileEntries.length,
+    totalDiffLines,
+    chunkCount: chunks.length,
+    filesPerChunk: chunks.map((c) => c.files.length),
+  });
+
+  const allToolCalls: ReviewOutput["toolCalls"] = [];
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalReasoningTokens = 0;
+  // mt#2739: accumulate every non-empty chunk's free-text scratch (output.text),
+  // not just the last chunk's. This aggregate feeds only the defensive CoT-leak
+  // scratch logging (review-worker.ts:960, sanitizeReviewBody(output.text)) — the
+  // posted body is composed from tool calls, not this field — so concatenating all
+  // chunks lets the sanitizer inspect every chunk's scratch, closing the gap where
+  // leaked reasoning in a non-final chunk went undetected.
+  const chunkTexts: string[] = [];
+  const allRoundLatencies: number[] = [];
+  let totalTimeoutCount = 0;
+  const allRetryOutcomes: string[] = [];
+
+  for (const chunk of chunks) {
+    const chunkDiff = buildChunkDiff(chunk, diff);
+    const chunkPrompt = buildChunkedReviewPrompt(basePromptInput, chunk, chunkDiff);
+
+    const chunkResult = await callReviewerWithRetry(
+      config,
+      systemPrompt,
+      chunkPrompt,
+      tools,
+      callReviewerFn,
+      outputToolsActive
+    );
+
+    allToolCalls.push(...chunkResult.output.toolCalls);
+    totalPromptTokens += chunkResult.output.usage?.promptTokens ?? 0;
+    totalCompletionTokens += chunkResult.output.usage?.completionTokens ?? 0;
+    totalReasoningTokens += chunkResult.output.usage?.reasoningTokens ?? 0;
+    // Trim each chunk's scratch before collecting (mt#2739, PR #1884 R1): skips
+    // whitespace-only chunks (which would inject leading/dangling separators) and
+    // prevents a chunk's trailing blank lines + the next chunk's leading blank
+    // lines from combining into a spurious blank-line run at the "\n\n" join.
+    // Internal blank-line runs WITHIN a chunk (the actual leak signal) are kept.
+    const chunkText = chunkResult.output.text.trim();
+    if (chunkText) chunkTexts.push(chunkText);
+
+    if (chunkResult.output.timing) {
+      allRoundLatencies.push(...chunkResult.output.timing.roundLatenciesMs);
+      totalTimeoutCount += chunkResult.output.timing.timeoutCount;
+      allRetryOutcomes.push(...chunkResult.output.timing.retryOutcomes);
+    }
+
+    log.info("reviewer.chunked_review_chunk_complete", {
+      event: "reviewer.chunked_review_chunk_complete",
+      owner,
+      repo,
+      pr: prNumber,
+      chunkIndex: chunk.index,
+      totalChunks: chunk.totalChunks,
+      toolCalls: chunkResult.output.toolCalls.length,
+      promptTokens: chunkResult.output.usage?.promptTokens ?? 0,
+    });
+  }
+
+  const totalTokens = totalPromptTokens + totalCompletionTokens;
+  const output: ReviewOutput = {
+    text: chunkTexts.join("\n\n"),
+    tokensUsed: totalTokens,
+    usage: {
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      reasoningTokens: totalReasoningTokens,
+      totalTokens,
+    },
+    provider: config.provider,
+    model: config.providerModel,
+    toolCalls: allToolCalls,
+    timing: {
+      roundLatenciesMs: allRoundLatencies,
+      timeoutCount: totalTimeoutCount,
+      retryOutcomes: allRetryOutcomes,
+    },
+  };
+  return {
+    output,
+    validation: validateReviewOutput(output, outputToolsActive),
+    attempt: "first-attempt-success",
+    retryAttempted: false,
+  };
 }

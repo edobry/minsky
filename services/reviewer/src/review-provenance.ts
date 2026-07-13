@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { ReviewToolCall } from "./output-tools";
+import { reconcileEventWithBlockingCount } from "./compose-review";
+import { SYNTHESIZED_FINDING_FILE } from "./empty-findings-recovery";
 
 export const PROVENANCE_MARKER_START = "<!-- minsky-review-provenance:";
 export const PROVENANCE_MARKER_END = " -->";
@@ -19,6 +21,15 @@ export const DocImpactEntrySchema = z.object({
 export const FindingsSummarySchema = z.object({
   blocking: z.number().int().min(0),
   nonBlocking: z.number().int().min(0),
+  /**
+   * Count of the `blocking` findings above that were synthesized by the
+   * mt#2685 empty-findings coherence recovery pass rather than emitted by
+   * the reviewer model (review R1: makes the synthesized case distinguishable
+   * in provenance, not just in logs — see empty-findings-recovery.ts). `0`
+   * for reviews where the pass did not fire. `.default(0)` so legacy
+   * provenance blobs serialized before this field existed still parse.
+   */
+  synthesizedBlocking: z.number().int().min(0).default(0),
 });
 
 export const ConclusionEntrySchema = z.object({
@@ -51,6 +62,7 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
   let docImpact: ReviewProvenance["docImpact"] = null;
   let blocking = 0;
   let nonBlocking = 0;
+  let synthesizedBlocking = 0;
   let conclusion: ReviewProvenance["conclusion"] = null;
   const adoptionSweepEntries: NonNullable<ReviewProvenance["adoptionSweep"]> = [];
 
@@ -71,8 +83,20 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
         };
         break;
       case "submit_finding":
-        if (tc.args.severity === "BLOCKING") blocking++;
-        else nonBlocking++;
+        if (tc.args.severity === "BLOCKING") {
+          blocking++;
+          // mt#2685 review R1: the empty-findings recovery pass (Step 0 in
+          // applyRecoveryAndCompose) tags its synthesized finding with the
+          // SYNTHESIZED_FINDING_FILE sentinel. Detecting it here — rather
+          // than threading a separate "was this synthesized" flag through
+          // extractProvenance's signature — keeps this function's contract
+          // unchanged (still a pure function of toolCalls alone) while still
+          // making the synthesized case distinguishable in the provenance
+          // consumers actually read.
+          if (tc.args.file === SYNTHESIZED_FINDING_FILE) synthesizedBlocking++;
+        } else {
+          nonBlocking++;
+        }
         break;
       case "conclude_review":
         conclusion = {
@@ -92,10 +116,24 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
     }
   }
 
+  // Chunk-review / label reconciliation (mt#2655): reconcile the recorded
+  // conclusion event against the finding severities using the SAME
+  // deterministic rule composeReviewBody applies to the posted review body.
+  // Both functions are fed the identical toolCalls array by the caller, so
+  // reconciling here independently (rather than trusting the raw
+  // conclude_review event) keeps the embedded provenance blob from
+  // disagreeing with the review body's terminal event and findings labels
+  // (#1821 R1: body said "1 blocking + 4 non-blocking", provenance said
+  // "0/0" — an event/label/provenance disagreement of exactly this shape).
+  if (conclusion !== null) {
+    const { event } = reconcileEventWithBlockingCount(conclusion.event, blocking);
+    conclusion = { ...conclusion, event };
+  }
+
   return {
     specVerification,
     docImpact,
-    findings: { blocking, nonBlocking },
+    findings: { blocking, nonBlocking, synthesizedBlocking },
     conclusion,
     // Emit null (legacy-compatible) when no adoption-sweep calls were made;
     // emit the array when at least one call was made.

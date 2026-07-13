@@ -4,17 +4,37 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
+import { createCockpitServer } from "../../cockpit/server";
+import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
-  createCockpitServer,
-  initServerSseBroker,
   startAskAdvancementSweeper,
-} from "../../cockpit/server";
+  startProdStateRefreshSweeper,
+  startTopologySweeper,
+  startTranscriptSweepBackstop,
+  startDispatchWatchdogSweeper,
+  startDeploySmokeSweeper,
+} from "../../cockpit/sweepers";
+import {
+  markDbDegraded,
+  startDbRetryBackoff,
+  PersistenceInitTimeoutError,
+} from "../../cockpit/shared-persistence";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
+import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
+import { getCockpitTokenPath, isLoopbackHost } from "../../cockpit/auth";
 
 const DEFAULT_PORT = 3737;
+
+/**
+ * Default bind host (mt#2538): loopback-only. Binding to any other
+ * interface (via `--host`) exposes the cockpit's data (tasks, sessions,
+ * transcripts, live events) and command surface to that interface — e.g.
+ * the whole LAN for a bare IP or `0.0.0.0`.
+ */
+export const DEFAULT_HOST = "127.0.0.1";
 
 // __dirname is used only for the --dev Vite web root (which requires a source
 // checkout). The PRODUCTION web-dist path is resolved bundle-aware via
@@ -30,8 +50,12 @@ type ListenAttempt =
  * Bind-or-fail: race the 'listening' event against 'error'. EADDRINUSE is
  * classified separately from other errors so the caller can attempt recovery.
  */
-async function attemptListen(app: express.Express, port: number): Promise<ListenAttempt> {
-  const server = app.listen(port);
+async function attemptListen(
+  app: express.Express,
+  port: number,
+  host: string
+): Promise<ListenAttempt> {
+  const server = app.listen(port, host);
   return new Promise<ListenAttempt>((resolve) => {
     server.once("listening", () => resolve({ kind: "ok", server }));
     server.once("error", (err: NodeJS.ErrnoException) => {
@@ -47,6 +71,38 @@ async function attemptListen(app: express.Express, port: number): Promise<Listen
       }
     });
   });
+}
+
+// gh#1761: postgres-js error codes that indicate a DB-layer issue (circuit
+// breaker, connection recycling). Exported for unit testing.
+const DB_ERROR_CODES = new Set([
+  "ECIRCUITBREAKER",
+  "EDBHANDLEREXITED",
+  "CONNECTION_CLOSED",
+  "CONNECTION_DESTROYED",
+]);
+
+/**
+ * Returns true when `reason` is a DB-layer error that should cause the cockpit
+ * daemon to degrade gracefully (stay up, retry) rather than crash (exit 1).
+ *
+ * Covers:
+ *   - postgres-js circuit-breaker / connection-recycling errors (by `code`
+ *     property matching `DB_ERROR_CODES`)
+ *   - `PersistenceInitTimeoutError` thrown by `getSharedPersistenceService`
+ *     when the init deadline is exceeded
+ *
+ * Everything else — unrelated application bugs, programming errors, etc. —
+ * must NOT be swallowed; callers should exit(1) for those.
+ *
+ * @internal Exported for unit testing only.
+ */
+export function isDbDegradationError(reason: unknown): boolean {
+  if (reason instanceof PersistenceInitTimeoutError) return true;
+  if (reason != null && typeof reason === "object" && "code" in reason) {
+    return DB_ERROR_CODES.has(String((reason as { code: unknown }).code));
+  }
+  return false;
 }
 
 /**
@@ -77,11 +133,35 @@ export function createStartCommand(): Command {
       "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. " +
         "Use with `bun --watch` for server-side auto-restart."
     )
+    .option(
+      "--host <host>",
+      `Interface to bind to (default: ${DEFAULT_HOST} — loopback only). Binding to any ` +
+        "other interface exposes the cockpit's data (tasks, sessions, transcripts, live " +
+        "events) and command surface to that interface — e.g. your whole LAN for a bare " +
+        "IP or 0.0.0.0. Only opt in if you understand that risk.",
+      DEFAULT_HOST
+    )
     .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
         process.exit(1);
+      }
+
+      const host: string = options.host || DEFAULT_HOST;
+      if (!isLoopbackHost(host)) {
+        console.warn(
+          `WARNING: cockpit daemon binding to ${host} — this exposes cockpit data ` +
+            "(tasks, sessions, transcripts, live events) and command endpoints to any " +
+            "host that can reach this interface (e.g. your LAN).\n" +
+            "  Auth posture on a non-loopback bind: the daemon serves plain HTTP (no TLS), " +
+            "so the bearer token would traverse the network in the clear, and any host that " +
+            "can reach this interface can attempt to brute-force it. Cookie bootstrap is " +
+            "DISABLED on non-loopback binds — mutation clients must send an explicit " +
+            "`Authorization: Bearer <token>` header (token at " +
+            `${getCockpitTokenPath()}). Prefer an SSH tunnel or a TLS-terminating reverse ` +
+            "proxy over a bare non-loopback bind."
+        );
       }
 
       const isDev = !!options.dev;
@@ -92,12 +172,7 @@ export function createStartCommand(): Command {
         process.exit(1);
       }
 
-      // Eagerly initialise the SSE broker so all canonical channels are
-      // pre-subscribed before the first /api/events client connects.
-      // initServerSseBroker() is idempotent — subsequent calls are no-ops.
-      await initServerSseBroker();
-
-      const app = createCockpitServer({ dev: isDev });
+      const app = createCockpitServer({ dev: isDev, host });
 
       // In dev mode, attach Vite middleware for frontend HMR.
       if (isDev) {
@@ -127,7 +202,7 @@ export function createStartCommand(): Command {
         }
       }
 
-      let attempt = await attemptListen(app, port);
+      let attempt = await attemptListen(app, port, host);
 
       // EADDRINUSE: classify and (with --force) recover.
       if (attempt.kind === "in-use") {
@@ -135,7 +210,7 @@ export function createStartCommand(): Command {
         switch (classification.kind) {
           case "free":
             // Holder vanished between bind and lsof. Retry once.
-            attempt = await attemptListen(app, port);
+            attempt = await attemptListen(app, port, host);
             break;
           case "recognized-zombie":
             if (!options.force) {
@@ -150,7 +225,7 @@ export function createStartCommand(): Command {
               `Port ${port} held by previous cockpit (PID ${classification.pid}); terminating...`
             );
             await killZombie(classification.pid);
-            attempt = await attemptListen(app, port);
+            attempt = await attemptListen(app, port, host);
             break;
           case "unrecognized":
             console.error(
@@ -198,16 +273,59 @@ export function createStartCommand(): Command {
       // through `cleanupSync` which removes the state file unconditionally
       // before exit. State file moved from a single-global path to the
       // per-workspace lifecycle module in mt#1904.
+      // SSE broker warmup (mt#2699): started AFTER the bind, as a background
+      // retry loop with logging (PR #1860 R1). It awaits the full
+      // persistence/DB init (~5 s, network-bound) — awaiting it BEFORE the
+      // bind was the dominant share of the cockpit's 6.5 s cold boot (the
+      // white-window window for deeplink cold starts). The /api/events route
+      // awaits the same cached init promise, so clients connecting during
+      // warmup wait instead of missing channels; /api/health reports
+      // db:"unreachable" until init completes (documented pre-init state,
+      // tolerated by the tray watchdog's 24-poll threshold).
+      startSseBrokerWarmup();
       // Ask advancement sweep (mt#2265): advance `detected` asks (route or
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
       const stopAskSweeper = startAskAdvancementSweeper();
+      // Prod-state cache refresh (mt#2506): periodically read the prod migration
+      // ledger and write the local cache that inject-prod-state.ts injects each turn.
+      const stopProdStateSweeper = startProdStateRefreshSweeper();
+      // Slow-clock topology sweep (mt#2602): periodically re-derive the
+      // guard-hook registry + interlock history (git log + retrospective.fired
+      // correlation) so the plant board's S2 valve inventory and
+      // interlock-history drill-down stay current without any per-request
+      // derivation.
+      const stopTopologySweeper = startTopologySweeper();
+      // Transcript watcher (mt#2320): the PRIMARY transcript-capture path from
+      // ADR-017 — FS-watch ~/.claude/projects and ingest-on-append so in-flight
+      // sessions become searchable without an exit/manual ingest/reboot.
+      const stopTranscriptWatcher = startTranscriptWatcher();
+      // Transcript sweep backstop (mt#2321): BACKSTOP half of ADR-017 — periodic
+      // full-discovery ingest + embedding backfill to cover dropped FS events,
+      // sessions missed while the daemon was down, and stale embeddings.
+      const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Dispatch watchdog refresh (mt#2646): periodically check in-flight
+      // subagent dispatches (IN-PROGRESS/IN-REVIEW tasks with no commit/PR-
+      // event/subagent_invocations progress) and write the flagged set to the
+      // local cache that inject-dispatch-watchdog.ts injects each turn.
+      const stopDispatchWatchdogSweeper = startDispatchWatchdogSweeper();
+      // deploy.smoke sweep (mt#2599): periodically check whether the
+      // bundle-boot-smoke GitHub Actions check-run for the commit THIS
+      // cockpit process was deployed from has completed, emitting a
+      // best-effort deploy.smoke system event once per distinct commit.
+      const stopDeploySmokeSweeper = startDeploySmokeSweeper();
 
       let shuttingDown = false;
       const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
         stopAskSweeper();
+        stopProdStateSweeper();
+        stopTopologySweeper();
+        stopTranscriptWatcher();
+        stopTranscriptSweep();
+        stopDispatchWatchdogSweeper();
+        stopDeploySmokeSweeper();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
@@ -244,7 +362,26 @@ export function createStartCommand(): Command {
         console.error(`Cockpit: uncaught exception: ${e.message}`);
         process.exit(1);
       });
+      // gh#1761: postgres-js ECIRCUITBREAKER / EDBHANDLEREXITED reach this
+      // handler when the Supavisor circuit breaker trips (e.g. after a burst of
+      // auth failures). Calling process.exit(1) here crashes the daemon and
+      // causes KeepAlive to respawn it, which re-trips the circuit breaker in a
+      // tight loop — exactly the 49,650-restart incident.
+      //
+      // The fix: detect DB-specific errors by their postgres-js error codes,
+      // mark the singleton degraded (so /api/health reports db:"degraded"), and
+      // start a background retry loop.  Non-DB errors still exit(1).
+      let stopDbRetry: (() => void) | null = null;
+
       proc.on("unhandledRejection", (reason: unknown) => {
+        if (isDbDegradationError(reason)) {
+          const r = reason instanceof Error ? reason.message : String(reason);
+          console.error(`Cockpit: DB circuit-breaker error — degrading gracefully: ${r}`);
+          markDbDegraded();
+          if (stopDbRetry !== null) stopDbRetry();
+          stopDbRetry = startDbRetryBackoff();
+          return; // do NOT exit — daemon stays up
+        }
         cleanupSync();
         const r = reason instanceof Error ? reason.message : String(reason);
         console.error(`Cockpit: unhandled rejection: ${r}`);

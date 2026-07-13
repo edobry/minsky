@@ -19,7 +19,10 @@ import {
   sessionExecCommandParams,
 } from "./session-parameters";
 
-export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionListCommand(
+  getDeps: LazySessionDeps,
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.list",
     category: CommandCategory.SESSION,
@@ -36,12 +39,60 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
       const service = new SessionService(deps);
 
       const verbose = params.verbose as boolean | undefined;
+      const allProjects = params.allProjects as boolean | undefined;
 
       // Parse since/until into ISO strings so the storage layer can apply the
       // window directly (otherwise pagination + post-filter would silently
       // drop matches that fell outside the first page).
       const sinceTs = parseTime(params.since as string | undefined);
       const untilTs = parseTime(params.until as string | undefined);
+
+      // ADR-021 / mt#2416: resolve project scope so list returns only this
+      // project's sessions by default. When allProjects=true, skip scope
+      // resolution and let the repository return all rows.
+      //
+      // mt#2697: also skip project-scope resolution when a task filter is
+      // supplied. `session_list task:"mt#X"` is the collision-probe predicate
+      // (session_start / tasks_dispatch's "is this task already in use" check
+      // consults sessionDB.listSessions({ taskId }) UNSCOPED by project — see
+      // start-session-operations.ts). Applying project scope on top of an
+      // explicit task filter would make session_list silently disagree with
+      // that check for any session whose project_id doesn't match the caller's
+      // current project scope (including legitimately unstamped rows), which is
+      // exactly the divergence that broke the probe protocol during the
+      // 2026-07-08 incident. A task-filtered query is already maximally
+      // specific — project scoping adds no precision, only a false-negative risk.
+      const hasTaskFilter = typeof params.task === "string" && params.task.length > 0;
+      let projectScope: string | undefined;
+      if (!allProjects && !hasTaskFilter) {
+        const provider = getPersistenceProvider?.();
+        const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+        if (sqlProvider?.getDatabaseConnection) {
+          try {
+            const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
+            const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
+            const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+            if (identity.kind === "resolved") {
+              const db = await sqlProvider.getDatabaseConnection();
+              if (db) {
+                const scope = await resolveProjectScope(identity, db);
+                // Only pass a uuid scope; ALL_PROJECTS (sentinel) means no filter — omit it
+                const { isAllProjects } = await import("@minsky/domain/project/scope");
+                if (!isAllProjects(scope)) {
+                  projectScope = scope;
+                }
+              }
+            }
+          } catch (err: unknown) {
+            log.debug(
+              "[session.list] Project scope resolution failed; defaulting to all projects",
+              {
+                error: err instanceof Error ? err.message : String(err),
+              }
+            );
+          }
+        }
+      }
 
       let sessions = await service.list({
         repo: params.repo as string | undefined,
@@ -51,6 +102,7 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
         offset: params.offset as number | undefined,
         since: sinceTs !== null ? new Date(sinceTs).toISOString() : undefined,
         until: untilTs !== null ? new Date(untilTs).toISOString() : undefined,
+        projectScope,
       });
 
       // Lean-output by default — strip the heavy nested PR payload that drives
@@ -159,7 +211,29 @@ export function createSessionStartCommand(
       }
 
       const { SessionService } = await import("@minsky/domain/session/session-service");
-      const deps = await getDeps();
+      const baseDeps = await getDeps();
+
+      // ADR-021 / mt#2416: resolve the DB so session.start can stamp project_id
+      // on the new session row (mirrors session.list scope resolution above).
+      // Best-effort: when the persistence provider is absent or returns no DB,
+      // deps.db stays undefined and the stamping is silently skipped.
+      let resolvedDb: import("@minsky/domain/project/scope-resolver").ScopeResolverDb | undefined;
+      const provider = getPersistenceProvider?.();
+      const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+      if (sqlProvider?.getDatabaseConnection) {
+        try {
+          const rawDb = await sqlProvider.getDatabaseConnection();
+          if (rawDb) {
+            resolvedDb = rawDb as import("@minsky/domain/project/scope-resolver").ScopeResolverDb;
+          }
+        } catch (err: unknown) {
+          log.debug("[session.start] Failed to obtain DB for project-scope stamping", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const deps = resolvedDb ? { ...baseDeps, db: resolvedDb } : baseDeps;
       const service = new SessionService(deps);
 
       const session = await service.start({
@@ -173,6 +247,10 @@ export function createSessionStartCommand(
         noStatusUpdate: (params.noStatusUpdate as boolean | undefined) ?? false,
         skipInstall: (params.skipInstall as boolean | undefined) ?? false,
         packageManager: params.packageManager as "bun" | "npm" | "yarn" | "pnpm" | undefined,
+        // mt#2742: thread the declared `recover` flag to the domain — start-session-operations
+        // honors it (delete a stale/orphaned session and start fresh). It was dropped here, so
+        // `--recover` / recover:true never fired.
+        recover: (params.recover as boolean | undefined) ?? false,
       });
 
       // Best-effort informational event (mt#2487). Never blocks session start.

@@ -12,6 +12,8 @@
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { cn } from "../lib/utils";
 import {
@@ -146,7 +148,7 @@ export function AsksPage() {
   if (query.isError) {
     return (
       <div className="p-4 max-w-5xl mx-auto w-full">
-        <p className="text-sm text-destructive">Failed to load asks: {query.error.message}</p>
+        <ErrorState prefix="Failed to load asks" error={query.error} />
       </div>
     );
   }
@@ -241,7 +243,7 @@ export function AsksPage() {
       </div>
 
       {query.isLoading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>
+        <LoadingState message="Loading..." variant="page" />
       ) : controls.filteredCount === 0 ? (
         <div className="py-12 text-center">
           <p className="text-sm font-medium text-foreground">No pending asks</p>

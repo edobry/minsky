@@ -6,6 +6,7 @@
  */
 import type { GitServiceInterface } from "../git/types";
 import type { FsLike } from "../interfaces/fs-like";
+import type { ProjectScope } from "../project/scope";
 
 /**
  * Simple backend capabilities interface
@@ -110,6 +111,8 @@ export interface TaskListOptions {
   all?: boolean;
   limit?: number;
   tags?: string[];
+  /** Project scope for filtering (ADR-021, mt#2416). Defaults to ALL_PROJECTS when omitted. */
+  projectScope?: ProjectScope;
 }
 
 /**
@@ -122,6 +125,13 @@ export interface CreateTaskOptions {
   status?: string; // Specific status to use instead of defaulting to TODO
   tags?: string[]; // Tags/labels for thematic batching
   kind?: string; // Workflow kind: "implementation" | "umbrella" (defaults to "implementation")
+  /**
+   * Request a specific backend by name or prefix (e.g. "minsky", "github").
+   * When set, `createTaskFromTitleAndSpec` on a multi-backend service routes to
+   * that backend rather than the configured default. If the requested backend is
+   * not registered, the call fails with a clear error (mt#2572 Bug 4).
+   */
+  backend?: string;
 }
 
 /**

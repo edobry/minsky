@@ -46,10 +46,15 @@ export function getTasksCustomizations(): {
               asArgument: false,
               description: "Title for the task",
             },
-            description: {
-              description: "Description text for the task (DEPRECATED: use spec)",
-            },
           },
+        },
+        "tasks.dispatch": {
+          // mt#2657: dispatch is dual-mode (title XOR taskId), so `title` is no
+          // longer the first REQUIRED param — without this override the bridge
+          // would silently promote `instructions` to the positional slot,
+          // dropping --instructions from the CLI/manifest surface. Every param
+          // stays an explicit flag.
+          useFirstRequiredParamAsArgument: false,
         },
         "tasks.edit": {
           useFirstRequiredParamAsArgument: true,
@@ -141,10 +146,19 @@ export function getTasksCustomizations(): {
           },
         },
         "tasks.deps.add": {
+          // mt#2741: taskId is the canonical positional; `task` is the legacy --task
+          // alias option; dependsOn stays --depends-on. useFirstRequiredParamAsArgument
+          // is disabled so the now-only-required `dependsOn` is NOT auto-forced into the
+          // positional slot (which dropped --depends-on from the generated CLI/manifest).
+          useFirstRequiredParamAsArgument: false,
           parameters: {
-            task: {
+            taskId: {
               asArgument: true,
-              description: "Task that will depend on another task",
+              description: "The dependent task (the task that will depend on another)",
+            },
+            task: {
+              asArgument: false,
+              description: "Legacy alias for taskId (also accepted; prefer taskId)",
             },
             dependsOn: {
               asArgument: false,
@@ -164,10 +178,17 @@ export function getTasksCustomizations(): {
           },
         },
         "tasks.deps.rm": {
+          // mt#2741: see tasks.deps.add — canonical taskId positional, task alias option,
+          // dependsOn stays --depends-on, auto-first-required-arg disabled.
+          useFirstRequiredParamAsArgument: false,
           parameters: {
-            task: {
+            taskId: {
               asArgument: true,
-              description: "Task that depends on another task",
+              description: "The dependent task (the task that depends on another)",
+            },
+            task: {
+              asArgument: false,
+              description: "Legacy alias for taskId (also accepted; prefer taskId)",
             },
             dependsOn: {
               asArgument: false,
@@ -187,10 +208,16 @@ export function getTasksCustomizations(): {
           },
         },
         "tasks.deps.list": {
+          // mt#2741: canonical taskId positional + legacy --task alias option.
+          useFirstRequiredParamAsArgument: false,
           parameters: {
-            task: {
+            taskId: {
               asArgument: true,
               description: "ID of the task to list dependencies for",
+            },
+            task: {
+              asArgument: false,
+              description: "Legacy alias for taskId (also accepted; prefer taskId)",
             },
           },
           outputFormatter: (result: Record<string, unknown>) => {
@@ -208,10 +235,16 @@ export function getTasksCustomizations(): {
           },
         },
         "tasks.deps.tree": {
+          // mt#2741: canonical taskId positional + legacy --task alias option.
+          useFirstRequiredParamAsArgument: false,
           parameters: {
-            task: {
+            taskId: {
               asArgument: true,
               description: "ID of the task to show dependency tree for",
+            },
+            task: {
+              asArgument: false,
+              description: "Legacy alias for taskId (also accepted; prefer taskId)",
             },
           },
           outputFormatter: (result: Record<string, unknown>) => {

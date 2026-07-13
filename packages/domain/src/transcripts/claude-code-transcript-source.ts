@@ -166,7 +166,7 @@ export class ClaudeCodeTranscriptSource implements TranscriptSource {
       const stat = await safeStat(jsonlPath);
       if (!stat) continue;
       yield {
-        agentSessionId: basename(entry.name, JSONL_EXT),
+        agentSessionId: basename(entry.name, JSONL_EXT) as AgentSessionId,
         jsonlPath,
         harness: HARNESS,
         isSubagent,

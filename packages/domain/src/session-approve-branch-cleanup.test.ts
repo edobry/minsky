@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { approveSessionPr } from "./session/session-approval-operations";
+import { approveSessionPr } from "./session/session-pr-approval-operations";
 import { FakeGitService } from "./git/fake-git-service";
 import { FakeSessionProvider } from "./session/fake-session-provider";
 import { FakeTaskService } from "./tasks/fake-task-service";

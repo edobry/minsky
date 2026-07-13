@@ -76,6 +76,18 @@ What's mid-flight or unresolved?
 - Investigations that surfaced a problem but didn't fix it
 - Spec calibrations the user might want to review before implementation
 
+**Ask-or-cite-ask for principal-gated threads (mt#2471).** If an open thread is gated on a
+**principal-owned decision** (architectural direction, scope, framework, naming — the kinds
+`humility.mdc` reserves for the principal), do NOT surface it as chat prose ("X needs your
+call", "that decision is yours") and end the handoff. Route it through the Ask substrate:
+file it via `mcp__minsky__asks_create` (kind `direction.decide`, packaged per
+`humility.mdc §Escalation packaging`) OR cite the id of an existing open ask. Chat prose
+evaporates and never reaches the attention surface; an ask persists and is answerable on the
+cockpit `/ask` surface. (For a non-principal next-step a lookup or standing default resolves,
+that's a normal "Suggested next sessions" entry, not an ask.) This is the handoff enforcement
+of the escalation-packaging family (memory `3e3f29d8`; R4 2026-06-12 was an end-of-session
+handoff that named the mt#2372 lens decision in prose with no ask).
+
 ### 6. Recommend next sessions
 
 In **priority order**, list 1-4 specific next-session kickoffs. Each entry:
@@ -164,6 +176,44 @@ For shorter conversations (1-2 PRs, no retrospectives), compress to:
 - **Tight is better than complete.** A 200-line handoff is unread. A 60-line handoff is consulted. Default to compression; expand only when the cluster is genuinely complex.
 - **Cite durable artifacts by path.** "memory entry `feedback_X`" not "the memory we updated." "CLAUDE.md `Recovery layer spec discipline` section" not "the new rule."
 - **Recommendation, not menu.** "Start with `/implement-task mt#1310`" is actionable. "Here are the open tasks" is a tasks-list copy.
+
+## Citing uuid-keyed records (mt#2696)
+
+Memories and Asks are keyed by Postgres `uuid` primary keys, not by a stable name
+like a task ID or a rule section. When a handoff cites one — a memory entry
+without a `feedback_*`/`project_*` name, or an open/pending Ask — the id form
+used in the citation determines whether the next agent can actually
+dereference it:
+
+- **MUST** carry either the **full UUID** or an **id form the get/lookup
+  tools resolve** — post-mt#2696, `memory_get`, `asks_respond`, `asks_edit`,
+  and `asks_wait-for-response` all resolve an unambiguous hex-prefix to the
+  full record (unique match), a clean not-found error (no match), or an
+  ambiguity error listing candidates (2+ matches) — never a raw Postgres
+  `invalid input syntax for type uuid` crash.
+- **Author handoffs with an 8-hex-char prefix** (git-short-SHA style, e.g.
+  `d8591800`) as the citation convention — this is deliberately a
+  **handoff-authoring convention for collision safety**, independent of
+  the resolver's technical floor. The resolver's minimum accepted prefix
+  length is a configurable parameter (`resolveIdPrefix`'s
+  `minPrefixLength`, `MIN_ID_PREFIX_LENGTH` in
+  `packages/domain/src/utils/id-prefix-resolver.ts`, currently defaulted to
+  8 at every call site this skill's tools use) — do not treat 8 as a
+  load-bearing technical constant when writing handoffs; treat it as "long
+  enough that a collision within one project's memory/ask corpus is
+  vanishingly unlikely," which just happens to currently coincide with the
+  resolver's default floor. A shorter prefix may still resolve (if
+  unambiguous) or may be rejected as too-short depending on the current
+  floor — don't rely on that boundary; always author at 8+ hex chars.
+- **SHOULD** carry the record's **name alongside** the id (a memory's `name`
+  field, an Ask's `title`) as a search fallback — if the id somehow doesn't
+  resolve (rotated, deleted, or the prefix collides after this skill was
+  read), the name lets the next agent fall back to `memory_search` /
+  `asks_list` instead of a cold-start dead end.
+
+Example: `memory d8591800 (wave-orchestration-pattern)` — resolvable id +
+name fallback — not the bare `memory d8591800` this skill produced before
+mt#2696, and not just `the wave-orchestration memory` (no id at all).
 
 ## Origin
 

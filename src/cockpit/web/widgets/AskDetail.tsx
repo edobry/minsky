@@ -10,6 +10,8 @@
  */
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { Prose } from "../components/Prose";
+import { useEntityIndex } from "../lib/use-entity-index";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -46,6 +48,12 @@ export interface ContextRef {
   description?: string;
 }
 
+/** Recorded response on a terminal ask (mt#2669). */
+export interface AskResponse {
+  responder: string;
+  payload: unknown;
+}
+
 export interface AskItem {
   id: string;
   kind: AskKind;
@@ -65,11 +73,23 @@ export interface AskItem {
   windowMissedCount: number;
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
   metadata: Record<string, unknown>;
+  /** Present on the per-id endpoint for terminal asks (mt#2669). */
+  response?: AskResponse | null;
+  respondedAt?: string;
+  closedAt?: string;
 }
 
 export interface AsksListResponse {
   asks: AskItem[];
   total: number;
+}
+
+/** Thrown by fetchAskById on a 404 — the id does not exist at all (mt#2669). */
+export class AskNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Ask ${id} not found`);
+    this.name = "AskNotFoundError";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +100,19 @@ export async function fetchAsks(): Promise<AsksListResponse> {
   const res = await fetch("/api/asks");
   if (!res.ok) throw new Error(`Failed to fetch asks (${res.status})`);
   return res.json() as Promise<AsksListResponse>;
+}
+
+/**
+ * Fetch one ask by id regardless of state (mt#2669). The deeplink resolution
+ * path: unlike the pending list, this returns terminal asks (with their
+ * recorded response) and distinguishes "not found" from "not pending".
+ */
+export async function fetchAskById(id: string): Promise<AskItem> {
+  const res = await fetch(`/api/asks/${encodeURIComponent(id)}`);
+  if (res.status === 404) throw new AskNotFoundError(id);
+  if (!res.ok) throw new Error(`Failed to fetch ask (${res.status})`);
+  const body = (await res.json()) as { ask: AskItem };
+  return body.ask;
 }
 
 export async function resolveAsk(id: string, payload: unknown): Promise<void> {
@@ -238,6 +271,7 @@ export function AskDetail({
   const ks = kindStyle(ask.kind);
   const deadlineStr = formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
+  const entityIndex = useEntityIndex();
 
   const hasOptions =
     (ask.options && ask.options.length > 0) ||
@@ -278,7 +312,7 @@ export function AskDetail({
 
         {/* Question */}
         <div className="rounded-md bg-muted/40 p-3">
-          <p className="text-sm text-foreground leading-relaxed">{ask.question}</p>
+          <Prose entityIndex={entityIndex}>{ask.question}</Prose>
         </div>
 
         {/* Metadata */}
@@ -336,6 +370,7 @@ export function AskDetail({
                         {letter})
                       </span>
                       <div>
+                        {/* Plain text (not <Prose>): short inline option label/description — block Markdown breaks layout. mt#2556 */}
                         <span className="text-foreground font-medium">{opt.label}</span>
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">

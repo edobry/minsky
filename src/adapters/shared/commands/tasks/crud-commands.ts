@@ -46,6 +46,8 @@ interface TasksListParams extends BaseTaskParams {
   hierarchical?: boolean;
   showDeps?: boolean;
   showAttention?: boolean;
+  /** When true, skip project-scope filtering (ADR-021, mt#2416). */
+  allProjects?: boolean;
 }
 
 /**
@@ -63,7 +65,8 @@ interface TasksGetParams extends BaseTaskParams {
  */
 interface TasksCreateParams extends BaseTaskParams {
   title: string;
-  description?: string;
+  // mt#2742: removed the ghost `description?` field — it was never a declared
+  // command param, so `params.description` was always undefined (dead fallback).
   spec?: string;
   force?: boolean;
   githubRepo?: string;
@@ -129,6 +132,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         filter: params.filter,
         limit: params.limit,
         tags,
+        allProjects: params.allProjects,
       },
       { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
@@ -630,8 +634,10 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
       // Validate required parameters
       this.validateRequired(params.title, "title");
 
-      // Resolve spec content: prefer params.spec, fall back to deprecated params.description
-      const specContent = params.spec || params.description;
+      // Resolve spec content. mt#2742: removed the dead `|| params.description`
+      // fallback — `description` was never a declared param (always undefined), so
+      // a description-only call silently created an EMPTY-spec task.
+      const specContent = params.spec;
 
       // Validate that spec content is provided
       if (!specContent) {

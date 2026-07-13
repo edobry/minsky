@@ -56,8 +56,10 @@ a status transition; everything else is investigation and gate-check.
   - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
     with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
   - (k) Third-party tool/dependency verification
-  - (m) Factual-claim citation verification (letter `l` reserved for the
-    security-surface community-practice check, mt#2090)
+  - (l) Authoritative-source check for third-party-system decisions (security surfaces,
+    designing a mechanism on a third-party's internals, or how to use a named tool with docs)
+  - (m) Factual-claim citation verification
+  - (n) External-system integration provisioning enumeration
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -525,6 +527,108 @@ at spec-authoring time`) is the precedent memory this gate formalizes; once this
 that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
 (Surface 1 policy-coverage detector, graduating to enforcing mode).
 
+#### Gate criterion (l) — Authoritative-source check for third-party-system decisions
+
+When the spec or plan-decision **designs a mechanism on — or recommends how to use — a
+third-party system that has authoritative documentation on the decision**, the spec must
+document a vendor-docs / community-practice check (at least one authoritative citation) and an
+explicit match/extend/deviate statement BEFORE the mechanism is encoded and the task passes to
+READY. First-principles design from mechanism-level knowledge — or a polished tradeoff table —
+is not a substitute for checking the vendor's intended workflow.
+
+Rationale: the **first-principles-design-without-prior-art** family (sub-thread of
+build-path-as-research, memory `f6607043`). The rest of the gate battery points investigation
+INWARD — (e) repo refs, (g) parallel work, (h) consumer enumeration — and (k) points outward
+but only for _adopting a NEW_ third-party dependency (license / maintenance / install).
+Nothing asked "does the third-party system you are building ON, or the named tool you are
+recommending, already solve this — and what does its documentation say?" Knowing HOW a tool
+works internally (e.g. drizzle's ledger high-water-mark, memory `0c2427e5`) breeds false
+confidence that the design space is understood; it is not knowledge of the vendor's INTENDED
+workflow.
+
+Recurrence record (each prior fix was too narrow to catch the next instance):
+
+- R1 (2026-05-24, mt#1477): `pull_request_target` CI migration spec'd without a
+  security-literature check — fixed as the original security-surface-only gate (l) (mt#2090;
+  later lost on a skill recompile and restored generalized here, mt#2445).
+- R3 (2026-06-11, mt#2439): a bespoke "snapshot + stamp" fresh-DB baseline designed from first
+  principles and gate-passed to READY; `drizzle-kit pull --init` is the documented canonical
+  baseline (and the hand-authored empty `0000` baseline is the documented anti-pattern). The
+  invented design converged with canon only by luck.
+- R7 (2026-06-15, mt#2449): "vendor the generated `@pulumi/railway` SDK" recommended from a
+  clean first-principles tradeoff table; Pulumi's Local Packages doc recommends the OPPOSITE
+  (gitignore the SDK + regenerate via `pulumi install`), a pattern the repo already followed.
+
+**Trigger condition.** This criterion fires when the spec or plan-decision does any of:
+
+- **(sub-case 1 — security surface)** changes a CI/CD security surface: workflow trigger
+  events, token scopes, secrets-exposure models, permission boundaries, credential flows, or
+  authentication mechanisms.
+- **(sub-case 2 — mechanism on third-party internals)** designs a mechanism that operates on or
+  extends a third-party system's internals or workflows: migration ledgers, ORM/CLI workflows,
+  API semantics, build tooling, connection-pooler behavior, etc.
+- **(sub-case 3 — how-to-use a named tool with official docs)** recommends HOW to use a
+  specific named third-party tool/framework on a decision that tool has authoritative
+  documentation about.
+
+If none apply, the criterion passes automatically. State that explicitly:
+"(l) No third-party-system decision designed — criterion passes."
+
+**Required when triggered:**
+
+1. **Search** — at least one vendor-docs or community-practice search for the canonical pattern
+   (and, for sub-case 1, the security implications of the approach; e.g. "pull_request_target
+   security" surfaces the pwn-request literature in seconds).
+2. **Cite** — at least one authoritative citation in the spec (vendor docs, the project's own
+   widely-adopted reference, or security-lab guidance). For sub-case 1 the canonical
+   bot-commit-workflow reference is peter-evans/create-pull-request (as of 2026-05-24).
+3. **Match / extend / deviate** — an explicit statement of whether the proposed mechanism
+   matches, extends, or deviates from the vendor-canonical pattern, with justification for any
+   deviation. The documented pattern is the default; the spec justifies a DEVIATION from it,
+   not the choice itself.
+
+**Rigor-theater callout (esp. sub-case 3).** A well-structured options/tradeoff table is NOT a
+substitute for consulting an authoritative source that exists — its FORM looks like diligence
+and masks that the source of truth was never read. A polished tradeoff table with no
+authoritative citation, on a decision a named tool documents, is the tell; treat it as a red
+flag in your own output. Also check current repo state against the recommended pattern — you
+may already be doing it (as in R7).
+
+**Disambiguation from adjacent gates.** Gate (k) verifies a NEW dependency at ADOPTION time
+(license / maintenance / install-path / canonical-URL). This gate (l) is about an
+already-known third-party system: are you designing a mechanism on it, or recommending how to
+USE it, against what its docs say? `/declare-framework` (mt#1789) is framework _selection_,
+not how-to-use verification.
+
+**Worked example — mt#2439 (sub-case 2).** The "Plan decision" encoded a bespoke baseline
+mechanism on drizzle's migration ledger and walked the full READY gate battery; no gate asked
+"does drizzle solve this?". Walking gate (l): the design operates on a third-party migration
+ledger → sub-case 2 fires → the required search surfaces `drizzle-kit pull --init` (canonical)
+and the empty-`0000` baseline as the documented anti-pattern → the gate blocks READY until the
+citation + a match/extend/deviate statement is in the spec. The bespoke design is recognized as
+a needless deviation BEFORE READY rather than by luck.
+
+**Worked example — mt#2449 (sub-case 3).** The recommendation "vendor the generated
+`@pulumi/railway` SDK" was presented in a clean a/b/c tradeoff table with no doc citation.
+Walking gate (l): recommending how to use a named tool (Pulumi) that documents this exact
+decision → sub-case 3 fires → reading Pulumi's Local Packages doc reverses the recommendation
+(gitignore + regenerate via `pulumi install`), which `infra/Pulumi.yaml` already did → the
+gate blocks until the citation + match/deviate statement replaces the un-cited table.
+
+**Counter-case (no over-fire).** A pure in-repo change with no third-party-system decision
+(e.g. a refactor, a logic fix, a docs edit) passes automatically with the explicit "(l) No
+third-party-system decision designed — criterion passes" statement. The criterion does not
+fire on first-principles design where no authoritative tool-specific source exists.
+
+Cross-references: `decision-defaults.mdc §Security-surface changes require community-practice
+check` (the corpus rule for sub-case 1); bridge memories `dad73290` (R3 design-on-internals)
+and `60219837` (R7 how-to-use-a-named-tool); the originating R1 memory `22a55d66`. The
+implement-time sibling — verify an architectural pattern against community practice BEFORE
+implementing (R6, memory `4012b934`, the never-shipped implement-task §7 check) — is a
+separate surface (implementation, not planning); file/keep it as its own task if it ships.
+This criterion is the gate-tier successor to the lost mt#2090 security-only gate (l), restored
+and generalized by mt#2445 (which subsumed the recommendation-time-only mt#2494).
+
 #### Gate criterion (m) — Factual-claim citation verification
 
 When the spec (or amendment) **cites a memory ID, rule section, or doc passage** AND that
@@ -579,6 +683,124 @@ ships, that memory's job becomes historical record + pointer here. Sibling gates
 verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
 runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
 
+#### Gate criterion (n) — External-system integration provisioning enumeration
+
+When the task introduces a **new external-system integration** — a new GitHub App permission or
+API scope, a new outbound API host/endpoint requiring a credential, or a new webhook
+subscription — the spec must (a) enumerate the required external provisioning and (b) confirm
+it is provisioned OR link an explicit provisioning task, before the task can be READY. A spec
+that names the new integration surface without enumerating and gating its external precondition
+is incomplete and must not proceed to READY.
+
+This is the external-system-contract analog of gate (h): gate (h) propagates a changed
+first-party contract to its downstream consumers; gate (n) propagates a new external-system
+dependency to the provisioning step required for it to actually function once deployed. Unlike
+the deploy-CRASH class covered by the deploy-surface merge gate (mt#2353) — which asks "will the
+container start?" — this criterion asks "will the feature actually WORK once the container
+starts?" A change can pass CI, deploy cleanly, and return healthy on `/health`, and still be
+INERT in production because the external precondition (a scope, a permission, a credential) was
+never provisioned. CI cannot catch this: CI runs against test credentials or fake/mocked
+clients, never the live external system.
+
+**Originating incident — mt#2435 (2026-07-10/11).** mt#2435 wired `services/reviewer/src/*` to
+post a GitHub check-run per review, which requires the `minsky-reviewer[bot]` GitHub App to
+hold the `checks:write` permission. That external precondition WAS tracked — as a separate
+task, mt#2500 — but mt#2500 was still TODO at merge and the spec never enumerated the
+precondition or gated on its provisioning status. The PR merged green,
+`deployment_wait-for-latest` returned SUCCESS, and the task was reported done. In production,
+`POST /check-runs` returned 403; `publishCheckRun` degraded silently (no crash, no alert); the
+feature was inert for a day+ until a follow-up session (mt#2736) drove a live check and the
+operator granted the permission (verified 2026-07-11, checkRunId 86533407554). Walking gate (n)
+against mt#2435's diff at plan time would have produced: (a) `checks:write` enumerated as a
+required precondition, (b) a gate hit linking mt#2500 (still TODO — provisioning NOT yet
+satisfied), (c) a blocking gap surfaced BEFORE merge instead of the 403 surfacing a day later.
+
+**Trigger condition.** This criterion fires when the spec describes any of:
+
+- A new GitHub App permission or API scope the integration did not previously require (e.g.
+  `checks:write`, `contents:write`, a new webhook event subscription)
+- A new outbound API host or endpoint that requires a credential, token, or API key not already
+  configured (a new `octokit.rest.*` call class requiring a scope the App doesn't hold, a new
+  third-party API integration, a new outbound `fetch` target requiring auth)
+- A new webhook subscription — either registering to receive a new webhook event type, or
+  exposing a new webhook-receiving endpoint that a third party must be configured to call
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(n) No new external-system integration — criterion passes."
+
+**Heuristic for recognizing a new external-system integration (best-effort, v1).** Grep the
+diff/spec for:
+
+- A new `octokit.rest.<resource>.<method>` call whose GitHub REST scope isn't already held by
+  the calling App/token (cross-check against the App's current permission set, e.g. the App's
+  manifest or its settings page)
+- A new outbound `fetch(...)` / HTTP client call whose target host doesn't appear in any
+  existing outbound-call site in the codebase
+- A new webhook route registration (e.g. `app.post("/webhooks/...")`) or a new
+  `octokit.webhooks.on(...)` event subscription
+
+This heuristic is a starting point for the agent to apply manually during plan-time review — it
+is NOT a mechanical/automated detector. An automated semantic detector (e.g. AST-diffing
+`octokit.rest.*` call sites against a known-scope table) is explicitly a stretch follow-on, not
+required for v1.
+
+**Required enumeration (when triggered).** For each identified new external-system integration:
+
+1. **Name the precondition** — the specific permission/scope/credential/webhook required (e.g.
+   "`checks:write` App permission", "new `SLACK_BOT_TOKEN` credential", "webhook subscription
+   to `pull_request.closed`").
+2. **State provisioning status** — one of:
+   - **Provisioned** — the precondition is already granted/configured in the target
+     environment; cite how this was verified (e.g. "confirmed via `gh api /app` → permissions
+     include `checks: write`" or "confirmed via a live API call in the target environment").
+   - **Linked to a provisioning task** — an explicit task ID that owns granting the
+     precondition, with that task's current status. If the provisioning task is not yet DONE,
+     this is a **blocking gap** — merging before provisioning is what produced the mt#2435
+     incident.
+   - **Neither** — a blocking gap. The spec must add one of the two above before READY.
+3. **Record in the spec** — the enumeration lives in the spec's `## Scope` → `In scope` section
+   (mirroring gate (h)'s placement) or a dedicated `## External preconditions` subsection.
+
+**Check steps:**
+
+1. Read the spec and identify whether it describes any of the trigger-condition integration
+   types. If not, record "(n) passes — no new external-system integration."
+2. If triggered, identify the specific precondition(s) using the heuristic above.
+3. For each precondition, verify the spec states provisioning status per the three-step
+   enumeration above.
+4. A provisioning-task link to a task that is NOT DONE is a blocking gap — do not accept "will
+   provision later" without either provisioning now or making the merge/READY transition
+   contingent on that task's completion being verified (not merely linked).
+5. A spec that names the new integration without stating provisioning status does not satisfy
+   this criterion — the claim must be grounded in a verified check, not an assumption.
+
+**Counter-case (no over-fire).** A pure in-repo change with no new external-system integration —
+a refactor, a logic fix, a change to an EXISTING already-provisioned integration surface —
+passes automatically with the explicit "(n) No new external-system integration — criterion
+passes" statement.
+
+**Enforcement tier + mechanization path (mt#2740 PR #1886 R1).** Gate (n) is a plan-time
+**discipline** criterion — process-enforced by the `/plan-task` skill (the agent walks it every
+planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
+hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
+this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
+gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
+currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
+the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
+mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the `/plan-task` process that
+runs it: no stronger, and no weaker than its discipline-tier peers.
+
+**Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
+"can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
+crash-on-start) and fires on `infra/**`, `services/*/Dockerfile`, `services/*/railway.json`,
+etc. Gate (n) asks "will this deployed feature actually WORK?" and fires on the external-system
+integration surface regardless of whether the change touches deploy-config files at all — the
+mt#2435 diff touched only `services/reviewer/src/*` application code, not deploy config. Do not
+conflate the two; a change can trip one, both, or neither.
+
+Cross-reference: this task (mt#2740) formalizes the gate; bridge memory `2de33884`. Sibling
+verify-time enforcement: `/implement-task` §7a/§10 (live-exercise requirement, same task).
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -604,6 +826,19 @@ runtime-diagnosis sibling surface (citing a stale warning while debugging) is ow
    **Multi-next-step disambiguation guard (mt#1842).** The chain-walk-on-affirmative discipline above assumes an UNAMBIGUOUS next step. When the just-READY'd task is a child of a parent with multiple unblocked siblings — i.e., walking to `/implement-task` on THIS task silently picks one of N possible next moves — invoke `/disambiguate-next` BEFORE the chain-walk to `/implement-task`. Trigger detection: call `mcp__minsky__tasks_parent <this-task>`; if a parent exists, call `mcp__minsky__tasks_children <parent>` and count tasks in walkable state (TODO + spec-substantive, READY, IN-PROGRESS). If count ≥ 2, the disambiguation guard fires — surface the option set in user-facing output BEFORE the `/implement-task` call. The exception: if the prior agent turn explicitly recommended THIS specific task as next and the user's brief affirmative followed that recommendation, no disambiguation is needed (the recommendation IS the disambiguation). See `/disambiguate-next` for the full skill including the stakes-filter sub-check.
 
    **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /merge-coordination walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, merge-coordination SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
+
+   **Ask-or-cite-ask at closeout (mt#2471).** If a gate criterion surfaced a dependency or
+   open question that is gated on a **principal-owned decision** (the spec records it as
+   "principal wants further discussion", "resolve before dependent impl", or the gate halted
+   on "external decision the user owns"), the closeout MUST route it through the Ask substrate
+   — file it via `mcp__minsky__asks_create` (kind `direction.decide`, packaged per
+   `humility.mdc §Escalation packaging`, `parentTaskId` set) OR cite the id of an existing
+   open ask that covers it. Do NOT reference the decision by pointer in chat prose ("the
+   rail-axis discussion", "needs your call") and end the turn — chat prose evaporates and never
+   reaches the attention surface. This is the planning-closeout enforcement of the
+   escalation-packaging family (memory `3e3f29d8`; originating recurrences R3 2026-06-09 in
+   THIS skill's closeout, R4 2026-06-12). For a NON-principal deferral (a next-step a lookup or
+   standing default resolves), use `/classify-before-deferring` instead of an ask.
 
 **One or more gate criteria fail:**
 
@@ -721,6 +956,33 @@ producing the three-step citation-and-mapping protocol:
    or cite a different source that actually supports the direct-connection bypass.
 
 To re-run the gate after fixes: `/plan-task mt#1852`
+```
+
+**Example (n) failure.** For a task (modeled on mt#2435) that wires a service to post a GitHub
+check-run per review, requiring the App's `checks:write` permission, without enumerating the
+precondition or gating on its provisioning status:
+
+```
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (n) External-system integration provisioning enumeration: spec adds a new
+  `octokit.rest.checks.create` call requiring the `checks:write` App permission, but does not
+  enumerate this precondition or state its provisioning status. Cross-checking the App's current
+  permission set: `checks:write` is NOT currently granted. A separate provisioning task exists
+  (mt#2500) but the spec does not link it, and mt#2500 is still TODO — provisioning is not yet
+  satisfied.
+
+### Required actions before READY
+1. Add an `## External preconditions` subsection (or extend `## Scope` → `In scope`) naming
+   `checks:write` as a required App permission.
+2. Link mt#2500 as the provisioning task, and state explicitly that READY/merge is contingent on
+   mt#2500 reaching DONE (verified, not merely linked) before the check-run path is considered
+   live-functional.
+3. Per `/implement-task` §7a/§10, plan for a live `POST /check-runs` exercise post-deploy —
+   deploy-SUCCESS alone does not verify the permission is actually granted.
+
+To re-run the gate after fixes: `/plan-task mt#XXXX`
 ```
 
 ## State transition map

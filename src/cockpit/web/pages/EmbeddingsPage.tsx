@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { cn } from "../lib/utils";
 import { useState } from "react";
 
@@ -95,7 +97,7 @@ function statusColor(status: EmbeddingsHealthSummary["status"]): string {
     case "degraded":
       return "text-amber-400";
     case "exhausted":
-      return "text-red-400";
+      return "text-destructive";
   }
 }
 
@@ -106,7 +108,7 @@ function statusBg(status: EmbeddingsHealthSummary["status"]): string {
     case "degraded":
       return "bg-amber-400/10 border-amber-400/20";
     case "exhausted":
-      return "bg-red-400/10 border-red-400/20";
+      return "bg-destructive/10 border-destructive/20";
   }
 }
 
@@ -363,9 +365,7 @@ export function EmbeddingsPage() {
   if (overviewQuery.isError) {
     return (
       <div className="p-4 max-w-5xl mx-auto w-full">
-        <p className="text-sm text-destructive">
-          Failed to load embeddings overview: {overviewQuery.error.message}
-        </p>
+        <ErrorState prefix="Failed to load embeddings overview" error={overviewQuery.error} />
       </div>
     );
   }
@@ -378,7 +378,7 @@ export function EmbeddingsPage() {
       <h1 className="text-base font-semibold text-foreground">Embeddings Infrastructure</h1>
 
       {overviewQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">Loading...</p>
+        <LoadingState message="Loading..." variant="page" />
       ) : overview ? (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

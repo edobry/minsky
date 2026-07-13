@@ -3,7 +3,12 @@
  *
  * Renders the open entity tabs (IDE model: entities only, never list pages).
  * Hidden entirely while the working set is empty so the default landing stays
- * clean. Overflow: horizontal scroll (craft decision recorded in the spec).
+ * clean. Overflow: horizontal scroll (craft decision recorded in the spec). The
+ * scroll container hides its scrollbar chrome via `.scrollbar-none` and pins
+ * overflow-y hidden, so no scrollbar (horizontal or vertical) renders inside
+ * the fixed h-9 strip at any zoom level — with overflow-x auto, the y-axis
+ * would otherwise compute to auto and flash a vertical bar at extreme
+ * zoom/DPI.
  *
  * Semantics: these are URL-driven LINKS, not ARIA tabs — each "tab" navigates
  * to its entity route, so the honest pattern is a <nav> of links with
@@ -13,7 +18,7 @@
  * Links and the close buttons are natively focusable and keyboard-operable.
  */
 import { Link } from "react-router-dom";
-import { X, Network, Bot, GitBranch, CircleHelp, Brain } from "lucide-react";
+import { X, Network, Bot, GitBranch, CircleHelp, Brain, GitPullRequest } from "lucide-react";
 import { useTabs, type EntityTabKind } from "../lib/tabs";
 import { cn } from "../lib/utils";
 
@@ -23,6 +28,7 @@ const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string
   agent: GitBranch,
   ask: CircleHelp,
   memory: Brain,
+  changeset: GitPullRequest,
 };
 
 const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
@@ -49,7 +55,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Open entities"
-      className="flex h-9 flex-shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border bg-background px-1"
+      className="flex h-9 flex-shrink-0 items-stretch gap-0.5 overflow-x-auto overflow-y-hidden scrollbar-none border-b border-border bg-background px-1"
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
@@ -60,17 +66,20 @@ export function TabBar() {
             className={cn(
               "group flex items-center gap-1.5 rounded-t-md border-b-2 px-2.5 text-sm transition-colors",
               active
-                ? "border-primary bg-muted/60 text-foreground"
+                ? "border-primary bg-muted font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground"
             )}
           >
             <Link
               to={tab.path}
-              className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+              className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring rounded-sm"
               aria-current={active ? "location" : undefined}
               title={tab.entityId}
             >
-              <Icon aria-hidden className="h-3.5 w-3.5 flex-shrink-0" />
+              <Icon
+                aria-hidden
+                className={cn("h-3.5 w-3.5 flex-shrink-0", active && "text-primary")}
+              />
               <span className="max-w-[160px] truncate font-mono text-xs">{tab.label}</span>
             </Link>
             <button
@@ -78,7 +87,7 @@ export function TabBar() {
               aria-label={`Close ${tab.entityId}`}
               onClick={() => closeTab(tab.path)}
               className={cn(
-                "rounded p-0.5 transition-opacity hover:bg-muted focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "rounded p-0.5 transition-opacity hover:bg-muted focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                 active ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-70"
               )}
             >

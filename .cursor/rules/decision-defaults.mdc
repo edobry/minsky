@@ -301,7 +301,7 @@ Required before encoding the approach in a spec:
 
 **Originating incident:** mt#1477 (filed ~2026-04-30) proposed migrating CI workflows from `pull_request` to `pull_request_target` to fix the App-token workflow trigger drop. The spec acknowledged some risks (fork PRs, secrets exposure) but treated them as acceptable tradeoffs. Research on 2026-05-24 revealed: (a) `pull_request_target` is a well-documented security anti-pattern — GitHub Security Lab calls it "pwn requests," ~1% of repos using it are exploitable; (b) the spec's factual premise was wrong — `session_commit` pushes via system keychain credentials, not the App token; (c) the community-standard fix is to use the App token for git push, requiring no workflow changes. Neither a security literature check nor a community-practice check was performed during spec authoring.
 
-**Structural enforcement.** `/plan-task` gate criterion (l) — when a spec proposes changing a CI/CD security surface, require documented community-practice check with at least one authoritative citation. Tracking task: mt#2090. Until gate (l) ships, this is corpus-tier discipline.
+**Structural enforcement.** `/plan-task` gate criterion (l) — *Authoritative-source check for third-party-system decisions* — is live (restored + generalized via mt#2445). It fires when a spec changes a CI/CD security surface (sub-case 1), designs a mechanism on a third-party system's internals (sub-case 2), or recommends how to use a named tool that has official docs (sub-case 3), and requires a documented vendor-docs/community-practice check with at least one authoritative citation plus a match/extend/deviate statement before READY. The original security-surface-only criterion was tracked by mt#2090 (its body was lost on a skill recompile and restored here).
 
 ## How this is enforced
 
@@ -336,5 +336,5 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
 - mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
 - Memory `22a55d66` — originating memory for `§Security-surface changes require community-practice check`
-- mt#2090 — gate criterion (l) implementation task for `§Security-surface changes require community-practice check`
+- mt#2090 — original (security-surface-only) gate criterion (l) task; mt#2445 — restored + generalized gate (l) (now also covers mechanism-design-on-internals and how-to-use-a-named-tool) for `§Security-surface changes require community-practice check`
 - mt#1477 — originating incident for `§Security-surface changes require community-practice check`

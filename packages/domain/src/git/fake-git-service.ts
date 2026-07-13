@@ -29,6 +29,7 @@
  *   - mergeBranch → { workdir: "/mock/workdir", merged: true, conflicts: false }
  *   - push → { workdir: "/mock/workdir", pushed: true }
  *   - popStash → { workdir: "/mock/workdir", stashed: true } (unless scripted to throw via setPopStashErrors)
+ *   - commit → "fakecommitNNN" (unless scripted to throw via setCommitErrors; mt#2635)
  *   - getStatus → { modified: [], untracked: [], deleted: [] }
  *   - getCurrentBranch → "main"
  *   - hasUncommittedChanges → false
@@ -67,6 +68,23 @@ export class FakeGitService implements GitServiceInterface {
   readonly pushedCalls: Array<PushOptions> = [];
   /** All calls to popStash(), in order (repoPath values). */
   readonly popStashCalls: Array<string> = [];
+  /**
+   * All calls to commit(), in order (mt#2635 PR #1811 R1: brought FakeGitService
+   * into parity with GitServiceInterface.commit's `allowEmpty` param, which
+   * session_commit's noFiles/allow-empty path now requires end-to-end).
+   */
+  readonly commitCalls: Array<{
+    message: string;
+    repoPath?: string;
+    amend?: boolean;
+    allowEmpty?: boolean;
+  }> = [];
+  /**
+   * Per-call commit() outcomes, consumed in order. An entry that is an Error
+   * causes that call to throw; `undefined` (or running off the end) makes the
+   * call succeed. Mirrors `popStashErrorQueue`'s pattern.
+   */
+  private commitErrorQueue: Array<Error | undefined> = [];
   /**
    * Per-call popStash outcomes, consumed in order. An entry that is an Error
    * causes that call to throw; `undefined` (or running off the end) makes the
@@ -113,6 +131,7 @@ export class FakeGitService implements GitServiceInterface {
     this.recordedCommands.length = 0;
     this.pushedCalls.length = 0;
     this.popStashCalls.length = 0;
+    this.commitCalls.length = 0;
   }
 
   /** Configure a response for a specific command pattern. First match wins. */
@@ -222,6 +241,39 @@ export class FakeGitService implements GitServiceInterface {
   async push(options: PushOptions): Promise<PushResult> {
     this.pushedCalls.push(options);
     return { workdir: this.mockWorkdir, pushed: true };
+  }
+
+  /**
+   * Script commit() outcomes consumed in order: an Error throws for that
+   * call, `undefined` (or running off the end) succeeds. Mirrors
+   * `setPopStashErrors`. e.g. `setCommitErrors([new Error("pre-commit hook
+   * blocked the commit")])` fails the next commit() call.
+   */
+  setCommitErrors(errors: Array<Error | undefined>): void {
+    this.commitErrorQueue = [...errors];
+  }
+
+  /**
+   * `commit()` — parity method for `GitServiceInterface.commit`, including
+   * the `allowEmpty` param `session_commit`'s noFiles/allow-empty path
+   * (mt#2635) now requires end-to-end. Hermetic: records the call and
+   * returns a deterministic mock hash; does NOT shell out or run hooks
+   * (this fake has no shell, no git binary — see class doc comment). Tests
+   * that need to exercise REAL hook behavior use a real temp git repo
+   * instead (see `session-commit-no-files.test.ts`).
+   */
+  async commit(
+    message: string,
+    repoPath?: string,
+    amend?: boolean,
+    allowEmpty?: boolean
+  ): Promise<string> {
+    this.commitCalls.push({ message, repoPath, amend, allowEmpty });
+    const scripted = this.commitErrorQueue.shift();
+    if (scripted) {
+      throw scripted;
+    }
+    return `fakecommit${this.commitCalls.length.toString().padStart(3, "0")}`;
   }
 
   /**

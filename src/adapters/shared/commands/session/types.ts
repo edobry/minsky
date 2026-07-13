@@ -29,7 +29,9 @@ export type LazySessionDeps = () => Promise<SessionCommandDependencies>;
  * session/task/repo context from arbitrary command params.
  */
 interface LoggableSessionParams {
-  name?: string;
+  // mt#2742: session commands declare `sessionId`, not `name`; logging base.name
+  // always printed `session: undefined`. Use the actual declared key.
+  sessionId?: string;
   task?: string;
   repo?: string;
   json?: boolean;
@@ -49,7 +51,7 @@ export function withErrorLogging<T extends Record<string, unknown>, R>(
     } catch (error) {
       const base = params as LoggableSessionParams;
       log.debug(`Error in ${commandId}`, {
-        session: base.name,
+        session: base.sessionId,
         task: base.task,
         repo: base.repo,
         error: getErrorMessage(error),

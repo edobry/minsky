@@ -25,6 +25,12 @@ import type { SharedCommandRegistry } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { TranscriptTurnResult } from "@minsky/domain/transcripts/transcript-fts-service";
+import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -46,17 +52,21 @@ export function registerTranscriptGetCommand(
     category: CommandCategory.TRANSCRIPTS,
     name: "get",
     description:
-      "Return all turns for an agent session in turn_index order. " +
+      "Return all turns for a harness conversation in turn_index order. " +
       "Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). " +
-      "Throws if the session is not found. " +
-      "Coverage: sessions are auto-ingested on MCP server boot; " +
-      "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+      "Throws if the conversation is not found. " +
+      "Coverage: conversations are auto-ingested on MCP server boot; " +
+      "if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
     parameters: {
-      sessionId: {
-        schema: z.string(),
-        description: "The agent session UUID to retrieve turns for",
-        required: true,
-      },
+      // NOTE (mt#2526): the conversation id is REQUIRED, but enforced at execute time
+      // (resolveConversationId below) rather than via the schema `required` flag — so the
+      // deprecated `sessionId` alias still satisfies it. Schema/MCP consumers should NOT
+      // read `required: false` as "optional": exactly one of conversationId / sessionId
+      // must be supplied (the execute path throws otherwise).
+      conversationId: conversationIdParam(
+        "The harness conversation id (agent-session UUID) to retrieve turns for"
+      ),
+      sessionId: deprecatedConversationAlias("sessionId"),
       turnRange: {
         schema: z
           .string()
@@ -69,7 +79,12 @@ export function registerTranscriptGetCommand(
     },
 
     async execute(params, context): Promise<TranscriptTurnResult[]> {
-      const sessionId = params.sessionId as string;
+      const sessionId = resolveConversationId(params);
+      if (!sessionId) {
+        throw new Error(
+          "transcripts.get requires conversationId (or its deprecated alias sessionId)."
+        );
+      }
       const turnRangeStr = params.turnRange as string | undefined;
 
       // ── Parse turnRange string into { start, end } ────────────────────────
@@ -121,7 +136,7 @@ export function registerTranscriptGetCommand(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase
       );
 
-      const results = await svc.getSession(sessionId, { turnRange });
+      const results = await svc.getSession(sessionId as AgentSessionId, { turnRange });
 
       log.debug("transcripts.get complete", { sessionId, resultCount: results.length });
 

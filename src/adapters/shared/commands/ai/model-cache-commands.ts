@@ -7,15 +7,13 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { log } from "@minsky/shared/logger";
-import { exit } from "@minsky/shared/process";
 import {
   createCompletionService,
   createModelCacheServiceWithFetchers,
 } from "@minsky/domain/ai/service-factory";
-import { getErrorMessage } from "@minsky/domain/ai/error-utils";
 import { requireAIProviders } from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig } from "./shared-helpers";
+import { buildModelsAvailableResult, buildModelsListResult } from "./result-builders";
 
 /**
  * Register AI model-cache shared commands
@@ -47,78 +45,22 @@ export function registerModelCacheCommands(): void {
       },
     },
     execute: async (params, _context) => {
-      try {
-        const { provider, format, json } = params;
-        const outputFormat = json ? "json" : format;
+      // mt#2727: return structured data; CLI listing rendering lives in
+      // src/adapters/cli/customizations/ai-customizations.ts.
+      const { provider, format, json } = params;
 
-        const config = getResolvedConfig();
-        requireAIProviders(config);
+      const config = getResolvedConfig();
+      requireAIProviders(config);
 
-        const completionService = createCompletionService(config);
-        const models = await completionService.getAvailableModels(provider as string | undefined);
+      const completionService = createCompletionService(config);
+      const models = await completionService.getAvailableModels(provider as string | undefined);
 
-        if (models.length === 0) {
-          if (provider) {
-            log.cliWarn(`No models available for provider '${provider}'. This may be because:`);
-            log.cliWarn("  - The provider doesn't support model listing");
-            log.cliWarn("  - The API key is not configured or invalid");
-            log.cliWarn("  - The provider name is incorrect");
-          } else {
-            log.cliWarn("No models available from any configured providers.");
-            log.cliWarn("This may be because:");
-            log.cliWarn("  - No API keys are configured");
-            log.cliWarn("  - Providers don't support model listing");
-            log.cliWarn("  - Network connectivity issues");
-            log.cli(
-              "\nTo configure providers, see: " +
-                "https://github.com/edobry/minsky#ai-completion-backend"
-            );
-          }
-          return;
-        }
-
-        if (outputFormat === "json") {
-          log.cli(JSON.stringify(models, null, 2));
-        } else {
-          log.cli("AVAILABLE AI MODELS");
-          log.cli("=".repeat(50));
-
-          for (const model of models) {
-            log.cli(`\nModel: ${model.name}`);
-            log.cli(`  ID: ${model.id}`);
-            log.cli(`  Provider: ${model.provider}`);
-            log.cli(`  Context Window: ${model.contextWindow.toLocaleString()} tokens`);
-            log.cli(`  Max Output: ${model.maxOutputTokens.toLocaleString()} tokens`);
-
-            if (model.costPer1kTokens) {
-              log.cli(
-                `  Cost: $${model.costPer1kTokens.input}/1k input, ` +
-                  `$${model.costPer1kTokens.output}/1k output`
-              );
-            }
-
-            if (model.description) {
-              log.cli(`  Description: ${model.description}`);
-            }
-
-            if (model.capabilities.length > 0) {
-              const caps = model.capabilities.map((c) => c.name).join(", ");
-              log.cli(`  Capabilities: ${caps}`);
-            }
-          }
-        }
-      } catch (error) {
-        log.cliError(`Failed to list models: ${getErrorMessage(error)}`);
-        log.cliWarn("This may be due to:");
-        log.cliWarn("  - Network connectivity issues");
-        log.cliWarn("  - Invalid API keys");
-        log.cliWarn("  - Provider service unavailable");
-        log.cli("\nTry:");
-        log.cli("  - Check your internet connection");
-        log.cli("  - Verify your API keys are configured correctly");
-        log.cli("  - Use 'minsky core ai validate' to test your configuration");
-        exit(1);
-      }
+      return buildModelsAvailableResult({
+        provider,
+        models,
+        json: !!json,
+        format: json ? "json" : (format ?? "table"),
+      });
     },
   });
 
@@ -142,40 +84,33 @@ export function registerModelCacheCommands(): void {
       },
     },
     execute: async (params, _context) => {
-      try {
-        const { provider, force } = params;
+      // mt#2727: return structured data instead of only printing via log.cli.
+      const { provider, force } = params;
 
-        const config = getResolvedConfig();
-        const aiConfig = requireAIProviders(config);
+      const config = getResolvedConfig();
+      const aiConfig = requireAIProviders(config);
 
-        const { createConfigService } = await import("@minsky/domain/ai/service-factory");
-        const configService = createConfigService(config);
-        const cacheService = createModelCacheServiceWithFetchers();
+      const { createConfigService } = await import("@minsky/domain/ai/service-factory");
+      const configService = createConfigService(config);
+      const cacheService = createModelCacheServiceWithFetchers();
 
-        const { refreshSingleProvider, refreshAllProviders } = await import(
-          "@minsky/domain/ai/provider-operations"
-        );
+      const { refreshSingleProvider, refreshAllProviders } = await import(
+        "@minsky/domain/ai/provider-operations"
+      );
 
-        if (provider) {
-          await refreshSingleProvider(configService, cacheService, provider, force);
-        } else {
-          const result = await refreshAllProviders(configService, cacheService, aiConfig, force);
-
-          if (result.successCount > 0) {
-            log.cli(`\n✓ Successfully refreshed ${result.successCount} provider(s)`);
-          }
-
-          if (result.errors.length > 0) {
-            log.cliWarn(
-              `Failed to refresh ${result.errors.length} provider(s): ${result.errors.join(", ")}`
-            );
-            exit(1);
-          }
-        }
-      } catch (error) {
-        log.cliError(`Failed to refresh models: ${getErrorMessage(error)}`);
-        exit(1);
+      if (provider) {
+        await refreshSingleProvider(configService, cacheService, provider, !!force);
+        return { success: true, provider, refreshedCount: 1, errors: [] as string[] };
       }
+
+      const result = await refreshAllProviders(configService, cacheService, aiConfig, !!force);
+
+      return {
+        success: result.errors.length === 0,
+        provider: null,
+        refreshedCount: result.successCount,
+        errors: result.errors,
+      };
     },
   });
 
@@ -211,79 +146,24 @@ export function registerModelCacheCommands(): void {
       },
     },
     execute: async (params, _context) => {
-      try {
-        const { provider, format, showCache, json } = params;
-        const outputFormat = json ? "json" : format;
+      // mt#2727: return structured data; CLI table/yaml rendering lives in
+      // src/adapters/cli/customizations/ai-customizations.ts.
+      const { provider, format, showCache, json } = params;
 
-        const cacheService = createModelCacheServiceWithFetchers();
-        const allModels = await cacheService.getAllCachedModels();
+      const cacheService = createModelCacheServiceWithFetchers();
+      const allModels = await cacheService.getAllCachedModels();
 
-        let modelsToShow = allModels;
-        if (provider) {
-          modelsToShow = { [provider]: allModels[provider] || [] };
-        }
+      const modelsToShow = provider ? { [provider]: allModels[provider] || [] } : allModels;
 
-        if (outputFormat === "json") {
-          log.cli(JSON.stringify(modelsToShow, null, 2));
-        } else if (outputFormat === "yaml") {
-          for (const [providerName, models] of Object.entries(modelsToShow)) {
-            log.cli(`${providerName}:`);
-            for (const model of models) {
-              log.cli(`  - id: ${model.id}`);
-              log.cli(`    name: ${model.name}`);
-              log.cli(`    contextWindow: ${model.contextWindow}`);
-              log.cli(`    status: ${model.status}`);
-              if (model.costPer1kTokens) {
-                log.cli(
-                  `    cost: $${model.costPer1kTokens.input}/` +
-                    `$${model.costPer1kTokens.output} per 1k tokens`
-                );
-              }
-            }
-          }
-        } else {
-          log.cli("CACHED AI MODELS");
-          log.cli("=".repeat(80));
+      const cacheMetadata = showCache ? await cacheService.getCacheMetadata() : undefined;
 
-          for (const [providerName, models] of Object.entries(modelsToShow)) {
-            if (models.length === 0) {
-              log.cli(`\n${providerName.toUpperCase()}: No cached models`);
-              continue;
-            }
-
-            log.cli(`\n${providerName.toUpperCase()} (${models.length} models):`);
-            for (const model of models) {
-              log.cli(`  ${model.id}`);
-              log.cli(`    Name: ${model.name}`);
-              log.cli(`    Context: ${model.contextWindow.toLocaleString()} tokens`);
-              log.cli(`    Status: ${model.status}`);
-              if (model.costPer1kTokens) {
-                log.cli(
-                  `    Cost: $${model.costPer1kTokens.input}/1k input, ` +
-                    `$${model.costPer1kTokens.output}/1k output`
-                );
-              }
-              if (showCache) {
-                log.cli(`    Cached: ${model.fetchedAt.toISOString()}`);
-              }
-              log.cli("");
-            }
-          }
-        }
-
-        if (showCache) {
-          const metadata = await cacheService.getCacheMetadata();
-          log.cli("\nCACHE METADATA:");
-          log.cli(`Last Updated: ${metadata.lastUpdated.toISOString()}`);
-          log.cli(`TTL: ${Math.round(metadata.ttl / (1000 * 60 * 60))} hours`);
-          log.cli(`Next Refresh: ${metadata.nextRefresh.toISOString()}`);
-        }
-      } catch (error) {
-        log.cliError(
-          `Failed to list models: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
-      }
+      return buildModelsListResult({
+        models: modelsToShow,
+        json: !!json,
+        format: json ? "json" : (format ?? "table"),
+        showCache: !!showCache,
+        cacheMetadata,
+      });
     },
   });
 
@@ -307,31 +187,23 @@ export function registerModelCacheCommands(): void {
       },
     },
     execute: async (params, _context) => {
-      try {
-        const { provider, confirm } = params;
+      // mt#2727: return structured data instead of only printing via log.cli.
+      const { provider, confirm } = params;
 
-        const cacheService = createModelCacheServiceWithFetchers();
+      const cacheService = createModelCacheServiceWithFetchers();
+      const target = provider ? `provider '${provider}'` : "all providers";
 
-        if (!confirm) {
-          const target = provider ? `provider '${provider}'` : "all providers";
-          log.cli(`This will clear cached model data for ${target}.`);
-          log.cli("Use --confirm to proceed without this prompt.");
-          return;
-        }
-
-        if (provider) {
-          await cacheService.clearProviderCache(provider);
-          log.cli(`✓ Cleared cache for provider: ${provider}`);
-        } else {
-          await cacheService.clearAllCache();
-          log.cli("✓ Cleared all cached model data");
-        }
-      } catch (error) {
-        log.cliError(
-          `Failed to clear cache: ` + `${error instanceof Error ? error.message : String(error)}`
-        );
-        exit(1);
+      if (!confirm) {
+        return { success: false, cleared: false, target, needsConfirm: true };
       }
+
+      if (provider) {
+        await cacheService.clearProviderCache(provider);
+      } else {
+        await cacheService.clearAllCache();
+      }
+
+      return { success: true, cleared: true, target, needsConfirm: false };
     },
   });
 }

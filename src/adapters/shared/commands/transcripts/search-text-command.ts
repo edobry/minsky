@@ -30,6 +30,11 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
+import {
+  conversationIdParam,
+  deprecatedConversationAlias,
+  resolveConversationId,
+} from "./conversation-id-param";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import {
@@ -97,11 +102,10 @@ export function registerTranscriptSearchTextCommand(
           "ISO date string — include only turns whose own timestamp is on/before this date",
         required: false,
       },
-      session: {
-        schema: z.string(),
-        description: "Restrict results to a single agent session by its UUID",
-        required: false,
-      },
+      conversationId: conversationIdParam(
+        "Restrict results to a single harness conversation by its id (agent-session UUID)"
+      ),
+      session: deprecatedConversationAlias("session"),
     },
 
     async execute(params, context): Promise<TranscriptSearchResponse> {
@@ -110,7 +114,7 @@ export function registerTranscriptSearchTextCommand(
       const role = params.role as "user" | "assistant" | undefined;
       const from = params.from as string | undefined;
       const to = params.to as string | undefined;
-      const sessionId = params.session as string | undefined;
+      const sessionId = resolveConversationId(params);
 
       // ── Resolve DB from DI container ─────────────────────────────────────
       const persistenceProvider = (() => {

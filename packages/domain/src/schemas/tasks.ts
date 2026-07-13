@@ -46,6 +46,11 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
     .array(z.string())
     .optional()
     .describe("Filter tasks by tags (e.g., ['di-cleanup', 'test-quality'])"),
+  /** When true, skip project-scope filtering and return rows from all projects (ADR-021, mt#2416). */
+  allProjects: z
+    .boolean()
+    .optional()
+    .describe("Return tasks from all projects (disable project-scope filtering)"),
 });
 
 /**

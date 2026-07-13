@@ -448,7 +448,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 # Architecture
 
 Minsky follows clean architecture:
-- `src/domain/` — core business logic, pure TypeScript, no framework deps
+- `packages/domain/src/` — core business logic, pure TypeScript, no framework deps
 - `src/adapters/` — CLI (Commander.js) and MCP adapters that translate between interfaces and domain
 - Commands defined once in shared registry, exposed via CLI + MCP
 - Zod schemas validate inputs at adapter layer; typed domain errors caught and translated
@@ -1428,6 +1428,44 @@ bun run lint:strict 2>&1 | tail -n 20
 bun run format:check 2>&1 | tail -n 20
 ```
 
+## Bulk / loop commands
+
+When running a command **in a loop over many items** (bulk close, bulk kill, bulk
+rename, per-file checks) whose per-item pass/fail you must read, the §Verification
+Commands interpretability discipline applies — plus two shell-mechanics traps
+specific to iteration:
+
+1. **Never `>/dev/null` a per-item command in a loop whose result you must read.**
+   Per-iteration suppression turns "3 of 40 failed" into a silent "done" and forces
+   a full re-run to discover which item failed. Append each outcome to a log and read
+   it, or echo a running tally:
+
+   **❌ Problematic (per-item result suppressed):**
+   ```bash
+   for id in $ids; do gh issue close "$id" >/dev/null 2>&1; done
+   ```
+
+   **✅ Preferred (tally + log, results readable):**
+   ```bash
+   ok=0; fail=0; : >/tmp/close.err   # pre-create the log so the final cat never errors on a clean run
+   for id in ${(f)ids}; do
+     if gh issue close "$id" 2>>/tmp/close.err; then ok=$((ok+1)); else fail=$((fail+1)); echo "FAIL $id" >>/tmp/close.err; fi
+   done
+   echo "closed=$ok failed=$fail"; cat /tmp/close.err
+   ```
+
+2. **In zsh, `for x in $VAR` does NOT word-split a multiline string.** Unlike bash,
+   zsh does not split unquoted parameter expansions on whitespace/newlines, so
+   `for x in $VAR` over a multiline blob runs the body **once** with the whole blob
+   as a single `x` — e.g. `kill $pids` over a newline-separated list becomes
+   `illegal pid: 2534\n3637\n…`. Iterate by line explicitly: `for x in ${(f)VAR}`
+   (split on newlines) or `printf '%s\n' "$VAR" | while IFS= read -r x; do … done`.
+
+3. **A loop that fails where the standalone succeeds is a loop-construct bug, not a
+   sandbox/permission problem.** If `gh issue close 123` works alone but the loop
+   "does nothing" or reports one bizarre error, suspect word-splitting / the iteration
+   construct (point 2) before blaming permissions, auth, or the sandbox.
+
 ## Rationale
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
@@ -1442,6 +1480,16 @@ read the cadence via `mcp__minsky__debug_systemInfo` (under `mcpDisconnects`)
 and the persisted JSONL log at
 `~/.local/state/minsky/mcp-disconnect-log.json`.
 
+> **Terminology (mt#2525).** Throughout this rule, **"session"** and
+> **"disconnect"** mean an **MCP transport connection** — a single MCP server
+> process's stdio (stdin/stdout) or hosted-HTTP connection lifecycle. This is
+> the **transport** sense of "session" from the mt#2513 inventory; it is NOT a
+> Minsky **workspace** session (the task-scoped clone created by `session_start`)
+> and NOT a harness **conversation** (a Claude Code chat). In particular,
+> `processRole: "main_session"` means an MCP connection that issued >= 1 tool
+> call, and `escalation: "session"` is scoped to the current MCP server-process
+> lifetime — neither refers to a workspace or a conversation.
+
 ## Cause classes
 
 A single `stdin_close` reading would conflate four real-world classes that
@@ -1455,8 +1503,9 @@ the tracker now distinguishes (mt#1682):
    intentionally exits the process so the next call gets a fresh server
    loaded from the new HEAD. Recorded as `cause: "staleness_exit"`.
    **Excluded from escalation** as by-design behavior.
-3. **Genuine long-lived-session closure** — the harness closes a session
-   that had been doing real work. Recorded as `cause: "stdin_close"` with
+3. **Genuine long-lived MCP-connection closure** — the harness closes an MCP
+   transport connection that had been doing real work. Recorded as
+   `cause: "stdin_close"` with
    `uptimeMs >= 5_000` AND `processRole: "main_session"`. **Counts toward
    escalation** — this is the user-visible reliability concern.
 4. **Signal-driven shutdowns** — process received SIGTERM, SIGINT, or
@@ -1577,1675 +1626,357 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates
+`644` by default. Pre-commit hook enforces this.
+
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620).** Each entry below is a
+terse index: purpose, hook file, trigger, override env var, fail posture, doc pointer. Incident
+narration, worked examples, and cross-reference blocks moved to the linked doc — read the doc for
+"why", this rule for "what to do this turn."
+
+## Vocabulary (mt#2626)
+
+**"Hook"** here names the Claude Code registration mechanics only (`PreToolUse`/`PostToolUse`/
+`UserPromptSubmit`/etc. files under `.claude/hooks/` and `.minsky/hooks/`). The domain noun for the
+conceptual mechanism a hook implements is **"interlock"** (docs/cockpit UI copy); "Guard" naming in
+section headers below is left as-is pending a future corpus pass.
+
+## Guard-Dispatcher Framework (ADR-028)
+
+A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` + per-event entrypoints
+`dispatch-pretooluse.ts` / `dispatch-userpromptsubmit.ts`) letting multiple guards share ONE spawned
+Bun process per lifecycle event. Ships inert; only guards with a `GUARD_REGISTRY` entry run through
+it. Migrated: `check-guessed-session-path` (Phase 1); the full `UserPromptSubmit` event (Phase 2,
+mt#2652 + mt#2687) — 15 guards across two sub-waves, taking this event from 14 spawns/turn to 1:
+Phase 2a's six guidance detectors (`substrate-bypass-detector`, `retrospective-trigger-scanner`,
+`pre-narration-detector`, `causal-premise-detector`, `code-mechanism-assertion-detector`,
+`ask-routing-deferral-detector`) and Phase 2b's remaining nine (`auto-session-title`,
+`inject-current-time`, `inject-git-state`, `inject-prod-state`, `inject-dispatch-watchdog`,
+`memory-search`, `skill-staleness-detector`, `mcp-daemon-staleness-detector`,
+`calibration-review-cadence-detector`). `policy-coverage-detector` is NOT part of this family — it's
+registered on `PreToolUse`, not `UserPromptSubmit`, despite being named among the detectors in both
+phases' specs (recorded as a spec discrepancy each time). Every other guard below (PreToolUse,
+PostToolUse, Stop, etc.) is still a standalone `settings.json` registration. Full history:
+`docs/architecture/hooks/guard-dispatcher-framework.md`, `docs/architecture/adr-028-*.md`.
+
+**Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
+alongside its existing `if (import.meta.main)` CLI entrypoint. `ctx` (built once per invocation)
+carries `hostCapSec`/`budgets` and, when present, `transcriptLines` (via `resolveTranscriptCandidates`/
+`parseTranscript`, mt#2637) — guards read these from `ctx`, never re-derive, closing the
+"naive-transcript-read breaks for background subagents" bug class at the framework boundary.
+
+**Dispatcher host-cap budget model (load-bearing).** A dispatcher's `settings.json` `timeout` is the
+HOST CAP for the whole process; every matched guard runs SEQUENTIALLY within it — so the entry's
+timeout must cover the FAMILY'S worst-case SUM, not any single guard's budget. Copying one guard's old
+timeout onto a multi-guard entry silently starves guards after the first. Size a newly-migrated
+family's entry to at least the sum of the guards' pre-migration individual timeouts.
+
+**Recompile rule (mt#2304 — load-bearing).** Source lives in `.minsky/hooks/`; `.claude/hooks/*` is
+GENERATED. After editing `.minsky/hooks/*.ts`, run `bun run minsky compile --target claude-hooks` and
+commit sources + generated output together (pre-commit blocks otherwise). This RULE file is itself a
+compiled source — after editing it, run `rules compile` and verify EACH target regenerated (`grep` the
+change into `CLAUDE.md`; the no-`--target` invocation doesn't reliably hit every output, so run
+`--target claude.md` / `--target cursor-rules` explicitly if one is stale).
+
+No override for the framework itself (library code). `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all` is
+the override FOR migrated guards.
 
 ## Parallel-Work Guard
 
-A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
-an open PR or a commit merged to main in the last 24 hours. This is the Tier-3 structural
-ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in `/plan-task` gate
-criterion (g) and `/implement-task` §0a.
-
-**Hook file:** `.claude/hooks/parallel-work-guard.ts`
-
-**Checks run:**
-1. Open-PR sweep — any open PR whose changed files overlap the task's `## Scope` → `In scope` list.
-2. Recently-merged sweep — commits on the repo's **default branch** (auto-detected via `git symbolic-ref` / `git remote show origin` / probes for `origin/main` and `origin/master`; only when all probes fail does the sweep skip with a warning) in the last 24 hours touching in-scope paths.
-
-**Structural-config exemption (mt#1587):** Files in `STRUCTURED_CONFIG_ALLOWLIST`
-(currently `.claude/settings.json` and `.claude/settings.local.json`) are exempted
-from collision detection when the change is **append-only into JSON arrays** — i.e.,
-two PRs each adding a new entry to a hooks array structurally cannot conflict on
-intent; only on textual git-merge resolution (which 3-way merge handles
-automatically). The check is **fail-closed**: any fetch failure, parse error, or
-non-append-only diff (re-ordering, modification, key changes) preserves the
-collision. Each exempted file emits an audit warning so operators can see what
-was filtered. The override below is therefore rarely needed for the pure-hook-PR
-case but remains the escape valve for non-append-only changes and for files
-outside the allowlist.
-
-**On hit:** the hook blocks `session_start` with a structured message listing the colliding
-PR/commit, overlapping files, and four recommended actions (wait / coordinate / reframe / override).
-
-**Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
-
-```bash
-MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
-```
-
-The override is **logged to session stdout** (task ID, ISO timestamp).
-The line is visible in the session transcript but is **not** written to a durable
-audit file — once the session log is rotated, the record is gone. Use only when
-parallel work has been explicitly acknowledged and coordinated. After mt#1587 the
-override is rarely needed for routine hook PRs (settings.json append-only diffs
-no longer collide); it remains in scope for non-append-only changes,
-non-allowlisted files, and operator-judgment overrides.
-
-**When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
-section, the hook emits a warning to stdout and allows the session_start to proceed.
-
-### Duplicate-child matcher (mt#1435)
-
-The same hook ALSO fires on `mcp__minsky__tasks_create` when the `parent` argument is set —
-the upstream-of-session_start variant of the same guard. The session_start sweep and the
-`/plan-task` gate (g) both run at the *planning* boundary; when an umbrella is decomposed,
-minutes-to-hours can pass between the gate read and the actual `tasks_create` calls, during
-which a concurrent agent's children can land. This matcher fires at the *mutating action*,
-so it catches the concurrent-decomposition case regardless of that time gap.
-
-**How it works:**
-1. On a `tasks_create` with `parent` set, enumerate the parent's children via a
-   **hybrid** strategy that avoids a per-child N+1 (each `minsky tasks get` costs
-   ~2s of CLI startup): `minsky tasks children <parent>` for the IDs, then ONE
-   bulk `minsky tasks list --json` call to resolve every **active** child
-   (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/BLOCKED). Only **terminal-state**
-   children (DONE/CLOSED/COMPLETED — excluded from the default list) fall back to
-   a per-child `minsky tasks get <id> --json`. So the common case is 2 calls
-   regardless of child count. The fetch is still latency-bounded so it can't blow
-   the 30s PreToolUse host cap: a `TASKS_CHILDREN_FETCH_CAP = 25` hard cap, a
-   `DUP_GUARD_CLI_TIMEOUT_MS = 4000` per-call timeout (must clear the ~2s CLI
-   cold-start), AND a
-   `DUP_GUARD_OVERALL_BUDGET_MS = 20000` wall-clock budget that hard-breaks the
-   per-child fallback early (visible warning + partial-set check —
-   fail-open-on-budget). **ALL statuses** are enumerated
-   (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
-   decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
-   terminal-status-only filter would miss exactly the case this exists to catch.
-2. Tokenize the new title and each child title into lowercase 4+-char non-stopword tokens
-   (domain nouns are deliberately NOT stopworded — they are the duplicate signal).
-3. If the new title shares ≥ `DUPLICATE_TOKEN_THRESHOLD` (2) substantive tokens with any
-   existing child, BLOCK with a structured message naming the offending child's id, status,
-   and the overlapping tokens.
-
-**Fail-open posture:** a no-parent create is a no-op; an unreadable children list is
-warn-and-permit; an individual unreadable/malformed child is skipped (not fatal); a
-wall-clock-budget exhaustion checks the partial set with a visible warning; and any
-unexpected exception is caught, logged to stderr, and fails OPEN (permit) — so the
-guard can never silently block.
-
-**Override mechanism:** Set `MINSKY_FORCE_DUPLICATE_OK=1` in your environment before the
-`tasks_create` to bypass with an audit line on stdout naming the parent, title, and the
-would-be duplicate match. The override env var is registered in `HOOK_ONLY_ENV_VARS`
-(`packages/domain/src/configuration/sources/environment.ts`) per the
-`custom/no-unregistered-minsky-env-var` rule (mt#1788).
-
-**Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
-umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent
-agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
-~80 minutes before the `tasks_create` calls. See family memory `fe68f2a7`; the Tier-2 floor
-complement is `/plan-task` gate (g) parent-children enumeration (mt#1434).
+PreToolUse on `session_start`/`mcp__minsky__tasks_dispatch`/`tasks_create`(parent set): blocks
+`session_start` (and existing-task `tasks_dispatch`, which binds a session in-process the same
+way, mt#2657) on open-PR file overlap (advisory-only for recently-merged); blocks
+`tasks_create` — and new-task-mode `tasks_dispatch` (`title` + `parentTaskId`), which creates
+the subtask in-process (mt#2683) — on duplicate-child titles vs an ACTIVE sibling. Terminal
+(DONE/CLOSED/COMPLETED) sibling matches WARN instead of blocking, and tokens from the parent's
+own title are discounted from the overlap count (mt#2683 matcher tuning; re-filing-shipped-work
+coverage stays with `/plan-task` gate (g)(3)). Tier-3 ceiling for the
+parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
+Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
+— both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
+consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):
+`bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`
+— per the mt#2683 decision record, the grant channel (not a new in-band tool_input field) is
+the sanctioned mid-session override.
+Fail: closed (open-PR sweep) / open (duplicate sweep, unreadable data warns+permits).
+Doc: `docs/architecture/hooks/parallel-work-guard.md`.
 
 ## Bypass-Merge Guard
 
-A PreToolUse hook on `Bash` and `mcp__minsky__session_exec` blocks ALL invocations
-of `gh api -X PUT /repos/.../pulls/.../merge`. The standard merge path is
-`mcp__minsky__session_pr_merge` after reviewer-bot APPROVE; the `gh api PUT` bypass
-is retired as a default mechanism (mt#1869).
-
-**Preferred bypass: in-band audited `session_pr_merge` `forceBypass` (mt#2215).** When a
-merge is blocked by a reviewer convergence failure — a verified false-positive
-`CHANGES_REQUESTED` (see mt#2211), reviewer CoT-leakage, or self-reversal — use the
-audited in-band mode instead of the raw `gh api PUT`:
-
-```
-mcp__minsky__session_pr_merge(task: "mt#<id>", forceBypass: true,
-  bypassReason: "<evidence: which review is a verified false-positive and why>")
-```
-
-`forceBypass` requires a non-empty `bypassReason`, requires ≥1 prior review round, refuses
-when a required status check is failing (where status-check data is available) and when any
-non-approval merge blocker is active (draft / conflict / closed), and requires a present
-(non-DISMISSED) `CHANGES_REQUESTED` review (the reviewer-ABSENT/webhook-miss case is
-`acceptStaleReviewerSilence` instead). It auto-dismisses the blocking review using
-`bypassReason` as evidence, writes the canonical audit signature
-(`Bot self-approval bypass per feedback_self_authored_pr_merge_constraints`) plus the reason
-into the merge-commit body, always uses `merge_method=merge`, and runs in-band so Minsky's
-session cleanup still fires. This is the path `/verify-task`'s bypass-merge closeout reads.
-The raw `gh api PUT` below remains only as the last-resort fallback when the in-band path is
-unavailable.
-
-**Hook file:** `.claude/hooks/block-subagent-bypass-merge.ts`
-
-**Two denial tiers:**
-
-- **Subagent invocations** (detected via non-empty `agent_id` field): always blocked,
-  no override available. Subagents must report the PR URL + bot status to the parent.
-- **Main-agent invocations** (`agent_id` null/undefined): blocked by default. Override
-  with `MINSKY_FORCE_BYPASS=1` when `session_pr_merge` has failed AND the bypass
-  conditions per `feedback_self_authored_pr_merge_constraints` are met (R>=1 review
-  rounds + reviewer convergence failure: CoT leakage, self-reversal, or webhook
-  silence >5min). The override is audit-logged to stderr.
-
-**Override mechanism:** Set `MINSKY_FORCE_BYPASS=1` (or `true` / `yes`) in your
-environment before invoking the tool:
-
-```bash
-MINSKY_FORCE_BYPASS=1 minsky session exec ...
-```
-
-The override emits an audit-log line to stderr naming the matched command and ISO
-timestamp. Use only when `session_pr_merge` has genuinely failed and the documented
-bypass conditions are met.
-
-**Tracking tasks:** mt#1671 (original subagent-only guard), mt#1869 (extension to all
-agents). **Originating incidents:** PR #990 / mt#1636 (2026-05-08, subagent bypass at
-R0); 2026-05-26 cadence measurement (6/7 bot PRs bypass-merged despite reviewer APPROVE
-being available).
-
-**Relationship to `block-git-gh-cli.ts`:** That sibling hook enforces `merge_method=merge`
-on the same endpoint (mt#1228). Both hooks run on every `Bash`/`session_exec` call;
-this hook's denial fires first in the matcher order.
+PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge`. Prefer
+`session_pr_merge`'s audited `forceBypass` over this raw path. Subagent invocations always blocked,
+no override. Hook: `block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent
+only). Fail: default-deny, no fail-open path. Doc: `docs/architecture/hooks/bypass-merge-guard.md`.
 
 ## Out-of-Band Merge Guard
 
-A PreToolUse hook on `mcp__minsky__session_pr_merge` and on `Bash`/`session_exec` (when the
-command invokes `gh api PUT /pulls/N/merge`) blocks a merge when the PR body documents a
-coupled out-of-band coordination step. Mt#1681 / PR #1013 was merged with a documented
-"out-of-band" Railway service-config flip that was never executed; the codebase + Railway
-entered a half-shipped state where the next push would crash the build. This hook catches
-that class at the merge surface.
-
-**Hook file:** `.claude/hooks/block-out-of-band-merge.ts`
-
-**How it works:**
-1. Resolves the PR number — for `session_pr_merge`, via `gh pr list --head task/<id>`; for
-   the `gh api PUT` bypass path, by extracting `<N>` from the URL pattern `/pulls/<N>/merge`.
-2. Fetches the PR body via `gh pr view <N> --json body`.
-3. Scans the body for trigger phrases (case-insensitive — 2 standalone + 3 pair-required
-   per mt#2002/mt#2019, down from 6 at the mt#1020 R1 count): `post-merge config`,
-   `serviceInstanceUpdate` (standalone), `Railway config change`, `rootDirectory`,
-   `dockerfilePath` (pair-required). `out-of-band` is a PAIR_PARTNER but not a trigger
-   (see Pair-requirement section below).
-   Each phrase is either a literal substring of the mt#1681 PR body or a Railway/GraphQL
-   identifier with near-zero benign use.
-4. On match, blocks with a structured message naming each matched phrase, a short surrounding
-   excerpt for context, and the override mechanism.
-
-**Markdown-aware filtering (mt#1707):** before substring scanning, the hook elides three
-markdown contexts that carry textual references rather than coordination instructions, per
-CommonMark:
-
-- **Inline code spans** — backtick-delimited with variable run length
-  (`` `rootDirectory` `` and `` ``rootDirectory`` `` both elided). The closing run must
-  match the opening run length and not be followed by another backtick.
-- **Fenced code blocks** — backtick OR tilde fences (3+ markers), opening line indented
-  up to 3 spaces, optional info string, CRLF-tolerant; closing fence matches the opening
-  marker exactly.
-- **Blockquote lines** — up to 3 leading spaces, one or more `>` markers (covers nested
-  quotes like `>>`), CRLF-tolerant.
-
-The elision pass replaces matched content with same-length whitespace, preserving
-character positions so excerpts in the denial message still slice from the ORIGINAL
-body and show real surrounding context. Trigger phrases in bare prose (e.g., "after
-merge, set rootDirectory to empty") continue to fire — only textual references in
-markdown contexts are filtered out. Originating false-positive: mt#1701 PR #1021
-(2026-05-09) DEPLOY.md docs update, where field-name references in code spans tripped
-the substring matcher and the author worked around it by paraphrasing in the PR body.
-
-**Known limitation:** CommonMark "lazy continuation" — a blockquote paragraph wrapped
-onto subsequent lines without a leading `>` marker — is not elided on the wrapped lines.
-The first marked line is still elided; only the wrapped continuation remains scannable.
-This is rare in PR bodies (CommonMark renderers do handle it, but humans usually repeat
-the `>` marker per line); flagged here so a future false-positive can be diagnosed
-quickly.
-
-**Pair-requirement (mt#2002, narrowed mt#2019):** the trigger phrases are split into two
-categories:
-
-- **STANDALONE phrases** (fire on any bare-prose occurrence): `post-merge config`,
-  `serviceInstanceUpdate`. These describe coordination shapes with no benign use pattern.
-  `out-of-band` was removed from this category in mt#2019 to prevent false positives
-  on architectural prose (e.g., "out-of-band consumers" describing module callers in
-  the import graph — originating incident mt#2010 PR #1217). It remains a PAIR_PARTNER.
-- **PAIR-REQUIRED phrases** (fire only when paired with a partner in the same
-  CommonMark paragraph): `rootDirectory`, `dockerfilePath`, `Railway config change`.
-  These are Railway/config-field identifiers that legitimately appear in PR bodies
-  as test-plan documentation, synthesizer-shipping descriptions, or synthesizer
-  cross-references.
-
-The PAIR_PARTNER phrases are `out-of-band` and `post-merge` (the bare `post-merge`
-form matches both `post-merge` and `post-merge config`). When a pair-required
-phrase appears in the SAME PARAGRAPH (text separated by a blank line) as a partner,
-the combination is the strong signal; when it appears alone, it's likely a reference.
-`out-of-band` is a PAIR_PARTNER (activates pair-required phrases when co-occurring)
-but is NOT itself a trigger — it doesn't fire alone on architectural prose.
-
-Originating false-positive cluster (mt#2002): PR #1028 self-fire on mt#1707 (docs
-referencing Railway field names); PR #1204 self-fire on mt#1964 chunk 1
-(synthesizer-shipping description). Both bypassed via `MINSKY_ACK_OOB_MERGE=1`
-before mt#2002 shipped; post-mt#2002 the bare-prose mentions are correctly suppressed
-unless a partner is in the same paragraph.
-
-Additional false-positive fixed by mt#2019: mt#2010 PR #1217 used "out-of-band
-consumers (smoke scripts, unit tests)" to describe module callers in architectural
-prose. The hook fired; the author worked around by rephrasing. After mt#2019,
-bare `out-of-band` in architectural prose no longer fires. The originating
-mt#1681 true-positive still fires via `serviceInstanceUpdate` in bare prose.
-
-**Known limitation:** historical-incident descriptions that put both a pair-required
-phrase AND a partner in the same paragraph (e.g., "mt#1681 PR #1013 (rootDirectory
-flip documented as out-of-band)") still fire under pair-requirement because the
-pair-partner is in the same paragraph. Resolving this without breaking the actual
-mt#1681-style coordination signal requires a different mechanism (e.g.,
-`## Originating-Context` heading exclusion or NLP-based intent classification) and
-is out of scope for mt#2002.
-
-**On block:** the hook denies with this shape:
-> "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
-> pre-authorized) BEFORE merging. Matched trigger phrases: [list with excerpts]. If the
-> out-of-band step has been completed (or is intentionally deferred with acknowledgment),
-> set `MINSKY_ACK_OOB_MERGE=1` in your environment and retry. The override is audit-logged."
-
-**Override mechanism:** Set `MINSKY_ACK_OOB_MERGE=1` in your environment before invoking
-the merge. The override emits an audit-log line to stdout naming the PR, matched phrases,
-and timestamp. Use only when the out-of-band step is genuinely complete (or intentionally
-deferred with operator acknowledgment).
-
-**Fail-open posture:** if `gh pr view` fails (network, auth, PR not found), the hook emits
-a warning to stderr and ALLOWS the merge. This matches `check-branch-fresh.ts` — the hook
-should never block a merge for reasons unrelated to its own concern.
-
-**Tracking task:** mt#1695. **Originating incident:** mt#1681 PR #1013 (2026-05-09) — Railway
-`rootDirectory` + `dockerfilePath` flip was documented as "out-of-band, post-merge" in the PR
-body but never executed; the auto-mode classifier denied the GraphQL mutation post-merge,
-leaving the deploy in a half-shipped state.
-
-**Relationship to mt#1626 (`/plan-task` gate criterion (h)):** mt#1626 is the planning-time
-complement — it catches contract-propagation gaps at task-planning time. This hook is the
-merge-time complement; both fire independently. mt#1626's gate has a coverage hole when a
-task doesn't go through `/plan-task` (mt#1681 was planned via main agent and bypassed it).
-This hook catches the class at the actual decision point regardless of the planning path.
+PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge when the PR body documents a
+coupled out-of-band step never confirmed executed. Scans body (markdown-aware elision of code/quotes)
+for standalone + pair-required trigger phrases. Hook: `block-out-of-band-merge.ts`. Override:
+`MINSKY_ACK_OOB_MERGE=1`. Fail: open — `gh pr view` failure allows with a warning.
+Doc: `docs/architecture/hooks/out-of-band-merge-guard.md`.
 
 ## Skill/Agent/Rule Staleness Detector
 
-A `UserPromptSubmit` hook that, on each agent turn, compares mtimes of files under
-`.claude/skills/**`, `.claude/agents/**`, and `.minsky/rules/**` against a session-start
-baseline, and injects an `additionalContext` warning when files have changed since the
-session started. This is the structural fix (mt#1622) for the skill-copy-staleness pattern
-recorded in `feedback_skill_copy_staleness_in_running_sessions`: skill bodies load into
-session context on first invocation and stay cached for the rest of the session, so
-structural fixes that update a skill on main don't propagate to running sessions.
-
-**Hook file:** `.claude/hooks/skill-staleness-detector.ts`
-
-**Why `UserPromptSubmit`, not `FileChanged`.** Claude Code's `FileChanged` event is in
-the "no decision control" event class — it fires on file changes but cannot emit
-`additionalContext` into the next agent turn. `UserPromptSubmit` IS a context-injecting
-event (used by `memory-search.ts`), so the hook performs its own per-turn mtime check.
-Trade-off: detection is per-turn rather than instantaneous; in practice equivalent since
-the agent only acts on context between turns.
-
-**How it works:**
-1. On first invocation for a given `session_id`, snapshots mtimes of every watched file
-   and writes them to `~/.claude/skill-staleness/<encoded-cwd>/<session_id>.json` (one
-   file per session sidesteps the read-modify-write race a shared file would have).
-2. On subsequent invocations, reads the baseline and compares against the current
-   snapshot. Files whose mtime differs from baseline AND from the most-recently-reported
-   mtime are flagged.
-3. Builds a single consolidated `additionalContext` message naming the changed files
-   (capped at 10 with "+ N more"), updates the per-file `lastReported` map, and exits.
-
-**Re-warning suppression.** After warning about file X with mtime M, the hook records
-`lastReported[X] = M`. Subsequent turns only re-warn if X's mtime advances again past M.
-This avoids nag-on-every-turn after a single change.
-
-**Override mechanism:** Set `MINSKY_SKIP_SKILL_STALENESS=1` (or `true` / `yes`) in the
-environment to disable the hook entirely:
-
-```bash
-MINSKY_SKIP_SKILL_STALENESS=1 claude
-```
-
-The hook short-circuits before any filesystem work when opted out.
-
-**Behavioral contract:**
-- **First invocation per session** writes a baseline and emits NO warning.
-- **No-change turns** emit NO warning (silent allow path).
-- **Modified-since-baseline turns** emit a single consolidated warning naming the files,
-  with `(modified)` or `(deleted)` annotations.
-- **Already-reported files** (mtime equals `lastReported`) are SKIPPED — no re-warn.
-- **Newly-added files** (not in baseline) are NOT warned about — they're additive
-  context, not staleness of a skill the agent has already loaded.
-- **Errors** at any stage (read, write, parse) result in silent skip — the hook is
-  informational only and never blocks the user prompt.
-
-**Originating incident.** mt#1546 (2026-05-06): mt#1551 shipped on 2026-05-05 retiring
-the auditor dispatch from `/verify-task`; the next day mt#1546 hit `/verify-task` in a
-running session and got the OLD protocol because the SKILL.md text was loaded at session
-start, before the mt#1551 fix landed. This hook closes that gap for future cases.
+UserPromptSubmit: warns when `.claude/skills/**`, `.claude/agents/**`, or `.minsky/rules/**` changed
+since the session's baseline mtime snapshot. Hook: `skill-staleness-detector.ts`.
+Override: `MINSKY_SKIP_SKILL_STALENESS=1`. Fail: informational only, silent on any error.
+Doc: `docs/architecture/hooks/skill-staleness-detector.md`.
 
 ## Generated File Edit Guard
 
-A PreToolUse hook on file-edit operations (`mcp__minsky__session_search_replace`,
-`mcp__minsky__session_edit_file`, `mcp__minsky__session_write_file`, `Edit`, `Write`)
-that reads the target file's first 5 lines and blocks the edit when a generation-banner
-marker is present. This is the structural fix (mt#1699) for the bypass-the-pipeline
-class of failure where the agent edits a compiled output directly instead of editing the
-canonical source and re-running the compiler.
-
-**Hook file:** `.claude/hooks/check-generated-file-edit.ts`
-
-**Originating incident:** mt#1678 PR #1012 (2026-05-08) — the agent edited `CLAUDE.md`,
-`AGENTS.md`, and `.cursor/rules/hook-files.mdc` directly to add the parallel-work-guard
-structural-config exemption documentation, when those are all compiled outputs of
-`rules_compile` / `rules_generate` from the canonical source `.minsky/rules/hook-files.mdc`.
-Each file's first line is `<!-- Generated by minsky rules compile. Do not edit directly. -->`.
-
-**Matched banner forms:**
-- `<!-- Generated by ... -->` (HTML comment)
-- `<!-- Do not edit ... -->` (HTML comment)
-- `// AUTOGENERATED` / `// Generated by` (line comment)
-- `/* Generated by ... */` (block comment)
-- `# Generated by` (hash comment, for YAML/Python/etc.)
-- `do not edit directly` / `do-not-edit directly/this` (verbal form)
-
-**On match:** the hook denies the tool call with a structured message naming the matched
-marker, the file path, and instructions to find and edit the canonical source. For
-rule-pipeline outputs, the denial message names the `rules compile` pipeline as the
-correct authoring path.
-
-**On no match / file missing / read error:** permit (fail-open posture — the hook never
-blocks based on inability to read the file).
-
-**Override mechanism:** Set `MINSKY_FORCE_EDIT_GENERATED=1` in your environment before
-invoking the tool:
-
-```bash
-MINSKY_FORCE_EDIT_GENERATED=1 minsky session edit-file ...
-```
-
-The override is **audit-logged to stdout** (tool name, file path, ISO timestamp, matched
-marker if any). Use only when directly editing a generated file is intentional and
-acknowledged (e.g., bootstrapping a new generator output, or when the canonical source
-pipeline is itself broken).
-
-**Scope:** Only catches the marker-based class (generators that emit a `Generated by` /
-`AUTOGENERATED` / `Do not edit` banner). Generated files without markers and
-structurally-API-managed sources without generators are out of scope — see the
-follow-up manifest-extension RFC task for those classes.
+PreToolUse on file-edit tools (`Edit`, `Write`, `session_edit_file`, `session_write_file`,
+`session_search_replace`): blocks editing a file whose first 5 lines carry a generation-banner
+marker. Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`.
+Fail: open — no match/missing file/read error all permit.
+Doc: `docs/architecture/hooks/generated-file-edit-guard.md`.
 
 ## Branch Freshness Guard
 
-A PreToolUse hook on `mcp__minsky__session_commit`, `mcp__minsky__session_pr_create`, and
-`mcp__minsky__session_pr_edit` blocks the call when `origin/main` has commits not reachable
-from the session's branch. This is the structural fix (mt#1483) for the "branch-behind-main
-during reviewer iteration" pattern that recurred four times across mt#1190, mt#1262, mt#1384,
-and related tasks.
-
-**Hook file:** `.claude/hooks/check-branch-fresh.ts`
-
-**How it works:**
-1. Detects the current HEAD branch from `input.cwd`.
-2. Checks whether `origin/<branch>` exists — if not (fresh branch, not yet pushed), allows silently.
-3. Compares `origin/<branch>..origin/main` — if main has commits the branch lacks, blocks.
-4. Block message lists: the count of diverging commits, the first 10 commit subjects (oneline), and the instruction "Review the new commits on main before continuing."
-
-**On block:** run `session_update` to rebase on main, review the merged PRs to check for
-overlap, then retry the original operation.
-
-**Override mechanism:** Set `MINSKY_SKIP_FRESHNESS=1` in your environment before invoking
-the tool:
-
-```bash
-MINSKY_SKIP_FRESHNESS=1 minsky session commit ...
-```
-
-The override is **logged to session stdout** (tool name, ISO timestamp) for audit.
-Use only when you have already reviewed main's new commits and confirmed no overlap.
-
-**Behavioral Contract:**
-
-- **Blocks** when `origin/main` is N commits ahead of `origin/<branch>`. The denial
-  message lists the count, the first 10 commit subjects (oneline), and instruction
-  to review before continuing.
-- **Allows silently** (no stdout, no `additionalContext`) on these four paths — they
-  are the "nothing to report" cases:
-  - branch even with main
-  - fresh branch (no upstream ref yet — typical of a brand-new session's first push)
-  - detached HEAD (no current branch to compare against)
-  - undetectable default branch (no `origin/main` or `origin/master` to compare to)
-- **Allows with audit-line on stdout** when a **merge / rebase / cherry-pick is in
-  progress** (mt#1739). Detected by `fs.existsSync` on five git transient-operation
-  markers under the **resolved** git directory: `MERGE_HEAD`, `REBASE_HEAD`,
-  `rebase-merge/`, `rebase-apply/`, or `CHERRY_PICK_HEAD`. The resolution step
-  honours git's `.git`-as-file indirection (`gitdir: <path>` redirect used by
-  `git worktree` checkouts and certain submodule layouts), so worktree-based
-  session workspaces are covered. The operator is finalising a commit that
-  *resolves* main-ahead-of-branch staleness (not introducing fresh work on a stale
-  branch); blocking would create a chicken-and-egg deadlock — the merge commit
-  pushed by the resolution is what advances `origin/<branch>` past the staleness
-  gap. The reason emits to stdout as
-  `[check-branch-fresh] merge-in-progress (.git/<MARKER>) — freshness check skipped`
-  so operators see that the hook recognised the merge state. Distinct from the four
-  routine silent paths above: those are "nothing to report"; this one IS reported
-  via the audit line, mirroring the `MINSKY_SKIP_FRESHNESS=1` override convention.
-- **Warnings always surface** even on silent paths. If the pre-check `git fetch`
-  failed (network down, auth issue, slow remote), the resulting "comparison may be
-  against STALE refs" warning IS emitted regardless of whether the path is silent.
-  This carve-out is intentional: silence means "nothing to report"; warnings mean
-  "something the operator should know," and operators should always learn about
-  staleness even on otherwise-silent allow paths.
-- **Skipped** paths (budget exhausted, miscellaneous probe failures) emit their
-  "freshness check skipped" reason for auditability — these are NOT in the silent
-  list because they signal something operationally interesting (the hook ran but
-  couldn't complete its check).
-
-**Budget derivation (mt#1546):**
-
-The hook's three timer constants (`OVERALL_BUDGET_MS`, `FETCH_TIMEOUT_MS`,
-`GIT_TIMEOUT_MS`) derive at entrypoint time (before `hookStart` capture)
-from the host-imposed `timeout` field in `.claude/settings.json` for this
-hook's matcher entry. The read is deliberately deferred from module-load
-to entrypoint so importing the module has no fs/env side effects (relevant
-for tests and any non-entrypoint consumers). Bumping the host cap in
-settings.json scales the internal budgets proportionally, with no source
-edits required.
-
-Three named ratios encode the design choices:
-
-- `OVERALL_BUDGET_RATIO = 0.6` — overall budget = 60% of host cap.
-- `FETCH_TIMEOUT_RATIO = 0.55` — fetch can use 55% of overall budget.
-- `GIT_TIMEOUT_RATIO = 0.17` — each local git probe gets ~1/6 of budget.
-
-At the current 15-second host cap the derived values are 9000 / 4950 /
-1530 ms (overall / fetch / git). The `4950` and `1530` differ slightly
-from the legacy hardcoded `5000` and `1500` ms — within ±10%, which the
-test fixtures explicitly verify. The deviation is intentional: it is the
-cost of removing the magic-number coupling between cap and constants.
-
-Each derived value is also clamped to a minimum of 100 ms
-(`MIN_DERIVED_BUDGET_MS`) so pathologically small caps cannot zero-out a
-per-call budget. The clamp never fires for realistic caps (≥ 5s).
-
-If `.claude/settings.json` cannot be read, parsed, or contains no matching
-entry, the hook falls back to the 15-second default and emits a one-line
-warning through the operator-warning channel. The shared
-`readHostCap(hookFilename, projectDir?, options?)` helper in
-`.claude/hooks/types.ts` exposes this pattern for reuse by future hooks
-with the same constraint. The `events` option (default
-`["PreToolUse"]`) scopes the matcher walk to a specific lifecycle event.
-The walker performs exact-or-suffix path-segment matching against the
-hook's basename — case-sensitive, separator-normalised so Windows-style
-backslash paths in settings.json work cross-platform.
+PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main` has
+commits the session branch lacks. On block: `session_update` to rebase, review for overlap, retry.
+Hook: `check-branch-fresh.ts`. Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine
+paths (even, fresh branch, detached HEAD, no default branch); merge-in-progress allows w/ audit line;
+fetch-failure warnings always surface. Doc: `docs/architecture/hooks/branch-freshness-guard.md`.
 
 ## Bundle-Boot Smoke Gate
 
-Extension to the merge-gate hook (`.claude/hooks/require-review-before-merge.ts`)
-that denies `mcp__minsky__session_pr_merge` when the bundle-boot smoke check
-did not fire and conclude `success` on the PR's HEAD commit. This is the
-structural fix (mt#1787) for the dev-vs-deployed divergence class: changes
-that look fine in `src/` but crash when the bundled `dist/minsky.js` boots
-under Railway. Originating incidents: mt#1681 (procedural OOB step),
-mt#1763 (`import.meta.url`-relative path resolution outside `/app`),
-mt#1785 (env-var-namespace conflict crashing the config loader).
+Merge-gate extension: denies `session_pr_merge` unless the `bundle-boot-smoke` CI check_run concluded
+`success` on HEAD — catches dev-vs-bundled-boot divergence. Workflow:
+`.github/workflows/bundle-boot-smoke.yml`. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after manually
+verifying local boot). Fail: deny-by-default (merge gate); 4 denial classes (API failure, no
+check_run, in-progress, conclusion != success). Doc: `docs/architecture/hooks/bundle-boot-smoke-gate.md`.
 
-**Workflow file:** `.github/workflows/bundle-boot-smoke.yml` — runs
-`bun install --frozen-lockfile && bun run build && bun dist/minsky.js
-mcp start --http --host=127.0.0.1 --port=<random>`, then polls
-`GET /health` for up to 30s and fails if it does not respond 200.
+## Single Shared PR-Data Fetch Layer
 
-**Hook integration:** the merge gate queries
-`gh api repos/edobry/minsky/commits/<sha>/check-runs?check_name=bundle-boot-smoke`
-and feeds the response through `parseBundleBootSmokeResponse` +
-`evaluateBundleBootSmokePresence`. Four denial classes:
+Not a guard — `.claude/hooks/pr-context.ts` (mt#2617) is the ONE place the four `session_pr_merge`
+gates (Review, Execution-Evidence, Deploy-Verification, Out-of-Band) fetch PR data from `gh`,
+replacing per-gate ad hoc calls and hardcoded repo names. No trigger/override of its own (a library);
+zero-behavior-change to the consuming gates' decisions.
+Doc: `docs/architecture/hooks/pr-data-fetch-layer.md`.
 
-1. **API/parse failure** — gh transport error or malformed response. Distinct
-   reason so operators investigate gh, not the workflow.
-2. **No matching check_run** — workflow never fired. Causes: PR predates the
-   workflow (rebase on main); webhook miss (push an empty commit to wake);
-   workflow file malformed.
-3. **Still in progress / queued** — wait for completion.
-4. **Completed but conclusion ≠ success** — the bundle did not boot cleanly.
-   The denial reason includes the run's `html_url` for triage.
+## Deploy-Verification Merge Gate + Post-Merge Reminder
 
-Pass: at least one matching check_run with `conclusion === "success"`.
+PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
+`services/*/railway.json`, `services/*/deploy.config.ts`, `.github/workflows/deploy-*.yml`) lacking a
+`Deploy verification:` commitment; paired PostToolUse injects a mandatory post-merge
+`deployment_wait-for-latest` reminder. Hooks: `deploy-surface-detector.ts`,
+`require-deploy-verification-before-merge.ts`, `deploy-verification-after-merge.ts`. Escape hatches:
+`[no-deploy-impact]` title tag; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 
-**Override mechanism:** Set `MINSKY_SKIP_BUNDLE_SMOKE=1` (or `true` / `yes`)
-in the environment before invoking the merge tool:
+**Marker acceptance (mt#2648 — load-bearing, write one of these forms).** Both this hook's
+`Deploy verification:` marker and the sibling mt#1459 `Execution evidence:` marker accept,
+case-insensitive: a plain label line WITH a colon, OR a Markdown heading (any level 1-6) with an
+OPTIONAL trailing colon. The colon is required only for the non-heading form.
 
-```bash
-MINSKY_SKIP_BUNDLE_SMOKE=1 minsky session pr merge ...
-```
-
-The override is **logged to session stdout** (PR number, short HEAD sha, ISO
-timestamp). Use only when the operator has manually verified local boot
-(`bun run build && bun dist/minsky.js mcp start --http --host=127.0.0.1
---port=<n>` then `curl http://127.0.0.1:<n>/health`) AND the workflow
-itself is what's broken on the PR being merged. Reaching for this override
-otherwise re-introduces the deploy-time-blind merge that mt#1787 fixed.
-
-**Env-var registration:** `MINSKY_SKIP_BUNDLE_SMOKE` is registered in
-`HOOK_ONLY_ENV_VARS` at `src/domain/configuration/sources/environment.ts`
-so it does not get auto-mapped to a config-key path by the env-var-to-config
-parser (mt#1785 incident class). The contract source-of-truth for both the
-check name (`bundle-boot-smoke`) and the override env var name lives in the
-hook file as exported constants `BUNDLE_BOOT_SMOKE_CHECK_NAME` and
-`BUNDLE_BOOT_SMOKE_OVERRIDE_ENV` so the workflow, the hook, and tests
-cannot drift.
-
-**Cross-references:**
-- mt#1681 / mt#1695 — procedural-step subset and its OOB-merge-text hook
-- mt#1763 / mt#1766 — bundle-path drift incident + revert
-- mt#1785 — env-var-namespace conflict (sibling class)
-- mt#1788 — ESLint rule for new `MINSKY_*` env-var registration (sibling
-  PR-time gate; this guard is the merge-time gate)
+Fail: open — unresolvable repo/PR/non-surface PR allows silently; PostToolUse always exits 0.
+Doc: `docs/architecture/hooks/deploy-verification-merge-gate.md`.
 
 ## NUL-Byte Pre-Commit Guard
 
-A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between the
-Node-shim check and the TypeScript type check) scans staged text files for
-literal NUL bytes (0x00) and blocks the commit if any are present. Unlike
-the other guards in this file — which are Claude Code PreToolUse hooks
-under `.claude/hooks/` — this is a true git pre-commit step that runs from
-the `PreCommitHook` TypeScript class invoked by `.husky/pre-commit`. The
-override-with-audit convention is the same across both kinds.
-
-**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
-`runNulByteCheck()`. Pure-function implementation:
-`src/hooks/nul-byte-detector.ts`.
-
-**Why this check exists.** mt#1821 / PR #1107 R1 (2026-05-13): the agent
-called `session_write_file` with a `content` parameter containing the
-six-character JS escape `\u0000`. JSON parsing at the tool boundary
-collapsed the escape into the literal character U+0000 BEFORE writing,
-landing a single NUL byte mid-template-literal in a TypeScript source
-file. The file passed tsc (NULs are valid inside template literals),
-eslint, prettier, `bun test`, the CI build, and the CI bundle-boot-smoke.
-Only `git`'s binary-file detection and the reviewer-bot's diff renderer
-flagged it — at review time, not commit time. This guard catches the
-same class at the latest authoring stage where the fix is cheapest.
-
-**Allowlist (skipped from the check):**
-- Known-binary file extensions where NULs are expected by format design:
-  `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.ico`, `.bmp`, `.tiff`,
-  `.pdf`, `.zip`, `.tar`, `.gz`, `.tgz`, `.bz2`, `.xz`, `.7z`, `.woff`,
-  `.woff2`, `.ttf`, `.otf`, `.eot`, `.mp4`, `.mov`, `.webm`, `.wav`,
-  `.mp3`, `.ogg`, `.m4a`, `.so`, `.dylib`, `.dll`, `.bin`, `.exe`,
-  `.class`, `.jar`.
-- Path prefix `tests/fixtures/` — regression fixtures (including this
-  guard's own `tests/fixtures/nul-byte-source.ts`) may legitimately
-  contain NUL bytes. Without this exclusion the fixture would block its
-  own staging.
-
-**On hit:** the step blocks with a structured message listing every
-violating path and the byte offset of the first NUL byte in that file,
-plus a "Why this is blocked" section pointing at mt#1824, mt#1821 /
-PR #1107 R1, and the originating memory
-`feedback_json_tool_writes_interpret_unicode_escapes` (id `b7e2f8ef`).
-
-**Override mechanism:** Set `MINSKY_SKIP_NUL_CHECK=1` (or `true` / `yes`)
-in your environment before invoking the commit tool:
-
-```bash
-MINSKY_SKIP_NUL_CHECK=1 minsky session commit ...
-```
-
-The override emits an audit-log line to stdout naming the env-var value
-and the ISO timestamp. Use only when the NUL byte is genuinely intended
-(very rare; the most likely justification is a binary-format file that
-isn't covered by the extension allowlist — in which case the better fix
-is to extend `KNOWN_BINARY_EXTENSIONS` in `src/hooks/nul-byte-detector.ts`).
-
-**Env-var registration:** `MINSKY_SKIP_NUL_CHECK` is registered in
-`HOOK_ONLY_ENV_VARS` at `src/domain/configuration/sources/environment.ts`
-so the env-var-to-config dot-path parser skips it at boot (per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788). The
-override env-var name's source of truth lives in
-`src/hooks/nul-byte-detector.ts` as the exported constant
-`NUL_BYTE_CHECK_OVERRIDE_ENV` so the hook, the test, and the rule
-documentation cannot drift.
-
-**Performance:** the check completes in well under 200ms for ≤20 staged
-text files on an M1 Max workstation. Each staged blob is fetched via
-`git show :<path>` (one subprocess per non-allowlisted file) and scanned
-with `Buffer.indexOf(0)` — a single memchr-class O(n) pass.
-
-**Cross-references:**
-- mt#1824 — this guard's tracking task
-- mt#1821 / PR #1107 R1 — originating incident
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration)
-- `feedback_json_tool_writes_interpret_unicode_escapes` (id `b7e2f8ef`) —
-  user-level memory describing the JSON-tool-write gotcha that this
-  guard mechanically enforces.
-- CLAUDE.md `§Ensure ASCII Code Symbols` — adjacent discipline (no
-  non-ASCII identifiers); same family of "what the tool layer does to
-  your content."
+Pre-commit step (`src/hooks/pre-commit.ts` → `runNulByteCheck()`, not a Claude Code hook): blocks
+staged text files containing literal NUL bytes. Allowlist: binary extensions + `tests/fixtures/`.
+Override: `MINSKY_SKIP_NUL_CHECK=1`. Fail: blocks on any hit outside the allowlist.
+Doc: `docs/architecture/hooks/nul-byte-precommit-guard.md`.
 
 ## Workspace-COPY Pre-Commit Guard
 
-A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between
-the NUL-byte check and the TypeScript type check) reads root
-`package.json`'s `workspaces` glob, enumerates workspace directories
-containing a `package.json`, **discovers all Dockerfiles in the repo
-that run `bun install --frozen-lockfile`** (root + `services/*/Dockerfile`
-+ `packages/*/Dockerfile`), and verifies each one has a
-`COPY <ws>/package.json ...` line for every workspace BEFORE the
-install step. Blocks the commit if any workspace is unaccounted for in
-any protected Dockerfile.
-
-The discovery is by trigger condition (has `bun install --frozen-lockfile`),
-not by hardcoded filename. The check applies to the *class* of
-"Dockerfiles that install against the root bun.lock" rather than to any
-specific instance; sub-project Dockerfiles that adopt frozen-lockfile
-installation are automatically protected without code changes (mt#1992).
-
-**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
-`runWorkspaceCopyCheck()`. Pure-function implementation:
-`src/hooks/workspace-copy-detector.ts` (key exports:
-`discoverProtectedDockerfiles`, `detectMissingWorkspaceCopies`,
-`runWorkspaceCopyCheck` returning per-Dockerfile results).
-
-**Why this check exists.**
-
-*Originating incident (mt#1977 / 2026-05-20T19:44Z).* PR #1186
-(mt#1934, marketing-site rebuild) added `services/site/` as a new
-workspace declared by root `package.json`'s
-`workspaces: ["packages/*", "services/*"]`. The regenerated `bun.lock`
-referenced `services/site`'s deps. The root Dockerfile's selective
-workspace-COPY block only copied `packages/shared/package.json` and
-`services/reviewer/package.json` — `services/site/package.json` was
-missed. Every Railway deploy from `57c2e868` onward failed at
-`RUN bun install --frozen-lockfile` with
-`error: lockfile had changes, but lockfile is frozen`. Production was
-stuck on the prior commit for ~75 minutes.
-
-*Generalization incident (mt#1991 / 2026-05-20T20:55Z, ~6 hours later).*
-The mt#1984 guard's original scope was root-Dockerfile-only. The same
-failure class hit `services/reviewer/Dockerfile` (a sub-project Dockerfile
-with its own `bun install --frozen-lockfile` step against the root
-lockfile). After mt#1934 added services/site as a workspace + mt#1983
-added winston, the reviewer Dockerfile's COPY block silently fell out
-of date: 8 consecutive FAILED Railway deploys over ~4 hours, until
-mt#1989 added a `deploy.config.ts` that gave the deployment_status MCP
-tool visibility into the reviewer service. mt#1991 hotfixed the
-Dockerfile; mt#1992 generalized this guard to walk all protected
-Dockerfiles, not just root.
-
-The local `bun install` SUCCEEDS because the full repo is mounted;
-Railway's selective COPY produces an incomplete tree, so the failure
-mode only surfaces in the deploy environment. The pre-commit check is
-the commit-time complement that catches the failure at the cheapest
-authoring stage, across every Dockerfile that would fail the same way.
-
-**Trigger condition.** Always — the check runs on every commit
-regardless of which files are staged. The cost is well under 50 ms
-(measured on an M1 Max workstation against the current repo with 2
-protected Dockerfiles); always-on coverage matters because the contract
-can be violated by a commit that doesn't itself touch any Dockerfile
-or package.json (e.g., the prior commit added a workspace, this commit
-is unrelated work — the broken state still blocks until someone
-notices).
-
-**On hit:** the step blocks with a structured message that groups
-violations by Dockerfile path — listing every missing workspace per
-file with the literal `COPY <ws>/package.json ./<ws>/package.json` line
-the operator must add, plus a "Why this is blocked" section pointing
-at mt#1984 / mt#1992 / mt#1977 / mt#1991 and an explanation of the
-Railway-build invariant. Each violating Dockerfile is named explicitly
-so the operator knows which file(s) to edit.
-
-**Allowlist (skipped from the check):**
-- Workspaces matched by the glob but lacking a `package.json` — these
-  aren't workspaces from bun's perspective (the glob walks for
-  `package.json`), so no COPY is required. The mt#1977 instance of this
-  is `services/minsky-mcp/`, a directory that matches `services/*` but
-  exists only as a service-config home (no package.json).
-- Dockerfiles with no `RUN bun install --frozen-lockfile` line — they
-  don't install against the root lockfile, so the workspace-COPY
-  invariant doesn't apply to them. Examples: a Dockerfile that uses
-  `npm ci`, or one that skips `--frozen-lockfile`, or one that doesn't
-  install at all. Such files are discovered, evaluated against the
-  trigger condition, and dropped from the protected set.
-- Repositories without a root `package.json` — silent short-circuit
-  (the check needs the root workspaces field to determine what to
-  protect; absent that there's no contract to check).
-- Repositories with a root `package.json` but NO protected Dockerfiles
-  — silent pass (the check ran but found nothing requiring the COPY
-  invariant; legitimate for repos without bun-frozen-lockfile installs).
-
-**Override mechanism:** Set `MINSKY_SKIP_WORKSPACE_COPY_CHECK=1` (or
-`true` / `yes`) in your environment before invoking the commit tool:
-
-```bash
-MINSKY_SKIP_WORKSPACE_COPY_CHECK=1 minsky session commit ...
-```
-
-The override emits an audit-log line to stdout naming the env-var value
-and the ISO timestamp. Use only when a COPY is genuinely omitted on
-purpose (very rare; the most likely justification is a workspace
-that doesn't ship in the runtime image AND is excluded from the
-production install by some other mechanism — in which case the better
-fix is to refactor the workspaces glob, not skip the check).
-
-**Env-var registration:** `MINSKY_SKIP_WORKSPACE_COPY_CHECK` is
-registered in `HOOK_ONLY_ENV_VARS` at
-`src/domain/configuration/sources/environment.ts` so the env-var-to-
-config dot-path parser skips it at boot (per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788).
-The override env-var name's source of truth lives in
-`src/hooks/workspace-copy-detector.ts` as the exported constant
-`WORKSPACE_COPY_CHECK_OVERRIDE_ENV` so the hook, the test, and the
-rule documentation cannot drift.
-
-**Glob-expander support.** The pure detector currently handles two
-glob forms: literal workspace paths (`packages/shared`) and single-`*`
-trailing globs (`packages/*`, `services/*`). Patterns with `**`,
-negations (`!packages/*-archived`), or character classes (`[abc]*`)
-are SKIPPED rather than mis-interpreted — the check is conservative
-and would prefer to under-flag than mis-flag. If Minsky's root
-`package.json` ever adopts those patterns the detector will need
-extension; a follow-up task should be filed at that time. The current
-patterns (`packages/*`, `services/*`) are fully covered.
-
-**Performance:** the check completes in well under 50 ms in practice
-(measured on an M1 Max workstation against the current repo: 3
-workspace package.json reads + 2 Dockerfile reads + 2 single-pass regex
-scans). Performance scales linearly with the number of protected
-Dockerfiles; current count is 2 (root + services/reviewer).
-
-**Cross-references:**
-- mt#1984 — original tracking task (root-Dockerfile-only scope)
-- mt#1992 — generalization task (this expansion; class-scoped instead
-  of instance-scoped per the narrow-rule-doesn't-generalize anti-pattern)
-- mt#1977 — originating incident; the 75-minute root-Dockerfile outage
-- mt#1991 — generalization incident; the 4-hour reviewer-Dockerfile
-  outage that proved the original scope was too narrow
-- mt#1934 / PR #1186 — the merge that introduced the workspace topology
-  change exposing both gaps
-- mt#1983 — added winston to services/site, making the lockfile entry
-  non-trivial and exposing mt#1991
-- mt#1989 — added services/reviewer/deploy.config.ts, giving
-  deployment_status MCP-tool visibility that surfaced mt#1991
-- Memory `bd2c08be` — bridge memory documenting the
-  narrow-rule-doesn't-generalize anti-pattern this expansion fixes
-- mt#1610 / mt#1624 / mt#1626 — contract-propagation gap family
-- mt#1726 — original selective-COPY Dockerfile refactor (the contract
-  this guard protects)
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
-  contract this guard's override env-var conforms to)
-- mt#1824 — NUL-byte pre-commit guard (sibling pre-commit-step
-  convention this guard mirrors)
+Pre-commit step that REGENERATES (not detect-and-block, since mt#2621) the workspace `package.json`
+COPY block in every protected Dockerfile (root, `services/reviewer`, `services/cockpit`) from root
+`package.json`'s `workspaces` glob, and auto-restages changed files. No override — it only ever
+auto-fixes forward. Fail: blocks ONLY when a protected Dockerfile is missing the generated-block
+markers entirely (a one-time setup gap, not drift).
+Doc: `docs/architecture/hooks/workspace-copy-precommit-guard.md`.
 
 ## Deploy-Domain Ownership Guard
 
-A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, step 3e,
-between the migration-journal check and the TypeScript type check) verifies
-that every domain **asserted as a deployment target** in deploy/site config
-is a domain we actually control — i.e., present in the verified allowlist
-`infra/controlled-domains.json`. Blocks the commit when an asserted domain
-is not allowlisted. Like the NUL-byte and Workspace-COPY guards, this is a
-true git pre-commit step (not a Claude Code PreToolUse hook), invoked by the
-`PreCommitHook` class from `.husky/pre-commit`.
-
-**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
-`runDeployDomainCheck()`. Pure-function implementation:
-`src/hooks/deploy-domain-detector.ts`.
-
-**Why this check exists.** Originating incident (2026-05-31): `minsky.dev`
-first appeared in Jul-2025 analysis prose as an *illustrative example URL*.
-It was later promoted to authoritative deploy config (`infra/index.ts`
-SITE_URL, `services/site/astro.config.ts`, README "Deployed at") with no
-ownership check ever run; an agent then read it back and reported "we're
-deployed to minsky.dev" — false. Verified via Cloudflare API + RDAP +
-crt.sh that `minsky.dev` is registered to a third party and is not in our
-Cloudflare account. A 30-second `GET /zones?name=<domain>` would have caught
-it. This is the external-resource-ownership member of the
-assertion-without-verification family (bridge memory `ac1a6761`; siblings
-`d624c862`, `68b4a81f`, `2946a222` / mt#1787).
-
-**Scope (files scanned):** `infra/index.ts`, `services/*/deploy.config.ts`,
-`services/*/astro.config.ts`, and `services/*/README.md` ("Deployed at" /
-"serves at" claims). Always-on (runs every commit); the scan is well under
-50 ms.
-
-**Assertion-vs-mention discrimination.** The corrected repo legitimately
-*mentions* `minsky.dev` in WARNING COMMENTS ("do not set this to a domain we
-do not control"). A naive domain grep would flag those and block. So the
-detector distinguishes assertions from mentions:
-
-- **Code files** (`.ts` / `.js`): domains are extracted only from
-  string-literal VALUES. A comment-aware state machine excludes comments,
-  and code expressions like `process.env.SITE_URL` are excluded too (its
-  `SITE` segment would otherwise match the `site` TLD).
-- **Markdown files**: domains are extracted only when they FOLLOW a
-  deploy-assertion phrase ("deployed at", "serves at", ...), not from
-  arbitrary prose mentions.
-
-**Allowlist (`infra/controlled-domains.json`):** apex domains (`apexes`,
-any sub-host passes — used for platform domains like `railway.app`,
-`github.io`, `ghcr.io` where our sub-host is provisioned to our account) and
-exact hostnames (`exactHosts`, when apex-listing would be too broad). Adding
-a new deploy domain forces adding it here, which is the deliberate "I
-verified we own this" gate. A separate periodic Cloudflare-zone drift check
-(Option B, mt#2210) re-verifies allowlist entries are still zones in our
-account.
-
-**On hit:** the step blocks with a structured message naming each offending
-file:line + host (repo-relative paths), the unmatched apex, a "Why this is
-blocked" section pointing at mt#2208 / the originating incident / bridge
-memory `ac1a6761`, and the instruction to verify ownership (e.g. confirm the
-domain is a zone in our Cloudflare account) before adding it to the
-allowlist.
-
-**Override mechanism:** Set `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1` (or
-`true` / `yes`) in your environment before invoking the commit tool:
-
-```bash
-MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1 minsky session commit ...
-```
-
-The override emits an audit-log line to stdout naming the env-var value and
-the ISO timestamp. Use only when the domain is genuinely controlled but not
-yet allowlisted AND the allowlist entry is being added separately (the
-better fix is almost always to add the verified entry to
-`infra/controlled-domains.json`).
-
-**Env-var registration:** `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK` is registered in
-`HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` so the
-env-var-to-config dot-path parser skips it at boot (per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788). The
-override env-var name's source of truth lives in
-`src/hooks/deploy-domain-detector.ts` as the exported constant
-`DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV` so the hook, the test, and the rule
-documentation cannot drift.
-
-**Known limitations:** apex reduction is naive last-two-labels (no Public
-Suffix List) — correct for the deploy-config domains in play; revisit if a
-multi-part public suffix like `co.uk` enters deploy config. Platform apexes
-are allowlisted at the apex, intentionally accepting any sub-host (the threat
-model is a CUSTOM apex we don't own, the minsky.dev class).
-
-**Cross-references:**
-- mt#2208 — this guard's tracking task (live successor to mt#2193)
-- mt#2193 — originating guard task; truthfulness-correction shipped via
-  PR #1433, guard scope carried forward to mt#2208
-- mt#2210 — Option B follow-up (periodic Cloudflare-zone drift check)
-- `ac1a6761` — bridge memory (assertion-without-verification family);
-  retirement target is this guard
-- mt#1787 / `2946a222` — dev-vs-deployed sibling; `d624c862`,
-  `68b4a81f` — adjacent assertion-without-verification members
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration)
-- mt#1824 / mt#1984 — sibling pre-commit-step guards this one mirrors
+Pre-commit step: blocks committing a domain **asserted** as a deploy target (`infra/index.ts`,
+`services/*/deploy.config.ts`, `services/*/astro.config.ts`, README "Deployed at" claims) unless it's
+in `infra/controlled-domains.json`'s verified allowlist; distinguishes assertions from mere mentions.
+Override: `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`. Fail: blocks on any unallowlisted asserted domain.
+Doc: `docs/architecture/hooks/deploy-domain-ownership-guard.md`.
 
 ## Drive-PR-To-Convergence Reminder
 
-A PostToolUse hook on `mcp__minsky__session_pr_create` injects an
-`additionalContext` system-reminder when PR creation succeeds, instructing
-the agent to drive the PR to convergence (via `session_pr_wait-for-review`
-or a Chinese-wall reviewer subagent on webhook-miss) and explicitly
-forbidding deferral language ("ping me when done", "let me know when
-merged", "ready for your review/merge") as turn-closing. This is the
-structural escalation (mt#1793) of two adjacent corpus rules — the
-`§User does not review PRs in the loop` rule and its "Slow-ask variant"
-sub-section — both of which failed memory-tier and corpus-tier
-enforcement in originating incidents.
-
-**Hook file:** `.claude/hooks/drive-pr-to-convergence.ts`
-
-**Behavior:**
-
-- Fires on PostToolUse for `mcp__minsky__session_pr_create` only.
-- Inspects `tool_result.success`; emits the reminder when strictly `true`.
-- Silent on failure paths (the agent gets the error from the tool surface
-  itself, no need to add noise) and non-matching tools (defensive).
-- Reminder text names: the required next action
-  (`session_pr_wait-for-review`), the webhook-miss fallback (`/merge-coordination`
-  §7a diagnosis ladder), the success branches (APPROVE → merge,
-  CHANGES_REQUESTED → fix per §7 Convergence Checklist), and the
-  forbidden deferral phrases verbatim.
-
-**Originating incidents:**
-
-- 2026-05-12 PR #1076 (mt#1791) — agent created PR and ended turn with
-  "ping me to wire the SDK once merged and you've set the key." User
-  had to poke: "so you just sat there." This is the canonical
-  slow-ask-variant incident.
-- 2026-04-22 PR #677 (mt#1057) — agent created PR and ended turn without
-  driving convergence; required user-initiated correction. Originated
-  mt#1066's `require-review-after-pr-create.ts` proposal (PR #684); this
-  hook supersedes mt#1066's narrower single-skill slice.
-
-**Always exit 0.** The hook is informational; it must never block the tool
-call's success surfacing. Reads `ToolHookInput` from stdin; emits
-`HookOutput` JSON with `hookSpecificOutput.additionalContext` when firing,
-silent otherwise.
-
-**No override mechanism.** Unlike block-class hooks, this hook only
-injects context — never denies. There's nothing to override; the agent
-can ignore the reminder, but doing so re-creates the very failure pattern
-the hook exists to prevent.
-
-**Tracking task:** mt#1793. **Supersedes:** mt#1066 / PR #684
-(`require-review-after-pr-create.ts`, task CLOSED).
-
-**Cross-references:**
-
-- `decision-defaults.mdc §User does not review PRs in the loop` — the
-  corpus rule this hook enforces, including the "Slow-ask variant"
-  sub-section added 2026-05-12 R4.
-- `feedback_drive_pr_to_convergence_dont_end_on_ping_me` — bridge memory
-  (retire when this hook ships).
-- `feedback_user_does_not_review` — sibling memory at the same surface.
-- `feedback_self_authored_pr_merge_constraints` — diagnostic ladder for
-  the webhook-miss fallback referenced in the reminder.
-- `feedback_bot_authored_pr_convergence` — bypass-merge mechanism the
-  reminder points at on convergence.
+PostToolUse on successful `session_pr_create`: injects a mandatory convergence-driving reminder
+naming `session_pr_wait-for-review` as the required next action and forbidding deferral phrases
+("ready for your review", "ping me when done"). Hook: `drive-pr-to-convergence.ts`. No override
+(informational only). Fail: always exits 0.
+Doc: `docs/architecture/hooks/drive-pr-to-convergence-reminder.md`.
 
 ## Substrate-Bypass Detector
 
-A `UserPromptSubmit` hook that inspects the most-recent assistant turn in
-the session transcript and detects when the agent bypassed a canonical
-Minsky substrate (DB tables, skills, MCP tools, file-edit tools) in favor
-of an ad-hoc inline path. On match, the hook injects an `additionalContext`
-reminder naming each matched surface, the matched phrase, and the
-canonical substrate the agent should have used. This is the structural
-escalation (mt#2020) of the substrate-bypass pattern documented in
-memory `f6607043-be47-43e6-baec-47dbe40221c4` after five recurrences
-(R1-R5) across recommendation-time and action-execution-time surfaces
-confirmed memory-tier + corpus-rule-tier enforcement was insufficient.
-
-**Hook file:** `.claude/hooks/substrate-bypass-detector.ts`
-
-**Three trigger surfaces** (each exported as a separate pure detector
-function for testability):
-
-1. **Verbal-commitment detection.** Regex-matches first-person
-   future-action phrases (`I'd update X`, `I'll save Y`, `going forward
-   I'll Z`, `next session I'll W`, `I should file X`, etc.) in the
-   assistant text. Match fires ONLY when no corresponding tool_use line
-   in the same turn invokes one of the execution tools:
-   `mcp__minsky__memory_create`, `mcp__minsky__memory_update`,
-   `mcp__minsky__tasks_create`, `Edit`, `Write`,
-   `mcp__minsky__session_edit_file`, `mcp__minsky__session_write_file`,
-   `mcp__minsky__session_search_replace`. The verbal commitment
-   evaporates at end-of-turn unless the encoding tool is called same-turn.
-
-2. **Skill-bypass detection.** Heuristic match on inline retrospective
-   shape: assistant text contains 2+ section-heading markers
-   (`Acknowledgment`, `Categorization`, `Root cause` / `Root Cause`,
-   `Fixes`, `Retrospective:`) in the same turn. Match fires ONLY when no
-   tool_use line in the same turn invokes the `Skill` tool with
-   `skill: "retrospective"`. The inline retrospective shape bypasses
-   the canonical `/retrospective` skill which enforces Step 0 (premise
-   validation), Step 0.5 (triage), and Step 3 (recurrence check).
-
-3. **DB-substrate bypass detection.** Substring match on phrases
-   (`v1 reads JSONL`, `read JSONL directly`, `extend the DB later`,
-   `DB doesn't have`, `DB is incompatible`) combined with proximity-match
-   (same paragraph, ≤300 chars) to the word `transcript`. Targets the
-   specific bypass pattern from R3 (cockpit-context-inspector spec
-   session, 2026-05-21) where the agent framed an incomplete DB substrate
-   as "incompatible" and routed around it by reading on-disk JSONL
-   directly instead of extending `agent_transcripts` /
-   `agent_transcript_turns`.
-
-**Detection scope.** The hook inspects the just-completed logical turn —
-the span between the last two REAL user prompts, via the shared
-`.claude/hooks/transcript.ts` helper (mt#2255). Because Claude Code records
-`tool_result` blocks as user-role lines, the helper bounds the turn on real
-prompts (text content) rather than every user-role line, so a turn spanning
-several tool round-trips is NOT split at each `tool_result`. First-turn-of-session
-(no prior real prompt) is silent. This shared helper is the single definition
-of the turn-boundary logic for all three UserPromptSubmit detector hooks
-(substrate-bypass, retrospective-trigger, pre-narration).
-
-**On match:** the hook emits a `HookOutput` with
-`hookSpecificOutput.hookEventName: "UserPromptSubmit"` and
-`additionalContext` containing the matched surfaces (truncated phrases +
-canonical substrate), the required next action (call the bypassed
-canonical substrate NOW — not describe it, not defer it), and the
-override mechanism.
-
-**Override mechanism:** Set `MINSKY_ACK_SUBSTRATE_BYPASS=1` (or
-`true`/`yes`) in your environment before the user prompt to suppress the
-warning. The override emits an audit line to stdout naming the env-var
-value, session ID, and ISO timestamp:
-
-```bash
-MINSKY_ACK_SUBSTRATE_BYPASS=1 claude
-```
-
-The audit line is not valid JSON, so Claude Code's hook-output parser
-won't interpret it as a HookOutput envelope. This matches the
-sibling-hook audit convention in `parallel-work-guard.ts` and
-`check-branch-fresh.ts`. Use only when the bypass is intentional and
-acknowledged.
-
-**Env-var registration:** `MINSKY_ACK_SUBSTRATE_BYPASS` is registered in
-`HOOK_ONLY_ENV_VARS` at `src/domain/configuration/sources/environment.ts`
-so the env-var-to-config dot-path parser skips it at boot (per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788). The
-override env-var name's source of truth lives in
-`.claude/hooks/substrate-bypass-detector.ts` as the exported constant
-`OVERRIDE_ENV_VAR` so the hook, tests, and rule documentation cannot
-drift.
-
-**Fail-open posture:** any error reading the transcript, parsing JSONL
-lines, or running detection exits 0 with a `console.error` warning.
-The hook never blocks the user prompt — it is informational only.
-Empty or missing `transcript_path` (typical of the first turn of a
-session) also exits silently.
-
-**Originating incidents (R1-R5):**
-
-- **R1-R2 (2026-05-12, PR #1073 / mt#1783):** memory-search hook tune
-  session. User had explicitly sequenced "implement observability tool
-  FIRST, use hook tuning as its first test case" then said "do it now."
-  Agent compressed to in-house data extraction (grep + jq over
-  `/tmp/<hook>.log`) and skipped the SaaS evaluation step entirely —
-  build-path-as-research at action-execution time.
-- **R3 (2026-05-21, cockpit-context-inspector spec session):**
-  canonical-substrate bypass at v1/scope-defining time. Drafting the
-  cockpit-context-inspector spec, the existing transcripts-DB substrate
-  (mt#1313/mt#1324: `agent_transcripts`, `agent_transcript_turns`) was
-  missing attachment-line retention. Agent framed this as "DB
-  incompatible with v1 use case → route around by reading JSONL
-  directly." Accurate framing: "DB incomplete for v1 use case → extend
-  the canonical substrate."
-- **R4 (same session):** canonical-skill bypass at process-failure time.
-  User explicitly asked for a retrospective; agent wrote one inline using
-  the structural shape from the `/retrospective` skill rather than
-  invoking the skill — bypassing Step 0 premise validation, Step 0.5
-  triage, and Step 3 recurrence check.
-- **R5 (same session):** canonical-tool bypass at durable-artifact time.
-  In the inline retrospective, agent wrote "I'd update memory X" and
-  asked the user "Want me to add that update?" — both deferrals; no
-  `memory_update` call was made. Verbal commitment evaporated at
-  end-of-turn.
-
-**Tracking task:** mt#2020. **Originating memory:**
-`f6607043-be47-43e6-baec-47dbe40221c4`
-(`feedback_build_path_as_research_at_action_time` — R3-R5 extension).
-
-**Cross-references:**
-
-- `decision-defaults.mdc §Build vs buy` — corpus rule the hook escalates
-  from (R2 corpus extension landed 2026-05-12; this hook is the
-  hook-tier escalation per the `/retrospective` skill's repeated-failure
-  rule after R3-R5 confirmed the corpus tier was insufficient).
-- `feedback_build_path_as_research_at_action_time` (id `f6607043`) —
-  originating memory documenting R1-R5; updated to cite mt#2020 as the
-  structural escalation target.
-- `feedback_build_vs_buy_default_for_non_core` — R1 recommendation-time
-  slice of the same pattern family.
-- `/declare-framework` (mt#1789) — sibling skill enforcing framework
-  selection at recommendation time (this hook is the action-time
-  complement).
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
-  contract this hook's override env-var conforms to).
-- mt#1622 — `skill-staleness-detector.ts` (sibling UserPromptSubmit
-  hook with the same context-injection shape).
+UserPromptSubmit: detects verbal commitments with no same-turn encoding call, inline-retrospective
+prose without a `/retrospective` call, and DB-substrate-bypass phrasing near "transcript" in the prior
+assistant turn. Hook: `substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`.
+Fail: open on transcript read/parse error; silent on session's first turn.
+Doc: `docs/architecture/hooks/substrate-bypass-detector.md`.
 
 ## Retrospective-Trigger Scanner
 
-A `UserPromptSubmit` hook that scans the prior assistant turn for
-retrospective-trigger phrases (R1–R4 families) and the current user prompt
-for user-correction signals, injecting `additionalContext` reminding the
-agent to invoke `/retrospective`. This is the structural escalation
-(mt#2057) of the retrospective skill's trigger-phrase family after four
-recurrences (R1–R4) proved memory-tier and corpus-tier enforcement
-insufficient.
-
-**Hook file:** `.claude/hooks/retrospective-trigger-scanner.ts`
-
-**Four trigger families (hardcoded as exported regex constants):**
-
-- **R1 (apology/contrition):** "I owe you an apology", "I should have
-  caught", "I was wrong about", "I made a mistake", "I conflated", etc.
-- **R2 (operational/explanatory prose):** "I didn't think it through",
-  "I went straight to X without checking", etc.
-- **R3 (future-behavior commitments):** "going forward I will", "from
-  now on I'll", "next time I'll", "I'll be more careful about", etc.
-- **R4 (decline-to-retrospective):** "fixing the symptom rather than
-  running a retrospective", "one-off issue", "no need for a full
-  retrospective", "skip the retrospective", etc.
-
-**Plus user-correction signals** in the current user prompt: "why did
-you do that?", "you keep doing this", "that's wrong", "how many times",
-etc.
-
-**False-positive suppression:** when the prior assistant turn contains a
-`Skill` tool call with `skill: "retrospective"`, ALL trigger-phrase
-detections are suppressed — the agent is already inside a retrospective
-and the phrases are legitimate output.
-
-**On match:** the hook emits a `HookOutput` with `additionalContext`
-naming each matched phrase, its R-family, and the required action: invoke
-`/retrospective` before any other action. The retrospective skill's
-Step 0.5 triage determines whether a full retrospective is warranted —
-the hook only ensures the agent enters the triage, not that it runs a
-full retrospective.
-
-**Calibration logging:** every fire logs a JSONL record to
-`.minsky/retrospective-trigger-calibration.jsonl` with timestamp,
-session ID, and matched phrases. Review after 10 fires — if >2 are
-false positives, tune the patterns.
-
-**Override mechanism:** Set `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1` (or
-`true` / `yes`) in your environment to suppress the warning:
-
-```bash
-MINSKY_ACK_RETROSPECTIVE_TRIGGER=1 claude
-```
-
-The override emits an audit line to stdout naming the env-var value,
-session ID, and ISO timestamp. Use only when a trigger phrase is
-genuinely not a retrospective case (e.g., documenting trigger phrases
-in a rule file, discussing the hook's own patterns).
-
-**Env-var registration:** `MINSKY_ACK_RETROSPECTIVE_TRIGGER` is
-registered in `HOOK_ONLY_ENV_VARS` at
-`src/domain/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788.
-
-**Originating incidents:**
-
-- **R1 (2026-05-18):** shell-completions library survey — agent wrote
-  "I owe you the apology" without invoking `/retrospective`.
-- **R2 (2026-05-18):** same session — agent wrote "I didn't think it
-  through" without invoking `/retrospective`.
-- **R3 (2026-05-21):** cockpit-context-inspector session — agent wrote
-  "going forward I will" without encoding the commitment durably.
-- **R4 (2026-05-23, PR #1234 / mt#2053):** agent wrote "fixing the
-  symptom rather than running another retrospective" — explicitly
-  declining the retrospective trigger.
-
-**Cross-references:**
-
-- `feedback_self_recognized_failure_is_retrospective_trigger` (id
-  `1b36a19e`) — R1 family root memory (bridge; retires when this
-  hook ships).
-- `feedback_decline_to_retrospective_is_itself_a_trigger` (id
-  `13ccf86e`) — R4 memory (bridge; retires when this hook ships).
-- `.claude/skills/retrospective/SKILL.md` §When to invoke — the
-  canonical trigger list this hook mechanizes.
-- `.claude/hooks/substrate-bypass-detector.ts` — sibling
-  UserPromptSubmit hook (mt#2020) with the same architecture.
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration).
+UserPromptSubmit: scans the prior assistant turn for 4 retrospective-trigger phrase families +
+user-correction signals in the current prompt; reminds to invoke `/retrospective`. Suppressed when the
+prior turn already called it. Hook: `retrospective-trigger-scanner.ts`. Calibration log:
+`.minsky/retrospective-trigger-calibration.jsonl`. Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`.
+Fail: open on transcript error. Doc: `docs/architecture/hooks/retrospective-trigger-scanner.md`.
 
 ## Current-Time Injection Hook
 
-A `UserPromptSubmit` hook (`.claude/hooks/inject-current-time.ts`) that
-injects the current date, day of week, and UTC timestamp into every turn's
-`additionalContext` (mt#2181). This is the structural fix for the
-date-staleness pattern: the agent has no reliable way to know "now" without
-running `date`, and the session-start system reminder anchors the date once
-but goes stale silently as conversations run for hours or days.
-
-**Hook file:** `.claude/hooks/inject-current-time.ts`
-
-**Output format (single line, injected as additionalContext):**
-
-```
-Current time: Saturday 2026-05-30 16:39:00 EDT-0400 (UTC: 2026-05-30T20:39:00Z)
-```
-
-Includes:
-
-- Day of week (so the agent can answer "what day is it?" without computing).
-- ISO local date (`YYYY-MM-DD`) — the canonical reference format.
-- Local time with timezone abbreviation AND signed numeric offset (both
-  useful; the offset is unambiguous, the abbreviation is human-readable).
-- UTC ISO timestamp — canonical for scheduling, logging, cross-region work.
-
-**Always fires.** No skip-on-trivial-prompt logic. The hook is cheap (<1ms,
-no I/O) and the cost of injection is bounded; the cost of staleness is
-unbounded (false dates in PR bodies, wrong scheduling, missed soak windows).
-
-**Override mechanism:** Set `MINSKY_SKIP_TIME_INJECTION=1` (or `true` / `yes`)
-to disable injection:
-
-```bash
-MINSKY_SKIP_TIME_INJECTION=1 claude
-```
-
-When the override fires, the hook emits an audit-log line to stdout
-(`[inject-current-time] override active: ...`) and returns no
-additionalContext. The audit line is not valid HookOutput JSON, so Claude
-Code's hook-output parser logs it as "Ignoring non-JSON line on stdout" —
-matching the sibling-hook audit convention (`parallel-work-guard.ts`,
-`check-branch-fresh.ts`). Use only when intentionally testing the agent's
-stale-context handling.
-
-**Env-var registration:** `MINSKY_SKIP_TIME_INJECTION` is registered in
-`HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788. The
-override env-var name's source of truth lives in
-`.claude/hooks/inject-current-time.ts` as the exported constant
-`TIME_INJECTION_OVERRIDE_ENV` so the hook, tests, and rule documentation
-cannot drift.
-
-**Originating incidents (2026-05-30):**
-
-- **R1** (within ~30 min of session start): agent stated "May 24 (Saturday)"
-  while computing mt#2061's soak-period earliest-eligible date. May 24 was
-  Sunday. The cascade produced a wrong "earliest eligible" date in the spec
-  amendment. The `date` command was available and would have taken <1
-  second.
-- **R2** (same session, ~30 min after R1, AFTER memory `53086971` was
-  created with "always run `date` before stating calendar facts"): user
-  asked "what's the status of this." Agent responded with a status report
-  stating "scheduled for Monday May 25" and "soak completes Tuesday May 26"
-  — without re-checking the date. Actual date was Saturday May 30; the
-  routine had fired 5 days earlier.
-
-**Why the memory-tier fix failed within minutes** (motivating the hook
-escalation): the memory-search hook injects memories that match keywords in
-the USER'S prompt; "what's the status of this" has no calendar keywords →
-memory not surfaced. Even with the memory fresh in working context from one
-turn earlier, the trigger condition (action-time date assertion) doesn't
-fire on user prompts. The memory-tier fix is structurally incapable of
-preventing the action-time class of this failure.
-
-**Why the hook tier works:** the hook fires on EVERY UserPromptSubmit
-regardless of prompt content. Injecting current time into `additionalContext`
-makes it present in every turn's context whether the agent looks for it or
-not — same architectural pattern as `memory-search.ts` (injects relevant
-memories) and `skill-staleness-detector.ts` (injects stale-file warnings).
-
-**Performance:** <1ms per invocation (single `new Date()` + `Intl.DateTimeFormat`
-calls; no I/O, no subprocess, no MCP call). The hook is registered with a
-5-second timeout — vastly larger than needed, matching the sibling-hook
-convention.
-
-**Cross-references:**
-
-- Memory `53086971` — bridge entry; retires when this hook has been live
-  for a full session without an R3 incident.
-- `feedback_distributed_state_local_view_insufficient` — sibling family
-  member, also escalated to hook tier (`parallel-work-guard.ts`) after 3
-  incidents. This hook escalates after 2 incidents in the same session
-  because the cost-per-recurrence is asymmetric (parallel-work loses hours
-  of work; date-staleness produces silently-wrong artifacts that may not
-  surface for days).
-- `.claude/hooks/memory-search.ts` — architectural template.
-- `.claude/hooks/skill-staleness-detector.ts` — sibling discipline hook.
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
-  contract this hook conforms to).
+UserPromptSubmit: injects current date/day/local-time/UTC into every turn's context (fixes
+date-staleness in long sessions). Hook: `inject-current-time.ts`. Always fires (<1ms, no I/O).
+Override: `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `docs/architecture/hooks/current-time-injection-hook.md`.
 
 ## Git-State Injection Hook
 
-A `UserPromptSubmit` hook (`.claude/hooks/inject-git-state.ts`) that injects
-the current git state (branch name, working-tree status, ahead/behind counts
-vs the default branch, and the 5 most-recent commits) into every turn's
-`additionalContext` (mt#2275). Sibling of the current-time injection hook
-(mt#2181); same architectural pattern, same override convention, same
-structural-injection rationale (memory `08606f7c` — "structural injection
-beats retrieval discipline").
+UserPromptSubmit: injects branch, working-tree status, ahead/behind vs last-fetched default branch,
+and 5 recent commits (collapses to one line when clean+in-sync). No per-turn `git fetch`.
+Hook: `inject-git-state.ts`. Override: `MINSKY_SKIP_GIT_STATE_INJECTION=1`. Fail: silent bail on
+non-repo/detached-HEAD/timeout; subsidiary failures degrade gracefully.
+Doc: `docs/architecture/hooks/git-state-injection-hook.md`.
 
-**Hook file:** `.claude/hooks/inject-git-state.ts`
+## Prod-State Injection Hook
 
-**Output formats:**
+UserPromptSubmit: injects a prod migration-ledger snapshot via producer (cockpit sweep, ~10m, reads
+`drizzle.__drizzle_migrations`)/consumer (this hook, local cache only) split. Three shapes: fresh
+(≤30m, ground truth), stale (re-verify), unknown (do NOT assert from memory). Hook:
+`inject-prod-state.ts`. Override: `MINSKY_SKIP_PROD_STATE_INJECTION=1`. Fail: never crashes; emits
+UNKNOWN/STALE notes. Doc: `docs/architecture/hooks/prod-state-injection-hook.md`.
 
-Collapsed (single line, when working tree is clean AND in sync with default
-branch):
-```
-Current git state: on main, clean, in sync with last-fetched origin/main.
-```
+## Dispatch-Watchdog Injection Hook
 
-Expanded (multi-line, otherwise):
-```
-Current git state:
-- Branch: task/mt-2275 (vs last-fetched origin/main: 3 ahead, 0 behind)
-- Working tree: 2 modified, 1 untracked, 0 staged
-- Recent commits on branch:
-  abc1234 feat(mt#2275): add hook
-  def5678 fix(mt#2275): R1 review
-  ...
-```
-
-**Why this exists.** Claude Code's session-start system reminder includes a
-`gitStatus` block (current branch, modified files, recent commits). These
-values are captured once and never refreshed. Long sessions accumulate
-divergence: branch switches, new merges to main, file edits — none of which
-update the anchor. The agent then asserts stale state ("we're on main",
-"the most recent commit was X") without any failure signal until a user
-catches it. This is structurally identical to the time-anchor problem mt#2181
-fixed.
-
-**Performance budget:** <50ms per invocation. Per-command timeout derived
-from the host-imposed cap in settings.json via
-`readHostCap("inject-git-state.ts", undefined, { events: ["UserPromptSubmit"] })`
-and `deriveBudgets(...).gitTimeoutMs` — matches sibling-hook convention
-(see §Branch Freshness Guard for the budget-derivation pattern). At the
-configured 5s cap, this yields ~510ms per command. Git commands invoked:
-- `git rev-parse --is-inside-work-tree` (repo detection; handles worktrees
-  and submodules correctly via git's own check, not a `.git`-existence walk)
-- `git symbolic-ref --short HEAD` (branch name)
-- `git symbolic-ref --short refs/remotes/origin/HEAD` (default branch, with
-  `git config remote.origin.head` and main/master probes as fallbacks)
-- `git status --porcelain=v1` (working-tree status)
-- `git rev-list --left-right --count HEAD...origin/<default>` (ahead/behind
-  in a single call)
-- `git log --oneline -5 HEAD` (recent commits)
-
-**No per-turn `git fetch`.** Ahead/behind is computed against the LOCAL
-CACHE of `origin/<default>`. The hook fires on every UserPromptSubmit
-(potentially hundreds per session); a network call per turn would regress
-the budget by orders of magnitude. The output is explicitly labelled
-"vs last-fetched origin/<X>" so the agent doesn't over-interpret the
-comparison as live-remote-current. Sibling hooks like `check-branch-fresh.ts`
-fetch because they run once per merge attempt — different cost class.
-
-**Fail-open posture:** the hook bails silently (no `additionalContext` emitted)
-when:
-- `cwd` is not a git repository (per `git rev-parse --is-inside-work-tree`)
-- the `HEAD` symbolic-ref lookup fails (detached HEAD, broken repo)
-- any individual git command times out
-
-Subsidiary failures (e.g., ahead/behind can't be computed because the branch
-has no upstream) are tolerated — the snapshot still emits with the missing
-fields filled with sensible defaults. The hook is informational; it should
-never block the user prompt.
-
-**Override mechanism:** Set `MINSKY_SKIP_GIT_STATE_INJECTION=1` (or `true` /
-`yes`) to disable injection:
-
-```bash
-MINSKY_SKIP_GIT_STATE_INJECTION=1 claude
-```
-
-When the override fires, the hook emits an audit-log line to stdout
-(`[inject-git-state] override active: ...`) and returns no
-additionalContext. The audit line is not valid HookOutput JSON, so Claude
-Code's hook-output parser logs it as "Ignoring non-JSON line on stdout" —
-matching the sibling-hook audit convention.
-
-**Env-var registration:** `MINSKY_SKIP_GIT_STATE_INJECTION` is registered in
-`HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788. The
-override env-var name's source of truth lives in
-`.claude/hooks/inject-git-state.ts` as the exported constant
-`GIT_STATE_INJECTION_OVERRIDE_ENV` so the hook, tests, and rule documentation
-cannot drift.
-
-**Originating context:** mt#2275 follows from the 2026-05-24/30/31 incident
-memo's open question #2 ("does the injection pattern generalize beyond
-time?"). The memo named git state as the clearest candidate after time:
-session-start system reminder captures it once; staleness produces
-silently-wrong assertions; cost is bounded; value is high.
-
-**Cross-references:**
-
-- mt#2181 — `inject-current-time.ts` (architectural template; same pattern,
-  same override convention)
-- Memory `08606f7c` — Structural injection beats retrieval discipline
-  (synthesis-level lesson; this hook is its second instance)
-- Notion incident memo `371937f03cb481428aeaeedd67f7216f` — originating
-  audit, open question #2
-- `.claude/hooks/memory-search.ts` and `.claude/hooks/skill-staleness-detector.ts`
-  — sibling injection hooks
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
-  contract this hook conforms to)
+UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (producer: cockpit sweep
+every 5m over `subagent_invocations` + git activity; consumer: local-cache read). Paired recovery:
+`session.status probe:true` + `/orchestrate`'s resume protocol. Hook: `inject-dispatch-watchdog.ts`.
+Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Fail: silent on empty/missing cache (absence is
+not evidence of a problem here). Doc: `docs/architecture/hooks/dispatch-watchdog-injection-hook.md`.
 
 ## Immutable-Migration Pre-Commit Guard
 
-A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`,
-`runImmutableMigrationCheck`, between the migration-journal check and the
-deploy-domain check) that blocks committing a staged **modification or rename**
-of a migration `.sql` file whose tag is already listed in that directory's
-`meta/_journal.json` (i.e. has been applied). Like the NUL-byte / Workspace-COPY
-/ Deploy-Domain guards, this is a true git pre-commit step invoked by the
-`PreCommitHook` class from `.husky/pre-commit` — not a Claude Code PreToolUse
-hook.
-
-**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
-`runImmutableMigrationCheck()`. Pure-function implementation:
-`src/hooks/immutable-migration-detector.ts`
-(`detectImmutableMigrationViolations`).
-
-**Why this check exists.** Originating incident: mt#1641 / mt#2250
-(2026-06-02/03). Three applied migrations (`0002`, `0014`, `0015`) were **edited
-after being applied** to the prod database. Drizzle records `sha256(full .sql)`
-at apply-time and never re-checks the file against the ledger, so editing an
-applied migration makes the file-hash diverge from the recorded hash — and (under
-drizzle's timestamp high-water-mark apply logic, see memory `0c2427e5`) silently
-drifts the ledger from actual DB state. Reconciling the resulting prod drift
-required seven hand-audited prod writes. This guard catches the class at the
-commit, the cheapest authoring stage.
-
-**Detection.** Staged files are read via `git diff --cached --name-status
---diff-filter=MR`. A violation is a staged `M` (modification) — or the OLD path
-of a staged `R` (rename) — that is a `.sql` file located **directly inside** a
-watched migration dir (`packages/domain/src/storage/migrations/pg` or
-`packages/domain/src/storage/migrations`; files under `meta/` or other
-sub-directories are NOT direct children and are skipped) AND whose `<tag>`
-(filename minus `.sql`) appears in that dir's `_journal.json` entries. Dirs are
-matched longest-prefix-first so the nested `pg` dir is never swallowed by its
-parent regardless of declaration order. Pure **additions** of new migration
-files (the correct path) and edits to **unjournaled** (never-applied) tags are
-always allowed.
-
-**On hit:** the step blocks, naming each violating file + tag, explaining the
-immutability invariant, and instructing the operator to write a NEW migration
-(`bun run db:generate:pg`) instead of editing the applied one.
-
-**Override mechanism:** Set `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1` (or `true`
-/ `yes`) before committing — for the rare legitimate case (e.g. fixing a
-never-applied migration before its first deploy). The override emits an
-audit-log line to stdout (env value + ISO timestamp).
-
-**Env-var registration:** `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK` is registered
-in `HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` (per mt#1788). The
-override env-var name's source of truth lives in
-`src/hooks/immutable-migration-detector.ts` as the exported constant
-`IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV` so the hook, the test, and this rule
-cannot drift.
-
-**Relationship to the unmerged-migration guard (mt#2277):** that sibling blocks
-*applying* an unmerged migration to shared prod; this guard blocks *editing* an
-already-applied one. Together they retire the mt#2229 / mt#2250 migration-drift
-class.
-
-**Cross-references:**
-- mt#2268 — this guard's tracking task
-- mt#1641 — runtime schema-drift detector (read-only); mt#2250 — the prod-ledger
-  reconciliation; mt#2227 — runner path/journal-monotonicity fix
-- memory `0c2427e5` — drizzle's timestamp-high-water-mark apply mechanics
-- mt#1824 / mt#1984 / mt#2208 — sibling pre-commit-step guards this one mirrors
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+Pre-commit step: blocks a staged modification/rename of a migration `.sql` file already listed in its
+dir's `meta/_journal.json` — editing an applied migration silently drifts the file hash from the
+recorded ledger. Override: `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks on any staged M/R
+of a journaled tag; additions and unjournaled edits always allowed.
+Doc: `docs/architecture/hooks/immutable-migration-precommit-guard.md`.
 
 ## Guessed-Session-Path Guard
 
-A PreToolUse hook on `Bash` and `mcp__minsky__session_exec` that scans the
-tool's string inputs for absolute paths of the form
-`.../state/minsky/sessions/<id>/...` whose directory does not exist on disk,
-and denies the call. This is the symptom-tier structural fix (mt#2195) for the
-guessed-session-path class: an agent constructs a plausible `sessionId` (and the
-workspace path under it) before `session_start` has returned the real one, then
-references it in dependent `cd` / file commands that all fail with raw
-`cd: no such file or directory` errors after wasted turns.
+PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
+path whose directory doesn't exist — catches guessed-session-id references before `session_start`
+returns the real one. Phase-1 dispatcher pilot (mt#2650). Hook: `check-guessed-session-path.ts`.
+Override: `MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
+Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
 
-**Hook file:** `.claude/hooks/check-guessed-session-path.ts`
+## Bind/Advance Spec-Read Guard
 
-**How it works:**
-
-1. Reads `tool_input` and collects every string value (the Bash / session_exec
-   `command`, plus any other string args).
-2. Matches absolute paths running through `.../state/minsky/sessions/<id>`.
-   Relative or non-absolute matches are skipped — they can't be resolved
-   reliably from the hook's cwd (fail-open).
-3. For each distinct match, checks `existsSync` on the session-workspace
-   directory. A missing directory is the signature of a guessed/constructed
-   id → deny.
-
-**On hit:** the hook denies with `permissionDecision: "deny"` and a diagnostic
-naming each nonexistent session path and its `<id>`, instructing the agent to
-obtain the real sessionId from the `session_start` result (or `session_dir`)
-rather than assembling a path from a guessed id.
-
-**Fail-open posture:** the entire entrypoint is wrapped in try/catch; any error
-(including malformed stdin) exits 0 = allow. Only a confirmed absolute
-`sessions/<id>/` path whose directory is absent produces a deny.
-
-**Override mechanism:** Set `MINSKY_SKIP_SESSION_PATH_CHECK=1` (or `true` / `yes`)
-in your environment to allow a reference to an intentionally-absent session
-path (e.g., a just-cleaned-up session). The override emits an audit line to
-stdout (non-JSON, so Claude Code's hook-output parser ignores it — matching the
-sibling-hook audit convention) naming the env-var value, session id, and ISO
-timestamp.
-
-**Env-var registration:** `MINSKY_SKIP_SESSION_PATH_CHECK` is registered in
-`HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override
-env-var name's source of truth lives in the hook file as the exported constant
-`OVERRIDE_ENV_VAR` so the hook, test, and this rule cannot drift.
-
-**Originating incident:** mt#2191 implementation (2026-05-31, memory
-`30f5d164` R1): the agent batched `session_start` with ~10 dependent
-`Bash` / `session_edit_file` calls referencing a guessed session path
-(`f8a1e6d2-…`; the real session was `c49993dd-…`). Every guessed-path call
-failed or was cancelled; this guard catches the class at the first call.
-
-**Cross-references:**
-
-- mt#2195 — this guard's tracking task
-- mt#2199 — always-injected "one pipeline step per turn" rule (root tier of
-  the same failure family)
-- mt#2197 — pre-narration / fabricated-outcome detector hook (sibling symptom)
-- `.claude/hooks/block-git-gh-cli.ts` — PreToolUse deny-class convention this
-  hook mirrors
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract
-  this hook's override env-var conforms to)
+PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start` /
+`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only, mt#2657): blocks when the target
+task's spec was never surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the
+session transcript. On hit: read the spec in full before retrying. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any
+error/missing transcript/unresolvable id. Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 
-A `SessionEnd` hook that ingests the just-finished Claude Code session's
-transcript into the `agent_transcripts` substrate so finished sessions are
-searchable promptly (mt#2192). Before this, ingestion fired ONLY on MCP server
-boot (a fire-and-forget best-effort sweep, mt#2051) or via a manual
-`transcripts_ingest` — so a session that finished while the server was already
-running stayed unsearchable until the next successful boot sweep, and boot-sweep
-errors were silently swallowed (`.catch(() => {})`). Originating incident
-(2026-05-31): a session that ran 2026-05-27→28 was missing from the DB and only
-locatable by grepping raw JSONL.
-
-**Hook file:** `.claude/hooks/transcript-ingest-on-session-end.ts`
-
-**How it works:**
-
-1. Reads `session_id` from the SessionEnd hook input.
-2. Runs `minsky transcripts ingest --session=<id> --harness=claude_code`
-   synchronously. The ingest is HWM-gated and incremental (a cheap no-op for an
-   already-ingested session). FTS search (`transcripts_search-text`) works
-   immediately after a successful ingest; no external API is needed.
-3. Optionally (opt-in) runs `minsky transcripts index-embeddings --session=<id>`
-   so semantic `transcripts_search` is populated too — best-effort, default OFF.
-4. Appends one JSON record per run to
-   `<state-dir>/transcript-ingest-hook-log.jsonl` (the observability surface).
-
-**Observability (the de-silenced boot sweep):** alongside the hook, the boot
-sweep's swallowed failures were surfaced — `startup-transcript-ingest.ts` now
-logs DB-unavailable skips and errored-session runs at `warn` (was `debug`-only),
-and `start-command.ts`'s `.catch(() => {})` now logs the failure at `warn`. A
-failed ingest now leaves an operator-findable signal rather than vanishing.
-
-**Reliability boundary (Covers / Does NOT cover):**
-
-- **Covers** sessions that end normally (the SessionEnd event fires).
-- **Does NOT cover** SIGKILL / crash-terminated sessions (the event never fires)
-  or the default semantic-embed backfill — both are backstopped by the MCP boot
-  sweep (mt#2051) and the cadence sweep (mt#2234, which owns the periodic sweep
-  in the cockpit daemon).
-
-**Always exits 0.** SessionEnd is a no-decision-control event; the hook must
-never block session teardown. Timeout 45s (settings.json).
-
-**Override mechanism:** Set `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1` (or
-`true` / `yes`) to skip the hook (emits a non-JSON audit line to stdout). Set
-`MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` to opt in to the synchronous embedding
-step (default OFF).
-
-**Env-var registration:** both `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK` and
-`MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED` are registered in `HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override
-env-var names' source of truth lives in the hook file as exported constants
-(`TRANSCRIPT_INGEST_OVERRIDE_ENV`, `TRANSCRIPT_INGEST_EMBED_ENV`).
-
-**Verification artifact:** `scripts/smoke-transcript-ingest-hook.ts` live-verifies
-the end-to-end SessionEnd-payload → CLI ingest → observable-log → DB-reachable
-chain (env-gated; skips gracefully without `minsky` or a discoverable session).
-
-**Cross-references:**
-
-- mt#2192 — this hook's tracking task (event/hook slice)
-- mt#2234 — cockpit-daemon cadence sweep (periodic backstop + default
-  semantic-embed backfill); mt#2047 was CLOSED and subsumed
-- mt#2051 — boot-time ingest sweep (the prior sole automatic trigger)
-- mt#1418 — `ingestAll()` single-writer concurrency guard (soft prerequisite once
-  multiple triggers overlap)
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+`SessionEnd` hook: synchronously ingests the finished session's transcript into `agent_transcripts`.
+Covers normal session end; does NOT cover crash-terminated sessions (backed up by the MCP boot sweep).
+Hook: `transcript-ingest-on-session-end.ts`. Override: `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1` (skip);
+`MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed, default off). Fail: always exits 0.
+Doc: `docs/architecture/hooks/session-end-transcript-ingest-hook.md`.
 
 ## Causal-Premise Detector (calibration)
 
-A `UserPromptSubmit` hook that scans the prior assistant turn for volunteered
-causal/mechanism claims about tool or system behavior that lack same-turn
-verification. In **v1 / calibration mode** it logs matches to a JSONL file
-and injects **nothing** — the injection gate (`INJECTION_ENABLED`) is `false`.
-After ~10 fires, review the FP rate; only then flip the flag to enable
-`additionalContext` injection. This is the same rollout pattern as
-`mt#2057` (retrospective-trigger-scanner).
+UserPromptSubmit (v1 calibration-only, no injection yet): logs volunteered causal/mechanism claims
+about tool/system behavior lacking same-turn verification to JSONL. Hook: `causal-premise-detector.ts`.
+Calibration log: `.minsky/causal-premise-calibration.jsonl`. Companion skill: `/check-premise`.
+Override: `MINSKY_ACK_CAUSAL_PREMISE=1`. Fail: open on transcript error.
+Doc: `docs/architecture/hooks/causal-premise-detector.md`.
 
-**Hook file:** `.claude/hooks/causal-premise-detector.ts`
+## Ask-Routing Deferral Detector (calibration)
 
-**Detector contract:**
+UserPromptSubmit (v1 calibration-only): logs decision deferrals routed via chat prose instead of the
+Ask substrate — PRINCIPAL-RESERVED and DEFERRAL-MENU sub-classes. Suppressed when the turn already
+called `asks_create`. Hook: `ask-routing-deferral-detector.ts`. Calibration log:
+`.minsky/ask-routing-deferral-calibration.jsonl`. Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`.
+Fail: open on transcript error. Doc: `docs/architecture/hooks/ask-routing-deferral-detector.md`.
 
-- **Fires on** a volunteered causal/mechanism claim about TOOL/SYSTEM behavior:
-  - Retrodictive: "X behaved this way **because** Y", "the reason is Y",
-    "X blocks/causes Y" — where Y invokes a structural mechanism (identity /
-    permission / config / algorithm / data-shape).
-  - Forward: "running X will do Y", "X is unsafe because Z".
-  - AND the same turn contains **no** backing tool call AND **no** `file:line`
-    or `node_modules/…` citation.
-- **Does NOT fire** when the claim is immediately backed by a same-turn tool
-  result or a cited source.
+## Calibration-Review Cadence Detector
 
-**Calibration JSONL:** `.minsky/causal-premise-calibration.jsonl` — each
-match record contains: `timestamp`, `session_id`, `matchedPhrases[]`, and
-`hadSameTurnVerification` (boolean). Review after ~10 fires to determine the
-FP rate before enabling injection.
+UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires +
+≥3 distinct phrases) OR goes stale (reviewed before, ≥10 days since, ≥1 new fire). On fire: run
+`/calibration-review` — unless a disposition Ask is already open for that log (mt#2659 watermark
+`openAskId`), in which case a single low-noise pending line replaces the warning, at most once per
+session. `policy-coverage`-class (per-tool-call-volume) logs re-warn on cooldown only, not fire-count
+growth (mt#2659). Hook: `calibration-review-cadence-detector.ts`. Override:
+`MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
+Doc: `docs/architecture/hooks/calibration-review-cadence-detector.md`.
 
-**Originating incidents:** R1–R5 documented in memory `3772c77d`:
-- R1 (2026-04-24, mt#994): git error misattributed to missing `-u` flag; real cause was detached HEAD.
-- R2 (2026-05-31, mt#2045): `#`-in-branch-got-mangled story; real cause was unprefixed filter + hyphens.
-- R3 (2026-05-31): "reviewer shares author identity so APPROVE blocked" — false; distinct bot ids.
-- R4 (2026-06-02, mt#2250): fabricated out-of-band migration event; real cause was edited-after-apply migrations.
-- R5 (2026-06-03, mt#2250): forward predictive claim — `migrate --execute` "unsafe" based on unread drizzle mechanism.
+## Subagent Merge Capability Guard
 
-**Companion skill:** `.claude/skills/check-premise/SKILL.md` — agent-invoked
-step: "list the premises this claim rests on; check the cheapest falsifier
-first."
+PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) unless a valid,
+unexpired capability grant covers the task — ADR-028 D5 default-deny. Issue a grant before dispatch:
+`bun scripts/grant-subagent-merge.ts --task mt#<id> --ttl-minutes 30`. Hooks:
+`block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`. Override:
+`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: fail-open reserved for GENUINE grant-store read errors only —
+a missing store or no-match is the default-deny path working, not fail-open.
+Doc: `docs/architecture/hooks/subagent-merge-capability-guard.md`.
 
-**Override mechanism:** Set `MINSKY_ACK_CAUSAL_PREMISE=1` (or `true` / `yes`)
-to suppress detection and emit an audit line to stdout (non-JSON per sibling
-hook convention).
+# Cockpit Deeplinks in Terminal Output
 
-**Env-var registration:** `MINSKY_ACK_CAUSAL_PREMISE` is registered in
-`HOOK_ONLY_ENV_VARS` at
-`packages/domain/src/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override
-env-var name's source of truth lives in the hook file as the exported constant
-`OVERRIDE_ENV_VAR`.
+When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset (PR)** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
 
-**Fail-open posture:** any error reading the transcript or running detection
-exits 0 with a `console.error` warning. The hook never blocks the user prompt.
+```
+[<clean label>](minsky://<type>/<id>)
+```
 
-**Cross-references:**
+Claude Code's renderer turns `[label](minsky://...)` into an OSC-8 terminal hyperlink; macOS terminals pass `minsky://` to `open`, and the cockpit-tray scheme handler (mt#2528) routes it to the cockpit — **launching the cockpit first if it is not running**. So always emit the link; never gate on whether the cockpit is currently open and never read cockpit state to decide.
 
-- mt#2216 — this hook's tracking task
-- Memory `3772c77d` — "Verify the premises of a causal explanation before
-  asserting it" — R1–R5 incident log + escalation trigger
-- `.claude/hooks/substrate-bypass-detector.ts` — sibling UserPromptSubmit
-  hook (mt#2020) with the same architecture
-- `.claude/hooks/retrospective-trigger-scanner.ts` — sibling hook (mt#2057);
-  calibration-first rollout pattern this hook mirrors
-- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+**Dependency:** clickability requires the cockpit-tray app's `minsky://` OS scheme handler (mt#2528) to be registered with the operating system. Where it is not — the tray app is not installed, or the terminal is non-macOS / lacks OSC-8 — the link degrades to the plain label text (which is why the label must always be a readable ref). This does NOT gate emission: emit the link unconditionally and let it degrade gracefully. (This rule is held back from merge until mt#2528 ships, so by the time it is live the handler is registered.)
+
+This is Surface A (the terminal). There is no harness hook that rewrites assistant output, so this linking is **agent discipline** — you emit the markdown by hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via mt#2518.)
+
+## The five entity types
+
+| Entity    | URI form                       | Example                              | Note |
+| --------- | ------------------------------ | ------------------------------------ | ---- |
+| task      | `minsky://task/<id>`           | `minsky://task/mt%232370`            | the `#` in a task id MUST be percent-encoded as `%23` |
+| ask       | `minsky://ask/<uuid>`          | `minsky://ask/38b1c0de-…`            | uuid is URL-safe; no encoding |
+| session   | `minsky://session/<uuid>`      | `minsky://session/2154425b-…`        | URI type is `session` (NOT `agent` or `workspace`), even though the cockpit page is `/agents/<id>` (the workspace detail page — see ADR-022 stage 2, mt#2527, for the deferred `session_*` → `workspace_*` boundary this URI type stays on the near side of) |
+| memory    | `minsky://memory/<uuid>`       | `minsky://memory/bd38be2c-…`         | uuid is URL-safe; no encoding |
+| changeset | `minsky://changeset/<pr-num>`  | `minsky://changeset/1234`            | id == PR number (positive integer); cockpit route is `/changeset/<id>` (mt#2535) |
+
+Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe. PR numbers contain only digits and need no encoding.
+
+## Format rules
+
+- **Label = the clean human-readable ref, kept verbatim.** For a task that is the bare `mt#2370` (with the `#`, unencoded — only the URI gets `%23`). For a UUID entity use a short readable label (a name, or a short id prefix) so the principal is not reading a raw UUID; the target still carries the **full** id.
+- **Keep the label free of markdown-link metacharacters.** No `]`, `(`, or `)` in the label — those break the `[label](url)` syntax. A clean entity ref (`mt#2370`, a short id, a short name) never contains them. The id in the target is percent-encoded by the codec, so the URL side is always safe to close at the first `)`.
+- **No host or port in the link.** Never `http://localhost:<port>/…`. The custom `minsky://` scheme is port-independent and keeps the stored transcript clean across cockpit restarts.
+- **Always emit; degrade gracefully.** Terminals without OSC-8 support show the plain label text — which is why the label must be a readable ref, not the URL.
+- **Don't over-link.** Link a meaningful reference (typically the first mention), not every repetition in a long report. One clickable ref per entity per message is plenty; blanket linking is noise.
+- **PR / changeset references use the `changeset` type.** Emit `[PR #<n>](minsky://changeset/<n>)` when referencing a PR by number. The label should be the human-readable form (`PR #1234`); the id in the URI is the plain PR number (`1234`). Bare `#1234` without the `PR` prefix stays plain text.
+
+## Examples
+
+- `Implemented [mt#2519](minsky://task/mt%232519); the failing case is in [mt#2518](minsky://task/mt%232518).`
+- `Routed the decision to ask [38b1c0de](minsky://ask/38b1c0de-0000-0000-0000-000000000000).`
+- `Merged [PR #1234](minsky://changeset/1234) — reviewer-bot approved.`
+- On a non-OSC-8 terminal the first renders as `Implemented mt#2519; the failing case is in mt#2518.` — still readable.
+
+## Terminal caveats
+
+- **tmux** strips OSC-8 hyperlinks unless passthrough is enabled (`set -g allow-passthrough on`). Under default tmux the link shows as the plain label.
+- **Ghostty** has a Cmd+click bug ([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — Cmd+click may not fire; **right-click → Open Link works**.
+- **Non-OSC-8 terminals** (older emulators, pipes, CI logs) show the plain label and drop the hyperlink — fine, because the label is the clean ref.
+
+## Cross-references
+
+- mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — this rule (Surface A / terminal).
+- mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.
+- mt#2528 — the `minsky://` OS scheme handler in the cockpit-tray app (required for a terminal click to actually open the cockpit).
+- mt#2535 — `/changeset/:id` cockpit detail route (ships the page the changeset URI navigates to).
+- mt#2536 — PR/changeset linkification (adds `changeset` to RoutableEntityType + linkifier PR #N recognition).
+- `src/cockpit/web/lib/entity-codec.ts` — `entityToMinskyUri(type, id)` / `parseMinskyUri(uri)`; the format documented here matches the codec's output exactly.
+- `docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) / `.minsky/rules/terminology-workspace-conversation.mdc` — the workspace/conversation/transport-session vocabulary for NEW code, docs, and cockpit UI copy. The `session` URI type above is deliberately NOT part of that rename (stage 1, mt#2686) — it stays `session` until the deferred stage-2 mechanical `session_*` → `workspace_*` tool-surface rename (mt#2527), which is the only stage that would touch this table.
 
 # User Preferences
 
@@ -3278,6 +2009,9 @@ exits 0 with a `console.error` warning. The hook never blocks the user prompt.
 - **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Multi-agent task graphs contain agents mid-planning, mid-implementation, or about-to-start that don't surface on a single status read.
 
   **Canonical probe sequence** (run in order; first hit indicates a collision):
+  0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims (who has touched this task recently). Treat it as a **signal, not proof** — run probes 1–4 to confirm any hit:
+     - **Fresh claims with an `actorId` you can't account for → "possible other actor"**; go confirm below. `actorId` is an opaque `unknown:hash:<...>` (ADR-006 ascribed identity) for callers without a declared agent_id and **churns per process / staleness-respawn** — so "N claims" is NOT "N distinct agents," and your OWN prior-respawn claims can show up as "other." It tells you *when* to do the forensics, not *who* definitively holds the task.
+     - **An empty result is "no claim visible," not "nobody"** — presence is best-effort and fire-and-forget; treat absence as inconclusive, not proof-of-unclaimed. (Claims self-stale at ~15 min; the default fresh-only view is what you want here.)
   1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
   2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
   3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.
@@ -3287,11 +2021,11 @@ exits 0 with a `console.error` warning. The hook never blocks the user prompt.
 
   **If all probes pass cleanly**, proceed — but record the probe outcome in the recommendation so the audit trail shows the check was done.
 
-  Originating incident: mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge guard agent-attestation gap investigation), the agent recommended `/implement-task mt#1964` without detecting that another agent had advanced mt#1964 PLANNING→READY during the same session. The status change was a visible signal not interpreted as evidence; the principal informed the agent of the collision. The substrate RFC (mt#1990) explores the structural fix — claim primitives, agent presence, status-machine intent states — that turns this probe sequence into a single substrate read. Until that ships, this rule is checklist-driven discipline.
+  Originating incident: mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge guard agent-attestation gap investigation), the agent recommended `/implement-task mt#1964` without detecting that another agent had advanced mt#1964 PLANNING→READY during the same session. The status change was a visible signal not interpreted as evidence; the principal informed the agent of the collision. The substrate RFC (mt#1990) explores the structural fix — claim primitives, agent presence, status-machine intent states — that would turn this probe sequence into a single substrate read. A FIRST slice has shipped: task-grain presence claims (mt#2562; write-path fix mt#2567), now probe step 0 above — but it is a best-effort SIGNAL (opaque, churning `actorId`), not yet the "single read" that replaces the sequence. The unified-fleet-state view that would close that gap is mt#2569. Until then, this rule stays checklist-driven discipline with presence as the cheap first pass.
 
   This rule is the dual of `§Probe before deferring`: that rule guards the "skipping the easy path because I assume it's blocked" failure (claiming tooling is unavailable without verifying); this rule guards the "taking the easy path because I assume it's unclaimed" failure (recommending action on a shared resource without verifying who holds it). Both are instances of: at action-execution time, the agent defaults to the lowest-cost-check path without verifying the underlying assumption.
 
-  **Future structural enforcement:** mt#1990's RFC may propose making the four probes a single substrate query, or eliminating the need to probe entirely via active edges + presence broadcast. When that lands, this rule retires.
+  **Future structural enforcement:** the unified fleet-state view (mt#2569) may fold probes 0–4 into a single query, or eliminate the need to probe entirely via active edges + presence broadcast. When that lands, this rule retires.
 
 - **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
 
@@ -3732,9 +2466,74 @@ When spawning subagents, use the appropriate model and type:
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
+**Continuation (no mid-flight correction):** A dispatched subagent runs to completion and reports back — it cannot be messaged or course-corrected mid-flight. `SendMessage` (referenced in the Agent/Workflow tool descriptions and the dispatch-result hint) is NOT invocable by default: it is gated behind the experimental `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` flag ([anthropics/claude-code#35240](https://github.com/anthropics/claude-code/issues/35240) / [#42737](https://github.com/anthropics/claude-code/issues/42737), closed "not planned"). So bake full context into every dispatch up front, and prefer kill + re-dispatch (a fresh agent with the corrected context) over waiting to nudge a running one. (mt#2512; whether to adopt Agent Teams or build a Minsky-native equivalent is tracked in mt#2521.)
+
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
+
+# Terminology: workspace / conversation / transport session
+
+`docs/architecture/adr-022-session-vs-conversation-terminology.md` (Accepted) resolves a
+three-way overload of the word "session" that made Minsky hard to think, talk, and search
+about. This rule is the **stage-1 convention**: it applies to NEW code, docs, and UI copy
+starting now. It does NOT rename the existing `session_*` tool/API surface — that is stage 2
+(mt#2527), a separately scheduled, larger mechanical rename.
+
+## The three senses
+
+| Term (use this) | What it names | Old/ecosystem name | Example surface |
+| --- | --- | --- | --- |
+| **workspace** | The Minsky per-task isolated git-clone + branch (`SessionRecord`, `~/.local/state/minsky/sessions/`, ~59 `session_*` tools) | "session" | cockpit `/agents/:id` detail page (workspace-session id-space) |
+| **conversation** | A harness chat (Claude Code conversation UUID, `agent_session_id`, transcripts, `claude --resume`) | "session" (ecosystem-dominant term) | cockpit `/conversation/:id`, `transcripts_*` MCP tools |
+| **transport session** | The MCP client↔server connection (`Mcp-Session-Id`) | "session" (MCP-spec term) | disconnect tracker, `processRole` |
+
+Use **workspace** and **conversation** in new prose, comments, variable/type names, and UI
+copy. Reserve **session** (bare, unqualified) for the MCP-transport sense only, since that is
+the one place "session" is the authoritative external-spec term (`Mcp-Session-Id`) and no
+better word exists. If "session" appears in new prose about the work-area or the chat, that's
+the overload this rule exists to prevent — say "workspace" or "conversation" instead.
+
+## What this rule does NOT change (stage 2 scope, mt#2527)
+
+- No `session_*` MCP/CLI tool name, parameter name, or DB column is renamed.
+- No `~/.local/state/minsky/sessions/` path changes.
+- Back-compat aliases from mt#2526 (`transcripts_*` param renames) are untouched.
+- Existing docs/prose keep their current vocabulary until stage 2 or an opportunistic edit —
+  this rule does not require a docs back-fill pass.
+
+## `minsky://` deeplink URI types are NOT renamed
+
+The `minsky://<type>/<id>` deeplink scheme (`cockpit-deeplinks.mdc`,
+`src/cockpit/web/lib/entity-codec.ts`) keeps its five URI types — `task`, `ask`, `session`,
+`memory`, `changeset` — exactly as they are. In particular, `minsky://session/<uuid>` keeps
+naming the **workspace** sessionId (stored transcripts already carry links in this form; they
+must keep resolving). The entity-codec's type→route mapping already absorbs one such
+divergence today — the `session` URI type resolves to the `/agents/:id` cockpit route, not a
+literal `/session/:id` path — and continues to absorb the stage-1 cockpit rename the same way:
+the URI **type name** is a stable public identifier; the cockpit **route/component name** is
+free to carry the new vocabulary. Do not "fix" this apparent mismatch by renaming URI types —
+that is exactly the breaking-API move stage 2 owns, and renaming URI types would break every
+stored `minsky://session/...` link in every ingested transcript.
+
+## Applying this in cockpit UI copy
+
+When a cockpit surface displays the **workspace** sense (branch, liveness, commits, PR state —
+the Minsky work-area), label it "workspace" in headings and copy. When it displays the
+**conversation** sense (a readable chat transcript), label it "conversation". A surface that
+bridges both (e.g. a workspace detail page that also shows a live conversation tail) should
+label each section per the sense it shows, not blend the words.
+
+## Cross-references
+
+- `docs/architecture/adr-022-session-vs-conversation-terminology.md` — the ADR this rule
+  operationalizes (Accepted 2026-07-06).
+- `cockpit-deeplinks.mdc` — the `minsky://` URI format; its `session` row notes the
+  URI-type/route divergence this rule generalizes.
+- mt#2522 — epic; mt#2524 (branded ids), mt#2525 (id-space hardening), mt#2526 (conversation
+  labeling) — DONE prerequisite tiers; mt#2686 — this rule's originating task (stage 1);
+  mt#2527 — stage 2 (the deferred mechanical tool-surface rename).
+- Funding decision: 2026-07-06, ask f0782a96; living record memory 805ef48f.
 
 # Key Architecture
 
@@ -3826,7 +2625,7 @@ A mechanism with no invocation path is a stub. It may exist in the codebase, pas
 
 # Compact Instructions
 
-When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
+When compacting, preserve: current task ID and the workspace session path (the `session_start` clone dir), file paths being edited, architectural decisions made in this conversation, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
 
 # Decision Defaults
 
@@ -4121,7 +2920,7 @@ Required before encoding the approach in a spec:
 
 **Originating incident:** mt#1477 (filed ~2026-04-30) proposed migrating CI workflows from `pull_request` to `pull_request_target` to fix the App-token workflow trigger drop. The spec acknowledged some risks (fork PRs, secrets exposure) but treated them as acceptable tradeoffs. Research on 2026-05-24 revealed: (a) `pull_request_target` is a well-documented security anti-pattern — GitHub Security Lab calls it "pwn requests," ~1% of repos using it are exploitable; (b) the spec's factual premise was wrong — `session_commit` pushes via system keychain credentials, not the App token; (c) the community-standard fix is to use the App token for git push, requiring no workflow changes. Neither a security literature check nor a community-practice check was performed during spec authoring.
 
-**Structural enforcement.** `/plan-task` gate criterion (l) — when a spec proposes changing a CI/CD security surface, require documented community-practice check with at least one authoritative citation. Tracking task: mt#2090. Until gate (l) ships, this is corpus-tier discipline.
+**Structural enforcement.** `/plan-task` gate criterion (l) — *Authoritative-source check for third-party-system decisions* — is live (restored + generalized via mt#2445). It fires when a spec changes a CI/CD security surface (sub-case 1), designs a mechanism on a third-party system's internals (sub-case 2), or recommends how to use a named tool that has official docs (sub-case 3), and requires a documented vendor-docs/community-practice check with at least one authoritative citation plus a match/extend/deviate statement before READY. The original security-surface-only criterion was tracked by mt#2090 (its body was lost on a skill recompile and restored here).
 
 ## How this is enforced
 
@@ -4156,7 +2955,7 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
 - mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
 - Memory `22a55d66` — originating memory for `§Security-surface changes require community-practice check`
-- mt#2090 — gate criterion (l) implementation task for `§Security-surface changes require community-practice check`
+- mt#2090 — original (security-surface-only) gate criterion (l) task; mt#2445 — restored + generalized gate (l) (now also covers mechanism-design-on-internals and how-to-use-a-named-tool) for `§Security-surface changes require community-practice check`
 - mt#1477 — originating incident for `§Security-surface changes require community-practice check`
 
 # Memory Usage
@@ -4199,6 +2998,10 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **Auto-walked transitions** (chain forward unless an explicit halt condition holds):
 
+- `/create-task` → `/plan-task` when the task was filed as **incident response** — a problem the
+  user reported in the live conversation, or one discovered during this conversation's work
+  (mt#2689). Filing the task is not the deliverable; the fix is. Background/tracking tasks filed
+  for later by design are exempt — say so explicitly when stopping there.
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)

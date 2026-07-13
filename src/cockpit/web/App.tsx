@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { WidgetShell } from "./components/WidgetShell";
+import { useDeepLinkHandler } from "./hooks/useDeepLinkHandler";
 import {
   fetchWidgets,
   fetchWidgetData,
@@ -18,22 +19,23 @@ import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { McpServerStatus } from "./widgets/McpServerStatus";
+import { ReviewerBotStatus } from "./widgets/ReviewerBotStatus";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 const AgentsPage = lazy(() =>
   import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
 );
-const SessionDetailPage = lazy(() =>
-  import("./pages/SessionDetailPage").then((m) => ({ default: m.SessionDetailPage }))
+const WorkspaceDetailPage = lazy(() =>
+  import("./pages/WorkspaceDetailPage").then((m) => ({ default: m.WorkspaceDetailPage }))
 );
 const ContextPage = lazy(() =>
   import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
 );
-const SessionPage = lazy(() =>
-  import("./pages/SessionPage").then((m) => ({ default: m.SessionPage }))
+const ConversationPage = lazy(() =>
+  import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
 );
-const SessionsPage = lazy(() =>
-  import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+const ConversationsPage = lazy(() =>
+  import("./pages/ConversationsPage").then((m) => ({ default: m.ConversationsPage }))
 );
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
@@ -55,6 +57,12 @@ const TaskDetailPage = lazy(() =>
 );
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
 const AskPage = lazy(() => import("./pages/AskPage").then((m) => ({ default: m.AskPage })));
+const ChangesetDetailPage = lazy(() =>
+  import("./pages/ChangesetDetailPage").then((m) => ({ default: m.ChangesetDetailPage }))
+);
+const ChangesetsPage = lazy(() =>
+  import("./pages/ChangesetsPage").then((m) => ({ default: m.ChangesetsPage }))
+);
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
 );
@@ -69,6 +77,12 @@ const MemoryPage = lazy(() =>
 );
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
+);
+const WeldHistoryPage = lazy(() =>
+  import("./pages/WeldHistoryPage").then((m) => ({ default: m.WeldHistoryPage }))
+);
+const VitalsPage = lazy(() =>
+  import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
 
 /**
@@ -91,6 +105,21 @@ export const plantRoutes = (
     />
     <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
     <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
+    {/*
+     * Interlock-history drill-down (mt#2602): interlock provenance timeline.
+     * Route renamed from `/plant/weld-history` (mt#2626, guard vocabulary
+     * alignment — "interlock" is the domain noun; "weld" survives only as a
+     * verb). Accepted as a breaking rename — local-only cockpit, no external
+     * consumers/bookmarks to preserve, so no redirect route was added.
+     */}
+    <Route
+      path="/plant/interlock-history"
+      element={
+        <ErrorBoundary id="interlock-history-page">
+          <WeldHistoryPage />
+        </ErrorBoundary>
+      }
+    />
   </>
 );
 
@@ -106,6 +135,7 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>>
   credentials: CredentialsSummary,
   "embeddings-health": EmbeddingsHealth,
   "mcp-server-status": McpServerStatus,
+  "reviewer-bot-status": ReviewerBotStatus,
 };
 
 // Prop-driven widgets: receive data from App-level polling.
@@ -256,6 +286,13 @@ export function App() {
   const queryClient = useQueryClient();
 
   // ---------------------------------------------------------------------------
+  // minsky:// deep-link handler (mt#2528, ADR-023).
+  // Installs window.__minskyDeepLink and drains window.__minskyPendingDeepLink.
+  // Called once; the hook is inside the router tree so useNavigate is available.
+  // ---------------------------------------------------------------------------
+  useDeepLinkHandler();
+
+  // ---------------------------------------------------------------------------
   // SSE adapter — invalidates TanStack Query cache on push events (mt#1148).
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -372,14 +409,17 @@ export function App() {
               </ErrorBoundary>
             }
           />
-          {/* Workspace-session entity route (mt#1919): keyed by the Minsky
-              workspace sessionId — distinct from /session/:id, which takes the
-              harness agentSessionId (transcript). */}
+          {/* Workspace entity route (mt#1919): keyed by the Minsky workspace
+              sessionId — distinct from /conversation/:id, which takes the
+              harness agentSessionId (transcript). Renamed from
+              SessionDetailPage per ADR-022 stage 1 (mt#2686); the /agents/:id
+              path itself is unchanged (the Agents list/detail pair is a
+              separate naming decision, out of scope here). */}
           <Route
             path="/agents/:id"
             element={
               <ErrorBoundary id="session-detail-page">
-                <SessionDetailPage />
+                <WorkspaceDetailPage />
               </ErrorBoundary>
             }
           />
@@ -392,20 +432,23 @@ export function App() {
             }
           />
           <Route
-            path="/sessions"
+            path="/conversations"
             element={
               <ErrorBoundary id="sessions-page">
-                <SessionsPage />
+                <ConversationsPage />
               </ErrorBoundary>
             }
           />
-          {/* Session entity route (mt#2398): URL-addressable session tab; body is
-              mt#2374's ConversationView, re-homed from the retired /conversation host. */}
+          {/* Conversation entity route (mt#2398): URL-addressable conversation
+              tab; body is mt#2374's ConversationView, re-homed from the retired
+              /conversation host. Path renamed from /session/:id per ADR-022
+              stage 1 (mt#2686) — the old URL used "session" for what this page
+              always meant: a harness conversation transcript. */}
           <Route
-            path="/session/:id"
+            path="/conversation/:id"
             element={
               <ErrorBoundary id="session-page">
-                <SessionPage />
+                <ConversationPage />
               </ErrorBoundary>
             }
           />
@@ -444,6 +487,25 @@ export function App() {
             element={
               <ErrorBoundary id="ask-page">
                 <AskPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Changeset entity route (mt#2535): URL-addressable changeset/PR detail tab.
+              Id is the changeset id — keyed to PR number (github-pr adapter). */}
+          <Route
+            path="/changeset/:id"
+            element={
+              <ErrorBoundary id="changeset-page">
+                <ChangesetDetailPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Changesets list route (mt#1920): active PRs across sessions. */}
+          <Route
+            path="/changesets"
+            element={
+              <ErrorBoundary id="changesets-page">
+                <ChangesetsPage />
               </ErrorBoundary>
             }
           />
@@ -489,6 +551,15 @@ export function App() {
             }
           />
           {plantRoutes}
+          {/* Phone vital-signs view (mt#2601): compressed four-loop sibling of /plant. */}
+          <Route
+            path="/vitals"
+            element={
+              <ErrorBoundary id="vitals-page">
+                <VitalsPage />
+              </ErrorBoundary>
+            }
+          />
         </Routes>
       </Suspense>
     </Layout>

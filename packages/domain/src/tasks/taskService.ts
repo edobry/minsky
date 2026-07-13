@@ -12,6 +12,41 @@ import { createTaskService } from "./multi-backend-service";
 import { TaskBackend } from "../configuration/backend-detection";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
+import { resolveProjectIdentity } from "../project/identity";
+import { resolveProjectScope, type ScopeResolverDb } from "../project/scope-resolver";
+import { isAllProjects } from "../project/scope";
+
+/**
+ * Returns true for any string that identifies the github-issues backend.
+ * Covers enum values ("github", "github-issues") and enum member names
+ * ("GITHUB", "GITHUB_ISSUES") so callers cannot bypass the disabled gate
+ * by using either form.
+ */
+const GITHUB_BACKEND_IDENTIFIERS: ReadonlySet<string> = new Set([
+  TaskBackend.GITHUB, // "github"
+  TaskBackend.GITHUB_ISSUES, // "github-issues"
+  "GITHUB",
+  "GITHUB_ISSUES",
+]);
+
+function isGithubBackendIdentifier(backend: string): boolean {
+  return GITHUB_BACKEND_IDENTIFIERS.has(backend);
+}
+
+/**
+ * Resolve the current project's uuid for stamping `project_id` on Minsky-backend
+ * inserts (ADR-021, mt#2416). Mirrors the read-side resolution used in
+ * `tasks.ts`. Returns `undefined` when the project is unidentified or resolves
+ * to ALL_PROJECTS, so inserts stay nullable in those cases (e.g. the hosted
+ * server / cockpit daemon, which have no single repo cwd).
+ */
+async function resolveCurrentProjectId(
+  workspacePath: string,
+  db: ScopeResolverDb
+): Promise<string | undefined> {
+  const scope = await resolveProjectScope(resolveProjectIdentity({ repoPath: workspacePath }), db);
+  return isAllProjects(scope) ? undefined : scope;
+}
 
 // Define the base TaskService interface used across the domain
 export interface TaskServiceInterface {
@@ -55,62 +90,81 @@ export async function createConfiguredTaskService(options: {
 
   // If specific backend requested, only register that backend
   if (options.backend) {
-    switch (options.backend) {
-      case TaskBackend.GITHUB: {
-        const config = getGitHubBackendConfig(options.workspacePath, { logErrors: true });
-        if (!config || !config.githubToken || !config.owner || !config.repo) {
-          throw new Error(
-            "GitHub backend configuration not available. Ensure GitHub token, owner, and repo are configured."
-          );
-        }
-        const githubBackend = createGitHubIssuesTaskBackend({
-          name: TaskBackend.GITHUB,
-          workspacePath: options.workspacePath,
-          githubToken: config.githubToken,
-          owner: config.owner,
-          repo: config.repo,
-          statusLabels: config.statusLabels,
+    if (isGithubBackendIdentifier(options.backend)) {
+      // Check if the github-issues backend is enabled via config flag (default: false).
+      // Covers "github", "github-issues", "GITHUB", "GITHUB_ISSUES".
+      let githubBackendEnabled = false;
+      try {
+        const { getConfiguration } = await import("../configuration");
+        const appConfig = getConfiguration();
+        githubBackendEnabled = appConfig.tasks.githubBackend.enabled;
+      } catch (error) {
+        log.debug("Could not read configuration for github backend flag", {
+          error: getErrorMessage(error),
         });
-        githubBackend.prefix = "gh";
-        service.registerBackend(githubBackend);
-        log.debug("GitHub backend registered successfully");
-        break;
       }
+      if (!githubBackendEnabled) {
+        throw new Error(
+          "GitHub-issues task backend is disabled. Set tasks.githubBackend.enabled=true in your Minsky config to use it."
+        );
+      }
+      const config = getGitHubBackendConfig(options.workspacePath, { logErrors: true });
+      if (!config || !config.githubToken || !config.owner || !config.repo) {
+        throw new Error(
+          "GitHub backend configuration not available. Ensure GitHub token, owner, and repo are configured."
+        );
+      }
+      const githubBackend = createGitHubIssuesTaskBackend({
+        name: TaskBackend.GITHUB,
+        workspacePath: options.workspacePath,
+        githubToken: config.githubToken,
+        owner: config.owner,
+        repo: config.repo,
+        statusLabels: config.statusLabels,
+      });
+      githubBackend.prefix = "gh";
+      service.registerBackend(githubBackend);
+      log.debug("GitHub backend registered successfully");
+    } else {
+      switch (options.backend) {
+        case TaskBackend.MINSKY: {
+          try {
+            if (!options.persistenceProvider) {
+              throw new Error("Minsky backend requires a persistenceProvider to be injected");
+            }
+            const persistence =
+              options.persistenceProvider as import("../persistence/types").SqlCapablePersistenceProvider;
+            const db = await persistence.getDatabaseConnection?.();
+            if (!db) {
+              throw new Error(
+                "Minsky backend requires a database connection, but none was available"
+              );
+            }
 
-      case TaskBackend.MINSKY: {
-        try {
-          if (!options.persistenceProvider) {
-            throw new Error("Minsky backend requires a persistenceProvider to be injected");
-          }
-          const persistence =
-            options.persistenceProvider as import("../persistence/types").SqlCapablePersistenceProvider;
-          const db = await persistence.getDatabaseConnection?.();
-          if (!db) {
+            const minskyBackend = createMinskyTaskBackend({
+              name: TaskBackend.MINSKY,
+              workspacePath: options.workspacePath,
+              db,
+              currentProjectId: await resolveCurrentProjectId(options.workspacePath, db),
+            });
+            minskyBackend.prefix = "mt";
+            service.registerBackend(minskyBackend);
+            log.debug("Minsky backend registered successfully");
+          } catch (error) {
+            log.debug("Minsky backend not available", { error: getErrorMessage(error) });
             throw new Error(
-              "Minsky backend requires a database connection, but none was available"
+              `Minsky backend requested but not available: ${getErrorMessage(error)}`
             );
           }
-
-          const minskyBackend = createMinskyTaskBackend({
-            name: TaskBackend.MINSKY,
-            workspacePath: options.workspacePath,
-            db,
-          });
-          minskyBackend.prefix = "mt";
-          service.registerBackend(minskyBackend);
-          log.debug("Minsky backend registered successfully");
-        } catch (error) {
-          log.debug("Minsky backend not available", { error: getErrorMessage(error) });
-          throw new Error(`Minsky backend requested but not available: ${getErrorMessage(error)}`);
+          break;
         }
-        break;
-      }
 
-      default: {
-        const { getAvailableBackendsString } = await import("./taskConstants");
-        throw new Error(
-          `Unknown backend: ${options.backend}. Available backends: ${getAvailableBackendsString()}`
-        );
+        default: {
+          const { getAvailableBackendsString } = await import("./taskConstants");
+          throw new Error(
+            `Unknown backend: ${options.backend}. Available backends: ${getAvailableBackendsString()}`
+          );
+        }
       }
     }
   } else {
@@ -119,21 +173,38 @@ export async function createConfiguredTaskService(options: {
       const persistenceProvider = options.persistenceProvider;
       log.debug("Using injected persistence provider for multi-backend mode");
 
-      // Add GitHub backend (gh# prefix) - requires GitHub configuration
+      // Add GitHub backend (gh# prefix) - requires both the config flag AND GitHub credentials
       try {
-        const config = getGitHubBackendConfig(options.workspacePath, { logErrors: false });
-        if (config && config.githubToken && config.owner && config.repo) {
-          const githubBackend = createGitHubIssuesTaskBackend({
-            name: TaskBackend.GITHUB,
-            workspacePath: options.workspacePath,
-            githubToken: config.githubToken,
-            owner: config.owner,
-            repo: config.repo,
-            statusLabels: config.statusLabels,
+        // Check the config flag first (default: false — github backend is disabled by default)
+        let githubBackendEnabled = false;
+        try {
+          const { getConfiguration } = await import("../configuration");
+          const appConfig = getConfiguration();
+          githubBackendEnabled = appConfig.tasks.githubBackend.enabled;
+        } catch (error) {
+          log.debug("Could not read configuration for github backend flag", {
+            error: getErrorMessage(error),
           });
-          githubBackend.prefix = "gh";
-          service.registerBackend(githubBackend);
-          log.debug("GitHub backend registered successfully");
+        }
+        if (!githubBackendEnabled) {
+          log.info(
+            "GitHub-issues task backend disabled by configuration (tasks.githubBackend.enabled=false). Skipping registration."
+          );
+        } else {
+          const config = getGitHubBackendConfig(options.workspacePath, { logErrors: false });
+          if (config && config.githubToken && config.owner && config.repo) {
+            const githubBackend = createGitHubIssuesTaskBackend({
+              name: TaskBackend.GITHUB,
+              workspacePath: options.workspacePath,
+              githubToken: config.githubToken,
+              owner: config.owner,
+              repo: config.repo,
+              statusLabels: config.statusLabels,
+            });
+            githubBackend.prefix = "gh";
+            service.registerBackend(githubBackend);
+            log.debug("GitHub backend registered successfully");
+          }
         }
       } catch (error) {
         log.debug("GitHub backend not available", { error: getErrorMessage(error) });
@@ -151,6 +222,7 @@ export async function createConfiguredTaskService(options: {
               name: TaskBackend.MINSKY,
               workspacePath: options.workspacePath,
               db,
+              currentProjectId: await resolveCurrentProjectId(options.workspacePath, db),
             });
             minskyBackend.prefix = "mt";
             service.registerBackend(minskyBackend);

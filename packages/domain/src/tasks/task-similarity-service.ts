@@ -112,10 +112,22 @@ export class TaskSimilarityService {
     const hasDomainFilter =
       Boolean(statusEquals) || (statusExclude?.length ?? 0) > 0 || Boolean(backendEquals);
 
+    // mt#2744: phase timing for the full tasks search path. The backend logs the
+    // embed-vs-vector split per getSearchService().search() call; this summary adds
+    // the filtered-path overhead (fetch-all-tasks for live filtering + a possible
+    // second "widen" vector search) that the backend-level timing cannot see.
+    const searchStartTs = Date.now();
+
     // Fast path: no domain filter (used by similarToTask / searchSimilarTasks) — search
     // the full corpus directly with no extra task lookups.
     if (!hasDomainFilter) {
       const response = await this.getSearchService().search({ queryText: query, limit });
+      log.debug("tasks searchByText timing (mt#2744)", {
+        path: "fast",
+        searches: 1,
+        totalMs: Math.round(Date.now() - searchStartTs),
+        limit,
+      });
       return {
         results: response.items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata })),
         backend: response.backend,
@@ -124,9 +136,36 @@ export class TaskSimilarityService {
       };
     }
 
-    // Live source of truth for every task's status/backend (one query, lightweight
-    // metadata — spec content is loaded separately and not included here).
-    const allTasks = await this.searchTasks({});
+    // Live source of truth for every task's status/backend, embedded CONCURRENTLY
+    // with this fetch (mt#2754): the embed hits OpenAI while the fetch hits Postgres,
+    // so they overlap with no DB contention. The vector search below reuses the
+    // precomputed vector and runs AFTER this fetch, so the two DB round-trips never
+    // overlap (the mt#2744 DB-contention finding). Spec content is loaded separately.
+    let embedMs = 0;
+    let allTasksFetchMs = 0;
+    const parallelStart = Date.now();
+    const [queryVector, allTasks] = await Promise.all([
+      // If the pre-embed throws (e.g. embedding provider down), resolve to undefined so the
+      // embeddings backend re-attempts inside getSearchService().search() and, on failure,
+      // SimilaritySearchService degrades to the lexical backend exactly as before this
+      // optimization — the precompute must not bypass the graceful fallback (mt#2754 review).
+      this.embeddingService.generateEmbedding(query).then(
+        (v) => {
+          embedMs = Date.now() - parallelStart;
+          return v;
+        },
+        (err: unknown) => {
+          log.debug("tasks searchByText pre-embed failed; deferring to search-service fallback", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        }
+      ),
+      this.searchTasks({}).then((t) => {
+        allTasksFetchMs = Date.now() - parallelStart;
+        return t;
+      }),
+    ]);
     const taskById = new Map(allTasks.map((t) => [t.id, t]));
     const passes = (task: Task | undefined): boolean => {
       if (!task) return false; // orphaned embedding (no live task) — drop
@@ -159,19 +198,35 @@ export class TaskSimilarityService {
 
     let response = await this.getSearchService().search({
       queryText: query,
+      queryVector,
       limit: candidateLimit,
     });
     let survivors = response.items.filter((i) => passes(taskById.get(i.id)));
+    let vectorSearches = 1;
 
     // Widen-if-short: if the initial window didn't yield `limit` survivors and a larger
     // (still bounded) window is available, re-search up to the candidate ceiling.
     if (survivors.length < limit && candidateLimit < candidateCeiling) {
       response = await this.getSearchService().search({
         queryText: query,
+        queryVector,
         limit: candidateCeiling,
       });
       survivors = response.items.filter((i) => passes(taskById.get(i.id)));
+      vectorSearches = 2;
     }
+
+    log.debug("tasks searchByText timing (mt#2744)", {
+      path: "filtered",
+      totalMs: Math.round(Date.now() - searchStartTs),
+      embedMs: Math.round(embedMs),
+      allTasksFetchMs: Math.round(allTasksFetchMs),
+      allTasksCount: total,
+      vectorSearches,
+      candidateLimit,
+      survivors: survivors.length,
+      limit,
+    });
 
     return {
       results: survivors.slice(0, limit).map((i) => ({

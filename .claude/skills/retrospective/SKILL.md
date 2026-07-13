@@ -213,6 +213,25 @@ This check turns "the structural fix exists" from an assumption into an invarian
 
 The default until the 2026-04-26 meta-retrospective was "save memory, file structural task only after recurrence." That cost 12-24h per pattern. Reference: Notion incident memo `34e937f03cb4813c8046c6e00cb668f2` ("Mitigation-tier inversion") — of four pattern-fixes that day, only one (session_update force-push, mt#1304) followed the corrected sequence; the other three (verify-script-not-run, parallel-work, reviewer-bot misreads) waited 1-2+ days before the structural task was filed, and the failure mode recurred in the meantime.
 
+### 5a. Emit `retrospective.fired` (mt#2537)
+
+After a fix in step 5 lands a durable artifact change (a CLAUDE.md/rule edit, a
+new or modified hook, a skill-step addition) — NOT for a memory-only bridge —
+emit the `retrospective.fired` system event so the cockpit activity feed and
+the Phase 2 attention noticer see that a retrospective produced a structural
+change:
+
+```bash
+minsky events emit retrospective.fired --payload '{"note":"<one-line summary of the fix>","taskId":"mt#<id if a structural-fix task was filed>"}'
+```
+
+This is best-effort and non-blocking — a failure to emit (no DB, CLI error)
+never blocks the retrospective itself; proceed to step 6 regardless of the
+emit's outcome. `note` should name the fix artifact (e.g. "hook:
+check-branch-fresh.ts — added merge-in-progress carve-out"), not just repeat
+the failure description. Omit `taskId` when no separate structural-fix task
+was filed (the fix landed directly in this PR).
+
 ### 6. Verify the fix
 
 For each fix, answer: **Would this change have prevented the original failure?** Walk through the incident scenario with the new process in place. If the answer is "probably" instead of "yes", the fix isn't structural enough — iterate.

@@ -15,21 +15,33 @@ interface SessionEditFileParams {
   task?: string;
   repo?: string;
   json?: boolean;
+  // mt#2742: the declared param is `sessionId` (session-parameters.ts). The
+  // handler previously read only `params.session` (never declared) so an
+  // explicit session id was silently ignored and the command always
+  // auto-detected. `sessionId` is the canonical key; `session` kept as a
+  // harmless fallback.
+  sessionId?: string;
   session?: string;
   path?: string;
   instruction?: string;
   patternFile?: string;
   dryRun?: boolean;
   createDirs?: boolean;
+  fullReplace?: boolean;
   debug?: boolean;
 }
 
-async function resolveSessionId(
+// Exported (mt#2742) for regression testing the sessionId-resolution fix.
+export async function resolveSessionId(
   deps: SessionCommandDependencies,
   params: SessionEditFileParams
 ): Promise<string> {
-  if (params.session) {
-    return params.session;
+  // mt#2742: honor the canonical `sessionId` param (the declared key); `session`
+  // kept as a harmless fallback. Previously only `params.session` (undeclared)
+  // was read, so an explicit id was ignored and this always auto-detected.
+  const explicit = params.sessionId ?? params.session;
+  if (explicit) {
+    return explicit;
   }
 
   const currentSession = await deps.getCurrentSession(process.cwd());
@@ -94,86 +106,73 @@ async function getEditPattern(params: SessionEditFileParams): Promise<string> {
   return readFromStdin();
 }
 
-async function callSessionEditFileMcpTool(args: {
+/**
+ * Thin CLI wrapper around the canonical apply-model operation
+ * (`applySessionFileEditOperation`, `packages/domain/src/session/session-file-edit-operation.ts`).
+ *
+ * mt#2612: this used to be an independent reimplementation — despite its name and
+ * doc-comment, it never called the MCP tool, threw "not yet implemented" for the
+ * marker+existing-file case, and performed an unguarded full overwrite for the
+ * marker-less+existing-file case (the mt#2400 FAIL-CLOSED guard was entirely
+ * absent here). It now delegates the decision logic to the same domain function
+ * `session.edit_file` (the MCP tool) uses, then builds the same diff/response
+ * envelope shape this command has always returned.
+ */
+async function runSessionEditFileOperation(args: {
   sessionId: string;
   path: string;
   instructions: string;
   content: string;
   dryRun: boolean;
   createDirs: boolean;
+  fullReplace: boolean;
   sessionProvider?: import("@minsky/domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
-  const { writeFile, stat } = await import("fs/promises");
-  const { dirname } = await import("path");
-  const { mkdir } = await import("fs/promises");
-  const { SessionPathResolver } = await import("@minsky/domain/session/session-path-resolver");
   const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
   const { createSuccessResponse } = await import("@minsky/domain/schemas");
+  const { applySessionFileEditOperation } = await import(
+    "@minsky/domain/session/session-file-edit-operation"
+  );
 
-  const pathResolver = new SessionPathResolver(args.sessionProvider);
-  const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
-
-  let fileExists = false;
-  let originalContent = "";
-
-  try {
-    await stat(resolvedPath);
-    fileExists = true;
-    originalContent = await readTextFile(resolvedPath);
-  } catch {
-    fileExists = false;
-  }
-
-  if (!fileExists && args.content.includes("// ... existing code ...")) {
-    throw new MinskyError(
-      `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
-    );
-  }
-
-  let finalContent: string;
-
-  if (fileExists && args.content.includes("// ... existing code ...")) {
-    throw new MinskyError(
-      "Edit pattern application is not yet implemented in the CLI wrapper. " +
-        "Please use the MCP tool directly for pattern-based edits."
-    );
-  } else {
-    finalContent = args.content;
-  }
+  const result = await applySessionFileEditOperation({
+    sessionId: args.sessionId,
+    path: args.path,
+    content: args.content,
+    instructions: args.instructions,
+    dryRun: args.dryRun,
+    createDirs: args.createDirs,
+    fullReplace: args.fullReplace,
+    sessionProvider: args.sessionProvider,
+  });
 
   if (args.dryRun) {
-    const diff = generateUnifiedDiff(originalContent, finalContent, args.path);
-    const diffSummary = generateDiffSummary(originalContent, finalContent);
+    const diff = generateUnifiedDiff(result.originalContent, result.finalContent, args.path);
+    const diffSummary = generateDiffSummary(result.originalContent, result.finalContent);
 
     return createSuccessResponse({
       timestamp: new Date().toISOString(),
       path: args.path,
       session: args.sessionId,
-      resolvedPath,
+      resolvedPath: result.resolvedPath,
       dryRun: true,
-      proposedContent: finalContent,
+      proposedContent: result.finalContent,
       diff,
       diffSummary,
-      edited: fileExists,
-      created: !fileExists,
+      edited: result.fileExisted,
+      created: !result.fileExisted,
     });
   }
 
-  if (args.createDirs) {
-    await mkdir(dirname(resolvedPath), { recursive: true });
-  }
-
-  await writeFile(resolvedPath, finalContent, "utf8");
-  const bytesWritten = new TextEncoder().encode(finalContent).byteLength;
+  const bytesWritten = new TextEncoder().encode(result.finalContent).byteLength;
 
   return createSuccessResponse({
     timestamp: new Date().toISOString(),
     path: args.path,
     session: args.sessionId,
-    resolvedPath,
+    resolvedPath: result.resolvedPath,
     bytesWritten,
-    edited: fileExists,
-    created: !fileExists,
+    edited: result.fileExisted,
+    created: !result.fileExisted,
   });
 }
 
@@ -251,13 +250,14 @@ export function createSessionEditFileCommand(getDeps: LazySessionDeps): CommandD
         const sessionId = await resolveSessionId(deps, typedParams);
         const content = await getEditPattern(typedParams);
 
-        const mcpResult = await callSessionEditFileMcpTool({
+        const mcpResult = await runSessionEditFileOperation({
           sessionId,
           path: typedParams.path ?? "",
           instructions: typedParams.instruction ?? "",
           content,
           dryRun: typedParams.dryRun || false,
           createDirs: typedParams.createDirs !== false,
+          fullReplace: typedParams.fullReplace || false,
           sessionProvider: deps.sessionProvider,
         });
 

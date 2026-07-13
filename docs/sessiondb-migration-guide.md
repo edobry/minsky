@@ -1,12 +1,14 @@
 # SessionDB Migration Guide
 
-> **Deprecated (2026-06-08).** This guide is largely obsolete. The JSON-file backend was removed,
-> and **SQLite support is being removed** (task mt#2339); a Postgres connection is now required.
-> The `[sessiondb]` config keys referenced below are also retired — they now throw at boot (use
-> `persistence.*` / `MINSKY_PERSISTENCE_POSTGRES_URL`). See
+> **Obsolete (2026-06-08; SQLite removal completed the same day).** This guide is historical only.
+> The JSON-file backend was removed years ago, and **SQLite support has been removed entirely**
+> (mt#2339, mt#2329) — `PersistenceConfig.backend` is now a `"postgres"` literal type, not a valid
+> `sqlite`/`json` union member. The `[sessiondb]` config keys referenced below are also retired —
+> they now throw at boot (use `persistence.*` / `MINSKY_PERSISTENCE_POSTGRES_URL`). See
 > [ADR-018](architecture/adr-018-domain-persistence-pattern.md) for the canonical persistence
 > decision and task mt#434 for the future PGlite (embedded Postgres) option. The SQLite/legacy
-> content below is retained only for historical reference until the mt#2339 removal lands.
+> content below is retained only for historical reference — none of the `sqlite`-target commands
+> shown work against the current codebase (mt#2623 follow-up: file a full rewrite/purge task).
 > **All command / config / env-var examples below are legacy** and may reference superseded
 > names (`MINSKY_POSTGRES_URL`, `[sessiondb]` TOML keys, SQLite backends); the canonical
 > equivalents are `persistence.*` (YAML) and `MINSKY_PERSISTENCE_POSTGRES_URL`.

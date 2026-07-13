@@ -12,6 +12,7 @@ import {
   buildSubmitFailureLog,
   serializeSubmitError,
   applyRecoveryAndCompose,
+  persistConvergenceMetric,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
@@ -29,6 +30,8 @@ import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
 import { TimeoutError } from "./with-timeout";
 import type { PriorReview } from "./prior-review-summary";
+import { extractProvenance } from "./review-provenance";
+import { SYNTHESIZED_FINDING_FILE } from "./empty-findings-recovery";
 
 // Shared constant for the first-attempt trace string — used in multiple
 // describe blocks so it must be file-scoped to avoid no-magic-string-duplication.
@@ -1144,6 +1147,45 @@ describe("RunReviewDeps.metricsRecorder slot (mt#1306)", () => {
   });
 });
 
+// ----- persistConvergenceMetric — shared success-path helper (mt#2725) -----
+//
+// Both review success paths (output-tools + prose) now route their convergence
+// write through this helper. Verifies the db-guard and recorder delegation in
+// isolation. (The full output-tools-path invocation — i.e. that the production
+// path actually calls this — is owned by the mt#1263 runReview integration
+// harness / the mt#2731 finalize-tail extraction, which the reviewer suite's
+// no-mock.module convention defers.)
+
+describe("persistConvergenceMetric (mt#2725)", () => {
+  const input: ConvergenceMetricInput = {
+    prOwner: "edobry",
+    prRepo: "minsky",
+    prNumber: 1234,
+    headSha: "abc123",
+    iterationIndex: 2,
+    priorBlockerCount: 3,
+    newBlockerCount: 1,
+    acknowledgedAddressedCount: 2,
+    headRef: "task/mt-1234",
+  };
+
+  test("delegates to the injected metricsRecorder with the exact input when db is present", async () => {
+    const captured: ConvergenceMetricInput[] = [];
+    const recorder = mock(async (_db: ReviewerDb, i: ConvergenceMetricInput) => {
+      captured.push(i);
+    });
+    await persistConvergenceMetric({ db: {} as ReviewerDb, metricsRecorder: recorder }, input);
+    expect(recorder).toHaveBeenCalledTimes(1);
+    expect(captured).toEqual([input]);
+  });
+
+  test("is a no-op when no db is configured (recorder not called)", async () => {
+    const recorder = mock(async (_db: ReviewerDb, _i: ConvergenceMetricInput) => {});
+    await persistConvergenceMetric({ metricsRecorder: recorder }, input);
+    expect(recorder).toHaveBeenCalledTimes(0);
+  });
+});
+
 // =============================================================================
 // serializeSubmitError (mt#1370): unit coverage for the structured-log error
 // serializer used by the two defensive submitReview catch blocks.
@@ -1541,10 +1583,13 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
       },
     };
   }
-  function conclude(event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"): ReviewToolCall {
+  function conclude(
+    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+    summary?: string
+  ): ReviewToolCall {
     return {
       name: "conclude_review",
-      args: { event, summary: `${event} summary` },
+      args: { event, summary: summary ?? `${event} summary` },
     };
   }
 
@@ -1671,5 +1716,99 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
     expect(result.downgrades).toHaveLength(0);
     expect(result.postRecoveryBlockingCount).toBe(1);
     expect(result.reconcileApplied).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Empty-findings coherence recovery (mt#2685)
+  // -------------------------------------------------------------------------
+  //
+  // Acceptance test: "A composed review whose model output contains a
+  // REQUEST_CHANGES conclusion and zero submit_finding calls does not
+  // silently ship as-is: the chosen mechanism fires." These tests exercise
+  // the mechanism through the SAME pipeline entrypoint (applyRecoveryAndCompose)
+  // production code uses, and assert both halves of the structural-coherence
+  // claim: the composed body renders a Findings section AND provenance
+  // (extracted from the same toolCalls the worker forwards downstream) agrees
+  // with it — the exact "body says one thing, provenance says another" defect
+  // shape from #1821 R1 that mt#2655 fixed for the other direction.
+  describe("empty-findings coherence recovery (mt#2685)", () => {
+    test("REQUEST_CHANGES + zero submit_finding calls: synthesizes a finding and stays REQUEST_CHANGES", () => {
+      const toolCalls: ReviewToolCall[] = [
+        conclude(
+          "REQUEST_CHANGES",
+          "Lacks an end-to-end test asserting config.doctor emits the new diagnostic."
+        ),
+      ];
+
+      const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+
+      expect(result.emptyFindingsRecovery.applied).toBe(true);
+      expect(result.composed.event).toBe("REQUEST_CHANGES");
+      expect(result.composed.reconciled).toBe(false); // no double-reconciliation
+      expect(result.composed.body).toContain("## Findings");
+      expect(result.composed.body).toContain("[BLOCKING]");
+      expect(result.postRecoveryBlockingCount).toBe(1);
+
+      // Observability (mt#2685 review R1): the model emitted ZERO of its own
+      // BLOCKING findings — originalBlockingCount must stay 0 (never silently
+      // absorb the synthesized finding), while synthesizedBlockingCount makes
+      // the 1-finding gap explicit, and postRecoveryBlockingCount (1) is their
+      // sum. A log/metric reader must be able to tell "the model found 0" from
+      // "the pipeline is now reporting 1" without reading this module's source.
+      expect(result.originalBlockingCount).toBe(0);
+      expect(result.synthesizedBlockingCount).toBe(1);
+      expect(result.postRecoveryBlockingCount).toBe(
+        result.originalBlockingCount + result.synthesizedBlockingCount
+      );
+
+      // Provenance consistency: the SAME toolCalls the worker forwards to
+      // extractProvenance (recoveryResult.toolCalls, per annotateReviewBody's
+      // call site) must reflect the synthesized finding too — not just the
+      // rendered body. And provenance itself must distinguish the synthesized
+      // finding from a model-emitted one (mt#2685 review R1).
+      const provenance = extractProvenance(result.toolCalls);
+      expect(provenance.findings.blocking).toBe(1);
+      expect(provenance.findings.synthesizedBlocking).toBe(1);
+      expect(provenance.conclusion?.event).toBe("REQUEST_CHANGES");
+    });
+
+    test("does not fire for a genuine REQUEST_CHANGES backed by a real BLOCKING finding", () => {
+      const toolCalls: ReviewToolCall[] = [
+        finding("BLOCKING", "src/foo.ts", 5),
+        conclude("REQUEST_CHANGES"),
+      ];
+      const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+      expect(result.emptyFindingsRecovery.applied).toBe(false);
+      expect(result.postRecoveryBlockingCount).toBe(1);
+      expect(result.synthesizedBlockingCount).toBe(0);
+
+      const provenance = extractProvenance(result.toolCalls);
+      expect(provenance.findings.synthesizedBlocking).toBe(0);
+    });
+
+    test("does not fight legitimate crossed-zero downgrade reconciliation", () => {
+      // A REAL BLOCKING finding that recovery legitimately downgrades to
+      // zero must still reconcile to COMMENT via Step 3 — the empty-findings
+      // pass (keyed on the ORIGINAL, pre-recovery blocking count) must not
+      // re-synthesize a finding here, or it would fight the very
+      // convergence this recovery pass exists to enable.
+      const toolCalls: ReviewToolCall[] = [
+        finding("BLOCKING", "src/foo.ts", 5),
+        conclude("REQUEST_CHANGES"),
+      ];
+      const priors: FlatPriorFinding[] = [
+        { file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 },
+      ];
+      const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+      expect(result.emptyFindingsRecovery.applied).toBe(false);
+      expect(result.reconcileApplied).toBe(true);
+      expect(result.composed.event).toBe("COMMENT");
+    });
+
+    test("synthesized finding uses the documented sentinel file", () => {
+      const toolCalls: ReviewToolCall[] = [conclude("REQUEST_CHANGES", "prose-only blocker")];
+      const result = applyRecoveryAndCompose(toolCalls, [], "", false);
+      expect(result.emptyFindingsRecovery.synthesizedFinding?.file).toBe(SYNTHESIZED_FINDING_FILE);
+    });
   });
 });

@@ -160,9 +160,15 @@ export interface GitServiceInterface {
   stageFiles?(files: string[], repoPath?: string): Promise<void>;
 
   /**
-   * Commit staged changes
+   * Commit staged changes. `allowEmpty` (mt#2635) passes `--allow-empty`
+   * through to `git commit` so a commit can be created on a clean tree.
    */
-  commit?(message: string, repoPath?: string, amend?: boolean): Promise<string>;
+  commit?(
+    message: string,
+    repoPath?: string,
+    amend?: boolean,
+    allowEmpty?: boolean
+  ): Promise<string>;
 
   /**
    * Create a pull request

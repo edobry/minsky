@@ -3,7 +3,7 @@ name: fixture
 description: >-
   Fixture agent for end-to-end testing of the compile pipeline. Not for
   production use.
-tools: "Read, Bash"
+tools: 'Read, Bash'
 model: sonnet
 ---
 

@@ -162,6 +162,7 @@ function MemorySearchBody({
                     )}
                   </div>
                   {record.description && (
+                    // Plain text (not <Prose>): truncated single-line snippet — block Markdown breaks layout. mt#2556
                     <p
                       className="text-[11px] text-muted-foreground mt-0.5 truncate"
                       title={record.description}

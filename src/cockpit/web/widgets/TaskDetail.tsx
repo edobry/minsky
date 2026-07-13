@@ -10,6 +10,10 @@
 import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
+import { Prose } from "../components/Prose";
+import { useEntityIndex } from "../lib/use-entity-index";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -136,19 +140,20 @@ function TaskRefRow({ task }: { task: TaskRef }) {
 }
 
 // ---------------------------------------------------------------------------
-// Spec content — rendered as preformatted text (no new markdown dep)
+// Spec content — rendered as Markdown via the shared <Prose> (mt#2550). Task
+// specs are full Markdown documents (headings, lists, fenced code, tables) and
+// reference other entities (mt#NNNN), so entity-linkification is wired in.
 // ---------------------------------------------------------------------------
 
 function SpecContent({ content }: { content: string | null }) {
+  const entityIndex = useEntityIndex();
   if (!content) {
-    return (
-      <p className="text-sm text-muted-foreground italic">No spec content</p>
-    );
+    return <p className="text-sm text-muted-foreground italic">No spec content</p>;
   }
   return (
-    <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words leading-relaxed bg-muted/20 rounded p-3 overflow-auto max-h-[60vh]">
+    <Prose entityIndex={entityIndex} className="max-h-[60vh] overflow-auto rounded bg-muted/20 p-3">
       {content}
-    </pre>
+    </Prose>
   );
 }
 
@@ -156,13 +161,7 @@ function SpecContent({ content }: { content: string | null }) {
 // Section wrapper — consistent heading + content layout
 // ---------------------------------------------------------------------------
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mt-4 first:mt-0">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
@@ -276,24 +275,23 @@ interface TaskDetailBodyProps {
 
 function TaskDetailBody({ taskId, query }: TaskDetailBodyProps) {
   if (query.isLoading) {
-    return (
-      <p className="text-muted-foreground text-sm font-mono">Loading {taskId}…</p>
-    );
+    return <LoadingState message={`Loading ${taskId}…`} className="font-mono" />;
   }
 
   if (query.isError) {
     const msg = query.error.message;
     const isNotFound = msg.includes("not found") || msg.includes("404");
     return (
-      <p className="text-muted-foreground text-sm font-mono">
-        {isNotFound ? `Task ${taskId} not found.` : `Error: ${msg}`}
-      </p>
+      <ErrorState
+        message={isNotFound ? `Task ${taskId} not found.` : `Error: ${msg}`}
+        className="font-mono"
+      />
     );
   }
 
   const data = query.data;
   if (!data || !isTaskDetailPayload(data)) {
-    return <p className="text-muted-foreground text-sm font-mono">Unexpected response shape.</p>;
+    return <ErrorState message="Unexpected response shape." className="font-mono" />;
   }
 
   return <TaskDetailInner data={data} />;
@@ -323,8 +321,7 @@ export function TaskDetail({ taskId, variant = "card" }: TaskDetailProps) {
   });
 
   // Dynamic title: task.title on success, taskId while loading/error
-  const title =
-    query.data && isTaskDetailPayload(query.data) ? query.data.task.title : taskId;
+  const title = query.data && isTaskDetailPayload(query.data) ? query.data.task.title : taskId;
 
   return (
     <WidgetShell variant={variant} title={title}>

@@ -24,6 +24,11 @@ import { getTaskIdNumber } from "./task-id-utils";
 
 /**
  * Fetch all issues for a repo and return them as a JSON string.
+ *
+ * Uses Octokit's built-in paginator so repositories with more than 100 issues
+ * (the per-page max) return all results, not just the most recent 100.
+ * Without pagination, tasks created early in a long-lived repo (e.g. gh#1 through
+ * gh#1665 in a repo with 1765 issues) would be silently invisible (mt#2572 Bug 1).
  */
 export async function fetchIssuesData(
   octokit: Octokit,
@@ -31,17 +36,16 @@ export async function fetchIssuesData(
   repo: string
 ): Promise<TaskReadOperationResult> {
   try {
-    log.debug("Fetching GitHub issues", { owner, repo });
+    log.debug("Fetching GitHub issues (paginated)", { owner, repo });
 
-    const response = await octokit.rest.issues.listForRepo({
+    const issues = await octokit.paginate(octokit.rest.issues.listForRepo, {
       owner,
       repo,
       state: "all",
       per_page: 100,
     });
 
-    const issues = response.data;
-    log.debug(`Retrieved ${issues.length} issues from GitHub`, { owner, repo });
+    log.debug(`Retrieved ${issues.length} issues from GitHub (all pages)`, { owner, repo });
 
     return { success: true, content: JSON.stringify(issues) };
   } catch (error) {
@@ -181,13 +185,32 @@ export async function updateIssueStatus(
   const nonStatusLabels = currentLabels.filter((l) => !statusLabelValues.includes(l));
   const newLabels = [...nonStatusLabels, ...getLabelsForTaskStatus(status, statusLabels)];
 
-  await octokit.rest.issues.update({
+  const updateResponse = await octokit.rest.issues.update({
     owner,
     repo,
     issue_number: issueNumber,
     labels: newLabels,
     state: status === "DONE" ? "closed" : "open",
   });
+
+  // Read-back verification: confirm the expected status label was actually applied.
+  // Without this, callers would receive a false-success when the label was not written
+  // (e.g. when the status has no corresponding label entry and falls back to "minsky:todo").
+  // This catches the false-success class described in mt#2572 Bug 3.
+  const expectedLabel = getLabelsForTaskStatus(status, statusLabels)[0];
+  if (expectedLabel) {
+    const writtenLabels = updateResponse.data.labels
+      .map((l) => (typeof l === "string" ? l : (l.name ?? "")))
+      .filter(Boolean);
+    if (!writtenLabels.includes(expectedLabel)) {
+      throw new Error(
+        `Status write verification failed for task ${taskId}: ` +
+          `expected label '${expectedLabel}' for status '${status}' was not present ` +
+          `after GitHub issue update. Actual labels: [${writtenLabels.join(", ")}]. ` +
+          `Ensure the label '${expectedLabel}' exists on the repository.`
+      );
+    }
+  }
 
   log.debug("Updated task status in GitHub", { taskId, status });
 }

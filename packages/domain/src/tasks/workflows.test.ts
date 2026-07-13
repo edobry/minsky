@@ -14,9 +14,10 @@ import { WORKFLOWS, getWorkflow, isKnownKind, DEFAULT_KIND, type TaskKind } from
 describe("WORKFLOWS registry — internal consistency", () => {
   const kindNames = Object.keys(WORKFLOWS) as TaskKind[];
 
-  test("registry exports implementation and umbrella kinds", () => {
+  test("registry exports implementation, umbrella, and state-ops kinds", () => {
     expect(WORKFLOWS).toHaveProperty("implementation");
     expect(WORKFLOWS).toHaveProperty("umbrella");
+    expect(WORKFLOWS).toHaveProperty("state-ops");
   });
 
   for (const kind of kindNames) {
@@ -173,6 +174,58 @@ describe("umbrella workflow — specific state machine properties", () => {
   });
 });
 
+describe("state-ops workflow — specific state machine properties", () => {
+  const workflow = WORKFLOWS["state-ops"];
+
+  test("has the complete expected state-ops states", () => {
+    const expected = ["TODO", "PLANNING", "READY", "IN-PROGRESS", "COMPLETED", "CLOSED"];
+    for (const state of expected) {
+      expect(workflow.states).toContain(state);
+    }
+  });
+
+  test("HAS a READY state (unlike umbrella)", () => {
+    expect(workflow.states).toContain("READY");
+  });
+
+  test("does NOT have IN-REVIEW, DONE, or BLOCKED states", () => {
+    expect(workflow.states).not.toContain("IN-REVIEW");
+    expect(workflow.states).not.toContain("DONE");
+    expect(workflow.states).not.toContain("BLOCKED");
+  });
+
+  test("terminal states are COMPLETED and CLOSED", () => {
+    expect(workflow.terminal).toContain("COMPLETED");
+    expect(workflow.terminal).toContain("CLOSED");
+  });
+
+  test("COMPLETED (not DONE) is the success terminal state", () => {
+    expect(workflow.terminal).toContain("COMPLETED");
+    expect(workflow.terminal).not.toContain("DONE");
+  });
+
+  test("READY → IN-PROGRESS is a legal direct transition (no session_start gate)", () => {
+    expect(workflow.transitions["READY"]).toContain("IN-PROGRESS");
+  });
+
+  test("IN-PROGRESS → COMPLETED is a legal transition", () => {
+    expect(workflow.transitions["IN-PROGRESS"]).toContain("COMPLETED");
+  });
+
+  test("GitHub Issues maps to issue type with state-ops label", () => {
+    expect(workflow.mappings.githubIssue.type).toBe("issue");
+    expect(workflow.mappings.githubIssue.labels).toContain("state-ops");
+  });
+
+  test("Linear maps to Issue type", () => {
+    expect(workflow.mappings.linear.type).toBe("Issue");
+  });
+
+  test("Jira maps to Task issue type", () => {
+    expect(workflow.mappings.jira.issueType).toBe("Task");
+  });
+});
+
 describe("getWorkflow() helper", () => {
   test("returns implementation workflow for 'implementation'", () => {
     const wf = getWorkflow("implementation");
@@ -182,6 +235,11 @@ describe("getWorkflow() helper", () => {
   test("returns umbrella workflow for 'umbrella'", () => {
     const wf = getWorkflow("umbrella");
     expect(wf).toBe(WORKFLOWS["umbrella"]);
+  });
+
+  test("returns state-ops workflow for 'state-ops'", () => {
+    const wf = getWorkflow("state-ops");
+    expect(wf).toBe(WORKFLOWS["state-ops"]);
   });
 
   test("returns implementation workflow for null (backward-compat)", () => {
@@ -212,6 +270,10 @@ describe("isKnownKind() helper", () => {
 
   test("returns true for 'umbrella'", () => {
     expect(isKnownKind("umbrella")).toBe(true);
+  });
+
+  test("returns true for 'state-ops'", () => {
+    expect(isKnownKind("state-ops")).toBe(true);
   });
 
   test("returns false for unknown kinds", () => {

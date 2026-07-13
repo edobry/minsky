@@ -18,6 +18,7 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
+import { isAllProjects } from "../project/scope";
 
 /**
  * Narrow interface covering only the Drizzle DB methods used by MinskyTaskBackend.
@@ -44,6 +45,13 @@ export interface MinskyBackendDb {
 
 export interface MinskyTaskBackendConfig extends TaskBackendConfig {
   db: MinskyBackendDb;
+  /**
+   * Project uuid for new task rows (ADR-021, mt#2416).
+   * Set to the resolved project id when the backend is created in a
+   * CLI/stdio context; undefined when project identity is unavailable
+   * (hosted server, unidentified → rows are inserted without a project_id).
+   */
+  currentProjectId?: string;
 }
 
 /**
@@ -79,10 +87,13 @@ export class MinskyTaskBackend implements TaskBackend {
   prefix?: string;
   private readonly db: MinskyBackendDb;
   private readonly workspacePath: string;
+  /** Project uuid stamped onto new task rows (undefined = no project scoping). */
+  private readonly currentProjectId: string | undefined;
 
   constructor(config: MinskyTaskBackendConfig) {
     this.workspacePath = config.workspacePath;
     this.db = config.db; // Database connection injected as dependency
+    this.currentProjectId = config.currentProjectId;
   }
 
   // Database connection is now injected - no need for createDbConnection method
@@ -112,6 +123,11 @@ export class MinskyTaskBackend implements TaskBackend {
       for (const tag of options.tags) {
         conditions.push(like(tasksTable.tags, `%"${tag}"%`));
       }
+    }
+
+    // Project scope filter (ADR-021, mt#2416)
+    if (options?.projectScope && !isAllProjects(options.projectScope)) {
+      conditions.push(eq(tasksTable.projectId, options.projectScope));
     }
 
     const query = this.db.select().from(tasksTable);
@@ -228,6 +244,8 @@ export class MinskyTaskBackend implements TaskBackend {
           kind: options?.kind || "implementation",
           createdAt: now,
           updatedAt: now,
+          // Project scoping (ADR-021, mt#2416): stamp project uuid when available
+          projectId: this.currentProjectId ?? null,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });
@@ -285,6 +303,8 @@ export class MinskyTaskBackend implements TaskBackend {
           kind: options?.kind || "implementation",
           createdAt: now,
           updatedAt: now,
+          // Project scoping (ADR-021, mt#2416): stamp project uuid when available
+          projectId: this.currentProjectId ?? null,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });

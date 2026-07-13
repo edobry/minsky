@@ -1,0 +1,381 @@
+#!/usr/bin/env bun
+// UserPromptSubmit hook: detect when the prior assistant turn DEFERRED a
+// decision to the principal via chat prose without routing it through the Ask
+// substrate (asks_create) — or surfaced a deferral menu around items that a
+// cheap lookup / standing default would resolve. Per mt#2471.
+//
+// LIVE-INJECTING since 2026-07-08 (mt#2694): shipped calibration-first
+// (mirrors causal-premise-detector mt#2216) with INJECTION_ENABLED=false;
+// the gate was flipped after the 2026-07-06/07-08 calibration reviews
+// confirmed a ~5-10% FP rate across 44 fires (see the INJECTION_ENABLED
+// doc below). Matches now inject the additionalContext reminder AND log a
+// calibration record (post-flip FP monitoring, mt#2483 loop).
+//
+// TWO sub-classes (the spec's R4 + the 2026-06-11 post-closeout incident):
+//   - PRINCIPAL-RESERVED ("needs your call", "that decision is his", "you
+//     decide"): the fix is to package the decision per humility.mdc and file
+//     it via `asks_create` (kind direction.decide).
+//   - DEFERRAL-MENU ("what's your call?", "say the word", "stop here" as a
+//     recommendation): the fix is to route through `/classify-before-deferring`
+//     FIRST — most options are Class A (run the lookup now) / Class B (apply
+//     the standing default), and only a genuine Class C reaches the ask.
+//
+// Suppressed when the same assistant turn already contains an
+// `mcp__minsky__asks_create` tool_use (the agent already routed the decision).
+//
+// @see .claude/hooks/retrospective-trigger-scanner.ts — sibling structure
+// @see .claude/hooks/causal-premise-detector.ts — calibration-first pattern
+// @see 3e3f29d8 (escalation-packaging family R1–R4); 6abe89c6 (post-closeout
+//      register-shift sub-class); both name mt#2471 as the live structural target
+// @see mt#2263 — future consolidation of the regex-scanner family into a
+//      unified (possibly embedding-based) matcher; this hook is a framework sibling
+// @see mt#2652 — ADR-028 Phase 2a: this file's exported `run()` is the
+//      dispatcher-compatible entry point invoked in-process by
+//      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
+//      is unchanged.
+
+import { readInput } from "./types";
+import type { ClaudeHookInput, HookOutput } from "./types";
+import {
+  parseTranscript,
+  extractLastAssistantTurn,
+  extractAssistantText,
+  extractToolUseNames,
+} from "./transcript";
+import type { TranscriptLine } from "./transcript";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import type { DispatchContext, GuardOutcome } from "./registry";
+import { elideQuotedContexts } from "./elision";
+
+// ---------------------------------------------------------------------------
+// Public API: exported constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Injection gate. FLIPPED TO TRUE 2026-07-08 (mt#2694, operator-approved):
+ * the 2026-07-06 calibration review (disposition ask 483dbcb0, mt#2619)
+ * classified all 43 fires in its window as genuine (~5-10% FP rate, both
+ * sub-classes), and the single fire since (2026-07-07) was also a real
+ * positive (2026-07-08 review, ask 0147caa5). Calibration logging continues
+ * unchanged for post-flip FP monitoring (mt#2483 loop).
+ *
+ * v1 (mt#2471) shipped FALSE (calibration-first: log only, inject nothing).
+ */
+export const INJECTION_ENABLED = true;
+
+export const OVERRIDE_ENV_VAR = "MINSKY_ACK_ASK_ROUTING_DEFERRAL";
+
+/** The tool whose presence in the same turn suppresses a match. */
+export const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
+
+const CALIBRATION_LOG = ".minsky/ask-routing-deferral-calibration.jsonl";
+
+// ---------------------------------------------------------------------------
+// Sub-class types
+// ---------------------------------------------------------------------------
+
+export type DeferralClass = "principal-reserved" | "deferral-menu";
+
+export interface DeferralMatch {
+  cls: DeferralClass;
+  matchedPhrase: string;
+}
+
+// ---------------------------------------------------------------------------
+// PRINCIPAL-RESERVED patterns — a decision is being handed to the principal in
+// prose. The right fix is asks_create (kind direction.decide).
+// ---------------------------------------------------------------------------
+
+export const PRINCIPAL_RESERVED_PATTERNS: RegExp[] = [
+  /\bneeds?\s+your\s+call\b/i,
+  /\bthat\s+decision\s+is\s+(yours|his|hers|theirs|the\s+principal[''’]?s|eugene[''’]?s)\b/i,
+  /\b(reserved|that[''’]?s)\s+(for\s+)?(you|eugene|the\s+principal)\s+to\s+(decide|call)\b/i,
+  /\breserved\s+for\s+(eugene|the\s+principal|you)\b/i,
+  /\b(you|eugene)\s+(decide|should\s+decide|need\s+to\s+decide)\b/i,
+  /\bwaiting\s+on\s+your\s+(decision|call|answer|input)\b/i,
+  /\b(surface|surfacing|escalate|escalating)\s+(this\s+)?to\s+(you|eugene|the\s+principal)\b/i,
+  /\b(your|the\s+principal[''’]?s)\s+(decision|call)\s+to\s+make\b/i,
+  /\bbefore\s+(encoding|committing\s+to|locking\s+in)\b[^.]*\bdecision\s+is\s+(yours|his|the\s+principal[''’]?s)\b/i,
+];
+
+// ---------------------------------------------------------------------------
+// DEFERRAL-MENU patterns — option-menus / "do nothing" recommendations /
+// hand-back-to-desk shapes around items that are often Class A/B. The right
+// fix is /classify-before-deferring FIRST, not unconditionally an ask.
+// ---------------------------------------------------------------------------
+
+export const DEFERRAL_MENU_PATTERNS: RegExp[] = [
+  /\bwhat[''’]?s\s+your\s+call\b/i,
+  /\byour\s+call\?/i,
+  /\bsay\s+the\s+word\b/i,
+  /\b(I[''’]?ll|I\s+can)\s+(stop|pause)\s+here\b/i,
+  /\b(recommend|suggest)\s+(we\s+)?stop\s+here\b/i,
+  /\b(want\s+me\s+to|should\s+I)\b[^.?]*\bor\b[^.?]*\?/i,
+  /\bnothing\s+is\s+dropped\s+if\s+we\s+do\s+nothing\b/i,
+  /\blet\s+me\s+know\s+(which|how)\s+(you[''’]?d\s+like|to\s+proceed)\b/i,
+];
+
+const CLASS_PATTERNS: Array<{ cls: DeferralClass; patterns: RegExp[] }> = [
+  { cls: "principal-reserved", patterns: PRINCIPAL_RESERVED_PATTERNS },
+  { cls: "deferral-menu", patterns: DEFERRAL_MENU_PATTERNS },
+];
+
+// ---------------------------------------------------------------------------
+// Quoted/code-context suppression
+// ---------------------------------------------------------------------------
+
+/**
+ * Elision implementation moved to the shared `./elision` module (mt#2672) —
+ * re-exported here so this detector's public API and tests are unchanged.
+ */
+export { elideQuotedContexts };
+
+// ---------------------------------------------------------------------------
+// Detection (exported for testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan assistant text for deferral phrases. Returns at most one match per
+ * sub-class (first hit). Quoted/code contexts are elided first.
+ */
+export function detectDeferralPhrases(text: string): DeferralMatch[] {
+  const scanned = elideQuotedContexts(text);
+  const matches: DeferralMatch[] = [];
+  for (const { cls, patterns } of CLASS_PATTERNS) {
+    for (const pattern of patterns) {
+      const m = pattern.exec(scanned);
+      if (m) {
+        matches.push({ cls, matchedPhrase: m[0].trim() });
+        break;
+      }
+    }
+  }
+  return matches;
+}
+
+/** True when the turn already routed a decision via asks_create. */
+export function turnHasAsksCreate(turnLines: TranscriptLine[]): boolean {
+  return extractToolUseNames(turnLines).includes(ASKS_CREATE_TOOL);
+}
+
+// ---------------------------------------------------------------------------
+// Calibration logging
+// ---------------------------------------------------------------------------
+
+function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
+  try {
+    const logPath = resolve(cwd, CALIBRATION_LOG);
+    const dir = dirname(logPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[ask-routing-deferral-detector] Failed to write calibration log: ${msg}\n`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reminder builder (only used when INJECTION_ENABLED)
+// ---------------------------------------------------------------------------
+
+export function buildReminder(matches: DeferralMatch[]): string {
+  const lines: string[] = [
+    "[ask-routing-deferral-detector] Your prior turn deferred a decision to the principal in chat prose.",
+    "",
+  ];
+  const principal = matches.filter((m) => m.cls === "principal-reserved");
+  const menu = matches.filter((m) => m.cls === "deferral-menu");
+
+  if (principal.length > 0) {
+    lines.push(
+      "PRINCIPAL-RESERVED deferral detected. A decision that is genuinely the principal's " +
+        "must be routed through the Ask substrate, NOT left as chat prose (which evaporates at " +
+        "turn end and never reaches the attention surface). Package it per humility.mdc " +
+        "§Escalation packaging and file it via `mcp__minsky__asks_create` (kind direction.decide) " +
+        "NOW — or cite the id of an existing open ask."
+    );
+    for (const m of principal) lines.push(`  - "${m.matchedPhrase}"`);
+    lines.push("");
+  }
+  if (menu.length > 0) {
+    lines.push(
+      "DEFERRAL-MENU detected. Before handing a menu back to the principal, route through " +
+        "`/classify-before-deferring`: classify each item as Class A (run the lookup NOW — " +
+        "tasks_status_get / session_list / git_log), Class B (apply the standing default), or " +
+        "Class C (genuinely principal-reserved → package + asks_create). Run the lookups first; " +
+        "most menus collapse to one obvious action."
+    );
+    for (const m of menu) lines.push(`  - "${m.matchedPhrase}"`);
+    lines.push("");
+  }
+
+  lines.push(`Override: set ${OVERRIDE_ENV_VAR}=1 if this is genuinely not a deferral case.`);
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard-dispatcher entry point. Mirrors `main()`'s orchestration but returns
+ * a `GuardOutcome` instead of writing to stdout/`process.exit`. Reuses
+ * `ctx.transcriptLines` (D6) instead of re-parsing the transcript itself.
+ * Calibration is logged unconditionally on a match (mirrors `main()`'s "the
+ * v1 product" comment); `additionalContext` is gated behind
+ * `INJECTION_ENABLED` (`true` since the mt#2694 flip — see its doc for the
+ * decision provenance).
+ */
+export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  const isOverride =
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes";
+
+  if (isOverride) {
+    return {
+      auditLines: [
+        `[ask-routing-deferral-detector] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
+      ],
+    };
+  }
+
+  if (!input.transcript_path) return null;
+  const lines = ctx.transcriptLines;
+  if (lines.length === 0) return null;
+
+  let matches: DeferralMatch[] = [];
+  try {
+    const turnLines = extractLastAssistantTurn(lines);
+    if (turnLines.length === 0) return null;
+    if (turnHasAsksCreate(turnLines)) return null;
+    const text = extractAssistantText(turnLines);
+    if (text) {
+      matches = detectDeferralPhrases(text);
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[ask-routing-deferral-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    return null;
+  }
+
+  if (matches.length === 0) return null;
+
+  const outcome: GuardOutcome = {
+    calibration: {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      injection_enabled: INJECTION_ENABLED,
+      matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+    },
+  };
+
+  if (INJECTION_ENABLED) {
+    outcome.additionalContext = buildReminder(matches);
+  }
+
+  return outcome;
+}
+
+// ---------------------------------------------------------------------------
+// Entrypoint
+// ---------------------------------------------------------------------------
+
+export async function main(): Promise<void> {
+  const overrideVal = process.env[OVERRIDE_ENV_VAR];
+  const isOverride =
+    overrideVal === "1" ||
+    overrideVal?.toLowerCase() === "true" ||
+    overrideVal?.toLowerCase() === "yes";
+
+  let input: ClaudeHookInput;
+  try {
+    input = await readInput<ClaudeHookInput>();
+  } catch {
+    process.exit(0);
+  }
+
+  if (isOverride) {
+    const ts = new Date().toISOString();
+    process.stdout.write(
+      `[ask-routing-deferral-detector] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${ts}\n`
+    );
+    process.exit(0);
+  }
+
+  const transcriptPath = input.transcript_path;
+  if (!transcriptPath) {
+    process.exit(0);
+  }
+
+  let lines: TranscriptLine[];
+  try {
+    lines = parseTranscript(transcriptPath);
+  } catch {
+    process.exit(0);
+  }
+  if (lines.length === 0) {
+    process.exit(0);
+  }
+
+  let matches: DeferralMatch[] = [];
+  let suppressedByAsksCreate = false;
+  try {
+    const turnLines = extractLastAssistantTurn(lines);
+    if (turnLines.length === 0) {
+      process.exit(0);
+    }
+    // Suppress entirely if the agent already routed a decision this turn.
+    if (turnHasAsksCreate(turnLines)) {
+      suppressedByAsksCreate = true;
+    } else {
+      const text = extractAssistantText(turnLines);
+      if (text) {
+        matches = detectDeferralPhrases(text);
+      }
+    }
+  } catch (err) {
+    // Fail-open: never block the prompt.
+    process.stderr.write(
+      `[ask-routing-deferral-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    process.exit(0);
+  }
+
+  if (suppressedByAsksCreate || matches.length === 0) {
+    process.exit(0);
+  }
+
+  // Calibration record (always — this is the v1 product).
+  appendCalibrationRecord(input.cwd, {
+    timestamp: new Date().toISOString(),
+    session_id: input.session_id,
+    injection_enabled: INJECTION_ENABLED,
+    matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+  });
+
+  // Calibration-first: inject only when the gate is flipped on.
+  if (!INJECTION_ENABLED) {
+    process.exit(0);
+  }
+
+  const output: HookOutput = {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: buildReminder(matches),
+    },
+  };
+  process.stdout.write(JSON.stringify(output));
+  process.exit(0);
+}
+
+if (import.meta.main) {
+  main();
+}

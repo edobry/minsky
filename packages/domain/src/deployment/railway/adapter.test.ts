@@ -3,10 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   computeMetricsSnapshot,
   deriveRestartCount,
+  notifyStatusObserved,
   railwayAdapterFactory,
   RailwayDeploymentAdapter,
 } from "./adapter";
 import type { DeploymentConfig } from "../config";
+import type { DeploymentRecord } from "../types";
 import type { RailwayDeploymentNode, RailwayMetricSeries } from "./graphql-client";
 
 describe("railwayAdapterFactory", () => {
@@ -147,5 +149,64 @@ describe("deriveRestartCount", () => {
     const result = deriveRestartCount([node("a", "SUCCESS", "2020-01-01T00:00:00.000Z")], 24, now);
     expect(result.count).toBe(0);
     expect(result.byStatus).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// notifyStatusObserved (mt#2599) — best-effort onStatusObserved invocation
+// ---------------------------------------------------------------------------
+
+function deploymentRecord(status: DeploymentRecord["status"]): DeploymentRecord {
+  return {
+    id: "dep-1",
+    status,
+    commitHash: "abc123",
+    commitMessage: "test commit",
+    createdAt: "2026-01-01T00:00:00Z",
+    finishedAt: null,
+    durationMs: null,
+    url: null,
+  };
+}
+
+describe("notifyStatusObserved", () => {
+  test("is a no-op when onStatusObserved is undefined", async () => {
+    await expect(
+      notifyStatusObserved(undefined, deploymentRecord("BUILDING"))
+    ).resolves.toBeUndefined();
+  });
+
+  test("invokes the callback with the observed record", async () => {
+    const seen: DeploymentRecord[] = [];
+    await notifyStatusObserved((record) => {
+      seen.push(record);
+    }, deploymentRecord("BUILDING"));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.status).toBe("BUILDING");
+  });
+
+  test("awaits an async callback", async () => {
+    let resolved = false;
+    await notifyStatusObserved(async () => {
+      await Promise.resolve();
+      resolved = true;
+    }, deploymentRecord("DEPLOYING"));
+    expect(resolved).toBe(true);
+  });
+
+  test("swallows a synchronously-thrown callback error (best-effort)", async () => {
+    await expect(
+      notifyStatusObserved(() => {
+        throw new Error("boom");
+      }, deploymentRecord("BUILDING"))
+    ).resolves.toBeUndefined();
+  });
+
+  test("swallows a rejected async callback (best-effort)", async () => {
+    await expect(
+      notifyStatusObserved(async () => {
+        throw new Error("async boom");
+      }, deploymentRecord("SUCCESS"))
+    ).resolves.toBeUndefined();
   });
 });

@@ -14,6 +14,8 @@ import { LinkCard } from "../components/ui/link-card";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 
 // ---------------------------------------------------------------------------
 // API types — mirrors domain types without importing server code
@@ -288,15 +290,11 @@ function AddCredentialForm() {
   const isWorking = validateMutation.isPending || addMutation.isPending;
 
   if (providersQuery.isLoading) {
-    return <div className="text-muted-foreground text-sm">Loading providers...</div>;
+    return <LoadingState message="Loading providers..." />;
   }
 
   if (providersQuery.isError) {
-    return (
-      <div className="text-destructive text-sm">
-        Failed to load providers: {providersQuery.error.message}
-      </div>
-    );
+    return <ErrorState prefix="Failed to load providers" error={providersQuery.error} />;
   }
 
   function handleValidate() {
@@ -541,17 +539,11 @@ export function CredentialsManager() {
   });
 
   if (query.isError) {
-    return (
-      <div className="text-muted-foreground text-sm">
-        Failed to load credentials: {query.error.message}
-      </div>
-    );
+    return <ErrorState prefix="Failed to load credentials" error={query.error} />;
   }
 
   if (query.isLoading || !query.data) {
-    return (
-      <div className="text-muted-foreground text-sm">Loading...</div>
-    );
+    return <LoadingState message="Loading..." />;
   }
 
   const credentials = query.data;
@@ -610,11 +602,11 @@ interface CredentialsSummaryBodyProps {
 
 function CredentialsSummaryBody({ query }: CredentialsSummaryBodyProps) {
   if (query.isError) {
-    return <p className="text-muted-foreground text-sm">Failed to load</p>;
+    return <ErrorState message="Failed to load" />;
   }
 
   if (query.isLoading || !query.data) {
-    return <p className="text-muted-foreground text-sm">Loading...</p>;
+    return <LoadingState message="Loading..." />;
   }
 
   const credentials = query.data;

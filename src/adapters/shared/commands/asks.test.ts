@@ -18,7 +18,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createAsk, respondToAsk, validateAsksCreateParams, formatAskWaitMessage } from "./asks";
+import {
+  createAsk,
+  respondToAsk,
+  validateAsksCreateParams,
+  validateAsksEditParams,
+  formatAskWaitMessage,
+} from "./asks";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
@@ -155,6 +161,60 @@ describe("createAsk", () => {
     expect(routed.state).toBe("routed");
     expect(routed.routingTarget).toBe("peer");
     expect(routed.transport.kind).toBe("mesh");
+  });
+
+  test("threads projectId param into the persisted Ask (mt#2563)", async () => {
+    const repo = new FakeAskRepository();
+    const PROJECT_ID = "33333333-3333-3333-3333-333333333333";
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_COORDINATION_NOTIFY,
+        title: "Heads up",
+        question: "Sibling agent should know",
+        projectId: PROJECT_ID,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    // Production-wiring assertion (memory dcc77564 — "static helper completeness
+    // != production wiring"): verify the resolved project actually reached
+    // persistence through createAsk -> CreateAskInput -> repo.create, not just
+    // that the field exists on the input type.
+    expect(repo.all).toHaveLength(1);
+    expect(repo.all[0]?.projectId).toBe(PROJECT_ID);
+  });
+
+  test("create -> default-scoped list round-trip: project P sees the ask, project Q does not (mt#2563)", async () => {
+    const repo = new FakeAskRepository();
+    const PROJECT_P = "44444444-4444-4444-4444-444444444444";
+    const PROJECT_Q = "55555555-5555-5555-5555-555555555555";
+
+    // Create through the production producer surface (the same path asks.create
+    // execute uses), stamping project P — the spec's acceptance-test #1 shape.
+    const created = await createAsk(
+      repo,
+      {
+        kind: KIND_COORDINATION_NOTIFY,
+        title: "Heads up",
+        question: "Sibling agent should know",
+        projectId: PROJECT_P,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+    // coordination.notify routes to mesh and persists as "routed".
+    expect(created.state).toBe("routed");
+
+    // Default-scoped read for P returns the ask — the regression this fixes: it
+    // used to be invisible to the project-scoped list because project_id was NULL.
+    const inP = await repo.listByState("routed", PROJECT_P);
+    expect(inP).toHaveLength(1);
+    expect(inP[0]?.projectId).toBe(PROJECT_P);
+
+    // A different project's scope does NOT see it (cross-project exclusion).
+    const inQ = await repo.listByState("routed", PROJECT_Q);
+    expect(inQ).toHaveLength(0);
   });
 
   test("defaults classifierVersion to v1.0.0 when omitted", async () => {
@@ -1252,5 +1312,49 @@ describe("formatAskWaitMessage", () => {
     const msg = formatAskWaitMessage(result);
     expect(msg).toContain('Ask still pending (state "suspended")');
     expect(msg).toContain("Timeout reached");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAsksEditParams (mt#2668)
+// ---------------------------------------------------------------------------
+
+describe("validateAsksEditParams", () => {
+  test("throws ValidationError when no editable field is provided", () => {
+    expect(() => validateAsksEditParams({})).toThrow(ValidationError);
+    expect(() => validateAsksEditParams({})).toThrow("at least one editable field");
+  });
+
+  test("passes when a single editable field is provided", () => {
+    expect(() => validateAsksEditParams({ question: "refreshed" })).not.toThrow();
+    expect(() => validateAsksEditParams({ metadata: { note: "x" } })).not.toThrow();
+  });
+
+  test("passes when multiple editable fields are provided", () => {
+    expect(() =>
+      validateAsksEditParams({
+        title: "t",
+        options: [{ label: "A", value: "a" }],
+        contextRefs: [{ kind: "task", ref: "mt#2668" }],
+      })
+    ).not.toThrow();
+  });
+
+  test("rejects metadata containing forbidden keys (prototype-pollution hardening)", () => {
+    const hostile = JSON.parse('{"__proto__": {"polluted": true}, "ok": 1}') as Record<
+      string,
+      unknown
+    >;
+    expect(() => validateAsksEditParams({ metadata: hostile })).toThrow(ValidationError);
+    expect(() => validateAsksEditParams({ metadata: hostile })).toThrow("forbidden key");
+    expect(() => validateAsksEditParams({ metadata: { constructor: "x" } })).toThrow(
+      ValidationError
+    );
+  });
+
+  test("passes metadata with only safe keys", () => {
+    expect(() =>
+      validateAsksEditParams({ metadata: { refreshedFrom: "docs/research/x.md" } })
+    ).not.toThrow();
   });
 });

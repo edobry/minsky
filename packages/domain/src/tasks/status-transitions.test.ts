@@ -259,6 +259,94 @@ describe("status-transitions", () => {
     });
   });
 
+  describe("validateStatusTransition — state-ops kind (mt#2661)", () => {
+    test("TODO → PLANNING is valid for state-ops", () => {
+      expect(() => validateStatusTransition("TODO", "PLANNING", "state-ops")).not.toThrow();
+    });
+
+    test("TODO → CLOSED is valid for state-ops", () => {
+      expect(() => validateStatusTransition("TODO", "CLOSED", "state-ops")).not.toThrow();
+    });
+
+    test("PLANNING → READY is valid for state-ops", () => {
+      expect(() => validateStatusTransition("PLANNING", "READY", "state-ops")).not.toThrow();
+    });
+
+    // Core mt#2661 property: READY → IN-PROGRESS is legal WITHOUT session_start
+    // for state-ops, unlike implementation.
+    test("READY → IN-PROGRESS via direct status_set is ALLOWED for state-ops (no session required)", () => {
+      expect(() => validateStatusTransition("READY", "IN-PROGRESS", "state-ops")).not.toThrow();
+    });
+
+    test("IN-PROGRESS → COMPLETED is valid for state-ops", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "state-ops")).not.toThrow();
+    });
+
+    test("COMPLETED → CLOSED is valid for state-ops", () => {
+      expect(() => validateStatusTransition("COMPLETED", "CLOSED", "state-ops")).not.toThrow();
+    });
+
+    test("CLOSED → TODO is valid for state-ops (reopen)", () => {
+      expect(() => validateStatusTransition("CLOSED", "TODO", "state-ops")).not.toThrow();
+    });
+
+    test("IN-PROGRESS → PLANNING is valid for state-ops (go back)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "PLANNING", "state-ops")).not.toThrow();
+    });
+
+    // Absent states
+    test("IN-PROGRESS → DONE is invalid for state-ops (use COMPLETED)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "state-ops")).toThrow(
+        /Cannot transition from IN-PROGRESS to DONE/
+      );
+    });
+
+    test("IN-PROGRESS → IN-REVIEW is invalid for state-ops (no review phase)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "state-ops")).toThrow(
+        /Cannot transition from IN-PROGRESS to IN-REVIEW/
+      );
+    });
+
+    test("PLANNING → BLOCKED is invalid for state-ops (no BLOCKED state)", () => {
+      expect(() => validateStatusTransition("PLANNING", "BLOCKED", "state-ops")).toThrow(
+        /Cannot transition from PLANNING to BLOCKED/
+      );
+    });
+
+    // Error messages include kind label for non-implementation kinds
+    test("error message includes kind label for state-ops transitions", () => {
+      try {
+        validateStatusTransition("IN-PROGRESS", "DONE", "state-ops");
+        expect(true).toBe(false); // Should not reach here
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).toContain("kind: state-ops");
+      }
+    });
+
+    // The implementation-kind session_start special case does NOT apply to state-ops
+    test("READY → IN-PROGRESS error does not mention session_start for state-ops", () => {
+      // No error expected at all, but assert defensively that even if the
+      // registry ever tightened, the session_start special case never applies.
+      expect(() => validateStatusTransition("READY", "IN-PROGRESS", "state-ops")).not.toThrow();
+    });
+
+    // The implementation-kind PLANNING→IN-PROGRESS special case does NOT apply to state-ops
+    test("PLANNING → IN-PROGRESS is invalid for state-ops but not via the session_start special case", () => {
+      // PLANNING → IN-PROGRESS is not a direct transition in the state-ops workflow
+      // (must go through READY first), but the error should be the generic
+      // "cannot transition" message, not the implementation-only session_start guidance.
+      try {
+        validateStatusTransition("PLANNING", "IN-PROGRESS", "state-ops");
+        expect(true).toBe(false); // Should not reach here
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).not.toContain("session_start");
+        expect(message).toContain("kind: state-ops");
+      }
+    });
+  });
+
   describe("validateStatusTransition — unknown kind falls back to implementation", () => {
     test("unknown kind uses implementation workflow", () => {
       // TODO → PLANNING valid in implementation → should work

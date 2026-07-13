@@ -42,6 +42,9 @@ function makeFakeFs(diskFiles: Record<string, string>): MinskyCompileFsDeps {
         throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
       }
     },
+    async chmod(_path: string, _mode: number): Promise<void> {
+      // no-op in fake fs (permissions not tracked)
+    },
   };
 }
 

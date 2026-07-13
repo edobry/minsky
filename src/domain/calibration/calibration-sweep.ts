@@ -41,10 +41,27 @@ export interface CalibrationLogEntry {
   name: string;
   /**
    * Record kind — drives how matched phrases are extracted from each record.
-   * "causal-premise"     → record.matchedPhrases: string[]
-   * "retrospective-trigger" → record.matches: {family, phrase}[]
+   * "causal-premise"          → record.matchedPhrases: string[]
+   * "retrospective-trigger"   → record.matches: {family, phrase}[]
+   * "ask-routing-deferral"    → record.matches: {class, phrase}[] (mt#2498) —
+   *   same matches-shape as retrospective-trigger; the per-match label key is
+   *   `class` not `family`. Both parse through the same branch.
+   * "code-mechanism-assertion" → record.claims: {symbol, predicate}[] (mt#2486).
+   * "pre-narration"            → record.matches: {category, phrase, ...}[] (mt#2197) —
+   *   same matches-shape family as retrospective-trigger/ask-routing-deferral;
+   *   the per-match label key is `category`.
+   * "policy-coverage"          → record.{reason, outcome, evidence?} (mt#1575) —
+   *   a per-tool-call coverage-decision audit record, NOT a matched-phrase
+   *   record. Diversity is measured over distinct `reason` values instead of
+   *   distinct phrases (see extractDistinctPhrases).
    */
-  kind: "causal-premise" | "retrospective-trigger";
+  kind:
+    | "causal-premise"
+    | "retrospective-trigger"
+    | "ask-routing-deferral"
+    | "code-mechanism-assertion"
+    | "pre-narration"
+    | "policy-coverage";
 }
 
 /**
@@ -53,8 +70,20 @@ export interface CalibrationLogEntry {
  * V1 entries (mt#2483):
  *   - causal-premise-calibration.jsonl (mt#2216)
  *   - retrospective-trigger-calibration.jsonl (mt#2057)
+ *   - ask-routing-deferral-calibration.jsonl (mt#2471, registered mt#2498)
  *
- * To add a third log: append one CalibrationLogEntry here.
+ * V2 entries (mt#2619 — calibration-review cadence closeout):
+ *   - code-mechanism-assertion-calibration.jsonl (mt#2486)
+ *   - pre-narration-calibration.jsonl (mt#2197)
+ *   - policy-coverage-calibration.jsonl (mt#1575) — NOTE: this log is NOT a
+ *     matched-phrase detector log like the other five. It is a per-tool-call
+ *     coverage-decision audit trail (every Edit/Write/NotebookEdit gets a
+ *     record, "covered" or "uncovered"), so its volume and semantics differ.
+ *     It is registered here so the standing cadence mechanism surfaces it —
+ *     see mt#2619 PR body for the disposition finding (100% "covered" outcome
+ *     across 1,457 fires with evidence spans that do not match the action).
+ *
+ * To add another log: append one CalibrationLogEntry here.
  */
 export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
   {
@@ -66,6 +95,26 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/retrospective-trigger-calibration.jsonl",
     name: "retrospective-trigger",
     kind: "retrospective-trigger",
+  },
+  {
+    path: ".minsky/ask-routing-deferral-calibration.jsonl",
+    name: "ask-routing-deferral",
+    kind: "ask-routing-deferral",
+  },
+  {
+    path: ".minsky/code-mechanism-assertion-calibration.jsonl",
+    name: "code-mechanism-assertion",
+    kind: "code-mechanism-assertion",
+  },
+  {
+    path: ".minsky/pre-narration-calibration.jsonl",
+    name: "pre-narration",
+    kind: "pre-narration",
+  },
+  {
+    path: ".minsky/policy-coverage-calibration.jsonl",
+    name: "policy-coverage",
+    kind: "policy-coverage",
   },
 ];
 
@@ -112,6 +161,19 @@ export interface LogWatermark {
   lastReviewedCount: number;
   /** ISO-8601 timestamp of the last review. */
   lastReviewedAt: string;
+  /**
+   * ID of an operator-routed Ask (mt#1034 / ADR-008) filed by the
+   * /calibration-review skill's Step 4 that still awaits a disposition
+   * (flip/tune/keep). Present only while the ask is open (mt#2659) — the
+   * cadence detector suppresses its normal per-turn warning for this log in
+   * favor of a single "disposition pending" line while this field is set.
+   *
+   * Cleared via `clearResolvedAskIds()` once the /calibration-review skill
+   * confirms (via `asks_list`) that the referenced ask has reached a
+   * terminal state (responded/closed/cancelled/expired) — at which point
+   * normal cadence-detector behavior resumes for this log.
+   */
+  openAskId?: string;
 }
 
 /** Shape of the full watermark store (path → mark). */
@@ -137,8 +199,39 @@ export interface RetrospectiveTriggerRecord {
   transcript_excerpt?: string;
 }
 
+/** Parsed code-mechanism-assertion calibration record (mt#2486). */
+export interface CodeMechanismAssertionRecord {
+  timestamp: string;
+  session_id?: string;
+  claims: Array<{ symbol: string; predicate: string }>;
+  hadSameTurnRead: boolean;
+}
+
+/**
+ * Parsed policy-coverage calibration record (mt#1575).
+ *
+ * Unlike the other five logs, this is NOT a matched-phrase detector record —
+ * it is a per-tool-call coverage-decision audit line emitted on EVERY
+ * Edit/Write/NotebookEdit the detector evaluates (outcome: "covered" /
+ * "uncovered-logged" / "uncovered-blocked" / "dismissed"). `reason` is the
+ * action-filter trigger condition (e.g. "new-file", "new-dependency").
+ */
+export interface PolicyCoverageRecord {
+  timestamp: string;
+  session_id?: string;
+  toolName?: string;
+  reason: string;
+  filePath?: string;
+  outcome: string;
+  evidence?: Array<{ policySource: string; matchedCategory?: string; matchedAuthority?: string }>;
+}
+
 /** Union of all record types. */
-export type CalibrationRecord = CausalPremiseRecord | RetrospectiveTriggerRecord;
+export type CalibrationRecord =
+  | CausalPremiseRecord
+  | RetrospectiveTriggerRecord
+  | CodeMechanismAssertionRecord
+  | PolicyCoverageRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -170,6 +263,12 @@ export interface CalibrationLogResult {
   newRecords: CalibrationRecord[];
   /** The watermark at review time (may be zero if never reviewed). */
   watermarkCount: number;
+  /**
+   * ID of a still-open disposition Ask filed for this log by a prior
+   * /calibration-review pass (mt#2659), forwarded from the watermark's
+   * `openAskId`. Undefined when no ask is on file or it has been cleared.
+   */
+  openAskId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,23 +296,79 @@ export function parseCalibrationRecord(
         matchedPhrases: (raw["matchedPhrases"] as unknown[]).map(String),
         hadSameTurnVerification: Boolean(raw["hadSameTurnVerification"]),
       } satisfies CausalPremiseRecord;
-    } else {
-      // retrospective-trigger
-      // Shape: { timestamp, session_id?, matches: [{family, phrase}][], transcript_excerpt? }
-      const matches = Array.isArray(raw["matches"])
-        ? (raw["matches"] as unknown[]).map((m) => {
-            const obj = m as Record<string, unknown>;
-            return { family: String(obj["family"] ?? ""), phrase: String(obj["phrase"] ?? "") };
+    }
+
+    if (kind === "code-mechanism-assertion") {
+      // Shape: { timestamp, session_id?, claims: [{symbol, predicate}][], hadSameTurnRead }
+      const claims = Array.isArray(raw["claims"])
+        ? (raw["claims"] as unknown[]).map((c) => {
+            const obj = c as Record<string, unknown>;
+            return {
+              symbol: String(obj["symbol"] ?? ""),
+              predicate: String(obj["predicate"] ?? ""),
+            };
           })
         : [];
       return {
         timestamp: String(raw["timestamp"] ?? ""),
         session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
-        matches,
-        transcript_excerpt:
-          raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
-      } satisfies RetrospectiveTriggerRecord;
+        claims,
+        hadSameTurnRead: Boolean(raw["hadSameTurnRead"]),
+      } satisfies CodeMechanismAssertionRecord;
     }
+
+    if (kind === "policy-coverage") {
+      // Shape: { timestamp, sessionId?, toolName?, reason, filePath?, outcome, evidence? }
+      // NOTE: this producer uses `sessionId` (camelCase), not `session_id` like
+      // the other five logs — mirrored here rather than normalised so the
+      // parser stays a faithful reflection of what the hook actually writes.
+      if (typeof raw["reason"] !== "string" || typeof raw["outcome"] !== "string") return null;
+      const evidence = Array.isArray(raw["evidence"])
+        ? (raw["evidence"] as unknown[]).map((e) => {
+            const obj = e as Record<string, unknown>;
+            return {
+              policySource: String(obj["policySource"] ?? ""),
+              matchedCategory:
+                obj["matchedCategory"] !== undefined ? String(obj["matchedCategory"]) : undefined,
+              matchedAuthority:
+                obj["matchedAuthority"] !== undefined ? String(obj["matchedAuthority"]) : undefined,
+            };
+          })
+        : undefined;
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["sessionId"] !== undefined ? String(raw["sessionId"]) : undefined,
+        toolName: raw["toolName"] !== undefined ? String(raw["toolName"]) : undefined,
+        reason: raw["reason"],
+        filePath: raw["filePath"] !== undefined ? String(raw["filePath"]) : undefined,
+        outcome: raw["outcome"],
+        evidence,
+      } satisfies PolicyCoverageRecord;
+    }
+
+    // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
+    // (mt#2197) — same matches-shape family. retrospective-trigger labels each
+    // match with `family`; ask-routing-deferral labels it with `class`;
+    // pre-narration labels it with `category`. Read all three so any of the
+    // three kinds parses; only `.phrase` is used downstream (diversity +
+    // fire-count).
+    // Shape: { timestamp, session_id?, matches: [{family|class|category, phrase}][], transcript_excerpt? }
+    const matches = Array.isArray(raw["matches"])
+      ? (raw["matches"] as unknown[]).map((m) => {
+          const obj = m as Record<string, unknown>;
+          return {
+            family: String(obj["family"] ?? obj["class"] ?? obj["category"] ?? ""),
+            phrase: String(obj["phrase"] ?? ""),
+          };
+        })
+      : [];
+    return {
+      timestamp: String(raw["timestamp"] ?? ""),
+      session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+      matches,
+      transcript_excerpt:
+        raw["transcript_excerpt"] !== undefined ? String(raw["transcript_excerpt"]) : undefined,
+    } satisfies RetrospectiveTriggerRecord;
   } catch {
     return null;
   }
@@ -242,7 +397,12 @@ export function parseCalibrationLines(
  * Extract the set of distinct matched phrases from a slice of records.
  *
  * For causal-premise records: each entry in `matchedPhrases` is a phrase.
- * For retrospective-trigger records: each entry in `matches[].phrase` is a phrase.
+ * For retrospective-trigger / ask-routing-deferral / pre-narration records:
+ * each entry in `matches[].phrase` is a phrase.
+ * For code-mechanism-assertion records: `${symbol}::${predicate}` per claim —
+ * the (symbol, predicate) pair is the analog of a "matched phrase" here.
+ * For policy-coverage records: `reason` (the action-filter trigger condition)
+ * is the diversity axis — there is no matched-phrase concept for this log.
  */
 export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string> {
   const phrases = new Set<string>();
@@ -251,6 +411,12 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       for (const p of rec.matchedPhrases) {
         phrases.add(p);
       }
+    } else if ("claims" in rec) {
+      for (const c of rec.claims) {
+        phrases.add(`${c.symbol}::${c.predicate}`);
+      }
+    } else if ("reason" in rec) {
+      phrases.add(rec.reason);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
@@ -309,6 +475,7 @@ export function computeLogResult(
     // log is low-diversity), even though the Ask only fires on pastThreshold.
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
+    openAskId: watermark?.openAskId,
   };
 }
 
@@ -345,21 +512,119 @@ export async function runSweep(
  * @param results    - sweep results (used to read current total counts)
  * @param ackedPaths - set of log paths whose watermarks should be advanced
  * @param now        - timestamp string to use for lastReviewedAt
+ * @param askId      - optional ID of the disposition Ask the /calibration-review
+ *                     skill just filed covering ALL acked logs in this pass
+ *                     (mt#2659). When provided, recorded as `openAskId` on every
+ *                     advanced watermark so the cadence detector can suppress its
+ *                     per-turn warning in favor of a single pending-ask line
+ *                     until the ask is resolved (see `clearResolvedAskIds`).
+ *
+ *                     When `askId` is NOT provided, any PRE-EXISTING `openAskId`
+ *                     on the watermark being advanced is preserved verbatim, NOT
+ *                     dropped (mt#2659 review fix). Rebuilding the watermark as a
+ *                     fresh object without merging the prior entry would silently
+ *                     disable ask-aware suppression on every ordinary `ack:true`
+ *                     call that doesn't happen to also carry `askId` — clearing
+ *                     `openAskId` must stay the exclusive job of
+ *                     `clearResolvedAskIds()`, an explicit, intentional call.
  */
 export function advanceWatermarks(
   current: WatermarkStore,
   results: CalibrationLogResult[],
   ackedPaths: Set<string>,
-  now: string
+  now: string,
+  askId?: string
 ): WatermarkStore {
   const updated: WatermarkStore = { ...current };
   for (const result of results) {
     if (ackedPaths.has(result.entry.path)) {
+      const priorOpenAskId = current[result.entry.path]?.openAskId;
+      const nextOpenAskId = askId ?? priorOpenAskId;
       updated[result.entry.path] = {
         lastReviewedCount: result.totalFires,
         lastReviewedAt: now,
+        ...(nextOpenAskId ? { openAskId: nextOpenAskId } : {}),
       };
     }
   }
   return updated;
+}
+
+/**
+ * Clear `openAskId` from any watermark entries whose recorded ask id is in
+ * `resolvedAskIds` (mt#2659).
+ *
+ * Does NOT touch `lastReviewedCount` / `lastReviewedAt` — this is purely the
+ * "ask closed → resume normal cadence" transition, used once the
+ * /calibration-review skill confirms (via `asks_list`) that a previously-filed
+ * disposition ask has reached a terminal state (responded / closed /
+ * cancelled / expired). Returns a new store (does not mutate the input); a
+ * no-op (returns `current` unchanged, same reference) when `resolvedAskIds`
+ * is empty.
+ */
+export function clearResolvedAskIds(
+  current: WatermarkStore,
+  resolvedAskIds: ReadonlySet<string>
+): WatermarkStore {
+  if (resolvedAskIds.size === 0) return current;
+  const updated: WatermarkStore = { ...current };
+  for (const [path, wm] of Object.entries(current)) {
+    if (wm.openAskId && resolvedAskIds.has(wm.openAskId)) {
+      const { openAskId: _drop, ...rest } = wm;
+      updated[path] = rest;
+    }
+  }
+  return updated;
+}
+
+/**
+ * Result of `selectAckablePaths` — which past-threshold logs may be advanced
+ * (acked) this pass, and which must be skipped.
+ */
+export interface AckSelection {
+  /** Paths safe to advance via `advanceWatermarks`. */
+  ackablePaths: Set<string>;
+  /**
+   * Paths skipped because they carry a still-open disposition ask that this
+   * call is not explicitly reaffirming (mt#2659, BLOCKING 2 review fix).
+   */
+  skippedOpenAskPaths: string[];
+}
+
+/**
+ * Determine which past-threshold logs may be safely advanced (acked) in this
+ * pass, and which must be skipped because they already carry a still-open
+ * disposition ask (mt#2659).
+ *
+ * When `askId` is provided, the caller is explicitly (re)affirming an ask for
+ * every past-threshold result this call — ALL are ackable regardless of any
+ * pre-existing `openAskId`.
+ *
+ * When `askId` is NOT provided, any result whose `openAskId` is already set
+ * is skipped rather than silently advanced: per the /calibration-review
+ * skill's Step 1a, a log with an open disposition ask must not be
+ * re-classified or marked reviewed until that ask resolves (via
+ * `clearResolvedAskIds`). Advancing its watermark anyway would falsely mark
+ * an unreviewed batch of fires as "reviewed" while the operator's decision on
+ * an earlier snapshot is still outstanding.
+ *
+ * Pure — no I/O, no mutation of inputs. This is the command-adapter-facing
+ * counterpart to `advanceWatermarks`'s own openAskId-preservation behavior;
+ * together they make BOTH halves of "an ack call must never silently lose or
+ * misapply ask-aware suppression state" independently testable.
+ */
+export function selectAckablePaths(
+  pastThresholdResults: CalibrationLogResult[],
+  askId?: string
+): AckSelection {
+  const ackablePaths = new Set<string>();
+  const skippedOpenAskPaths: string[] = [];
+  for (const r of pastThresholdResults) {
+    if (!askId && r.openAskId) {
+      skippedOpenAskPaths.push(r.entry.path);
+      continue;
+    }
+    ackablePaths.add(r.entry.path);
+  }
+  return { ackablePaths, skippedOpenAskPaths };
 }

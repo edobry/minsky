@@ -14,6 +14,7 @@
 import "./railway";
 
 export * from "./config";
+export * from "./deploy-surface";
 export * from "./registry";
 export * from "./service-resolver";
 export * from "./types";

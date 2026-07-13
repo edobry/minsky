@@ -9,6 +9,9 @@ import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
+  // mt#2741: canonical single-task target. `taskId` is also inherited from
+  // BaseTaskParams; declared explicitly here for clarity next to the `task` alias.
+  taskId?: string;
   task?: string;
   concurrency?: number;
 }
@@ -32,11 +35,13 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
       this.getTaskService()
     );
 
-    // If a specific task is provided, index just that one
-    if (params.task) {
+    // If a specific task is provided (canonical `taskId`, or the `task` alias),
+    // index just that one (mt#2741). Absent => index all (below).
+    const singleTaskId = params.taskId ?? params.task;
+    if (singleTaskId) {
       const task = await getTaskFromParams(
         {
-          taskId: params.task,
+          taskId: singleTaskId,
           backend: params.backend,
           repo: params.repo,
           workspace: params.workspace,

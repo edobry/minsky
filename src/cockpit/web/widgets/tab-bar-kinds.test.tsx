@@ -37,8 +37,8 @@ describe("TabBar entity kinds (mt#2440)", () => {
     expect(screen.getByText("561a8568…")).toBeDefined();
   });
 
-  test("session-kind tab (/session/:id) renders", () => {
-    renderAt("/session/4d44d12b-58f0-433e-95b3-8b914693fa39");
+  test("session-kind tab (/conversation/:id) renders", () => {
+    renderAt("/conversation/4d44d12b-58f0-433e-95b3-8b914693fa39");
     expect(screen.getByText("4d44d12b…")).toBeDefined();
   });
 
