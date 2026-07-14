@@ -1,4 +1,4 @@
-import { pgTable, text, real, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, real, timestamp, primaryKey, index } from "drizzle-orm/pg-core";
 import { agentTranscriptsTable } from "./agent-transcripts-schema";
 
 /**
@@ -35,5 +35,16 @@ export const minskySessionLinksTable = pgTable(
     // When the link was detected
     detectedAt: timestamp("detected_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.agentSessionId, table.minskySessionId] })]
+  (table) => [
+    primaryKey({ columns: [table.agentSessionId, table.minskySessionId] }),
+    // mt#2767 (latency follow-up) — the composite PK above only covers
+    // lookups keyed by agentSessionId (the leading column); the unified
+    // run-list merge's forward-direction query
+    // (`WHERE minsky_session_id IN (...)`, resolving each VISIBLE
+    // workspace's best-linked conversation) filters on the second column
+    // alone, which the PK cannot serve — a full-table scan on every poll.
+    // Live-measured regression: unified /api/widget/agents/data warm at
+    // 2-9s vs. the pre-merge baseline's 0.33s (2026-07-14).
+    index("idx_minsky_session_links_minsky_session_id").on(table.minskySessionId),
+  ]
 );

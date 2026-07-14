@@ -91,12 +91,11 @@ type PaletteEntity =
 
 const PAGES: PalettePage[] = [
   { type: "page", path: "/", label: "Home", description: "Dashboard overview" },
-  { type: "page", path: "/agents", label: "Agents", description: "Workspace sessions in flight" },
   {
     type: "page",
-    path: "/conversations",
-    label: "Conversations",
-    description: "Conversation transcripts",
+    path: "/agents",
+    label: "Agents",
+    description: "Unified agent-run list (mt#2767): workspace sessions, conversations, subagents",
   },
   {
     type: "page",
@@ -144,19 +143,29 @@ function extractSessions(data: WidgetData | undefined): PaletteSession[] {
   const payload = data.payload as {
     agents?: {
       sessionId: string;
+      kind?: string;
       taskId: string | null;
       taskTitle: string | null;
-      liveness: string;
+      liveness: string | null;
     }[];
   };
   if (!Array.isArray(payload?.agents)) return [];
-  return payload.agents.map((a) => ({
-    type: "session" as const,
-    id: a.sessionId,
-    taskId: a.taskId,
-    taskTitle: a.taskTitle,
-    liveness: a.liveness,
-  }));
+  // mt#2767 — the `agents` widget now ALSO returns conversation-derived rows
+  // (kind: "principal-conversation" | "subagent-group") in the same array.
+  // Those are already indexed separately below via the "Conversations" group
+  // (context-inspector source) — keep "Sessions" scoped to workspace rows
+  // only, so the palette doesn't show the same conversation twice under two
+  // different headings. Rows without a `kind` field (impossible post-mt#2767,
+  // kept only as a defensive default) are treated as workspace rows.
+  return payload.agents
+    .filter((a) => a.kind == null || a.kind === "dispatched-agent")
+    .map((a) => ({
+      type: "session" as const,
+      id: a.sessionId,
+      taskId: a.taskId,
+      taskTitle: a.taskTitle,
+      liveness: a.liveness ?? "unknown",
+    }));
 }
 
 function extractAsks(data: WidgetData | undefined): PaletteAsk[] {
@@ -308,8 +317,9 @@ export function CommandPalette() {
     staleTime: 30_000,
   });
 
-  // Shared key with ConversationsPage / useEntityIndex's ["context-inspector", "sessions"]
-  // — same raw WidgetData wrapper, different projection extracted (mt#2769).
+  // Shared key with ConversationPage / useEntityIndex's ["context-inspector", "sessions"]
+  // (the retired ConversationsPage list used the same key pre-mt#2767) —
+  // same raw WidgetData wrapper, different projection extracted (mt#2769).
   const conversationsQuery = useQuery<WidgetData, Error>({
     queryKey: ["context-inspector", "sessions"],
     queryFn: () => fetchWidgetData("context-inspector"),

@@ -33,9 +33,6 @@ const ConversationPage = lazy(() =>
 const DrivenSessionPage = lazy(() =>
   import("./pages/DrivenSessionPage").then((m) => ({ default: m.DrivenSessionPage }))
 );
-const ConversationsPage = lazy(() =>
-  import("./pages/ConversationsPage").then((m) => ({ default: m.ConversationsPage }))
-);
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -100,7 +97,9 @@ const VitalsPage = lazy(() =>
  */
 export function SessionIdRedirect() {
   const { id } = useParams<{ id: string }>();
-  return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/conversations"} replace />;
+  // mt#2767: /conversations retired (redirects to /agents) — the no-id
+  // fallback now points there directly rather than through a second hop.
+  return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/agents"} replace />;
 }
 
 /**
@@ -474,14 +473,12 @@ export function App() {
           {/* Retired standalone Context page (mt#2768): folded into the
               run-detail Context tab. Redirect for bookmark continuity. */}
           <Route path="/context" element={<Navigate to="/agents" replace />} />
-          <Route
-            path="/conversations"
-            element={
-              <ErrorBoundary id="sessions-page">
-                <ConversationsPage />
-              </ErrorBoundary>
-            }
-          />
+          {/* Retired standalone Conversations list (mt#2767): /agents is now
+              the unified agent-run list — workspace sessions, standalone
+              conversations, and collapsed subagent groups in one browse
+              surface. Redirect for bookmark continuity (mirrors the
+              /context -> /agents pattern above from mt#2768). */}
+          <Route path="/conversations" element={<Navigate to="/agents" replace />} />
           {/* Conversation entity route (mt#2398): URL-addressable conversation
               tab; body is mt#2374's ConversationView, re-homed from the retired
               /conversation host. Path renamed from /session/:id per ADR-022
