@@ -32,6 +32,11 @@
  * @see scripts/backfill-minsky-session-links.ts — sibling script for the mt#2441 `cwd_match` class
  */
 
+// tsyringe (used by createCliContainer's DI container below) requires this
+// polyfill — without it, `bun scripts/backfill-subagent-spawn-links.ts` (the
+// exact invocation this script's own docstring documents) throws "tsyringe
+// requires a reflect polyfill" (mt#2768 finding, 2026-07-14).
+import "reflect-metadata";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 async function getDb(): Promise<PostgresJsDatabase> {
