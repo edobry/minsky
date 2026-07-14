@@ -22,10 +22,19 @@
  *
  * Idempotent: upserts on (parent_agent_session_id, parent_turn_index).
  *
+ * Also drives the `subagent_spawn` `minsky_session_links` writer (mt#2756):
+ * once `childAgentSessionId` is resolved for a spawn, this pipeline calls
+ * `writeSpawnLink` (spawn-link-writer.ts) with the SAME Agent tool call's
+ * `input.prompt` text already loaded for extraction above — no extra query.
+ * That link is what lets `/agents/:id` (mt#1919, `src/cockpit/routes/agents.ts`)
+ * resolve a dispatched subagent's live conversation even though its `cwd`
+ * never matches the workspace directory (mt#2749 finding).
+ *
  * @see mt#1327 — this file
  * @see mt#1313 §Schema — agent_spawns table
  * @see mt#1352 — PerTurnEmbeddingPipeline writes is_spawn_boundary flag
  * @see agent-spawns-schema.ts — destination table
+ * @see mt#2756 / spawn-link-writer.ts — subagent_spawn minsky_session_links writer
  */
 
 import { eq, and, gte, lte } from "drizzle-orm";
@@ -35,6 +44,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
+import { writeSpawnLink } from "./spawn-link-writer";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 
@@ -54,6 +64,12 @@ export interface SpawnsPipelineRunResult {
   childUnresolved: number;
   /** Number of turns that errored and were skipped. */
   spawnsErrored: number;
+  /**
+   * `subagent_spawn` minsky_session_links rows written or already present
+   * (mt#2756) — a subset of the resolved-child spawns whose dispatch prompt
+   * embedded a Minsky workspace session directory.
+   */
+  spawnLinksWritten: number;
 }
 
 /** Content block shape from agent_transcript_turns.tool_calls JSONB. */
@@ -91,6 +107,7 @@ export class AgentSpawnsPipeline {
       childLinkedFromHeuristic: 0,
       childUnresolved: 0,
       spawnsErrored: 0,
+      spawnLinksWritten: 0,
     };
 
     // ── 1. Load spawn-boundary turns with parent metadata ─────────────────
@@ -195,6 +212,14 @@ export class AgentSpawnsPipeline {
         if (linkSource === "metadata") result.childLinkedFromMetadata++;
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
         else result.childUnresolved++;
+
+        // mt#2756: write the subagent_spawn minsky_session_links row using
+        // the SAME Agent tool call's prompt text already loaded above — no
+        // extra query. No-ops when childAgentSessionId is unresolved or the
+        // prompt doesn't embed a Minsky workspace session directory.
+        if (await writeSpawnLink(this.db, childAgentSessionId, agentCall.input?.prompt)) {
+          result.spawnLinksWritten++;
+        }
       } catch (err) {
         result.spawnsErrored++;
         log.warn(
@@ -211,6 +236,7 @@ export class AgentSpawnsPipeline {
       childLinkedFromHeuristic: result.childLinkedFromHeuristic,
       childUnresolved: result.childUnresolved,
       spawnsErrored: result.spawnsErrored,
+      spawnLinksWritten: result.spawnLinksWritten,
     });
 
     return result;
@@ -230,6 +256,7 @@ export class AgentSpawnsPipeline {
       childLinkedFromHeuristic: 0,
       childUnresolved: 0,
       spawnsErrored: 0,
+      spawnLinksWritten: 0,
     };
 
     let rows: Array<{
@@ -327,6 +354,11 @@ export class AgentSpawnsPipeline {
         if (linkSource === "metadata") result.childLinkedFromMetadata++;
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
         else result.childUnresolved++;
+
+        // mt#2756: see the identical comment in run() above.
+        if (await writeSpawnLink(this.db, childAgentSessionId, agentCall.input?.prompt)) {
+          result.spawnLinksWritten++;
+        }
       } catch (err) {
         result.spawnsErrored++;
         log.warn(

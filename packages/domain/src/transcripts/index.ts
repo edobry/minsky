@@ -50,6 +50,15 @@ export {
   type CwdMatchDetection,
   type BackfillCwdMatchLinksResult,
 } from "./session-link-writer";
+// minsky_session_links `subagent_spawn` writer + backfill (mt#2756).
+export {
+  extractMinskySessionIdFromPrompt,
+  writeSpawnLink,
+  backfillSpawnLinks,
+  SUBAGENT_SPAWN_LINK_TYPE,
+  SUBAGENT_SPAWN_CONFIDENCE,
+  type BackfillSpawnLinksResult,
+} from "./spawn-link-writer";
 export {
   PerTurnEmbeddingPipeline,
   type PipelineRunResult,
