@@ -27,6 +27,7 @@ import { useQueries } from "@tanstack/react-query";
 import { buildEntityIndex, type EntityIndex } from "./entity-linkifier";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
+import { extractConversationRows } from "./conversations-source";
 
 /**
  * Fetch ALL task ids from the uncapped /api/tasks/ids endpoint (mt#2518 R5).
@@ -89,11 +90,20 @@ async function fetchChangesetIds(): Promise<string[]> {
 }
 
 /**
+ * Extract conversation ids (harness agentSessionIds) from the shared
+ * context-inspector conversations-picker payload (mt#2769). Distinct id-space
+ * from `extractAgentSessionIds` above (Minsky workspace sessionIds).
+ */
+function extractConversationIds(data: WidgetData | undefined): string[] {
+  return extractConversationRows(data).map((row) => row.agentSessionId);
+}
+
+/**
  * Build the entity index from data fetched for linkification purposes.
  * Returns an always-present EntityIndex (may be empty on load or error).
  */
 export function useEntityIndex(): EntityIndex {
-  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ] = useQueries({
+  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ] = useQueries({
     queries: [
       {
         // Distinct key from CommandPalette's "command-palette-tasks" — different shape
@@ -127,6 +137,15 @@ export function useEntityIndex(): EntityIndex {
         queryFn: fetchChangesetIds,
         staleTime: 30_000,
       },
+      {
+        // Shared key with ConversationsPage's ["context-inspector", "sessions"] —
+        // both fetch the raw WidgetData wrapper and extract different projections
+        // of it (rows vs ids here), the same compatible-shape sharing pattern the
+        // module header documents for agents/attention/memories (mt#2769).
+        queryKey: ["context-inspector", "sessions"],
+        queryFn: () => fetchWidgetData("context-inspector"),
+        staleTime: 30_000,
+      },
     ],
   });
 
@@ -138,7 +157,15 @@ export function useEntityIndex(): EntityIndex {
         askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
         memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),
         changesetIds: (changesetsQ.data as string[] | undefined) ?? [],
+        conversationIds: extractConversationIds(conversationsQ.data as WidgetData | undefined),
       }),
-    [tasksQ.data, agentsQ.data, attentionQ.data, memoriesQ.data, changesetsQ.data]
+    [
+      tasksQ.data,
+      agentsQ.data,
+      attentionQ.data,
+      memoriesQ.data,
+      changesetsQ.data,
+      conversationsQ.data,
+    ]
   );
 }

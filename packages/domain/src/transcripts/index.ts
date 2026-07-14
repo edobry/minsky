@@ -39,6 +39,30 @@ export {
   extractTurnsForAllTranscripts,
   type ExtractAllTurnsResult,
 } from "./turn-writer";
+// minsky_session_links `cwd_match` writer + backfill (mt#2441).
+export {
+  detectCwdMatch,
+  writeCwdMatchLink,
+  backfillCwdMatchLinks,
+  CWD_MATCH_LINK_TYPE,
+  CWD_MATCH_EXACT_CONFIDENCE,
+  CWD_MATCH_DESCENDANT_CONFIDENCE,
+  type CwdMatchDetection,
+  type BackfillCwdMatchLinksResult,
+} from "./session-link-writer";
+// minsky_session_links `subagent_spawn` writer + backfill (mt#2756).
+export {
+  extractMinskySessionIdFromPrompt,
+  writeSpawnLink,
+  backfillSpawnLinks,
+  SUBAGENT_SPAWN_LINK_TYPE,
+  SUBAGENT_SPAWN_CONFIDENCE,
+  type WriteSpawnLinkOutcome,
+  type BackfillSpawnLinksResult,
+} from "./spawn-link-writer";
+// Shared Agent-tool-call JSONB shape + finder (mt#2756 R1) — used by both
+// AgentSpawnsPipeline and spawn-link-writer.ts to avoid drift.
+export { findAgentToolCall, type AgentToolCallBlock } from "./agent-tool-call-shape";
 export {
   PerTurnEmbeddingPipeline,
   type PipelineRunResult,

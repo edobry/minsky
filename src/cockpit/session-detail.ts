@@ -3,17 +3,28 @@
  *
  * Pure helpers for the workspace-session drill-down endpoint: payload types,
  * GitHub web-URL derivation, `git log` output parsing, and SessionRecord →
- * payload mapping. The Express route in server.ts composes these with the
- * session provider, a bounded `git log` subprocess, and the transcript
- * cwd-resolution query.
+ * payload mapping. The Express route in `./routes/agents.ts` composes these
+ * with the session provider, a bounded `git log` subprocess, and the
+ * transcript conversation-resolution query.
  *
  * Two session id-spaces (mt#2398/mt#2420 — do not conflate): this endpoint is
  * keyed by the MINSKY workspace sessionId (`SessionRecord.sessionId`). The
  * conversation link it returns carries the harness agentSessionId
- * (`agent_transcripts.agent_session_id`), resolved by matching the session's
- * workspace directory against transcript cwd. `minsky_session_links` is the
- * eventual structural home for that join; it has no writers yet, so v0
- * resolves at read time.
+ * (`agent_transcripts.agent_session_id`).
+ *
+ * Consultation order (mt#2441 + mt#2756): `minsky_session_links` — populated
+ * by TWO independent writers, `cwd_match` at ingest time
+ * (`AgentTranscriptIngestService`, backfilled via
+ * `scripts/backfill-minsky-session-links.ts`) and `subagent_spawn` at
+ * spawn-extraction time (`AgentSpawnsPipeline`, backfilled via
+ * `scripts/backfill-subagent-spawn-links.ts`) — is now consulted FIRST via
+ * {@link pickBestConversationLink}, which is link-class agnostic: it just
+ * ranks whatever candidate rows the caller's query returns by confidence,
+ * tie-broken by recency, regardless of which writer produced them. The live
+ * `cwd` LIKE query against `agent_transcripts` (in `./routes/agents.ts`) is
+ * kept ONLY as a fallback for transcripts that have no link row of EITHER
+ * class yet (pre-backfill, or ingested before either writer shipped). Full
+ * removal of that fallback is a separate task (mt#2768), not this one.
  */
 import type { SessionRecord, SessionLiveness } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
@@ -114,6 +125,111 @@ export function parseGitLog(stdout: string, repoWebBase: string | null): Session
     });
   }
   return refs;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation-link consultation order (mt#2441)
+// ---------------------------------------------------------------------------
+
+/** One candidate row joined from `minsky_session_links` + `agent_transcripts`. */
+export interface ConversationLinkCandidate {
+  agentSessionId: string;
+  /** `minsky_session_links.confidence`; null is treated as lowest (0). */
+  confidence: number | null;
+  /** `agent_transcripts.started_at`, for tie-breaking by recency. */
+  startedAt: Date | string | null;
+}
+
+/**
+ * Select the best `minsky_session_links` row for a workspace session, when
+ * link rows exist. Highest confidence wins (exact cwd match beats a
+ * descendant-path match); ties broken by most-recent `startedAt`.
+ *
+ * Pure and side-effect-free so it's unit-testable without a DB — the caller
+ * (`./routes/agents.ts`) does the query, this function does the selection.
+ *
+ * @returns `null` when `candidates` is empty — callers should fall back to
+ *   the live `cwd` LIKE query in that case (mt#2441 SC3; full removal of the
+ *   fallback is mt#2768).
+ */
+export function pickBestConversationLink(
+  candidates: ConversationLinkCandidate[]
+): { agentSessionId: string } | null {
+  const [first, ...rest] = candidates;
+  if (!first) return null;
+
+  const best = rest.reduce((currentBest, candidate) => {
+    const candidateConfidence = candidate.confidence ?? 0;
+    const bestConfidence = currentBest.confidence ?? 0;
+    if (candidateConfidence > bestConfidence) return candidate;
+    if (
+      candidateConfidence === bestConfidence &&
+      toEpochMs(candidate.startedAt) > toEpochMs(currentBest.startedAt)
+    ) {
+      return candidate;
+    }
+    return currentBest;
+  }, first);
+
+  return { agentSessionId: best.agentSessionId };
+}
+
+function toEpochMs(value: Date | string | null): number {
+  if (!value) return 0;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// ---------------------------------------------------------------------------
+// Reverse-link consultation order (mt#2768) — conversation -> workspace
+// ---------------------------------------------------------------------------
+
+/** One candidate row joined from `minsky_session_links` for a single agentSessionId. */
+export interface WorkspaceLinkCandidate {
+  minskySessionId: string;
+  /** `minsky_session_links.confidence`; null is treated as lowest (0). */
+  confidence: number | null;
+  /** `minsky_session_links.detectedAt`, for tie-breaking when confidence ties. */
+  detectedAt: Date | string | null;
+}
+
+/**
+ * Select the best `minsky_session_links` row for a CONVERSATION (the reverse
+ * direction of {@link pickBestConversationLink}): given every workspace a
+ * conversation has touched, pick the one the Conversation-keyed run-detail
+ * page (`/conversation/:id`) should resolve Overview to. Highest confidence
+ * wins; ties broken by most-recently-detected link (a conversation can touch
+ * more than one workspace over its life — e.g. re-linked after a rebase —
+ * and the most recently established link is the best guess at "current").
+ *
+ * Pure and side-effect-free, mirroring `pickBestConversationLink` — the
+ * caller (`routes/conversations.ts`) does the query, this function does the
+ * selection.
+ *
+ * @returns `null` when `candidates` is empty — callers should treat the
+ *   conversation as workspace-less (mt#2768 Behavior: "workspace-less runs
+ *   collapse Overview to conversation metadata").
+ */
+export function pickBestWorkspaceLink(
+  candidates: WorkspaceLinkCandidate[]
+): { minskySessionId: string } | null {
+  const [first, ...rest] = candidates;
+  if (!first) return null;
+
+  const best = rest.reduce((currentBest, candidate) => {
+    const candidateConfidence = candidate.confidence ?? 0;
+    const bestConfidence = currentBest.confidence ?? 0;
+    if (candidateConfidence > bestConfidence) return candidate;
+    if (
+      candidateConfidence === bestConfidence &&
+      toEpochMs(candidate.detectedAt) > toEpochMs(currentBest.detectedAt)
+    ) {
+      return candidate;
+    }
+    return currentBest;
+  }, first);
+
+  return { minskySessionId: best.minskySessionId };
 }
 
 // ---------------------------------------------------------------------------

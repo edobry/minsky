@@ -21,6 +21,8 @@ import {
 } from "./schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
+import type { TaskGraphService } from "./tasks/task-graph-service";
+import { setTaskStatusFromParams as setTaskStatusValidated } from "./tasks/commands/mutation-commands";
 import { ALL_PROJECTS, type ProjectScope } from "./project/scope";
 import { resolveProjectIdentity } from "./project/identity";
 import { resolveProjectScope } from "./project/scope-resolver";
@@ -30,6 +32,8 @@ import { resolveProjectScope } from "./project/scope-resolver";
 export interface TaskServiceDeps {
   persistenceProvider?: PersistenceProvider;
   taskService?: TaskServiceInterface;
+  /** Enables the umbrella children-completeness closeout guard (mt#2606). */
+  taskGraphService?: Pick<TaskGraphService, "listChildren">;
 }
 
 function requirePersistence(provider: PersistenceProvider | undefined): PersistenceProvider {
@@ -184,20 +188,19 @@ export async function setTaskStatusFromParams(
   deps?: TaskServiceDeps
 ) {
   const validParams = taskStatusSetParamsSchema.parse(params);
-  const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-  log.debug("tasks.status.set created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
+  // Delegate to the transition-validating implementation in
+  // tasks/commands/mutation-commands.ts: kind-aware validateStatusTransition
+  // (mt#1812), READY→DONE closeout-evidence check, and the umbrella
+  // children-completeness guard (mt#2606). This facade previously wrote the
+  // status directly, leaving MCP/CLI transitions server-side unvalidated
+  // (mt#2704) — the delegation closes that gap for tasks_status_set and
+  // tasks_dispatch, which both resolve here via the @minsky/domain/tasks barrel.
+  await setTaskStatusValidated(validParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    taskGraphService: deps?.taskGraphService,
   });
-  await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
 

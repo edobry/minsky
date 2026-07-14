@@ -357,3 +357,16 @@ export function isKnownKind(kind: string): kind is TaskKind {
  * Default task kind for tasks that have not been explicitly assigned a kind.
  */
 export const DEFAULT_KIND: TaskKind = "implementation";
+
+/**
+ * True when `status` is a terminal state in ANY registered workflow
+ * (currently the union {DONE, CLOSED, COMPLETED}). This is the domain-level
+ * "no further work expected" predicate — e.g. the umbrella closeout guard
+ * (mt#2606) uses it to decide whether a child task counts as complete.
+ * Distinct from the UI's hidden-by-default listing filter, which may drift
+ * for display reasons without changing closeout semantics.
+ */
+export function isTerminalTaskStatus(status: string | undefined): boolean {
+  if (!status) return false;
+  return Object.values(WORKFLOWS).some((workflow) => workflow.terminal.includes(status));
+}

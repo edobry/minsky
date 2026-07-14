@@ -7,11 +7,75 @@
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
-import {
-  getServerSessionProvider,
-  getServerTaskService,
-  getContextInspectorDb,
-} from "../db-providers";
+import { getServerSessionProvider, getContextInspectorDb } from "../db-providers";
+
+/**
+ * Resolve every `minsky_session_links` candidate for a workspace session
+ * (mt#2441 + mt#2756 + mt#2768). Link-CLASS AGNOSTIC (no filter on
+ * link_type) — picks up BOTH the cwd_match class (written at ingest time by
+ * AgentTranscriptIngestService, backfilled via
+ * scripts/backfill-minsky-session-links.ts) AND the subagent_spawn class
+ * (written by AgentSpawnsPipeline from spawn provenance, backfilled via
+ * scripts/backfill-subagent-spawn-links.ts). The subagent_spawn class is what
+ * resolves a DISPATCHED subagent's workspace — its transcript's own cwd never
+ * matches the workspace directory (mt#2749 finding: subagents don't chdir),
+ * so cwd_match alone misses it.
+ *
+ * NO cwd LIKE fallback (mt#2768 — deleted): the substrate prerequisites
+ * (mt#2441, mt#2756) have landed and backfilled, so link rows are the sole
+ * resolution mechanism now. A conversation with no link row is reported as
+ * unresolved rather than falling back to a live heuristic query.
+ *
+ * @returns every candidate row, newest-`startedAt`-first — the run-detail
+ *   page's conversation switcher (mt#2768 Behavior: "multi-conversation
+ *   workspaces") needs the FULL set, not just the best one. `confidence` is
+ *   retained (not just exposed via the response) so the caller can still
+ *   feed the FULL candidate set into `pickBestConversationLink` for the
+ *   back-compat singular `conversation` field.
+ */
+async function resolveWorkspaceConversations(minskySessionId: string): Promise<
+  Array<{
+    agentSessionId: string;
+    confidence: number | null;
+    startedAt: string | null;
+  }>
+> {
+  try {
+    const db = await getContextInspectorDb();
+    if (!db) return [];
+    const { agentTranscriptsTable } = await import(
+      "@minsky/domain/storage/schemas/agent-transcripts-schema"
+    );
+    const { minskySessionLinksTable } = await import(
+      "@minsky/domain/storage/schemas/minsky-session-links-schema"
+    );
+    const { eq, desc, sql } = await import("drizzle-orm");
+
+    const linkRows = await db
+      .select({
+        agentSessionId: minskySessionLinksTable.agentSessionId,
+        confidence: minskySessionLinksTable.confidence,
+        startedAt: agentTranscriptsTable.startedAt,
+      })
+      .from(minskySessionLinksTable)
+      .innerJoin(
+        agentTranscriptsTable,
+        eq(agentTranscriptsTable.agentSessionId, minskySessionLinksTable.agentSessionId)
+      )
+      .where(eq(minskySessionLinksTable.minskySessionId, minskySessionId))
+      .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`);
+
+    return linkRows.map((r) => ({
+      agentSessionId: r.agentSessionId,
+      confidence: r.confidence,
+      startedAt: r.startedAt instanceof Date ? r.startedAt.toISOString() : null,
+    }));
+  } catch (convErr) {
+    const msg = convErr instanceof Error ? convErr.message : String(convErr);
+    log.debug(`[agents] conversation enrichment degraded: ${msg}`);
+    return [];
+  }
+}
 
 /** Mount /api/agents/:id and /api/agents/:id/live-tail on `app`. */
 export function mountAgentRoutes(app: express.Express): void {
@@ -20,7 +84,12 @@ export function mountAgentRoutes(app: express.Express): void {
    * (mt#1919). Keyed by the MINSKY workspace sessionId (not the harness
    * agentSessionId — see src/cockpit/session-detail.ts header).
    *
-   * Returns: SessionDetailPayload { session, commits, pr, conversation }
+   * Returns: { session, commits, pr, conversation, conversations }
+   *   - `conversation` — the single BEST link (back-compat; kept for callers
+   *     that just want "the" conversation).
+   *   - `conversations` — every resolved link, newest-first (mt#2768 —
+   *     drives the run-detail Conversation-tab switcher for multi-conversation
+   *     workspaces).
    * Every enrichment (git log, task title, transcript resolution) degrades
    * independently — only a missing session record is a 404.
    */
@@ -47,9 +116,6 @@ export function mountAgentRoutes(app: express.Express): void {
         return;
       }
 
-      const { buildSessionMeta, buildPrRef, githubRepoWebBase, parseGitLog, GIT_LOG_FORMAT } =
-        await import("../session-detail");
-
       // Workspace dir: record fields first, provider lookup as fallback.
       let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
       if (!workdir) {
@@ -60,99 +126,27 @@ export function mountAgentRoutes(app: express.Express): void {
         }
       }
 
-      // Enrichments run in parallel; each degrades to a safe default.
-      const repoWebBase = githubRepoWebBase(record.repoUrl);
+      const { buildWorkspaceOverview } = await import("../workspace-overview");
+      const overviewPromise = buildWorkspaceOverview(record, workdir);
+      const conversationsPromise = resolveWorkspaceConversations(sessionId);
 
-      const commitsPromise: Promise<ReturnType<typeof parseGitLog>> = (async () => {
-        if (!workdir) return [];
-        const { existsSync } = await import("node:fs");
-        const { join } = await import("node:path");
-        // .git may be a directory (normal checkout) or a file (worktree
-        // indirection) — existsSync covers both. A workspace without it is
-        // not a git checkout; skip rather than let git walk up to a parent repo.
-        if (!existsSync(workdir) || !existsSync(join(workdir, ".git"))) {
-          log.debug(`[agents] commits enrichment skipped — no git workspace at ${workdir}`);
-          return [];
-        }
-        const { execFile } = await import("node:child_process");
-        const { promisify } = await import("node:util");
-        const execFileAsync = promisify(execFile);
-        try {
-          const { stdout } = await execFileAsync(
-            "git",
-            ["-C", workdir, "log", `--format=${GIT_LOG_FORMAT}`, "-n", "10"],
-            { timeout: 5_000, maxBuffer: 256 * 1024 }
-          );
-          return parseGitLog(stdout, repoWebBase);
-        } catch (gitErr) {
-          const msg = gitErr instanceof Error ? gitErr.message : String(gitErr);
-          log.debug(`[agents] commits enrichment degraded — git log failed: ${msg}`);
-          return [];
-        }
-      })();
-
-      const taskTitlePromise: Promise<string | null> = (async () => {
-        if (!record.taskId) return null;
-        try {
-          const taskService = await getServerTaskService();
-          if (!taskService) return null;
-          const task = await taskService.getTask(record.taskId);
-          return task?.title ?? null;
-        } catch (titleErr) {
-          const msg = titleErr instanceof Error ? titleErr.message : String(titleErr);
-          log.debug(`[agents] task-title enrichment degraded: ${msg}`);
-          return null;
-        }
-      })();
-
-      // Workspace → transcript resolution (mt#2420 deferral): newest
-      // agent_transcripts row whose cwd is the session workspace (or below).
-      const conversationPromise: Promise<{ agentSessionId: string } | null> = (async () => {
-        if (!workdir) return null;
-        try {
-          const db = await getContextInspectorDb();
-          if (!db) return null;
-          const { agentTranscriptsTable } = await import(
-            "@minsky/domain/storage/schemas/agent-transcripts-schema"
-          );
-          const { eq, like, or, desc, sql } = await import("drizzle-orm");
-          // Match workdir + descendants (POSIX "/" and Windows "\") via the
-          // shared escape helper so the two transcript-resolution routes cannot
-          // drift on the backslash-escape level (mt#2232 R1).
-          const { cwdDescendantLikePatterns } = await import("../live-tail-poller");
-          const { posix: cwdPosix, windows: cwdWindows } = cwdDescendantLikePatterns(workdir);
-          const rows = await db
-            .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
-            .from(agentTranscriptsTable)
-            .where(
-              or(
-                eq(agentTranscriptsTable.cwd, workdir),
-                like(agentTranscriptsTable.cwd, cwdPosix),
-                like(agentTranscriptsTable.cwd, cwdWindows)
-              )
-            )
-            .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
-            .limit(1);
-          const first = rows[0];
-          return first ? { agentSessionId: first.agentSessionId } : null;
-        } catch (convErr) {
-          const msg = convErr instanceof Error ? convErr.message : String(convErr);
-          log.debug(`[agents] conversation enrichment degraded: ${msg}`);
-          return null;
-        }
-      })();
-
-      const [commits, taskTitle, conversation] = await Promise.all([
-        commitsPromise,
-        taskTitlePromise,
-        conversationPromise,
+      const [{ session, commits, pr }, conversations] = await Promise.all([
+        overviewPromise,
+        conversationsPromise,
       ]);
 
+      const { pickBestConversationLink } = await import("../session-detail");
+      const conversation = pickBestConversationLink(conversations);
+
       res.json({
-        session: buildSessionMeta(record, taskTitle),
+        session,
         commits,
-        pr: buildPrRef(record),
+        pr,
         conversation,
+        conversations: conversations.map((c) => ({
+          agentSessionId: c.agentSessionId,
+          startedAt: c.startedAt,
+        })),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -209,22 +203,10 @@ export function mountAgentRoutes(app: express.Express): void {
         return;
       }
 
-      let workdir: string | null = record.workspacePath ?? record.sessionPath ?? null;
-      if (!workdir) {
-        try {
-          workdir = await provider.getSessionWorkdir(workspaceSessionId);
-        } catch {
-          workdir = null;
-        }
-      }
-
-      if (!workdir) {
-        res.status(404).json({ error: "Session workspace directory not resolvable" });
-        return;
-      }
-
-      // 2. Resolve agentSessionId + projectDir from the transcripts table.
-      //    Reuses the same DB query as /api/agents/:id conversationPromise.
+      // 2. Resolve agentSessionId via the join (mt#2768 — "workspace-keyed
+      //    resolution via the join" success criterion). No cwd LIKE fallback:
+      //    a workspace with no link row is reported unresolved rather than
+      //    falling back to a live cwd heuristic query.
       const db = await getContextInspectorDb();
       if (!db) {
         res.status(503).json({
@@ -233,37 +215,34 @@ export function mountAgentRoutes(app: express.Express): void {
         return;
       }
 
-      const { agentTranscriptsTable } = await import(
-        "@minsky/domain/storage/schemas/agent-transcripts-schema"
-      );
-      const { eq, like, or, desc, sql } = await import("drizzle-orm");
-      const { cwdDescendantLikePatterns } = await import("../live-tail-poller");
-      const { posix: cwdPosix, windows: cwdWindows } = cwdDescendantLikePatterns(workdir);
-      const rows = await db
-        .select({
-          agentSessionId: agentTranscriptsTable.agentSessionId,
-          projectDir: agentTranscriptsTable.projectDir,
-        })
-        .from(agentTranscriptsTable)
-        .where(
-          or(
-            eq(agentTranscriptsTable.cwd, workdir),
-            like(agentTranscriptsTable.cwd, cwdPosix),
-            like(agentTranscriptsTable.cwd, cwdWindows)
-          )
-        )
-        .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
-        .limit(1);
-
-      const first = rows[0];
-      if (!first) {
+      const { pickBestConversationLink } = await import("../session-detail");
+      const candidates = await resolveWorkspaceConversations(workspaceSessionId);
+      const linked = pickBestConversationLink(candidates);
+      if (!linked) {
         res.status(404).json({
           error: "No transcript found for this session — may not have started yet",
         });
         return;
       }
 
-      const { agentSessionId, projectDir } = first;
+      // Mint at the boundary: pickBestConversationLink's return is plain
+      // string, but the transcripts table column is branded ConversationId.
+      const { agentSessionId: agentSessionIdRaw } = linked;
+      const agentSessionId = agentSessionIdRaw as import("@minsky/domain/ids").ConversationId;
+
+      // 2b. projectDir is a JSONL-locate optimization only (resolveJsonlPath
+      //     falls back to a directory scan when absent) — a single-row lookup
+      //     by the now-resolved agentSessionId, not part of the join itself.
+      const { agentTranscriptsTable } = await import(
+        "@minsky/domain/storage/schemas/agent-transcripts-schema"
+      );
+      const { eq } = await import("drizzle-orm");
+      const projectDirRows = await db
+        .select({ projectDir: agentTranscriptsTable.projectDir })
+        .from(agentTranscriptsTable)
+        .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
+        .limit(1);
+      const projectDir = projectDirRows[0]?.projectDir ?? null;
 
       // 3. Locate the JSONL file on disk
       const { resolveJsonlPath, startLiveTail } = await import("../live-tail-poller");
