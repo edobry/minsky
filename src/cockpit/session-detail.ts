@@ -181,6 +181,58 @@ function toEpochMs(value: Date | string | null): number {
 }
 
 // ---------------------------------------------------------------------------
+// Reverse-link consultation order (mt#2768) — conversation -> workspace
+// ---------------------------------------------------------------------------
+
+/** One candidate row joined from `minsky_session_links` for a single agentSessionId. */
+export interface WorkspaceLinkCandidate {
+  minskySessionId: string;
+  /** `minsky_session_links.confidence`; null is treated as lowest (0). */
+  confidence: number | null;
+  /** `minsky_session_links.detectedAt`, for tie-breaking when confidence ties. */
+  detectedAt: Date | string | null;
+}
+
+/**
+ * Select the best `minsky_session_links` row for a CONVERSATION (the reverse
+ * direction of {@link pickBestConversationLink}): given every workspace a
+ * conversation has touched, pick the one the Conversation-keyed run-detail
+ * page (`/conversation/:id`) should resolve Overview to. Highest confidence
+ * wins; ties broken by most-recently-detected link (a conversation can touch
+ * more than one workspace over its life — e.g. re-linked after a rebase —
+ * and the most recently established link is the best guess at "current").
+ *
+ * Pure and side-effect-free, mirroring `pickBestConversationLink` — the
+ * caller (`routes/conversations.ts`) does the query, this function does the
+ * selection.
+ *
+ * @returns `null` when `candidates` is empty — callers should treat the
+ *   conversation as workspace-less (mt#2768 Behavior: "workspace-less runs
+ *   collapse Overview to conversation metadata").
+ */
+export function pickBestWorkspaceLink(
+  candidates: WorkspaceLinkCandidate[]
+): { minskySessionId: string } | null {
+  const [first, ...rest] = candidates;
+  if (!first) return null;
+
+  const best = rest.reduce((currentBest, candidate) => {
+    const candidateConfidence = candidate.confidence ?? 0;
+    const bestConfidence = currentBest.confidence ?? 0;
+    if (candidateConfidence > bestConfidence) return candidate;
+    if (
+      candidateConfidence === bestConfidence &&
+      toEpochMs(candidate.detectedAt) > toEpochMs(currentBest.detectedAt)
+    ) {
+      return candidate;
+    }
+    return currentBest;
+  }, first);
+
+  return { minskySessionId: best.minskySessionId };
+}
+
+// ---------------------------------------------------------------------------
 // Record → payload mapping
 // ---------------------------------------------------------------------------
 

@@ -10,8 +10,10 @@ import {
   changesetRecencyTimestamp,
   compareChangesetsByRecency,
   pickBestConversationLink,
+  pickBestWorkspaceLink,
   type ChangesetRecencyFields,
   type ConversationLinkCandidate,
+  type WorkspaceLinkCandidate,
 } from "./session-detail";
 
 function cs(lastActivityAt: string | null, createdAt: string | null) {
@@ -174,5 +176,58 @@ describe("pickBestConversationLink", () => {
       const result = pickBestConversationLink([cwdMatchExact, subagentSpawn]);
       expect(result).toEqual({ agentSessionId: "agent-cwd-exact" });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickBestWorkspaceLink (mt#2768 — reverse join: conversation -> workspace)
+// ---------------------------------------------------------------------------
+
+function workspaceCandidate(
+  minskySessionId: string,
+  confidence: number | null,
+  detectedAt: string | null = null
+): WorkspaceLinkCandidate {
+  return { minskySessionId, confidence, detectedAt };
+}
+
+describe("pickBestWorkspaceLink", () => {
+  test("returns null for an empty candidate list", () => {
+    expect(pickBestWorkspaceLink([])).toBeNull();
+  });
+
+  test("returns the sole candidate when there is exactly one", () => {
+    const only = workspaceCandidate("workspace-a", 1.0, "2026-06-01T00:00:00Z");
+    expect(pickBestWorkspaceLink([only])).toEqual({ minskySessionId: "workspace-a" });
+  });
+
+  test("prefers higher confidence", () => {
+    const lower = workspaceCandidate("workspace-lower", 0.8, "2026-06-05T00:00:00Z");
+    const higher = workspaceCandidate("workspace-higher", 1.0, "2026-06-01T00:00:00Z");
+    const result = pickBestWorkspaceLink([lower, higher]);
+    expect(result).toEqual({ minskySessionId: "workspace-higher" });
+  });
+
+  test("breaks confidence ties by most-recently-detected link", () => {
+    const older = workspaceCandidate("workspace-older", 1.0, "2026-06-01T00:00:00Z");
+    const newer = workspaceCandidate("workspace-newer", 1.0, "2026-06-10T00:00:00Z");
+    const result = pickBestWorkspaceLink([older, newer]);
+    expect(result).toEqual({ minskySessionId: "workspace-newer" });
+  });
+
+  test("treats a null confidence as lowest (0)", () => {
+    const nullConfidence = workspaceCandidate("workspace-null", null, "2026-06-20T00:00:00Z");
+    const zeroPointFive = workspaceCandidate("workspace-half", 0.5, "2026-06-01T00:00:00Z");
+    const result = pickBestWorkspaceLink([nullConfidence, zeroPointFive]);
+    expect(result).toEqual({ minskySessionId: "workspace-half" });
+  });
+
+  test("is order-independent — same winner regardless of input order", () => {
+    const a = workspaceCandidate("workspace-a", 0.8, "2026-06-10T00:00:00Z");
+    const b = workspaceCandidate("workspace-b", 1.0, "2026-06-01T00:00:00Z");
+    const c = workspaceCandidate("workspace-c", 0.8, "2026-06-05T00:00:00Z");
+    expect(pickBestWorkspaceLink([a, b, c])).toEqual({ minskySessionId: "workspace-b" });
+    expect(pickBestWorkspaceLink([c, a, b])).toEqual({ minskySessionId: "workspace-b" });
+    expect(pickBestWorkspaceLink([b, c, a])).toEqual({ minskySessionId: "workspace-b" });
   });
 });
