@@ -372,6 +372,13 @@
       "when": 1783544779363,
       "tag": "0052_lonely_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1783996678427,
+      "tag": "0053_special_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }
