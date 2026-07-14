@@ -1,23 +1,34 @@
 /**
- * Agents widget (mt#1145)
+ * Agents widget (mt#1145; unified into the mt#2767 run list)
  *
  * Live view of SessionRecord entries: liveness, task binding, PR state.
  * Filters out orphaned sessions and sessions in terminal statuses (MERGED, CLOSED).
  *
+ * mt#2767 ("Unified run list"): this widget now ALSO merges in standalone
+ * harness conversations (principal conversations, and subagent conversations
+ * collapsed under their parent) via the optional `getConversationDb` factory
+ * — see `./run-merge.ts` for the merge/dedup/grouping logic. When
+ * `getConversationDb` is omitted (as in every pre-existing test in this repo)
+ * or returns null, the widget behaves EXACTLY as before: workspace rows only.
+ * This keeps the widget's payload backward compatible for callers that only
+ * care about dispatched-agent rows (e.g. CommandPalette's Sessions group).
+ *
  * The widget is constructed via createAgentsWidget(), which accepts a
- * getSessionProvider async factory and an optional getTaskProvider async factory
- * so the cockpit server can inject the real persistence providers while tests
- * inject lightweight doubles.
+ * getSessionProvider async factory, an optional getTaskProvider async factory,
+ * and an optional getConversationDb async factory so the cockpit server can
+ * inject the real persistence providers while tests inject lightweight doubles.
  *
  * The default export `agentsWidget` uses lazy PersistenceService singletons
  * for production use (no DI container needed).
  */
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session/types";
 import { SessionStatus } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
+import { mergeConversationRows, type RunKind, type SubagentEntry } from "./run-merge";
 
 // Re-exported for backward compatibility — callers that imported
 // `TaskProviderLike` from this module keep working; the canonical definition
@@ -25,11 +36,27 @@ import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 // widget's conversation-labeling task-title lookup).
 export type { TaskProviderLike };
 
-/** Shape of a single agent row emitted in the payload */
+// Re-exported so consumers of AgentRow don't need a second import for the
+// merge-produced fields (mt#2767).
+export type { RunKind, SubagentEntry };
+
+/**
+ * Shape of a single run row emitted in the payload (mt#2767 — formerly
+ * "agent row", widened to cover the unified run list).
+ *
+ * `sessionId` is the unique row key: a Minsky workspace sessionId for
+ * `kind: "dispatched-agent"` rows (unchanged from the pre-mt#2767 shape),
+ * else the row's own conversationId, or a synthetic `group:<parentId>` id
+ * for a collapsed subagent group whose parent isn't in the current window
+ * (see `./run-merge.ts`).
+ */
 export interface AgentRow {
   sessionId: string;
+  /** Kind badge (mt#2767 Row model). Always "dispatched-agent" pre-mt#2767. */
+  kind: RunKind;
   title: string;
-  liveness: "healthy" | "idle" | "stale" | "orphaned";
+  /** Null for conversation-derived rows (principal-conversation / subagent-group) — the liveness dot only applies to workspace sessions. */
+  liveness: "healthy" | "idle" | "stale" | "orphaned" | null;
   taskId: string | null;
   /** Human-readable task title sourced from the task backend; null when taskId
    *  is absent or the task could not be resolved. */
@@ -38,6 +65,18 @@ export interface AgentRow {
   prStatus: string | null;
   lastActivityAt: string;
   agentId: string | null;
+  /**
+   * Best-linked conversation id (mt#2441/mt#2756 join) for a workspace row,
+   * or the row's own conversation id for a conversation-derived row. Null
+   * when a workspace row has no resolved conversation link. Drives the
+   * live-tail indicator on the frontend (cross-referenced against
+   * `useActiveConversationSessions`).
+   */
+  conversationId: string | null;
+  /** Conversation cwd, when known. */
+  cwd: string | null;
+  /** Subagent conversations collapsed under this row (mt#2767 grouping) — empty when none. */
+  subagents: SubagentEntry[];
 }
 
 /** Full payload returned by this widget when state === "ok" */
@@ -83,6 +122,7 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
 
   return {
     sessionId: record.sessionId,
+    kind: "dispatched-agent",
     title,
     liveness,
     taskId,
@@ -91,6 +131,11 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
     prStatus,
     lastActivityAt,
     agentId: record.agentId ?? null,
+    // Filled in by mergeConversationRows() when a conversation DB is
+    // available (mt#2767); default to "no linked conversation" otherwise.
+    conversationId: null,
+    cwd: null,
+    subagents: [],
   };
 }
 
@@ -106,11 +151,24 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
  *   unique non-null taskIds in the current session list. When absent or when the
  *   factory throws, taskTitle fields are null (graceful degradation).
  *
+ * @param getConversationDb  Optional async factory returning a live Drizzle
+ *   connection (mt#2767). When provided, standalone harness conversations are
+ *   merged into the row list per `./run-merge.ts` — dedup against linked
+ *   workspaces, subagent grouping/collapsing. When omitted, or when the
+ *   factory returns null (no SQL-capable persistence provider configured),
+ *   the widget returns ONLY workspace ("dispatched-agent") rows — the exact
+ *   pre-mt#2767 behavior. Every pre-existing test in this repo omits this
+ *   parameter, so their assertions are unaffected by the merge.
+ *
  * @example
  *   // Production use (cockpit default):
- *   export const agentsWidget = createAgentsWidget(defaultProviderFactory, defaultTaskProviderFactory);
+ *   export const agentsWidget = createAgentsWidget(
+ *     defaultProviderFactory,
+ *     defaultTaskProviderFactory,
+ *     defaultConversationDbFactory
+ *   );
  *
- *   // Test use (session provider only, no task enrichment):
+ *   // Test use (session provider only, no task enrichment, no conversation merge):
  *   const widget = createAgentsWidget(async () => mockProvider);
  *
  *   // Test use (with task enrichment):
@@ -118,7 +176,8 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
  */
 export function createAgentsWidget(
   getProvider: () => Promise<SessionProviderInterface>,
-  getTaskProvider?: () => Promise<TaskProviderLike>
+  getTaskProvider?: () => Promise<TaskProviderLike>,
+  getConversationDb?: () => Promise<PostgresJsDatabase | null>
 ): WidgetModule {
   const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
 
@@ -146,16 +205,20 @@ export function createAgentsWidget(
           return true;
         });
 
-        const totalCount = filtered.length;
-
-        const page = isPaginated ? filtered.slice(offset ?? 0, (offset ?? 0) + limit) : filtered;
-
-        // Batch-fetch task titles — uses TTL cache to avoid re-querying on each poll.
+        // Task-title + conversation-merge enrichment run over the FULL
+        // filtered set, not just the requested page — pagination (when
+        // requested at all) is applied to the fully-merged row list at the
+        // very end. Production never passes limit/offset today (the
+        // frontend fetches everything and paginates client-side via
+        // useListControls), so this is behaviorally identical to the
+        // pre-mt#2767 code for the only path actually exercised in
+        // production; it's a widening (not a narrowing) for the
+        // pagination-test path, which asserts only on session ids/counts.
         const taskTitleMap = new Map<string, string>();
         if (titleCache) {
           const uniqueTaskIds = Array.from(
             new Set(
-              page
+              filtered
                 .map((r) => r.taskId)
                 .filter((id): id is string => id != null)
                 .map(formatTaskIdForDisplay)
@@ -169,11 +232,39 @@ export function createAgentsWidget(
           }
         }
 
-        const agents: AgentRow[] = page.map((r) => {
+        const workspaceRows: AgentRow[] = filtered.map((r) => {
           const displayTaskId = r.taskId ? formatTaskIdForDisplay(r.taskId) : null;
           const taskTitle = displayTaskId ? (taskTitleMap.get(displayTaskId) ?? null) : null;
           return toAgentRow(r, taskTitle);
         });
+
+        // mt#2767 — merge in standalone conversations (principal + collapsed
+        // subagent groups) and dedup/attach conversation links onto the
+        // workspace rows above. Degrades silently to "workspace rows only"
+        // when no conversation DB is configured or the merge itself fails.
+        let standaloneRows: AgentRow[] = [];
+        if (getConversationDb) {
+          const db = await getConversationDb().catch(() => null);
+          if (db) {
+            const merge = await mergeConversationRows(
+              db,
+              workspaceRows.map((r) => r.sessionId)
+            );
+            for (const row of workspaceRows) {
+              const attrs = merge.workspaceAttrsBySessionId.get(row.sessionId);
+              if (attrs) {
+                row.conversationId = attrs.conversationId;
+                row.cwd = attrs.cwd;
+                row.subagents = attrs.subagents;
+              }
+            }
+            standaloneRows = merge.standaloneRows.map((r) => ({ ...r }));
+          }
+        }
+
+        const merged = [...workspaceRows, ...standaloneRows];
+        const totalCount = merged.length;
+        const agents = isPaginated ? merged.slice(offset ?? 0, (offset ?? 0) + limit) : merged;
 
         const payload: AgentsPayload = { agents, totalCount };
         return { state: "ok", payload };
@@ -244,8 +335,21 @@ async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   return _cachedTaskProvider;
 }
 
+// ---------------------------------------------------------------------------
+// Default conversation-merge DB factory (mt#2767) — reuses the cockpit-wide
+// lazy-cached SQL connection getter (`db-providers.ts`) already shared by the
+// context-inspector widget and the /api/agents, /api/conversation routes, so
+// this doesn't open a second connection pool.
+// ---------------------------------------------------------------------------
+
+async function defaultConversationDbFactory(): Promise<PostgresJsDatabase | null> {
+  const { getContextInspectorDb } = await import("../db-providers");
+  return getContextInspectorDb();
+}
+
 /** Default agents widget — ready to drop into WIDGET_REGISTRY */
 export const agentsWidget: WidgetModule = createAgentsWidget(
   defaultProviderFactory,
-  defaultTaskProviderFactory
+  defaultTaskProviderFactory,
+  defaultConversationDbFactory
 );
