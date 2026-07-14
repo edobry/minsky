@@ -2,7 +2,9 @@ import { describe, expect, it } from "bun:test";
 
 import {
   isTestFile,
+  isOperationalScript,
   findNewTestFiles,
+  findNewOperationalScripts,
   hasExecutionEvidence,
   hasBypassPrefix,
   checkExecutionEvidence,
@@ -802,5 +804,87 @@ describe("makeProdPrDeps.fetchPrFiles — warning propagation", () => {
     const result = checkExecutionEvidence([], "Add tests", "## Summary\nNo evidence.");
     expect(result.blocked).toBe(false);
     expect(result.newTestFiles).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operational-script coverage (mt#2776)
+// ---------------------------------------------------------------------------
+
+const FIXTURE_SCRIPT = "scripts/backfill-foo.ts";
+
+describe("isOperationalScript", () => {
+  it("matches top-level scripts/<name>.ts", () => {
+    expect(isOperationalScript(FIXTURE_SCRIPT)).toBe(true);
+    expect(isOperationalScript("scripts/migrate.ts")).toBe(true);
+  });
+
+  it("does not match a test file under scripts/", () => {
+    expect(isOperationalScript("scripts/foo.test.ts")).toBe(false);
+  });
+
+  it("does not match nested scripts (only top-level scripts/*.ts)", () => {
+    expect(isOperationalScript("scripts/sub/x.ts")).toBe(false);
+  });
+
+  it("does not match non-scripts .ts or non-.ts scripts", () => {
+    expect(isOperationalScript(FIXTURE_FOO_TS)).toBe(false);
+    expect(isOperationalScript("scripts/foo.js")).toBe(false);
+  });
+});
+
+describe("findNewOperationalScripts", () => {
+  it("returns added operational scripts, ignoring modified/removed and non-scripts", () => {
+    const files: PrFile[] = [
+      { filename: FIXTURE_SCRIPT, status: "added" },
+      { filename: "scripts/existing.ts", status: "modified" },
+      { filename: "scripts/gone.ts", status: "removed" },
+      { filename: FIXTURE_FOO_TS, status: "added" },
+    ];
+    expect(findNewOperationalScripts(files)).toEqual([FIXTURE_SCRIPT]);
+  });
+});
+
+describe("checkExecutionEvidence — operational scripts (mt#2776)", () => {
+  const SCRIPT: PrFile = { filename: FIXTURE_SCRIPT, status: "added" };
+
+  it("blocks a new operational script with no execution evidence", () => {
+    const result = checkExecutionEvidence([SCRIPT], TITLE_PLAIN, BODY_NO_EVIDENCE);
+    expect(result.blocked).toBe(true);
+    expect(result.newScripts).toEqual([FIXTURE_SCRIPT]);
+    expect(result.reason).toContain("operational script");
+  });
+
+  it("allows a new operational script when execution evidence is present", () => {
+    const result = checkExecutionEvidence([SCRIPT], TITLE_PLAIN, BODY_WITH_EVIDENCE);
+    expect(result.blocked).toBe(false);
+    expect(result.newScripts).toEqual([FIXTURE_SCRIPT]);
+  });
+
+  it("allows a new operational script with the [unverified-tests] bypass", () => {
+    const result = checkExecutionEvidence([SCRIPT], TITLE_BYPASS, BODY_NO_EVIDENCE);
+    expect(result.blocked).toBe(false);
+    expect(result.bypassDetected).toBe(true);
+  });
+
+  it("is silent when a script is only modified (not added)", () => {
+    const result = checkExecutionEvidence(
+      [{ filename: "scripts/existing.ts", status: "modified" }],
+      TITLE_PLAIN,
+      BODY_NO_EVIDENCE
+    );
+    expect(result.blocked).toBe(false);
+    expect(result.newScripts).toHaveLength(0);
+  });
+
+  it("blocks on a combined new test + new script diff and names both classes", () => {
+    const result = checkExecutionEvidence(
+      [SCRIPT, { filename: FIXTURE_FOO_TEST_TS, status: "added" }],
+      TITLE_PLAIN,
+      BODY_NO_EVIDENCE
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("test file");
+    expect(result.reason).toContain("operational script");
   });
 });

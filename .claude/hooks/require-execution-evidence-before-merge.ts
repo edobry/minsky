@@ -67,6 +67,8 @@ export interface ExecutionEvidenceCheckResult {
   reason?: string;
   /** Any new test files found in the PR diff */
   newTestFiles: string[];
+  /** Any newly-added operational scripts found in the PR diff (mt#2776) */
+  newScripts: string[];
   /** Whether the bypass prefix was detected */
   bypassDetected: boolean;
   /** Any non-fatal warnings to surface */
@@ -93,6 +95,25 @@ export function isTestFile(filename: string): boolean {
 }
 
 /**
+ * Pattern for operational scripts (mt#2776). A newly-added `scripts/*.ts` is a
+ * behavior-EFFECTING artifact (backfill / migration / sweep / probe) per the
+ * execution-evidence family (memory `69db6fdc` / `7c83fed0`), so it needs
+ * execution evidence just like a test does — but it is NOT a test file, so the
+ * mt#1459 test-file gate never demanded it (originating incident: mt#2760 /
+ * mt#2774, `scripts/backfill-close-stale-asks.ts` shipped with a broken
+ * `--execute` branch its dry-run never exercised).
+ */
+const OPERATIONAL_SCRIPT_PATTERN = /^scripts\/[^/]*\.ts$/;
+
+/**
+ * Returns true when a filename is an operational script (`scripts/<name>.ts`)
+ * that is not itself a test file.
+ */
+export function isOperationalScript(filename: string): boolean {
+  return OPERATIONAL_SCRIPT_PATTERN.test(filename) && !isTestFile(filename);
+}
+
+/**
  * Filters a list of PrFile objects to only those that are newly introduced test files.
  *
  * "Newly introduced" means:
@@ -116,6 +137,20 @@ export function findNewTestFiles(files: PrFile[]): string[] {
       }
       return false;
     })
+    .map((f) => f.filename);
+}
+
+/**
+ * Filters a list of PrFile objects to only newly-added operational scripts
+ * (`scripts/*.ts`, status "added", not a test file). mt#2776.
+ *
+ * Rename/copy conversions are not tracked here (unlike test files) — a script
+ * moving into `scripts/` is rare and the "added" status covers the originating
+ * case (a brand-new backfill/migration/sweep script).
+ */
+export function findNewOperationalScripts(files: PrFile[]): string[] {
+  return files
+    .filter((f) => f.status === "added" && isOperationalScript(f.filename))
     .map((f) => f.filename);
 }
 
@@ -232,10 +267,12 @@ export function checkExecutionEvidence(
 ): ExecutionEvidenceCheckResult {
   const warnings: string[] = [];
   const newTestFiles = findNewTestFiles(prFiles);
+  const newScripts = findNewOperationalScripts(prFiles);
+  const requiring = [...newTestFiles, ...newScripts];
 
-  // No new test files → hook is silent
-  if (newTestFiles.length === 0) {
-    return { blocked: false, newTestFiles: [], bypassDetected: false, warnings };
+  // No evidence-requiring files (new test files OR new operational scripts) → hook is silent
+  if (requiring.length === 0) {
+    return { blocked: false, newTestFiles: [], newScripts: [], bypassDetected: false, warnings };
   }
 
   // Bypass prefix present → allow with warning
@@ -243,33 +280,44 @@ export function checkExecutionEvidence(
   if (bypassDetected) {
     warnings.push(
       `[unverified-tests] bypass detected: merge proceeding without execution evidence for ` +
-        `${newTestFiles.length} new test file(s). File a follow-up verification task.`
+        `${requiring.length} evidence-requiring file(s) (${newTestFiles.length} test, ` +
+        `${newScripts.length} script). File a follow-up verification task.`
     );
-    return { blocked: false, newTestFiles, bypassDetected: true, warnings };
+    return { blocked: false, newTestFiles, newScripts, bypassDetected: true, warnings };
   }
 
   // Execution evidence present → allow
   if (hasExecutionEvidence(prBody)) {
-    return { blocked: false, newTestFiles, bypassDetected: false, warnings };
+    return { blocked: false, newTestFiles, newScripts, bypassDetected: false, warnings };
   }
 
   // No evidence, no bypass → block
-  const fileList = newTestFiles.map((f) => `  - ${f}`).join("\n");
+  const fileList = requiring.map((f) => `  - ${f}`).join("\n");
+  const classes: string[] = [];
+  if (newTestFiles.length > 0) classes.push(`${newTestFiles.length} new test file(s)`);
+  if (newScripts.length > 0) classes.push(`${newScripts.length} new operational script(s)`);
+  const scriptNote =
+    newScripts.length > 0
+      ? `\n\nA newly-added operational script (backfill/migration/sweep/probe) is a ` +
+        `behavior-effecting artifact that must be run before merge — and for a dual-mode ` +
+        `script, EACH production branch (dry-run AND a bounded \`--execute\` — single item / ` +
+        `\`--limit 1\` / scratch target), not just the safe mode (mt#2776).`
+      : "";
   const reason =
-    `Merge blocked: PR adds ${newTestFiles.length} new test file(s) but PR body has no ` +
-    `execution-evidence block.\n\n` +
+    `Merge blocked: PR adds ${classes.join(" + ")} but PR body has no ` +
+    `execution-evidence block.${scriptNote}\n\n` +
     `Accepted marker forms (case-insensitive): \`Execution evidence:\` (plain label, colon ` +
     `required) OR a Markdown heading of any level with an optional trailing colon ` +
     `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
-    `New test files:\n${fileList}\n\n` +
+    `Evidence-requiring files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
-    `  1. Run the new tests and paste output under an \`Execution evidence\` section ` +
+    `  1. Run the artifact and paste output under an \`Execution evidence\` section ` +
     `(any accepted form above) in ` +
     `the PR body (use mcp__minsky__session_pr_edit to update the body).\n` +
     `  2. Prefix the PR title with \`[unverified-tests]\` and file a follow-up ` +
     `verification task before re-attempting the merge.`;
 
-  return { blocked: true, reason, newTestFiles, bypassDetected: false, warnings };
+  return { blocked: true, reason, newTestFiles, newScripts, bypassDetected: false, warnings };
 }
 
 // ---------------------------------------------------------------------------

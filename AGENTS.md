@@ -1755,6 +1755,19 @@ replacing per-gate ad hoc calls and hardcoded repo names. No trigger/override of
 zero-behavior-change to the consuming gates' decisions.
 Doc: `docs/architecture/hooks/pr-data-fetch-layer.md`.
 
+## Execution-Evidence Merge Gate
+
+PreToolUse on `session_pr_merge`: blocks a merge when the PR diff adds newly-created **test
+files** (mt#1459) OR newly-added **operational scripts** (`scripts/*.ts` — backfill/migration/
+sweep/probe, mt#2776) but the PR body lacks an `Execution evidence:` block. Rationale: a
+behavior-effecting artifact must actually be RUN before merge — and for a dual-mode script, EACH
+production branch (dry-run AND a bounded `--execute`), not just the safe mode (mt#2760/mt#2774
+originating incident). Accepts the mt#2648 marker forms (Markdown heading, or a colon-label line).
+Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]` title tag (file
+a follow-up verification task). Fail: open — unresolvable repo/PR or a `gh` fetch failure allows
+with a warning. Siblings: mt#1460 `/prepare-pr` §1b (PR-creation-time), `/implement-task` §7a
+dual-mode discipline; mt#2421 (open) extends this gate to no-test user-facing render-path PRs.
+
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
