@@ -323,7 +323,11 @@ export function createContextInspectorWidget(
     db: PostgresJsDatabase,
     ids: string[]
   ): Promise<Map<string, RowEnrichment>> {
-    const key = ids.join(",");
+    // JSON.stringify rather than a delimiter-joined string: agentSessionId
+    // values are UUIDs so a comma join is safe in practice, but stringify
+    // avoids relying on that assumption for cache-key collision-freedom
+    // (PR #1902 R1 reviewer nit).
+    const key = JSON.stringify(ids);
     const now = Date.now();
     if (enrichmentCache && enrichmentCache.key === key && enrichmentCache.expiresAt > now) {
       return enrichmentCache.data;
@@ -424,15 +428,30 @@ async function defaultDbFactory(): Promise<PostgresJsDatabase> {
 // Default task provider — lazy singleton via the cockpit-wide
 // PersistenceService (mt#2615's getServerTaskService), same shape as
 // widgets/agents.ts's defaultTaskProviderFactory.
+//
+// Never throws: `getServerTaskService()` can legitimately return `null` (no
+// SQL-capable persistence provider configured), and this factory is called
+// from inside `TaskTitleCache`, not awaited at widget-construction time — a
+// thrown error here should degrade tier-1/tier-3 task-title resolution, not
+// surface as a hard failure. Returning a null-object `TaskProviderLike`
+// (every lookup resolves to "not found") makes that degradation explicit at
+// the type level instead of relying solely on TaskTitleCache's internal
+// try/catch to absorb a throw (PR #1902 R1 reviewer finding).
 // ---------------------------------------------------------------------------
+
+const NULL_TASK_PROVIDER: TaskProviderLike = {
+  async getTask() {
+    return null;
+  },
+  async getTasks() {
+    return [];
+  },
+};
 
 async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   const { getServerTaskService } = await import("../db-providers");
   const taskService = await getServerTaskService();
-  if (!taskService) {
-    throw new Error("context-inspector requires a task service for task-title label resolution");
-  }
-  return taskService;
+  return taskService ?? NULL_TASK_PROVIDER;
 }
 
 /** Default context-inspector widget — drop into WIDGET_REGISTRY */
