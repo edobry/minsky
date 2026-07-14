@@ -20,6 +20,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { resolveForgePersistence } from "./forge";
+import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { CommandExecutionContext } from "../command-registry";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
@@ -91,4 +92,35 @@ describe("resolveForgePersistence (mt#2323)", () => {
     const ctx = ctxWith(fakeContainer(false));
     expect(() => resolveForgePersistence(ctx)).toThrow(/persistence provider not available/i);
   });
+});
+
+// ---------------------------------------------------------------------------
+// forge.ci_run_rerun registry registration (mt#2775)
+// ---------------------------------------------------------------------------
+
+describe("forge.ci_run_rerun registration", () => {
+  test("is registered in the shared command registry under the FORGE category", () => {
+    const command = sharedCommandRegistry.getCommand("forge.ci_run_rerun");
+    expect(command).toBeDefined();
+    expect(command?.category).toBe(CommandCategory.FORGE);
+    expect(command?.name).toBe("ci_run_rerun");
+  });
+
+  test("declares a required numeric runId parameter and an optional fullRerun boolean", () => {
+    const command = sharedCommandRegistry.getCommand("forge.ci_run_rerun");
+    expect(command?.parameters.runId?.required).toBe(true);
+    expect(command?.parameters.runId?.schema.safeParse(123).success).toBe(true);
+    expect(command?.parameters.runId?.schema.safeParse(-1).success).toBe(false);
+    expect(command?.parameters.runId?.schema.safeParse("not-a-number").success).toBe(false);
+
+    expect(command?.parameters.fullRerun?.required).toBe(false);
+    expect(command?.parameters.fullRerun?.schema.safeParse(true).success).toBe(true);
+    expect(command?.parameters.fullRerun?.schema.safeParse(undefined).success).toBe(true);
+  });
+
+  // execute() is a thin delegation to `backend.workflowRuns.rerun(runId, { fullRerun })`;
+  // resolveForgeBackend() is not exported (same as every other forge.* command), so the
+  // request-shape / happy-path / structured-error behavior this delegates to is covered
+  // directly against the Octokit layer in github-workflow-runs.test.ts's
+  // `describe("rerunWorkflowRun (mt#2775)", ...)` block.
 });
