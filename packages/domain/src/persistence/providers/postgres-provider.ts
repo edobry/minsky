@@ -20,6 +20,7 @@ import {
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "../postgres-notice-handler";
+import { guardRawSqlAgainstPoolerWedge, type GuardedRawSql } from "../raw-sql-pooler-guard";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
 import {
@@ -184,6 +185,8 @@ export class PostgresPersistenceProvider
 {
   protected db: PostgresJsDatabase | null = null;
   protected sql: ReturnType<typeof postgres> | null = null;
+  /** Lazily-built pooler-guarded view of `sql` handed out by getRawSqlConnection (mt#2773). */
+  protected guardedSql: GuardedRawSql | null = null;
   /** Dedicated session-mode connection for LISTEN/NOTIFY (mt#1852). Created lazily. */
   protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
@@ -310,6 +313,7 @@ export class PostgresPersistenceProvider
         }
       }
       this.sql = null;
+      this.guardedSql = null;
       this.db = null;
       this.isInitialized = false;
       log.error(
@@ -343,9 +347,12 @@ export class PostgresPersistenceProvider
   }
 
   /**
-   * Get raw SQL connection for migrations and low-level operations
+   * Get raw SQL connection for migrations and low-level operations.
+   *
+   * Returns the pooler-guarded view (mt#2773 / PR #1922 R1): `.unsafe()` is
+   * capped at pool-max in-flight and returns plain rows — see GuardedRawSql.
    */
-  async getRawSqlConnection(): Promise<ReturnType<typeof postgres>> {
+  async getRawSqlConnection(): Promise<GuardedRawSql> {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
@@ -354,7 +361,17 @@ export class PostgresPersistenceProvider
       throw new Error("Raw SQL connection not available");
     }
 
-    return this.sql;
+    // mt#2773: hand out a guarded view that bounds in-flight `.unsafe()`
+    // queries at the pool's max — zero-bind raw queries submitted beyond pool
+    // capacity wedge the Supavisor transaction pooler (connections destroyed
+    // during ramp-up) and postgres-js never settles some of the destroyed
+    // connection's promises. See raw-sql-pooler-guard.ts for the experiment
+    // matrix and rationale. The underlying `this.sql` (used by drizzle and
+    // sql.begin() transactions) is deliberately untouched.
+    if (!this.guardedSql) {
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
+    }
+    return this.guardedSql;
   }
 
   /**
@@ -481,6 +498,7 @@ export class PostgresPersistenceProvider
       if (this.sql) {
         await this.sql.end();
         this.sql = null;
+        this.guardedSql = null;
         this.db = null;
         this.isInitialized = false;
         log.debug("PostgreSQL connections closed");

@@ -100,7 +100,7 @@ describe("PostgresPersistenceProvider", () => {
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 
-  test("getRawSqlConnection() returns connection when initialized", async () => {
+  test("getRawSqlConnection() returns the pooler-guarded view when initialized (mt#2773)", async () => {
     // Mock successful connection
     mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
     await provider.initialize({ sqlClient: mockSql as any });
@@ -108,8 +108,16 @@ describe("PostgresPersistenceProvider", () => {
     const connection = await provider.getRawSqlConnection();
 
     expect(connection).toBeDefined();
-    // Should return the mocked SQL connection
-    expect(connection).toBe(mockSql as any);
+    // mt#2773: NOT the raw instance — a guarded Proxy that caps in-flight
+    // .unsafe() queries at pool max (see raw-sql-pooler-guard.ts)...
+    expect(connection).not.toBe(mockSql as any);
+    // ...whose other properties forward to the underlying instance...
+    expect((connection as unknown as { options: unknown }).options).toBe(
+      (mockSql as { options: unknown }).options
+    );
+    expect(typeof connection.unsafe).toBe("function");
+    // ...and which is cached across calls.
+    expect(await provider.getRawSqlConnection()).toBe(connection);
   });
 
   test("getCapabilities() returns correct PostgreSQL capabilities (base provider)", () => {
