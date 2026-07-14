@@ -3,6 +3,7 @@
  * One-shot backfill: classify tasks as kind="umbrella" or kind="implementation".
  *
  * mt#1812: Multi-kind task workflows.
+ * mt#2761: Made promote-only (see "Promote-only semantics" below).
  *
  * ## Heuristic
  *
@@ -14,6 +15,22 @@
  *
  * The heuristic is conservative: it would rather leave a borderline task as
  * "implementation" than mis-classify a non-umbrella task.
+ *
+ * ## Promote-only semantics (mt#2761)
+ *
+ * This script NEVER changes a task whose current kind is not "implementation".
+ * Only "implementation" (the default kind) is eligible for promotion to
+ * "umbrella". Tasks already classified as "state-ops" (mt#2661), a
+ * hand-set "umbrella" on a leaf task (mt#1451 reclassification), or any
+ * other kind are always left untouched, even when the hasChildren/hasPr
+ * heuristic above would otherwise suggest a different kind for them. See
+ * `scripts/migrate-task-kinds-classify.ts` for the classification logic and
+ * `docs/task-kinds.md §Backfill heuristic` for the full writeup.
+ *
+ * Dry-run output distinguishes three dispositions per task:
+ *   [PROMOTE] — currently "implementation", heuristic says "umbrella" — would apply
+ *   [SKIPPED] — currently a non-default kind, heuristic disagrees — preserved, not applied
+ *   [  OK  ]  — no change needed either way
  *
  * ## Usage
  *
@@ -42,9 +59,11 @@
  * Default is --dry-run (preview). --execute applies changes.
  */
 
+import "reflect-metadata";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
 import { eq, like } from "drizzle-orm";
+import { classifyTaskKind, type ClassificationResult } from "./migrate-task-kinds-classify";
 
 // ---------------------------------------------------------------------------
 // Parse CLI args
@@ -208,74 +227,65 @@ console.log(`Found ${tasksWithPr.size} tasks with an associated PR.`);
 // Classify each task
 // ---------------------------------------------------------------------------
 
-console.log("\nClassifying tasks...\n");
-
-interface ClassificationResult {
-  taskId: string;
-  currentKind: string;
-  proposedKind: string;
-  reason: string;
-  changed: boolean;
-}
+console.log("\nClassifying tasks (promote-only, mt#2761)...\n");
 
 const results: ClassificationResult[] = [];
-let changeCount = 0;
 
 for (const task of allTasks) {
-  const currentKind = task.kind || "implementation";
-  let proposedKind = "implementation";
-  let reason = "default: no special signals";
-
   const hasChildren = tasksWithChildren.has(task.id);
   const hasPr = tasksWithPr.has(task.id);
 
-  if (hasChildren && !hasPr) {
-    proposedKind = "umbrella";
-    reason = "has child tasks and no associated PR";
-  } else if (hasChildren && hasPr) {
-    reason = "has child tasks but also has an associated PR — keeping as implementation";
-  }
-
-  const changed = proposedKind !== currentKind;
-  if (changed) {
-    changeCount++;
-  }
-
-  results.push({
+  const result = classifyTaskKind({
     taskId: task.id,
-    currentKind,
-    proposedKind,
-    reason,
-    changed,
+    currentKind: task.kind,
+    hasChildren,
+    hasPr,
   });
 
-  if (verbose || changed) {
-    const marker = changed ? "[CHANGE]" : "[  OK  ]";
-    console.log(`  ${marker} ${task.id}: ${currentKind} → ${proposedKind} (${reason})`);
+  results.push(result);
+
+  if (verbose || result.action !== "no-change") {
+    const marker =
+      result.action === "promote"
+        ? "[PROMOTE]"
+        : result.action === "skip-non-default-kind"
+          ? "[SKIPPED]"
+          : "[  OK  ]";
+    console.log(
+      `  ${marker} ${task.id}: ${result.currentKind} → ${result.proposedKind} (${result.reason})`
+    );
   }
 }
 
-const changedResults = results.filter((r) => r.changed);
-console.log(`\nSummary: ${changeCount} tasks would be reclassified.`);
+const promotions = results.filter((r) => r.action === "promote");
+const skipped = results.filter((r) => r.action === "skip-non-default-kind");
+
 console.log(
-  `  Proposed kind="umbrella": ${changedResults.filter((r) => r.proposedKind === "umbrella").length}`
+  `\nSummary: ${promotions.length} task(s) would be promoted; ` +
+    `${skipped.length} task(s) skipped (non-default kind, preserving manual classification).`
 );
-console.log(
-  `  Proposed kind="implementation": ${changedResults.filter((r) => r.proposedKind === "implementation").length}`
-);
+console.log(`  Would promote to kind="umbrella": ${promotions.length}`);
+if (skipped.length > 0) {
+  console.log(`  Skipped — non-default kind, preserving manual classification:`);
+  for (const r of skipped) {
+    console.log(
+      `    ${r.taskId}: kind="${r.currentKind}" (heuristic alone would suggest "${r.heuristicKind}", not applied)`
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Apply changes (--execute mode only)
 // ---------------------------------------------------------------------------
 
-if (!dryRun && changeCount > 0) {
-  console.log("\nApplying changes...");
+if (!dryRun && promotions.length > 0) {
+  console.log("\nApplying promotions (promote-only, mt#2761)...");
 
   let applied = 0;
   let failed = 0;
   const failures: { taskId: string; error: string }[] = [];
 
-  for (const result of changedResults) {
+  for (const result of promotions) {
     try {
       await db
         .update(tasksTable)
@@ -295,8 +305,8 @@ if (!dryRun && changeCount > 0) {
   if (failures.length > 0) {
     console.error("Failures:", failures);
   }
-} else if (!dryRun && changeCount === 0) {
-  console.log("\nNo changes to apply — all tasks already have the correct kind.");
+} else if (!dryRun && promotions.length === 0) {
+  console.log("\nNo promotions to apply — all eligible tasks already have the correct kind.");
 }
 
 // ---------------------------------------------------------------------------
@@ -313,15 +323,16 @@ const output = {
   totalTasks: allTasks.length,
   tasksWithChildren: tasksWithChildren.size,
   tasksWithPr: tasksWithPr.size,
-  proposedChanges: changeCount,
+  promotedCount: promotions.length,
+  skippedNonDefaultKindCount: skipped.length,
   results,
 };
 
 await writeFile(outputPath, JSON.stringify(output, null, 2));
 console.log(`\nResults written to: ${outputPath}`);
 
-if (dryRun && changeCount > 0) {
-  console.log("\nTo apply the changes, run:");
+if (dryRun && promotions.length > 0) {
+  console.log("\nTo apply the promotions, run:");
   console.log("  bun scripts/migrate-task-kinds.ts --execute");
 }
 
