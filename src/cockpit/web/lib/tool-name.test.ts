@@ -42,4 +42,15 @@ describe("parseToolName", () => {
       name: "session_pr_wait-for-review",
     });
   });
+
+  test("empty and whitespace-only names pass through without throwing", () => {
+    expect(parseToolName("")).toEqual({ server: null, name: "" });
+    expect(parseToolName("   ")).toEqual({ server: null, name: "   " });
+  });
+
+  test("degenerate mcp__ prefixes without a tool segment pass through as bare names", () => {
+    expect(parseToolName("mcp__")).toEqual({ server: null, name: "mcp__" });
+    expect(parseToolName("mcp__minsky")).toEqual({ server: null, name: "mcp__minsky" });
+    expect(parseToolName("mcp____")).toEqual({ server: null, name: "mcp____" });
+  });
 });

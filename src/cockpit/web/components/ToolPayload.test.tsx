@@ -75,6 +75,14 @@ describe("ToolPayload — Tier-3 registry", () => {
     expect(container.textContent).toContain("foo");
   });
 
+  test("empty and absent tool names render the generic tree without throwing", () => {
+    const empty = renderPayload(<ToolPayload value={{ a: 1 }} toolName="" />);
+    expect(empty.container.textContent).toContain("a");
+    cleanup();
+    const absent = renderPayload(<ToolPayload value={{ b: 2 }} />);
+    expect(absent.container.textContent).toContain("b");
+  });
+
   test("an unregistered tool name uses the generic tree", () => {
     const { container } = renderPayload(
       <ToolPayload value={{ a: 1 }} toolName="some_unregistered_tool" />
