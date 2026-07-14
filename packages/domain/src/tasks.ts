@@ -21,6 +21,9 @@ import {
 } from "./schemas/tasks";
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
+import type { TaskGraphService } from "./tasks/task-graph-service";
+import { TASK_STATUS } from "./tasks/taskConstants";
+import { assertUmbrellaChildrenComplete } from "./tasks/commands/mutation-commands";
 import { ALL_PROJECTS, type ProjectScope } from "./project/scope";
 import { resolveProjectIdentity } from "./project/identity";
 import { resolveProjectScope } from "./project/scope-resolver";
@@ -30,6 +33,8 @@ import { resolveProjectScope } from "./project/scope-resolver";
 export interface TaskServiceDeps {
   persistenceProvider?: PersistenceProvider;
   taskService?: TaskServiceInterface;
+  /** Enables the umbrella children-completeness closeout guard (mt#2606). */
+  taskGraphService?: Pick<TaskGraphService, "listChildren">;
 }
 
 function requirePersistence(provider: PersistenceProvider | undefined): PersistenceProvider {
@@ -197,6 +202,24 @@ export async function setTaskStatusFromParams(
     backend:
       taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
+
+  // Umbrella closeout guard (mt#2606): refuse completing an umbrella whose
+  // children are not all terminal. Fires only for COMPLETED targets; the task
+  // is fetched lazily to read its kind. This facade is what the
+  // `@minsky/domain/tasks` barrel resolves to (the transition-validating
+  // implementation in tasks/commands/mutation-commands.ts is not on this path),
+  // so the guard must live here to fire for MCP/CLI callers.
+  if (validParams.status === TASK_STATUS.COMPLETED) {
+    const task = await taskService.getTask(validParams.taskId);
+    await assertUmbrellaChildrenComplete({
+      taskId: validParams.taskId,
+      taskKind: task?.kind,
+      targetStatus: validParams.status,
+      taskService,
+      taskGraphService: deps?.taskGraphService,
+    });
+  }
+
   await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }

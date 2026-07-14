@@ -157,7 +157,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
 
   return [
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
-    createTasksStatusSetCommand(getPersistenceProvider, getTaskService),
+    createTasksStatusSetCommand(getPersistenceProvider, getTaskService, getTaskGraphService),
     createTasksSpecCommand(getPersistenceProvider, getTaskService),
     createTasksListCommand(
       getPersistenceProvider,

@@ -31,6 +31,8 @@ import {
   READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
 } from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
+import { isHiddenByDefaultStatus } from "../task-filters";
+import type { TaskGraphService } from "../task-graph-service";
 import type { BasePersistenceProvider } from "../../persistence/types";
 
 function requirePersistence(
@@ -56,6 +58,49 @@ type InjectedTaskServiceFactory = (
 ) => Promise<TaskServiceInterface>;
 
 /**
+ * Umbrella closeout guard (mt#2606): an umbrella task completes when its
+ * children complete, so a transition to COMPLETED is refused while any child
+ * is non-terminal (terminal = DONE/CLOSED/COMPLETED), naming the incomplete
+ * children. No-op for non-umbrella kinds, non-COMPLETED targets, or when no
+ * taskGraphService is available (the MCP/CLI surfaces always inject one;
+ * direct domain callers without it keep prior behavior).
+ *
+ * Shared by the live `setTaskStatusFromParams` facade in
+ * `packages/domain/src/tasks.ts` (what the `@minsky/domain/tasks` barrel
+ * resolves to) and the transition-validating implementation below.
+ */
+export async function assertUmbrellaChildrenComplete(args: {
+  taskId: string;
+  taskKind: string | undefined;
+  targetStatus: string;
+  taskService: Pick<TaskServiceInterface, "getTasks">;
+  taskGraphService?: Pick<TaskGraphService, "listChildren">;
+}): Promise<void> {
+  const { taskId, taskKind, targetStatus, taskService, taskGraphService } = args;
+  if (taskKind !== "umbrella" || targetStatus !== TaskStatus.COMPLETED || !taskGraphService) {
+    return;
+  }
+  const childIds = await taskGraphService.listChildren(taskId);
+  if (childIds.length === 0) return;
+  const children = await taskService.getTasks(childIds);
+  const foundIds = new Set(children.map((c) => c.id));
+  const incomplete = [
+    ...children
+      .filter((c) => !isHiddenByDefaultStatus(c.status))
+      .map((c) => `${c.id} (${c.status})`),
+    // A child id with no readable task record cannot be verified complete.
+    ...childIds.filter((id) => !foundIds.has(id)).map((id) => `${id} (unreadable)`),
+  ];
+  if (incomplete.length > 0) {
+    throw new ValidationError(
+      `Cannot complete umbrella task ${taskId}: ${incomplete.length} child task(s) not terminal (DONE/CLOSED/COMPLETED): ${incomplete.join(", ")}. Complete or close the children first (mt#2606).`,
+      undefined,
+      undefined
+    );
+  }
+}
+
+/**
  * Set task status using the provided parameters
  */
 export async function setTaskStatusFromParams(
@@ -66,6 +111,7 @@ export async function setTaskStatusFromParams(
     createConfiguredTaskService?: InjectedTaskServiceFactory;
     persistenceProvider?: BasePersistenceProvider;
     resolveMainWorkspacePath?: () => Promise<string>;
+    taskGraphService?: Pick<TaskGraphService, "listChildren">;
   }
 ): Promise<void> {
   try {
@@ -135,6 +181,15 @@ export async function setTaskStatusFromParams(
         throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
       }
     }
+
+    // Umbrella closeout guard (mt#2606) — see assertUmbrellaChildrenComplete.
+    await assertUmbrellaChildrenComplete({
+      taskId: validParams.taskId,
+      taskKind: task.kind,
+      targetStatus: validParams.status,
+      taskService,
+      taskGraphService: deps?.taskGraphService,
+    });
 
     // Pass task.kind so the gate dispatches to the right per-kind workflow (mt#1812).
     // task.kind defaults to "implementation" when unset (backward-compat).

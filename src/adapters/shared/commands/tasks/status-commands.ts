@@ -17,6 +17,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -121,7 +122,8 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getTaskService?: () => TaskServiceInterface,
+    private readonly getTaskGraphService?: () => TaskGraphService
   ) {
     super();
   }
@@ -172,7 +174,12 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         taskId: validatedTaskId,
         status,
       },
-      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
+      {
+        persistenceProvider: this.getPersistenceProvider?.(),
+        taskService: this.getTaskService?.(),
+        // Enables the umbrella children-completeness closeout guard (mt#2606).
+        taskGraphService: this.getTaskGraphService?.(),
+      }
     );
 
     // Best-effort informational event (mt#2340) — captured for the Phase 2
@@ -247,5 +254,7 @@ export const createTasksStatusGetCommand = (
 
 export const createTasksStatusSetCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskService?: () => TaskServiceInterface
-): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider, getTaskService);
+  getTaskService?: () => TaskServiceInterface,
+  getTaskGraphService?: () => TaskGraphService
+): TasksStatusSetCommand =>
+  new TasksStatusSetCommand(getPersistenceProvider, getTaskService, getTaskGraphService);
