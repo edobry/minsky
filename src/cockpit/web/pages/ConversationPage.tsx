@@ -19,13 +19,32 @@
  * directly off the URL's agentSessionId — the DB snapshot render below stays
  * unchanged for a completed conversation; live blocks are supplemental
  * appends on top of it, same as the workspace-keyed path.
+ *
+ * Header label (mt#2770): the heading shows the same derived `label` the run
+ * list uses (bound task title -> first-user-prompt snippet -> subagent
+ * descriptor -> timestamp·cwd·id fallback), read from the same
+ * context-inspector widget payload + TanStack query key the list/picker use
+ * (`["context-inspector", "sessions"]`) so there's one shared cache, not a
+ * second fetch. The raw id stays visible underneath in monospace for
+ * copy/reference. Falls back to the bare id while the query is loading or if
+ * this conversation isn't in the top-50 window the widget returns.
  */
 import { useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { ConversationView } from "../widgets/ConversationView";
+import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { extractConversationRows } from "../lib/conversations-source";
 import type { ConversationId } from "@minsky/domain/ids";
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
+
+  const sessionsQuery = useQuery<WidgetData, Error>({
+    queryKey: ["context-inspector", "sessions"],
+    queryFn: () => fetchWidgetData("context-inspector"),
+    staleTime: 30_000,
+    enabled: Boolean(id),
+  });
 
   if (!id) {
     return <div className="p-4 text-sm text-muted-foreground">No conversation id in the URL.</div>;
@@ -34,10 +53,16 @@ export function ConversationPage() {
   // Mint at the URL boundary: /conversation/:id carries a harness agentSessionId (ConversationId).
   const conversationId = id as ConversationId;
 
+  const rows = extractConversationRows(sessionsQuery.data);
+  const row = rows.find((r) => r.agentSessionId === id);
+  const label = row?.label ?? id;
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">
-      <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold">Conversation</h1>
+      <div className="flex flex-col gap-0.5">
+        <h1 className="truncate text-lg font-semibold" title={label}>
+          {label}
+        </h1>
         <span className="font-mono text-xs text-muted-foreground" title={id}>
           {id}
         </span>
