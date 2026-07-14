@@ -1,5 +1,5 @@
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import type { CommandExecutionContext } from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import { createTaskSimilarityService } from "./similarity-commands";
 import { tasksIndexEmbeddingsParams } from "./task-parameters";
 import { listTasksFromParams, getTaskFromParams } from "@minsky/domain/tasks/taskCommands";
@@ -7,16 +7,9 @@ import { elementAt } from "@minsky/shared/array-safety";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
-interface TasksIndexEmbeddingsParams extends BaseTaskParams {
-  limit?: number;
-  // mt#2741: canonical single-task target. `taskId` is also inherited from
-  // BaseTaskParams; declared explicitly here for clarity next to the `task` alias.
-  taskId?: string;
-  task?: string;
-  concurrency?: number;
-}
-
-export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbeddingsParams> {
+export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<
+  typeof tasksIndexEmbeddingsParams
+> {
   readonly id = "tasks.index-embeddings";
   readonly name = "index-embeddings";
   readonly description = "Generate and store embeddings for tasks";
@@ -29,7 +22,10 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     super();
   }
 
-  async execute(params: TasksIndexEmbeddingsParams, ctx: CommandExecutionContext) {
+  async execute(
+    params: InferParams<typeof tasksIndexEmbeddingsParams>,
+    ctx: CommandExecutionContext
+  ) {
     const service = await createTaskSimilarityService(
       this.getPersistenceProvider(),
       this.getTaskService()

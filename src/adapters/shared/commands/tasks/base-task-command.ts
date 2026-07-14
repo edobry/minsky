@@ -4,13 +4,23 @@
  * Abstract base class providing common functionality for all task commands.
  * Extracted from tasks.ts as part of modularization effort.
  */
-import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import {
+  CommandCategory,
+  type CommandExecutionContext,
+  type CommandParameterMap,
+  type InferParams,
+} from "../../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
 
 /**
- * Common interface for task command parameters
+ * Common task-scoping fields shared across task commands.
+ *
+ * NOT a handler param type (mt#2779): execute handlers derive their param
+ * types from the command's params map via `InferParams<TMap>`. This interface
+ * only types the field-projection input of `createTaskParams`, which accepts
+ * any params object that MAY carry the common scoping fields.
  */
 export interface BaseTaskParams {
   taskId?: string;
@@ -32,13 +42,28 @@ export interface TaskCommandResult {
 }
 
 /**
- * Abstract base class for task commands
+ * Abstract base class for task commands.
+ *
+ * The generic is the command's params MAP type (`typeof <map const>`), not a
+ * hand-rolled interface (mt#2779): `parameters` is typed as the map itself and
+ * `execute`'s param type is DERIVED from it via `InferParams`, so a handler
+ * reading an undeclared `params.<key>` is a compile error. Subclasses:
+ *
+ * ```ts
+ * export class TasksFooCommand extends BaseTaskCommand<typeof tasksFooParams> {
+ *   readonly parameters = tasksFooParams;
+ *   async execute(params: InferParams<typeof tasksFooParams>, ctx: CommandExecutionContext) { ... }
+ * }
+ * ```
  */
-export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknown> {
+export abstract class BaseTaskCommand<
+  TMap extends CommandParameterMap = CommandParameterMap,
+  TResult = unknown,
+> {
   abstract readonly id: string;
   abstract readonly name: string;
   abstract readonly description: string;
-  abstract readonly parameters: Record<string, unknown>;
+  abstract readonly parameters: TMap;
 
   /**
    * Command category (always TASKS)
@@ -50,7 +75,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
   /**
    * Execute the command (to be implemented by subclasses)
    */
-  abstract execute(params: TParams, context: CommandExecutionContext): Promise<TResult>;
+  abstract execute(params: InferParams<TMap>, context: CommandExecutionContext): Promise<TResult>;
 
   /**
    * Validate task ID for multi-backend support (qualified IDs only)
@@ -246,42 +271,40 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
 }
 
 /**
+ * Widest task-command type: any command regardless of its concrete params map.
+ * Method bivariance makes every `BaseTaskCommand<typeof someMap>` assignable.
+ */
+export type AnyTaskCommand = BaseTaskCommand<CommandParameterMap, unknown>;
+
+/**
  * Factory function type for creating task commands
  */
-export type TaskCommandFactory = () => BaseTaskCommand<
-  Record<string, unknown>,
-  Record<string, unknown>
->;
+export type TaskCommandFactory = () => AnyTaskCommand;
 
 /**
  * Task command registry for managing command instances
  */
 export class TaskCommandRegistry {
-  private commands = new Map<
-    string,
-    BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>
-  >();
+  private commands = new Map<string, AnyTaskCommand>();
 
   /**
    * Register a task command
    */
-  register(command: BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>): void {
+  register(command: AnyTaskCommand): void {
     this.commands.set(command.id, command);
   }
 
   /**
    * Get a task command by ID
    */
-  get(
-    commandId: string
-  ): BaseTaskCommand<Record<string, unknown>, Record<string, unknown>> | undefined {
+  get(commandId: string): AnyTaskCommand | undefined {
     return this.commands.get(commandId);
   }
 
   /**
    * Get all registered commands
    */
-  getAll(): BaseTaskCommand<Record<string, unknown>, Record<string, unknown>>[] {
+  getAll(): AnyTaskCommand[] {
     return Array.from(this.commands.values());
   }
 

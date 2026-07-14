@@ -6,7 +6,11 @@
  */
 
 import { z } from "zod";
-import type { CommandExecutionContext } from "../../command-registry";
+import type {
+  CommandExecutionContext,
+  CommandParameterMap,
+  InferParams,
+} from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
 import { log } from "@minsky/shared/logger";
 import { createConfiguredTaskService } from "@minsky/domain/tasks/taskService";
@@ -67,57 +71,57 @@ const migrateBackendParamsSchema = z.object({
   updateIds: z.boolean().optional().default(true),
 });
 
-export type MigrateBackendParams = z.infer<typeof migrateBackendParamsSchema>;
+const migrateBackendParams = {
+  from: {
+    schema: z.enum(MIGRATION_BACKENDS).optional(),
+    description: "Source backend (auto-detect if not provided)",
+    required: false,
+  },
+  to: {
+    schema: z.enum(MIGRATION_BACKENDS),
+    description: "Target backend",
+    required: true,
+  },
+  execute: {
+    schema: z.boolean().default(false),
+    description: "Apply changes (defaults to dry-run without this flag)",
+    required: false,
+  },
+  limit: {
+    schema: z.number().int().positive().optional(),
+    description: "Limit number of tasks to migrate",
+    required: false,
+  },
+  filterStatus: {
+    schema: z.string().optional(),
+    description: "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
+    required: false,
+  },
+  updateIds: {
+    schema: z.boolean().default(true),
+    description: "Update task IDs to match target backend prefix (default: true)",
+    required: false,
+  },
+  quiet: {
+    schema: z.boolean().default(false),
+    description: "Suppress output",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
+} satisfies CommandParameterMap;
 
-export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendParams> {
+export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBackendParams> {
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
   readonly description = `Migrate tasks between different backends (${MIGRATION_BACKENDS.join(", ")})`;
-  readonly parameters = {
-    from: {
-      schema: z.enum(MIGRATION_BACKENDS).optional(),
-      description: "Source backend (auto-detect if not provided)",
-      required: false,
-    },
-    to: {
-      schema: z.enum(MIGRATION_BACKENDS),
-      description: "Target backend",
-      required: true,
-    },
-    execute: {
-      schema: z.boolean().default(false),
-      description: "Apply changes (defaults to dry-run without this flag)",
-      required: false,
-    },
-    limit: {
-      schema: z.number().int().positive().optional(),
-      description: "Limit number of tasks to migrate",
-      required: false,
-    },
-    filterStatus: {
-      schema: z.string().optional(),
-      description: "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
-      required: false,
-    },
-    updateIds: {
-      schema: z.boolean().default(true),
-      description: "Update task IDs to match target backend prefix (default: true)",
-      required: false,
-    },
-    quiet: {
-      schema: z.boolean().default(false),
-      description: "Suppress output",
-      required: false,
-    },
-    json: {
-      schema: z.boolean().default(false),
-      description: "Output in JSON format",
-      required: false,
-    },
-  };
+  readonly parameters = migrateBackendParams;
 
   async execute(
-    params: MigrateBackendParams,
+    params: InferParams<typeof migrateBackendParams>,
     context: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     const p = migrateBackendParamsSchema.parse(params);

@@ -5,19 +5,26 @@
  * Replaces the space-separated parsing approach with true hierarchical nesting.
  */
 import { Command } from "commander";
-import { type CommandExecutionContext } from "../../command-registry";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import {
+  type CommandExecutionContext,
+  type CommandParameterMap,
+  type InferParams,
+} from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
 import { TasksStatusGetCommand, TasksStatusSetCommand } from "./status-commands";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+
+/** No direct parameters — the get/set subcommands declare their own. */
+const tasksStatusParentParams = {} satisfies CommandParameterMap;
 
 /**
  * Hierarchical status command that manages get/set subcommands
  */
-export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
+export class TasksStatusCommand extends BaseTaskCommand<typeof tasksStatusParentParams> {
   readonly id = "tasks.status";
   readonly name = "status";
   readonly description = "Task status operations";
-  readonly parameters = {}; // No direct parameters - subcommands handle their own
+  readonly parameters = tasksStatusParentParams;
 
   private statusGetCommand: TasksStatusGetCommand;
   private statusSetCommand: TasksStatusSetCommand;
@@ -29,7 +36,7 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
   }
 
   async execute(
-    params: BaseTaskParams,
+    params: InferParams<typeof tasksStatusParentParams>,
     ctx: CommandExecutionContext
   ): Promise<Record<string, unknown>> {
     // This method won't be called directly since we have subcommands
@@ -52,6 +59,10 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
         const params = {
           taskId,
           json: options.json,
+          repo: undefined,
+          workspace: undefined,
+          session: undefined,
+          backend: undefined,
         };
         await this.statusGetCommand.execute(params, {} as CommandExecutionContext);
       });
@@ -67,6 +78,10 @@ export class TasksStatusCommand extends BaseTaskCommand<BaseTaskParams> {
           taskId,
           status,
           json: options.json,
+          repo: undefined,
+          workspace: undefined,
+          session: undefined,
+          backend: undefined,
         };
         await this.statusSetCommand.execute(params, {} as CommandExecutionContext);
       });
