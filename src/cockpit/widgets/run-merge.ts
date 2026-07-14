@@ -395,3 +395,74 @@ export async function mergeConversationRows(
     return EMPTY_RESULT;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Short-TTL result cache (mt#2767 latency follow-up)
+//
+// Live-measured regression (2026-07-14, PR branch cockpit against the live
+// DB): the unmerged `agents` widget's warm response was 0.33s; the unified
+// merge's was 2-9s with NO warm convergence across repeated polls. Root
+// cause was two-fold — (a) two of the merge's four enrichment queries
+// filtered on a column that was NOT the leading column of its table's only
+// index (fixed by the sibling migration adding
+// `idx_minsky_session_links_minsky_session_id` and
+// `idx_agent_spawns_child_agent_session_id`), and (b) the merge re-ran its
+// full query set on EVERY poll with no memoization at all — unlike the
+// context-inspector widget's own `ENRICHMENT_CACHE_TTL_MS` cache, which this
+// module's original version omitted.
+//
+// The widget polls every 5s (`updateMode.intervalMs` in `./agents.ts`); a
+// merge response slower than that poll interval means overlapping requests
+// queue up on the connection pool — the same stacking mechanism that
+// produced the original ~30s first-paint bug on the pre-unification
+// `/conversations` page. Caching the merge result for a TTL matching the
+// poll interval collapses back-to-back polls to ONE DB round trip per TTL
+// window; concurrent callers within the window share the SAME in-flight
+// promise (not just the resolved value) so a burst of near-simultaneous
+// requests doesn't fan out into N parallel query sets either.
+// ---------------------------------------------------------------------------
+
+/** Matches the `agents` widget's own `updateMode.intervalMs` (./agents.ts). */
+export const DEFAULT_MERGE_CACHE_TTL_MS = 5_000;
+
+export interface CachedRunMerge {
+  /** Same contract as {@link mergeConversationRows}, transparently cached. */
+  getMerge(db: PostgresJsDatabase, workspaceSessionIds: string[]): Promise<RunMergeResult>;
+}
+
+/**
+ * Build a short-TTL, request-deduplicating cache in front of
+ * {@link mergeConversationRows}. One instance per widget construction (mirrors
+ * `TaskTitleCache`'s per-widget-instance lifetime in `./agents.ts`) — NOT a
+ * module-level singleton, so tests get a fresh cache per `createAgentsWidget()`
+ * call.
+ *
+ * Cache key is the SORTED workspace-sessionId set: membership changes (a
+ * session starting or leaving the non-terminal set) invalidate correctly,
+ * while polls against an unchanged fleet hit cache.
+ */
+export function createCachedRunMerge(ttlMs: number = DEFAULT_MERGE_CACHE_TTL_MS): CachedRunMerge {
+  let entry: { key: string; expiresAt: number; promise: Promise<RunMergeResult> } | null = null;
+
+  return {
+    async getMerge(db, workspaceSessionIds) {
+      const key = JSON.stringify([...workspaceSessionIds].sort());
+      const now = Date.now();
+      if (entry && entry.key === key && entry.expiresAt > now) {
+        return entry.promise;
+      }
+
+      const promise = mergeConversationRows(db, workspaceSessionIds);
+      entry = { key, expiresAt: now + ttlMs, promise };
+
+      // Defense in depth: mergeConversationRows() never rejects (it catches
+      // internally and returns EMPTY_RESULT), but if that ever changes, an
+      // unexpected rejection shouldn't poison the cache for the full TTL.
+      promise.catch(() => {
+        if (entry?.promise === promise) entry = null;
+      });
+
+      return promise;
+    },
+  };
+}

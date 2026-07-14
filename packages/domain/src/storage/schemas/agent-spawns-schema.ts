@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, primaryKey, index } from "drizzle-orm/pg-core";
 import { agentTranscriptsTable } from "./agent-transcripts-schema";
 
 /**
@@ -35,5 +35,16 @@ export const agentSpawnsTable = pgTable(
     // When the spawn was initiated (from parent JSONL timestamp)
     spawnedAt: timestamp("spawned_at", { withTimezone: true }),
   },
-  (table) => [primaryKey({ columns: [table.parentAgentSessionId, table.parentTurnIndex] })]
+  (table) => [
+    primaryKey({ columns: [table.parentAgentSessionId, table.parentTurnIndex] }),
+    // mt#2767 (latency follow-up) — the composite PK above only covers
+    // lookups keyed by parentAgentSessionId; both the context-inspector
+    // widget's tier-3 subagent-descriptor lookup AND the unified run-list
+    // merge's subagent-classification query filter on
+    // `child_agent_session_id IN (...)` alone, which the PK cannot serve —
+    // a full-table scan on every poll. Contributed to context-inspector's
+    // own live-measured 2.93s response (2026-07-14), well above the
+    // pre-merge baseline's 0.33s warm.
+    index("idx_agent_spawns_child_agent_session_id").on(table.childAgentSessionId),
+  ]
 );

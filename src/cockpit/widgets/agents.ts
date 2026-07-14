@@ -28,7 +28,7 @@ import { SessionStatus } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
-import { mergeConversationRows, type RunKind, type SubagentEntry } from "./run-merge";
+import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
 
 // Re-exported for backward compatibility — callers that imported
 // `TaskProviderLike` from this module keep working; the canonical definition
@@ -180,6 +180,10 @@ export function createAgentsWidget(
   getConversationDb?: () => Promise<PostgresJsDatabase | null>
 ): WidgetModule {
   const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
+  // mt#2767 latency follow-up — short-TTL cache in front of the conversation
+  // merge (see run-merge.ts's cache docblock for the full incident writeup).
+  // One instance per widget construction, same lifetime as titleCache above.
+  const cachedMerge = getConversationDb ? createCachedRunMerge() : null;
 
   return {
     id: "agents",
@@ -253,10 +257,10 @@ export function createAgentsWidget(
         // workspace rows above. Degrades silently to "workspace rows only"
         // when no conversation DB is configured or the merge itself fails.
         let standaloneRows: AgentRow[] = [];
-        if (getConversationDb) {
+        if (getConversationDb && cachedMerge) {
           const db = await getConversationDb().catch(() => null);
           if (db) {
-            const merge = await mergeConversationRows(
+            const merge = await cachedMerge.getMerge(
               db,
               workspaceRows.map((r) => r.sessionId)
             );

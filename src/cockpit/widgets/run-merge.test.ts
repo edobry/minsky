@@ -12,7 +12,7 @@ import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-tran
 import { agentTranscriptTurnsTable } from "@minsky/domain/storage/schemas/agent-transcript-turns-schema";
 import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
-import { mergeConversationRows } from "./run-merge";
+import { createCachedRunMerge, mergeConversationRows } from "./run-merge";
 
 const CONV_A = "aaaaaaaa-0000-0000-0000-00000000000a";
 const CONV_B = "bbbbbbbb-0000-0000-0000-00000000000b";
@@ -50,32 +50,35 @@ interface Fixture {
   turns?: { agentSessionId: string; turnIndex: number; userText: string | null }[];
 }
 
-function mockDb(fixture: Fixture): PostgresJsDatabase {
+function mockDb(fixture: Fixture, onQuery?: () => void): PostgresJsDatabase {
   return {
-    select: () => ({
-      from: (table: unknown) => {
-        if (table === agentTranscriptsTable) {
-          return {
-            orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
-          };
-        }
-        if (table === minskySessionLinksTable) {
-          return {
-            // Forward direction (workspace -> conversation): .innerJoin().where()
-            innerJoin: () => ({ where: () => Promise.resolve(fixture.workspaceLinks ?? []) }),
-            // Reverse direction (conversation -> any workspace): bare .where()
-            where: () => Promise.resolve(fixture.conversationLinks ?? []),
-          };
-        }
-        if (table === agentSpawnsTable) {
-          return { where: () => Promise.resolve(fixture.spawns ?? []) };
-        }
-        if (table === agentTranscriptTurnsTable) {
-          return { where: () => Promise.resolve(fixture.turns ?? []) };
-        }
-        throw new Error("mockDb: unexpected table in .from()");
-      },
-    }),
+    select: () => {
+      onQuery?.();
+      return {
+        from: (table: unknown) => {
+          if (table === agentTranscriptsTable) {
+            return {
+              orderBy: () => ({ limit: () => Promise.resolve(fixture.transcripts) }),
+            };
+          }
+          if (table === minskySessionLinksTable) {
+            return {
+              // Forward direction (workspace -> conversation): .innerJoin().where()
+              innerJoin: () => ({ where: () => Promise.resolve(fixture.workspaceLinks ?? []) }),
+              // Reverse direction (conversation -> any workspace): bare .where()
+              where: () => Promise.resolve(fixture.conversationLinks ?? []),
+            };
+          }
+          if (table === agentSpawnsTable) {
+            return { where: () => Promise.resolve(fixture.spawns ?? []) };
+          }
+          if (table === agentTranscriptTurnsTable) {
+            return { where: () => Promise.resolve(fixture.turns ?? []) };
+          }
+          throw new Error("mockDb: unexpected table in .from()");
+        },
+      };
+    },
   } as unknown as PostgresJsDatabase;
 }
 
@@ -224,5 +227,99 @@ describe("mergeConversationRows (mt#2767)", () => {
     const result = await mergeConversationRows(db, [WORKSPACE_1]);
     expect(result.standaloneRows).toEqual([]);
     expect(result.workspaceAttrsBySessionId.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createCachedRunMerge (mt#2767 latency follow-up) — the short-TTL,
+// request-deduplicating cache added after the live-measured 2-9s regression
+// (2026-07-14) against the pre-merge baseline's 0.33s warm.
+// ---------------------------------------------------------------------------
+
+describe("createCachedRunMerge (mt#2767 latency follow-up)", () => {
+  test("repeated calls with the same key hit cache — the DB is queried only once", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(60_000); // long TTL — this test asserts on hits, not expiry
+
+    const r1 = await cached.getMerge(db, [WORKSPACE_1]);
+    const r2 = await cached.getMerge(db, [WORKSPACE_1]);
+
+    expect(r1).toBe(r2); // same resolved object — served from cache, not re-derived
+    // Each mergeConversationRows() pass issues 4 top-level db.select() calls
+    // (transcripts, workspace links, conversation links, spawns) plus one
+    // more for turns when conversationIds is non-empty — the exact count
+    // doesn't matter here, only that a SECOND getMerge() call adds none.
+    expect(queryCount).toBeGreaterThan(0);
+    const afterFirst = queryCount;
+    await cached.getMerge(db, [WORKSPACE_1]);
+    expect(queryCount).toBe(afterFirst);
+  });
+
+  test("a different workspace-id set is a cache miss — the DB is queried again", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(60_000);
+
+    await cached.getMerge(db, [WORKSPACE_1]);
+    const afterFirst = queryCount;
+    await cached.getMerge(db, ["a-different-workspace-id"]);
+    expect(queryCount).toBeGreaterThan(afterFirst);
+  });
+
+  test("concurrent calls with the same key share ONE in-flight promise (no fan-out)", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(60_000);
+
+    // Fire two calls back-to-back without awaiting the first — both should
+    // resolve to the SAME promise, not trigger two independent query passes.
+    const [r1, r2] = await Promise.all([
+      cached.getMerge(db, [WORKSPACE_1]),
+      cached.getMerge(db, [WORKSPACE_1]),
+    ]);
+    expect(r1).toBe(r2);
+    const soleQueryCount = queryCount;
+
+    await cached.getMerge(db, [WORKSPACE_1]);
+    expect(queryCount).toBe(soleQueryCount); // third call still hits cache
+  });
+
+  test("expired entries trigger a fresh query", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(10); // 10ms TTL
+
+    await cached.getMerge(db, [WORKSPACE_1]);
+    const afterFirst = queryCount;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await cached.getMerge(db, [WORKSPACE_1]);
+    expect(queryCount).toBeGreaterThan(afterFirst);
+  });
+
+  test("sorted key: the same id set in a different order is still a cache hit", async () => {
+    let queryCount = 0;
+    const db = mockDb(
+      { transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt: null, endedAt: null }] },
+      () => queryCount++
+    );
+    const cached = createCachedRunMerge(60_000);
+
+    await cached.getMerge(db, ["workspace-a", "workspace-b"]);
+    const afterFirst = queryCount;
+    await cached.getMerge(db, ["workspace-b", "workspace-a"]); // reordered
+    expect(queryCount).toBe(afterFirst);
   });
 });
