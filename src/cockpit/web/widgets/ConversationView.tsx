@@ -6,14 +6,25 @@
  * assume it lives in a tab vs. a panel vs. a full page. The surrounding chrome
  * is supplied by the host (a WidgetShell variant, a page section, a tab body).
  *
- * Two ways to give it data (mt#2374 success criterion "given a session id or a
- * pre-fetched snapshot"):
+ * Three ways to give it data (mt#2374 success criterion "given a session id or
+ * a pre-fetched snapshot"; the third added by mt#2751):
  *   - `{ sessionId }`  — self-fetches the snapshot from the existing
  *                        `/api/cockpit/context-inspector/snapshot` endpoint
  *                        (mt#2023) via TanStack Query.
  *   - `{ snapshot }`   — renders a pre-fetched SessionContextSnapshot directly
  *                        (used by hosts that already hold the snapshot, and by
  *                        the layout-agnostic acceptance test).
+ *   - `{ drivenSessionId, drivenBlocks }` — mt#2751 Rung 2B: renders a
+ *                        driven-session's live blocks with NO DB snapshot at
+ *                        all (a fresh spawn has no prior transcript). The
+ *                        caller owns the single `useDrivenSession` WS
+ *                        connection (so composer/status siblings can share
+ *                        it) and passes its accumulated `blocks` straight
+ *                        through — this variant just wraps them in an empty
+ *                        base snapshot and feeds `ConversationThread`'s
+ *                        EXISTING `extraBlocks` seam, so the two Rung-1 SSE
+ *                        live-tail channels above and this driven WS channel
+ *                        all share the identical rendering code path.
  *
  * Data comes from `assembleSessionContextSnapshot()` (mt#2022), which preserves
  * each turn's full `message.content` (thinking / tool_use / tool_result). The
@@ -71,10 +82,35 @@ type ConversationViewProps =
        * alone) where no workspace context exists at all.
        */
       liveByConversationId?: boolean;
+      drivenSessionId?: undefined;
+      drivenBlocks?: undefined;
     }
   | {
       snapshot: SessionContextSnapshot;
       sessionId?: undefined;
+      workspaceSessionId?: never;
+      liveByConversationId?: never;
+      className?: string;
+      drivenSessionId?: undefined;
+      drivenBlocks?: undefined;
+    }
+  | {
+      /**
+       * Driven-session id (mt#2751 Rung 2B — the `DrivenSessionRecord.localId`
+       * a `useDrivenSession` caller is connected to). Opt-in driven-source
+       * variant mirroring `liveByConversationId`'s shape: pass a distinct id +
+       * its accumulated blocks rather than a DB-fetched `sessionId`/`snapshot`.
+       * Unlike the other two variants, ConversationView does NOT own the data
+       * connection here — the caller's own `useDrivenSession(drivenSessionId)`
+       * call is the single source of truth (so composer/status UI siblings
+       * outside this component can share the same WebSocket), and its
+       * `blocks` are passed straight through as `drivenBlocks`.
+       */
+      drivenSessionId: string;
+      /** The `blocks` array from the caller's `useDrivenSession` hook. */
+      drivenBlocks: SessionContextSnapshotBlock[];
+      sessionId?: undefined;
+      snapshot?: undefined;
       workspaceSessionId?: never;
       liveByConversationId?: never;
       className?: string;
@@ -514,6 +550,49 @@ function ConversationThread({
   );
 }
 
+// ── Driven-session wrapper (mt#2751 Rung 2B) ────────────────────────────────────
+
+/** Stable empty-array reference — avoids recreating a fresh `[]` (and therefore
+ * invalidating `ConversationThread`'s internal `useMemo`) on every render. */
+const EMPTY_DRIVEN_BASE_BLOCKS: SessionContextSnapshotBlock[] = [];
+/** Fixed placeholder — never read by any renderer; only present because
+ * `SessionContextSnapshot.assembledAt` is required by the type. */
+const DRIVEN_BASE_ASSEMBLED_AT = new Date(0).toISOString();
+
+/**
+ * Wraps a driven session's live-accumulated `drivenBlocks` in an empty base
+ * snapshot and feeds them through `ConversationThread`'s `extraBlocks` seam —
+ * the SAME renderer `ConversationFetcher` uses for the two SSE live-tail
+ * channels above. Verifies mt#2751 success criterion 2 ("the display
+ * component is shared with Rung 1... verified by shared code path").
+ */
+function DrivenSessionThread({
+  drivenSessionId,
+  drivenBlocks,
+  className,
+}: {
+  drivenSessionId: string;
+  drivenBlocks: SessionContextSnapshotBlock[];
+  className?: string;
+}) {
+  const baseSnapshot = useMemo<SessionContextSnapshot>(
+    () => ({
+      agentSessionId: drivenSessionId,
+      harness: "claude_code",
+      blocks: EMPTY_DRIVEN_BASE_BLOCKS,
+      assembledAt: DRIVEN_BASE_ASSEMBLED_AT,
+    }),
+    [drivenSessionId]
+  );
+  return (
+    <ConversationThread
+      snapshot={baseSnapshot}
+      extraBlocks={drivenBlocks.length > 0 ? drivenBlocks : undefined}
+      className={className}
+    />
+  );
+}
+
 // ── Self-fetching wrapper ───────────────────────────────────────────────────────
 
 function ConversationFetcher({
@@ -611,20 +690,36 @@ function ConversationFetcher({
 
 /**
  * Renders a session's conversation as a chronological chat thread. Layout-agnostic:
- * the host supplies the chrome. Pass either `sessionId` (self-fetch) or `snapshot`
- * (pre-fetched).
+ * the host supplies the chrome. Pass `sessionId` (self-fetch), `snapshot`
+ * (pre-fetched), or `drivenSessionId`+`drivenBlocks` (mt#2751 live-only, no DB
+ * snapshot).
  *
- * Two mutually-exclusive live-tail seams:
+ * Two mutually-exclusive live-tail seams (both bridge a DB-fetched snapshot with
+ * a live SSE append):
  *   - `workspaceSessionId` (mt#2232 Rung 1) — real-time appends bridged through
  *     a Minsky workspace. `sessionId` is the harness ConversationId;
  *     `workspaceSessionId` is the distinct Minsky workspace WorkspaceId.
  *   - `liveByConversationId` (mt#2749) — real-time appends opened directly off
  *     `sessionId` alone, no workspace bridge. Used on the conversation surface
  *     (`ConversationPage`), which has no workspace context at all.
+ *
+ * A third, fully-live seam needs no DB snapshot at all:
+ *   - `drivenSessionId` + `drivenBlocks` (mt#2751 Rung 2B) — a driven session
+ *     the caller is connected to via its own `useDrivenSession` hook; see
+ *     `DrivenSessionThread` above.
  */
 export function ConversationView(props: ConversationViewProps) {
   if (props.snapshot !== undefined) {
     return <ConversationThread snapshot={props.snapshot} className={props.className} />;
+  }
+  if (props.drivenSessionId !== undefined) {
+    return (
+      <DrivenSessionThread
+        drivenSessionId={props.drivenSessionId}
+        drivenBlocks={props.drivenBlocks}
+        className={props.className}
+      />
+    );
   }
   return (
     <ConversationFetcher
