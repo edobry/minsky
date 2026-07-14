@@ -289,6 +289,10 @@ const asksRespondParams = {
 
 /**
  * Typed input for `respondToAsk` — the internal helper exposed for testing.
+ *
+ * NOT a handler annotation type (mt#2779): the `asks.respond` execute handler
+ * derives its params from the map by inference; this type only covers direct
+ * programmatic callers of the helper.
  */
 export interface RespondToAskParams {
   id: string;
@@ -530,6 +534,10 @@ export function validateAsksCreateParams(params: {
  *
  * Mirrors `CreateAskInput` plus the producer-specific defaults that
  * `asks.create` applies before calling `repo.create`.
+ *
+ * NOT a handler annotation type (mt#2779): the `asks.create` execute handler
+ * derives its params from the map by inference; this type covers direct
+ * programmatic producers (tests, in-process Ask emitters).
  */
 export interface CreateAskParams {
   kind: AskKind;

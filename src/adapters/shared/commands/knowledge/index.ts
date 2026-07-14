@@ -40,28 +40,6 @@ import {
   type ClassifiableChunk,
 } from "@minsky/domain/knowledge/reconciliation/conflicts";
 
-// ─── Parameter shapes ────────────────────────────────────────────────────────
-
-export interface KnowledgeSearchParams {
-  query: string;
-  sources?: string[];
-  limit?: number;
-}
-
-export interface KnowledgeFetchParams {
-  source: string;
-  documentId: string;
-}
-
-export interface KnowledgeSourcesParams {
-  // no params
-}
-
-export interface KnowledgeSyncParams {
-  source?: string;
-  force?: boolean;
-}
-
 // ─── Parameter definitions (Zod schemas) ─────────────────────────────────────
 
 const knowledgeSearchParams = {
@@ -155,7 +133,7 @@ export function registerKnowledgeCommands(
     description:
       "Semantic search across indexed knowledge bases. Returns ranked results with excerpts.",
     parameters: knowledgeSearchParams,
-    execute: async (params: KnowledgeSearchParams, _ctx?: CommandExecutionContext) => {
+    execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.search", { query: params.query, limit: params.limit });
 
       const limit = params.limit ?? 5;
@@ -335,7 +313,7 @@ export function registerKnowledgeCommands(
     name: "fetch",
     description: "Live-fetch a single document from a configured knowledge source by ID.",
     parameters: knowledgeFetchParams,
-    execute: async (params: KnowledgeFetchParams, _ctx?: CommandExecutionContext) => {
+    execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.fetch", {
         source: params.source,
         documentId: params.documentId,
@@ -443,7 +421,7 @@ export function registerKnowledgeCommands(
     name: "sources",
     description: "List configured knowledge sources with their sync status.",
     parameters: knowledgeSourcesParams,
-    execute: async (_params: KnowledgeSourcesParams, _ctx?: CommandExecutionContext) => {
+    execute: async (_params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.sources");
 
       const getConfig = deps?.getConfig;
@@ -474,7 +452,7 @@ export function registerKnowledgeCommands(
     name: "sync",
     description: "Sync one or all configured knowledge sources into the vector index.",
     parameters: knowledgeSyncParams,
-    execute: async (params: KnowledgeSyncParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing knowledge.sync", { source: params.source, force: params.force });
 
       const getConfig = deps?.getConfig;

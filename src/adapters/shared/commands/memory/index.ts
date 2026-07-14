@@ -35,7 +35,6 @@ import type {
   MemoryRecord,
   MemoryCreateInput,
   MemorySearchResult,
-  MemoryAssociations,
 } from "@minsky/domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
 import { checkDerivation } from "@minsky/domain/memory/validation";
@@ -47,96 +46,6 @@ import { classifyIdInput, resolveIdPrefixOrThrow } from "@minsky/domain/utils/id
 
 const memoryTypeValues = Object.values(MEMORY_TYPES) as [MemoryType, ...MemoryType[]];
 const memoryScopeValues = Object.values(MEMORY_SCOPES) as [MemoryScope, ...MemoryScope[]];
-
-// ─── Parameter shapes ─────────────────────────────────────────────────────────
-
-export interface MemorySearchParams {
-  query: string;
-  limit?: number;
-  type?: MemoryType;
-  scope?: MemoryScope;
-  projectId?: string;
-  excludeSuperseded?: boolean;
-  allProjects?: boolean;
-}
-
-export interface MemoryGetParams {
-  id: string;
-}
-
-export interface MemoryListParams {
-  type?: MemoryType;
-  scope?: MemoryScope;
-  projectId?: string;
-  excludeSuperseded?: boolean;
-  stale?: boolean;
-  stalenessDays?: number;
-  limit?: number;
-  associationType?: string;
-  associationTarget?: string;
-  allProjects?: boolean;
-}
-
-export interface MemoryLineageParams {
-  id: string;
-}
-
-export interface MemoryCreateParams {
-  type: MemoryType;
-  name: string;
-  description: string;
-  content: string;
-  /** Scope of the memory. Optional — defaults to "project" when omitted (mt#2663). */
-  scope?: MemoryScope;
-  projectId?: string | null;
-  tags?: string[];
-  sourceAgentId?: string | null;
-  sourceSessionId?: string | null;
-  confidence?: number | null;
-  associations?: MemoryAssociations;
-  force?: boolean;
-}
-
-export interface MemoryUpdateParams {
-  id: string;
-  type?: MemoryType;
-  name?: string;
-  description?: string;
-  content?: string;
-  scope?: MemoryScope;
-  projectId?: string | null;
-  tags?: string[];
-  sourceAgentId?: string | null;
-  sourceSessionId?: string | null;
-  confidence?: number | null;
-  associations?: MemoryAssociations;
-}
-
-export interface MemoryDeleteParams {
-  id: string;
-}
-
-export interface MemorySimilarParams {
-  id: string;
-  limit?: number;
-  threshold?: number;
-}
-
-export interface MemorySupersededParams {
-  oldId: string;
-  // newInput fields — flattened into top-level params (mirrors knowledge convention)
-  type: MemoryType;
-  name: string;
-  description: string;
-  content: string;
-  scope: MemoryScope;
-  projectId?: string | null;
-  tags?: string[];
-  sourceAgentId?: string | null;
-  sourceSessionId?: string | null;
-  confidence?: number | null;
-  reason?: string;
-}
 
 // ─── Parameter definitions (Zod schemas) ─────────────────────────────────────
 
@@ -713,7 +622,7 @@ export function registerMemoryCommands(
     description:
       "Semantic search over memory records. Returns ranked results with similarity scores.",
     parameters: memorySearchParams,
-    execute: async (params: MemorySearchParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.search", { query: params.query, limit: params.limit });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
@@ -750,7 +659,7 @@ export function registerMemoryCommands(
       "Fetch a single memory record by its identifier. Accepts a full UUID or an " +
       "unambiguous prefix (>=8 hex chars, mt#2696) — e.g. an id cited in a handoff.",
     parameters: memoryGetParams,
-    execute: async (params: MemoryGetParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.get", { id: params.id });
 
       // mt#2696: resolve a short-prefix citation to the full uuid before it
@@ -791,7 +700,7 @@ export function registerMemoryCommands(
     name: "list",
     description: "Browse memory records with optional type/scope/project filters.",
     parameters: memoryListParams,
-    execute: async (params: MemoryListParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.list", {
         type: params.type,
         scope: params.scope,
@@ -834,7 +743,7 @@ export function registerMemoryCommands(
       "Create a new memory record. Validates content against the derivation-discipline " +
       "rubric (mt#960) — use force=true to bypass.",
     parameters: memoryCreateParams,
-    execute: async (params: MemoryCreateParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.create", { name: params.name, force: params.force });
 
       // Derivation-discipline check
@@ -900,7 +809,7 @@ export function registerMemoryCommands(
     name: "update",
     description: "Update fields on an existing memory record.",
     parameters: memoryUpdateParams,
-    execute: async (params: MemoryUpdateParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.update", { id: params.id });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
@@ -923,7 +832,7 @@ export function registerMemoryCommands(
     name: "delete",
     description: "Delete a memory record by its identifier.",
     parameters: memoryDeleteParams,
-    execute: async (params: MemoryDeleteParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.delete", { id: params.id });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
@@ -943,7 +852,7 @@ export function registerMemoryCommands(
       "Excludes the source memory from results. Accepts a full UUID or an " +
       "unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
     parameters: memorySimilarParams,
-    execute: async (params: MemorySimilarParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.similar", { id: params.id, limit: params.limit });
 
       // mt#2696: resolve a short-prefix citation before it reaches a
@@ -969,7 +878,7 @@ export function registerMemoryCommands(
       "Atomically replace an existing memory with a new one. " +
       "The old memory is retained but marked superseded.",
     parameters: memorySupersededParams,
-    execute: async (params: MemorySupersededParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.supersede", { oldId: params.oldId });
 
       const service = await resolveMemoryService(deps, ctx ?? {});
@@ -1007,7 +916,7 @@ export function registerMemoryCommands(
       "Each step carries the supersession_reason in its metadata. Accepts a full UUID or " +
       "an unambiguous prefix (>=8 hex chars, mt#2696) for `id`.",
     parameters: memoryLineageParams,
-    execute: async (params: MemoryLineageParams, ctx?: CommandExecutionContext) => {
+    execute: async (params, ctx?: CommandExecutionContext) => {
       log.debug("Executing memory.lineage", { id: params.id });
 
       // mt#2696: resolve a short-prefix citation before it reaches a

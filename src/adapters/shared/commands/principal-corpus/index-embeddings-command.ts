@@ -13,7 +13,7 @@
 
 import { z } from "zod";
 import { composeParams, CommonParameters } from "../../common-parameters";
-import type { CommandExecutionContext } from "../../command-registry";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
 import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
 import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
@@ -21,17 +21,6 @@ import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevan
 import { resolvePersistenceFromCtx } from "../principal-corpus";
 import type { TweetRecord } from "@minsky/domain/principal-corpus/types";
 import { readFileSync, existsSync, writeFileSync } from "fs";
-
-export interface PrincipalCorpusIndexEmbeddingsParams {
-  archivePath: string;
-  accountUserId: string;
-  screenName: string;
-  filterPath?: string;
-  skipFilter?: boolean;
-  limit?: number;
-  concurrency?: number;
-  json?: boolean;
-}
 
 export const principalCorpusIndexEmbeddingsParams = composeParams(
   {
@@ -87,7 +76,7 @@ export class PrincipalCorpusIndexEmbeddingsCommand {
   readonly parameters = principalCorpusIndexEmbeddingsParams;
 
   async execute(
-    params: PrincipalCorpusIndexEmbeddingsParams,
+    params: InferParams<typeof principalCorpusIndexEmbeddingsParams>,
     ctx: CommandExecutionContext
   ): Promise<{
     success: boolean;

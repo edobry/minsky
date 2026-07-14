@@ -48,7 +48,7 @@ import { createSessionRepairCommand } from "./session/repair-command";
 import { createSessionEditFileCommand } from "./session/file-commands";
 import { createSessionGeneratePromptCommand } from "./session/prompt-command";
 import { createApplyPostMergeStateSyncCommand } from "./session/apply-post-merge-state-sync-command";
-import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
+import { sharedCommandRegistry, type AnyCommandDefinition } from "../command-registry";
 
 /**
  * Register all session commands in the shared command registry.
@@ -86,7 +86,7 @@ export async function registerSessionCommands(
     return container.get("persistence") as PersistenceProvider;
   };
 
-  const commands: CommandDefinition[] = [
+  const commands: AnyCommandDefinition[] = [
     // Basic
     createSessionListCommand(getDeps, getOptionalPersistenceProvider),
     createSessionGetCommand(getDeps),

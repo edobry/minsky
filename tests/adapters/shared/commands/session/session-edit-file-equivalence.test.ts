@@ -82,7 +82,7 @@ async function runCliEdit(
   try {
     const result = (await command.execute(
       {
-        session: "test-session",
+        sessionId: "test-session",
         path: params.path,
         instruction: "equivalence test",
         patternFile: patternFilePath,
@@ -90,6 +90,7 @@ async function runCliEdit(
         createDirs: params.createDirs ?? false,
         fullReplace: params.fullReplace ?? false,
         json: true,
+        debug: false,
       },
       {}
     )) as Record<string, unknown>;

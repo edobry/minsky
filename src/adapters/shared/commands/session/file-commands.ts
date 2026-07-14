@@ -4,42 +4,23 @@
  * Commands for file operations within session workspaces.
  * Provides CLI wrappers for session-aware MCP file tools.
  */
-import { CommandCategory, type CommandDefinition } from "../../command-registry";
+import { CommandCategory, type CommandDefinition, type InferParams } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type SessionCommandDependencies, type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionEditFileCommandParams } from "./session-parameters";
 import { readTextFile } from "@minsky/shared/fs";
 
-interface SessionEditFileParams {
-  name?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  // mt#2742: the declared param is `sessionId` (session-parameters.ts). The
-  // handler previously read only `params.session` (never declared) so an
-  // explicit session id was silently ignored and the command always
-  // auto-detected. `sessionId` is the canonical key; `session` kept as a
-  // harmless fallback.
-  sessionId?: string;
-  session?: string;
-  path?: string;
-  instruction?: string;
-  patternFile?: string;
-  dryRun?: boolean;
-  createDirs?: boolean;
-  fullReplace?: boolean;
-  debug?: boolean;
-}
+export type SessionEditFileParams = InferParams<typeof sessionEditFileCommandParams>;
 
 // Exported (mt#2742) for regression testing the sessionId-resolution fix.
 export async function resolveSessionId(
   deps: SessionCommandDependencies,
   params: SessionEditFileParams
 ): Promise<string> {
-  // mt#2742: honor the canonical `sessionId` param (the declared key); `session`
-  // kept as a harmless fallback. Previously only `params.session` (undeclared)
-  // was read, so an explicit id was ignored and this always auto-detected.
-  const explicit = params.sessionId ?? params.session;
+  // mt#2742: honor the canonical `sessionId` param (the declared key). The
+  // undeclared `session` fallback was removed in mt#2779 — the MCP boundary
+  // rejects undeclared keys outright since mt#2778, so it could never arrive.
+  const explicit = params.sessionId;
   if (explicit) {
     return explicit;
   }
@@ -236,15 +217,17 @@ function formatResult(
   };
 }
 
-export function createSessionEditFileCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionEditFileCommand(
+  getDeps: LazySessionDeps
+): CommandDefinition<typeof sessionEditFileCommandParams> {
   return {
     id: "session.edit-file",
     category: CommandCategory.SESSION,
     name: "edit-file",
     description: "Edit a file within a session workspace using AI-powered pattern application",
     parameters: sessionEditFileCommandParams,
-    execute: withErrorLogging("session.edit-file", async (params: Record<string, unknown>) => {
-      const typedParams = params as SessionEditFileParams;
+    execute: withErrorLogging("session.edit-file", async (params: SessionEditFileParams) => {
+      const typedParams = params;
       try {
         const deps = await getDeps();
         const sessionId = await resolveSessionId(deps, typedParams);

@@ -6,6 +6,7 @@ import {
   CommandCategory,
   type CommandDefinition,
   type CommandExecutionContext,
+  type InferParams,
 } from "../../command-registry";
 import {
   MinskyError,
@@ -52,21 +53,7 @@ export function buildSessionPrCreateDeps(
 /**
  * Parameters accepted by the session PR create command.
  */
-export interface SessionPrCreateParams {
-  sessionId?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  title?: string;
-  body?: string;
-  bodyPath?: string;
-  type?: string;
-  noStatusUpdate?: boolean;
-  debug?: boolean;
-  autoResolveDeleteConflicts?: boolean;
-  skipConflictCheck?: boolean;
-  draft?: boolean;
-}
+export type SessionPrCreateParams = InferParams<typeof sessionPrCreateCommandParams>;
 
 /**
  * Check whether an existing PR is eligible for refresh. Exported for tests.
@@ -112,7 +99,7 @@ export async function validateNoPrExists(
   const currentDir = process.cwd();
   const isSessionWorkspace = currentDir.includes("/sessions/");
 
-  let sessionId = params.sessionId;
+  let sessionId: string | undefined = params.sessionId;
   if (!sessionId && isSessionWorkspace) {
     const pathParts = currentDir.split("/");
     const sessionsIndex = pathParts.indexOf("sessions");
@@ -340,7 +327,9 @@ export async function executeSessionPrCreate(
   }
 }
 
-export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionPrCreateCommand(
+  getDeps: LazySessionDeps
+): CommandDefinition<typeof sessionPrCreateCommandParams> {
   return {
     id: "session.pr.create",
     category: CommandCategory.SESSION,
@@ -351,7 +340,7 @@ export function createSessionPrCreateCommand(getDeps: LazySessionDeps): CommandD
     execute: async (params, context) => {
       try {
         const deps = await getDeps();
-        return await executeSessionPrCreate(deps, params as SessionPrCreateParams, context);
+        return await executeSessionPrCreate(deps, params, context);
       } catch (error) {
         log.debug(`Error in session.pr.create`, {
           params,

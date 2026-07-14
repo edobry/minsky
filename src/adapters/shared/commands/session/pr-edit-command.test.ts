@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { executeSessionPrEdit } from "./pr-edit-command";
+import { executeSessionPrEdit, type SessionPrEditParams } from "./pr-edit-command";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { SessionCommandDependencies } from "./types";
 
@@ -24,7 +24,7 @@ describe("session pr edit - conventional commit title validation", () => {
         {
           title: "Update the title without proper prefix",
           sessionId: "dummy-session",
-        },
+        } as SessionPrEditParams,
         context
       )
     ).rejects.toThrow(/Invalid title|full conventional commit title/i);
@@ -37,7 +37,7 @@ describe("session pr edit - conventional commit title validation", () => {
         title: "feat(core): improve handling",
         sessionId: "dummy-session",
         body: "placeholder",
-      },
+      } as SessionPrEditParams,
       context
     ).catch((e) => e);
 
@@ -54,7 +54,7 @@ describe("session pr edit - conventional commit title validation", () => {
         title: "add x",
         sessionId: "dummy-session",
         body: "placeholder",
-      },
+      } as SessionPrEditParams,
       context
     ).catch((e) => e);
 
