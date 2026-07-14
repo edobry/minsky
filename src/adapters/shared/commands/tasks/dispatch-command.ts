@@ -137,18 +137,7 @@ const tasksDispatchParams = {
   },
 } satisfies CommandParameterMap;
 
-interface DispatchParams {
-  title?: string;
-  taskId?: string;
-  instructions: string;
-  parentTaskId?: string;
-  type: "implementation" | "refactor" | "review" | "cleanup" | "audit";
-  scope?: string;
-  description?: string;
-  premiseClaim: string;
-  premiseFalsifier: string;
-  premiseEvidence: string;
-}
+type DispatchParams = InferParams<typeof tasksDispatchParams>;
 
 /**
  * Validate the mode-selection params (mt#2657): exactly one of `taskId`/`title` must be
@@ -213,7 +202,7 @@ export function createTasksDispatchCommand(
       "Create a subtask, start a session, and generate a subagent prompt — all in one call",
     parameters: tasksDispatchParams,
     execute: async (params: InferParams<typeof tasksDispatchParams>) => {
-      const p = params as DispatchParams;
+      const p = params;
 
       // Defensive default (mt#2695): `defaultValue: "implementation"` on the `type` param def
       // above is what actually applies the default at the MCP/CLI boundaries — the Zod

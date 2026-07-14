@@ -55,7 +55,7 @@ export function registerSelectionCommands(targetRegistry: {
         required: false,
       },
     },
-    execute: async (params: { id?: string; ruleId?: string }) => {
+    execute: async (params) => {
       const ruleId = resolveRuleId(params, "rules.enable");
       const workspacePath = await resolveWorkspacePath({});
       const result = await enableRule(workspacePath, ruleId);
@@ -80,7 +80,7 @@ export function registerSelectionCommands(targetRegistry: {
         required: false,
       },
     },
-    execute: async (params: { id?: string; ruleId?: string }) => {
+    execute: async (params) => {
       const ruleId = resolveRuleId(params, "rules.disable");
       const workspacePath = await resolveWorkspacePath({});
       const result = await disableRule(workspacePath, ruleId);

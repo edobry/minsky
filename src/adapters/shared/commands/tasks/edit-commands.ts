@@ -4,10 +4,10 @@
  * Commands for editing existing tasks (title and specification content).
  * Supports multi-backend editing with proper delegation to backend implementations.
  */
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
 import { getErrorMessage } from "@minsky/domain/errors/index";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams } from "@minsky/domain/tasks";
 import type { Task } from "@minsky/domain/tasks/types";
@@ -22,20 +22,6 @@ import { autoIndexTaskEmbedding } from "./auto-index-embedding";
 import { isKnownKind, WORKFLOWS } from "@minsky/domain/tasks/workflows";
 
 /**
- * Parameters for tasks edit command
- */
-interface TasksEditParams extends BaseTaskParams {
-  taskId: string;
-  title?: string;
-  spec?: boolean;
-  specFile?: string;
-  specContent?: string;
-  tag?: string | string[];
-  kind?: string;
-  execute?: boolean;
-}
-
-/**
  * Task edit command implementation
  *
  * Supports editing both task title and specification content with multiple input methods:
@@ -44,7 +30,7 @@ interface TasksEditParams extends BaseTaskParams {
  *
  * By default shows a preview of changes. Use --execute to apply the changes.
  */
-export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
+export class TasksEditCommand extends BaseTaskCommand<typeof tasksEditParams> {
   readonly id = "tasks.edit";
   readonly name = "edit";
   readonly description =
@@ -58,7 +44,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     super();
   }
 
-  async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksEditParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.edit execution");
 
     // Validate required parameters

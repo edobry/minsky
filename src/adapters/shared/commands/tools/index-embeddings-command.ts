@@ -4,17 +4,10 @@
  * Command for generating and storing embeddings for all tools.
  * Follows patterns from tasks and rules index-embeddings commands.
  */
-import { CommandExecutionContext } from "../../command-registry";
+import { CommandExecutionContext, type InferParams } from "../../command-registry";
 import { z } from "zod";
 import { composeParams, CommonParameters } from "../../common-parameters";
 import type { CommandParameterMap } from "../../schema-bridge";
-
-export interface ToolsIndexEmbeddingsParams {
-  limit?: number;
-  force?: boolean;
-  json?: boolean;
-  debug?: boolean;
-}
 
 export const toolsIndexEmbeddingsParams = composeParams(
   {
@@ -45,7 +38,10 @@ export class ToolsIndexEmbeddingsCommand {
   readonly description = "Generate and store embeddings for tools (tool_embeddings)";
   readonly parameters = toolsIndexEmbeddingsParams;
 
-  async execute(params: ToolsIndexEmbeddingsParams, ctx?: CommandExecutionContext) {
+  async execute(
+    params: InferParams<typeof toolsIndexEmbeddingsParams>,
+    ctx?: CommandExecutionContext
+  ) {
     try {
       const { createToolEmbeddingService } = await import(
         "@minsky/domain/tools/tool-embedding-service"

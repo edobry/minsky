@@ -10,7 +10,11 @@
  */
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { checkIfPrCanBeRefreshed, executeSessionPrCreate } from "./pr-create-command";
+import {
+  checkIfPrCanBeRefreshed,
+  executeSessionPrCreate,
+  type SessionPrCreateParams,
+} from "./pr-create-command";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { SessionProviderInterface } from "@minsky/domain/session/types";
 import type { SessionCommandDependencies } from "./types";
@@ -60,7 +64,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const canRefresh = await checkIfPrCanBeRefreshed(deps, {
         task: taskId,
         title: "fix: Test PR",
-      });
+      } as SessionPrCreateParams);
 
       expect(canRefresh).toBe(true);
     });
@@ -84,7 +88,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
           {
             task: taskId,
             title: "fix: New PR",
-          },
+          } as SessionPrCreateParams,
           mockContext
         );
       }).toThrow(/PR description is required/);
@@ -96,7 +100,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       const params = {
         task: "md#368",
         title: "Test PR",
-      };
+      } as SessionPrCreateParams;
 
       const deps = {
         sessionProvider: {

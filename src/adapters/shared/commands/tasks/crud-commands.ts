@@ -4,12 +4,12 @@
  * Commands for creating, reading, updating, and deleting tasks.
  * Extracted from tasks.ts as part of modularization effort.
  */
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 // Domain task functions are lazy-imported inside execute methods to avoid
 // loading the entire domain layer at command registration time.
 import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
 import { getErrorMessage } from "@minsky/domain/errors/index";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import {
   tasksListParams,
   tasksGetParams,
@@ -33,63 +33,9 @@ export interface BlockingAskInfo {
 }
 
 /**
- * Parameters for tasks list command
- */
-interface TasksListParams extends BaseTaskParams {
-  all?: boolean;
-  status?: string;
-  filter?: string;
-  limit?: number;
-  tag?: string | string[];
-  since?: string;
-  until?: string;
-  hierarchical?: boolean;
-  showDeps?: boolean;
-  showAttention?: boolean;
-  /** When true, skip project-scope filtering (ADR-021, mt#2416). */
-  allProjects?: boolean;
-  /** Filter by workflow kind — "implementation" | "umbrella" | "state-ops" (mt#2762). */
-  kind?: string;
-}
-
-/**
- * Parameters for tasks get command
- */
-interface TasksGetParams extends BaseTaskParams {
-  taskId: string;
-  includeSpec?: boolean;
-  includeSubtasks?: boolean;
-  includeSession?: boolean;
-}
-
-/**
- * Parameters for tasks create command
- */
-interface TasksCreateParams extends BaseTaskParams {
-  title: string;
-  // mt#2742: removed the ghost `description?` field — it was never a declared
-  // command param, so `params.description` was always undefined (dead fallback).
-  spec?: string;
-  force?: boolean;
-  githubRepo?: string;
-  dependsOn?: string | string[];
-  parent?: string;
-  tag?: string | string[];
-  kind?: string;
-}
-
-/**
- * Parameters for tasks delete command
- */
-interface TasksDeleteParams extends BaseTaskParams {
-  taskId: string;
-  force?: boolean;
-}
-
-/**
  * Task list command implementation
  */
-export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
+export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
   readonly id = "tasks.list";
   readonly name = "list";
   readonly description = "List tasks with optional filtering";
@@ -108,7 +54,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
     super();
   }
 
-  async execute(params: TasksListParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksListParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
     this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
     const { listTasksFromParams } = await import("@minsky/domain/tasks");
@@ -400,7 +346,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
 /**
  * Task get command implementation
  */
-export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
+export class TasksGetCommand extends BaseTaskCommand<typeof tasksGetParams> {
   readonly id = "tasks.get";
   readonly name = "get";
   readonly description = "Get details of a specific task";
@@ -416,7 +362,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
     super();
   }
 
-  async execute(params: TasksGetParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksGetParams>, ctx: CommandExecutionContext) {
     const startTime = Date.now();
     this.debug("Starting tasks.get execution", { params, context: ctx });
 
@@ -618,7 +564,7 @@ export class TasksGetCommand extends BaseTaskCommand<TasksGetParams> {
 /**
  * Task create command implementation
  */
-export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
+export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams> {
   readonly id = "tasks.create";
   readonly name = "create";
   readonly description = "Create a new task";
@@ -632,7 +578,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
     super();
   }
 
-  async execute(params: TasksCreateParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksCreateParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.create execution");
 
     try {
@@ -808,7 +754,7 @@ export class TasksCreateCommand extends BaseTaskCommand<TasksCreateParams> {
 /**
  * Task delete command implementation
  */
-export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
+export class TasksDeleteCommand extends BaseTaskCommand<typeof tasksDeleteParams> {
   readonly id = "tasks.delete";
   readonly name = "delete";
   readonly description = "Delete a task";
@@ -822,7 +768,7 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
     super();
   }
 
-  async execute(params: TasksDeleteParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksDeleteParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.delete execution");
 
     // Validate and normalize task ID
@@ -883,7 +829,10 @@ export class TasksDeleteCommand extends BaseTaskCommand<TasksDeleteParams> {
   /**
    * Confirm task deletion with user
    */
-  private async confirmDeletion(taskId: string, params: TasksDeleteParams): Promise<void> {
+  private async confirmDeletion(
+    taskId: string,
+    params: InferParams<typeof tasksDeleteParams>
+  ): Promise<void> {
     // Get task details for confirmation
     const { getTaskFromParams } = await import("@minsky/domain/tasks");
     const task = await getTaskFromParams(

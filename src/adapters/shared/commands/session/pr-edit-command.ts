@@ -6,6 +6,7 @@ import {
   CommandCategory,
   type CommandDefinition,
   type CommandExecutionContext,
+  type InferParams,
 } from "../../command-registry";
 import {
   MinskyError,
@@ -23,17 +24,7 @@ import {
   CONVENTIONAL_COMMIT_TYPES_DISPLAY,
 } from "@minsky/domain/git/conventional-commit-types";
 
-export interface SessionPrEditParams {
-  sessionId?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  title?: string;
-  body?: string;
-  bodyPath?: string;
-  type?: string;
-  debug?: boolean;
-}
+export type SessionPrEditParams = InferParams<typeof sessionPrEditCommandParams>;
 
 function handlePrError(error: unknown, params: SessionPrEditParams): Error {
   const errorMessage = getErrorMessage(error);
@@ -189,7 +180,9 @@ export async function executeSessionPrEdit(
   }
 }
 
-export function createSessionPrEditCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionPrEditCommand(
+  getDeps: LazySessionDeps
+): CommandDefinition<typeof sessionPrEditCommandParams> {
   return {
     id: "session.pr.edit",
     category: CommandCategory.SESSION,
@@ -200,7 +193,7 @@ export function createSessionPrEditCommand(getDeps: LazySessionDeps): CommandDef
     execute: async (params, context) => {
       try {
         const deps = await getDeps();
-        return await executeSessionPrEdit(deps, params as SessionPrEditParams, context);
+        return await executeSessionPrEdit(deps, params, context);
       } catch (error) {
         log.debug(`Error in session.pr.edit`, {
           params,

@@ -25,10 +25,11 @@ export type SessionCommandDependencies = SessionDeps;
 export type LazySessionDeps = () => Promise<SessionCommandDependencies>;
 
 /**
- * Minimal parameter shape used by the error-logging helper to extract
- * session/task/repo context from arbitrary command params.
+ * Minimal field projection used by the error-logging helper to extract
+ * session/task/repo context from arbitrary command params. Not a handler
+ * param type (mt#2779) — handlers derive theirs from the params map.
  */
-interface LoggableSessionParams {
+interface LoggableSessionFields {
   // mt#2742: session commands declare `sessionId`, not `name`; logging base.name
   // always printed `session: undefined`. Use the actual declared key.
   sessionId?: string;
@@ -49,7 +50,7 @@ export function withErrorLogging<T extends Record<string, unknown>, R>(
     try {
       return (await fn(params as T, context)) as Awaited<ReturnType<CommandDefinition["execute"]>>;
     } catch (error) {
-      const base = params as LoggableSessionParams;
+      const base = params as LoggableSessionFields;
       log.debug(`Error in ${commandId}`, {
         session: base.sessionId,
         task: base.task,

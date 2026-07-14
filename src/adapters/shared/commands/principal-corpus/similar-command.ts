@@ -5,17 +5,11 @@
 
 import { z } from "zod";
 import { composeParams, CommonParameters } from "../../common-parameters";
-import type { CommandExecutionContext } from "../../command-registry";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
 import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
 import type { TweetMetadata } from "@minsky/domain/principal-corpus/types";
 import { resolvePersistenceFromCtx } from "../principal-corpus";
-
-export interface PrincipalCorpusSimilarParams {
-  tweetId: string;
-  limit?: number;
-  json?: boolean;
-}
 
 export const principalCorpusSimilarParams = composeParams(
   {
@@ -43,7 +37,7 @@ export class PrincipalCorpusSimilarCommand {
   readonly parameters = principalCorpusSimilarParams;
 
   async execute(
-    params: PrincipalCorpusSimilarParams,
+    params: InferParams<typeof principalCorpusSimilarParams>,
     ctx: CommandExecutionContext
   ): Promise<{
     success: boolean;

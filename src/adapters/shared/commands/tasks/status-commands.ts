@@ -5,11 +5,11 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { select, isCancel, cancel } from "@clack/prompts";
-import { type CommandExecutionContext } from "../../command-registry";
+import { type CommandExecutionContext, type InferParams } from "../../command-registry";
 import { getTaskStatusFromParams, setTaskStatusFromParams } from "@minsky/domain/tasks";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { TASK_STATUS } from "@minsky/domain/tasks/taskConstants";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
+import { BaseTaskCommand } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 import { isInteractive } from "../../../../utils/interactive";
 import type {
@@ -54,24 +54,9 @@ async function emitTaskStatusChangedEvent(
 }
 
 /**
- * Parameters for tasks status get command
- */
-interface TasksStatusGetParams extends BaseTaskParams {
-  taskId: string;
-}
-
-/**
- * Parameters for tasks status set command
- */
-interface TasksStatusSetParams extends BaseTaskParams {
-  taskId: string;
-  status?: string;
-}
-
-/**
  * Task status get command implementation
  */
-export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams> {
+export class TasksStatusGetCommand extends BaseTaskCommand<typeof tasksStatusGetParams> {
   readonly id = "tasks.status.get";
   readonly name = "get";
   readonly description = "Get the status of a task";
@@ -84,7 +69,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
     super();
   }
 
-  async execute(params: TasksStatusGetParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksStatusGetParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.status.get execution");
 
     // Validate and normalize task ID
@@ -114,7 +99,7 @@ export class TasksStatusGetCommand extends BaseTaskCommand<TasksStatusGetParams>
 /**
  * Task status set command implementation
  */
-export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams> {
+export class TasksStatusSetCommand extends BaseTaskCommand<typeof tasksStatusSetParams> {
   readonly id = "tasks.status.set";
   readonly name = "set";
   readonly description = "Set the status of a task";
@@ -128,7 +113,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
     super();
   }
 
-  async execute(params: TasksStatusSetParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksStatusSetParams>, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.status.set execution");
 
     // Validate and normalize task ID

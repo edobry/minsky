@@ -1,38 +1,12 @@
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import type { CommandExecutionContext } from "../../command-registry";
+import { BaseTaskCommand } from "./base-task-command";
+import type { CommandExecutionContext, InferParams } from "../../command-registry";
 import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { assertKnownKind } from "@minsky/domain/tasks/workflows";
 
-interface TasksSimilarParams extends BaseTaskParams {
-  taskId: string;
-  limit?: number;
-  threshold?: number;
-  details?: boolean;
-  quiet?: boolean;
-  json?: boolean;
-  backend?: string;
-  status?: string;
-  all?: boolean;
-}
-
-interface TasksSearchParams extends BaseTaskParams {
-  query: string;
-  limit?: number;
-  threshold?: number;
-  details?: boolean;
-  quiet?: boolean;
-  json?: boolean;
-  backend?: string;
-  status?: string;
-  all?: boolean;
-  /** Filter by workflow kind — "implementation" | "umbrella" | "state-ops" (mt#2762). */
-  kind?: string;
-}
-
-export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
+export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarParams> {
   readonly id = "tasks.similar";
   readonly name = "similar";
   readonly description = "Find tasks similar to the given task using embeddings";
@@ -115,7 +89,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     return enhanced;
   }
 
-  async execute(params: TasksSimilarParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksSimilarParams>, ctx: CommandExecutionContext) {
     const taskId = this.validateRequired(params.taskId, "taskId");
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
@@ -130,9 +104,16 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
     if (response.degraded) {
       try {
         const { log } = await import("@minsky/shared/logger");
-        const quiet = Boolean(params.quiet);
+        // mt#2779: removed the ghost `params.quiet` read. Unlike tasks.search,
+        // `quiet` has never been a DECLARED param of tasks.similar, so no caller
+        // could ever set it: commander rejects unknown CLI flags, and the MCP
+        // boundary dropped undeclared keys pre-mt#2778 and rejects them since.
+        // The read was always undefined (false) — removing it is
+        // behavior-preserving: warn unless JSON, exactly as before. Declaring a
+        // real `quiet` param for parity with tasks.search would be a param ADD,
+        // out of scope for the mt#2779 typing migration (tracked separately).
         const json = Boolean(params.json) || ctx.format === "json";
-        if (!quiet && !json) {
+        if (!json) {
           log.cliWarn(
             `Warning: similarity search degraded — using lexical fallback: ` +
               `${response.degradedReason ?? "unknown"}. ` +
@@ -159,7 +140,7 @@ export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
   }
 }
 
-export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
+export class TasksSearchCommand extends BaseTaskCommand<typeof tasksSearchParams> {
   readonly id = "tasks.search";
   readonly name = "search";
   readonly description = "Search for tasks similar to a natural language query";
@@ -242,7 +223,7 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     return enhanced;
   }
 
-  async execute(params: TasksSearchParams, ctx: CommandExecutionContext) {
+  async execute(params: InferParams<typeof tasksSearchParams>, ctx: CommandExecutionContext) {
     const query = this.validateRequired(params.query, "query");
     const limit = params.limit ?? 10;
     const threshold = params.threshold;

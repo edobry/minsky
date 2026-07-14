@@ -6,6 +6,7 @@ import {
   CommandCategory,
   type CommandDefinition,
   type CommandExecutionContext,
+  type InferParams,
 } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
@@ -13,15 +14,7 @@ import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCloseCommandParams } from "./session-parameters";
 import { sessionPrClose } from "@minsky/domain/session/commands/pr-subcommands";
 
-export interface SessionPrCloseParams {
-  sessionId?: string;
-  task?: string;
-  repo?: string;
-  prNumber?: string | number;
-  comment?: string;
-  json?: boolean;
-  debug?: boolean;
-}
+export type SessionPrCloseParams = InferParams<typeof sessionPrCloseCommandParams>;
 
 function handlePrCloseError(error: unknown, params: SessionPrCloseParams): Error {
   const errorMessage = getErrorMessage(error);
@@ -124,7 +117,9 @@ export async function executeSessionPrClose(
   }
 }
 
-export function createSessionPrCloseCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionPrCloseCommand(
+  getDeps: LazySessionDeps
+): CommandDefinition<typeof sessionPrCloseCommandParams> {
   return {
     id: "session.pr.close",
     category: CommandCategory.SESSION,
@@ -145,7 +140,7 @@ export function createSessionPrCloseCommand(getDeps: LazySessionDeps): CommandDe
     execute: async (params, context) => {
       try {
         const deps = await getDeps();
-        return await executeSessionPrClose(deps, params as SessionPrCloseParams, context);
+        return await executeSessionPrClose(deps, params, context);
       } catch (error) {
         log.debug(`Error in session.pr.close`, {
           params,
