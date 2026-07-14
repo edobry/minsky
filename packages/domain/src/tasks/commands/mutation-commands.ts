@@ -6,13 +6,14 @@
  */
 
 import { z } from "zod";
+import { log } from "@minsky/shared/logger";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
   TaskServiceOptions,
   TaskServiceInterface,
 } from "../taskService";
 import type { Task } from "../types";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index";
+import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import {
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
@@ -64,6 +65,16 @@ type InjectedTaskServiceFactory = (
  * (`id (unreadable)`), since it can't be verified complete. Returns `[]` when
  * the task has no children.
  *
+ * Fails open on a read error (a thrown exception from `listChildren` or
+ * `getTasks` — e.g. a transient backend/network failure): logs a warning and
+ * returns `[]` (treated as "no incomplete children found") rather than
+ * propagating the exception and blocking an otherwise-legitimate status
+ * transition. This mirrors the fail-open defensive posture the original
+ * hook-based design called for (mt#1649 spec) and the existing mt#1504
+ * ride-along precedent in `setTaskStatusFromParams` — a read failure in the
+ * closeout guard should not become a harder failure mode than skipping the
+ * guard entirely.
+ *
  * Shared core for both children-completeness closeout guards below:
  * `assertUmbrellaChildrenComplete` (mt#2606, umbrella → COMPLETED) and
  * `assertChildrenCompleteForDone` (mt#1649, any kind → DONE).
@@ -74,9 +85,25 @@ async function findIncompleteChildren(args: {
   taskGraphService: Pick<TaskGraphService, "listChildren">;
 }): Promise<string[]> {
   const { taskId, taskService, taskGraphService } = args;
-  const childIds = await taskGraphService.listChildren(taskId);
+  let childIds: string[];
+  try {
+    childIds = await taskGraphService.listChildren(taskId);
+  } catch (error) {
+    log.warn(
+      `[findIncompleteChildren] listChildren failed for ${taskId}; failing open (treating as no children): ${getErrorMessage(error)}`
+    );
+    return [];
+  }
   if (childIds.length === 0) return [];
-  const children = await taskService.getTasks(childIds);
+  let children: Pick<Task, "id" | "status">[];
+  try {
+    children = await taskService.getTasks(childIds);
+  } catch (error) {
+    log.warn(
+      `[findIncompleteChildren] getTasks failed for children of ${taskId}; failing open (treating as no incomplete children): ${getErrorMessage(error)}`
+    );
+    return [];
+  }
   const foundIds = new Set(children.map((c) => c.id));
   return [
     ...children.filter((c) => !isTerminalTaskStatus(c.status)).map((c) => `${c.id} (${c.status})`),
