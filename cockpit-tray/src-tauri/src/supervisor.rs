@@ -58,6 +58,12 @@ const DB_DEGRADED_POLL_THRESHOLD: u32 = 24;
 /// daemon silently stopped) — distinct from the restart-storm path which handles
 /// the crash-and-exit case. At 5s/poll → 12 polls ≈ 1 min.
 const HTTP_FAILURE_POLL_THRESHOLD: u32 = 12;
+/// mt#2786: consecutive failed polls with NO child of ours before the supervisor
+/// TAKES OVER a dead adopted daemon (spawns its own). 2× the alert threshold
+/// (≈ 2 min at 5s/poll): the alert fires first, and an operator mid-manual-restart
+/// has a comfortable window before the tray steps in — plus the port-free check
+/// below, which is the real operator-race guard.
+const ADOPTED_TAKEOVER_POLL_THRESHOLD: u32 = HTTP_FAILURE_POLL_THRESHOLD * 2;
 /// Minimum gap between repeated toasts for the SAME ACTIVE condition.
 /// Resets when the condition clears so the NEXT episode re-alerts immediately.
 const ALERT_COOLDOWN: Duration = Duration::from_secs(900); // 15 min
@@ -155,6 +161,21 @@ fn throttle_ok(last_spawn: Option<Instant>, now: Instant, min: Duration) -> bool
         Some(t) => now.duration_since(t) >= min,
         None => true,
     }
+}
+
+/// mt#2786: whether the supervisor should take over after an adopted (or
+/// never-spawned) daemon has been unresponsive for a sustained window. The
+/// original design NEVER respawned over an adopted daemon ("don't fight an
+/// operator restarting it manually") — which left the cockpit down
+/// indefinitely once an adopted daemon died (observed 2026-07-13: 9+ min dead
+/// port, manual restart required). Takeover requires ALL of:
+/// - the outage is sustained past ADOPTED_TAKEOVER_POLL_THRESHOLD (the 1-min
+///   alert has already fired by then), AND
+/// - the port is FREE — an operator mid-restart (or any replacement daemon)
+///   holds the port, so this preserves the original conservatism, AND
+/// - the respawn throttle permits.
+fn should_takeover_adopted(consecutive_http_failed: u32, port_held: bool, throttle_ok: bool) -> bool {
+    consecutive_http_failed > ADOPTED_TAKEOVER_POLL_THRESHOLD && !port_held && throttle_ok
 }
 
 /// Build a PATH that includes the common locations a GUI app (launched from
@@ -957,7 +978,8 @@ fn run_supervisor(
                         }
                         Some(Err(_)) | None => {
                             // No child of ours (adopted daemon down, or never spawned).
-                            // Don't auto-spawn over an adopted daemon. Apply the same
+                            // Don't IMMEDIATELY spawn over an adopted daemon — but see the
+                            // mt#2786 takeover below. Apply the same
                             // sustained-HTTP-failure alert here: an expected adopted daemon
                             // that stops responding is an alert-worthy condition.
                             if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
@@ -976,8 +998,32 @@ fn run_supervisor(
                                     eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
                                 }
                             }
-                            set_status(&app, &mut sup, LABEL_STOPPED);
-                            clear_uptime(&app, &mut sup);
+                            // mt#2786: takeover-respawn. Once the outage is sustained
+                            // (2× the alert threshold) and nobody holds the port (an
+                            // operator's replacement daemon would), convert from
+                            // adopted to spawned supervision instead of staying
+                            // "stopped" forever. Counts toward restart-storm
+                            // accounting so a flapping takeover still alerts.
+                            let port_held = port_in_use(DAEMON_PORT, &path);
+                            if should_takeover_adopted(
+                                sup.consecutive_http_failed,
+                                port_held,
+                                throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE),
+                            ) {
+                                let sustained_secs = sup.consecutive_http_failed as u64
+                                    * POLL_INTERVAL.as_secs();
+                                eprintln!(
+                                    "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
+                                );
+                                sup.consecutive_http_failed = 0;
+                                sup.last_http_alert = None;
+                                sup.restart_timestamps.push(poll_now);
+                                sup.last_process_started_at_ms = None;
+                                do_spawn(&app, &mut sup, &spawned, &path);
+                            } else {
+                                set_status(&app, &mut sup, LABEL_STOPPED);
+                                clear_uptime(&app, &mut sup);
+                            }
                         }
                     }
                 }
@@ -1293,6 +1339,47 @@ pub(crate) fn spawn(app: AppHandle, spawned: SpawnedPgid) {
 mod tests {
     use super::*;
     use std::time::UNIX_EPOCH;
+
+    // mt#2786 — takeover-respawn decision for a dead adopted daemon.
+    #[test]
+    fn takeover_fires_when_sustained_port_free_and_throttle_ok() {
+        assert!(should_takeover_adopted(
+            ADOPTED_TAKEOVER_POLL_THRESHOLD + 1,
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn takeover_waits_below_the_sustained_threshold() {
+        // At the alert threshold (half the takeover threshold) we alert but do NOT spawn.
+        assert!(!should_takeover_adopted(
+            HTTP_FAILURE_POLL_THRESHOLD + 1,
+            false,
+            true
+        ));
+        assert!(!should_takeover_adopted(ADOPTED_TAKEOVER_POLL_THRESHOLD, false, true));
+    }
+
+    #[test]
+    fn takeover_never_fights_a_port_holder() {
+        // An operator's replacement daemon (or anything else) holding the port
+        // suppresses takeover no matter how long the outage.
+        assert!(!should_takeover_adopted(
+            ADOPTED_TAKEOVER_POLL_THRESHOLD * 10,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn takeover_respects_the_respawn_throttle() {
+        assert!(!should_takeover_adopted(
+            ADOPTED_TAKEOVER_POLL_THRESHOLD + 1,
+            false,
+            false
+        ));
+    }
 
     #[test]
     fn status_label_maps_health_to_text() {
