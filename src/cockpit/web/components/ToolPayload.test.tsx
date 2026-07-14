@@ -57,6 +57,15 @@ describe("ToolPayload — Tier-3 registry", () => {
     expect(container.textContent).toContain("A task");
   });
 
+  test("the harness-prefixed name (mcp__minsky__tasks_list) also fires the seed renderer (mt#2787)", () => {
+    const data = [{ id: "mt#2370", title: "A task", status: "DONE" }];
+    const { container } = renderPayload(
+      <ToolPayload value={data} toolName="mcp__minsky__tasks_list" />
+    );
+    expect(container.querySelector('a[href="/tasks/mt%232370"]')).not.toBeNull();
+    expect(container.textContent).toContain("A task");
+  });
+
   test("tasks_list falls back to the generic tree on shape mismatch", () => {
     const { container } = renderPayload(
       <ToolPayload value={{ foo: "bar" }} toolName="tasks_list" />
