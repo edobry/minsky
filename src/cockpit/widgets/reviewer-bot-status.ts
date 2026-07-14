@@ -175,6 +175,27 @@ export interface ReviewerDbStats {
   verdictCounts24h: VerdictCounts;
   /** Verdict counts (approve / requestChanges / comment) in the last 7d (mt#2287). */
   verdictCounts7d: VerdictCounts;
+  /**
+   * Count of DB queries that failed during THIS fetch cycle (mt#2758). A query
+   * "fails" whenever its result could not be obtained for real — the
+   * underlying `queryRows` call threw/rejected, OR the query layer had no live
+   * connection at all (see `buildQueryRows`'s no-connection fallback) — as
+   * opposed to succeeding with zero rows. Both cases resolve every affected
+   * field to its empty default (0 / null / []), which is otherwise
+   * indistinguishable from "genuinely no data yet" (the mt#2757/mt#2076
+   * incident: every query threw NOT_TAGGED_CALL for ~5 weeks while the widget
+   * rendered healthy zeros). 0 means every query that ran this cycle
+   * succeeded; see `queryTotalCount` for the denominator.
+   */
+  queryFailureCount: number;
+  /**
+   * Total DB queries attempted during this fetch cycle (currently 15).
+   * Denominator for `queryFailureCount` — lets a consumer distinguish "a
+   * couple of queries failed" (partial degradation) from "every query failed"
+   * (the DB is effectively unreachable and every field below is a
+   * placeholder, not a real value) without hardcoding the query count.
+   */
+  queryTotalCount: number;
 }
 
 export interface ReviewerBotStatusPayload {
@@ -227,8 +248,21 @@ export type ProbeHealthFn = () => Promise<ReviewerHealthProbeResult>;
  * internally-generated (ISO timestamps + integer constants), so SQL injection is
  * not a live risk — but we parameterize anyway as a hardening measure and to
  * match pg best practices (future-proofing if user-supplied values are added).
+ *
+ * `onFailure` (mt#2758) is an optional per-call signal invoked whenever the
+ * query could not really be run (as opposed to running and returning zero
+ * rows). Implementations that swallow their own errors internally (e.g.
+ * `createUnsafeQueryRows`) MUST invoke it from their catch block — that's the
+ * only way a per-fetch-cycle failure counter can see a failure that never
+ * rejects the returned promise. Implementations are free to ignore the
+ * parameter (existing test doubles do); a raw rejection is still counted by
+ * the caller (`fetchDbStats`'s `countedQuery` wrapper) as a fallback.
  */
-export type QueryRowsFn = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+export type QueryRowsFn = (
+  sql: string,
+  params?: unknown[],
+  onFailure?: () => void
+) => Promise<Record<string, unknown>[]>;
 
 export interface ReviewerBotStatusDeps {
   probeHealth: ProbeHealthFn;
@@ -442,38 +476,74 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
   const window7dIso = windowStartIso(nowMs, WINDOW_7D_MS);
   const staleThresholdIso = windowStartIso(nowMs, A2_STALE_INFLIGHT_TTL_MS);
 
+  // Per-fetch-cycle failure counter (mt#2758). Deliberately a LOCAL closure
+  // variable, not module-level state: the widget single-flights concurrent
+  // fetch() calls (mt#2765), so a module-level counter would leak/accumulate
+  // across polls instead of reflecting only the current cycle's queries.
+  let queryFailureCount = 0;
+  const markFailure = () => {
+    queryFailureCount++;
+  };
+
+  /**
+   * Wrap a queryRows call so a failure is counted no matter which layer
+   * catches it:
+   *  - `createUnsafeQueryRows` (the real-wired seam) swallows the underlying
+   *    error internally and never rejects — it invokes the `onFailure` param
+   *    threaded through here instead.
+   *  - A queryRows implementation that rejects outright (test doubles that
+   *    throw directly, or any future non-swallowing implementation) is caught
+   *    by the trailing `.catch` below, counted, then re-thrown so
+   *    `runQueriesWithLimit`'s existing per-thunk fallback behavior (yield
+   *    `fallback` for that slot) is unchanged.
+   */
+  function countedQuery(sql: string, params?: unknown[]): () => Promise<Record<string, unknown>[]> {
+    return () => {
+      // Idempotence guard (PR #1921 R1): the QueryRowsFn contract does not
+      // forbid an implementation from BOTH invoking onFailure AND rejecting —
+      // count each query's failure at most once regardless of which (or both)
+      // signaling paths fire.
+      let counted = false;
+      const markOnce = (): void => {
+        if (counted) return;
+        counted = true;
+        markFailure();
+      };
+      return queryRows(sql, params, markOnce).catch((err) => {
+        markOnce();
+        throw err;
+      });
+    };
+  }
+
   const queryThunks: Array<() => Promise<Record<string, unknown>[]>> = [
     // Throughput: count of review_submitted outcomes in the last 24h
-    () =>
-      queryRows(
-        `SELECT COUNT(*) AS count FROM reviewer_webhook_events
+    countedQuery(
+      `SELECT COUNT(*) AS count FROM reviewer_webhook_events
        WHERE outcome = 'review_submitted' AND received_at >= $1`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // Failure count: any failed_at_* outcomes in the last 24h. `outcome` is the
     // webhook_outcome ENUM — Postgres has no LIKE operator for enums, so the
     // column must be cast to text for the pattern match (without the cast the
     // query errors and the runner silently zeroes the field, breaking A3).
-    () =>
-      queryRows(
-        `SELECT COUNT(*) AS count FROM reviewer_webhook_events
+    countedQuery(
+      `SELECT COUNT(*) AS count FROM reviewer_webhook_events
        WHERE outcome::text LIKE 'failed_at_%' AND received_at >= $1`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // Last error: most recent failed event details (same enum::text cast)
-    () =>
-      queryRows(
-        `SELECT error_details, received_at FROM reviewer_webhook_events
+    countedQuery(
+      `SELECT error_details, received_at FROM reviewer_webhook_events
        WHERE outcome::text LIKE 'failed_at_%' AND received_at >= $1
        ORDER BY received_at DESC LIMIT 1`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // Recent mt# tasks: head_ref from convergence metrics (new column, may be NULL on old rows).
     // Empty-string head_ref is excluded by the != '' filter at the DB level.
     // Use subquery form so we can ORDER BY the aggregate without DISTINCT conflict.
-    () =>
-      queryRows(
-        `SELECT head_ref FROM (
+    countedQuery(
+      `SELECT head_ref FROM (
          SELECT head_ref, MAX(created_at) AS last_seen
          FROM reviewer_convergence_metrics
          WHERE head_ref IS NOT NULL AND head_ref != '' AND head_ref LIKE 'task/mt-%'
@@ -481,112 +551,103 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
          ORDER BY last_seen DESC
          LIMIT $1
        ) subq`,
-        [RECENT_TASKS_LIMIT]
-      ),
+      [RECENT_TASKS_LIMIT]
+    ),
     // Latency: avg + percentile over last 24h
-    () =>
-      queryRows(
-        `SELECT
+    countedQuery(
+      `SELECT
          AVG(total_wall_clock_ms)::integer AS avg_ms,
          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_wall_clock_ms)::integer AS p95_ms
        FROM review_timing
        WHERE created_at >= $1`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // Stale in-flight: markers acquired more than A2_STALE_INFLIGHT_TTL_MS ago
-    () =>
-      queryRows(
-        `SELECT COUNT(*) AS count FROM reviewer_inflight_reviews
+    countedQuery(
+      `SELECT COUNT(*) AS count FROM reviewer_inflight_reviews
        WHERE acquired_at <= $1`,
-        [staleThresholdIso]
-      ),
+      [staleThresholdIso]
+    ),
     // Rate-limit hits: count 'rate_limited' entries across all rows'
     // retry_outcomes (text[]) in the window, via explicit CROSS JOIN LATERAL
     // with a named column alias — unambiguous set-returning-function form.
     // retry_outcomes is NOT NULL DEFAULT '{}', so an empty array contributes
     // 0 rows (correctly 0 hits).
-    () =>
-      queryRows(
-        `SELECT COUNT(*) AS count
+    countedQuery(
+      `SELECT COUNT(*) AS count
        FROM review_timing rt
        CROSS JOIN LATERAL unnest(rt.retry_outcomes) AS ro(outcome)
        WHERE rt.created_at >= $1 AND ro.outcome = 'rate_limited'`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // Last webhook received
-    () =>
-      queryRows(
-        `SELECT received_at FROM reviewer_webhook_events
+    countedQuery(
+      `SELECT received_at FROM reviewer_webhook_events
        ORDER BY received_at DESC LIMIT 1`
-      ),
+    ),
     // mt#2288: median total tokens (input+output) per model-invoking review, 24h.
     // Filter to rows with token data — the two pre-model skip paths write NULL
     // tokens and must not skew the median. PERCENTILE_DISC returns an actual
     // observed integer token total (no interpolation → no fractional/cast surprise).
-    () =>
-      queryRows(
-        `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
+    countedQuery(
+      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // mt#2288: median total tokens per model-invoking review, 7d.
-    () =>
-      queryRows(
-        `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
+    countedQuery(
+      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
-        [window7dIso]
-      ),
+      [window7dIso]
+    ),
     // mt#2288: median USD cost per priced review, 24h (cost_usd NULL when the
     // model is unpriced — excluded so the median reflects only priced reviews).
-    () =>
-      queryRows(
-        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
+    countedQuery(
+      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
        FROM review_timing
        WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // mt#2288: median USD cost per priced review, 7d.
-    () =>
-      queryRows(
-        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
+    countedQuery(
+      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
        FROM review_timing
        WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
-        [window7dIso]
-      ),
+      [window7dIso]
+    ),
     // mt#2721: aggregate cache-hit ratio (cached/input) over cache-reporting
     // reviews in 24h. SUM/SUM (not avg-of-ratios) reflects how much of the real
     // input volume was served from cache. Scoped to `cached_tokens IS NOT NULL`
     // so providers that don't report caching (Anthropic/Google rows, where the
     // column is NULL) don't dilute the ratio and understate OpenAI's cache
     // effectiveness. NULLIF guards divide-by-zero.
-    () =>
-      queryRows(
-        `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
+    countedQuery(
+      `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND cached_tokens IS NOT NULL`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // mt#2287: verdict distribution, 24h. Nullable `verdict` column (mt#2287
     // migration) — rows written before that migration retain NULL and are
     // excluded so the distribution reflects only reviews with a known verdict.
-    () =>
-      queryRows(
-        `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
+    countedQuery(
+      `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
        WHERE verdict IS NOT NULL AND created_at >= $1
        GROUP BY verdict`,
-        [window24hIso]
-      ),
+      [window24hIso]
+    ),
     // mt#2287: verdict distribution, 7d (baseline for the drift comparison).
-    () =>
-      queryRows(
-        `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
+    countedQuery(
+      `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
        WHERE verdict IS NOT NULL AND created_at >= $1
        GROUP BY verdict`,
-        [window7dIso]
-      ),
+      [window7dIso]
+    ),
   ];
+
+  const queryTotalCount = queryThunks.length;
 
   const settled = await runQueriesWithLimit(
     queryThunks,
@@ -696,6 +757,8 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
     cacheHitRatio24h,
     verdictCounts24h,
     verdictCounts7d,
+    queryFailureCount,
+    queryTotalCount,
   };
 }
 
@@ -818,12 +881,20 @@ export function createUnsafeQueryRows(
   rawSql: RawSqlLike,
   warn: (err: unknown) => void = warnQueryFailure
 ): QueryRowsFn {
-  return async (query: string, params?: unknown[]): Promise<Record<string, unknown>[]> => {
+  return async (
+    query: string,
+    params?: unknown[],
+    onFailure?: () => void
+  ): Promise<Record<string, unknown>[]> => {
     try {
       const rows = await rawSql.unsafe(query, params);
       return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
     } catch (err) {
       warn(err);
+      // mt#2758: the per-fetch-cycle failure counter (fetchDbStats) needs a
+      // signal here, since this catch never re-throws — without it a real DB
+      // failure looks identical to a legitimately empty result.
+      onFailure?.();
       return [];
     }
   };
@@ -858,10 +929,19 @@ export async function buildQueryRows(
       }
     }
     log.debug("[reviewer-bot-status] provider has no raw SQL connection; DB stats disabled");
-    return async (_query: string, _params?: unknown[]) => [];
+    // mt#2758: no live connection means every query this cycle "fails" for
+    // real (it never runs) — signal that via onFailure rather than resolving
+    // silently, so this degrades visibly instead of rendering as no-data.
+    return async (_query: string, _params?: unknown[], onFailure?: () => void) => {
+      onFailure?.();
+      return [];
+    };
   } catch (err) {
     warnQueryFailure(err);
-    return async (_query: string, _params?: unknown[]) => [];
+    return async (_query: string, _params?: unknown[], onFailure?: () => void) => {
+      onFailure?.();
+      return [];
+    };
   }
 }
 
@@ -884,9 +964,9 @@ async function getQueryRows(): Promise<QueryRowsFn> {
 
 export const reviewerBotStatusWidget: WidgetModule = createReviewerBotStatusWidget({
   probeHealth: probeReviewerHealth,
-  queryRows: async (sql: string, params?: unknown[]) => {
+  queryRows: async (sql: string, params?: unknown[], onFailure?: () => void) => {
     const queryFn = await getQueryRows();
-    return queryFn(sql, params);
+    return queryFn(sql, params, onFailure);
   },
   now: () => Date.now(),
 });

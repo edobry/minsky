@@ -29,6 +29,15 @@ interface ReviewerDbStats {
   cacheHitRatio24h: number | null;
   verdictCounts24h: VerdictCounts;
   verdictCounts7d: VerdictCounts;
+  // mt#2758 — query-layer-failure vs genuine-no-data signal. See the
+  // "Query-failure vs no-data" convention note at the top of
+  // src/cockpit/types.ts and docs/architecture/cockpit.md.
+  /** Failed stats queries this fetch cycle (mt#2758). Optional: a stale frontend
+   * bundle may talk to a pre-mt#2758 server during deploys — absence means
+   * "signal unavailable", not zero. */
+  queryFailureCount?: number;
+  /** Total stats queries attempted this fetch cycle (mt#2758). Optional, same skew rationale. */
+  queryTotalCount?: number;
 }
 
 interface ReviewerBotStatusPayload {
@@ -179,6 +188,37 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
           {health.ok ? "Healthy" : "Unreachable"}
         </span>
       </div>
+
+      {/* mt#2758 — query-layer-failure indicator. Distinguishes "the DB
+          queries failed" from "the DB queries succeeded and returned zero
+          rows" — both otherwise render identically as zeros/"—" below. This
+          is the class of bug that let the reviewer-bot widget's DB stats
+          render healthy zeros for ~5 weeks (mt#2076/mt#2757) while every
+          query threw. Full failure (every query this cycle failed) uses the
+          destructive token per src/cockpit/CLAUDE.md's error-state
+          convention (AnomalyBanner's "error" variant); a partial failure
+          uses the amber warning variant, consistent with the other
+          AnomalyBanner usages below. Fields are optional in this mirror —
+          a stale bundle may talk to a pre-mt#2758 server during deploys —
+          so the banner renders only when both are finite numbers. */}
+      {db &&
+        (() => {
+          const failed = db.queryFailureCount;
+          const total = db.queryTotalCount;
+          if (!Number.isFinite(failed) || !Number.isFinite(total)) return null;
+          if ((failed as number) <= 0) return null;
+          const allFailed = (total as number) > 0 && failed === total;
+          return (
+            <AnomalyBanner
+              message={
+                allFailed
+                  ? `DB query layer failed — all ${total} stats queries failed this cycle. Fields below are placeholders, not real zeros.`
+                  : `DB query layer degraded — ${failed} of ${total} stats queries failed this cycle. Some fields below may be incomplete or stale.`
+              }
+              variant={allFailed ? "error" : "warning"}
+            />
+          );
+        })()}
 
       {/* Anomaly banners */}
       {anomalies.a1ServiceUnreachable && (
