@@ -44,6 +44,12 @@ import { ToolPayload } from "../components/ToolPayload";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useLiveTail, useConversationLiveTail } from "../hooks/useLiveTail";
+import {
+  fetchSnapshot,
+  snapshotQueryKey,
+  snapshotRetry,
+  SnapshotError,
+} from "../lib/conversation-snapshot";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -90,60 +96,8 @@ type ConversationViewProps =
       className?: string;
     };
 
-// ── Snapshot fetch (mirrors ContextInspector's endpoint usage) ─────────────────
-
-function isSnapshot(value: unknown): value is SessionContextSnapshot {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { agentSessionId?: unknown }).agentSessionId === "string" &&
-    Array.isArray((value as { blocks?: unknown }).blocks)
-  );
-}
-
-/**
- * Carries the HTTP status AND the structured error `code` so callers can
- * distinguish "no transcript" (404 / `session_not_found`) from a wrong-id-space
- * mistake (422 / `wrong_id_space`, mt#2525) and from real failures.
- */
-class SnapshotError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string | undefined,
-    message: string
-  ) {
-    super(message);
-    this.name = "SnapshotError";
-  }
-}
-
-async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextSnapshot> {
-  const res = await fetch(
-    `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}`
-  );
-  if (!res.ok) {
-    // The endpoint returns `{ error: { code, message } }`; fall back to the raw
-    // body when it isn't that shape (e.g. a proxy/HTML error page).
-    const raw = await res.text();
-    let code: string | undefined;
-    let detail = raw;
-    try {
-      const parsed = JSON.parse(raw) as { error?: { code?: unknown; message?: unknown } };
-      if (parsed.error && typeof parsed.error === "object") {
-        if (typeof parsed.error.code === "string") code = parsed.error.code;
-        if (typeof parsed.error.message === "string") detail = parsed.error.message;
-      }
-    } catch {
-      // Non-JSON body — keep the raw text as the detail.
-    }
-    throw new SnapshotError(res.status, code, `Snapshot fetch failed (${res.status}): ${detail}`);
-  }
-  const json: unknown = await res.json();
-  if (!isSnapshot(json)) {
-    throw new Error("Snapshot response did not match the expected shape");
-  }
-  return json;
-}
+// ── Snapshot fetch — shared with ContextBlockView via lib/conversation-snapshot ──
+// (mt#2768 "one snapshot query key" success criterion; see that module's docblock)
 
 // ── Entity index for linkification ────────────────────────────────────────────
 //
@@ -550,20 +504,10 @@ function ConversationFetcher({
   className?: string;
 }) {
   const query = useQuery<SessionContextSnapshot, Error>({
-    queryKey: ["conversation", "snapshot", sessionId],
+    queryKey: snapshotQueryKey(sessionId),
     queryFn: () => fetchSnapshot(sessionId),
     staleTime: 30_000,
-    // Do NOT retry a client error (4xx) — a wrong/unresolvable id will never
-    // succeed on retry, and the default TanStack retry policy (3 attempts,
-    // exponential backoff) left the "Loading conversation…" spinner visible
-    // for 15+s on a genuinely bad id before the error state finally rendered
-    // (mt#2769, observed live 2026-07-13). 5xx/network errors still retry —
-    // those CAN be transient.
-    retry: (failureCount, error) => {
-      const status = error instanceof SnapshotError ? error.status : undefined;
-      if (status !== undefined && status >= 400 && status < 500) return false;
-      return failureCount < 3;
-    },
+    retry: snapshotRetry,
   });
 
   // Live-tail seam: exactly one of the two channels is active per host —

@@ -98,7 +98,6 @@ const PAGES: PalettePage[] = [
     label: "Conversations",
     description: "Conversation transcripts",
   },
-  { type: "page", path: "/context", label: "Context", description: "Session context inspector" },
   {
     type: "page",
     path: "/workstreams",

@@ -15,7 +15,6 @@ import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
-import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { McpServerStatus } from "./widgets/McpServerStatus";
@@ -27,9 +26,6 @@ const AgentsPage = lazy(() =>
 );
 const WorkspaceDetailPage = lazy(() =>
   import("./pages/WorkspaceDetailPage").then((m) => ({ default: m.WorkspaceDetailPage }))
-);
-const ContextPage = lazy(() =>
-  import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
 );
 const ConversationPage = lazy(() =>
   import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
@@ -150,7 +146,6 @@ export const plantRoutes = (
 // ---------------------------------------------------------------------------
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>> = {
   attention: Attention,
-  "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
   "embeddings-health": EmbeddingsHealth,
   "mcp-server-status": McpServerStatus,
@@ -193,6 +188,15 @@ const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
 // query hook (use-workstreams-data.ts) — do NOT re-add it to the app-level
 // prop list: that would resurrect param-less app-wide polling and break the
 // altitude-keyed caching (mt#2385).
+//
+// "context-inspector" (mt#2768): the standalone /context page + its React
+// widget were retired (folded into the run-detail Context tab, keyed by a
+// known conversation id — no picker, no standalone route). The backend
+// widget itself stays registered as a DATA SOURCE (the sessions-picker rows
+// `ConversationPage`'s header label and others read via `fetchWidgetData`) —
+// it just has no home-grid renderer anymore, so it MUST stay in this set to
+// avoid a "no frontend renderer registered" placeholder card reappearing on
+// the home page.
 const PAGE_ROUTE_WIDGET_IDS = new Set([
   "agents",
   "context-inspector",
@@ -433,7 +437,13 @@ export function App() {
               harness agentSessionId (transcript). Renamed from
               SessionDetailPage per ADR-022 stage 1 (mt#2686); the /agents/:id
               path itself is unchanged (the Agents list/detail pair is a
-              separate naming decision, out of scope here). */}
+              separate naming decision, out of scope here).
+              Tab sub-routes (mt#2768): the shared RunDetail body derives its
+              active tab from the URL (Overview is the landing/default tab,
+              omitted from the path); "conversation" and "context" are the
+              only two accepted literal suffixes — this MUST stay in lockstep
+              with `lib/tabs.tsx`'s `matchEntityRoute` regex, which normalizes
+              all three paths to ONE entity-tab-strip entry. */}
           <Route
             path="/agents/:id"
             element={
@@ -443,13 +453,24 @@ export function App() {
             }
           />
           <Route
-            path="/context"
+            path="/agents/:id/conversation"
             element={
-              <ErrorBoundary id="context-page">
-                <ContextPage />
+              <ErrorBoundary id="session-detail-page">
+                <WorkspaceDetailPage />
               </ErrorBoundary>
             }
           />
+          <Route
+            path="/agents/:id/context"
+            element={
+              <ErrorBoundary id="session-detail-page">
+                <WorkspaceDetailPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Retired standalone Context page (mt#2768): folded into the
+              run-detail Context tab. Redirect for bookmark continuity. */}
+          <Route path="/context" element={<Navigate to="/agents" replace />} />
           <Route
             path="/conversations"
             element={
@@ -462,9 +483,28 @@ export function App() {
               tab; body is mt#2374's ConversationView, re-homed from the retired
               /conversation host. Path renamed from /session/:id per ADR-022
               stage 1 (mt#2686) — the old URL used "session" for what this page
-              always meant: a harness conversation transcript. */}
+              always meant: a harness conversation transcript.
+              Tab sub-routes (mt#2768): symmetric to /agents/:id above —
+              Conversation is the landing/default tab (omitted from the path);
+              "overview" and "context" are the only two accepted suffixes. */}
           <Route
             path="/conversation/:id"
+            element={
+              <ErrorBoundary id="session-page">
+                <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/conversation/:id/overview"
+            element={
+              <ErrorBoundary id="session-page">
+                <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/conversation/:id/context"
             element={
               <ErrorBoundary id="session-page">
                 <ConversationPage />
