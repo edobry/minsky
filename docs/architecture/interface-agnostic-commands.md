@@ -157,6 +157,34 @@ Standardized error handling ensures consistent user experience across interfaces
 2. **Adapter Handling**: Adapters catch and format errors appropriately for their interface
 3. **User Feedback**: Clear error messages guide users to correct usage
 
+## MCP Boundary: Undeclared Parameters Are Rejected (mt#2778)
+
+The MCP dispatch layer (`src/mcp/command-mapper.ts`) rejects tool calls carrying
+parameter keys the tool does not declare. Historically the per-tool Zod schemas fed
+only the `tools/list` declaration and inbound `arguments` reached handlers
+unvalidated — so a caller passing `taskId` to a command declaring `task` had the key
+silently dropped, producing undefined-downstream behavior (the mt#2737 bug class).
+Per the MCP Tools spec (2025-06-18, Security Considerations), servers are responsible
+for validating tool inputs.
+
+Semantics:
+
+- **Key-set check only.** Value/type/required/default enforcement is a separate
+  trajectory (mt#2705, mt#1638) — this check never alters values.
+- **Error names the fix.** `Unknown parameter "bogus" for "tasks.children". Known
+parameters: taskId, ...` — self-healing for agent callers.
+- **Cross-cutting allowlist `{debug, json}`** — keys the framework itself reads or
+  injects even when a command does not declare them.
+- **Skip paths (fail-open):** plain-object legacy schemas (mt#1200) and Zod schemas
+  with no derivable object shape (a registration-time
+  `mcp.param_enforcement_disabled` warning makes the skip visible). Wrapped object
+  schemas (`.optional()`, `.default()`, `z.preprocess`, `.transform`) are unwrapped
+  and enforced.
+- **Escape hatch:** `MINSKY_MCP_ALLOW_UNKNOWN_PARAMS=1` downgrades rejection to a
+  structured `mcp.unknown_param_dropped` warn log (emergency rollback without a
+  redeploy).
+- **CLI is unaffected** — commander already rejects unknown flags by default.
+
 ## Testing Strategy
 
 Testing the interface-agnostic architecture involves:

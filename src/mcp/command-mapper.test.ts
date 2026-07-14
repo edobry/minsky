@@ -365,6 +365,72 @@ describe("CommandMapper", () => {
       }
     });
 
+    test("optional-wrapped object schema still enforces (PR #1911 R1)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.wrapped.optional",
+        description: "optional-wrapped object schema",
+        parameters: z.object({ id: z.string() }).optional() as unknown as z.ZodType,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ id: "a", nope: 1 })).rejects.toThrow(
+        /Unknown parameter "nope" for "test.wrapped.optional". Known parameters: id/
+      );
+      await expect(handler({ id: "a" })).resolves.toBe("ok");
+    });
+
+    test("default-wrapped object schema still enforces (PR #1911 R1)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.wrapped.default",
+        description: "default-wrapped object schema",
+        parameters: z.object({ id: z.string() }).default({ id: "d" }) as unknown as z.ZodType,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ id: "a", nope: 1 })).rejects.toThrow(
+        /Unknown parameter "nope" for "test.wrapped.default"/
+      );
+    });
+
+    test("preprocess-wrapped object schema still enforces (PR #1911 R1)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.wrapped.preprocess",
+        description: "preprocess-wrapped object schema",
+        parameters: z.preprocess((v) => v, z.object({ id: z.string() })) as unknown as z.ZodType,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ id: "a", nope: 1 })).rejects.toThrow(
+        /Unknown parameter "nope" for "test.wrapped.preprocess"/
+      );
+    });
+
+    test("transform-piped object schema still enforces (PR #1911 R1)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.wrapped.transform",
+        description: "transform-piped object schema",
+        parameters: z.object({ id: z.string() }).transform((v) => v) as unknown as z.ZodType,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ id: "a", nope: 1 })).rejects.toThrow(
+        /Unknown parameter "nope" for "test.wrapped.transform"/
+      );
+    });
+
+    test("non-object Zod schema (no derivable shape) is skipped with a registration warning", async () => {
+      const handler = captureEagerHandler({
+        name: "test.nonobject",
+        description: "non-object zod schema",
+        // No object shape anywhere — enforcement must disable (fail-open),
+        // with the mcp.param_enforcement_disabled warn emitted at registration.
+        parameters: z.string() as unknown as z.ZodType,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ anything: "goes" })).resolves.toBe("ok");
+    });
+
     test("plain-object (non-Zod) legacy schemas are skipped, not broken (AT4, mt#1200)", async () => {
       const handler = captureEagerHandler({
         name: "test.plain",

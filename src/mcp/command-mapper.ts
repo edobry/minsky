@@ -10,25 +10,92 @@ import type { MinskyMCPServer, ToolDefinition, ToolProgressReporter } from "./se
  * (shared-command-integration.ts), and `json` is stripped from MCP-facing
  * schemas and injected internally by the bridge. A caller sending either must
  * not be rejected by the undeclared-param check.
+ *
+ * Allowlisted keys deliberately PASS THROUGH to handlers unstripped (PR #1911
+ * R1): the shared bridge consumes `debug` from the raw args before dropping
+ * undeclared keys during parameter conversion, so stripping here would break
+ * the bridge's debug context; direct-registered tools see them exactly as
+ * they did pre-mt#2778 (pre-existing behavior preserved).
  */
 const CROSS_CUTTING_ARG_KEYS: ReadonlySet<string> = new Set(["debug", "json"]);
+
+/**
+ * Walk through common Zod wrappers to reach an object shape (mt#2778, PR
+ * #1911 R1 BLOCKING): a tool registered with a WRAPPED object schema —
+ * `z.object(...).optional()` / `.default(...)` / `z.preprocess(fn, obj)` /
+ * `obj.transform(fn)` — must get the same undeclared-param enforcement as a
+ * bare object schema, not a silent fail-open.
+ *
+ * Wrapper traversal (verified against Zod 4.3.6):
+ * - optional / default / nullable / readonly expose the wrapped schema via
+ *   the public `.unwrap()` method (duck-typed).
+ * - pipes (`z.preprocess`, `.transform`) expose `_zod.def.in` / `.out`; the
+ *   object sits on `in` for transforms and `out` for preprocess. `in` is
+ *   preferred when both sides are objects — callers send the input side.
+ * - `_zod.def.innerType` covers wrapper types without `.unwrap()` (catch).
+ *
+ * Depth-bounded against pathological nesting. Returns undefined when no
+ * object shape is reachable.
+ */
+function unwrapToObjectShape(schema: unknown, depth = 0): Record<string, unknown> | undefined {
+  if (schema == null || typeof schema !== "object" || depth > 4) return undefined;
+  const candidate = schema as {
+    shape?: unknown;
+    unwrap?: unknown;
+    _zod?: { def?: { innerType?: unknown; in?: unknown; out?: unknown } };
+  };
+  const shape = candidate.shape;
+  if (shape != null && typeof shape === "object" && !Array.isArray(shape)) {
+    return shape as Record<string, unknown>;
+  }
+  if (typeof candidate.unwrap === "function") {
+    try {
+      const inner = (candidate.unwrap as () => unknown)();
+      const innerShape = unwrapToObjectShape(inner, depth + 1);
+      if (innerShape) return innerShape;
+    } catch {
+      // fall through to def-based traversal
+    }
+  }
+  const def = candidate._zod?.def;
+  if (def) {
+    for (const next of [def.innerType, def.in, def.out]) {
+      const innerShape = unwrapToObjectShape(next, depth + 1);
+      if (innerShape) return innerShape;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Derive the declared parameter names from a tool's Zod schema (mt#2778).
  *
  * Returns undefined — meaning "cannot enforce; skip" — when the schema is
- * absent, is a plain-object legacy schema (mt#1200: no `safeParse`), or is
- * not an object schema (no `.shape`). Duck-typed rather than `instanceof
- * z.ZodObject` for the duplicate-zod-instance reasons documented in
- * shared-command-integration.ts (monorepo/pnpm dedupe).
+ * absent, is a plain-object legacy schema (mt#1200: no `safeParse`), or
+ * yields no object shape even after wrapper traversal. The last case logs a
+ * registration-time warning so the fail-open is visible, not silent (PR
+ * #1911 R1). Duck-typed rather than `instanceof z.ZodObject` for the
+ * duplicate-zod-instance reasons documented in shared-command-integration.ts
+ * (monorepo/pnpm dedupe).
  */
-function getDeclaredParamKeys(schema: z.ZodType | undefined): ReadonlySet<string> | undefined {
+function getDeclaredParamKeys(
+  schema: z.ZodType | undefined,
+  toolName: string
+): ReadonlySet<string> | undefined {
   if (!schema) return undefined;
-  const candidate: { shape?: unknown; safeParse?: unknown } = schema;
+  const candidate: { safeParse?: unknown } = schema;
   if (typeof candidate.safeParse !== "function") return undefined;
-  const shape = candidate.shape;
-  if (shape == null || typeof shape !== "object" || Array.isArray(shape)) return undefined;
-  return new Set(Object.keys(shape as Record<string, unknown>));
+  const shape = unwrapToObjectShape(schema);
+  if (!shape) {
+    log.warn("mcp.param_enforcement_disabled", {
+      event: "mcp.param_enforcement_disabled",
+      tool: toolName,
+      reason:
+        "Zod schema has no derivable object shape (even after wrapper traversal) — undeclared-param enforcement is disabled for this tool",
+    });
+    return undefined;
+  }
+  return new Set(Object.keys(shape));
 }
 
 /**
@@ -253,8 +320,8 @@ export class CommandMapper {
 
     // mt#2778: declared param names for the undeclared-key check, computed
     // once at registration. undefined (no schema / plain-object legacy schema /
-    // non-object schema) means the check is skipped for this tool.
-    const declaredParamKeys = getDeclaredParamKeys(command.parameters);
+    // no derivable object shape) means the check is skipped for this tool.
+    const declaredParamKeys = getDeclaredParamKeys(command.parameters, normalizedName);
 
     // Build the tool definition — eager or lazy path.
     let toolDefinition: ToolDefinition;
