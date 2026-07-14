@@ -258,6 +258,10 @@ Counter-examples (NOT structural — no artifact needed):
   - Emit pass/fail with exit code (0 = pass, non-zero = fail)
   - Produce structured output: stdout JSON or a results file at e.g. `scripts/<purpose>-results.json`
 
+**Dual-mode / branch-gated scripts (mt#2776) — exercise EACH production branch, not just the safe one.** When the artifact (or any script this PR adds) has mutually-exclusive modes gated by a flag — `--dry-run` vs `--execute`, `--check` vs `--apply`, or any `if (flag) { … }` branch that only runs in one mode — the live verification MUST exercise EACH branch that runs in production. Running only the SAFE branch (e.g. the dry-run) never executes the other branch's code — its imports, its logic — so a failure there ships unseen. For a DESTRUCTIVE branch, use a BOUNDED invocation (a single item, `--limit 1`, a scratch target) so the branch's imports and logic actually run without the full blast radius. "Typecheck + dry-run passed" is NOT evidence the `--execute` path works: it is a different code path, and runtime module resolution (bun package-`exports`) can reject a dynamic import that tsconfig `paths` typechecked clean. Paste the bounded per-branch output alongside the dry-run output in the PR body.
+
+Origin: mt#2760 / mt#2774 (2026-07-14) — `scripts/backfill-close-stale-asks.ts` shipped with a `--execute` branch importing the unresolvable `@minsky/domain/ask` barrel; §7a verification ran only the dry-run (never enters `if (execute)`), so the broken import merged and failed the first time the operator ran `--execute` (0 asks mutated). A bounded `--execute` (single item) pre-merge would have caught it. The structural backstop — the mt#1459 execution-evidence merge gate now also fires on newly-added `scripts/*.ts` (mt#2776) — is the enforcement pair to this discipline.
+
 **Live-verification gap pattern.** Subagents typically lack the env vars needed for live execution. The documented pattern is:
 
 1. Subagent ships the artifact in the PR (code + script, but no live output).
