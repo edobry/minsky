@@ -32,3 +32,14 @@ export function parseToolName(raw: string): ParsedToolName {
   if (m) return { server: m[1], name: m[2] };
   return { server: null, name: raw };
 }
+
+/**
+ * Friendly display name for the conversation view's tool-invocation block
+ * (mt#2790): `"<server> · <name>"` for harness-prefixed MCP tools (e.g.
+ * `minsky · git_log`), or the bare native name (`Bash`, `Read`) otherwise.
+ * The raw transcript name is still available for `title=` tooltips.
+ */
+export function friendlyToolName(raw: string): string {
+  const { server, name } = parseToolName(raw);
+  return server ? `${server} · ${name}` : name;
+}

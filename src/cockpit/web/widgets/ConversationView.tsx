@@ -44,6 +44,7 @@ import { cn } from "../lib/utils";
 import {
   snapshotBlocksToConversation,
   type ConversationElement,
+  type ConversationRole,
   type ConversationTurn,
 } from "@minsky/domain/transcripts/conversation-elements";
 import type { SessionContextSnapshot, SessionContextSnapshotBlock } from "@minsky/domain/context/types";
@@ -55,6 +56,9 @@ import { ToolPayload } from "../components/ToolPayload";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useLiveTail, useConversationLiveTail } from "../hooks/useLiveTail";
+import { friendlyToolName, parseToolName } from "../lib/tool-name";
+import { toolIconFor } from "../lib/tool-icon";
+import { summarizeToolInvocation } from "../lib/tool-summary";
 import {
   fetchSnapshot,
   snapshotQueryKey,
@@ -193,37 +197,138 @@ export function ThinkingBlock({
   );
 }
 
-function ToolCall({
-  element,
+// ── Unified tool-invocation block (mt#2790) ─────────────────────────────────────
+//
+// A merged call+result block, collapsed by default to one summary line
+// (icon + friendly name + arg/outcome digest), expandable to the full args +
+// result payloads via the existing (unchanged) ToolPayload rendering. Errors
+// default EXPANDED with destructive styling — a failure must never read as an
+// ok-looking collapsed line.
+//
+// `expandSignal` is a view-level "expand all / collapse all" broadcast (see
+// `ConversationThread`): each bump of `epoch` forces this block's local
+// `open` state to `expandSignal.open`, while the per-block toggle button
+// keeps working normally in between broadcasts.
+
+type ExpandSignal = { epoch: number; open: boolean } | undefined;
+
+function ToolInvocation({
+  call,
+  result,
   entityIndex,
+  expandSignal,
 }: {
-  element: Extract<ConversationElement, { kind: "tool-call" }>;
+  call: Extract<ConversationElement, { kind: "tool-call" }>;
+  result?: Extract<ConversationElement, { kind: "tool-result" }>;
   entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
 }) {
+  const isError = result?.isError === true;
+  // Errors default expanded; everything else collapsed (mt#2790 design direction).
+  const [open, setOpen] = useState(isError);
+  // Re-sync on a NEW broadcast only (epoch), not on every `expandSignal.open`
+  // identity change — `expandSignal` is a fresh object per click by design.
+  const expandEpoch = expandSignal?.epoch;
+  useEffect(() => {
+    if (expandSignal) setOpen(expandSignal.open);
+  }, [expandEpoch]);
+
+  const parsed = useMemo(() => parseToolName(call.name), [call.name]);
+  const Icon = toolIconFor(parsed);
+  const label = friendlyToolName(call.name);
+  const digest = useMemo(
+    () =>
+      summarizeToolInvocation(
+        call.name,
+        call.input,
+        result ? { content: result.content, isError: result.isError } : undefined
+      ),
+    [call.name, call.input, result]
+  );
+
   return (
-    <div className="rounded border border-sky-500/30 bg-sky-500/5">
-      <div className="flex items-center gap-2 px-2 py-1 text-xs">
-        <span aria-hidden className="text-sky-500/80">
-          ⚙
+    <div
+      className={cn(
+        "rounded border",
+        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5"
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs"
+      >
+        <Icon
+          aria-hidden
+          className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
+        />
+        <span
+          title={call.name}
+          className={cn("shrink-0 font-mono font-medium", isError ? "text-destructive" : "text-sky-300")}
+        >
+          {label}
         </span>
-        <span className="font-mono font-medium text-sky-300">{element.name}</span>
-        {element.spawn && (
-          <span className="ml-auto rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
-            → subagent{element.spawn.agentKind ? ` (${element.spawn.agentKind})` : ""}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-muted-foreground",
+            isError && "text-destructive/80"
+          )}
+        >
+          {digest}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {call.spawn && (
+            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
+              → subagent{call.spawn.agentKind ? ` (${call.spawn.agentKind})` : ""}
+            </span>
+          )}
+          <span aria-hidden className="text-muted-foreground/60">
+            {open ? "▾" : "▸"}
           </span>
-        )}
-      </div>
-      {/* tool-call args (mt#2552): JSON → entity-aware JsonView, else <pre> */}
-      <ToolPayload
-        value={element.input}
-        toolName={element.name}
-        entityIndex={entityIndex}
-        className="border-sky-500/20 text-foreground/80"
-      />
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border/40">
+          <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+            args
+          </div>
+          {/* Full expanded body (mt#2552, unchanged): JSON → entity-aware JsonView, else <pre> */}
+          <ToolPayload
+            value={call.input}
+            toolName={call.name}
+            entityIndex={entityIndex}
+            className="border-sky-500/20 text-foreground/80"
+          />
+          {result ? (
+            <>
+              <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+                {result.isError ? "error" : "result"}
+              </div>
+              <ToolPayload
+                value={result.content}
+                toolName={call.name}
+                entityIndex={entityIndex}
+                className={cn(
+                  result.isError
+                    ? "border-destructive/30 text-destructive"
+                    : "border-border/40 text-foreground/70"
+                )}
+              />
+            </>
+          ) : (
+            <div className="px-2 py-1 text-xs text-muted-foreground/60">pending…</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
+// Standalone fallback for a tool-result with no matching call in the rendered
+// window (mt#2790) — keeps the pre-redesign treatment. Uncommon: happens when
+// windowing/pagination cuts the call's turn out of view (or mt#2789's
+// subagent-transcript duplication produces a result with no local call).
 function ToolResult({
   element,
   callName,
@@ -262,15 +367,113 @@ function ToolResult({
   );
 }
 
+// ── Tool-invocation pairing (mt#2790) ───────────────────────────────────────────
+//
+// A pre-render assembly pass that merges each tool-call with its matching
+// tool-result (found via `toolUseId`), so the pair renders as ONE block
+// instead of two turn-level blocks (a call under ASSISTANT, a result under
+// USER). Pairing is scoped to the turns actually being rendered ("the
+// rendered window") — a result whose call fell outside that set (windowing/
+// pagination cut it, or mt#2789's subagent-transcript duplication) is an
+// ORPHAN and keeps the pre-redesign standalone treatment; it is never
+// silently dropped.
+
+type ToolCallElement = Extract<ConversationElement, { kind: "tool-call" }>;
+type ToolResultElement = Extract<ConversationElement, { kind: "tool-result" }>;
+
+/** One conversational sub-element after tool-invocation pairing. */
+type PreparedElement =
+  | { kind: "text"; text: string }
+  | { kind: "thinking"; thinking: string }
+  | { kind: "tool-invocation"; call: ToolCallElement; result?: ToolResultElement }
+  | { kind: "tool-result-orphan"; result: ToolResultElement; callName: string | undefined }
+  | { kind: "unknown"; rawType: string; raw: unknown };
+
+interface PreparedTurn {
+  blockId: string;
+  role: ConversationRole;
+  timestamp: string;
+  elements: PreparedElement[];
+  isSpawnBoundary: boolean;
+  spawnAgentKind?: string;
+}
+
+/**
+ * Merge tool-calls with their matching tool-results across `turns` (the
+ * turns actually being rendered — see module docblock). `callNameByToolUseId`
+ * is built over the FULL, unwindowed transcript (unchanged pre-existing
+ * behavior) so an orphan can still show which tool it answers even when that
+ * tool's call turn isn't in the current set.
+ */
+function pairToolInvocations(
+  turns: ConversationTurn[],
+  callNameByToolUseId: Map<string, string>
+): PreparedTurn[] {
+  const callById = new Map<string, ToolCallElement>();
+  const resultById = new Map<string, ToolResultElement>();
+  for (const turn of turns) {
+    for (const el of turn.elements) {
+      if (el.kind === "tool-call" && el.id) callById.set(el.id, el);
+      if (el.kind === "tool-result" && el.toolUseId) resultById.set(el.toolUseId, el);
+    }
+  }
+
+  return turns.map((turn) => {
+    const elements: PreparedElement[] = [];
+    for (const el of turn.elements) {
+      switch (el.kind) {
+        case "tool-call": {
+          const result = el.id ? resultById.get(el.id) : undefined;
+          elements.push({ kind: "tool-invocation", call: el, result });
+          break;
+        }
+        case "tool-result": {
+          const pairedInWindow = el.toolUseId ? callById.has(el.toolUseId) : false;
+          // Already rendered at the call's position above — don't duplicate,
+          // and never under a USER-role label (mt#2790 success criterion).
+          if (pairedInWindow) break;
+          elements.push({
+            kind: "tool-result-orphan",
+            result: el,
+            callName: el.toolUseId ? callNameByToolUseId.get(el.toolUseId) : undefined,
+          });
+          break;
+        }
+        default:
+          elements.push(el);
+      }
+    }
+    return {
+      blockId: turn.blockId,
+      role: turn.role,
+      timestamp: turn.timestamp,
+      elements,
+      isSpawnBoundary: turn.isSpawnBoundary,
+      spawnAgentKind: turn.spawnAgentKind,
+    };
+  });
+}
+
+function hasRenderablePreparedElement(el: PreparedElement): boolean {
+  switch (el.kind) {
+    case "text":
+      return el.text.trim().length > 0;
+    case "thinking":
+      return el.thinking.trim().length > 0;
+    default:
+      return true;
+  }
+}
+
 function ElementView({
   element,
-  callNameByToolUseId,
   entityIndex,
+  expandSignal,
 }: {
-  element: ConversationElement;
-  callNameByToolUseId: Map<string, string>;
+  element: PreparedElement;
   /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
   entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
 }) {
   switch (element.kind) {
     case "text":
@@ -283,15 +486,18 @@ function ElementView({
       return element.thinking.trim().length > 0 ? (
         <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
       ) : null;
-    case "tool-call":
-      return <ToolCall element={element} entityIndex={entityIndex} />;
-    case "tool-result":
+    case "tool-invocation":
       return (
-        <ToolResult
-          element={element}
-          callName={element.toolUseId ? callNameByToolUseId.get(element.toolUseId) : undefined}
+        <ToolInvocation
+          call={element.call}
+          result={element.result}
           entityIndex={entityIndex}
+          expandSignal={expandSignal}
         />
+      );
+    case "tool-result-orphan":
+      return (
+        <ToolResult element={element.result} callName={element.callName} entityIndex={entityIndex} />
       );
     case "unknown":
       return (
@@ -299,6 +505,12 @@ function ElementView({
           unsupported block{element.rawType ? `: ${element.rawType}` : ""}
         </div>
       );
+    default: {
+      // Compiler-enforced exhaustiveness: adding a PreparedElement kind without
+      // a render case is a type error here, not a silently-dropped block.
+      const unhandled: never = element;
+      return unhandled;
+    }
   }
 }
 
@@ -311,23 +523,18 @@ const ROLE_STYLES: Record<ConversationTurn["role"], { accent: string; label: str
 
 function TurnView({
   turn,
-  callNameByToolUseId,
   entityIndex,
+  expandSignal,
 }: {
-  turn: ConversationTurn;
-  callNameByToolUseId: Map<string, string>;
+  turn: PreparedTurn;
   entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
 }) {
   const roleStyle = ROLE_STYLES[turn.role];
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
-        <ElementView
-          key={i}
-          element={element}
-          callNameByToolUseId={callNameByToolUseId}
-          entityIndex={entityIndex}
-        />
+        <ElementView key={i} element={element} entityIndex={entityIndex} expandSignal={expandSignal} />
       );
       return node;
     })
@@ -448,6 +655,21 @@ function ConversationThread({
   );
   const hiddenCount = visibleTurns.length - windowedTurns.length;
 
+  // Merge call+result pairs within the rendered window (mt#2790), then drop
+  // any turn that has nothing left to render (a pure-tool-result USER turn
+  // whose result got merged into its call's block above).
+  const preparedTurns = useMemo(
+    () =>
+      pairToolInvocations(windowedTurns, callNameByToolUseId).filter((t) =>
+        t.elements.some(hasRenderablePreparedElement)
+      ),
+    [windowedTurns, callNameByToolUseId]
+  );
+
+  // View-level expand-all / collapse-all broadcast (mt#2790): each click bumps
+  // `epoch` so every mounted ToolInvocation re-syncs its local `open` state.
+  const [expandSignal, setExpandSignal] = useState<ExpandSignal>(undefined);
+
   // Land on the newest exchange once, after the windowed items are actually in
   // the DOM (layout effect keyed on the mounted count — an empty first commit
   // must not consume the one-shot; PR #1667 R1). Expanding "Show older" later
@@ -455,12 +677,12 @@ function ConversationThread({
   const endRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
-    if (windowedTurns.length === 0) return;
+    if (preparedTurns.length === 0) return;
     didInitialScrollRef.current = true;
     if (hiddenCount > 0) {
       endRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [windowedTurns.length, hiddenCount]);
+  }, [preparedTurns.length, hiddenCount]);
 
   // Live-tail auto-scroll: when new turns arrive from the SSE stream (mt#2232),
   // scroll to the bottom so the operator sees them immediately. Only fires
@@ -483,6 +705,22 @@ function ConversationThread({
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
+      <div className="flex items-center justify-end gap-3 text-[11px] text-muted-foreground/70">
+        <button
+          type="button"
+          onClick={() => setExpandSignal((s) => ({ epoch: (s?.epoch ?? 0) + 1, open: true }))}
+          className="transition-colors hover:text-foreground hover:underline"
+        >
+          Expand all
+        </button>
+        <button
+          type="button"
+          onClick={() => setExpandSignal((s) => ({ epoch: (s?.epoch ?? 0) + 1, open: false }))}
+          className="transition-colors hover:text-foreground hover:underline"
+        >
+          Collapse all
+        </button>
+      </div>
       {hiddenCount > 0 && !showAll && (
         <div className="flex items-center justify-center gap-3 py-1">
           <button
@@ -501,13 +739,8 @@ function ConversationThread({
           </button>
         </div>
       )}
-      {windowedTurns.map((turn) => (
-        <TurnView
-          key={turn.blockId}
-          turn={turn}
-          callNameByToolUseId={callNameByToolUseId}
-          entityIndex={entityIndex}
-        />
+      {preparedTurns.map((turn) => (
+        <TurnView key={turn.blockId} turn={turn} entityIndex={entityIndex} expandSignal={expandSignal} />
       ))}
       <div ref={endRef} aria-hidden />
     </div>
