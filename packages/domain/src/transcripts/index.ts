@@ -39,6 +39,17 @@ export {
   extractTurnsForAllTranscripts,
   type ExtractAllTurnsResult,
 } from "./turn-writer";
+// minsky_session_links `cwd_match` writer + backfill (mt#2441).
+export {
+  detectCwdMatch,
+  writeCwdMatchLink,
+  backfillCwdMatchLinks,
+  CWD_MATCH_LINK_TYPE,
+  CWD_MATCH_EXACT_CONFIDENCE,
+  CWD_MATCH_DESCENDANT_CONFIDENCE,
+  type CwdMatchDetection,
+  type BackfillCwdMatchLinksResult,
+} from "./session-link-writer";
 export {
   PerTurnEmbeddingPipeline,
   type PipelineRunResult,
