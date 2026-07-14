@@ -101,15 +101,42 @@ function renderConversationPage(conversationId: string) {
  * Minimal valid empty snapshot for the given conversation id — enough to
  * satisfy ConversationFetcher's `isSnapshot` guard. Any auxiliary fetch (task
  * ids, widget data used for entity-linkification) gets a 404, which those
- * callers already degrade to an empty result for (see use-entity-index.ts).
+ * callers already degrade to an empty result for (see use-entity-index.ts),
+ * UNLESS `sessionsRow` is provided (mt#2770 header-label tests), in which
+ * case `/api/widget/context-inspector/data` resolves with that one row.
  */
-function mockFetches(conversationId: string) {
+function mockFetches(
+  conversationId: string,
+  opts: { sessionsRow?: { agentSessionId: string; label: string } } = {}
+) {
   globalThis.fetch = mock((url: string) => {
     const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
     if (pathname === "/api/cockpit/context-inspector/snapshot") {
       return Promise.resolve(
         new Response(
           JSON.stringify({ agentSessionId: conversationId, blocks: [] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    }
+    if (pathname === "/api/widget/context-inspector/data" && opts.sessionsRow) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            state: "ok",
+            payload: {
+              sessions: [
+                {
+                  agentSessionId: opts.sessionsRow.agentSessionId,
+                  harness: "claude_code",
+                  startedAt: null,
+                  endedAt: null,
+                  cwd: null,
+                  label: opts.sessionsRow.label,
+                },
+              ],
+            },
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
       );
@@ -189,5 +216,29 @@ describe("ConversationPage — conversation-keyed live tail (mt#2749)", () => {
       expect(StubEventSource.instances.length).toBe(1);
     });
     expect(StubEventSource.instances[0]?.url).not.toContain("/api/agents/");
+  });
+});
+
+describe("ConversationPage — derived label header (mt#2770)", () => {
+  test("shows the derived label from the context-inspector widget payload", async () => {
+    const conversationId = "mt2770-header-label-test";
+    mockFetches(conversationId, {
+      sessionsRow: { agentSessionId: conversationId, label: "Conversation labeling: task-binding" },
+    });
+
+    const { findByRole } = renderConversationPage(conversationId);
+
+    const heading = await findByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("Conversation labeling: task-binding");
+  });
+
+  test("falls back to the bare id when the conversation isn't in the widget payload", async () => {
+    const conversationId = "mt2770-header-label-not-found";
+    mockFetches(conversationId); // no sessionsRow — /api/widget/... 404s
+
+    const { findByRole } = renderConversationPage(conversationId);
+
+    const heading = await findByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe(conversationId);
   });
 });
