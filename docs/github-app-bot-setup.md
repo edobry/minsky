@@ -164,6 +164,15 @@ After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are aut
    | Contents | Read-only |
    | Metadata | Read-only (auto-included) |
 
+   > **Optional: CI rerun capability (mt#2775).** The base permission set above does not
+   > include Actions. If you want to use `forge_ci_run_rerun` (the MCP/CLI tool that re-runs a
+   > GitHub Actions workflow run — see `src/adapters/shared/commands/forge.ts`), also grant
+   > **Actions: Read and write** under Repository permissions, either at creation time or later
+   > via "Updating an existing App's events or permissions" above
+   > (`--permissions pull_requests:write,contents:read,actions:write`). Without it, the tool
+   > returns a structured error naming the missing permission (403 "Resource not accessible by
+   > integration") rather than failing silently.
+
 5. **Where can this GitHub App be installed?**
 
    - Choose "Only on this account" for personal use or a single-organization deployment.
