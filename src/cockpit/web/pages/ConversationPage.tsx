@@ -19,13 +19,27 @@
  * directly off the URL's agentSessionId — the DB snapshot render below stays
  * unchanged for a completed conversation; live blocks are supplemental
  * appends on top of it, same as the workspace-keyed path.
+ *
+ * Tab hygiene (mt#2769): a genuinely unresolvable conversation id (404, not
+ * `wrong_id_space`) reports up via `ConversationView`'s `onNotFound`, which
+ * this page forwards to `markTabError` — the tab-strip entry shows an error
+ * chip for this visit and is excluded from persistence, so it does not
+ * resurrect as a dead tab on the next reload.
  */
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
+import { useCallback } from "react";
 import { ConversationView } from "../widgets/ConversationView";
+import { useTabs } from "../lib/tabs";
 import type { ConversationId } from "@minsky/domain/ids";
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
+  const { pathname } = useLocation();
+  const { markTabError } = useTabs();
+
+  const handleNotFound = useCallback(() => {
+    markTabError(pathname);
+  }, [markTabError, pathname]);
 
   if (!id) {
     return <div className="p-4 text-sm text-muted-foreground">No conversation id in the URL.</div>;
@@ -42,7 +56,11 @@ export function ConversationPage() {
           {id}
         </span>
       </div>
-      <ConversationView sessionId={conversationId} liveByConversationId />
+      <ConversationView
+        sessionId={conversationId}
+        liveByConversationId
+        onNotFound={handleNotFound}
+      />
     </div>
   );
 }

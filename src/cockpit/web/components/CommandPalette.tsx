@@ -25,6 +25,7 @@ import {
 } from "./ui/command";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { entityToPath } from "../lib/entity-codec";
+import { extractConversationRows } from "../lib/conversations-source";
 
 // ---------------------------------------------------------------------------
 // Entity types for the palette
@@ -60,6 +61,14 @@ interface PaletteMemory {
   memoryType: string;
 }
 
+interface PaletteConversation {
+  type: "conversation";
+  /** Harness agentSessionId — distinct id-space from PaletteSession.id (workspace sessionId). */
+  id: string;
+  label: string;
+  cwd: string | null;
+}
+
 interface PalettePage {
   type: "page";
   path: string;
@@ -67,7 +76,13 @@ interface PalettePage {
   description: string;
 }
 
-type PaletteEntity = PaletteTask | PaletteSession | PaletteAsk | PaletteMemory | PalettePage;
+type PaletteEntity =
+  | PaletteTask
+  | PaletteSession
+  | PaletteAsk
+  | PaletteMemory
+  | PaletteConversation
+  | PalettePage;
 
 // ---------------------------------------------------------------------------
 // Static pages — aligned with the rail's route list, plus finer granularity
@@ -179,6 +194,21 @@ function extractMemories(data: WidgetData | undefined): PaletteMemory[] {
   }));
 }
 
+/**
+ * Extract conversation rows (harness agentSessionIds) from the shared
+ * context-inspector conversations-picker payload — reuses `ConversationRow`
+ * from `lib/conversations-source.ts` as-is (mt#2769, mt#2770 is enriching
+ * that source's `label` field concurrently; this consumes it read-only).
+ */
+function extractConversations(data: WidgetData | undefined): PaletteConversation[] {
+  return extractConversationRows(data).map((row) => ({
+    type: "conversation" as const,
+    id: row.agentSessionId,
+    label: row.label,
+    cwd: row.cwd,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Entity type badge — single-letter indicator per entity type
 // ---------------------------------------------------------------------------
@@ -188,6 +218,7 @@ const TYPE_BADGE_CONFIG: Record<string, { letter: string; className: string }> =
   session: { letter: "S", className: "bg-accent text-accent-foreground" },
   ask: { letter: "A", className: "bg-destructive/20 text-destructive" },
   memory: { letter: "M", className: "bg-emerald-500/20 text-emerald-500" },
+  conversation: { letter: "C", className: "bg-sky-500/20 text-sky-500" },
   page: { letter: "P", className: "bg-muted text-muted-foreground" },
 };
 
@@ -278,10 +309,20 @@ export function CommandPalette() {
     staleTime: 30_000,
   });
 
+  // Shared key with ConversationsPage / useEntityIndex's ["context-inspector", "sessions"]
+  // — same raw WidgetData wrapper, different projection extracted (mt#2769).
+  const conversationsQuery = useQuery<WidgetData, Error>({
+    queryKey: ["context-inspector", "sessions"],
+    queryFn: () => fetchWidgetData("context-inspector"),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
   const tasks = tasksQuery.data ?? [];
   const sessions = extractSessions(agentsQuery.data);
   const asks = extractAsks(attentionQuery.data);
   const memories = extractMemories(memoriesQuery.data);
+  const conversations = extractConversations(conversationsQuery.data);
 
   const hasQuery = query.trim().length > 0;
 
@@ -307,7 +348,7 @@ export function CommandPalette() {
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput
-        placeholder="Search tasks, sessions, asks, memories, pages..."
+        placeholder="Search tasks, sessions, conversations, asks, memories, pages..."
         value={query}
         onValueChange={setQuery}
       />
@@ -368,6 +409,25 @@ export function CommandPalette() {
                         {session.taskId}
                       </span>
                     )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {/* Conversations (harness agentSessionIds — the /conversation id-space) */}
+            {conversations.length > 0 && (
+              <CommandGroup heading="Conversations">
+                {conversations.map((conversation) => (
+                  <CommandItem
+                    key={conversation.id}
+                    value={`conversation ${conversation.id} ${conversation.label} ${conversation.cwd ?? ""}`}
+                    onSelect={() => handleSelect(conversation)}
+                  >
+                    <TypeBadge type="conversation" />
+                    <span className="ml-2 truncate">{conversation.label}</span>
+                    <span className="ml-auto font-mono text-[10px] text-muted-foreground flex-shrink-0">
+                      {conversation.id.slice(0, 8)}
+                    </span>
                   </CommandItem>
                 ))}
               </CommandGroup>

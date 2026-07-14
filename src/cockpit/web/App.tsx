@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -84,6 +84,25 @@ const WeldHistoryPage = lazy(() =>
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
+
+/**
+ * Legacy `/session/:id` deep-link redirect (mt#2769).
+ *
+ * The `/session/:id` route registration itself was already removed (renamed
+ * to `/conversation/:id` per ADR-022 stage 1, mt#2686) — but old deep links
+ * and localStorage-persisted tabs (`lib/tabs.tsx`'s `STORAGE_KEY`) still
+ * carry the pre-rename path. Rather than 404, redirect to the renamed route
+ * so those old links keep resolving. The `lib/tabs.tsx` `loadTabs()` loader
+ * also migrates persisted tab entries directly (a page visit isn't required
+ * to fix the tab strip), but this route covers a fresh browser navigation to
+ * a bookmarked or externally-shared `/session/:id` URL.
+ *
+ * Exported for direct unit testing (mirrors `plantRoutes`'s export rationale).
+ */
+export function SessionIdRedirect() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/conversations"} replace />;
+}
 
 /**
  * Plant board routes — the node-link whole-system view (ADR-020, converged
@@ -452,6 +471,9 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Legacy redirect (mt#2769): /session/:id was the pre-mt#2686 path for
+              the route above. Old deep links / persisted tabs still reference it. */}
+          <Route path="/session/:id" element={<SessionIdRedirect />} />
           <Route
             path="/workstreams"
             element={
