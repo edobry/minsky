@@ -81,6 +81,48 @@ describe("matchEntityRoute", () => {
     expect(matchEntityRoute("/agents/abc/def")).toBeNull();
     expect(matchEntityRoute("/conversation/abc/def")).toBeNull();
   });
+
+  describe("run-detail tab sub-routes (mt#2768)", () => {
+    test("/agents/:id/conversation matches and normalizes to the base entity path", () => {
+      const tab = matchEntityRoute("/agents/abc123/conversation");
+      expect(tab?.kind).toBe("agent");
+      expect(tab?.entityId).toBe("abc123");
+      expect(tab?.path).toBe("/agents/abc123");
+    });
+
+    test("/agents/:id/context matches and normalizes to the base entity path", () => {
+      const tab = matchEntityRoute("/agents/abc123/context");
+      expect(tab?.kind).toBe("agent");
+      expect(tab?.path).toBe("/agents/abc123");
+    });
+
+    test("/conversation/:id/overview matches and normalizes to the base entity path", () => {
+      const tab = matchEntityRoute("/conversation/xyz789/overview");
+      expect(tab?.kind).toBe("session");
+      expect(tab?.entityId).toBe("xyz789");
+      expect(tab?.path).toBe("/conversation/xyz789");
+    });
+
+    test("/conversation/:id/context matches and normalizes to the base entity path", () => {
+      const tab = matchEntityRoute("/conversation/xyz789/context");
+      expect(tab?.kind).toBe("session");
+      expect(tab?.path).toBe("/conversation/xyz789");
+    });
+
+    test("an unrecognized suffix still does not match (e.g. /agents/:id/overview is invalid — overview is not an agents sub-tab)", () => {
+      expect(matchEntityRoute("/agents/abc123/overview")).toBeNull();
+    });
+
+    test("an unrecognized suffix still does not match (e.g. /conversation/:id/conversation is invalid)", () => {
+      expect(matchEntityRoute("/conversation/xyz789/conversation")).toBeNull();
+    });
+
+    test("base and tab-suffixed paths for the same entity normalize to the SAME tab-strip path", () => {
+      const base = matchEntityRoute("/agents/abc123");
+      const withTab = matchEntityRoute("/agents/abc123/context");
+      expect(base?.path).toBe(withTab?.path);
+    });
+  });
 });
 
 describe("isAcceptedTabKind (loadTabs kind filter)", () => {

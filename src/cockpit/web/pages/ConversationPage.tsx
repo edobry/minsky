@@ -2,23 +2,18 @@
  * ConversationPage — `/conversation/:id`, the conversation entity tab's content
  * (mt#2398, renamed from SessionPage per ADR-022 stage 1, mt#2686).
  *
- * Conversations become first-class navigable entities: this route makes a
- * conversation URL-addressable (deep-linkable, palette-jumpable, openable as a
- * tab). The body is mt#2374's layout-agnostic ConversationView (readable
- * chat-thread render of the conversation transcript), originally re-homed
- * from an interim `/conversation` verification host retired by mt#2398; this
- * page's own route happens to reuse the `/conversation/:id` path (mt#2686
- * renamed it from `/session/:id`, which collided with the ADR-022 overload).
+ * Conversations are first-class navigable entities: this route makes a
+ * conversation URL-addressable (deep-linkable, palette-jumpable, openable as
+ * a tab). Thin page wrapper: label header + the shared tabbed `RunDetail`
+ * body (mt#2768 — Overview/Conversation/Context tabs on one shared detail
+ * surface), landing on the Conversation tab by default. `RunDetail` owns all
+ * data-fetching and tab-state; this page only supplies the conversation-keyed
+ * `id` and page-level chrome.
  *
- * Richer workspace detail (commits, modified files, PR state, log tail) is
- * mt#1919's scope and lives at the separate `/agents/:id` workspace-detail
- * route; this page deliberately ships the conversation body only.
- *
- * Live (mt#2749): this page has no workspace context at all, so it passes
- * `liveByConversationId` to open the conversation-keyed live-tail channel
- * directly off the URL's agentSessionId — the DB snapshot render below stays
- * unchanged for a completed conversation; live blocks are supplemental
- * appends on top of it, same as the workspace-keyed path.
+ * Richer workspace detail (commits, PR state) resolves via the REVERSE join
+ * (`GET /api/conversation/:id/overview`, mt#2768) and renders on the Overview
+ * tab when a workspace exists; a workspace-less run (plain principal
+ * conversation) shows conversation metadata instead — see `RunDetail`.
  *
  * Header label (mt#2770): the heading shows the same derived `label` the run
  * list uses (bound task title -> first-user-prompt snippet -> subagent
@@ -30,19 +25,18 @@
  * this conversation isn't in the top-50 window the widget returns.
  *
  * Tab hygiene (mt#2769): a genuinely unresolvable conversation id (404, not
- * `wrong_id_space`) reports up via `ConversationView`'s `onNotFound`, which
- * this page forwards to `markTabError` — the tab-strip entry shows an error
- * chip for this visit and is excluded from persistence, so it does not
- * resurrect as a dead tab on the next reload.
+ * `wrong_id_space`) reports up via `ConversationView`'s `onNotFound` (forwarded
+ * through `RunDetail`), which this page maps to `markTabError` — the tab-strip
+ * entry shows an error chip for this visit and is excluded from persistence,
+ * so it does not resurrect as a dead tab on the next reload.
  */
 import { useParams, useLocation } from "react-router-dom";
 import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ConversationView } from "../widgets/ConversationView";
+import { RunDetail } from "../widgets/RunDetail";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { extractConversationRows } from "../lib/conversations-source";
 import { useTabs } from "../lib/tabs";
-import type { ConversationId } from "@minsky/domain/ids";
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
@@ -64,9 +58,6 @@ export function ConversationPage() {
     return <div className="p-4 text-sm text-muted-foreground">No conversation id in the URL.</div>;
   }
 
-  // Mint at the URL boundary: /conversation/:id carries a harness agentSessionId (ConversationId).
-  const conversationId = id as ConversationId;
-
   const rows = extractConversationRows(sessionsQuery.data);
   const row = rows.find((r) => r.agentSessionId === id);
   const label = row?.label ?? id;
@@ -81,11 +72,7 @@ export function ConversationPage() {
           {id}
         </span>
       </div>
-      <ConversationView
-        sessionId={conversationId}
-        liveByConversationId
-        onNotFound={handleNotFound}
-      />
+      <RunDetail key={id} id={id} keySpace="conversation" onConversationNotFound={handleNotFound} />
     </div>
   );
 }

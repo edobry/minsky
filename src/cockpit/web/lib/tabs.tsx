@@ -66,26 +66,37 @@ const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
  * mt#1919 — distinct id-space from "session" (harness agentSessionId vs
  * Minsky workspace sessionId). Asks (`/ask/:id`) and memories (`/memory/:id`)
  * joined via mt#2410 (mt#2398's PR2).
+ *
+ * Tab sub-routes (mt#2768): `/agents/:id` and `/conversation/:id` each carry
+ * two optional internal-tab suffixes (`/conversation`|`/context` for agents;
+ * `/overview`|`/context` for conversations — see `widgets/RunDetail.tsx`).
+ * The regexes below accept ONLY those literal suffixes and always normalize
+ * `path` to the BASE entity route (no suffix) — the tab strip holds ONE tab
+ * per entity regardless of which internal RunDetail tab is active; switching
+ * RunDetail tabs must never open a second tab-strip entry for the same run.
+ * An unrecognized suffix (e.g. `/agents/abc/def`) does NOT match — no route
+ * currently exists for a suffix outside the accepted set, so this preserves
+ * the "nested paths under an entity do not match" contract tests rely on.
  */
 export function matchEntityRoute(pathname: string): EntityTab | null {
-  const session = pathname.match(/^\/conversation\/([^/]+)$/);
+  const session = pathname.match(/^\/conversation\/([^/]+)(?:\/(?:overview|context))?$/);
   if (session?.[1]) {
     const id = decodeURIComponent(session[1]);
     return {
       kind: "session",
       entityId: id,
-      path: pathname,
+      path: `/conversation/${session[1]}`,
       label: shortenId(id),
     };
   }
 
-  const agent = pathname.match(/^\/agents\/([^/]+)$/);
+  const agent = pathname.match(/^\/agents\/([^/]+)(?:\/(?:conversation|context))?$/);
   if (agent?.[1]) {
     const id = decodeURIComponent(agent[1]);
     return {
       kind: "agent",
       entityId: id,
-      path: pathname,
+      path: `/agents/${agent[1]}`,
       label: shortenId(id),
     };
   }

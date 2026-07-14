@@ -13,7 +13,10 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 export function stripMarkdown(text: string): string {
   let s = text;
 
-  // Code fences and inline code — keep the contained text, drop the markers.
+  // Code fences: strip the whole block (fence markers AND contained text) to
+  // a single placeholder space — a code block rarely reads as a useful label
+  // fragment. Inline code: keep the contained text, drop only the backtick
+  // markers.
   s = s.replace(/```[\s\S]*?```/g, " ");
   s = s.replace(/`([^`]*)`/g, "$1");
 
