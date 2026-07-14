@@ -57,8 +57,12 @@ export {
   backfillSpawnLinks,
   SUBAGENT_SPAWN_LINK_TYPE,
   SUBAGENT_SPAWN_CONFIDENCE,
+  type WriteSpawnLinkOutcome,
   type BackfillSpawnLinksResult,
 } from "./spawn-link-writer";
+// Shared Agent-tool-call JSONB shape + finder (mt#2756 R1) — used by both
+// AgentSpawnsPipeline and spawn-link-writer.ts to avoid drift.
+export { findAgentToolCall, type AgentToolCallBlock } from "./agent-tool-call-shape";
 export {
   PerTurnEmbeddingPipeline,
   type PipelineRunResult,
