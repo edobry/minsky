@@ -9,7 +9,9 @@
  * transaction pooler destroys connections and postgres-js never settles some
  * of their promises; see the mt#2773 spec's experiment matrix).
  *
- * With the guard (extended protocol forced), all 120 must settle in seconds.
+ * With the guard (in-flight `.unsafe()` queries capped at pool max — submission
+ * pacing, NOT protocol forcing, which was tested and falsified), all 120 must
+ * settle in seconds.
  *
  * Usage: bun scripts/verify-pool-concurrency.ts
  * Exits 0 on pass or graceful skip (no raw-SQL provider); 1 on failure/timeout.

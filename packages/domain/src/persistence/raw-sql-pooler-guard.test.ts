@@ -14,8 +14,11 @@ function fakeSql(opts?: { max?: number; delayMs?: number; failEvery?: number }) 
   let calls = 0;
   let inFlight = 0;
   let maxInFlight = 0;
-  const unsafe = mock(async (_q: string, _p?: unknown[], _o?: Record<string, unknown>) => {
+  const startedOrder: number[] = [];
+  const unsafe = mock(async (q: string, _p?: unknown[], _o?: Record<string, unknown>) => {
     const call = ++calls;
+    const tagMatch = /--#(\d+)$/.exec(q);
+    if (tagMatch) startedOrder.push(Number(tagMatch[1]));
     inFlight++;
     maxInFlight = Math.max(maxInFlight, inFlight);
     await new Promise((r) => setTimeout(r, opts?.delayMs ?? 2));
@@ -26,12 +29,16 @@ function fakeSql(opts?: { max?: number; delayMs?: number; failEvery?: number }) 
     return [{ one: call }];
   });
   const tagged = mock((..._args: unknown[]) => Promise.resolve([{ tagged: true }]));
+  const begin = mock(async (fn: (tx: unknown) => Promise<unknown>) => fn({ tx: true }));
+  const listen = mock(async () => ({ unlisten: () => {} }));
   const sql = ((...args: unknown[]) => tagged(...args)) as unknown as Record<string, unknown> &
     ((...args: unknown[]) => unknown);
   sql.unsafe = unsafe;
   sql.end = mock(() => Promise.resolve());
+  sql.begin = begin;
+  sql.listen = listen;
   sql.options = { max: opts?.max ?? 15 };
-  return { sql, unsafe, tagged, stats: () => ({ maxInFlight }) };
+  return { sql, unsafe, tagged, begin, listen, stats: () => ({ maxInFlight, startedOrder }) };
 }
 
 describe("guardRawSqlAgainstPoolerWedge (mt#2773)", () => {
@@ -99,5 +106,45 @@ describe("guardRawSqlAgainstPoolerWedge (mt#2773)", () => {
     expect(tagged).toHaveBeenCalledTimes(1);
     expect((guarded as unknown as { options: { max: number } }).options.max).toBe(15);
     expect(typeof (guarded as unknown as { end: unknown }).end).toBe("function");
+  });
+
+  test("begin() and listen() pass through to the underlying instance (PR #1922 R1)", async () => {
+    const { sql, begin, listen } = fakeSql();
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+
+    const txResult = await (
+      guarded as unknown as { begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown> }
+    ).begin(async (tx) => tx);
+    await (guarded as unknown as { listen: () => Promise<unknown> }).listen();
+
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(txResult).toEqual({ tx: true });
+    expect(listen).toHaveBeenCalledTimes(1);
+  });
+
+  test("waiters drain in FIFO submission order, including past clustered rejections (PR #1922 R1)", async () => {
+    const { sql, stats } = fakeSql({ max: 2, failEvery: 2, delayMs: 1 });
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never, 2);
+
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 10 }, (_, i) => guarded.unsafe(`SELECT 1 AS one --#${i}`))
+    );
+
+    // Every query was submitted despite every-other-one rejecting...
+    expect(stats().startedOrder).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // ...and rejections surfaced without stalling the queue.
+    expect(outcomes.filter((o) => o.status === "rejected")).toHaveLength(5);
+  });
+
+  test("PendingQuery chaining methods exist but throw loudly with a pointer (PR #1922 R1)", async () => {
+    const { sql } = fakeSql();
+    const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
+
+    const rows = guarded.unsafe("SELECT 1 AS one");
+    const asChainable = rows as unknown as { cursor: () => unknown; stream: () => unknown };
+
+    expect(() => asChainable.cursor()).toThrow(/pooler-guarded .unsafe\(\)/);
+    expect(() => asChainable.stream()).toThrow(/mt#2773/);
+    await rows; // the promise itself still resolves normally
   });
 });
