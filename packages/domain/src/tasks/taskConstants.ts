@@ -62,8 +62,14 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   X: TASK_STATUS.DONE, // Accept both cases for DONE
   "~": TASK_STATUS.BLOCKED,
   "!": TASK_STATUS.CLOSED,
-  // "c"/"C" (COMPLETED) accepted historically; removed by mt#2311 — a legacy
-  // "c" checkbox now parses as TODO via getStatusFromCheckbox's default.
+  // Legacy COMPLETED checkboxes (pre-mt#2311) map to DONE — the single success
+  // terminal that absorbed COMPLETED. Kept in the read-direction map so the
+  // generated TASK_LINE regex still MATCHES legacy `- [c]` lines (the regex is
+  // built from these keys; dropping them would silently skip such lines, not
+  // default them). The write-direction map above has no COMPLETED entry, so
+  // "c"/"C" are never emitted for new writes.
+  c: TASK_STATUS.DONE,
+  C: TASK_STATUS.DONE,
 };
 
 /**
