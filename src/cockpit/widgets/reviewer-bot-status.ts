@@ -78,6 +78,28 @@ const A6_MIN_SAMPLE_SIZE = 3;
 /** Number of recent mt# task IDs to surface. */
 const RECENT_TASKS_LIMIT = 5;
 
+/**
+ * Max stats queries in flight at once (mt#2765). Kept well under the shared
+ * provider pool's max (15, postgres-provider.ts DEFAULT_POSTGRES_MAX_CONNECTIONS):
+ * more than pool-max concurrent queries wedge postgres-js against the Supabase
+ * transaction pooler (queries queue client-side and never settle), and this
+ * widget's 15-query fan-out was exactly pool max — one racing sweeper query or a
+ * second fetch pushed it over. Concurrent fetches are additionally single-flighted
+ * in the widget factory so cross-request fan-out cannot multiply.
+ *
+ * Static by design (PR #1895 R1): the pool max is itself a hardcoded default
+ * today; if maxConnections ever becomes operator-tunable, derive this bound
+ * from the provider's resolved value with a safety margin instead.
+ */
+const QUERY_CONCURRENCY_LIMIT = 4;
+
+/**
+ * Deadline for the whole DB-stats phase (mt#2765). On expiry the fetch returns
+ * db:null (fields render as "—") with a rate-limited warn instead of holding
+ * the HTTP request open indefinitely.
+ */
+const DB_STATS_TIMEOUT_MS = 15_000;
+
 // ---------------------------------------------------------------------------
 // Regex for extracting Minsky task IDs from branch names.
 // Replicates extractTaskIdFromBranch from services/reviewer/src/server.ts:127
@@ -212,6 +234,8 @@ export interface ReviewerBotStatusDeps {
   probeHealth: ProbeHealthFn;
   queryRows: QueryRowsFn;
   now: () => number;
+  /** Test seam: override the DB-stats phase deadline (defaults to DB_STATS_TIMEOUT_MS). */
+  dbStatsTimeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,91 +243,132 @@ export interface ReviewerBotStatusDeps {
 // ---------------------------------------------------------------------------
 
 export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): WidgetModule {
+  // Single-flight: concurrent fetch() calls share ONE in-flight computation
+  // (mt#2765). Without this, every polling client multiplies the query fan-out
+  // (N requests x 15 queries) past the shared pool's capacity — and because the
+  // cockpit frontend polls without a client-side timeout, hung requests pin the
+  // endpoint permanently concurrent. Cleared on settle so sequential polls get
+  // fresh data.
+  //
+  // Coalescing across ALL callers is valid because this widget's fetch ignores
+  // its WidgetContext entirely (no query params affect the result). If a
+  // query-dependent variant is ever added, key the in-flight promise by
+  // (id, serialized query) instead (PR #1895 R1).
+  let inflight: Promise<WidgetData> | null = null;
+
+  async function runFetch(): Promise<WidgetData> {
+    try {
+      const nowMs = deps.now();
+      const nowIso = new Date(nowMs).toISOString();
+
+      // 1. Liveness probe (never throws).
+      const health = await deps.probeHealth();
+
+      const a1ServiceUnreachable = !health.ok;
+
+      // 2. DB-backed stats (degrade independently to null on any failure),
+      //    raced against a hard deadline so a wedged pool can never hold the
+      //    request open (mt#2765).
+      let db: ReviewerDbStats | null = null;
+      const timeoutMs = deps.dbStatsTimeoutMs ?? DB_STATS_TIMEOUT_MS;
+      let deadlineHandle: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const deadline = new Promise<null>((resolve) => {
+          deadlineHandle = setTimeout(() => resolve(null), timeoutMs);
+          deadlineHandle.unref?.();
+        });
+        db = await Promise.race([fetchDbStats(deps.queryRows, nowMs), deadline]);
+        if (db === null) {
+          log.warn(
+            `[reviewer-bot-status] DB stats timed out after ${timeoutMs}ms — returning db:null`
+          );
+        }
+      } catch (err) {
+        // fetchDbStats' per-query catches make a throw here unexpected — log it
+        // (rate-limited) rather than masking it silently (PR #1895 R1).
+        warnQueryFailure(err);
+        db = null;
+      } finally {
+        if (deadlineHandle) clearTimeout(deadlineHandle);
+      }
+
+      // 3. Anomaly computation.
+      const a2StaleInflight = db !== null && db.staleInflightCount >= A2_STALE_INFLIGHT_THRESHOLD;
+
+      const totalEvents24h = db !== null ? db.reviewCount24h + db.failureCount24h : 0;
+      const a3FailureRateSpike =
+        db !== null &&
+        totalEvents24h >= A3_MIN_SAMPLE_SIZE &&
+        db.reviewCount24h + db.failureCount24h > 0 &&
+        db.failureCount24h / (db.reviewCount24h + db.failureCount24h) > A3_FAILURE_RATE_THRESHOLD;
+
+      const a4LatencyRegression =
+        db !== null && db.p95LatencyMs !== null && db.p95LatencyMs > A4_LATENCY_P95_MS_THRESHOLD;
+
+      // A5 — cost trend: 24h median cost diverged >50% from the 7d median (mt#2288).
+      // Requires both medians present and a non-zero 7d baseline.
+      const a5CostTrend =
+        db !== null &&
+        db.medianCostUsd24h !== null &&
+        db.medianCostUsd7d !== null &&
+        db.medianCostUsd7d > 0 &&
+        Math.abs(db.medianCostUsd24h - db.medianCostUsd7d) / db.medianCostUsd7d >
+          A5_COST_TREND_THRESHOLD;
+
+      // A6 — verdict drift: any verdict's 24h ratio diverged >20pp from its
+      // 7d ratio (mt#2287). Gated on both windows having >= A6_MIN_SAMPLE_SIZE
+      // verdicts total, mirroring A3's min-sample gate — otherwise a single
+      // review in an otherwise-empty window trivially "drifts" 100pp.
+      const a6VerdictDrift =
+        db !== null &&
+        verdictTotal(db.verdictCounts24h) >= A6_MIN_SAMPLE_SIZE &&
+        verdictTotal(db.verdictCounts7d) >= A6_MIN_SAMPLE_SIZE &&
+        (["approve", "requestChanges", "comment"] as const).some(
+          (key) =>
+            Math.abs(
+              verdictRatio(db.verdictCounts24h, key) - verdictRatio(db.verdictCounts7d, key)
+            ) > A6_VERDICT_DRIFT_THRESHOLD
+        );
+
+      const payload: ReviewerBotStatusPayload = {
+        health: {
+          ok: health.ok,
+          statusCode: health.statusCode,
+          lastProbeAt: nowIso,
+          inflightCount: health.inflightCount,
+          provider: health.provider,
+          model: health.model,
+          tier2Enabled: health.tier2Enabled,
+        },
+        db,
+        anomalies: {
+          a1ServiceUnreachable,
+          a2StaleInflight,
+          a3FailureRateSpike,
+          a4LatencyRegression,
+          a5CostTrend,
+          a6VerdictDrift,
+        },
+      };
+
+      return { state: "ok", payload };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { state: "degraded", reason: `reviewer-bot status error: ${message}` };
+    }
+  }
+
   return {
     id: "reviewer-bot-status",
     title: "Reviewer Bot",
     updateMode: { type: "polling", intervalMs: 30_000 },
     async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+      if (inflight) return inflight;
+      inflight = runFetch();
       try {
-        const nowMs = deps.now();
-        const nowIso = new Date(nowMs).toISOString();
-
-        // 1. Liveness probe (never throws).
-        const health = await deps.probeHealth();
-
-        const a1ServiceUnreachable = !health.ok;
-
-        // 2. DB-backed stats (degrade independently to null on any failure).
-        let db: ReviewerDbStats | null = null;
-        try {
-          db = await fetchDbStats(deps.queryRows, nowMs);
-        } catch {
-          db = null;
-        }
-
-        // 3. Anomaly computation.
-        const a2StaleInflight = db !== null && db.staleInflightCount >= A2_STALE_INFLIGHT_THRESHOLD;
-
-        const totalEvents24h = db !== null ? db.reviewCount24h + db.failureCount24h : 0;
-        const a3FailureRateSpike =
-          db !== null &&
-          totalEvents24h >= A3_MIN_SAMPLE_SIZE &&
-          db.reviewCount24h + db.failureCount24h > 0 &&
-          db.failureCount24h / (db.reviewCount24h + db.failureCount24h) > A3_FAILURE_RATE_THRESHOLD;
-
-        const a4LatencyRegression =
-          db !== null && db.p95LatencyMs !== null && db.p95LatencyMs > A4_LATENCY_P95_MS_THRESHOLD;
-
-        // A5 — cost trend: 24h median cost diverged >50% from the 7d median (mt#2288).
-        // Requires both medians present and a non-zero 7d baseline.
-        const a5CostTrend =
-          db !== null &&
-          db.medianCostUsd24h !== null &&
-          db.medianCostUsd7d !== null &&
-          db.medianCostUsd7d > 0 &&
-          Math.abs(db.medianCostUsd24h - db.medianCostUsd7d) / db.medianCostUsd7d >
-            A5_COST_TREND_THRESHOLD;
-
-        // A6 — verdict drift: any verdict's 24h ratio diverged >20pp from its
-        // 7d ratio (mt#2287). Gated on both windows having >= A6_MIN_SAMPLE_SIZE
-        // verdicts total, mirroring A3's min-sample gate — otherwise a single
-        // review in an otherwise-empty window trivially "drifts" 100pp.
-        const a6VerdictDrift =
-          db !== null &&
-          verdictTotal(db.verdictCounts24h) >= A6_MIN_SAMPLE_SIZE &&
-          verdictTotal(db.verdictCounts7d) >= A6_MIN_SAMPLE_SIZE &&
-          (["approve", "requestChanges", "comment"] as const).some(
-            (key) =>
-              Math.abs(
-                verdictRatio(db.verdictCounts24h, key) - verdictRatio(db.verdictCounts7d, key)
-              ) > A6_VERDICT_DRIFT_THRESHOLD
-          );
-
-        const payload: ReviewerBotStatusPayload = {
-          health: {
-            ok: health.ok,
-            statusCode: health.statusCode,
-            lastProbeAt: nowIso,
-            inflightCount: health.inflightCount,
-            provider: health.provider,
-            model: health.model,
-            tier2Enabled: health.tier2Enabled,
-          },
-          db,
-          anomalies: {
-            a1ServiceUnreachable,
-            a2StaleInflight,
-            a3FailureRateSpike,
-            a4LatencyRegression,
-            a5CostTrend,
-            a6VerdictDrift,
-          },
-        };
-
-        return { state: "ok", payload };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `reviewer-bot status error: ${message}` };
+        return await inflight;
+      } finally {
+        inflight = null;
       }
     },
   };
@@ -333,10 +398,40 @@ function verdictRatio(counts: VerdictCounts, key: keyof VerdictCounts): number {
 }
 
 /**
- * Fetch all DB-backed reviewer stats. Each query runs independently via
- * Promise.allSettled so one failing query (e.g. PERCENTILE_CONT unsupported
- * on some PG variant) degrades only THAT field — db is still non-null when
- * only some queries fail.
+ * Run query thunks with at most `limit` in flight, resolving to results in
+ * submission order (mt#2765). A thunk that rejects yields `fallback` for its
+ * slot — preserving the old Promise.allSettled semantics where one failing
+ * query degrades only its own field. Exported for tests.
+ */
+export async function runQueriesWithLimit<T>(
+  thunks: Array<() => Promise<T>>,
+  limit: number,
+  fallback: T
+): Promise<T[]> {
+  const results = new Array<T>(thunks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, thunks.length)) }, async () => {
+    while (next < thunks.length) {
+      const i = next++;
+      const thunk = thunks[i];
+      if (!thunk) continue;
+      try {
+        results[i] = await thunk();
+      } catch {
+        results[i] = fallback;
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Fetch all DB-backed reviewer stats. Queries run through a bounded-concurrency
+ * runner (QUERY_CONCURRENCY_LIMIT, mt#2765) instead of an unbounded
+ * Promise.allSettled fan-out — 15 parallel queries was exactly the shared
+ * pool's max and wedged it whenever anything else raced. Each query still
+ * degrades independently: a failing query yields [] for only THAT field.
  *
  * Note on parameterization: all bind values ($1, $2) are internally-generated
  * ISO timestamps and integer constants — not user-supplied input. We
@@ -347,34 +442,38 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
   const window7dIso = windowStartIso(nowMs, WINDOW_7D_MS);
   const staleThresholdIso = windowStartIso(nowMs, A2_STALE_INFLIGHT_TTL_MS);
 
-  const results = await Promise.allSettled([
+  const queryThunks: Array<() => Promise<Record<string, unknown>[]>> = [
     // Throughput: count of review_submitted outcomes in the last 24h
-    queryRows(
-      `SELECT COUNT(*) AS count FROM reviewer_webhook_events
+    () =>
+      queryRows(
+        `SELECT COUNT(*) AS count FROM reviewer_webhook_events
        WHERE outcome = 'review_submitted' AND received_at >= $1`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // Failure count: any failed_at_* outcomes in the last 24h. `outcome` is the
     // webhook_outcome ENUM — Postgres has no LIKE operator for enums, so the
     // column must be cast to text for the pattern match (without the cast the
-    // query errors and allSettled silently zeroes the field, breaking A3).
-    queryRows(
-      `SELECT COUNT(*) AS count FROM reviewer_webhook_events
+    // query errors and the runner silently zeroes the field, breaking A3).
+    () =>
+      queryRows(
+        `SELECT COUNT(*) AS count FROM reviewer_webhook_events
        WHERE outcome::text LIKE 'failed_at_%' AND received_at >= $1`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // Last error: most recent failed event details (same enum::text cast)
-    queryRows(
-      `SELECT error_details, received_at FROM reviewer_webhook_events
+    () =>
+      queryRows(
+        `SELECT error_details, received_at FROM reviewer_webhook_events
        WHERE outcome::text LIKE 'failed_at_%' AND received_at >= $1
        ORDER BY received_at DESC LIMIT 1`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // Recent mt# tasks: head_ref from convergence metrics (new column, may be NULL on old rows).
     // Empty-string head_ref is excluded by the != '' filter at the DB level.
     // Use subquery form so we can ORDER BY the aggregate without DISTINCT conflict.
-    queryRows(
-      `SELECT head_ref FROM (
+    () =>
+      queryRows(
+        `SELECT head_ref FROM (
          SELECT head_ref, MAX(created_at) AS last_seen
          FROM reviewer_convergence_metrics
          WHERE head_ref IS NOT NULL AND head_ref != '' AND head_ref LIKE 'task/mt-%'
@@ -382,105 +481,117 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
          ORDER BY last_seen DESC
          LIMIT $1
        ) subq`,
-      [RECENT_TASKS_LIMIT]
-    ),
+        [RECENT_TASKS_LIMIT]
+      ),
     // Latency: avg + percentile over last 24h
-    queryRows(
-      `SELECT
+    () =>
+      queryRows(
+        `SELECT
          AVG(total_wall_clock_ms)::integer AS avg_ms,
          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_wall_clock_ms)::integer AS p95_ms
        FROM review_timing
        WHERE created_at >= $1`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // Stale in-flight: markers acquired more than A2_STALE_INFLIGHT_TTL_MS ago
-    queryRows(
-      `SELECT COUNT(*) AS count FROM reviewer_inflight_reviews
+    () =>
+      queryRows(
+        `SELECT COUNT(*) AS count FROM reviewer_inflight_reviews
        WHERE acquired_at <= $1`,
-      [staleThresholdIso]
-    ),
+        [staleThresholdIso]
+      ),
     // Rate-limit hits: count 'rate_limited' entries across all rows'
     // retry_outcomes (text[]) in the window, via explicit CROSS JOIN LATERAL
     // with a named column alias — unambiguous set-returning-function form.
     // retry_outcomes is NOT NULL DEFAULT '{}', so an empty array contributes
     // 0 rows (correctly 0 hits).
-    queryRows(
-      `SELECT COUNT(*) AS count
+    () =>
+      queryRows(
+        `SELECT COUNT(*) AS count
        FROM review_timing rt
        CROSS JOIN LATERAL unnest(rt.retry_outcomes) AS ro(outcome)
        WHERE rt.created_at >= $1 AND ro.outcome = 'rate_limited'`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // Last webhook received
-    queryRows(
-      `SELECT received_at FROM reviewer_webhook_events
+    () =>
+      queryRows(
+        `SELECT received_at FROM reviewer_webhook_events
        ORDER BY received_at DESC LIMIT 1`
-    ),
+      ),
     // mt#2288: median total tokens (input+output) per model-invoking review, 24h.
     // Filter to rows with token data — the two pre-model skip paths write NULL
     // tokens and must not skew the median. PERCENTILE_DISC returns an actual
     // observed integer token total (no interpolation → no fractional/cast surprise).
-    queryRows(
-      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
+    () =>
+      queryRows(
+        `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // mt#2288: median total tokens per model-invoking review, 7d.
-    queryRows(
-      `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
+    () =>
+      queryRows(
+        `SELECT PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY (input_tokens + output_tokens)) AS median_tokens
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL`,
-      [window7dIso]
-    ),
+        [window7dIso]
+      ),
     // mt#2288: median USD cost per priced review, 24h (cost_usd NULL when the
     // model is unpriced — excluded so the median reflects only priced reviews).
-    queryRows(
-      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
+    () =>
+      queryRows(
+        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
        FROM review_timing
        WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // mt#2288: median USD cost per priced review, 7d.
-    queryRows(
-      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
+    () =>
+      queryRows(
+        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost_usd)::numeric AS median_cost
        FROM review_timing
        WHERE created_at >= $1 AND cost_usd IS NOT NULL`,
-      [window7dIso]
-    ),
+        [window7dIso]
+      ),
     // mt#2721: aggregate cache-hit ratio (cached/input) over cache-reporting
     // reviews in 24h. SUM/SUM (not avg-of-ratios) reflects how much of the real
     // input volume was served from cache. Scoped to `cached_tokens IS NOT NULL`
     // so providers that don't report caching (Anthropic/Google rows, where the
     // column is NULL) don't dilute the ratio and understate OpenAI's cache
     // effectiveness. NULLIF guards divide-by-zero.
-    queryRows(
-      `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
+    () =>
+      queryRows(
+        `SELECT SUM(cached_tokens)::float8 / NULLIF(SUM(input_tokens), 0) AS cache_hit_ratio
        FROM review_timing
        WHERE created_at >= $1 AND input_tokens IS NOT NULL AND cached_tokens IS NOT NULL`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // mt#2287: verdict distribution, 24h. Nullable `verdict` column (mt#2287
     // migration) — rows written before that migration retain NULL and are
     // excluded so the distribution reflects only reviews with a known verdict.
-    queryRows(
-      `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
+    () =>
+      queryRows(
+        `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
        WHERE verdict IS NOT NULL AND created_at >= $1
        GROUP BY verdict`,
-      [window24hIso]
-    ),
+        [window24hIso]
+      ),
     // mt#2287: verdict distribution, 7d (baseline for the drift comparison).
-    queryRows(
-      `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
+    () =>
+      queryRows(
+        `SELECT verdict, COUNT(*) AS count FROM reviewer_convergence_metrics
        WHERE verdict IS NOT NULL AND created_at >= $1
        GROUP BY verdict`,
-      [window7dIso]
-    ),
-  ]);
+        [window7dIso]
+      ),
+  ];
 
-  // Extract rows from each settled result — rejected results fall back to [].
-  const settled = results.map((r): Record<string, unknown>[] =>
-    r.status === "fulfilled" ? r.value : []
+  const settled = await runQueriesWithLimit(
+    queryThunks,
+    QUERY_CONCURRENCY_LIMIT,
+    [] as Record<string, unknown>[]
   );
   const throughputRows = settled[0] ?? [];
   const failureRows = settled[1] ?? [];
