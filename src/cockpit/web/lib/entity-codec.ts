@@ -7,21 +7,33 @@
  *   3. Surface A emit helper (mt#2519) — produces minsky:// URIs for agent-emitted refs
  *   4. Tray scheme handler's frontend nav (mt#2528) — resolves minsky:// to cockpit path
  *
- * Route conventions (mt#2398 / mt#2536):
- *   task      → /tasks/:id       (id is percent-encoded; # → %23)
- *   ask       → /ask/:id
- *   memory    → /memory/:id
- *   session   → /agents/:id      (NOTE: /agents/, not /session/)
- *   changeset → /changeset/:id   (changeset id == PR number; mt#2535 added the route)
+ * Route conventions (mt#2398 / mt#2536 / mt#2769):
+ *   task         → /tasks/:id        (id is percent-encoded; # → %23)
+ *   ask          → /ask/:id
+ *   memory       → /memory/:id
+ *   session      → /agents/:id       (NOTE: /agents/, not /session/)
+ *   changeset    → /changeset/:id    (changeset id == PR number; mt#2535 added the route)
+ *   conversation → /conversation/:id (harness agentSessionId; mt#2769 — WEB ROUTE ONLY, not
+ *                  a `minsky://` URI type. ADR-022 stage-1 constraint: the `minsky://` deeplink
+ *                  URI table stays exactly {task, ask, session, memory, changeset} — `session`
+ *                  keeps meaning the workspace id there. "conversation" is routable via
+ *                  `entityToPath` but deliberately absent from `parseMinskyUri`'s validTypes.)
  *
  * @see tabs.tsx `matchEntityRoute` — the reverse codec (path → entity)
  * @see mt#2517 — parent umbrella
  * @see mt#2518 — this task
  * @see mt#2536 — PR/changeset linkification (this task)
+ * @see mt#2769 — added "conversation" (web-route only)
  */
 
 /** Entity types that have a routable cockpit detail page. */
-export type RoutableEntityType = "task" | "ask" | "session" | "memory" | "changeset";
+export type RoutableEntityType =
+  | "task"
+  | "ask"
+  | "session"
+  | "memory"
+  | "changeset"
+  | "conversation";
 
 /**
  * Convert a `(type, id)` pair to the cockpit SPA path.
@@ -45,6 +57,8 @@ export function entityToPath(type: RoutableEntityType, id: string): string {
       return `/agents/${encoded}`;
     case "changeset":
       return `/changeset/${encoded}`;
+    case "conversation":
+      return `/conversation/${encoded}`;
   }
 }
 
@@ -65,7 +79,9 @@ export function entityToMinskyUri(type: RoutableEntityType, id: string): string 
  * Parse a `minsky://` URI back to `{type, id}`.
  *
  * Returns `null` when the input is not a valid `minsky://` URI or the type
- * is not one of the five routable entity types.
+ * is not one of the five `minsky://` URI types (task/ask/session/memory/changeset —
+ * "conversation" is a web-route-only `RoutableEntityType`, not a URI type; see the
+ * module header's ADR-022 stage-1 note).
  *
  * Example: `parseMinskyUri("minsky://task/mt%232370")` → `{type: "task", id: "mt#2370"}`
  */

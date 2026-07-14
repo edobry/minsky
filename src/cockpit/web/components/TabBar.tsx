@@ -18,7 +18,16 @@
  * Links and the close buttons are natively focusable and keyboard-operable.
  */
 import { Link } from "react-router-dom";
-import { X, Network, Bot, GitBranch, CircleHelp, Brain, GitPullRequest } from "lucide-react";
+import {
+  X,
+  Network,
+  Bot,
+  GitBranch,
+  CircleHelp,
+  Brain,
+  GitPullRequest,
+  AlertCircle,
+} from "lucide-react";
 import { useTabs, type EntityTabKind } from "../lib/tabs";
 import { cn } from "../lib/utils";
 
@@ -74,13 +83,31 @@ export function TabBar() {
               to={tab.path}
               className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring rounded-sm"
               aria-current={active ? "location" : undefined}
-              title={tab.entityId}
+              title={tab.error ? `${tab.entityId} (not found)` : tab.entityId}
             >
-              <Icon
-                aria-hidden
-                className={cn("h-3.5 w-3.5 flex-shrink-0", active && "text-primary")}
-              />
-              <span className="max-w-[160px] truncate font-mono text-xs">{tab.label}</span>
+              {/* Error chip (mt#2769): the tab's entity 404'd. Swaps the kind
+                  icon for an alert glyph — the tab is not persisted across
+                  reload (see tabs.tsx's persist effect), so this state is
+                  visible only for the current visit. */}
+              {tab.error ? (
+                <AlertCircle
+                  aria-hidden
+                  className="h-3.5 w-3.5 flex-shrink-0 text-destructive"
+                />
+              ) : (
+                <Icon
+                  aria-hidden
+                  className={cn("h-3.5 w-3.5 flex-shrink-0", active && "text-primary")}
+                />
+              )}
+              <span
+                className={cn(
+                  "max-w-[160px] truncate font-mono text-xs",
+                  tab.error && "text-destructive"
+                )}
+              >
+                {tab.label}
+              </span>
             </Link>
             <button
               type="button"

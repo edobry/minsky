@@ -18,6 +18,8 @@ import { render, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ConversationPage } from "./ConversationPage";
+import { TabsProvider } from "../lib/tabs";
+import { TabBar } from "../components/TabBar";
 
 // ---------------------------------------------------------------------------
 // Stub EventSource (mirrors lib/sse-client.test.ts's StubEventSource)
@@ -85,9 +87,11 @@ function renderConversationPage(conversationId: string) {
   return render(
     <MemoryRouter initialEntries={[`/conversation/${conversationId}`]}>
       <QueryClientProvider client={queryClient}>
-        <Routes>
-          <Route path="/conversation/:id" element={<ConversationPage />} />
-        </Routes>
+        <TabsProvider>
+          <Routes>
+            <Route path="/conversation/:id" element={<ConversationPage />} />
+          </Routes>
+        </TabsProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -117,6 +121,49 @@ function mockFetches(conversationId: string) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("ConversationPage — unresolvable id tab hygiene (mt#2769)", () => {
+  test("a 404 conversation id marks its tab errored and excludes it from persistence", async () => {
+    const conversationId = "mt2769-not-found-test";
+    localStorage.removeItem("cockpit.tabs.v1");
+    globalThis.fetch = mock(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: { code: "session_not_found" } }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      }))
+    ) as typeof globalThis.fetch;
+
+    const queryClient = createTestQueryClient();
+    const { getByText, getByTitle } = render(
+      <MemoryRouter initialEntries={[`/conversation/${conversationId}`]}>
+        <QueryClientProvider client={queryClient}>
+          <TabsProvider>
+            <TabBar />
+            <Routes>
+              <Route path="/conversation/:id" element={<ConversationPage />} />
+            </Routes>
+          </TabsProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    // The error state renders (the ConversationView-level "no transcript yet" surface).
+    await waitFor(() =>
+      expect(getByText(/No conversation transcript for this session yet/i)).toBeDefined()
+    );
+
+    // The tab strip reflects the error (title carries "(not found)", set by markTabError).
+    await waitFor(() => {
+      expect(getByTitle(`${conversationId} (not found)`)).toBeDefined();
+    });
+
+    // Excluded from persistence — a reload must not resurrect this dead tab.
+    const persisted = JSON.parse(localStorage.getItem("cockpit.tabs.v1") ?? "[]") as Array<{
+      path: string;
+    }>;
+    expect(persisted.some((t) => t.path === `/conversation/${conversationId}`)).toBe(false);
+  });
+});
 
 describe("ConversationPage — conversation-keyed live tail (mt#2749)", () => {
   test("opens the conversation-keyed live-tail SSE channel off the URL's agentSessionId", async () => {

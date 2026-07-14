@@ -160,7 +160,24 @@ async function main(): Promise<void> {
   const errors: Array<{ askId: string; message: string }> = [];
 
   if (execute) {
-    const { closeAskAsResolved } = await import("@minsky/domain/ask");
+    // Sub-path import: `@minsky/domain`'s exports map has no `./ask` barrel entry
+    // (the `./*` wildcard resolves sub-paths only), so the bare `@minsky/domain/ask`
+    // is unresolvable at runtime — import the concrete module (mt#2774). Guarded so a
+    // future exports-map/symbol regression fails with an actionable message rather
+    // than the generic top-level catch (reviewer PR #1901 non-blocking suggestion).
+    let closeAskAsResolved: typeof import("@minsky/domain/ask/close-as-resolved").closeAskAsResolved;
+    try {
+      ({ closeAskAsResolved } = await import("@minsky/domain/ask/close-as-resolved"));
+      if (typeof closeAskAsResolved !== "function") {
+        throw new Error("expected a function export `closeAskAsResolved`");
+      }
+    } catch (e) {
+      throw new Error(
+        `could not load closeAskAsResolved from @minsky/domain/ask/close-as-resolved — ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
+    }
     for (const a of toClose) {
       const status = statusById.get(a.parentTaskId as string);
       try {
