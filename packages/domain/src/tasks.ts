@@ -22,8 +22,7 @@ import {
 import type { PersistenceProvider } from "./persistence/types";
 import type { TaskServiceInterface } from "./tasks/taskService";
 import type { TaskGraphService } from "./tasks/task-graph-service";
-import { TASK_STATUS } from "./tasks/taskConstants";
-import { assertUmbrellaChildrenComplete } from "./tasks/commands/mutation-commands";
+import { setTaskStatusFromParams as setTaskStatusValidated } from "./tasks/commands/mutation-commands";
 import { ALL_PROJECTS, type ProjectScope } from "./project/scope";
 import { resolveProjectIdentity } from "./project/identity";
 import { resolveProjectScope } from "./project/scope-resolver";
@@ -189,38 +188,19 @@ export async function setTaskStatusFromParams(
   deps?: TaskServiceDeps
 ) {
   const validParams = taskStatusSetParamsSchema.parse(params);
-  const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
-  const taskService =
-    deps?.taskService ??
-    (await createConfiguredTaskService({
-      workspacePath,
-      backend: validParams.backend,
-      persistenceProvider: requirePersistence(deps?.persistenceProvider),
-    }));
-  log.debug("tasks.status.set created TaskService", {
-    backend:
-      taskService.listBackends?.().find((b) => b.prefix === validParams.backend)?.name || "default",
+  // Delegate to the transition-validating implementation in
+  // tasks/commands/mutation-commands.ts: kind-aware validateStatusTransition
+  // (mt#1812), READY→DONE closeout-evidence check, and the umbrella
+  // children-completeness guard (mt#2606). This facade previously wrote the
+  // status directly, leaving MCP/CLI transitions server-side unvalidated
+  // (mt#2704) — the delegation closes that gap for tasks_status_set and
+  // tasks_dispatch, which both resolve here via the @minsky/domain/tasks barrel.
+  await setTaskStatusValidated(validParams, {
+    taskService: deps?.taskService,
+    persistenceProvider: deps?.persistenceProvider,
+    taskGraphService: deps?.taskGraphService,
   });
-
-  // Umbrella closeout guard (mt#2606): refuse completing an umbrella whose
-  // children are not all terminal. Fires only for COMPLETED targets; the task
-  // is fetched lazily to read its kind. This facade is what the
-  // `@minsky/domain/tasks` barrel resolves to (the transition-validating
-  // implementation in tasks/commands/mutation-commands.ts is not on this path),
-  // so the guard must live here to fire for MCP/CLI callers.
-  if (validParams.status === TASK_STATUS.COMPLETED) {
-    const task = await taskService.getTask(validParams.taskId);
-    await assertUmbrellaChildrenComplete({
-      taskId: validParams.taskId,
-      taskKind: task?.kind,
-      targetStatus: validParams.status,
-      taskService,
-      taskGraphService: deps?.taskGraphService,
-    });
-  }
-
-  await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
 

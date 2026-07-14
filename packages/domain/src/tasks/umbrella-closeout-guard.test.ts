@@ -167,4 +167,15 @@ describe("setTaskStatusFromParams facade wires the guard (mt#2606, live MCP/CLI 
     expect(call[0]).toBe("mt#9000");
     expect(call[1]).toBe("COMPLETED");
   });
+
+  it("validates transitions server-side via the delegation (implementation kind cannot reach COMPLETED)", async () => {
+    const taskService = makeTaskService({
+      parentKind: "implementation",
+      parentStatus: "TODO",
+    });
+    await expect(
+      setTaskStatusFromParams({ taskId: "mt#9000", status: "COMPLETED" }, { taskService })
+    ).rejects.toThrow(/transition/i);
+    expect(taskService.statusSpy.mock.calls.length).toBe(0);
+  });
 });

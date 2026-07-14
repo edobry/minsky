@@ -24,14 +24,13 @@ import {
   type TaskDeleteParams,
 } from "../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
-import { isKnownKind, WORKFLOWS } from "../workflows";
+import { isKnownKind, isTerminalTaskStatus, WORKFLOWS } from "../workflows";
 import {
   validateStatusTransition,
   hasCloseoutEvidence,
   READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
 } from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
-import { isHiddenByDefaultStatus } from "../task-filters";
 import type { TaskGraphService } from "../task-graph-service";
 import type { BasePersistenceProvider } from "../../persistence/types";
 
@@ -85,9 +84,7 @@ export async function assertUmbrellaChildrenComplete(args: {
   const children = await taskService.getTasks(childIds);
   const foundIds = new Set(children.map((c) => c.id));
   const incomplete = [
-    ...children
-      .filter((c) => !isHiddenByDefaultStatus(c.status))
-      .map((c) => `${c.id} (${c.status})`),
+    ...children.filter((c) => !isTerminalTaskStatus(c.status)).map((c) => `${c.id} (${c.status})`),
     // A child id with no readable task record cannot be verified complete.
     ...childIds.filter((id) => !foundIds.has(id)).map((id) => `${id} (unreadable)`),
   ];
