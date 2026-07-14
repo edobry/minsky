@@ -160,7 +160,10 @@ async function main(): Promise<void> {
   const errors: Array<{ askId: string; message: string }> = [];
 
   if (execute) {
-    const { closeAskAsResolved } = await import("@minsky/domain/ask");
+    // Sub-path import: `@minsky/domain`'s exports map has no `./ask` barrel entry
+    // (the `./*` wildcard resolves sub-paths only), so the bare `@minsky/domain/ask`
+    // is unresolvable at runtime — import the concrete module (mt#2774).
+    const { closeAskAsResolved } = await import("@minsky/domain/ask/close-as-resolved");
     for (const a of toClose) {
       const status = statusById.get(a.parentTaskId as string);
       try {
