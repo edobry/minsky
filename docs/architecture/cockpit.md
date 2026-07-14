@@ -104,8 +104,8 @@ is an equally valid shape when per-field granularity is more useful than a count
 **Frontend rendering:** render a visible degraded indicator when the failure count is nonzero
 — never let it fall through to the same rendering as "no data." `ReviewerBotStatus.tsx` renders
 an `AnomalyBanner` when `db.queryFailureCount > 0`: the amber warning variant for a partial
-failure, the `destructive` semantic token (per `src/cockpit/CLAUDE.md`'s error-state convention)
-when every query in the cycle failed.
+failure, and the banner's `error` variant — which maps to the `destructive` semantic token per
+`src/cockpit/CLAUDE.md`'s error-state convention — when every query in the cycle failed.
 
 This is a reference-implementation convention adopted incrementally, not a framework
 requirement — see the full type-level writeup in `src/cockpit/types.ts` above `WidgetData`.

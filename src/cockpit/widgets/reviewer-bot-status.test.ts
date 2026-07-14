@@ -58,7 +58,11 @@ function unreachableProbe(): Promise<ReviewerHealthProbeResult> {
   });
 }
 
-type QueryRows = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
+type QueryRows = (
+  sql: string,
+  params?: unknown[],
+  onFailure?: () => void
+) => Promise<Record<string, unknown>[]>;
 
 /**
  * Create a QueryRowsFn that returns stub data based on the SQL statement.
@@ -921,6 +925,29 @@ describe("createReviewerBotStatusWidget — query-failure indicator (mt#2758)", 
     // ...while unrelated fields from the successful queries are untouched.
     expect(payload.db.reviewCount24h).toBe(10);
     expect(payload.db.recentTaskIds).toEqual(["mt#2076", "mt#2075"]);
+  });
+
+  test("a QueryRowsFn that BOTH calls onFailure AND rejects counts each failure exactly once (PR #1921 R1)", async () => {
+    // The QueryRowsFn contract doesn't forbid an implementation from invoking
+    // the onFailure callback and then rejecting anyway (e.g. signal-then-cleanup).
+    // Every query here fires both paths; the count must still be 15, not 30.
+    const doubleSignalQueryRows: QueryRows = async (_sql, _params, onFailure) => {
+      onFailure?.();
+      throw new Error("boom after signaling");
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: doubleSignalQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBe(15);
   });
 });
 

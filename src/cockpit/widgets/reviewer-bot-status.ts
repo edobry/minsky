@@ -498,11 +498,22 @@ async function fetchDbStats(queryRows: QueryRowsFn, nowMs: number): Promise<Revi
    *    `fallback` for that slot) is unchanged.
    */
   function countedQuery(sql: string, params?: unknown[]): () => Promise<Record<string, unknown>[]> {
-    return () =>
-      queryRows(sql, params, markFailure).catch((err) => {
+    return () => {
+      // Idempotence guard (PR #1921 R1): the QueryRowsFn contract does not
+      // forbid an implementation from BOTH invoking onFailure AND rejecting —
+      // count each query's failure at most once regardless of which (or both)
+      // signaling paths fire.
+      let counted = false;
+      const markOnce = (): void => {
+        if (counted) return;
+        counted = true;
         markFailure();
+      };
+      return queryRows(sql, params, markOnce).catch((err) => {
+        markOnce();
         throw err;
       });
+    };
   }
 
   const queryThunks: Array<() => Promise<Record<string, unknown>[]>> = [

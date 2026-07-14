@@ -32,8 +32,12 @@ interface ReviewerDbStats {
   // mt#2758 — query-layer-failure vs genuine-no-data signal. See the
   // "Query-failure vs no-data" convention note at the top of
   // src/cockpit/types.ts and docs/architecture/cockpit.md.
-  queryFailureCount: number;
-  queryTotalCount: number;
+  /** Failed stats queries this fetch cycle (mt#2758). Optional: a stale frontend
+   * bundle may talk to a pre-mt#2758 server during deploys — absence means
+   * "signal unavailable", not zero. */
+  queryFailureCount?: number;
+  /** Total stats queries attempted this fetch cycle (mt#2758). Optional, same skew rationale. */
+  queryTotalCount?: number;
 }
 
 interface ReviewerBotStatusPayload {
@@ -192,22 +196,29 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
           render healthy zeros for ~5 weeks (mt#2076/mt#2757) while every
           query threw. Full failure (every query this cycle failed) uses the
           destructive token per src/cockpit/CLAUDE.md's error-state
-          convention; a partial failure uses the amber warning variant,
-          consistent with the other AnomalyBanner usages below. */}
-      {db && db.queryFailureCount > 0 && (
-        <AnomalyBanner
-          message={
-            db.queryTotalCount > 0 && db.queryFailureCount === db.queryTotalCount
-              ? `DB query layer failed — all ${db.queryTotalCount} stats queries failed this cycle. Fields below are placeholders, not real zeros.`
-              : `DB query layer degraded — ${db.queryFailureCount} of ${db.queryTotalCount} stats queries failed this cycle. Some fields below may be incomplete or stale.`
-          }
-          variant={
-            db.queryTotalCount > 0 && db.queryFailureCount === db.queryTotalCount
-              ? "error"
-              : "warning"
-          }
-        />
-      )}
+          convention (AnomalyBanner's "error" variant); a partial failure
+          uses the amber warning variant, consistent with the other
+          AnomalyBanner usages below. Fields are optional in this mirror —
+          a stale bundle may talk to a pre-mt#2758 server during deploys —
+          so the banner renders only when both are finite numbers. */}
+      {db &&
+        (() => {
+          const failed = db.queryFailureCount;
+          const total = db.queryTotalCount;
+          if (!Number.isFinite(failed) || !Number.isFinite(total)) return null;
+          if ((failed as number) <= 0) return null;
+          const allFailed = (total as number) > 0 && failed === total;
+          return (
+            <AnomalyBanner
+              message={
+                allFailed
+                  ? `DB query layer failed — all ${total} stats queries failed this cycle. Fields below are placeholders, not real zeros.`
+                  : `DB query layer degraded — ${failed} of ${total} stats queries failed this cycle. Some fields below may be incomplete or stale.`
+              }
+              variant={allFailed ? "error" : "warning"}
+            />
+          );
+        })()}
 
       {/* Anomaly banners */}
       {anomalies.a1ServiceUnreachable && (
