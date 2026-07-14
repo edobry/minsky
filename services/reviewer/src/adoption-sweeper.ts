@@ -214,10 +214,14 @@ async function countCallsites(
 
   const resultText = await callMcpTool(mcpUrl, mcpToken, "repo_search", {
     pattern,
-    // Exclude test files and the spec itself from the callsite count.
-    // Only count production source callsites.
-    includePattern: "src/**/*.ts",
-    excludePattern: "**/*.test.ts",
+    // mt#2778 caller audit: this call previously also sent
+    // `includePattern: "src/**/*.ts"` / `excludePattern: "**/*.test.ts"` —
+    // keys repo.search does NOT declare (it declares pattern/path/ignoreCase),
+    // so they were silently dropped at the boundary and the intended test-file
+    // exclusion NEVER applied. Removed now that the boundary rejects
+    // undeclared params; behavior is unchanged (the count already included
+    // test files). Restoring the exclusion intent is tracked separately
+    // (needs include/exclude support on repo.search itself).
   });
 
   if (!resultText) return 0;
@@ -531,7 +535,10 @@ async function checkTaskAdoption(
         const createResult = await callMcpTool(deps.mcpUrl, deps.mcpToken, "tasks_create", {
           title: followUpTitle,
           spec: followUpSpec,
-          status: "TODO",
+          // mt#2778 caller audit: `status: "TODO"` removed — tasks.create does
+          // not declare a status param (new tasks default to TODO), so the key
+          // was silently dropped at the boundary; post-mt#2778 it would be
+          // rejected. Behavior unchanged.
         });
 
         if (createResult) {
