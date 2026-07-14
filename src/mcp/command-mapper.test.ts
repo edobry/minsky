@@ -56,9 +56,14 @@ describe("CommandMapper", () => {
 
     const addToolMock = (mockServer as any).addTool;
     expect(addToolMock.mock.calls.length).toBeGreaterThanOrEqual(1);
-    const firstCall = addToolMock.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    const toolDefinition = firstCall?.[0] as ToolDefinition;
+    // The module-level mock accumulates calls across tests (setupTestMocks
+    // resets registries, not createMock call history) — find this test's
+    // registration by name rather than assuming position (mt#2778).
+    const matchingCall = addToolMock.mock.calls.find(
+      (c: unknown[]) => (c?.[0] as ToolDefinition)?.name === "test-command"
+    );
+    expect(matchingCall).toBeDefined();
+    const toolDefinition = matchingCall?.[0] as ToolDefinition;
     expect(toolDefinition).toBeDefined();
     expect(toolDefinition?.name).toBe("test-command");
     expect(toolDefinition?.description).toBe("Test command description");
@@ -265,6 +270,148 @@ describe("CommandMapper", () => {
         expect(required).not.toContain("skipInstall");
         expect(required).not.toContain("recover");
       });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Undeclared-param rejection at the MCP dispatch boundary (mt#2778)
+  //
+  // The CallTool dispatch passes arguments to handlers without runtime schema
+  // validation; before mt#2778, an undeclared key (e.g. `taskId` where the
+  // command declares `task`) was silently dropped by the bridge, producing
+  // undefined-downstream behavior (the mt#2737 incident class). These tests
+  // drive the WRAPPED handler captured from addCommand — the same path the
+  // server dispatch invokes.
+  // ---------------------------------------------------------------------------
+  describe("undeclared-param rejection (mt#2778)", () => {
+    /** Register a command and return the wrapped ToolDefinition captured by the mock server. */
+    function registerAndCapture(
+      command: Parameters<CommandMapper["addCommand"]>[0]
+    ): ToolDefinition {
+      const addToolMock = (mockServer as any).addTool;
+      const callsBefore = addToolMock.mock.calls.length;
+      commandMapper.addCommand(command);
+      const call = addToolMock.mock.calls[callsBefore];
+      expect(call).toBeDefined();
+      return call?.[0] as ToolDefinition;
+    }
+
+    /** Register an eager command and return its wrapped handler, narrowed for direct calls. */
+    function captureEagerHandler(
+      command: Parameters<CommandMapper["addCommand"]>[0]
+    ): NonNullable<ToolDefinition["handler"]> {
+      const tool = registerAndCapture(command);
+      const handler = tool.handler;
+      if (!handler) throw new Error("expected an eager handler on the captured tool");
+      return handler;
+    }
+
+    const ENV_KEY = "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS";
+
+    test("rejects an undeclared key, naming it and listing known parameters (AT1)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.reject",
+        description: "rejects unknown keys",
+        parameters: z.object({ taskId: z.string() }),
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ taskId: "mt#1", bogus: 1 })).rejects.toThrow(
+        /Unknown parameter "bogus" for "test.reject". Known parameters: taskId/
+      );
+    });
+
+    test("declared canonical+alias params both pass (post-mt#2737 alias pattern)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.alias",
+        description: "canonical + alias declared",
+        parameters: z.object({
+          taskId: z.string().optional(),
+          task: z.string().optional(),
+        }),
+        handler: async (args) => ({ got: args }),
+      });
+
+      const result = await handler({ task: "mt#2" });
+      expect(result).toEqual({ got: { task: "mt#2" } });
+    });
+
+    test("allowlisted cross-cutting keys debug and json are accepted when undeclared (AT3)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.allowlist",
+        description: "debug/json allowlisted",
+        parameters: z.object({ name: z.string() }),
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ name: "x", debug: true, json: true })).resolves.toBe("ok");
+    });
+
+    test("escape hatch MINSKY_MCP_ALLOW_UNKNOWN_PARAMS=1 downgrades rejection to a warning (AT2)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.escape",
+        description: "escape hatch",
+        parameters: z.object({ name: z.string() }),
+        handler: async () => "ok",
+      });
+
+      const prior = process.env[ENV_KEY];
+      process.env[ENV_KEY] = "1";
+      try {
+        await expect(handler({ name: "x", bogus: true })).resolves.toBe("ok");
+      } finally {
+        if (prior === undefined) delete process.env[ENV_KEY];
+        else process.env[ENV_KEY] = prior;
+      }
+    });
+
+    test("plain-object (non-Zod) legacy schemas are skipped, not broken (AT4, mt#1200)", async () => {
+      const handler = captureEagerHandler({
+        name: "test.plain",
+        description: "plain-object schema",
+        // Legacy plain-object schema: no safeParse — the check must skip it.
+        parameters: { type: "object", properties: {} } as unknown as z.ZodType,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ anything: "goes" })).resolves.toBe("ok");
+    });
+
+    test("enforcement applies on the lazy getHandler path too (mt#1792 parity)", async () => {
+      const tool = registerAndCapture({
+        name: "test.lazy",
+        description: "lazy handler",
+        parameters: z.object({ id: z.string() }),
+        getHandler: async () => async () => "lazy-ok",
+      });
+
+      // Lazy tools expose getHandler; resolve it the way server dispatch does.
+      expect(tool.handler).toBeUndefined();
+      const getHandler = tool.getHandler;
+      if (!getHandler) throw new Error("expected getHandler on the lazy tool");
+      const resolved = await getHandler();
+      await expect(resolved({ id: "a" })).resolves.toBe("lazy-ok");
+      await expect(resolved({ id: "a", nope: 1 })).rejects.toThrow(
+        /Unknown parameter "nope" for "test.lazy"/
+      );
+    });
+
+    test("bridge-generated schema (convertParametersToZodSchema) enforces the same way", async () => {
+      // Bind the mapper-level check to the real bridge conversion: a shared
+      // command's CommandParameterMap converted by the bridge yields a schema
+      // whose shape drives the same rejection.
+      const zodSchema = convertParametersToZodSchema(sessionStartCommandParams);
+      const handler = captureEagerHandler({
+        name: "test.bridge",
+        description: "bridge-converted schema",
+        parameters: zodSchema,
+        handler: async () => "ok",
+      });
+
+      await expect(handler({ task: "mt#1", totallyBogus: 1 })).rejects.toThrow(
+        /Unknown parameter "totallyBogus" for "test.bridge"/
+      );
+      await expect(handler({ task: "mt#1" })).resolves.toBe("ok");
     });
   });
 });

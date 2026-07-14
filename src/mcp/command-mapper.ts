@@ -5,6 +5,82 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { MinskyMCPServer, ToolDefinition, ToolProgressReporter } from "./server";
 
 /**
+ * Cross-cutting arg keys the framework itself reads even when a command does
+ * not declare them (mt#2778): `debug` feeds the bridge's execution context
+ * (shared-command-integration.ts), and `json` is stripped from MCP-facing
+ * schemas and injected internally by the bridge. A caller sending either must
+ * not be rejected by the undeclared-param check.
+ */
+const CROSS_CUTTING_ARG_KEYS: ReadonlySet<string> = new Set(["debug", "json"]);
+
+/**
+ * Derive the declared parameter names from a tool's Zod schema (mt#2778).
+ *
+ * Returns undefined — meaning "cannot enforce; skip" — when the schema is
+ * absent, is a plain-object legacy schema (mt#1200: no `safeParse`), or is
+ * not an object schema (no `.shape`). Duck-typed rather than `instanceof
+ * z.ZodObject` for the duplicate-zod-instance reasons documented in
+ * shared-command-integration.ts (monorepo/pnpm dedupe).
+ */
+function getDeclaredParamKeys(schema: z.ZodType | undefined): ReadonlySet<string> | undefined {
+  if (!schema) return undefined;
+  const candidate: { shape?: unknown; safeParse?: unknown } = schema;
+  if (typeof candidate.safeParse !== "function") return undefined;
+  const shape = candidate.shape;
+  if (shape == null || typeof shape !== "object" || Array.isArray(shape)) return undefined;
+  return new Set(Object.keys(shape as Record<string, unknown>));
+}
+
+/**
+ * Reject undeclared tool params at the MCP dispatch boundary (mt#2778).
+ *
+ * The CallTool dispatch passes `request.params.arguments` to handlers without
+ * runtime validation — the per-tool Zod schema historically fed only the
+ * `tools/list` JSON-Schema declaration, which harness clients demonstrably do
+ * not enforce (the mt#2737 incident class: a caller passing `taskId` to a
+ * command declaring `task` silently got undefined-downstream behavior). Per
+ * the MCP Tools spec (2025-06-18, Security Considerations), servers are
+ * responsible for validating tool inputs; this is the key-set slice of that
+ * validation. Value/type/required/default enforcement is deliberately out of
+ * scope here (mt#2705 / mt#1638 own that trajectory).
+ *
+ * Escape hatch: MINSKY_MCP_ALLOW_UNKNOWN_PARAMS=1 downgrades rejection to a
+ * structured warn log (`mcp.unknown_param_dropped`) for emergency rollback.
+ *
+ * Exported for unit tests.
+ */
+export function enforceDeclaredParams(
+  toolName: string,
+  args: Record<string, unknown>,
+  declaredKeys: ReadonlySet<string> | undefined
+): void {
+  if (!declaredKeys) return;
+  const unknownKeys = Object.keys(args).filter(
+    (key) => !declaredKeys.has(key) && !CROSS_CUTTING_ARG_KEYS.has(key)
+  );
+  if (unknownKeys.length === 0) return;
+
+  const knownKeys = [...declaredKeys].sort();
+  if (process.env.MINSKY_MCP_ALLOW_UNKNOWN_PARAMS === "1") {
+    log.warn("mcp.unknown_param_dropped", {
+      event: "mcp.unknown_param_dropped",
+      tool: toolName,
+      unknownKeys,
+      knownKeys,
+    });
+    return;
+  }
+
+  const plural = unknownKeys.length > 1 ? "s" : "";
+  throw new Error(
+    `Unknown parameter${plural} ${unknownKeys.map((k) => `"${k}"`).join(", ")} for "${toolName}". ` +
+      `Known parameters: ${knownKeys.join(", ") || "(none)"}. ` +
+      `Undeclared parameters are rejected at the MCP boundary (mt#2778); ` +
+      `set MINSKY_MCP_ALLOW_UNKNOWN_PARAMS=1 to temporarily downgrade this to a warning.`
+  );
+}
+
+/**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
  * to MCP tools using the official MCP SDK.
  */
@@ -175,6 +251,11 @@ export class CommandMapper {
     // Track registered method names for debugging
     this.registeredMethodNames.push(normalizedName);
 
+    // mt#2778: declared param names for the undeclared-key check, computed
+    // once at registration. undefined (no schema / plain-object legacy schema /
+    // non-object schema) means the check is skipped for this tool.
+    const declaredParamKeys = getDeclaredParamKeys(command.parameters);
+
     // Build the tool definition — eager or lazy path.
     let toolDefinition: ToolDefinition;
 
@@ -195,6 +276,9 @@ export class CommandMapper {
               args: args || {},
               hasProjectContext: !!capturedContext,
             });
+
+            // mt#2778: reject undeclared params before the handler runs.
+            enforceDeclaredParams(normalizedName, args || {}, declaredParamKeys);
 
             const result = await eagerHandler(args || {}, capturedContext, progress);
 
@@ -239,6 +323,8 @@ export class CommandMapper {
                 args: args || {},
                 hasProjectContext: !!capturedContext,
               });
+              // mt#2778: reject undeclared params before the handler runs.
+              enforceDeclaredParams(normalizedName, args || {}, declaredParamKeys);
               const result = await resolvedFn(args || {}, capturedContext, progress);
               log.debug("MCP command executed successfully (lazy-resolved)", {
                 methodName: normalizedName,
