@@ -18,8 +18,10 @@ export enum TaskStatus {
   DONE = "DONE",
   BLOCKED = "BLOCKED",
   CLOSED = "CLOSED",
-  // Per-kind terminal states (mt#1812)
-  COMPLETED = "COMPLETED", // Umbrella kind success terminal (analogous to DONE for implementation)
+  // COMPLETED (the mt#1812 umbrella terminal) was removed by mt#2311: one
+  // success terminal (DONE) across all kinds. The Postgres task_status enum
+  // still carries the COMPLETED value (PG enums can't drop values); rows were
+  // migrated to DONE and the value is a harmless orphan.
 }
 
 /**
@@ -45,7 +47,6 @@ export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
   [TASK_STATUS.DONE]: "x",
   [TASK_STATUS.BLOCKED]: "~",
   [TASK_STATUS.CLOSED]: "!",
-  [TASK_STATUS.COMPLETED]: "c", // Umbrella kind success terminal (mt#1812)
 };
 
 /**
@@ -61,8 +62,14 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   X: TASK_STATUS.DONE, // Accept both cases for DONE
   "~": TASK_STATUS.BLOCKED,
   "!": TASK_STATUS.CLOSED,
-  c: TASK_STATUS.COMPLETED, // Umbrella kind success terminal (mt#1812)
-  C: TASK_STATUS.COMPLETED, // Accept both cases for COMPLETED
+  // Legacy COMPLETED checkboxes (pre-mt#2311) map to DONE — the single success
+  // terminal that absorbed COMPLETED. Kept in the read-direction map so the
+  // generated TASK_LINE regex still MATCHES legacy `- [c]` lines (the regex is
+  // built from these keys; dropping them would silently skip such lines, not
+  // default them). The write-direction map above has no COMPLETED entry, so
+  // "c"/"C" are never emitted for new writes.
+  c: TASK_STATUS.DONE,
+  C: TASK_STATUS.DONE,
 };
 
 /**

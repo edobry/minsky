@@ -43,8 +43,8 @@ export interface TaskServiceDeps {
   persistenceProvider?: PersistenceProvider;
   taskService?: TaskServiceInterface;
   /**
-   * Enables the children-completeness closeout guards: the umbrella
-   * COMPLETED guard (mt#2606) and the any-kind parent-DONE guard (mt#1649).
+   * Enables the children-completeness closeout guard: the any-kind
+   * parent-DONE guard (mt#1649; absorbed mt#2606's umbrella guard per mt#2311).
    */
   taskGraphService?: Pick<TaskGraphService, "listChildren">;
 }

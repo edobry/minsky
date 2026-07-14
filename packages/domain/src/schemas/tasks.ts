@@ -37,7 +37,7 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
     .describe("Filter tasks by status (e.g. TODO, IN-PROGRESS, DONE)"),
   filter: z.string().optional().describe("Filter tasks by status or other criteria"),
   limit: z.number().optional().describe("Limit the number of tasks returned"),
-  all: flagSchema("Include completed tasks"),
+  all: flagSchema("Include terminal (DONE/CLOSED) tasks"),
   backend: z
     .string()
     .optional()

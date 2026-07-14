@@ -76,11 +76,12 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
 /**
  * Default status labels for GitHub issues.
  *
- * PLANNING, READY, and COMPLETED were missing, causing those statuses to fall
+ * PLANNING and READY were once missing, causing those statuses to fall
  * back to the `minsky:todo` label via `getLabelsForTaskStatus`'s
  * `statusLabels[status] || statusLabels["TODO"]` logic. Setting status PLANNING
  * on an issue silently set the label to `minsky:todo`, while returning
  * `{changed:true, newStatus:"PLANNING"}` — a false-success (mt#2572 Bug 3).
+ * (COMPLETED's entry was removed with the status itself, mt#2311.)
  */
 const DEFAULT_STATUS_LABELS = {
   TODO: "minsky:todo",
@@ -91,7 +92,6 @@ const DEFAULT_STATUS_LABELS = {
   DONE: "minsky:done",
   BLOCKED: "minsky:blocked",
   CLOSED: "minsky:closed",
-  COMPLETED: "minsky:completed",
 } as const;
 
 /**
@@ -227,12 +227,10 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       if (options?.status && options.status !== "all") {
         tasks = tasks.filter((task) => task.status === options.status);
       } else if (!options?.all) {
-        // Hide terminal statuses by default (mt#1812 adds COMPLETED for umbrella kind).
-        // Kept in sync with TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
-        tasks = tasks.filter(
-          (task) =>
-            task.status !== "DONE" && task.status !== "CLOSED" && task.status !== "COMPLETED"
-        );
+        // Hide terminal statuses by default (DONE + CLOSED; single success
+        // terminal since mt#2311). Kept in sync with
+        // TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
+        tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
       }
 
       // Filter by tags if specified

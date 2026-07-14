@@ -82,6 +82,9 @@ function statusGesture(newStatus: string): GestureSet {
         edgeFlashes: [],
         nodePulses: [{ nodeId: "s1-review", tone: "flow" }],
       };
+    // COMPLETED is a legacy value from pre-mt#2311 event payloads; render like
+    // DONE. Safe to remove once the events feed no longer contains pre-2026-07
+    // task events.
     case "DONE":
     case "COMPLETED":
       return {

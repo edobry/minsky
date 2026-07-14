@@ -146,26 +146,23 @@ describe("umbrella workflow — specific state machine properties", () => {
   const workflow = WORKFLOWS["umbrella"];
 
   test("has the complete expected states", () => {
-    const expected = ["TODO", "PLANNING", "IN-PROGRESS", "COMPLETED", "CLOSED"];
+    const expected = ["TODO", "PLANNING", "IN-PROGRESS", "DONE", "CLOSED"];
     for (const state of expected) {
       expect(workflow.states).toContain(state);
     }
   });
 
-  test("does NOT have READY, IN-REVIEW, or DONE states", () => {
+  test("does NOT have READY, IN-REVIEW, or COMPLETED states", () => {
     expect(workflow.states).not.toContain("READY");
     expect(workflow.states).not.toContain("IN-REVIEW");
-    expect(workflow.states).not.toContain("DONE");
+    // COMPLETED removed by mt#2311 — single success terminal (DONE) across kinds.
+    expect(workflow.states).not.toContain("COMPLETED");
   });
 
-  test("terminal states are COMPLETED and CLOSED", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
+  test("terminal states are DONE and CLOSED (mt#2311)", () => {
+    expect(workflow.terminal).toContain("DONE");
     expect(workflow.terminal).toContain("CLOSED");
-  });
-
-  test("COMPLETED (not DONE) is the success terminal state", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
-    expect(workflow.terminal).not.toContain("DONE");
+    expect(workflow.terminal).not.toContain("COMPLETED");
   });
 
   test("GitHub Issues maps to issue type with epic label", () => {
@@ -186,7 +183,7 @@ describe("state-ops workflow — specific state machine properties", () => {
   const workflow = WORKFLOWS["state-ops"];
 
   test("has the complete expected state-ops states", () => {
-    const expected = ["TODO", "PLANNING", "READY", "IN-PROGRESS", "COMPLETED", "CLOSED"];
+    const expected = ["TODO", "PLANNING", "READY", "IN-PROGRESS", "DONE", "CLOSED"];
     for (const state of expected) {
       expect(workflow.states).toContain(state);
     }
@@ -196,28 +193,25 @@ describe("state-ops workflow — specific state machine properties", () => {
     expect(workflow.states).toContain("READY");
   });
 
-  test("does NOT have IN-REVIEW, DONE, or BLOCKED states", () => {
+  test("does NOT have IN-REVIEW, COMPLETED, or BLOCKED states", () => {
     expect(workflow.states).not.toContain("IN-REVIEW");
-    expect(workflow.states).not.toContain("DONE");
+    // COMPLETED removed by mt#2311 — single success terminal (DONE) across kinds.
+    expect(workflow.states).not.toContain("COMPLETED");
     expect(workflow.states).not.toContain("BLOCKED");
   });
 
-  test("terminal states are COMPLETED and CLOSED", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
+  test("terminal states are DONE and CLOSED (mt#2311)", () => {
+    expect(workflow.terminal).toContain("DONE");
     expect(workflow.terminal).toContain("CLOSED");
-  });
-
-  test("COMPLETED (not DONE) is the success terminal state", () => {
-    expect(workflow.terminal).toContain("COMPLETED");
-    expect(workflow.terminal).not.toContain("DONE");
+    expect(workflow.terminal).not.toContain("COMPLETED");
   });
 
   test("READY → IN-PROGRESS is a legal direct transition (no session_start gate)", () => {
     expect(workflow.transitions["READY"]).toContain("IN-PROGRESS");
   });
 
-  test("IN-PROGRESS → COMPLETED is a legal transition", () => {
-    expect(workflow.transitions["IN-PROGRESS"]).toContain("COMPLETED");
+  test("IN-PROGRESS → DONE is a legal transition", () => {
+    expect(workflow.transitions["IN-PROGRESS"]).toContain("DONE");
   });
 
   test("GitHub Issues maps to issue type with state-ops label", () => {

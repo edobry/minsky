@@ -13,7 +13,8 @@
  *   - "implementation" — the existing state machine, encoded as data.
  *   - "umbrella" — simpler lifecycle for epic/metadata tasks that complete without a PR.
  *   - "state-ops" — no-code / pure-state tasks (triage sweeps, config-only ops, decision
- *     records) that terminate at COMPLETED without a session or a PR (mt#2661).
+ *     records) that terminate at DONE without a session or a PR (mt#2661; single
+ *     success terminal across kinds since mt#2311).
  *
  * Cross-references:
  *   - mt#1812 — originating task
@@ -113,7 +114,7 @@ export interface Workflow {
  * "implementation" — covers all tasks that ship via a PR (the existing state machine).
  * "umbrella"       — covers epic / tracking tasks with no associated PR.
  * "state-ops"      — covers no-code / pure-state tasks (triage sweeps, config-only ops,
- *                    decision records) that terminate at COMPLETED without a session
+ *                    decision records) that terminate at DONE without a session
  *                    or a PR (mt#2661).
  */
 export type TaskKind = "implementation" | "umbrella" | "state-ops";
@@ -210,25 +211,28 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
   // -------------------------------------------------------------------------
   // "umbrella" — simpler lifecycle for epic / metadata tasks with no PR.
   //
-  // States: TODO → PLANNING → IN-PROGRESS → COMPLETED | CLOSED
+  // States: TODO → PLANNING → IN-PROGRESS → DONE | CLOSED
   //
-  // Key difference: terminal state is COMPLETED (not DONE).
-  //   - DONE carries the connotation "PR merged" for implementation tasks.
-  //   - COMPLETED means "all children completed / objective achieved" for umbrellas.
+  // Single success terminal DONE across all kinds (mt#2311, principal decision
+  // 2026-06-05; supersedes mt#1812's per-kind COMPLETED terminal). What
+  // distinguishes an umbrella completion is not the terminal's NAME but its
+  // path: umbrella IN-PROGRESS → DONE is a legal operator-set transition
+  // (guarded by the children-completeness check in mutation-commands.ts),
+  // while implementation DONE remains merge-gated.
   //   - CLOSED means "abandoned / superseded" (same semantics across kinds).
   //
   // Notably absent: READY (no planning gate), IN-REVIEW (no PR review phase).
   // -------------------------------------------------------------------------
   umbrella: {
-    states: ["TODO", "PLANNING", "IN-PROGRESS", "COMPLETED", "CLOSED"],
+    states: ["TODO", "PLANNING", "IN-PROGRESS", "DONE", "CLOSED"],
     transitions: {
       TODO: ["PLANNING", "CLOSED"],
       PLANNING: ["IN-PROGRESS", "CLOSED"],
-      "IN-PROGRESS": ["COMPLETED", "CLOSED"],
-      COMPLETED: ["CLOSED"],
+      "IN-PROGRESS": ["DONE", "CLOSED"],
+      DONE: ["CLOSED"],
       CLOSED: ["TODO"],
     },
-    terminal: ["COMPLETED", "CLOSED"],
+    terminal: ["DONE", "CLOSED"],
     mappings: {
       githubIssue: {
         type: "issue",
@@ -237,7 +241,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
           TODO: "open",
           PLANNING: "open",
           "IN-PROGRESS": "open",
-          COMPLETED: "closed",
+          DONE: "closed",
           CLOSED: "closed",
         },
       },
@@ -247,7 +251,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
           TODO: "Backlog",
           PLANNING: "Planned",
           "IN-PROGRESS": "In Progress",
-          COMPLETED: "Completed",
+          DONE: "Completed",
           CLOSED: "Canceled",
         },
       },
@@ -258,7 +262,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
           TODO: "To Do",
           PLANNING: "In Planning",
           "IN-PROGRESS": "In Progress",
-          COMPLETED: "Done",
+          DONE: "Done",
           CLOSED: "Canceled",
         },
       },
@@ -269,7 +273,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
   // "state-ops" — no-code / pure-state tasks (triage sweeps, config-only ops,
   // decision records) that terminate without a session or a PR (mt#2661).
   //
-  // States: TODO → PLANNING → READY → IN-PROGRESS → COMPLETED | CLOSED
+  // States: TODO → PLANNING → READY → IN-PROGRESS → DONE | CLOSED
   //
   // Key difference from "implementation": READY → IN-PROGRESS is a LEGAL direct
   // transition here (not reserved for session_start). The implementation-kind
@@ -280,20 +284,21 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
   // Key difference from "umbrella": state-ops KEEPS the READY planning gate
   // (umbrella skips it) because state-ops tasks still go through /plan-task
   // before work starts; it just doesn't require a session workspace to move
-  // past READY. Terminal state is COMPLETED (same success-terminal semantics
-  // as umbrella): "objective achieved without a PR-merge event."
+  // past READY. Success terminal is DONE (mt#2311, single terminal across
+  // kinds): "objective achieved without a PR-merge event" — reached via a
+  // legal direct IN-PROGRESS → DONE operator transition.
   // -------------------------------------------------------------------------
   "state-ops": {
-    states: ["TODO", "PLANNING", "READY", "IN-PROGRESS", "COMPLETED", "CLOSED"],
+    states: ["TODO", "PLANNING", "READY", "IN-PROGRESS", "DONE", "CLOSED"],
     transitions: {
       TODO: ["PLANNING", "CLOSED"],
       PLANNING: ["READY", "TODO", "CLOSED"],
       READY: ["IN-PROGRESS", "PLANNING", "CLOSED"],
-      "IN-PROGRESS": ["COMPLETED", "PLANNING", "CLOSED"],
-      COMPLETED: ["CLOSED"],
+      "IN-PROGRESS": ["DONE", "PLANNING", "CLOSED"],
+      DONE: ["CLOSED"],
       CLOSED: ["TODO"],
     },
-    terminal: ["COMPLETED", "CLOSED"],
+    terminal: ["DONE", "CLOSED"],
     mappings: {
       githubIssue: {
         type: "issue",
@@ -303,7 +308,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
           PLANNING: "open",
           READY: "open",
           "IN-PROGRESS": "open",
-          COMPLETED: "closed",
+          DONE: "closed",
           CLOSED: "closed",
         },
       },
@@ -314,7 +319,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
           PLANNING: "Todo",
           READY: "Todo",
           "IN-PROGRESS": "In Progress",
-          COMPLETED: "Done",
+          DONE: "Done",
           CLOSED: "Canceled",
         },
       },
@@ -326,7 +331,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
           PLANNING: "In Planning",
           READY: "Ready",
           "IN-PROGRESS": "In Progress",
-          COMPLETED: "Done",
+          DONE: "Done",
           CLOSED: "Canceled",
         },
       },
@@ -379,11 +384,12 @@ export const DEFAULT_KIND: TaskKind = "implementation";
 
 /**
  * True when `status` is a terminal state in ANY registered workflow
- * (currently the union {DONE, CLOSED, COMPLETED}). This is the domain-level
- * "no further work expected" predicate — e.g. the umbrella closeout guard
- * (mt#2606) uses it to decide whether a child task counts as complete.
- * Distinct from the UI's hidden-by-default listing filter, which may drift
- * for display reasons without changing closeout semantics.
+ * (currently the union {DONE, CLOSED} — single success terminal since
+ * mt#2311). This is the domain-level "no further work expected" predicate —
+ * e.g. the parent-DONE closeout guard (mt#1649) uses it to decide whether a
+ * child task counts as complete. Distinct from the UI's hidden-by-default
+ * listing filter, which may drift for display reasons without changing
+ * closeout semantics.
  */
 export function isTerminalTaskStatus(status: string | undefined): boolean {
   if (!status) return false;

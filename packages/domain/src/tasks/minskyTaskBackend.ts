@@ -107,12 +107,11 @@ export class MinskyTaskBackend implements TaskBackend {
       conditions.push(eq(tasksTable.status, options.status));
     } else if (!options?.all) {
       // Default: exclude terminal statuses unless --all is specified.
-      // Terminal set = DONE (implementation success) + CLOSED (both kinds) +
-      // COMPLETED (umbrella success, mt#1812). Kept in sync with
-      // TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
+      // Terminal set = DONE + CLOSED (single success terminal since mt#2311;
+      // rows at the retired COMPLETED value were migrated to DONE). Kept in
+      // sync with TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
       conditions.push(not(eq(tasksTable.status, "DONE")));
       conditions.push(not(eq(tasksTable.status, "CLOSED")));
-      conditions.push(not(eq(tasksTable.status, "COMPLETED")));
     }
 
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")

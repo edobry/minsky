@@ -75,30 +75,34 @@ CLOSED    → TODO (reopen)
 - `PLANNING → IN-PROGRESS` must go through READY first.
 
 **Parent-DONE guard (mt#1649).** A transition to `DONE` is refused while the task has
-children and any child is non-terminal — the `implementation`-kind analogue of the
-umbrella closeout guard below, generalized to fire on the DONE target **regardless of
-kind** (a parent doesn't need to be `umbrella` to have children). Semantics:
+children and any child is non-terminal. It fires on the DONE target **regardless of
+kind** — since mt#2311 collapsed the workflows to a single success terminal, this one
+guard is also the umbrella/state-ops closeout guard (mt#2606's separate
+umbrella → COMPLETED guard was folded into it). Semantics:
 
-- **Terminal** for the check is the same domain predicate as the umbrella guard —
-  `isTerminalTaskStatus()`, the union `DONE` / `CLOSED` / `COMPLETED`.
+- **Terminal** for the check is the domain predicate `isTerminalTaskStatus()` —
+  the union of the workflow registry's terminal states, `DONE` / `CLOSED`.
 - On refusal the error names every incomplete child with its status, e.g.
-  `Cannot set task mt#X to DONE: 2 child task(s) not terminal (DONE/CLOSED/COMPLETED):
+  `Cannot set task mt#X to DONE: 2 child task(s) not terminal (DONE/CLOSED):
 mt#A (PLANNING), mt#B (TODO). Resolve one of: ...` followed by the three suggested
-  resolutions (set the children to DONE/CLOSED/COMPLETED first; amend the parent's
+  resolutions (set the children to DONE/CLOSED first; amend the parent's
   success criteria if scope was reframed; or walk the parent through CLOSED if the
-  rollup is being abandoned).
+  rollup is being abandoned). A child whose record cannot be read counts as
+  incomplete (`(unreadable)`).
 - A task with zero children transitions to DONE freely — this guard only fires when
   the task actually has children.
 - Enforced in `setTaskStatusFromParams` (`tasks/commands/mutation-commands.ts`,
-  helper `assertChildrenCompleteForDone`), sharing its child-lookup core
-  (`findIncompleteChildren`) with the umbrella guard. Domain-layer only — no
-  Claude Code hook — since the `tasks.ts` facade (mt#2606/PR #1897) already routes
-  every `tasks_status_set` / `tasks_dispatch` caller through this gate server-side.
-  Requires an injected `taskGraphService` (the MCP/CLI registry always injects one);
-  direct domain callers without it skip the guard rather than fail.
+  helper `assertChildrenCompleteForDone` over the `findIncompleteChildren` core).
+  Domain-layer only — no Claude Code hook — since the `tasks.ts` facade
+  (mt#2606/PR #1897) already routes every `tasks_status_set` / `tasks_dispatch`
+  caller through this gate server-side. Requires an injected `taskGraphService`
+  (the MCP/CLI registry always injects one); direct domain callers without it
+  skip the guard rather than fail.
+- `CLOSED` is not guarded — abandoning a parent with open children remains legal.
 - Originating incident: mt#1503 was set DONE on 2026-05-04 while its lynchpin child
   (mt#1073) sat at PLANNING; the pinned regression fixture lives in
-  `packages/domain/src/tasks/parent-done-closeout-guard.test.ts`.
+  `packages/domain/src/tasks/parent-done-closeout-guard.test.ts`. Umbrella-flavored
+  facade coverage lives in `umbrella-closeout-guard.test.ts`.
 
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |
@@ -118,24 +122,27 @@ mt#A (PLANNING), mt#B (TODO). Resolve one of: ...` followed by the three suggest
 
 A simpler lifecycle for epic/metadata tasks with no associated PR.
 
-**States:** `TODO`, `PLANNING`, `IN-PROGRESS`, `COMPLETED`, `CLOSED`
+**States:** `TODO`, `PLANNING`, `IN-PROGRESS`, `DONE`, `CLOSED`
 
 **Transitions:**
 
 ```
 TODO       → PLANNING, CLOSED
 PLANNING   → IN-PROGRESS, CLOSED
-IN-PROGRESS → COMPLETED, CLOSED
-COMPLETED  → CLOSED
+IN-PROGRESS → DONE, CLOSED
+DONE       → CLOSED
 CLOSED     → TODO (reopen)
 ```
 
-**Terminal states:** `COMPLETED`, `CLOSED`
+**Terminal states:** `DONE`, `CLOSED`
 
 **Key differences from `implementation`:**
 
-- `COMPLETED` (not `DONE`) is the success terminal state. `DONE` carries the connotation
-  "PR merged"; `COMPLETED` means "objective achieved / all children done."
+- `IN-PROGRESS → DONE` is a legal operator-set transition (no merge event required).
+  What distinguishes umbrella completion is the PATH, not the terminal's name: since
+  mt#2311 (principal decision 2026-06-05) every kind shares the single success
+  terminal `DONE`. (The kind's original `COMPLETED` terminal from mt#1812 was
+  removed; rows were migrated by `0055_collapse_completed_to_done`.)
 - No `READY` state — umbrella tasks don't have a planning-completeness gate before work starts.
 - No `IN-REVIEW` state — umbrella tasks don't go through a PR review phase.
 - No `BLOCKED` state — umbrellas that are blocked can just stay `IN-PROGRESS` or revert
@@ -143,28 +150,12 @@ CLOSED     → TODO (reopen)
 - `PLANNING → IN-PROGRESS` does NOT require going through READY first (no `session_start`
   restriction for umbrellas).
 
-**Closeout guard (mt#2606).** A transition to `COMPLETED` is refused while any child
-task is non-terminal, since `COMPLETED` means "all children done." Semantics:
-
-- **Terminal** for the check means the child's status is a terminal state in any
-  registered workflow — the union `DONE` / `CLOSED` / `COMPLETED`
-  (`isTerminalTaskStatus()` in `workflows.ts`, a domain predicate deliberately
-  distinct from the UI's hidden-by-default listing filter).
-- On refusal the error names every incomplete child with its status, e.g.
-  `Cannot complete umbrella task mt#X: 2 child task(s) not terminal
-(DONE/CLOSED/COMPLETED): mt#A (IN-PROGRESS), mt#B (TODO). Complete or close the
-children first (mt#2606).` A child whose record cannot be read counts as
-  incomplete (`(unreadable)`).
-- An umbrella with zero children completes freely.
-- Enforced in `setTaskStatusFromParams` (`tasks/commands/mutation-commands.ts`,
-  helper `assertUmbrellaChildrenComplete`), which the `tasks.ts` facade — the
-  `@minsky/domain/tasks` barrel target used by `tasks_status_set` and
-  `tasks_dispatch` — delegates to. The check requires an injected
-  `taskGraphService` (the MCP/CLI registry always injects one); direct domain
-  callers without it skip the guard rather than fail.
-- `CLOSED` is not guarded — abandoning an umbrella with open children remains legal.
-- See the `implementation` kind's **Parent-DONE guard (mt#1649)** above for the sibling
-  guard that generalizes this pattern to the DONE target across all kinds.
+**Closeout guard.** Umbrella closeout ("all children done") is enforced by the
+**Parent-DONE guard (mt#1649)** documented under the `implementation` kind above —
+one guard for every kind since the terminal collapse. An umbrella whose children
+are not all DONE/CLOSED cannot reach DONE; the error names the incomplete children.
+(mt#2606 originally shipped this as a separate umbrella → COMPLETED guard; mt#2311
+folded it in.)
 
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |
@@ -172,7 +163,7 @@ children first (mt#2606).` A child whose record cannot be read counts as
 | TODO | open | Backlog | To Do |
 | PLANNING | open | Planned | In Planning |
 | IN-PROGRESS | open | In Progress | In Progress |
-| COMPLETED | closed | Completed | Done |
+| DONE | closed | Completed | Done |
 | CLOSED | closed | Canceled | Canceled |
 
 Linear's natural primitive for umbrella tasks is **Project** (not Issue), which is
@@ -185,7 +176,7 @@ reflected in `mappings.linear.type = "Project"`. Jira's natural primitive is **E
 No-code / pure-state tasks — triage sweeps, config-only ops, decision records — that
 terminate honestly without a session workspace or a PR (mt#2661).
 
-**States:** `TODO`, `PLANNING`, `READY`, `IN-PROGRESS`, `COMPLETED`, `CLOSED`
+**States:** `TODO`, `PLANNING`, `READY`, `IN-PROGRESS`, `DONE`, `CLOSED`
 
 **Transitions:**
 
@@ -193,16 +184,18 @@ terminate honestly without a session workspace or a PR (mt#2661).
 TODO        → PLANNING, CLOSED
 PLANNING    → READY, TODO, CLOSED
 READY       → IN-PROGRESS, PLANNING, CLOSED
-IN-PROGRESS → COMPLETED, PLANNING, CLOSED
-COMPLETED   → CLOSED
+IN-PROGRESS → DONE, PLANNING, CLOSED
+DONE        → CLOSED
 CLOSED      → TODO (reopen)
 ```
 
-**Terminal states:** `COMPLETED`, `CLOSED`
+**Terminal states:** `DONE`, `CLOSED`
 
 **Key differences from `implementation`:**
 
-- `COMPLETED` (not `DONE`) is the success terminal state — same convention as `umbrella`.
+- `IN-PROGRESS → DONE` is a legal direct operator transition — "objective achieved
+  without a PR-merge event" (single success terminal since mt#2311; the kind's
+  original `COMPLETED` terminal was removed).
 - `READY → IN-PROGRESS` is a **legal direct transition** via `tasks_status_set`. The
   implementation-kind special case that reserves this transition for `session_start`
   (`status-transitions.ts`) is gated on `kind === "implementation"` and does not apply
@@ -223,7 +216,7 @@ CLOSED      → TODO (reopen)
 | PLANNING | open | Todo | In Planning |
 | READY | open | Todo | Ready |
 | IN-PROGRESS | open | In Progress | In Progress |
-| COMPLETED | closed | Done | Done |
+| DONE | closed | Done | Done |
 | CLOSED | closed | Canceled | Canceled |
 
 ---
@@ -315,13 +308,13 @@ WORKFLOWS["spike"] = {
 
 These are illustrative extension patterns that use the registry without any gate changes:
 
-| Kind    | Use case                            | Key difference                                         |
-| ------- | ----------------------------------- | ------------------------------------------------------ |
-| `bug`   | Bug reports with reproduction steps | `REPRODUCED`, `ROOT-CAUSE-FOUND` intermediate states   |
-| `spike` | Research/investigation              | `FINDINGS-RECORDED` terminal instead of DONE/COMPLETED |
-| `rfc`   | Design proposals                    | `DRAFT → REVIEW → PUBLISHED` workflow                  |
-| `chore` | Maintenance tasks                   | Simplified `TODO → IN-PROGRESS → DONE`                 |
-| `docs`  | Documentation tasks                 | Same as chore; different tool mapping                  |
+| Kind    | Use case                            | Key difference                                       |
+| ------- | ----------------------------------- | ---------------------------------------------------- |
+| `bug`   | Bug reports with reproduction steps | `REPRODUCED`, `ROOT-CAUSE-FOUND` intermediate states |
+| `spike` | Research/investigation              | `FINDINGS-RECORDED` terminal instead of DONE         |
+| `rfc`   | Design proposals                    | `DRAFT → REVIEW → PUBLISHED` workflow                |
+| `chore` | Maintenance tasks                   | Simplified `TODO → IN-PROGRESS → DONE`               |
+| `docs`  | Documentation tasks                 | Same as chore; different tool mapping                |
 
 Each is one registry entry. No schema or gate changes.
 
@@ -405,16 +398,18 @@ bun scripts/migrate-task-kinds.ts --verbose
 
 After the system shipped, the following tasks were reclassified as `kind: "umbrella"`:
 
-| Task    | Title                     | Status    |
-| ------- | ------------------------- | --------- |
-| mt#1768 | Cockpit bundle umbrella   | COMPLETED |
-| mt#1451 | Task graph reorganization | CLOSED    |
-| mt#1533 | (child of mt#1451)        | CLOSED    |
-| mt#1534 | (child of mt#1451)        | CLOSED    |
-| mt#1535 | (child of mt#1451)        | CLOSED    |
-| mt#1143 | Cockpit v0                | PLANNING  |
+| Task    | Title                     | Status               |
+| ------- | ------------------------- | -------------------- |
+| mt#1768 | Cockpit bundle umbrella   | COMPLETED (now DONE) |
+| mt#1451 | Task graph reorganization | CLOSED               |
+| mt#1533 | (child of mt#1451)        | CLOSED               |
+| mt#1534 | (child of mt#1451)        | CLOSED               |
+| mt#1535 | (child of mt#1451)        | CLOSED               |
+| mt#1143 | Cockpit v0                | PLANNING             |
 
-mt#1768's transition to COMPLETED proved the umbrella terminal-state path end-to-end.
+mt#1768's transition to (then) COMPLETED proved the umbrella terminal-state path
+end-to-end; mt#2311 later collapsed COMPLETED into DONE and migrated its rows
+(`0055_collapse_completed_to_done`).
 
 ---
 

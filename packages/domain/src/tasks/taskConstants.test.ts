@@ -14,8 +14,8 @@ const TEST_ARRAY_SIZE = 8;
 describe("Task Constants and Utilities", () => {
   describe("Basic Constants", () => {
     test("should have all required task statuses", () => {
-      // mt#1812 added COMPLETED (umbrella-kind success terminal, analogous to
-      // DONE for implementation-kind tasks) — update the exact list (mt#2608).
+      // COMPLETED (mt#1812's umbrella terminal) was removed by mt#2311 —
+      // single success terminal (DONE) across all kinds.
       expect(Object.keys(TASK_STATUS)).toEqual([
         "TODO",
         "PLANNING",
@@ -25,7 +25,6 @@ describe("Task Constants and Utilities", () => {
         "DONE",
         "BLOCKED",
         "CLOSED",
-        "COMPLETED",
       ]);
     });
 
