@@ -1,9 +1,10 @@
 /**
  * Shared forge commands (forge-agnostic CI, check-runs, branch-protection, labels).
  *
- * Exposes nine MCP tools that route through the configured ForgeBackend:
+ * Exposes ten MCP tools that route through the configured ForgeBackend:
  *   forge.ci_run_list          — list CI workflow runs (filter: workflow, branch, status)
  *   forge.ci_run_view_log      — download and decode logs for a run ID
+ *   forge.ci_run_rerun         — re-run a workflow run (failed jobs by default, or full rerun)
  *   forge.check_runs_list      — list check-runs for an arbitrary commit SHA
  *   forge.branch_protection_get — get branch protection settings
  *   forge.branch_protection_set — replace branch protection settings
@@ -175,6 +176,49 @@ sharedCommandRegistry.registerCommand({
     const backend = await resolveForgeBackend(ctx);
     const logs = await backend.workflowRuns.viewLogs(runId);
     return { success: true, logs, runId };
+  },
+});
+
+// ── forge.ci_run_rerun ────────────────────────────────────────────────────
+
+sharedCommandRegistry.registerCommand({
+  id: "forge.ci_run_rerun",
+  category: CommandCategory.FORGE,
+  name: "ci_run_rerun",
+  description:
+    "Re-run a GitHub Actions workflow run by its run ID (mt#2775). By default re-runs only " +
+    "the FAILED jobs (POST .../rerun-failed-jobs) — the narrower retry for a verified-" +
+    "unrelated flake on an otherwise-green required check. Pass fullRerun:true to re-run " +
+    "every job in the workflow instead. Reruns are only valid for COMPLETED runs " +
+    "(queued/in_progress runs cannot be re-run) and are subject to GitHub's own limits " +
+    "(30-day window, 50 reruns per run, combining full and failed-jobs reruns). Requires " +
+    "the 'Actions' repository permission (write) on the configured GitHub App/token — a 403 " +
+    "'Resource not accessible by integration' means that permission is missing and must be " +
+    "granted by an operator (see the tool's error message for exact steps). The result " +
+    "includes rerunCount (GitHub's own run_attempt counter) so callers/reviewers can see how " +
+    "many times this run has already been retried.",
+  parameters: {
+    runId: {
+      schema: z.number().int().positive(),
+      description: "Numeric workflow run ID to re-run (from forge.ci_run_list).",
+      required: true,
+    },
+    fullRerun: {
+      schema: z.boolean().optional(),
+      description:
+        "If true, re-run the entire workflow (every job). Default false: re-run only the " +
+        "jobs that failed on the prior attempt.",
+      required: false,
+      defaultValue: false,
+    },
+  },
+  requiresSetup: true,
+  execute: async (params, ctx: CommandExecutionContext) => {
+    const runId = params.runId as number;
+    const fullRerun = params.fullRerun as boolean | undefined;
+    const backend = await resolveForgeBackend(ctx);
+    const result = await backend.workflowRuns.rerun(runId, { fullRerun });
+    return { success: true, ...result };
   },
 });
 

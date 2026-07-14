@@ -71,8 +71,11 @@ import { FallbackTokenProvider, type TokenProvider } from "../auth";
 import {
   listWorkflowRuns as listWorkflowRunsImpl,
   viewWorkflowRunLogs as viewWorkflowRunLogsImpl,
+  rerunWorkflowRun as rerunWorkflowRunImpl,
   type WorkflowRun,
   type ListWorkflowRunsOptions,
+  type RerunWorkflowRunOptions,
+  type RerunWorkflowRunResult,
 } from "./github-workflow-runs";
 import {
   getBranchProtection as getBranchProtectionImpl,
@@ -868,6 +871,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
         return viewWorkflowRunLogsImpl(gh, runId, octokit);
+      },
+
+      rerun: async (
+        runId: number,
+        options?: RerunWorkflowRunOptions
+      ): Promise<RerunWorkflowRunResult> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return rerunWorkflowRunImpl(gh, runId, options ?? {}, octokit);
       },
     };
   }
