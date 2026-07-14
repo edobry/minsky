@@ -165,6 +165,15 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // overview card on "Loading…" indefinitely because this await had no
       // bound. The losing fetch keeps running (no cancellation seam on
       // WidgetModule.fetch today); the deadline only caps the HTTP response.
+      //
+      // Contract note (PR #1895 R1): the timeout response is HTTP 200 with
+      // `{ state: "degraded" }` — DELIBERATELY, not an oversight. The widget
+      // data contract is state-keyed, not HTTP-status-keyed: the pre-existing
+      // crash path below returns 200 + degraded the same way, and the sole
+      // consumer (`src/cockpit/web/lib/widget-client.ts` fetchWidgetData)
+      // never inspects `res.ok`/status — it parses the body and branches on
+      // `state`. A 503 here would diverge from every other degraded response
+      // for zero consumer benefit.
       let deadlineHandle: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<{ state: "degraded"; reason: string }>((resolve) => {
         deadlineHandle = setTimeout(

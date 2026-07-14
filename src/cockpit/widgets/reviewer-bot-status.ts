@@ -86,6 +86,10 @@ const RECENT_TASKS_LIMIT = 5;
  * widget's 15-query fan-out was exactly pool max — one racing sweeper query or a
  * second fetch pushed it over. Concurrent fetches are additionally single-flighted
  * in the widget factory so cross-request fan-out cannot multiply.
+ *
+ * Static by design (PR #1895 R1): the pool max is itself a hardcoded default
+ * today; if maxConnections ever becomes operator-tunable, derive this bound
+ * from the provider's resolved value with a safety margin instead.
  */
 const QUERY_CONCURRENCY_LIMIT = 4;
 
@@ -245,6 +249,11 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
   // cockpit frontend polls without a client-side timeout, hung requests pin the
   // endpoint permanently concurrent. Cleared on settle so sequential polls get
   // fresh data.
+  //
+  // Coalescing across ALL callers is valid because this widget's fetch ignores
+  // its WidgetContext entirely (no query params affect the result). If a
+  // query-dependent variant is ever added, key the in-flight promise by
+  // (id, serialized query) instead (PR #1895 R1).
   let inflight: Promise<WidgetData> | null = null;
 
   async function runFetch(): Promise<WidgetData> {
@@ -274,7 +283,10 @@ export function createReviewerBotStatusWidget(deps: ReviewerBotStatusDeps): Widg
             `[reviewer-bot-status] DB stats timed out after ${timeoutMs}ms — returning db:null`
           );
         }
-      } catch {
+      } catch (err) {
+        // fetchDbStats' per-query catches make a throw here unexpected — log it
+        // (rate-limited) rather than masking it silently (PR #1895 R1).
+        warnQueryFailure(err);
         db = null;
       } finally {
         if (deadlineHandle) clearTimeout(deadlineHandle);
