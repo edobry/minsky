@@ -33,7 +33,16 @@ export function DrivenSessionPage() {
     return <div className="p-4 text-sm text-muted-foreground">No driven session id in the URL.</div>;
   }
 
-  const channelFailed = driven.status === "crashed" && driven.connectionState !== "open";
+  // Show the generic connection-failure ErrorState ONLY when the channel never
+  // opened — a connection-level error, or a socket that closed before the
+  // session ever started (no `init` event, so no `harnessSessionId`: auth
+  // failure / unknown session). A session that DID start and then crashed
+  // mid-stream keeps its transcript-so-far visible with a `Crashed` status bar
+  // — hiding it behind the ErrorState would violate mt#2751's acceptance test
+  // ("the view surfaces the exit rather than freezing"). (mt#2751 R2)
+  const channelFailed =
+    driven.connectionState === "error" ||
+    (driven.connectionState === "closed" && !driven.harnessSessionId);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 p-4">

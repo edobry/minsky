@@ -62,6 +62,10 @@ class StubWebSocket {
   simulateError(): void {
     this.dispatch("error", {});
   }
+  simulateClose(): void {
+    this.readyState = StubWebSocket.CLOSED;
+    this.dispatch("close", {});
+  }
   private dispatch(type: string, ev: unknown): void {
     for (const l of this.listeners.get(type) ?? []) l(ev);
   }
@@ -226,11 +230,19 @@ describe("DrivenSessionPage (mt#2751)", () => {
       type: "minsky_error",
       message: "Failed to start claude: ENOENT",
     });
+    // The daemon closes the socket after a crash — the real behavior the prior
+    // version of this test omitted, which let the crash-after-open bug through
+    // (mt#2751 R2). With the socket closed, connectionState becomes "closed";
+    // because the session DID start (harnessSessionId set from the init above),
+    // the transcript must stay visible, NOT flip to the channel-failure state.
+    firstWs().simulateClose();
 
     await waitFor(() => expect(screen.getByText("Crashed")).toBeDefined());
     expect(screen.getByText("Failed to start claude: ENOENT")).toBeDefined();
     // The transcript up to the crash point stays visible — not replaced by the
     // channel-failure ErrorState (the channel DID open; the session crashed).
     expect(screen.getByText("working...")).toBeDefined();
+    // And explicitly NOT the never-opened connection-failure error.
+    expect(screen.queryByText(/Could not connect to the driven session channel/)).toBeNull();
   });
 });
