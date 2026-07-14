@@ -50,8 +50,57 @@ function relativeTime(iso: string): string {
   return `${day}d ${sign}`;
 }
 
-/** A string value leaf with Tier-2 enrichment. Quotes are part of the JSON display. */
+/**
+ * A multiline string leaf — rendered as a preformatted block so line structure
+ * survives (mt#2788). The dominant Minsky tool-result shape is
+ * `{success, output: "<many lines>"}`; an inline span collapses its newlines and
+ * turns the most common payload into a run-on line. Quotes are dropped here:
+ * block presentation reads as text, not as a JSON-quoted scalar. Height is
+ * bounded so one giant output can't dominate the turn (mirrors ToolPayload's
+ * max-h bounds). Entity refs inside the block still linkify.
+ */
+function MultilineStringLeaf({
+  value,
+  entityIndex,
+}: {
+  value: string;
+  entityIndex?: EntityIndex;
+}) {
+  const tokens = entityIndex && entityIndex.size > 0 ? tokenizeEntities(value, entityIndex) : null;
+  const hasLinks = tokens !== null && tokens.some((t) => t.kind === "link");
+  return (
+    <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border/30 bg-muted/20 px-2 py-1 text-emerald-300/90">
+      {hasLinks && tokens
+        ? tokens.map((t, i) =>
+            t.kind === "text" ? (
+              <span key={i}>{t.value}</span>
+            ) : (
+              <Link
+                key={i}
+                to={t.to}
+                className={cn(
+                  "text-primary underline-offset-2 hover:underline",
+                  t.mono && "font-mono"
+                )}
+              >
+                {t.text}
+              </Link>
+            )
+          )
+        : value}
+    </pre>
+  );
+}
+
+/**
+ * A string value leaf with Tier-2 enrichment. Quotes are part of the JSON
+ * display for single-line values; multiline values take the block presentation
+ * (see MultilineStringLeaf).
+ */
 function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: EntityIndex }) {
+  if (value.includes("\n")) {
+    return <MultilineStringLeaf value={value} entityIndex={entityIndex} />;
+  }
   if (URL_RE.test(value)) {
     return (
       <a
