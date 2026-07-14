@@ -24,6 +24,7 @@ Optional: a description of the incident, PR number, or task ID. If omitted, anal
 ## When to invoke
 
 - Post-merge audit reveals missed issues
+- A reviewer-bot **BLOCKING** finding is verified **legitimate** — it required a real code change to resolve (not a false positive per memory `Verify reviewer-bot claims at the cited location before fixing`, not a non-blocking nit). Each such finding is a coverage receipt: something escaped the implementer's and the main agent's own verification before the PR went up. Route it through Step 0.5 triage — proportionate response; a minor isolated miss gets the compressed treatment, a pattern-level miss gets the full retro. (mt#2508; originating incident mt#2416 / PR #1715 R1, where the reviewer caught an unwired production mechanism the implementer's 18-passing-test verification missed.)
 - User gives the same feedback for the 2nd+ time
 - Subagent produces incomplete or incorrect work
 - A process step is consistently skipped or forgotten
