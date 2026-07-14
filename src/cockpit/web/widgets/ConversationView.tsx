@@ -505,6 +505,12 @@ function ElementView({
           unsupported block{element.rawType ? `: ${element.rawType}` : ""}
         </div>
       );
+    default: {
+      // Compiler-enforced exhaustiveness: adding a PreparedElement kind without
+      // a render case is a type error here, not a silently-dropped block.
+      const unhandled: never = element;
+      return unhandled;
+    }
   }
 }
 
