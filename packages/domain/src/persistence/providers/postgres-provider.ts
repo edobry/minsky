@@ -20,6 +20,7 @@ import {
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "../postgres-notice-handler";
+import { guardRawSqlAgainstPoolerWedge } from "../raw-sql-pooler-guard";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
 import {
@@ -184,6 +185,8 @@ export class PostgresPersistenceProvider
 {
   protected db: PostgresJsDatabase | null = null;
   protected sql: ReturnType<typeof postgres> | null = null;
+  /** Lazily-built pooler-guarded view of `sql` handed out by getRawSqlConnection (mt#2773). */
+  protected guardedSql: ReturnType<typeof postgres> | null = null;
   /** Dedicated session-mode connection for LISTEN/NOTIFY (mt#1852). Created lazily. */
   protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
@@ -310,6 +313,7 @@ export class PostgresPersistenceProvider
         }
       }
       this.sql = null;
+      this.guardedSql = null;
       this.db = null;
       this.isInitialized = false;
       log.error(
@@ -354,7 +358,17 @@ export class PostgresPersistenceProvider
       throw new Error("Raw SQL connection not available");
     }
 
-    return this.sql;
+    // mt#2773: hand out a guarded view that bounds in-flight `.unsafe()`
+    // queries at the pool's max — zero-bind raw queries submitted beyond pool
+    // capacity wedge the Supavisor transaction pooler (connections destroyed
+    // during ramp-up) and postgres-js never settles some of the destroyed
+    // connection's promises. See raw-sql-pooler-guard.ts for the experiment
+    // matrix and rationale. The underlying `this.sql` (used by drizzle and
+    // sql.begin() transactions) is deliberately untouched.
+    if (!this.guardedSql) {
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
+    }
+    return this.guardedSql;
   }
 
   /**
@@ -481,6 +495,7 @@ export class PostgresPersistenceProvider
       if (this.sql) {
         await this.sql.end();
         this.sql = null;
+        this.guardedSql = null;
         this.db = null;
         this.isInitialized = false;
         log.debug("PostgreSQL connections closed");
