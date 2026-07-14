@@ -2,6 +2,15 @@
  * Task Query Commands
  *
  * Interface-agnostic read operations: list, get, getStatus, getSpecContent.
+ *
+ * IMPORTANT (mt#2762 / mt#2783): this module's `listTasksFromParams` is a SEPARATE
+ * implementation from `packages/domain/src/tasks.ts`'s function of the same name.
+ * This one is reached via the `taskCommands.ts` barrel (e.g. by
+ * `index-embeddings-command.ts`); the actual CLI/MCP `tasks_list` command imports
+ * `@minsky/domain/tasks`, which resolves to `tasks/index.ts` → `../tasks.ts` — NOT
+ * this file. A filter change here does not automatically reach the CLI/MCP surface;
+ * mirror it in `tasks.ts` too. mt#2783 tracks consolidating these into one
+ * implementation.
  */
 
 import { z } from "zod";
