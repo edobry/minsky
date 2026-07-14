@@ -84,6 +84,9 @@ export const taskFilterParams = {
   status: TaskParameters.status,
   filter: TaskParameters.filter,
   limit: TaskParameters.limit,
+  // Workflow-kind filter (mt#2762). Reuses TaskParameters.kind (validated against
+  // the workflow registry) so CLI/MCP surfaces share the same enum as tasks_edit.
+  kind: TaskParameters.kind,
   tag: {
     schema: z.union([z.string(), z.array(z.string())]).optional(),
     description:
@@ -264,6 +267,8 @@ export const tasksSearchParams = {
   // Add filtering options consistent with tasks list
   all: TaskParameters.all,
   status: TaskParameters.status,
+  // Workflow-kind filter (mt#2762), consistent with tasks list / tasks available.
+  kind: TaskParameters.kind,
   // Support suppressing progress output
   quiet: CommonParameters.quiet,
   ...taskContextParams,

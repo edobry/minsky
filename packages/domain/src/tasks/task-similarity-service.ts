@@ -109,8 +109,15 @@ export class TaskSimilarityService {
       : undefined;
     const backendEquals =
       typeof filters?.backend === "string" ? (filters.backend as string) : undefined;
+    // Workflow-kind filter (mt#2762). Applied against the live task, same as
+    // status/backend — kind is undefined on GHI-backed tasks today (a known
+    // gap), so those tasks only match a "implementation" kind filter.
+    const kindEquals = typeof filters?.kind === "string" ? (filters.kind as string) : undefined;
     const hasDomainFilter =
-      Boolean(statusEquals) || (statusExclude?.length ?? 0) > 0 || Boolean(backendEquals);
+      Boolean(statusEquals) ||
+      (statusExclude?.length ?? 0) > 0 ||
+      Boolean(backendEquals) ||
+      Boolean(kindEquals);
 
     // mt#2744: phase timing for the full tasks search path. The backend logs the
     // embed-vs-vector split per getSearchService().search() call; this summary adds
@@ -170,6 +177,7 @@ export class TaskSimilarityService {
     const passes = (task: Task | undefined): boolean => {
       if (!task) return false; // orphaned embedding (no live task) — drop
       if (backendEquals && task.backend !== backendEquals) return false;
+      if (kindEquals && (task.kind ?? "implementation") !== kindEquals) return false;
       if (statusEquals) return task.status === statusEquals;
       if (statusExclude && statusExclude.includes(task.status)) return false;
       return true;

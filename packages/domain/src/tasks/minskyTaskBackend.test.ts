@@ -10,6 +10,7 @@
  *    records a tombstone. Exercised with a recording fake DB.
  */
 import { describe, test, expect } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { MinskyTaskBackend, computeNextTaskId } from "./minskyTaskBackend";
 import {
   tasksTable,
@@ -254,5 +255,76 @@ describe("MinskyTaskBackend timestamp surfacing (mt#2259)", () => {
     expect(task.updatedAt).toBeInstanceOf(Date);
     // The returned object uses the same `now` written to the row — no drift.
     expect(task.createdAt).toEqual(task.updatedAt);
+  });
+});
+
+/**
+ * Recording fake of the MinskyBackendDb select surface for `listTasks`. Captures
+ * the drizzle `SQL` condition object passed to `.where(...)` so the test can
+ * render it to a parameterized query via drizzle's own `PgDialect` (no live DB
+ * needed) and assert on the actual WHERE clause — proving the kind filter is
+ * applied server-side in the query itself, not post-hoc in JS (mt#2762).
+ */
+function makeListTasksRecordingDb(rows: unknown[] = []) {
+  let capturedWhere: unknown;
+  const db = {
+    select() {
+      return {
+        from() {
+          return {
+            where(cond: unknown) {
+              capturedWhere = cond;
+              return Promise.resolve(rows);
+            },
+          };
+        },
+      };
+    },
+  };
+  return { db, getCapturedWhere: () => capturedWhere };
+}
+
+describe("MinskyTaskBackend.listTasks kind filter (mt#2762)", () => {
+  const dialect = new PgDialect();
+
+  test("filters by kind when options.kind is set", async () => {
+    const { db, getCapturedWhere } = makeListTasksRecordingDb();
+    const backend = new MinskyTaskBackend({ db, workspacePath: "/tmp/ws" } as never);
+
+    await backend.listTasks({ kind: "umbrella", all: true });
+
+    const where = getCapturedWhere();
+    expect(where).toBeDefined();
+    const { sql, params } = dialect.sqlToQuery(where as never);
+    expect(sql).toContain('"tasks"."kind" = ');
+    expect(params).toContain("umbrella");
+  });
+
+  test("does not filter by kind when options.kind is absent", async () => {
+    const { db, getCapturedWhere } = makeListTasksRecordingDb();
+    const backend = new MinskyTaskBackend({ db, workspacePath: "/tmp/ws" } as never);
+
+    await backend.listTasks({ all: true });
+
+    const where = getCapturedWhere();
+    expect(where).toBeDefined();
+    const { sql } = dialect.sqlToQuery(where as never);
+    expect(sql).not.toContain('"tasks"."kind"');
+  });
+
+  test("rejects an unknown kind before it reaches the query (defense-in-depth via assertKnownKind at the caller)", async () => {
+    // MinskyTaskBackend itself does not validate kind — validation happens
+    // upstream in listTasksFromParams (assertKnownKind). This test documents
+    // that the backend applies whatever kind it is given verbatim, so callers
+    // MUST validate before calling — exercised end-to-end in taskCommands.test.ts.
+    const { db, getCapturedWhere } = makeListTasksRecordingDb();
+    const backend = new MinskyTaskBackend({ db, workspacePath: "/tmp/ws" } as never);
+
+    await backend.listTasks({ kind: "anything-goes-here", all: true });
+
+    const where = getCapturedWhere();
+    const { sql, params } = dialect.sqlToQuery(where as never);
+    expect(sql).toContain('"tasks"."kind" = ');
+    expect(params).toContain("anything-goes-here");
   });
 });

@@ -3,6 +3,8 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
+import { assertKnownKind } from "@minsky/domain/tasks/workflows";
+import { TaskParameters } from "../../common-parameters";
 
 // Re-export RouteStep for callers that reference it from this file
 export type { RouteStep } from "@minsky/domain/tasks/task-routing-service";
@@ -19,6 +21,10 @@ const tasksAvailableParams = {
     description: "Filter by specific backend (mt, md, gh, etc.)",
     required: false,
   },
+  // Reuses the shared, workflow-registry-derived enum (mt#2762) — same schema as
+  // tasks_list / tasks_search / tasks_edit, so CLI --help and MCP JSON-schema both
+  // show the enum values (reviewer finding, PR #1912 R1).
+  kind: TaskParameters.kind,
   limit: {
     schema: z.number().default(20),
     // defaultValue (not schema.default) is what the CLI/MCP bridges materialize for
@@ -94,6 +100,10 @@ export function createTasksAvailableCommand(
     execute: async (params: InferParams<typeof tasksAvailableParams>) => {
       const provider = getPersistenceProvider();
 
+      // Validate kind against the workflow registry up front (mt#2762), mirroring
+      // tasks_list / tasks_search / tasks_edit.
+      assertKnownKind(params.kind);
+
       // Parse status filter
       const statusFilter = params.status
         ? params.status.split(",").map((s: string) => s.trim())
@@ -118,6 +128,7 @@ export function createTasksAvailableCommand(
           availableTasks = await routingService.findAvailableTasks({
             statusFilter,
             backendFilter: params.backend,
+            kind: params.kind,
             limit,
             showEffort: params.showEffort,
             showPriority: params.showPriority,
@@ -142,6 +153,7 @@ export function createTasksAvailableCommand(
 
         const allTasks = await fallbackTaskService.listTasks({
           status: statusFilter.length === 1 ? statusFilter[0] : undefined,
+          kind: params.kind,
         });
 
         const filteredTasks = params.backend

@@ -23,6 +23,8 @@
  *   - CLAUDE.md §Task Lifecycle — overview of the current state machine
  */
 
+import { ValidationError } from "../errors/index";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -351,6 +353,23 @@ export function getWorkflow(kind: string | undefined | null): Workflow {
  */
 export function isKnownKind(kind: string): kind is TaskKind {
   return kind in WORKFLOWS;
+}
+
+/**
+ * Validate an optional `kind` filter/edit value against the workflow registry.
+ * Throws a `ValidationError` naming the valid kinds when `kind` is set but unknown.
+ * A no-op when `kind` is undefined (the caller did not request kind filtering/editing).
+ *
+ * Shared by the kind-filter read paths (tasks_list / tasks_search / tasks_available,
+ * mt#2762) and mirrors the inline check `tasks edit --kind` already performs
+ * (edit-commands.ts), giving both a single source of truth for the error message.
+ */
+export function assertKnownKind(kind: string | undefined): void {
+  if (kind === undefined) return;
+  if (!isKnownKind(kind)) {
+    const known = Object.keys(WORKFLOWS).join(", ");
+    throw new ValidationError(`Unknown task kind: "${kind}". Valid kinds: ${known}.`);
+  }
 }
 
 /**
