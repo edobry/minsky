@@ -172,8 +172,10 @@ describe("DrivenSessionPage (mt#2751)", () => {
 
     // Still mid-execution — no content_block_stop/message_stop/result yet —
     // the tool-call element is already visible (renders DURING execution,
-    // not only after the turn completes).
-    await waitFor(() => expect(screen.getByText("mcp__minsky__tasks_get")).toBeDefined());
+    // not only after the turn completes). Display is the friendly form
+    // (mt#2790: "<server> · <tool>", raw name moved to the `title` attr).
+    await waitFor(() => expect(screen.getByText("minsky · tasks_get")).toBeDefined());
+    expect(screen.getByTitle("mcp__minsky__tasks_get")).toBeDefined();
     expect(screen.getByText("Live")).toBeDefined();
   });
 
