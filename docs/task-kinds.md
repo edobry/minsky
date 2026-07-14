@@ -317,13 +317,54 @@ Where:
 The heuristic is conservative: it prefers to leave ambiguous tasks as `"implementation"`
 rather than mis-classify them.
 
+### Promote-only semantics (mt#2761)
+
+The script is **promote-only**: it never changes a task whose current kind is
+anything other than `"implementation"`. Only `"implementation"` (the default kind,
+and the kind every task had before mt#1812 shipped) is eligible for promotion to
+`"umbrella"`. A task already classified as `"state-ops"` (mt#2661), a hand-set
+`"umbrella"` on a leaf task (see the reclassification table below), or any other
+kind is always left untouched — even when the hasChildren/hasPr heuristic above
+would, taken alone, suggest a different kind for it.
+
+This was added after a 2026-07-13 re-run of the backfill demoted 5 tasks that had
+been deliberately reclassified outside the heuristic's signal:
+
+- `mt#2625`, `mt#2645` — the mt#2661 `state-ops` back-annotations. Both have no
+  children of their own and no PR, so the bare heuristic computes
+  `"implementation"` for them — a demotion of a manual `state-ops` classification.
+- `mt#1533`, `mt#1534`, `mt#1535` — hand-classified `umbrella` leaf tasks (the
+  mt#1451 children; see the reclassification table below). These have no
+  children of their own either, so the bare heuristic also computes
+  `"implementation"` for them — a demotion of a manual `umbrella` classification.
+
+Before the fix, the script only ever computed `"umbrella"` or `"implementation"`
+and treated any mismatch between that computation and the task's current kind as
+a change to apply — which silently demoted any non-default kind the heuristic
+didn't know about. The promote-only guard closes this: a task's current kind is
+only ever changed when it is presently `"implementation"`.
+
+The classification decision is implemented as a small pure function,
+`classifyTaskKind()` in `scripts/migrate-task-kinds-classify.ts` (unit-tested in
+the sibling `.test.ts` file), so the promote-only logic can be verified without
+a live database connection.
+
+Dry-run output distinguishes three dispositions per task:
+
+- `[PROMOTE]` — currently `"implementation"`, heuristic says `"umbrella"` — would
+  be applied under `--execute`.
+- `[SKIPPED]` — currently a non-default kind, heuristic disagrees — reported for
+  visibility, never applied ("skipped (non-default kind, preserving manual
+  classification)").
+- `[  OK  ]` — no change needed either way (shown only with `--verbose`).
+
 **Usage:**
 
 ```bash
 # Preview (no changes made):
 bun scripts/migrate-task-kinds.ts
 
-# Apply:
+# Apply (promotions only — never demotes a non-default kind):
 bun scripts/migrate-task-kinds.ts --execute
 
 # Preview with all tasks listed:
@@ -359,7 +400,9 @@ mt#1768's transition to COMPLETED proved the umbrella terminal-state path end-to
 - `packages/domain/src/tasks/workflows.ts` — the workflow registry
 - `packages/domain/src/tasks/status-transitions.ts` — the gate that dispatches on kind
 - `src/domain/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
-- `scripts/migrate-task-kinds.ts` — kind backfill script
+- `scripts/migrate-task-kinds.ts` — kind backfill script (promote-only, mt#2761)
+- `scripts/migrate-task-kinds-classify.ts` — extracted, unit-tested classification function
 - `scripts/smoke-task-kinds.ts` — smoke test for the system
+- `mt#2761` — promote-only fix + reflect-metadata boot fix for the backfill script
 - CLAUDE.md `## Task Lifecycle` — overview of the current state machine
 - CLAUDE.md `## Verification surfaces` — the merge gate that atomically sets DONE
