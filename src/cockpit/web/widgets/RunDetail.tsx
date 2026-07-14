@@ -136,17 +136,21 @@ async function fetchConversationOverview(
 export type RunTab = "overview" | "conversation" | "context";
 export type RunKeySpace = "workspace" | "conversation";
 
-function basePathFor(keySpace: RunKeySpace, id: string): string {
+// Exported for direct unit testing (RunDetail.tabs.test.ts) — pure, no
+// React/router dependency, so a full component render isn't needed to pin
+// the URL<->tab contract.
+
+export function basePathFor(keySpace: RunKeySpace, id: string): string {
   return keySpace === "workspace"
     ? `/agents/${encodeURIComponent(id)}`
     : `/conversation/${encodeURIComponent(id)}`;
 }
 
-function defaultTabFor(keySpace: RunKeySpace): RunTab {
+export function defaultTabFor(keySpace: RunKeySpace): RunTab {
   return keySpace === "workspace" ? "overview" : "conversation";
 }
 
-function tabFromPathname(pathname: string, base: string, keySpace: RunKeySpace): RunTab {
+export function tabFromPathname(pathname: string, base: string, keySpace: RunKeySpace): RunTab {
   const suffix = pathname === base ? "" : pathname.slice(base.length).replace(/^\//, "");
   if (keySpace === "workspace") {
     if (suffix === "conversation") return "conversation";
@@ -158,7 +162,7 @@ function tabFromPathname(pathname: string, base: string, keySpace: RunKeySpace):
   return "conversation";
 }
 
-function pathForTab(base: string, keySpace: RunKeySpace, tab: RunTab): string {
+export function pathForTab(base: string, keySpace: RunKeySpace, tab: RunTab): string {
   return tab === defaultTabFor(keySpace) ? base : `${base}/${tab}`;
 }
 
