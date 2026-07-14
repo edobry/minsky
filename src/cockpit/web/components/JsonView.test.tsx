@@ -72,3 +72,39 @@ describe("JsonView — Tier 2 (entity-enriched leaves)", () => {
     expect(container.textContent).toContain(TASK_ID);
   });
 });
+
+describe("JsonView — multiline string leaves (mt#2788)", () => {
+  test("a multiline string renders as a preformatted block with newlines preserved", () => {
+    const { container } = renderTree(<JsonView data={{ output: "a\nb\nc" }} />);
+    const pre = container.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre?.textContent).toBe("a\nb\nc");
+    expect(pre?.className).toContain("whitespace-pre-wrap");
+    expect(pre?.className).toContain("max-h-48"); // bounded so one output can't dominate
+  });
+
+  test("CRLF and bare-CR strings also take the block presentation", () => {
+    const crlf = renderTree(<JsonView data={{ output: "a\r\nb" }} />);
+    expect(crlf.container.querySelector("pre")).not.toBeNull();
+    cleanup();
+    const cr = renderTree(<JsonView data={{ output: "a\rb" }} />);
+    expect(cr.container.querySelector("pre")).not.toBeNull();
+  });
+
+  test("a single-line string stays an inline quoted leaf (no pre)", () => {
+    const { container } = renderTree(<JsonView data={{ s: "one line" }} />);
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.textContent).toContain('"one line"');
+  });
+
+  test("entity refs inside a multiline leaf are still linkified", () => {
+    const { container } = renderTree(
+      <JsonView data={{ output: `line1\nsee ${TASK_ID}\nline3` }} entityIndex={makeIndex()} />
+    );
+    const a = container.querySelector(`a[href="${TASK_PATH}"]`);
+    expect(a).not.toBeNull();
+    const pre = container.querySelector("pre");
+    expect(pre?.textContent).toContain("line1\nsee ");
+    expect(pre?.textContent).toContain("\nline3");
+  });
+});
