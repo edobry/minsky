@@ -96,8 +96,10 @@ const VitalsPage = lazy(() =>
  * also migrates persisted tab entries directly (a page visit isn't required
  * to fix the tab strip), but this route covers a fresh browser navigation to
  * a bookmarked or externally-shared `/session/:id` URL.
+ *
+ * Exported for direct unit testing (mirrors `plantRoutes`'s export rationale).
  */
-function SessionIdRedirect() {
+export function SessionIdRedirect() {
   const { id } = useParams<{ id: string }>();
   return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/conversations"} replace />;
 }

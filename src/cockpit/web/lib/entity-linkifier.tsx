@@ -25,6 +25,7 @@
  * @see entity-codec.ts — the (type, id) ↔ minsky:// URI ↔ path codec
  * @see mt#2518 — this task
  * @see mt#2536 — PR/changeset linkification
+ * @see mt#2769 — conversation (harness agentSessionId) linkification
  */
 import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
@@ -38,7 +39,8 @@ import { parseMinskyUri, entityToPath, type RoutableEntityType } from "./entity-
 
 /**
  * A map from entity id → entity type, used to resolve bare references.
- * Built from the data CommandPalette already fetches (tasks/sessions/asks/memories).
+ * Built from the data CommandPalette already fetches
+ * (tasks/sessions/asks/memories/changesets/conversations).
  */
 export type EntityIndex = Map<string, RoutableEntityType>;
 
