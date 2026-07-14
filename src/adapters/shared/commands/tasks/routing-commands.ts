@@ -4,6 +4,7 @@ import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-servi
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import { assertKnownKind } from "@minsky/domain/tasks/workflows";
+import { TaskParameters } from "../../common-parameters";
 
 // Re-export RouteStep for callers that reference it from this file
 export type { RouteStep } from "@minsky/domain/tasks/task-routing-service";
@@ -20,13 +21,10 @@ const tasksAvailableParams = {
     description: "Filter by specific backend (mt, md, gh, etc.)",
     required: false,
   },
-  kind: {
-    schema: z.string().optional(),
-    description:
-      "Filter by workflow kind (mt#2762), e.g. implementation, umbrella, state-ops. " +
-      "Validated against the workflow registry at execute time.",
-    required: false,
-  },
+  // Reuses the shared, workflow-registry-derived enum (mt#2762) — same schema as
+  // tasks_list / tasks_search / tasks_edit, so CLI --help and MCP JSON-schema both
+  // show the enum values (reviewer finding, PR #1912 R1).
+  kind: TaskParameters.kind,
   limit: {
     schema: z.number().default(20),
     // defaultValue (not schema.default) is what the CLI/MCP bridges materialize for
