@@ -105,20 +105,47 @@ export function mountAgentRoutes(app: express.Express): void {
         }
       })();
 
-      // Workspace → transcript resolution (mt#2420 deferral): newest
-      // agent_transcripts row whose cwd is the session workspace (or below).
+      // Workspace → transcript resolution (mt#2441): consult
+      // minsky_session_links FIRST — the materialized cwd_match join written
+      // at ingest time (AgentTranscriptIngestService) and backfilled for
+      // pre-existing transcripts (scripts/backfill-minsky-session-links.ts).
+      // Only fall back to the live cwd LIKE query (newest agent_transcripts
+      // row whose cwd is the session workspace or below) for transcripts that
+      // have no link row yet — pre-backfill, or ingested before this shipped.
+      // Full removal of the LIKE fallback is a separate task (mt#2768).
       const conversationPromise: Promise<{ agentSessionId: string } | null> = (async () => {
-        if (!workdir) return null;
         try {
           const db = await getContextInspectorDb();
           if (!db) return null;
           const { agentTranscriptsTable } = await import(
             "@minsky/domain/storage/schemas/agent-transcripts-schema"
           );
+          const { minskySessionLinksTable } = await import(
+            "@minsky/domain/storage/schemas/minsky-session-links-schema"
+          );
           const { eq, like, or, desc, sql } = await import("drizzle-orm");
-          // Match workdir + descendants (POSIX "/" and Windows "\") via the
-          // shared escape helper so the two transcript-resolution routes cannot
-          // drift on the backslash-escape level (mt#2232 R1).
+
+          const linkRows = await db
+            .select({
+              agentSessionId: minskySessionLinksTable.agentSessionId,
+              confidence: minskySessionLinksTable.confidence,
+              startedAt: agentTranscriptsTable.startedAt,
+            })
+            .from(minskySessionLinksTable)
+            .innerJoin(
+              agentTranscriptsTable,
+              eq(agentTranscriptsTable.agentSessionId, minskySessionLinksTable.agentSessionId)
+            )
+            .where(eq(minskySessionLinksTable.minskySessionId, sessionId));
+
+          const { pickBestConversationLink } = await import("../session-detail");
+          const linked = pickBestConversationLink(linkRows);
+          if (linked) return linked;
+
+          if (!workdir) return null;
+          // Fallback: match workdir + descendants (POSIX "/" and Windows "\")
+          // via the shared escape helper so the two transcript-resolution
+          // routes cannot drift on the backslash-escape level (mt#2232 R1).
           const { cwdDescendantLikePatterns } = await import("../live-tail-poller");
           const { posix: cwdPosix, windows: cwdWindows } = cwdDescendantLikePatterns(workdir);
           const rows = await db
