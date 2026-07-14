@@ -733,6 +733,43 @@ Keep potentially destructive operations safe by default.
 - Show a clear preview plan for what would happen before applying.
 - Provide a follow-up example with `--execute`.
 
+## Bulk shared-state mutations require a task wrapper (mt#2785)
+
+Any bulk mutation of shared/production state — a data migration, a backfill, a
+sweep that writes, any operation touching more than ~10 records — must be
+wrapped in a Minsky task (the `state-ops` kind fits no-code operations) BEFORE
+execution, so the planning gates fire: spec-read, gate (l)
+authoritative-source/decision-record check, and premise checks. Inline
+execution from a conversation is limited to single-record, individually
+audited operations.
+
+A script existing under `scripts/` is NOT evidence the operation is still
+sanctioned — mechanisms are described by docs but sanctioned by decision
+records (RFC / ADR / memory). Before `--execute`, locate and read the
+governing decision record for the mechanism; if none exists, say so
+explicitly in the task spec.
+
+## Dry-run scope-match check (mt#2785)
+
+The dry-run is not only a preview of WHAT changes — it is a check of HOW MUCH
+changes against what the operator approved. Before `--execute`:
+
+- Compare the dry-run's change magnitude to the operator-approved scope.
+- Divergence beyond ~2x, or any divergence in the KIND of change, is a STOP:
+  re-confirm with the operator, citing both numbers ("you approved ~15
+  reclassifications; the dry-run proposes 136").
+- Approval of an operation at one magnitude is not approval at 9x. "The
+  heuristic knows more than my estimate" is the rationalization to refuse.
+
+**Originating incident (2026-07-13):** the kind backfill
+(`scripts/migrate-task-kinds.ts --execute`) ran inline with no task wrapper;
+no gate fired; the governing RFC (Task classification axes, Notion
+`363937f0`) had explicitly rejected the heuristic approach — recorded in both
+Notion and memory `59d8b62d`, surfaced in-session, unconsulted — and the
+dry-run's 136 proposed changes against an approved "~15" was not treated as a
+stop signal. Cost: 5 wrong demotions hand-reverted, a 116-task remediation
+cycle, and an operator authorization round-trip (ask `f63a49d2`).
+
 ## Examples
 
 // AVOID: applying by default
