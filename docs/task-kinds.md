@@ -117,6 +117,27 @@ CLOSED     → TODO (reopen)
 - `PLANNING → IN-PROGRESS` does NOT require going through READY first (no `session_start`
   restriction for umbrellas).
 
+**Closeout guard (mt#2606).** A transition to `COMPLETED` is refused while any child
+task is non-terminal, since `COMPLETED` means "all children done." Semantics:
+
+- **Terminal** for the check means the child's status is a terminal state in any
+  registered workflow — the union `DONE` / `CLOSED` / `COMPLETED`
+  (`isTerminalTaskStatus()` in `workflows.ts`, a domain predicate deliberately
+  distinct from the UI's hidden-by-default listing filter).
+- On refusal the error names every incomplete child with its status, e.g.
+  `Cannot complete umbrella task mt#X: 2 child task(s) not terminal
+(DONE/CLOSED/COMPLETED): mt#A (IN-PROGRESS), mt#B (TODO). Complete or close the
+children first (mt#2606).` A child whose record cannot be read counts as
+  incomplete (`(unreadable)`).
+- An umbrella with zero children completes freely.
+- Enforced in `setTaskStatusFromParams` (`tasks/commands/mutation-commands.ts`,
+  helper `assertUmbrellaChildrenComplete`), which the `tasks.ts` facade — the
+  `@minsky/domain/tasks` barrel target used by `tasks_status_set` and
+  `tasks_dispatch` — delegates to. The check requires an injected
+  `taskGraphService` (the MCP/CLI registry always injects one); direct domain
+  callers without it skip the guard rather than fail.
+- `CLOSED` is not guarded — abandoning an umbrella with open children remains legal.
+
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |
 |-------|--------------|--------|------|
