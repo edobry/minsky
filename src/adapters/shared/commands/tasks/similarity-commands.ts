@@ -104,8 +104,14 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     if (response.degraded) {
       try {
         const { log } = await import("@minsky/shared/logger");
-        // mt#2779: removed the ghost `params.quiet` read — `quiet` was never a
-        // declared param of tasks.similar, so it was always undefined (false).
+        // mt#2779: removed the ghost `params.quiet` read. Unlike tasks.search,
+        // `quiet` has never been a DECLARED param of tasks.similar, so no caller
+        // could ever set it: commander rejects unknown CLI flags, and the MCP
+        // boundary dropped undeclared keys pre-mt#2778 and rejects them since.
+        // The read was always undefined (false) — removing it is
+        // behavior-preserving: warn unless JSON, exactly as before. Declaring a
+        // real `quiet` param for parity with tasks.search would be a param ADD,
+        // out of scope for the mt#2779 typing migration (tracked separately).
         const json = Boolean(params.json) || ctx.format === "json";
         if (!json) {
           log.cliWarn(

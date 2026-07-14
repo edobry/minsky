@@ -60,17 +60,6 @@ interface ValidationResult {
   failed: ValidationDetail[];
 }
 
-const migrateBackendParamsSchema = z.object({
-  from: z.enum(MIGRATION_BACKENDS).optional(),
-  to: z.enum(MIGRATION_BACKENDS),
-  execute: z.boolean().optional().default(false),
-  limit: z.number().int().positive().optional(),
-  filterStatus: z.string().optional(),
-  quiet: z.boolean().optional().default(false),
-  json: z.boolean().optional().default(false),
-  updateIds: z.boolean().optional().default(true),
-});
-
 const migrateBackendParams = {
   from: {
     schema: z.enum(MIGRATION_BACKENDS).optional(),
@@ -113,6 +102,20 @@ const migrateBackendParams = {
     required: false,
   },
 } satisfies CommandParameterMap;
+
+// Runtime validation schema derived per-key from the params map's schemas
+// (mt#2779 R1): the map is the single source of truth, so the parse layer and
+// InferParams cannot drift.
+const migrateBackendParamsSchema = z.object({
+  from: migrateBackendParams.from.schema,
+  to: migrateBackendParams.to.schema,
+  execute: migrateBackendParams.execute.schema,
+  limit: migrateBackendParams.limit.schema,
+  filterStatus: migrateBackendParams.filterStatus.schema,
+  quiet: migrateBackendParams.quiet.schema,
+  json: migrateBackendParams.json.schema,
+  updateIds: migrateBackendParams.updateIds.schema,
+});
 
 export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBackendParams> {
   readonly id = "tasks.migrate-backend";
