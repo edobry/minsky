@@ -9,7 +9,15 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { WORKFLOWS, getWorkflow, isKnownKind, DEFAULT_KIND, type TaskKind } from "./workflows";
+import {
+  WORKFLOWS,
+  getWorkflow,
+  isKnownKind,
+  assertKnownKind,
+  DEFAULT_KIND,
+  type TaskKind,
+} from "./workflows";
+import { ValidationError } from "../errors/index";
 
 describe("WORKFLOWS registry — internal consistency", () => {
   const kindNames = Object.keys(WORKFLOWS) as TaskKind[];
@@ -286,5 +294,35 @@ describe("isKnownKind() helper", () => {
 describe("DEFAULT_KIND", () => {
   test("is 'implementation'", () => {
     expect(DEFAULT_KIND).toBe("implementation");
+  });
+});
+
+describe("assertKnownKind() helper (mt#2762)", () => {
+  test("is a no-op for undefined (no kind filter requested)", () => {
+    expect(() => assertKnownKind(undefined)).not.toThrow();
+  });
+
+  test("is a no-op for each known kind", () => {
+    expect(() => assertKnownKind("implementation")).not.toThrow();
+    expect(() => assertKnownKind("umbrella")).not.toThrow();
+    expect(() => assertKnownKind("state-ops")).not.toThrow();
+  });
+
+  test("throws a ValidationError for an unknown kind", () => {
+    expect(() => assertKnownKind("bogus")).toThrow(ValidationError);
+  });
+
+  test("ValidationError message names the unknown kind and all valid kinds", () => {
+    try {
+      assertKnownKind("bogus");
+      throw new Error("expected assertKnownKind to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      const message = (error as ValidationError).message;
+      expect(message).toContain('"bogus"');
+      expect(message).toContain("implementation");
+      expect(message).toContain("umbrella");
+      expect(message).toContain("state-ops");
+    }
   });
 });

@@ -125,6 +125,12 @@ export class MinskyTaskBackend implements TaskBackend {
       }
     }
 
+    // Filter by workflow kind if specified (mt#2762). Validated against the
+    // workflow registry by the caller (assertKnownKind) before it reaches here.
+    if (options?.kind) {
+      conditions.push(eq(tasksTable.kind, options.kind));
+    }
+
     // Project scope filter (ADR-021, mt#2416)
     if (options?.projectScope && !isAllProjects(options.projectScope)) {
       conditions.push(eq(tasksTable.projectId, options.projectScope));

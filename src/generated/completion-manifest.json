@@ -1007,6 +1007,12 @@
               "takesValue": true
             },
             {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
               "flags": ["--tag"],
               "description": "Filter by tag (can be repeated for multiple tags, e.g., --tag di-cleanup --tag test-quality)",
               "takesValue": true
@@ -1355,6 +1361,12 @@
               ]
             },
             {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
               "flags": ["--quiet"],
               "description": "Suppress output"
             },
@@ -1688,6 +1700,11 @@
             {
               "flags": ["--backend"],
               "description": "Filter by specific backend (mt, md, gh, etc.)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--kind"],
+              "description": "Filter by workflow kind (mt#2762), e.g. implementation, umbrella, state-ops. Validated against the workflow registry at execute time.",
               "takesValue": true
             },
             {

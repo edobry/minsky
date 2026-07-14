@@ -3,6 +3,7 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskRoutingService } from "@minsky/domain/tasks/task-routing-service";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
+import { assertKnownKind } from "@minsky/domain/tasks/workflows";
 
 // Re-export RouteStep for callers that reference it from this file
 export type { RouteStep } from "@minsky/domain/tasks/task-routing-service";
@@ -17,6 +18,13 @@ const tasksAvailableParams = {
   backend: {
     schema: z.string().optional(),
     description: "Filter by specific backend (mt, md, gh, etc.)",
+    required: false,
+  },
+  kind: {
+    schema: z.string().optional(),
+    description:
+      "Filter by workflow kind (mt#2762), e.g. implementation, umbrella, state-ops. " +
+      "Validated against the workflow registry at execute time.",
     required: false,
   },
   limit: {
@@ -94,6 +102,10 @@ export function createTasksAvailableCommand(
     execute: async (params: InferParams<typeof tasksAvailableParams>) => {
       const provider = getPersistenceProvider();
 
+      // Validate kind against the workflow registry up front (mt#2762), mirroring
+      // tasks_list / tasks_search / tasks_edit.
+      assertKnownKind(params.kind);
+
       // Parse status filter
       const statusFilter = params.status
         ? params.status.split(",").map((s: string) => s.trim())
@@ -118,6 +130,7 @@ export function createTasksAvailableCommand(
           availableTasks = await routingService.findAvailableTasks({
             statusFilter,
             backendFilter: params.backend,
+            kind: params.kind,
             limit,
             showEffort: params.showEffort,
             showPriority: params.showPriority,
@@ -142,6 +155,7 @@ export function createTasksAvailableCommand(
 
         const allTasks = await fallbackTaskService.listTasks({
           status: statusFilter.length === 1 ? statusFilter[0] : undefined,
+          kind: params.kind,
         });
 
         const filteredTasks = params.backend

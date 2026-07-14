@@ -4,6 +4,7 @@ import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { assertKnownKind } from "@minsky/domain/tasks/workflows";
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
@@ -27,6 +28,8 @@ interface TasksSearchParams extends BaseTaskParams {
   backend?: string;
   status?: string;
   all?: boolean;
+  /** Filter by workflow kind — "implementation" | "umbrella" | "state-ops" (mt#2762). */
+  kind?: string;
 }
 
 export class TasksSimilarCommand extends BaseTaskCommand<TasksSimilarParams> {
@@ -244,6 +247,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
+    // Validate kind against the workflow registry up front (mt#2762), mirroring
+    // tasks_list / tasks_edit — a typo must not silently return zero results.
+    assertKnownKind(params.kind);
+
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
 
     // Immediate progress hint to stderr unless JSON/quiet
@@ -286,6 +293,11 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
     // Add backend filter if provided
     if (params.backend) {
       filters.backend = params.backend;
+    }
+
+    // Add workflow-kind filter if provided (mt#2762)
+    if (params.kind) {
+      filters.kind = params.kind;
     }
 
     // Add status filter if provided and not showing all

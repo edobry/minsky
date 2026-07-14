@@ -26,6 +26,7 @@ import {
 } from "../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
 import type { BasePersistenceProvider } from "../../persistence/types";
+import { assertKnownKind } from "../workflows";
 
 function requirePersistence(
   provider: BasePersistenceProvider | undefined
@@ -68,6 +69,10 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
+    // Validate kind against the workflow registry up front (mt#2762) — a typo
+    // must not slip through to a backend query that silently returns zero rows.
+    assertKnownKind(validParams.kind);
+
     // Use DI-provided taskService when available
     let taskService = deps?.taskService;
     if (!taskService) {
@@ -91,10 +96,13 @@ export async function listTasksFromParams(
           });
     }
 
-    // Get tasks with filters - delegate filtering to domain layer
+    // Get tasks with filters - delegate filtering to domain layer (server-side;
+    // kind is forwarded to taskService.listTasks so backends filter it in the
+    // query itself rather than the adapter post-filtering the result, mt#2762).
     let tasks = await taskService.listTasks({
       status: validParams.status,
       all: validParams.all,
+      kind: validParams.kind,
     });
     // Apply limit client-side if provided
     const limit = validParams.limit;
