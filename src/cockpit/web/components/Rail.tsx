@@ -22,7 +22,6 @@ import {
   Network,
   Bot,
   MessageCircleQuestion,
-  MessagesSquare,
   Bell,
   Cpu,
   Brain,
@@ -49,7 +48,11 @@ const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitB
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
   { to: "/changesets", label: "Changesets", icon: GitPullRequest },
-  { to: "/conversations", label: "Conversations", icon: MessagesSquare },
+  // mt#2767 — the standalone-transcripts nav item was removed; `/agents` is
+  // now the unified agent-run browse surface (workspace sessions, harness
+  // transcripts, and subagent groups all in one list). Transcripts remain
+  // Cmd-K-findable via the CommandPalette's entity index (mt#2769), which
+  // reads the context-inspector source directly rather than via this rail.
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },
   { to: "/activity", label: "Activity", icon: Bell },

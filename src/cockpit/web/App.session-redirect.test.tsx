@@ -31,7 +31,7 @@ function renderAt(path: string) {
       <Routes>
         <Route path="/session/:id" element={<SessionIdRedirect />} />
         <Route path="/conversation/:id" element={<LocationProbe />} />
-        <Route path="/conversations" element={<LocationProbe />} />
+        <Route path="/agents" element={<LocationProbe />} />
       </Routes>
     </MemoryRouter>
   );
@@ -58,18 +58,18 @@ describe("SessionIdRedirect (mt#2769)", () => {
     });
   });
 
-  test("falls back to /conversations when no id is present", async () => {
+  test("falls back to /agents when no id is present (mt#2767 — /conversations retired)", async () => {
     const { getByTestId } = render(
       <MemoryRouter initialEntries={["/session/"]}>
         <Routes>
           <Route path="/session/*" element={<SessionIdRedirect />} />
-          <Route path="/conversations" element={<LocationProbe />} />
+          <Route path="/agents" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     );
 
     await waitFor(() => {
-      expect(getByTestId("pathname").textContent).toBe("/conversations");
+      expect(getByTestId("pathname").textContent).toBe("/agents");
     });
   });
 });

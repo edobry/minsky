@@ -297,6 +297,84 @@ describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)",
   });
 });
 
+// Regression for mt#2762: `kind` is applied at READ TIME against the live task, the same way
+// status/backend are (see the mt#2220/ADR-013 suite above) — not pushed down into the vector
+// store. A task with no `kind` field (the GHI-backend gap) is treated as "implementation".
+// No initializeConfiguration call here (see the no-filter-forward suite's comment above) —
+// a third occurrence of the "../configuration/index" dynamic import trips the
+// no-magic-string-duplication lint rule, and this suite's lexical-fallback path doesn't need it.
+describe("TaskSimilarityService read-time kind filter (mt#2762)", () => {
+  const dummyEmbedding: EmbeddingService = {
+    generateEmbedding: async () => new Array(3).fill(0),
+  } as unknown as EmbeddingService;
+  const dummyVector: VectorStorage = {
+    initialize: async () => void 0,
+    store: async () => void 0,
+    search: async () => [],
+  } as unknown as VectorStorage;
+
+  // Two strong lexical matches for QUERY below: one umbrella, one implementation (kind
+  // omitted, defaults to "implementation"); plus an unrelated task.
+  const QUERY = "widget rollout plan";
+  const tasks = [
+    { id: "md#501", title: "Widget rollout plan epic", status: "TODO", kind: "umbrella" },
+    { id: "md#502", title: "Widget rollout plan task", status: "TODO" },
+    { id: "md#503", title: "Unrelated changelog cleanup", status: "TODO" },
+  ];
+  const specs: Record<string, string> = {
+    "md#501": "Widget rollout plan tracking the overall release effort.",
+    "md#502": "Widget rollout plan implementation work for the release.",
+    "md#503": "Clean up an unrelated changelog entry.",
+  };
+
+  let service: TaskSimilarityService;
+
+  beforeEach(() => {
+    (
+      EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: () => Promise<boolean> }
+    ).isAvailable = async () => false;
+
+    service = new TaskSimilarityService(
+      dummyEmbedding,
+      dummyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (id: string) => ({ content: specs[id] || "", specPath: "", task: {} as any }),
+      {}
+    );
+  });
+
+  afterAll(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  it("kind=umbrella returns only the umbrella-kind match", async () => {
+    const response = await service.searchByText(QUERY, 5, undefined, {
+      kind: "umbrella",
+    });
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#501");
+    expect(ids).not.toContain("md#502"); // implementation (default) — excluded
+  });
+
+  it("kind=implementation matches a task with no kind field (default)", async () => {
+    const response = await service.searchByText(QUERY, 5, undefined, {
+      kind: "implementation",
+    });
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#502");
+    expect(ids).not.toContain("md#501"); // umbrella — excluded
+  });
+
+  it("no kind filter surfaces both matches", async () => {
+    const response = await service.searchByText(QUERY, 5);
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#501");
+    expect(ids).toContain("md#502");
+  });
+});
+
 // mt#2754: the filtered path embeds the query ONCE (concurrently with the live-task fetch) and
 // reuses that precomputed vector for the vector search(es) — the embed-split latency fix. Verified
 // by counting embed calls and asserting the vector store receives the precomputed vector.

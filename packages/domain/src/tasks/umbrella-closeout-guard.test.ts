@@ -138,6 +138,41 @@ describe("assertUmbrellaChildrenComplete (mt#2606)", () => {
       })
     ).resolves.toBeUndefined();
   });
+
+  it("fails open (allows COMPLETED) when listChildren throws (mt#1649 R1)", async () => {
+    const taskService = makeTaskService({});
+    const throwingGraph = {
+      listChildren: mock(async () => {
+        throw new Error("backend unavailable");
+      }),
+    };
+    await expect(
+      assertUmbrellaChildrenComplete({
+        taskId: "mt#9000",
+        taskKind: "umbrella",
+        targetStatus: "COMPLETED",
+        taskService,
+        taskGraphService: throwingGraph,
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails open (allows COMPLETED) when getTasks throws (mt#1649 R1)", async () => {
+    const throwingTaskService = {
+      getTasks: mock(async () => {
+        throw new Error("db connection lost");
+      }),
+    } as unknown as TaskServiceInterface;
+    await expect(
+      assertUmbrellaChildrenComplete({
+        taskId: "mt#9000",
+        taskKind: "umbrella",
+        targetStatus: "COMPLETED",
+        taskService: throwingTaskService,
+        taskGraphService: makeGraph(["mt#9002"]),
+      })
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("setTaskStatusFromParams facade wires the guard (mt#2606, live MCP/CLI path)", () => {

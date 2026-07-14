@@ -49,16 +49,19 @@ export class TaskRoutingService {
     options: {
       statusFilter?: string[];
       backendFilter?: string;
+      /** Filter by workflow kind (mt#2762), forwarded server-side to taskService.listTasks. */
+      kind?: string;
       limit?: number;
       showEffort?: boolean;
       showPriority?: boolean;
     } = {}
   ): Promise<AvailableTask[]> {
-    const { statusFilter = ["TODO", "IN-PROGRESS"], backendFilter, limit = 50 } = options;
+    const { statusFilter = ["TODO", "IN-PROGRESS"], backendFilter, kind, limit = 50 } = options;
 
     // Get all tasks
     const allTasks = await this.taskService.listTasks({
       status: statusFilter.length === 1 ? statusFilter[0] : undefined,
+      kind,
     });
 
     // Filter by backend if specified

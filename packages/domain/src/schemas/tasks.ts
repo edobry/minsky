@@ -51,6 +51,16 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
     .boolean()
     .optional()
     .describe("Return tasks from all projects (disable project-scope filtering)"),
+  /**
+   * Filter by workflow kind (mt#1812 / mt#2762). Validated against the workflow
+   * registry (assertKnownKind) in listTasksFromParams, not by this schema, so an
+   * unknown kind surfaces as a ValidationError naming the valid kinds rather than
+   * a generic Zod enum error.
+   */
+  kind: z
+    .string()
+    .optional()
+    .describe("Filter tasks by workflow kind (e.g. implementation, umbrella, state-ops)"),
 });
 
 /**

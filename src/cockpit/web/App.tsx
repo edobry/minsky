@@ -30,8 +30,8 @@ const WorkspaceDetailPage = lazy(() =>
 const ConversationPage = lazy(() =>
   import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
 );
-const ConversationsPage = lazy(() =>
-  import("./pages/ConversationsPage").then((m) => ({ default: m.ConversationsPage }))
+const DrivenSessionPage = lazy(() =>
+  import("./pages/DrivenSessionPage").then((m) => ({ default: m.DrivenSessionPage }))
 );
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
@@ -97,7 +97,9 @@ const VitalsPage = lazy(() =>
  */
 export function SessionIdRedirect() {
   const { id } = useParams<{ id: string }>();
-  return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/conversations"} replace />;
+  // mt#2767: /conversations retired (redirects to /agents) — the no-id
+  // fallback now points there directly rather than through a second hop.
+  return <Navigate to={id ? `/conversation/${encodeURIComponent(id)}` : "/agents"} replace />;
 }
 
 /**
@@ -471,14 +473,12 @@ export function App() {
           {/* Retired standalone Context page (mt#2768): folded into the
               run-detail Context tab. Redirect for bookmark continuity. */}
           <Route path="/context" element={<Navigate to="/agents" replace />} />
-          <Route
-            path="/conversations"
-            element={
-              <ErrorBoundary id="sessions-page">
-                <ConversationsPage />
-              </ErrorBoundary>
-            }
-          />
+          {/* Retired standalone Conversations list (mt#2767): /agents is now
+              the unified agent-run list — workspace sessions, standalone
+              conversations, and collapsed subagent groups in one browse
+              surface. Redirect for bookmark continuity (mirrors the
+              /context -> /agents pattern above from mt#2768). */}
+          <Route path="/conversations" element={<Navigate to="/agents" replace />} />
           {/* Conversation entity route (mt#2398): URL-addressable conversation
               tab; body is mt#2374's ConversationView, re-homed from the retired
               /conversation host. Path renamed from /session/:id per ADR-022
@@ -492,6 +492,19 @@ export function App() {
             element={
               <ErrorBoundary id="session-page">
                 <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Driven-session view (mt#2751 Rung 2B): consumes mt#2750's per-session
+              WS channel — hosts ConversationView + composer + status for a
+              session the operator is actively driving. Launch entry points
+              (starting a new session, task binding) are Rung 2C, out of scope
+              here — this route is reachable directly by id/deeplink. */}
+          <Route
+            path="/driven/:id"
+            element={
+              <ErrorBoundary id="driven-session-page">
+                <DrivenSessionPage />
               </ErrorBoundary>
             }
           />

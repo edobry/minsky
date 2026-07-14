@@ -241,6 +241,14 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         tasks = tasks.filter((task) => tags.every((tag) => task.tags?.includes(tag)));
       }
 
+      // Filter by workflow kind if specified (mt#2762). The GitHub Issues backend
+      // does not persist `kind` on issues today (a known gap — every GHI task is
+      // effectively "implementation"), so only that kind can ever match here
+      // rather than silently ignoring the filter.
+      if (options?.kind) {
+        tasks = options.kind === "implementation" ? tasks : [];
+      }
+
       return tasks;
     } catch (error) {
       log.error("Failed to list tasks", { error: getErrorMessage(error) });

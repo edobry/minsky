@@ -1,0 +1,1 @@
+CREATE INDEX "idx_agent_transcripts_started_at" ON "agent_transcripts" USING btree ("started_at" DESC NULLS LAST);

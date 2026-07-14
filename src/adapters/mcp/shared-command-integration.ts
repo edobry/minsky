@@ -45,7 +45,7 @@ export function convertParametersToZodSchema(
 ): z.ZodObject<Record<string, z.ZodType>> {
   // If no parameters, return empty object schema
   if (!parameters || Object.keys(parameters).length === 0) {
-    return z.object({});
+    return z.strictObject({});
   }
 
   const shape: Record<string, z.ZodType> = {};
@@ -80,7 +80,12 @@ export function convertParametersToZodSchema(
     shape[key] = schema;
   }
 
-  const zodSchema = z.object(shape);
+  // mt#2778: strictObject, not object — declaration hygiene matching the
+  // runtime undeclared-key rejection in command-mapper.ts. Note the emitted
+  // JSON Schema is unchanged (Zod 4 emits `additionalProperties: false` for
+  // plain strip-mode objects too); the strict marker matters if anything ever
+  // parses args with this schema directly.
+  const zodSchema = z.strictObject(shape);
 
   log.debug("Converting parameters to Zod schema", {
     parameterCount: Object.keys(parameters).length,

@@ -4,7 +4,8 @@
  * `transcriptWatcher.activeSessions` registry
  * (`TranscriptWatcherTracker.getActiveSessions()`, mt#2320 SC2).
  *
- * Used by `ConversationsPage` to render a live badge on rows for
+ * Used by `Agents.tsx` (the unified run list, mt#2767 — formerly by the
+ * retired `ConversationsPage`) to render a live badge on rows for
  * conversations that are currently being watched/ingested — the operator's
  * way to find a running conversation to open (mt#2749 success criterion 3).
  *
@@ -40,7 +41,7 @@
  * @see src/cockpit/routes/health.ts — GET /api/health, transcriptWatcher.activeSessions
  * @see src/cockpit/transcript-watcher-tracker.ts — ActiveSessionInfo shape
  * @see src/cockpit/transcript-watcher.ts — seedExisting(), the boot-scan root cause
- * @see src/cockpit/web/pages/ConversationsPage.tsx — consumer
+ * @see src/cockpit/web/widgets/Agents.tsx — consumer (mt#2767 unified run list)
  */
 import { useQuery } from "@tanstack/react-query";
 

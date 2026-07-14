@@ -113,6 +113,11 @@ export interface TaskListOptions {
   tags?: string[];
   /** Project scope for filtering (ADR-021, mt#2416). Defaults to ALL_PROJECTS when omitted. */
   projectScope?: ProjectScope;
+  /**
+   * Filter by workflow kind (mt#1812 / mt#2762), e.g. "implementation" | "umbrella" | "state-ops".
+   * Validated against the workflow registry (isKnownKind) before it reaches this option.
+   */
+  kind?: string;
 }
 
 /**

@@ -48,6 +48,8 @@ interface TasksListParams extends BaseTaskParams {
   showAttention?: boolean;
   /** When true, skip project-scope filtering (ADR-021, mt#2416). */
   allProjects?: boolean;
+  /** Filter by workflow kind — "implementation" | "umbrella" | "state-ops" (mt#2762). */
+  kind?: string;
 }
 
 /**
@@ -124,7 +126,8 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
       }
     }
 
-    // List tasks with filters
+    // List tasks with filters. `kind` is validated against the workflow registry
+    // and filtered server-side inside listTasksFromParams (mt#2762) — not here.
     let tasks = await listTasksFromParams(
       {
         ...this.createTaskParams(params),
@@ -134,6 +137,7 @@ export class TasksListCommand extends BaseTaskCommand<TasksListParams> {
         limit: params.limit,
         tags,
         allProjects: params.allProjects,
+        kind: params.kind,
       },
       { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );

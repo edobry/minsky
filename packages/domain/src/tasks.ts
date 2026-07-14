@@ -4,6 +4,15 @@
  *
  * This is a thin facade that re-exports types from sub-modules and provides
  * parameter-validated command functions used by CLI/MCP adapters.
+ *
+ * IMPORTANT (mt#2762 / mt#2783): `tasks/index.ts` re-exports THIS file's
+ * `listTasksFromParams` (not `tasks/commands/query-commands.ts`'s function of the
+ * same name), and `@minsky/domain/tasks` — the import the actual CLI/MCP
+ * `tasks_list` command uses — resolves to `tasks/index.ts`. So a filter added to
+ * `tasks_list` must be forwarded HERE, not just in `query-commands.ts` (which is a
+ * separate implementation reached only via the `taskCommands.ts` barrel, e.g. by
+ * `index-embeddings-command.ts`). mt#2783 tracks consolidating these into one
+ * implementation.
  */
 
 import { log } from "@minsky/shared/logger";
@@ -26,13 +35,17 @@ import { setTaskStatusFromParams as setTaskStatusValidated } from "./tasks/comma
 import { ALL_PROJECTS, type ProjectScope } from "./project/scope";
 import { resolveProjectIdentity } from "./project/identity";
 import { resolveProjectScope } from "./project/scope-resolver";
+import { assertKnownKind } from "./tasks/workflows";
 
 // ---- Dependency injection types ----
 
 export interface TaskServiceDeps {
   persistenceProvider?: PersistenceProvider;
   taskService?: TaskServiceInterface;
-  /** Enables the umbrella children-completeness closeout guard (mt#2606). */
+  /**
+   * Enables the children-completeness closeout guards: the umbrella
+   * COMPLETED guard (mt#2606) and the any-kind parent-DONE guard (mt#1649).
+   */
   taskGraphService?: Pick<TaskGraphService, "listChildren">;
 }
 
@@ -64,6 +77,11 @@ export type { TaskStatus } from "./tasks/taskConstants";
 
 export async function listTasksFromParams(params: Record<string, unknown>, deps?: TaskServiceDeps) {
   const validParams = taskListParamsSchema.parse(params);
+
+  // Validate kind against the workflow registry up front (mt#2762) — a typo
+  // must not slip through to a backend query that silently returns zero rows.
+  assertKnownKind(validParams.kind);
+
   const workspacePath = process.cwd();
   log.debug("tasks.list params", { backend: validParams.backend });
 
@@ -120,6 +138,7 @@ export async function listTasksFromParams(params: Record<string, unknown>, deps?
     backend: validParams.backend,
     tags: validParams.tags,
     projectScope,
+    kind: validParams.kind,
   });
   // Apply limit client-side if provided
   if (typeof validParams.limit === "number" && validParams.limit > 0) {
@@ -191,8 +210,9 @@ export async function setTaskStatusFromParams(
   log.debug("tasks.status.set params", { backend: validParams.backend });
   // Delegate to the transition-validating implementation in
   // tasks/commands/mutation-commands.ts: kind-aware validateStatusTransition
-  // (mt#1812), READY→DONE closeout-evidence check, and the umbrella
-  // children-completeness guard (mt#2606). This facade previously wrote the
+  // (mt#1812), READY→DONE closeout-evidence check, the umbrella
+  // children-completeness guard (mt#2606), and the any-kind parent-DONE
+  // children-completeness guard (mt#1649). This facade previously wrote the
   // status directly, leaving MCP/CLI transitions server-side unvalidated
   // (mt#2704) — the delegation closes that gap for tasks_status_set and
   // tasks_dispatch, which both resolve here via the @minsky/domain/tasks barrel.
