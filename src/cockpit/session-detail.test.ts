@@ -139,4 +139,40 @@ describe("pickBestConversationLink", () => {
     expect(pickBestConversationLink([c, a, b])).toEqual({ agentSessionId: "agent-b" });
     expect(pickBestConversationLink([b, c, a])).toEqual({ agentSessionId: "agent-b" });
   });
+
+  // mt#2756 — the caller's query (routes/agents.ts) is link-class agnostic:
+  // it fetches every minsky_session_links row for a workspace session
+  // regardless of link_type, so a subagent_spawn candidate and a cwd_match
+  // candidate for the SAME workspace both arrive here as plain
+  // ConversationLinkCandidate objects. pickBestConversationLink doesn't need
+  // to know link_type at all — confidence + recency alone decide the winner.
+  describe("subagent_spawn + cwd_match combined resolution (mt#2756)", () => {
+    const DISPATCHED_SUBAGENT_ID = "agent-dispatched-subagent";
+
+    test("a subagent_spawn link (confidence 1.0) wins over a lower-confidence cwd_match descendant link", () => {
+      // Dominant fleet shape (mt#2749): the dispatched subagent's own transcript
+      // never chdir's into the workspace, so if a cwd_match link exists at all
+      // for this workspace it's for a DIFFERENT, unrelated conversation with a
+      // lower (descendant) confidence — the spawn link should still win.
+      const cwdMatchDescendant = candidate("agent-cwd-descendant", 0.8, "2026-07-01T00:00:00Z");
+      const subagentSpawn = candidate(DISPATCHED_SUBAGENT_ID, 1.0, "2026-06-20T00:00:00Z");
+      const result = pickBestConversationLink([cwdMatchDescendant, subagentSpawn]);
+      expect(result).toEqual({ agentSessionId: DISPATCHED_SUBAGENT_ID });
+    });
+
+    test("only a subagent_spawn link exists (the common case) — it resolves alone", () => {
+      const subagentSpawn = candidate(DISPATCHED_SUBAGENT_ID, 1.0, "2026-06-20T00:00:00Z");
+      expect(pickBestConversationLink([subagentSpawn])).toEqual({
+        agentSessionId: DISPATCHED_SUBAGENT_ID,
+      });
+    });
+
+    test("an exact cwd_match (confidence 1.0) and a subagent_spawn link (confidence 1.0) tie-break by recency", () => {
+      const cwdMatchExact = candidate("agent-cwd-exact", 1.0, "2026-07-01T00:00:00Z");
+      const subagentSpawn = candidate(DISPATCHED_SUBAGENT_ID, 1.0, "2026-06-20T00:00:00Z");
+      // cwdMatchExact is more recent — recency wins the confidence tie.
+      const result = pickBestConversationLink([cwdMatchExact, subagentSpawn]);
+      expect(result).toEqual({ agentSessionId: "agent-cwd-exact" });
+    });
+  });
 });

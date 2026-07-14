@@ -87,7 +87,17 @@ const CWD_TIME_MARGIN_MS = 30_000;
 // ── Pipeline ──────────────────────────────────────────────────────────────────
 
 export class AgentSpawnsPipeline {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  /**
+   * @param db Postgres connection.
+   * @param sessionsDir Override for the Minsky sessions-workspace root
+   *   (`<stateDir>/sessions`) passed through to `writeSpawnLink` (mt#2756).
+   *   Defaults to the live `getSessionsDir()` when omitted — a test seam,
+   *   not a production knob.
+   */
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    private readonly sessionsDir?: string
+  ) {}
 
   /**
    * Run the full spawn-extraction sweep.
@@ -217,7 +227,14 @@ export class AgentSpawnsPipeline {
         // the SAME Agent tool call's prompt text already loaded above — no
         // extra query. No-ops when childAgentSessionId is unresolved or the
         // prompt doesn't embed a Minsky workspace session directory.
-        if (await writeSpawnLink(this.db, childAgentSessionId, agentCall.input?.prompt)) {
+        if (
+          await writeSpawnLink(
+            this.db,
+            childAgentSessionId,
+            agentCall.input?.prompt,
+            this.sessionsDir
+          )
+        ) {
           result.spawnLinksWritten++;
         }
       } catch (err) {
@@ -356,7 +373,14 @@ export class AgentSpawnsPipeline {
         else result.childUnresolved++;
 
         // mt#2756: see the identical comment in run() above.
-        if (await writeSpawnLink(this.db, childAgentSessionId, agentCall.input?.prompt)) {
+        if (
+          await writeSpawnLink(
+            this.db,
+            childAgentSessionId,
+            agentCall.input?.prompt,
+            this.sessionsDir
+          )
+        ) {
           result.spawnLinksWritten++;
         }
       } catch (err) {
