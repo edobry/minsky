@@ -51,10 +51,7 @@ export function registerCompileCommands(targetRegistry: {
     name: "compile",
     description: "Compile TypeScript definition modules into harness-specific output files.",
     parameters: compileCommandParams,
-    execute: async (
-      params: { target?: string; output?: string; dryRun?: boolean; check?: boolean },
-      _ctx?: CommandExecutionContext
-    ) => {
+    execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing compile command", { params });
       try {
         const result = await runMinskyCompile({

@@ -23,10 +23,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
     name: "compile",
     description: "Compile rules into a monolithic file (e.g., AGENTS.md or CLAUDE.md)",
     parameters: rulesCompileCommandParams,
-    execute: async (
-      params: { target?: string; output?: string; dryRun?: boolean; check?: boolean },
-      _ctx?: CommandExecutionContext
-    ) => {
+    execute: async (params, _ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.compile command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});
@@ -77,7 +74,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
     name: "migrate",
     description: "Migrate rules from .cursor/rules/ to .minsky/rules/",
     parameters: rulesMigrateCommandParams,
-    execute: async (params: { dryRun?: boolean; force?: boolean }) => {
+    execute: async (params) => {
       log.debug("Executing rules.migrate command", { params });
       try {
         const workspacePath = await resolveWorkspacePath({});

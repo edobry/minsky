@@ -22,6 +22,7 @@ import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
  * only types the field-projection input of `createTaskParams`, which accepts
  * any params object that MAY carry the common scoping fields.
  */
+// eslint-disable-next-line custom/no-hand-rolled-command-params -- projection input for createTaskParams, not a handler annotation (mt#2779)
 export interface BaseTaskParams {
   taskId?: string;
   repo?: string;

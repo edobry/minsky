@@ -28,6 +28,7 @@ import noUnsafeStringTruncation from "./eslint-rules/no-unsafe-string-truncation
 import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
 import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-env-var.js";
 import noRawConsole from "./eslint-rules/no-raw-console.js";
+import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-params.js";
 
 export default [
   js.configs.recommended,
@@ -146,6 +147,7 @@ export default [
           "no-escape-deploy-context": noEscapeDeployContext,
           "no-unregistered-minsky-env-var": noUnregisteredMinskyEnvVar,
           "no-raw-console": noRawConsole,
+          "no-hand-rolled-command-params": noHandRolledCommandParams,
         },
       },
     },
@@ -765,6 +767,19 @@ export default [
     files: ["**/*.test.ts", "**/*.spec.ts"],
     rules: {
       "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
+    },
+  },
+  // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) ===
+  // Execute handlers in the shared-command tree must derive their param types
+  // from the command's params map (InferParams<typeof map>) — hand-rolled
+  // *Params interfaces let handlers read undeclared keys that compile cleanly
+  // and are always undefined at runtime (the mt#2742 Detector-B class).
+  // Test files are excluded: partial-fixture casts are the legitimate seam.
+  {
+    files: ["src/adapters/shared/commands/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "custom/no-hand-rolled-command-params": "error",
     },
   },
 ];
