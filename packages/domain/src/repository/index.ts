@@ -22,7 +22,12 @@ export type { RepositoryStatus };
 export type { ChecksResult, CheckRunResult } from "./github-pr-checks";
 
 // Re-export workflow-run types
-export type { WorkflowRun, ListWorkflowRunsOptions } from "./github-workflow-runs";
+export type {
+  WorkflowRun,
+  ListWorkflowRunsOptions,
+  RerunWorkflowRunOptions,
+  RerunWorkflowRunResult,
+} from "./github-workflow-runs";
 
 // Re-export branch-protection types
 export type {
@@ -313,6 +318,14 @@ export interface WorkflowRunsOperations {
    * Download and return the logs for a specific workflow run as a text string.
    */
   viewLogs(runId: number): Promise<string>;
+  /**
+   * Re-run a workflow run by its numeric ID (mt#2775). Defaults to re-running
+   * only the failed jobs; pass `{ fullRerun: true }` to re-run every job.
+   */
+  rerun(
+    runId: number,
+    options?: import("./github-workflow-runs").RerunWorkflowRunOptions
+  ): Promise<import("./github-workflow-runs").RerunWorkflowRunResult>;
 }
 
 export interface BranchProtectionOperations {

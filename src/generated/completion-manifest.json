@@ -38,6 +38,16 @@
           "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library."
         },
         {
+          "name": "ci_run_rerun",
+          "description": "Re-run a GitHub Actions workflow run by its run ID (mt#2775). By default re-runs only the FAILED jobs (POST .../rerun-failed-jobs) — the narrower retry for a verified-unrelated flake on an otherwise-green required check. Pass fullRerun:true to re-run every job in the workflow instead. Reruns are only valid for COMPLETED runs (queued/in_progress runs cannot be re-run) and are subject to GitHub's own limits (30-day window, 50 reruns per run, combining full and failed-jobs reruns). Requires the 'Actions' repository permission (write) on the configured GitHub App/token — a 403 'Resource not accessible by integration' means that permission is missing and must be granted by an operator (see the tool's error message for exact steps). The result includes rerunCount (GitHub's own run_attempt counter) so callers/reviewers can see how many times this run has already been retried.",
+          "options": [
+            {
+              "flags": ["--full-rerun"],
+              "description": "If true, re-run the entire workflow (every job). Default false: re-run only the jobs that failed on the prior attempt."
+            }
+          ]
+        },
+        {
           "name": "check_runs_list",
           "description": "List check-runs for an arbitrary commit SHA. Exposes the existing ci.getChecksForRef capability at the MCP surface, complementing session.pr.checks (which requires a PR context)."
         },

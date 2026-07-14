@@ -6,8 +6,54 @@
  * page header. Deliberately NOT a full markdown parser — just enough
  * pattern-stripping to keep common syntax from leaking into the label, with
  * a hard length cap and word-boundary-aware truncation.
+ *
+ * mt#2784 adds harness-wrapper stripping ({@link stripHarnessMarkup}), run
+ * BEFORE markdown-stripping in {@link toDisplaySnippet}: a slash-command or
+ * hook-injected turn's `<command-message>`/`<command-name>`/
+ * `<local-command-stdout>`/`<system-reminder>` blocks are harness structural
+ * markup, not operator prose, so the whole block (tag markers AND contained
+ * text) is discarded — the same "discard the block" treatment already
+ * applied to fenced code above, not a partial unwrap.
  */
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+
+/**
+ * Harness-injected structural wrapper tags whose CONTENTS are never operator
+ * prose (mt#2784). `<command-message>` is a deliberate judgment call, not an
+ * oversight: its body is just the invoked skill/command's display name (e.g.
+ * "error-handling"), which reads like plausible label text — but it is
+ * harness boilerplate the operator never typed, so it is discarded entirely
+ * along with the other three tags rather than unwrapped (contrast with a
+ * markdown link, where the visible text IS operator-authored and is kept).
+ */
+const HARNESS_WRAPPER_TAGS = [
+  "command-message",
+  "command-name",
+  "local-command-stdout",
+  "system-reminder",
+] as const;
+
+/**
+ * Strip harness command-wrapper / system-reminder blocks — tag markers AND
+ * everything between them, discarded as a single unit (mt#2784). Applied
+ * BEFORE {@link stripMarkdown} in {@link toDisplaySnippet} so a slash-command
+ * turn like `<command-message>error-handling</command-message>` reduces to
+ * an empty string rather than leaking raw XML into a label.
+ */
+export function stripHarnessMarkup(text: string): string {
+  let s = text;
+  for (const tag of HARNESS_WRAPPER_TAGS) {
+    // `(?:\s+[^>]*)?` tolerates an attribute-bearing or whitespace-padded
+    // opening tag (e.g. `<command-message kind="slash">` or
+    // `<command-message >`) — a bare `<${tag}>` match alone would miss those
+    // variants and leak raw XML back into the label (reviewer-bot PR #1919
+    // R1). Case-insensitive since the harness's exact tag casing isn't a
+    // guaranteed contract.
+    const re = new RegExp(`<${tag}(?:\\s+[^>]*)?>[\\s\\S]*?</${tag}>`, "gi");
+    s = s.replace(re, " ");
+  }
+  return s;
+}
 
 /** Strip common markdown syntax, collapsing the result to a single line. */
 export function stripMarkdown(text: string): string {
@@ -59,7 +105,7 @@ export function truncateSnippet(text: string, maxLen: number): string {
  */
 export function toDisplaySnippet(text: string | null | undefined, maxLen: number): string {
   if (!text) return "";
-  const stripped = stripMarkdown(text);
+  const stripped = stripMarkdown(stripHarnessMarkup(text));
   if (!stripped) return "";
   return truncateSnippet(stripped, maxLen);
 }
