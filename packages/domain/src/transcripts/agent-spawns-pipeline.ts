@@ -45,6 +45,7 @@ import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-t
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { writeSpawnLink } from "./spawn-link-writer";
+import { findAgentToolCall, type AgentToolCallBlock } from "./agent-tool-call-shape";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 
@@ -70,15 +71,23 @@ export interface SpawnsPipelineRunResult {
    * embedded a Minsky workspace session directory.
    */
   spawnLinksWritten: number;
-}
-
-/** Content block shape from agent_transcript_turns.tool_calls JSONB. */
-interface ToolCallBlock {
-  type: string;
-  id?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  [key: string]: unknown;
+  /**
+   * Spawn had a resolved `childAgentSessionId`, but its dispatch prompt did
+   * NOT embed a Minsky workspace session directory (mt#2756 R1). Kept
+   * distinct from `childUnresolved` on purpose: a low `spawnLinksWritten`
+   * count is ambiguous on its own — it could mean "children rarely resolve"
+   * (see `childUnresolved`) OR "children resolve fine but their prompts
+   * aren't Minsky-shaped" (this counter). Conflating the two was flagged in
+   * review as misleading.
+   */
+  spawnLinksSkippedNoPromptMatch: number;
+  /**
+   * The `subagent_spawn` link DB write itself failed for a row that HAD a
+   * resolved child and a matching prompt (mt#2756 R1) — distinct from
+   * `spawnsErrored`, which covers whole-turn processing failures (upstream
+   * of the link write).
+   */
+  spawnLinksErrored: number;
 }
 
 /** Time-window margin in milliseconds for cwd-time heuristic (± 30 seconds). */
@@ -118,6 +127,8 @@ export class AgentSpawnsPipeline {
       childUnresolved: 0,
       spawnsErrored: 0,
       spawnLinksWritten: 0,
+      spawnLinksSkippedNoPromptMatch: 0,
+      spawnLinksErrored: 0,
     };
 
     // ── 1. Load spawn-boundary turns with parent metadata ─────────────────
@@ -225,18 +236,22 @@ export class AgentSpawnsPipeline {
 
         // mt#2756: write the subagent_spawn minsky_session_links row using
         // the SAME Agent tool call's prompt text already loaded above — no
-        // extra query. No-ops when childAgentSessionId is unresolved or the
-        // prompt doesn't embed a Minsky workspace session directory.
-        if (
-          await writeSpawnLink(
-            this.db,
-            childAgentSessionId,
-            agentCall.input?.prompt,
-            this.sessionsDir
-          )
-        ) {
-          result.spawnLinksWritten++;
-        }
+        // extra query. The discriminated outcome (mt#2756 R1) lets us count
+        // "no-prompt-match" separately from "no-child" (already reflected
+        // above via childUnresolved) and from a genuine DB-write failure —
+        // collapsing those into one boolean was flagged in review as
+        // misleading (a low written-count is ambiguous without this split).
+        const spawnLinkOutcome = await writeSpawnLink(
+          this.db,
+          childAgentSessionId,
+          agentCall.input?.prompt,
+          this.sessionsDir
+        );
+        if (spawnLinkOutcome === "written") result.spawnLinksWritten++;
+        else if (spawnLinkOutcome === "no-prompt-match") result.spawnLinksSkippedNoPromptMatch++;
+        else if (spawnLinkOutcome === "error") result.spawnLinksErrored++;
+        // "no-child" needs no separate counter — childUnresolved above already
+        // captures it from the same childAgentSessionId resolution state.
       } catch (err) {
         result.spawnsErrored++;
         log.warn(
@@ -254,6 +269,8 @@ export class AgentSpawnsPipeline {
       childUnresolved: result.childUnresolved,
       spawnsErrored: result.spawnsErrored,
       spawnLinksWritten: result.spawnLinksWritten,
+      spawnLinksSkippedNoPromptMatch: result.spawnLinksSkippedNoPromptMatch,
+      spawnLinksErrored: result.spawnLinksErrored,
     });
 
     return result;
@@ -274,6 +291,8 @@ export class AgentSpawnsPipeline {
       childUnresolved: 0,
       spawnsErrored: 0,
       spawnLinksWritten: 0,
+      spawnLinksSkippedNoPromptMatch: 0,
+      spawnLinksErrored: 0,
     };
 
     let rows: Array<{
@@ -373,16 +392,15 @@ export class AgentSpawnsPipeline {
         else result.childUnresolved++;
 
         // mt#2756: see the identical comment in run() above.
-        if (
-          await writeSpawnLink(
-            this.db,
-            childAgentSessionId,
-            agentCall.input?.prompt,
-            this.sessionsDir
-          )
-        ) {
-          result.spawnLinksWritten++;
-        }
+        const spawnLinkOutcome = await writeSpawnLink(
+          this.db,
+          childAgentSessionId,
+          agentCall.input?.prompt,
+          this.sessionsDir
+        );
+        if (spawnLinkOutcome === "written") result.spawnLinksWritten++;
+        else if (spawnLinkOutcome === "no-prompt-match") result.spawnLinksSkippedNoPromptMatch++;
+        else if (spawnLinkOutcome === "error") result.spawnLinksErrored++;
       } catch (err) {
         result.spawnsErrored++;
         log.warn(
@@ -455,23 +473,14 @@ export class AgentSpawnsPipeline {
 // ── Extraction helpers ─────────────────────────────────────────────────────────
 
 /**
- * Find the first Agent tool call in a tool_calls JSONB array.
- * Returns null if the array is missing or has no Agent call.
+ * Re-exported for backward compatibility (this module's own test file and
+ * external callers import `findAgentToolCall` from here). The actual
+ * implementation lives in `agent-tool-call-shape.ts` (mt#2756 R1) — the
+ * shared finder both this pipeline and the `subagent_spawn` backfill sweep
+ * (spawn-link-writer.ts) use, so the two `tool_calls`-JSONB parsers can't
+ * drift apart.
  */
-export function findAgentToolCall(toolCalls: unknown): ToolCallBlock | null {
-  if (!Array.isArray(toolCalls)) return null;
-  for (const block of toolCalls) {
-    if (
-      typeof block === "object" &&
-      block !== null &&
-      (block as ToolCallBlock).type === "tool_use" &&
-      (block as ToolCallBlock).name === "Agent"
-    ) {
-      return block as ToolCallBlock;
-    }
-  }
-  return null;
-}
+export { findAgentToolCall };
 
 /**
  * Extract agent_kind from an Agent tool call's input.
@@ -479,7 +488,7 @@ export function findAgentToolCall(toolCalls: unknown): ToolCallBlock | null {
  * Claude Code passes the subagent type (e.g. "general-purpose", "Explore", "refactorer")
  * as the `subagent_type` field in the Agent tool call's `input` object.
  */
-export function extractAgentKind(agentCall: ToolCallBlock): string | null {
+export function extractAgentKind(agentCall: AgentToolCallBlock): string | null {
   const input = agentCall.input;
   if (!input || typeof input !== "object") return null;
   const subagentType = (input as Record<string, unknown>)["subagent_type"];
@@ -493,7 +502,7 @@ export function extractAgentKind(agentCall: ToolCallBlock): string | null {
  * Returns "background" when `run_in_background` is truthy in the input.
  * Defaults to "foreground" when absent or false.
  */
-export function extractSpawnType(agentCall: ToolCallBlock): "foreground" | "background" {
+export function extractSpawnType(agentCall: AgentToolCallBlock): "foreground" | "background" {
   const input = agentCall.input;
   if (!input || typeof input !== "object") return "foreground";
   const runInBackground = (input as Record<string, unknown>)["run_in_background"];
@@ -507,7 +516,7 @@ export function extractSpawnType(agentCall: ToolCallBlock): "foreground" | "back
  * input that directly identifies the child session. This is the most reliable
  * linkage method and is preferred over the cwd-time heuristic.
  */
-export function extractChildSessionIdFromMetadata(agentCall: ToolCallBlock): string | null {
+export function extractChildSessionIdFromMetadata(agentCall: AgentToolCallBlock): string | null {
   const input = agentCall.input;
   if (!input || typeof input !== "object") return null;
   const sessionId = (input as Record<string, unknown>)["session_id"];

@@ -88,6 +88,33 @@ describe("extractMinskySessionIdFromPrompt", () => {
     expect(extractMinskySessionIdFromPrompt(prompt, weirdDir)).toBe(SESSION_A);
   });
 
+  // mt#2756 R1 (reviewer finding): explicit `[`/`]` coverage — square brackets
+  // are regex metacharacters (character-class delimiters) that a naive escape
+  // could miss. escapeRegExpLiteral's character class explicitly includes
+  // both `[` and `\]`, matching the canonical MDN escapeRegExp form.
+  test("escapes a literal '[' in a custom sessionsDir", () => {
+    const weirdDir = "/state[env=staging]/sessions";
+    const prompt = `Working at ${weirdDir}/${SESSION_A}.`;
+    expect(extractMinskySessionIdFromPrompt(prompt, weirdDir)).toBe(SESSION_A);
+  });
+
+  test("escapes a literal ']' in a custom sessionsDir", () => {
+    const weirdDir = "/state/env]/sessions";
+    const prompt = `Working at ${weirdDir}/${SESSION_A}.`;
+    expect(extractMinskySessionIdFromPrompt(prompt, weirdDir)).toBe(SESSION_A);
+  });
+
+  test("escapes both '[' and ']' together in a custom sessionsDir", () => {
+    const weirdDir = "/state/[env]/sessions";
+    const prompt = `Working at ${weirdDir}/${SESSION_A}.`;
+    expect(extractMinskySessionIdFromPrompt(prompt, weirdDir)).toBe(SESSION_A);
+  });
+
+  test("does not false-positive-match when '[' or ']' appear in surrounding prompt text but not the sessionsDir itself", () => {
+    const prompt = `Config [env=prod] loaded. You are working in Minsky session at ${SESSIONS_DIR}/${SESSION_A}. All good.`;
+    expect(extractMinskySessionIdFromPrompt(prompt, SESSIONS_DIR)).toBe(SESSION_A);
+  });
+
   test("uses the live getSessionsDir() when sessionsDir is not passed", () => {
     expect(extractMinskySessionIdFromPrompt("no session info here")).toBeNull();
   });
@@ -129,18 +156,22 @@ function asPg(db: FakeLinkDb) {
 }
 
 describe("writeSpawnLink", () => {
-  test("writes a link row when the prompt embeds a session dir and returns true", async () => {
+  // mt#2756 R1: writeSpawnLink returns a discriminated WriteSpawnLinkOutcome
+  // ("written" | "no-child" | "no-prompt-match" | "error") instead of a
+  // collapsing boolean, so callers can distinguish WHY a link wasn't written.
+
+  test("writes a link row when the prompt embeds a session dir and returns 'written'", async () => {
     const store = new Map<string, FakeLinkRow>();
     const db = makeLinkDb(store);
 
-    const written = await writeSpawnLink(
+    const outcome = await writeSpawnLink(
       asPg(db),
       CHILD,
       promptWithSessionDir(SESSION_B),
       SESSIONS_DIR
     );
 
-    expect(written).toBe(true);
+    expect(outcome).toBe("written");
     const row = store.get(`${CHILD}:${SESSION_B}`);
     expect(row).toEqual({
       agentSessionId: CHILD,
@@ -150,7 +181,7 @@ describe("writeSpawnLink", () => {
     });
   });
 
-  test("no-ops (no DB call) and returns false when childAgentSessionId is absent", async () => {
+  test("no-ops (no DB call) and returns 'no-child' when childAgentSessionId is absent", async () => {
     const store = new Map<string, FakeLinkRow>();
     let insertCalled = false;
     const db = {
@@ -160,34 +191,34 @@ describe("writeSpawnLink", () => {
       },
     };
 
-    const written = await writeSpawnLink(
+    const outcome = await writeSpawnLink(
       asPg(db as unknown as FakeLinkDb),
       null,
       promptWithSessionDir(SESSION_B),
       SESSIONS_DIR
     );
 
-    expect(written).toBe(false);
+    expect(outcome).toBe("no-child");
     expect(insertCalled).toBe(false);
     expect(store.size).toBe(0);
   });
 
-  test("no-ops (no DB call) and returns false when childAgentSessionId is undefined", async () => {
+  test("no-ops (no DB call) and returns 'no-child' when childAgentSessionId is undefined", async () => {
     const store = new Map<string, FakeLinkRow>();
     const db = makeLinkDb(store);
 
-    const written = await writeSpawnLink(
+    const outcome = await writeSpawnLink(
       asPg(db),
       undefined,
       promptWithSessionDir(SESSION_B),
       SESSIONS_DIR
     );
 
-    expect(written).toBe(false);
+    expect(outcome).toBe("no-child");
     expect(store.size).toBe(0);
   });
 
-  test("no-ops and returns false when the prompt does not embed a session dir", async () => {
+  test("no-ops and returns 'no-prompt-match' when the prompt does not embed a session dir", async () => {
     const store = new Map<string, FakeLinkRow>();
     let insertCalled = false;
     const db = {
@@ -197,40 +228,40 @@ describe("writeSpawnLink", () => {
       },
     };
 
-    const written = await writeSpawnLink(
+    const outcome = await writeSpawnLink(
       asPg(db as unknown as FakeLinkDb),
       CHILD,
       "Just do the task.",
       SESSIONS_DIR
     );
 
-    expect(written).toBe(false);
+    expect(outcome).toBe("no-prompt-match");
     expect(insertCalled).toBe(false);
     expect(store.size).toBe(0);
   });
 
-  test("no-ops when prompt is not a string (e.g. undefined input.prompt)", async () => {
+  test("returns 'no-prompt-match' when prompt is not a string (e.g. undefined input.prompt)", async () => {
     const store = new Map<string, FakeLinkRow>();
     const db = makeLinkDb(store);
 
-    const written = await writeSpawnLink(asPg(db), CHILD, undefined, SESSIONS_DIR);
+    const outcome = await writeSpawnLink(asPg(db), CHILD, undefined, SESSIONS_DIR);
 
-    expect(written).toBe(false);
+    expect(outcome).toBe("no-prompt-match");
     expect(store.size).toBe(0);
   });
 
-  test("swallows a DB failure and returns false rather than throwing", async () => {
+  test("swallows a DB failure and returns 'error' rather than throwing", async () => {
     const store = new Map<string, FakeLinkRow>();
     const db = makeLinkDb(store, { throwOnInsert: true });
 
-    const written = await writeSpawnLink(
+    const outcome = await writeSpawnLink(
       asPg(db),
       CHILD,
       promptWithSessionDir(SESSION_B),
       SESSIONS_DIR
     );
 
-    expect(written).toBe(false);
+    expect(outcome).toBe("error");
     expect(store.size).toBe(0);
   });
 
@@ -241,9 +272,9 @@ describe("writeSpawnLink", () => {
 
     await writeSpawnLink(asPg(db), CHILD, prompt, SESSIONS_DIR);
     const after1 = store.size;
-    const written2 = await writeSpawnLink(asPg(db), CHILD, prompt, SESSIONS_DIR);
+    const outcome2 = await writeSpawnLink(asPg(db), CHILD, prompt, SESSIONS_DIR);
 
-    expect(written2).toBe(true);
+    expect(outcome2).toBe("written");
     expect(store.size).toBe(after1);
   });
 });

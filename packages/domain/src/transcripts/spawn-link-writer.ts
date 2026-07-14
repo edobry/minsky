@@ -45,6 +45,7 @@ import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-t
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
 import { getErrorMessage } from "../errors/index";
+import { findAgentToolCall } from "./agent-tool-call-shape";
 
 /** Link-type value written by this module (mt#1313's `subagent_spawn` class). */
 export const SUBAGENT_SPAWN_LINK_TYPE = "subagent_spawn";
@@ -57,6 +58,20 @@ export const SUBAGENT_SPAWN_LINK_TYPE = "subagent_spawn";
  * link gets the same confidence.
  */
 export const SUBAGENT_SPAWN_CONFIDENCE = 1.0;
+
+/**
+ * Escape every regex metacharacter in a literal string so it can be embedded
+ * verbatim inside a dynamically-constructed `RegExp` pattern. This is the
+ * standard MDN-documented `escapeRegExp` form
+ * (developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions) —
+ * named and isolated here (rather than inlined) so a reader doesn't have to
+ * re-derive that the character class covers every metacharacter, including
+ * `[` and `]` (see the `escapes regex special characters` test cases in
+ * spawn-link-writer.test.ts for explicit `[`/`]` coverage).
+ */
+function escapeRegExpLiteral(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /**
  * Extract the Minsky workspace session id embedded in a subagent dispatch
@@ -85,10 +100,23 @@ export function extractMinskySessionIdFromPrompt(
   if (!prompt || typeof prompt !== "string") return null;
 
   const normalizedRoot = sessionsDir.endsWith("/") ? sessionsDir.slice(0, -1) : sessionsDir;
-  const escapedRoot = normalizedRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedRoot = escapeRegExpLiteral(normalizedRoot);
   const match = prompt.match(new RegExp(`${escapedRoot}/([A-Za-z0-9-]+)`));
   return match?.[1] || null;
 }
+
+/**
+ * Discriminated outcome of {@link writeSpawnLink} (mt#2756 R1 — replaces a
+ * collapsing `boolean` return). A caller that only sees `false` cannot tell
+ * WHY the link wasn't written: "there's no child conversation to link at
+ * all" (`no-child`), "the child exists but its dispatch prompt wasn't
+ * Minsky-shaped" (`no-prompt-match`), and "the DB write itself failed"
+ * (`error`) are three distinct, actionable causes with different operator
+ * responses — conflating them into one boolean was the exact ambiguity a
+ * reviewer flagged (a low count could mean "children rarely resolve" OR
+ * "prompts rarely match" OR "writes are failing," indistinguishably).
+ */
+export type WriteSpawnLinkOutcome = "written" | "no-child" | "no-prompt-match" | "error";
 
 /**
  * Write the `subagent_spawn` link for one resolved `agent_spawns` row, given
@@ -98,34 +126,34 @@ export function extractMinskySessionIdFromPrompt(
  * No-ops (no DB call at all) when `childAgentSessionId` is absent (the spawn
  * hasn't been linked to a child transcript yet — a later sweep may resolve
  * it) or the prompt does not embed a Minsky session directory (non-Minsky
- * dispatch, or a hand-crafted prompt).
+ * dispatch, or a hand-crafted prompt) — see {@link WriteSpawnLinkOutcome} for
+ * how callers should distinguish these cases.
  *
  * Idempotent: the table's primary key is `(agent_session_id,
  * minsky_session_id)`, so re-running this (e.g. on every
  * `transcripts.spawns-extract` sweep) over an already-linked pair is a safe
- * no-op via `ON CONFLICT DO NOTHING`.
+ * no-op via `ON CONFLICT DO NOTHING` — the `"written"` outcome covers BOTH a
+ * fresh insert and an already-linked pair, since the row's presence (not
+ * whether THIS call physically inserted it) is what the caller cares about.
  *
  * Never throws — a DB failure is logged and swallowed so link-writing can
  * never block the spawn-extraction pass it rides alongside, matching
  * `writeCwdMatchLink`'s error-swallowing convention (session-link-writer.ts).
- *
- * @returns `true` when a link was written or already existed for this pair;
- *   `false` when no link could be established, or the write failed.
  */
 export async function writeSpawnLink(
   db: PostgresJsDatabase,
   childAgentSessionId: string | null | undefined,
   prompt: unknown,
   sessionsDir?: string
-): Promise<boolean> {
-  if (!childAgentSessionId) return false;
+): Promise<WriteSpawnLinkOutcome> {
+  if (!childAgentSessionId) return "no-child";
 
   const promptText = typeof prompt === "string" ? prompt : null;
   const minskySessionId = extractMinskySessionIdFromPrompt(
     promptText,
     sessionsDir ?? getSessionsDir()
   );
-  if (!minskySessionId) return false;
+  if (!minskySessionId) return "no-prompt-match";
 
   try {
     await db
@@ -137,48 +165,28 @@ export async function writeSpawnLink(
         confidence: SUBAGENT_SPAWN_CONFIDENCE,
       })
       .onConflictDoNothing();
-    return true;
+    return "written";
   } catch (err) {
     log.warn(`writeSpawnLink: failed to upsert link for session ${childAgentSessionId}`, {
       error: getErrorMessage(err),
       minskySessionId,
     });
-    return false;
+    return "error";
   }
-}
-
-/** Content block shape from agent_transcript_turns.tool_calls JSONB. */
-interface SpawnBackfillToolCallBlock {
-  type: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  [key: string]: unknown;
 }
 
 /**
- * Find the first Agent tool call in a tool_calls JSONB array and return its
- * `input.prompt` text, or `null` if none is found.
- *
- * Deliberately duplicated (not imported) from `agent-spawns-pipeline.ts`'s
- * `findAgentToolCall` to avoid a circular import — that module imports
- * {@link writeSpawnLink} from this one. Keep the tool-call-shape matching
- * logic here in sync with the one there if either changes.
+ * Extract the `input.prompt` text from the first Agent tool call in a
+ * `tool_calls` JSONB array, or `null` if none is found. Uses the shared
+ * {@link findAgentToolCall} (agent-tool-call-shape.ts) — the SAME finder
+ * `AgentSpawnsPipeline` uses — so the two `tool_calls`-JSONB parsers can't
+ * drift apart (mt#2756 R1).
  */
 function extractAgentPromptFromToolCalls(toolCalls: unknown): string | null {
-  if (!Array.isArray(toolCalls)) return null;
-  for (const block of toolCalls) {
-    if (
-      typeof block === "object" &&
-      block !== null &&
-      (block as SpawnBackfillToolCallBlock).type === "tool_use" &&
-      (block as SpawnBackfillToolCallBlock).name === "Agent"
-    ) {
-      const input = (block as SpawnBackfillToolCallBlock).input;
-      const prompt = input && typeof input === "object" ? input["prompt"] : undefined;
-      return typeof prompt === "string" ? prompt : null;
-    }
-  }
-  return null;
+  const agentCall = findAgentToolCall(toolCalls);
+  if (!agentCall) return null;
+  const prompt = agentCall.input?.["prompt"];
+  return typeof prompt === "string" ? prompt : null;
 }
 
 export interface BackfillSpawnLinksResult {
@@ -242,22 +250,25 @@ export async function backfillSpawnLinks(
       continue;
     }
     const prompt = extractAgentPromptFromToolCalls(row.toolCalls);
-    const minskySessionId = extractMinskySessionIdFromPrompt(prompt, resolvedSessionsDir);
-    if (!minskySessionId) {
-      result.linksSkippedNoMatch++;
-      continue;
-    }
     try {
-      const written = await writeSpawnLink(
+      // writeSpawnLink already re-derives minskySessionId internally and
+      // reports "no-prompt-match" when it can't — no need to duplicate that
+      // check here (mt#2756 R1: single source of truth for the resolution
+      // logic, not two call sites that could drift).
+      const outcome = await writeSpawnLink(
         db,
         row.childAgentSessionId,
         prompt,
         resolvedSessionsDir
       );
-      if (written) {
+      if (outcome === "written") {
         result.linksWritten++;
-      } else {
+      } else if (outcome === "error") {
         result.linksErrored++;
+      } else {
+        // "no-prompt-match" — childAgentSessionId is already guaranteed
+        // present here (checked above), so "no-child" cannot occur.
+        result.linksSkippedNoMatch++;
       }
     } catch (err) {
       result.linksErrored++;

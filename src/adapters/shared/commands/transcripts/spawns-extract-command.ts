@@ -158,7 +158,9 @@ export function registerTranscriptSpawnsExtractCommand(
           `linkedFromHeuristic=${pipelineResult.childLinkedFromHeuristic}, ` +
           `unresolved=${pipelineResult.childUnresolved}, ` +
           `errored=${pipelineResult.spawnsErrored}, ` +
-          `spawnLinksWritten=${pipelineResult.spawnLinksWritten}`;
+          `spawnLinksWritten=${pipelineResult.spawnLinksWritten}, ` +
+          `spawnLinksSkippedNoPromptMatch=${pipelineResult.spawnLinksSkippedNoPromptMatch}, ` +
+          `spawnLinksErrored=${pipelineResult.spawnLinksErrored}`;
 
         return { pipeline: pipelineResult, message };
       }

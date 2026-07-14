@@ -78,8 +78,10 @@ function makeDb(opts: {
   }>;
   spawnsStore: Map<string, FakeSpawnRow>;
   linksStore: Map<string, FakeLinkRow>;
+  /** mt#2756 R1: simulate a DB failure on the minsky_session_links insert. */
+  throwOnLinkInsert?: boolean;
 }) {
-  const { turnRows, spawnsStore, linksStore } = opts;
+  const { turnRows, spawnsStore, linksStore, throwOnLinkInsert } = opts;
 
   return {
     select(_fields?: Record<string, unknown>) {
@@ -120,6 +122,9 @@ function makeDb(opts: {
           values(v: FakeLinkRow) {
             return {
               onConflictDoNothing(): Promise<void> {
+                if (throwOnLinkInsert) {
+                  return Promise.reject(new Error("simulated link-insert failure"));
+                }
                 const key = `${v.agentSessionId}:${v.minskySessionId}`;
                 if (!linksStore.has(key)) linksStore.set(key, { ...v });
                 return Promise.resolve();
@@ -198,6 +203,11 @@ describe("AgentSpawnsPipeline — subagent_spawn link wiring (mt#2756)", () => {
 
     expect(result.childUnresolved).toBe(1);
     expect(result.spawnLinksWritten).toBe(0);
+    // mt#2756 R1: an unresolved child is NOT a "no-prompt-match" skip — that
+    // counter is reserved for a resolved child whose prompt lacked a session
+    // dir. Conflating the two was the exact ambiguity flagged in review.
+    expect(result.spawnLinksSkippedNoPromptMatch).toBe(0);
+    expect(result.spawnLinksErrored).toBe(0);
     expect(linksStore.size).toBe(0);
   });
 
@@ -225,6 +235,46 @@ describe("AgentSpawnsPipeline — subagent_spawn link wiring (mt#2756)", () => {
 
     expect(result.childLinkedFromMetadata).toBe(1);
     expect(result.spawnLinksWritten).toBe(0);
+    // mt#2756 R1: THIS is the exact case spawnLinksSkippedNoPromptMatch
+    // exists for — child resolved, but the prompt wasn't Minsky-shaped.
+    expect(result.spawnLinksSkippedNoPromptMatch).toBe(1);
+    expect(result.spawnLinksErrored).toBe(0);
+    expect(linksStore.size).toBe(0);
+  });
+
+  test("counts a link-insert DB failure as spawnLinksErrored, distinct from spawnsErrored (mt#2756 R1)", async () => {
+    const spawnsStore = new Map<string, FakeSpawnRow>();
+    const linksStore = new Map<string, FakeLinkRow>();
+    const db = makeDb({
+      turnRows: [
+        {
+          agentSessionId: PARENT,
+          turnIndex: 0,
+          toolCalls: [
+            makeAgentToolCall({
+              sessionId: CHILD,
+              prompt: promptWithSessionDir(WORKSPACE_SESSION),
+            }),
+          ],
+          endedAt: TS_SPAWN,
+          parentCwd: CWD,
+        },
+      ],
+      spawnsStore,
+      linksStore,
+      throwOnLinkInsert: true,
+    });
+    const pipeline = new AgentSpawnsPipeline(asPg(db), SESSIONS_DIR);
+
+    const result = await pipeline.run();
+
+    // The turn itself still processed successfully (agent_spawns row written,
+    // no whole-turn exception) — only the link write failed.
+    expect(result.spawnsWritten).toBe(1);
+    expect(result.spawnsErrored).toBe(0);
+    expect(result.spawnLinksWritten).toBe(0);
+    expect(result.spawnLinksSkippedNoPromptMatch).toBe(0);
+    expect(result.spawnLinksErrored).toBe(1);
     expect(linksStore.size).toBe(0);
   });
 
