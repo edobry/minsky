@@ -279,6 +279,55 @@ describe("context-inspector widget — conversation labeling (mt#2770)", () => {
     expect(s.label.startsWith("Please investigate")).toBe(true);
   });
 
+  test("tier 2 (mt#2784): a markup-only first turn falls to the next substantive user turn, never raw XML", async () => {
+    const db = mockMultiTableDb({
+      transcripts: [baseTranscript],
+      links: [],
+      turns: [
+        {
+          agentSessionId: AGENT_SESSION_ID,
+          turnIndex: 0,
+          userText: "<command-message>error-handling</command-message>",
+        },
+        {
+          agentSessionId: AGENT_SESSION_ID,
+          turnIndex: 1,
+          userText: "why does the reviewer bot keep failing on CI runs",
+        },
+      ],
+    });
+    const widget = createContextInspectorWidget(async () => db);
+
+    const result = await widget.fetch({ id: WIDGET_ID });
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const s = firstSession(result.payload as ContextInspectorPayload);
+    expect(s.label).not.toContain("<command-");
+    expect(s.label.startsWith("why does the reviewer bot")).toBe(true);
+  });
+
+  test("tier 2 -> tier 4 (mt#2784): a conversation with ONLY markup turns falls to the timestamp·cwd fallback", async () => {
+    const db = mockMultiTableDb({
+      transcripts: [baseTranscript],
+      links: [],
+      turns: [
+        {
+          agentSessionId: AGENT_SESSION_ID,
+          turnIndex: 0,
+          userText: "<command-message>error-handling</command-message>",
+        },
+      ],
+    });
+    const widget = createContextInspectorWidget(async () => db);
+
+    const result = await widget.fetch({ id: WIDGET_ID });
+    expect(result.state).toBe("ok");
+    if (result.state !== "ok") return;
+    const s = firstSession(result.payload as ContextInspectorPayload);
+    expect(s.label).not.toContain("<command-");
+    expect(s.label).toContain("2026-07-13 20:40");
+  });
+
   test("tier 3: subagent descriptor from subagent_invocations when no link or first-user text resolves", async () => {
     const db = mockMultiTableDb({
       transcripts: [baseTranscript],

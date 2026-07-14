@@ -19,8 +19,12 @@
  *      backend. `minsky_session_links` is sparse until mt#2441/mt#2756 land
  *      writers for it — an empty/missing link is NOT an error, it's just a
  *      tier-1 miss that falls through to tier 2.
- *   2. First-user-prompt snippet, from `agent_transcript_turns.user_text`
- *      (markdown-stripped, ~60 chars).
+ *   2. First-SUBSTANTIVE-user-prompt snippet, from `agent_transcript_turns.user_text`
+ *      (harness-markup-stripped, markdown-stripped, ~60 chars). A markup-only
+ *      first turn (e.g. a bare slash-command `<command-message>` invocation)
+ *      is skipped in favor of the next real user turn — see
+ *      `pickSubstantiveUserText` / `MAX_USER_TURN_CANDIDATES` in
+ *      `../conversation-label.ts` (mt#2784).
  *   3. Subagent dispatch descriptor, composed from `agent_spawns` /
  *      `subagent_invocations` where resolvable.
  *   4. The original timestamp·cwd·id fallback (unchanged).
@@ -61,6 +65,7 @@ import {
   computeConversationLabel,
   composeSubagentDescriptor,
   deriveFallbackLabel,
+  pickSubstantiveUserText,
 } from "../conversation-label";
 
 /** Shape of a single session-picker row */
@@ -224,17 +229,25 @@ async function fetchEnrichment(
       if (taskId) linkedTaskIdBySession.set(agentSessionId, taskId);
     }
 
-    // Tier 2: first user-turn text per session (lowest turnIndex with non-null userText).
-    const firstUserTextBySession = new Map<string, { turnIndex: number; userText: string }>();
+    // Tier 2: first-SUBSTANTIVE user-turn text per session. Collect every
+    // non-null-userText turn per session (already batch-fetched above, no
+    // extra query), then sort ascending by turnIndex — pickSubstantiveUserText
+    // (mt#2784) scans only the earliest MAX_USER_TURN_CANDIDATES of those,
+    // skipping any that are harness markup only (e.g. a bare
+    // `<command-message>` slash-command invocation) in favor of the next
+    // real user turn.
+    const userTurnCandidatesBySession = new Map<
+      string,
+      { turnIndex: number; userText: string }[]
+    >();
     for (const turn of turns) {
       if (!turn.userText) continue;
-      const existing = firstUserTextBySession.get(turn.agentSessionId);
-      if (!existing || turn.turnIndex < existing.turnIndex) {
-        firstUserTextBySession.set(turn.agentSessionId, {
-          turnIndex: turn.turnIndex,
-          userText: turn.userText,
-        });
-      }
+      const list = userTurnCandidatesBySession.get(turn.agentSessionId) ?? [];
+      list.push({ turnIndex: turn.turnIndex, userText: turn.userText });
+      userTurnCandidatesBySession.set(turn.agentSessionId, list);
+    }
+    for (const list of userTurnCandidatesBySession.values()) {
+      list.sort((a, b) => a.turnIndex - b.turnIndex);
     }
 
     // Tier 3 inputs: agent_spawns agentKind (child edge) + subagent_invocations
@@ -278,7 +291,8 @@ async function fetchEnrichment(
       const linkedTaskId = linkedTaskIdBySession.get(agentSessionId) ?? null;
       const linkedTaskTitle = linkedTaskId ? (taskTitles.get(linkedTaskId) ?? null) : null;
 
-      const firstUserText = firstUserTextBySession.get(agentSessionId)?.userText ?? null;
+      const userTurnCandidates = userTurnCandidatesBySession.get(agentSessionId) ?? [];
+      const firstUserText = pickSubstantiveUserText(userTurnCandidates.map((c) => c.userText));
 
       const invocation = invocationBySession.get(agentSessionId);
       const subagentDescriptor = composeSubagentDescriptor({

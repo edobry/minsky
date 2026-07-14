@@ -8,7 +8,14 @@
  * Precedence (per the mt#2770 spec):
  *   1. Bound task title (via `minsky_session_links` -> `sessions` -> task
  *      backend), when the link AND the title both resolve.
- *   2. First-user-prompt snippet (markdown-stripped, ~60 chars).
+ *   2. First-SUBSTANTIVE-user-prompt snippet (markdown-stripped, harness-
+ *      markup-stripped, ~60 chars). "First" is not always the literal
+ *      earliest turn: a slash-command or hook-injected turn (e.g. a bare
+ *      `<command-message>error-handling</command-message>`) is markup, not
+ *      operator prose, so {@link pickSubstantiveUserText} (mt#2784) skips it
+ *      in favor of the next user turn — bounded to the first
+ *      {@link MAX_USER_TURN_CANDIDATES} turns so a long conversation's full
+ *      turn history never drives this lookup's cost.
  *   3. Subagent dispatch descriptor (from `agent_spawns` / `subagent_invocations`),
  *      when resolvable.
  *   4. Existing timestamp·cwd fallback (unchanged from the mt#2023 baseline).
@@ -28,6 +35,39 @@ export const TASK_TITLE_MAX_LEN = 100;
 
 /** Max length for a subagent-descriptor label (tier 3). */
 export const SUBAGENT_DESCRIPTOR_MAX_LEN = 80;
+
+/**
+ * Bound on how many of a conversation's earliest user turns
+ * {@link pickSubstantiveUserText} will inspect when the first turn turns out
+ * to be markup-only (mt#2784). Deliberately small: this lookup runs inside
+ * the run-list merge path (mt#2767 / PR #1910's latency fix), so it must stay
+ * O(1) per conversation rather than scanning an unbounded turn history.
+ */
+export const MAX_USER_TURN_CANDIDATES = 5;
+
+/**
+ * Pick the first candidate user-turn text that is substantive after
+ * harness-markup + markdown stripping (mt#2784), scanning at most the
+ * earliest {@link MAX_USER_TURN_CANDIDATES} candidates. `candidates` must
+ * already be ordered earliest-turn-first (callers own the turnIndex sort —
+ * this function does not re-sort). Returns the RAW (un-stripped) winning
+ * candidate — {@link computeConversationLabel}'s tier-2 branch re-derives the
+ * display snippet via `toDisplaySnippet`, so this only decides WHICH turn's
+ * text wins, not the finally-rendered string.
+ *
+ * Returns `null` when none of the scanned candidates are substantive (e.g.
+ * the whole window is harness markup) — callers treat that exactly like an
+ * absent first-user-text today, i.e. tier 2 is skipped and precedence falls
+ * through to tier 3 (subagent descriptor) / tier 4 (timestamp·cwd fallback).
+ */
+export function pickSubstantiveUserText(candidates: (string | null | undefined)[]): string | null {
+  for (const candidate of candidates.slice(0, MAX_USER_TURN_CANDIDATES)) {
+    if (candidate && toDisplaySnippet(candidate, FIRST_PROMPT_SNIPPET_MAX_LEN)) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 export interface ConversationLabelInputs {
   agentSessionId: string;

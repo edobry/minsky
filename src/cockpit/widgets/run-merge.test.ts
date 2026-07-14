@@ -20,6 +20,9 @@ const CONV_C = "cccccccc-0000-0000-0000-00000000000c";
 const CONV_D = "dddddddd-0000-0000-0000-00000000000d";
 const WORKSPACE_1 = "workspace-session-1";
 
+/** Shared fixture string — extracted to satisfy custom/no-magic-string-duplication. */
+const FLAKY_TEST_SUITE_PROMPT = "look into the flaky test suite";
+
 interface TranscriptRow {
   agentSessionId: string;
   cwd: string | null;
@@ -113,7 +116,7 @@ describe("mergeConversationRows (mt#2767)", () => {
     const startedAt = new Date("2026-07-13T20:00:00.000Z");
     const db = mockDb({
       transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt, endedAt: null }],
-      turns: [{ agentSessionId: CONV_B, turnIndex: 0, userText: "look into the flaky test suite" }],
+      turns: [{ agentSessionId: CONV_B, turnIndex: 0, userText: FLAKY_TEST_SUITE_PROMPT }],
     });
 
     const result = await mergeConversationRows(db, []);
@@ -124,8 +127,57 @@ describe("mergeConversationRows (mt#2767)", () => {
     expect(row.kind).toBe("principal-conversation");
     expect(row.sessionId).toBe(CONV_B);
     expect(row.conversationId).toBe(CONV_B);
-    expect(row.title.startsWith("look into the flaky test suite")).toBe(true);
+    expect(row.title.startsWith(FLAKY_TEST_SUITE_PROMPT)).toBe(true);
     expect(row.subagents).toEqual([]);
+  });
+
+  test("(mt#2784) a markup-only first turn falls to the next substantive user turn, never raw XML", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt, endedAt: null }],
+      turns: [
+        {
+          agentSessionId: CONV_B,
+          turnIndex: 0,
+          userText: "<command-message>error-handling</command-message>",
+        },
+        {
+          agentSessionId: CONV_B,
+          turnIndex: 1,
+          userText: FLAKY_TEST_SUITE_PROMPT,
+        },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, []);
+
+    expect(result.standaloneRows).toHaveLength(1);
+    const row = result.standaloneRows[0];
+    if (!row) throw new Error("expected a standalone row");
+    expect(row.title).not.toContain("<command-");
+    expect(row.title.startsWith(FLAKY_TEST_SUITE_PROMPT)).toBe(true);
+  });
+
+  test("(mt#2784) a conversation with ONLY markup turns falls through to the timestamp·cwd fallback", async () => {
+    const startedAt = new Date("2026-07-13T20:00:00.000Z");
+    const db = mockDb({
+      transcripts: [{ agentSessionId: CONV_B, cwd: "/repo", startedAt, endedAt: null }],
+      turns: [
+        {
+          agentSessionId: CONV_B,
+          turnIndex: 0,
+          userText: "<command-message>error-handling</command-message>",
+        },
+      ],
+    });
+
+    const result = await mergeConversationRows(db, []);
+
+    expect(result.standaloneRows).toHaveLength(1);
+    const row = result.standaloneRows[0];
+    if (!row) throw new Error("expected a standalone row");
+    expect(row.title).not.toContain("<command-");
+    expect(row.title).toContain("2026-07-13 20:00");
   });
 
   test("subagent nests under its parent workspace row when the parent is visible", async () => {

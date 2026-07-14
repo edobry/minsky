@@ -2,7 +2,12 @@
  * Tests for the markdown-strip / truncation snippet helper (mt#2770).
  */
 import { describe, expect, test } from "bun:test";
-import { stripMarkdown, truncateSnippet, toDisplaySnippet } from "./text-snippet";
+import {
+  stripMarkdown,
+  truncateSnippet,
+  toDisplaySnippet,
+  stripHarnessMarkup,
+} from "./text-snippet";
 
 describe("stripMarkdown", () => {
   test("strips code fences", () => {
@@ -41,6 +46,52 @@ describe("stripMarkdown", () => {
 
   test("collapses newlines and repeated whitespace", () => {
     expect(stripMarkdown("line one\n\nline   two")).toBe("line one line two");
+  });
+});
+
+describe("stripHarnessMarkup", () => {
+  test("drops a command-message block entirely (tag + contents)", () => {
+    expect(stripHarnessMarkup("<command-message>error-handling</command-message>")).toBe(" ");
+  });
+
+  test("drops a command-name block entirely (tag + contents)", () => {
+    expect(stripHarnessMarkup("<command-name>implement-task</command-name>")).toBe(" ");
+  });
+
+  test("drops a local-command-stdout block entirely (tag + contents)", () => {
+    expect(
+      stripHarnessMarkup("<local-command-stdout>some tool output here</local-command-stdout>")
+    ).toBe(" ");
+  });
+
+  test("drops a system-reminder block entirely (tag + contents)", () => {
+    expect(
+      stripHarnessMarkup("<system-reminder>internal context injection</system-reminder>")
+    ).toBe(" ");
+  });
+
+  test("preserves surrounding operator prose around a stripped block", () => {
+    const input =
+      "<command-message>error-handling</command-message>\nplease also check the retry logic";
+    expect(stripHarnessMarkup(input)).toBe(" \nplease also check the retry logic");
+  });
+
+  test("leaves plain prose with no harness tags unchanged", () => {
+    expect(stripHarnessMarkup("just a normal user message")).toBe("just a normal user message");
+  });
+
+  test("strips an attribute-bearing opening tag (reviewer-bot PR #1919 R1)", () => {
+    expect(
+      stripHarnessMarkup('<command-message kind="slash">error-handling</command-message>')
+    ).toBe(" ");
+  });
+
+  test("strips a whitespace-padded opening tag (reviewer-bot PR #1919 R1)", () => {
+    expect(stripHarnessMarkup("<command-message >error-handling</command-message>")).toBe(" ");
+  });
+
+  test("matches case-insensitively (reviewer-bot PR #1919 R1)", () => {
+    expect(stripHarnessMarkup("<Command-Message>error-handling</Command-Message>")).toBe(" ");
   });
 });
 
@@ -84,5 +135,21 @@ describe("toDisplaySnippet", () => {
 
   test("returns stripped text unchanged when shorter than maxLen", () => {
     expect(toDisplaySnippet("`fix` the bug", 60)).toBe("fix the bug");
+  });
+
+  test("returns empty string when the whole input is a command-message block (mt#2784)", () => {
+    expect(toDisplaySnippet("<command-message>error-handling</command-message>", 60)).toBe("");
+  });
+
+  test("mixed markup + text: strips the wrapper block, keeps the real prose (mt#2784)", () => {
+    const input =
+      "<command-message>implement-task</command-message>\nplease also verify the retry path";
+    expect(toDisplaySnippet(input, 60)).toBe("please also verify the retry path");
+  });
+
+  test("system-reminder-prefixed prompt: strips the reminder, keeps the operator's question (mt#2784)", () => {
+    const input =
+      "<system-reminder>Background context injected by the harness.</system-reminder>\nWhy does the reviewer bot keep timing out?";
+    expect(toDisplaySnippet(input, 60)).toBe("Why does the reviewer bot keep timing out?");
   });
 });

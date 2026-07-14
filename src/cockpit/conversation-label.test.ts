@@ -6,6 +6,8 @@ import {
   computeConversationLabel,
   composeSubagentDescriptor,
   deriveFallbackLabel,
+  pickSubstantiveUserText,
+  MAX_USER_TURN_CANDIDATES,
   type ConversationLabelInputs,
 } from "./conversation-label";
 
@@ -140,5 +142,70 @@ describe("deriveFallbackLabel", () => {
     expect(label).toContain("no-ts");
     expect(label).toContain("unknown");
     expect(label).toContain("abc12345");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickSubstantiveUserText — markup-aware tier-2 turn selection (mt#2784)
+// ---------------------------------------------------------------------------
+
+describe("pickSubstantiveUserText", () => {
+  test("command-message-only first turn: skipped, falls through to null when no other candidates", () => {
+    const result = pickSubstantiveUserText(["<command-message>error-handling</command-message>"]);
+    expect(result).toBeNull();
+  });
+
+  test("command-message-only first turn: falls to the NEXT substantive user turn when one exists", () => {
+    const result = pickSubstantiveUserText([
+      "<command-message>error-handling</command-message>",
+      "why does the reviewer bot keep failing on CI runs",
+    ]);
+    expect(result).toBe("why does the reviewer bot keep failing on CI runs");
+  });
+
+  test("mixed markup+text: a single turn combining a wrapper block and real prose resolves directly", () => {
+    const result = pickSubstantiveUserText([
+      "<command-message>implement-task</command-message>\nplease also check the retry logic",
+    ]);
+    expect(result).toBe(
+      "<command-message>implement-task</command-message>\nplease also check the retry logic"
+    );
+  });
+
+  test("system-reminder-prefixed prompt: the wrapped reminder doesn't block the real question from winning", () => {
+    const result = pickSubstantiveUserText([
+      "<system-reminder>Background context injected by the harness.</system-reminder>\nWhy does deploy keep failing?",
+    ]);
+    expect(result).toBe(
+      "<system-reminder>Background context injected by the harness.</system-reminder>\nWhy does deploy keep failing?"
+    );
+  });
+
+  test("plain first-turn text (no markup) resolves as before — non-regression", () => {
+    const result = pickSubstantiveUserText(["investigate the flaky test suite"]);
+    expect(result).toBe("investigate the flaky test suite");
+  });
+
+  test("returns null when every candidate in the window is markup-only", () => {
+    const result = pickSubstantiveUserText([
+      "<command-message>a</command-message>",
+      "<command-name>b</command-name>",
+      "<system-reminder>c</system-reminder>",
+    ]);
+    expect(result).toBeNull();
+  });
+
+  test("bounded scan: never inspects beyond MAX_USER_TURN_CANDIDATES, even when a later candidate is substantive", () => {
+    const markupOnly = "<command-message>x</command-message>";
+    const candidates = Array.from({ length: MAX_USER_TURN_CANDIDATES }, () => markupOnly);
+    candidates.push("this real turn is past the bounded scan window");
+
+    const result = pickSubstantiveUserText(candidates);
+    expect(result).toBeNull();
+  });
+
+  test("null/undefined candidates within the window are skipped without throwing", () => {
+    const result = pickSubstantiveUserText([null, undefined, "a real first turn"]);
+    expect(result).toBe("a real first turn");
   });
 });
