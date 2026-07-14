@@ -736,12 +736,16 @@ Keep potentially destructive operations safe by default.
 ## Bulk shared-state mutations require a task wrapper (mt#2785)
 
 Any bulk mutation of shared/production state — a data migration, a backfill, a
-sweep that writes, any operation touching more than ~10 records — must be
-wrapped in a Minsky task (the `state-ops` kind fits no-code operations) BEFORE
-execution, so the planning gates fire: spec-read, gate (l)
+sweep that writes, any operation touching **more than 10 records** (strictly
+>10) — must be wrapped in a Minsky task (the `state-ops` kind fits no-code
+operations) BEFORE execution, so the planning gates fire: spec-read, gate (l)
 authoritative-source/decision-record check, and premise checks. Inline
-execution from a conversation is limited to single-record, individually
-audited operations.
+execution from a conversation is limited to individually audited operations
+at or below that threshold — e.g., the originating session's 5 single-task
+`tasks_edit --kind` corrections were appropriate inline; its 116-row script
+UPDATE was not. The threshold is grounded in observed cadence (per
+`decision-defaults §Thresholds`): routine audited inline operations in this
+project run 1–5 records; double digits is migration territory.
 
 A script existing under `scripts/` is NOT evidence the operation is still
 sanctioned — mechanisms are described by docs but sanctioned by decision
