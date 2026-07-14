@@ -105,13 +105,22 @@ export function mountAgentRoutes(app: express.Express): void {
         }
       })();
 
-      // Workspace → transcript resolution (mt#2441): consult
-      // minsky_session_links FIRST — the materialized cwd_match join written
-      // at ingest time (AgentTranscriptIngestService) and backfilled for
-      // pre-existing transcripts (scripts/backfill-minsky-session-links.ts).
-      // Only fall back to the live cwd LIKE query (newest agent_transcripts
-      // row whose cwd is the session workspace or below) for transcripts that
-      // have no link row yet — pre-backfill, or ingested before this shipped.
+      // Workspace → transcript resolution (mt#2441 + mt#2756): consult
+      // minsky_session_links FIRST — this query is link-CLASS AGNOSTIC (no
+      // filter on link_type), so it picks up BOTH the cwd_match class
+      // (written at ingest time by AgentTranscriptIngestService, backfilled
+      // via scripts/backfill-minsky-session-links.ts) AND the subagent_spawn
+      // class (written by AgentSpawnsPipeline from spawn provenance,
+      // backfilled via scripts/backfill-subagent-spawn-links.ts). The
+      // subagent_spawn class is what resolves a DISPATCHED subagent's
+      // workspace — its transcript's own cwd never matches the workspace
+      // directory (mt#2749 finding: subagents don't chdir), so cwd_match
+      // alone misses it; pickBestConversationLink (session-detail.ts) then
+      // picks the best candidate across whichever classes are present by
+      // confidence, tie-broken by recency. Only fall back to the live cwd
+      // LIKE query (newest agent_transcripts row whose cwd is the session
+      // workspace or below) for transcripts that have no link row of EITHER
+      // class yet — pre-backfill, or ingested before either writer shipped.
       // Full removal of the LIKE fallback is a separate task (mt#2768).
       const conversationPromise: Promise<{ agentSessionId: string } | null> = (async () => {
         try {

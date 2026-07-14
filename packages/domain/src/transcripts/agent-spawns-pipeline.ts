@@ -22,10 +22,19 @@
  *
  * Idempotent: upserts on (parent_agent_session_id, parent_turn_index).
  *
+ * Also drives the `subagent_spawn` `minsky_session_links` writer (mt#2756):
+ * once `childAgentSessionId` is resolved for a spawn, this pipeline calls
+ * `writeSpawnLink` (spawn-link-writer.ts) with the SAME Agent tool call's
+ * `input.prompt` text already loaded for extraction above — no extra query.
+ * That link is what lets `/agents/:id` (mt#1919, `src/cockpit/routes/agents.ts`)
+ * resolve a dispatched subagent's live conversation even though its `cwd`
+ * never matches the workspace directory (mt#2749 finding).
+ *
  * @see mt#1327 — this file
  * @see mt#1313 §Schema — agent_spawns table
  * @see mt#1352 — PerTurnEmbeddingPipeline writes is_spawn_boundary flag
  * @see agent-spawns-schema.ts — destination table
+ * @see mt#2756 / spawn-link-writer.ts — subagent_spawn minsky_session_links writer
  */
 
 import { eq, and, gte, lte } from "drizzle-orm";
@@ -35,6 +44,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
+import { writeSpawnLink } from "./spawn-link-writer";
+import { findAgentToolCall, type AgentToolCallBlock } from "./agent-tool-call-shape";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 
@@ -54,15 +65,29 @@ export interface SpawnsPipelineRunResult {
   childUnresolved: number;
   /** Number of turns that errored and were skipped. */
   spawnsErrored: number;
-}
-
-/** Content block shape from agent_transcript_turns.tool_calls JSONB. */
-interface ToolCallBlock {
-  type: string;
-  id?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  [key: string]: unknown;
+  /**
+   * `subagent_spawn` minsky_session_links rows written or already present
+   * (mt#2756) — a subset of the resolved-child spawns whose dispatch prompt
+   * embedded a Minsky workspace session directory.
+   */
+  spawnLinksWritten: number;
+  /**
+   * Spawn had a resolved `childAgentSessionId`, but its dispatch prompt did
+   * NOT embed a Minsky workspace session directory (mt#2756 R1). Kept
+   * distinct from `childUnresolved` on purpose: a low `spawnLinksWritten`
+   * count is ambiguous on its own — it could mean "children rarely resolve"
+   * (see `childUnresolved`) OR "children resolve fine but their prompts
+   * aren't Minsky-shaped" (this counter). Conflating the two was flagged in
+   * review as misleading.
+   */
+  spawnLinksSkippedNoPromptMatch: number;
+  /**
+   * The `subagent_spawn` link DB write itself failed for a row that HAD a
+   * resolved child and a matching prompt (mt#2756 R1) — distinct from
+   * `spawnsErrored`, which covers whole-turn processing failures (upstream
+   * of the link write).
+   */
+  spawnLinksErrored: number;
 }
 
 /** Time-window margin in milliseconds for cwd-time heuristic (± 30 seconds). */
@@ -71,7 +96,17 @@ const CWD_TIME_MARGIN_MS = 30_000;
 // ── Pipeline ──────────────────────────────────────────────────────────────────
 
 export class AgentSpawnsPipeline {
-  constructor(private readonly db: PostgresJsDatabase) {}
+  /**
+   * @param db Postgres connection.
+   * @param sessionsDir Override for the Minsky sessions-workspace root
+   *   (`<stateDir>/sessions`) passed through to `writeSpawnLink` (mt#2756).
+   *   Defaults to the live `getSessionsDir()` when omitted — a test seam,
+   *   not a production knob.
+   */
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    private readonly sessionsDir?: string
+  ) {}
 
   /**
    * Run the full spawn-extraction sweep.
@@ -91,6 +126,9 @@ export class AgentSpawnsPipeline {
       childLinkedFromHeuristic: 0,
       childUnresolved: 0,
       spawnsErrored: 0,
+      spawnLinksWritten: 0,
+      spawnLinksSkippedNoPromptMatch: 0,
+      spawnLinksErrored: 0,
     };
 
     // ── 1. Load spawn-boundary turns with parent metadata ─────────────────
@@ -195,6 +233,25 @@ export class AgentSpawnsPipeline {
         if (linkSource === "metadata") result.childLinkedFromMetadata++;
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
         else result.childUnresolved++;
+
+        // mt#2756: write the subagent_spawn minsky_session_links row using
+        // the SAME Agent tool call's prompt text already loaded above — no
+        // extra query. The discriminated outcome (mt#2756 R1) lets us count
+        // "no-prompt-match" separately from "no-child" (already reflected
+        // above via childUnresolved) and from a genuine DB-write failure —
+        // collapsing those into one boolean was flagged in review as
+        // misleading (a low written-count is ambiguous without this split).
+        const spawnLinkOutcome = await writeSpawnLink(
+          this.db,
+          childAgentSessionId,
+          agentCall.input?.prompt,
+          this.sessionsDir
+        );
+        if (spawnLinkOutcome === "written") result.spawnLinksWritten++;
+        else if (spawnLinkOutcome === "no-prompt-match") result.spawnLinksSkippedNoPromptMatch++;
+        else if (spawnLinkOutcome === "error") result.spawnLinksErrored++;
+        // "no-child" needs no separate counter — childUnresolved above already
+        // captures it from the same childAgentSessionId resolution state.
       } catch (err) {
         result.spawnsErrored++;
         log.warn(
@@ -211,6 +268,9 @@ export class AgentSpawnsPipeline {
       childLinkedFromHeuristic: result.childLinkedFromHeuristic,
       childUnresolved: result.childUnresolved,
       spawnsErrored: result.spawnsErrored,
+      spawnLinksWritten: result.spawnLinksWritten,
+      spawnLinksSkippedNoPromptMatch: result.spawnLinksSkippedNoPromptMatch,
+      spawnLinksErrored: result.spawnLinksErrored,
     });
 
     return result;
@@ -230,6 +290,9 @@ export class AgentSpawnsPipeline {
       childLinkedFromHeuristic: 0,
       childUnresolved: 0,
       spawnsErrored: 0,
+      spawnLinksWritten: 0,
+      spawnLinksSkippedNoPromptMatch: 0,
+      spawnLinksErrored: 0,
     };
 
     let rows: Array<{
@@ -327,6 +390,17 @@ export class AgentSpawnsPipeline {
         if (linkSource === "metadata") result.childLinkedFromMetadata++;
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
         else result.childUnresolved++;
+
+        // mt#2756: see the identical comment in run() above.
+        const spawnLinkOutcome = await writeSpawnLink(
+          this.db,
+          childAgentSessionId,
+          agentCall.input?.prompt,
+          this.sessionsDir
+        );
+        if (spawnLinkOutcome === "written") result.spawnLinksWritten++;
+        else if (spawnLinkOutcome === "no-prompt-match") result.spawnLinksSkippedNoPromptMatch++;
+        else if (spawnLinkOutcome === "error") result.spawnLinksErrored++;
       } catch (err) {
         result.spawnsErrored++;
         log.warn(
@@ -399,23 +473,14 @@ export class AgentSpawnsPipeline {
 // ── Extraction helpers ─────────────────────────────────────────────────────────
 
 /**
- * Find the first Agent tool call in a tool_calls JSONB array.
- * Returns null if the array is missing or has no Agent call.
+ * Re-exported for backward compatibility (this module's own test file and
+ * external callers import `findAgentToolCall` from here). The actual
+ * implementation lives in `agent-tool-call-shape.ts` (mt#2756 R1) — the
+ * shared finder both this pipeline and the `subagent_spawn` backfill sweep
+ * (spawn-link-writer.ts) use, so the two `tool_calls`-JSONB parsers can't
+ * drift apart.
  */
-export function findAgentToolCall(toolCalls: unknown): ToolCallBlock | null {
-  if (!Array.isArray(toolCalls)) return null;
-  for (const block of toolCalls) {
-    if (
-      typeof block === "object" &&
-      block !== null &&
-      (block as ToolCallBlock).type === "tool_use" &&
-      (block as ToolCallBlock).name === "Agent"
-    ) {
-      return block as ToolCallBlock;
-    }
-  }
-  return null;
-}
+export { findAgentToolCall };
 
 /**
  * Extract agent_kind from an Agent tool call's input.
@@ -423,7 +488,7 @@ export function findAgentToolCall(toolCalls: unknown): ToolCallBlock | null {
  * Claude Code passes the subagent type (e.g. "general-purpose", "Explore", "refactorer")
  * as the `subagent_type` field in the Agent tool call's `input` object.
  */
-export function extractAgentKind(agentCall: ToolCallBlock): string | null {
+export function extractAgentKind(agentCall: AgentToolCallBlock): string | null {
   const input = agentCall.input;
   if (!input || typeof input !== "object") return null;
   const subagentType = (input as Record<string, unknown>)["subagent_type"];
@@ -437,7 +502,7 @@ export function extractAgentKind(agentCall: ToolCallBlock): string | null {
  * Returns "background" when `run_in_background` is truthy in the input.
  * Defaults to "foreground" when absent or false.
  */
-export function extractSpawnType(agentCall: ToolCallBlock): "foreground" | "background" {
+export function extractSpawnType(agentCall: AgentToolCallBlock): "foreground" | "background" {
   const input = agentCall.input;
   if (!input || typeof input !== "object") return "foreground";
   const runInBackground = (input as Record<string, unknown>)["run_in_background"];
@@ -451,7 +516,7 @@ export function extractSpawnType(agentCall: ToolCallBlock): "foreground" | "back
  * input that directly identifies the child session. This is the most reliable
  * linkage method and is preferred over the cwd-time heuristic.
  */
-export function extractChildSessionIdFromMetadata(agentCall: ToolCallBlock): string | null {
+export function extractChildSessionIdFromMetadata(agentCall: AgentToolCallBlock): string | null {
   const input = agentCall.input;
   if (!input || typeof input !== "object") return null;
   const sessionId = (input as Record<string, unknown>)["session_id"];

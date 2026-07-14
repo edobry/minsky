@@ -12,15 +12,19 @@
  * conversation link it returns carries the harness agentSessionId
  * (`agent_transcripts.agent_session_id`).
  *
- * Consultation order (mt#2441): `minsky_session_links` — populated at ingest
- * time by the shared ingest core (`AgentTranscriptIngestService`) and
- * backfilled for pre-existing transcripts
- * (`scripts/backfill-minsky-session-links.ts`) — is now consulted FIRST via
- * {@link pickBestConversationLink}. The live `cwd` LIKE query against
- * `agent_transcripts` (in `./routes/agents.ts`) is kept ONLY as a fallback for
- * transcripts that have no link row yet (pre-backfill, or ingested before
- * this task shipped). Full removal of that fallback is a separate task
- * (mt#2768), not this one.
+ * Consultation order (mt#2441 + mt#2756): `minsky_session_links` — populated
+ * by TWO independent writers, `cwd_match` at ingest time
+ * (`AgentTranscriptIngestService`, backfilled via
+ * `scripts/backfill-minsky-session-links.ts`) and `subagent_spawn` at
+ * spawn-extraction time (`AgentSpawnsPipeline`, backfilled via
+ * `scripts/backfill-subagent-spawn-links.ts`) — is now consulted FIRST via
+ * {@link pickBestConversationLink}, which is link-class agnostic: it just
+ * ranks whatever candidate rows the caller's query returns by confidence,
+ * tie-broken by recency, regardless of which writer produced them. The live
+ * `cwd` LIKE query against `agent_transcripts` (in `./routes/agents.ts`) is
+ * kept ONLY as a fallback for transcripts that have no link row of EITHER
+ * class yet (pre-backfill, or ingested before either writer shipped). Full
+ * removal of that fallback is a separate task (mt#2768), not this one.
  */
 import type { SessionRecord, SessionLiveness } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";

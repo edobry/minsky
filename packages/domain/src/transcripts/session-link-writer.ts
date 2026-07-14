@@ -18,9 +18,11 @@
  *
  * Expected yield is LOW for the dominant fleet shape (mt#2749 finding:
  * subagents don't chdir into the session workspace) — that is expected and
- * does NOT indicate a bug in the matcher. This module is the writer/backfill
- * infrastructure that mt#2756's higher-yield `subagent_spawn` link class will
- * flow through next; do not loosen this heuristic to chase yield.
+ * does NOT indicate a bug in the matcher. The sibling `subagent_spawn` link
+ * class (mt#2756, HIGH yield for that same fleet shape) lives in
+ * `spawn-link-writer.ts` — a separate file to keep both modules focused, but
+ * writing to the SAME `minsky_session_links` table via the same PK/upsert
+ * convention (no parallel table, no parallel consumer contract).
  *
  * Cross-platform note: Minsky's state dir is always POSIX-separated (XDG
  * layout under $HOME on macOS/Linux). A transcript captured with a
@@ -35,7 +37,7 @@
  * @see mt#1313 / mt#1324 — minsky_session_links schema
  * @see mt#1919 — the read-time cwd LIKE consumer this table replaces
  * @see mt#2749 — low cwd_match yield finding (subagents don't chdir)
- * @see mt#2756 — the follow-on high-yield `subagent_spawn` link class
+ * @see mt#2756 / spawn-link-writer.ts — the sibling `subagent_spawn` link class
  * @see mt#2441 — this file
  */
 
