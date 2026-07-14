@@ -215,9 +215,9 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 
     // Define the options array for consistency. Covers the union of all
     // per-kind workflows (docs/task-kinds.md): PLANNING/READY for the
-    // implementation planning gate, COMPLETED as the umbrella/state-ops
-    // success terminal (mt#2606). Invalid picks for the task's kind are
-    // refused downstream by validateStatusTransition.
+    // implementation planning gate; DONE is the single success terminal for
+    // every kind (mt#2311). Invalid picks for the task's kind are refused
+    // downstream by validateStatusTransition.
     const statusOptions = [
       { value: TASK_STATUS.TODO, label: "TODO" },
       { value: TASK_STATUS.PLANNING, label: "PLANNING" },
@@ -225,7 +225,6 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
       { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
       { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
       { value: TASK_STATUS.DONE, label: "DONE" },
-      { value: TASK_STATUS.COMPLETED, label: "COMPLETED" },
       { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
       { value: TASK_STATUS.CLOSED, label: "CLOSED" },
     ];

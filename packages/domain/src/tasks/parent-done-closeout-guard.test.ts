@@ -1,12 +1,12 @@
 /**
  * Regression tests: parent-rollup-completion closeout guard (mt#1649).
  *
- * Generalizes the mt#2606 umbrella-closeout-guard pattern (injected
- * `taskGraphService` + `isTerminalTaskStatus`) to the DONE target across ALL
- * task kinds, not just umbrella → COMPLETED: `tasks_status_set` refuses a
- * transition to DONE on a task that HAS children while any child is
- * non-terminal (terminal = DONE/CLOSED/COMPLETED), naming the incomplete
- * children. Childless tasks to DONE are unaffected.
+ * `tasks_status_set` refuses a transition to DONE on a task that HAS children
+ * while any child is non-terminal (terminal = DONE/CLOSED per
+ * `isTerminalTaskStatus`), naming the incomplete children. Childless tasks to
+ * DONE are unaffected. Since mt#2311's single-terminal collapse this one
+ * guard also covers umbrella closeout (formerly mt#2606's separate
+ * umbrella → COMPLETED guard).
  *
  * Originating incident: mt#1503 was set DONE on 2026-05-04 while its
  * lynchpin child (mt#1073) sat at PLANNING. See the "pinned regression"
@@ -87,12 +87,12 @@ describe("assertChildrenCompleteForDone (mt#1649)", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("allows DONE with a mix of DONE/CLOSED/COMPLETED children", async () => {
+  it("allows DONE with a mix of DONE/CLOSED children", async () => {
     const taskService = makeTaskService({
       children: [
         { id: "mt#9001", status: "DONE" },
         { id: "mt#9002", status: "CLOSED" },
-        { id: "mt#9003", status: "COMPLETED" },
+        { id: "mt#9003", status: "DONE" },
       ],
     });
     await expect(

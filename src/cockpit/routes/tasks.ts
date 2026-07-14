@@ -194,7 +194,7 @@ export function mountTaskRoutes(app: express.Express): void {
    * slice over a >500 backlog hid every recent task from the palette.
    *
    * Query params:
-   *   ?all=true — return ALL task ids regardless of status (DONE/CLOSED/COMPLETED
+   *   ?all=true — return ALL task ids regardless of status (DONE/CLOSED
    *               included). Used by the entity-index linkifier (mt#2518) to make
    *               the task id-set comprehensive so every transcript ref links.
    *               Without this flag the default excludes terminal statuses, which
@@ -211,7 +211,7 @@ export function mountTaskRoutes(app: express.Express): void {
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
       const { sortTasksByRecency } = await import("../palette-tasks");
-      // ?all=true: include DONE/CLOSED/COMPLETED tasks (needed by the entity-index
+      // ?all=true: include DONE/CLOSED tasks (needed by the entity-index
       // linkifier in ConversationView — mt#2518). Without this flag the backend
       // default hides terminal-status tasks, leaving most transcript refs unlinkified.
       const includeAll = req.query.all === "true";

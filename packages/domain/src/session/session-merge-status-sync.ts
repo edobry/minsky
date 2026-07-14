@@ -74,10 +74,10 @@ export interface PostMergeStateSyncResult {
    */
   taskStatusUpdated: boolean;
   /**
-   * The kind-aware terminal status the task was (or already) at: DONE for
-   * implementation-kind tasks, COMPLETED for umbrella-kind (mt#1872). Undefined
-   * when no task is associated. Lets callers render an accurate user-facing
-   * message instead of assuming DONE.
+   * The terminal status the task was (or already) at — DONE for all kinds
+   * since mt#2311 collapsed the per-kind terminals (mt#1872's kind dispatch
+   * is retired). Undefined when no task is associated. Retained so callers
+   * keep an explicit record of the applied terminal.
    */
   taskTerminalStatus?: string;
   sessionStatusUpdated: boolean;
@@ -220,35 +220,20 @@ export async function applyPostMergeStateSync(
     partialFailure: false,
   };
 
-  // (a) Task status: post-merge terminal-state transition. Kind-aware (mt#1872):
-  //   - implementation kind → DONE (existing behavior; the merged PR is the completion signal)
-  //   - umbrella kind → COMPLETED (umbrella workflow has no DONE; its success terminal is COMPLETED)
-  // Defensive: umbrella tasks normally don't reach the merge path because they don't ship PRs,
-  // but nothing structurally prevents an operator from associating one with a PR. Without kind
-  // dispatch, setTaskStatus(...,DONE) for an umbrella would throw via the workflow registry's
-  // validateStatusTransition (DONE isn't a valid umbrella state) and the surrounding catch would
-  // log + swallow, leaving the task stuck in IN-PROGRESS.
+  // (a) Task status: post-merge terminal-state transition. Since mt#2311
+  // collapsed the workflows to a single success terminal, the target is DONE
+  // for every kind — mt#1872's kind dispatch (umbrella → COMPLETED) is
+  // retired along with the COMPLETED state itself.
   if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
     try {
       const currentStatus = await taskService.getTaskStatus(taskId);
-      // getTask is a required TaskServiceInterface method. Guard the result shape
-      // defensively (typeof/null) so a non-object sentinel can't masquerade as a
-      // missing kind — that would silently default umbrella tasks to DONE.
-      const task = await taskService.getTask(taskId);
-      const taskKind =
-        typeof task === "object" &&
-        task !== null &&
-        typeof (task as { kind?: unknown }).kind === "string"
-          ? (task as { kind: string }).kind
-          : "implementation";
-      const targetStatus = taskKind === "umbrella" ? TASK_STATUS.COMPLETED : TASK_STATUS.DONE;
+      const targetStatus = TASK_STATUS.DONE;
       result.taskTerminalStatus = targetStatus;
 
       if (currentStatus !== targetStatus) {
         log.debug(`applyPostMergeStateSync: setting task ${taskId} → ${targetStatus}`, {
           currentStatus,
           targetStatus,
-          taskKind,
           trigger,
         });
         await taskService.setTaskStatus(taskId, targetStatus);

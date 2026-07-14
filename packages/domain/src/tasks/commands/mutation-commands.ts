@@ -59,8 +59,8 @@ type InjectedTaskServiceFactory = (
 
 /**
  * Read a task's children via the injected `taskGraphService` and return the
- * subset that are NOT terminal (per `isTerminalTaskStatus` — DONE/CLOSED/
- * COMPLETED), formatted as `id (STATUS)` strings. A child id the task service
+ * subset that are NOT terminal (per `isTerminalTaskStatus` — DONE/CLOSED),
+ * formatted as `id (STATUS)` strings. A child id the task service
  * cannot resolve to a readable record is also treated as incomplete
  * (`id (unreadable)`), since it can't be verified complete. Returns `[]` when
  * the task has no children.
@@ -75,9 +75,10 @@ type InjectedTaskServiceFactory = (
  * closeout guard should not become a harder failure mode than skipping the
  * guard entirely.
  *
- * Shared core for both children-completeness closeout guards below:
- * `assertUmbrellaChildrenComplete` (mt#2606, umbrella → COMPLETED) and
- * `assertChildrenCompleteForDone` (mt#1649, any kind → DONE).
+ * Core of the children-completeness closeout guard below,
+ * `assertChildrenCompleteForDone` (mt#1649, any kind → DONE — which since
+ * mt#2311's single-terminal collapse also covers umbrella closeout, formerly
+ * mt#2606's separate umbrella → COMPLETED guard).
  */
 async function findIncompleteChildren(args: {
   taskId: string;
@@ -113,51 +114,15 @@ async function findIncompleteChildren(args: {
 }
 
 /**
- * Umbrella closeout guard (mt#2606): an umbrella task completes when its
- * children complete, so a transition to COMPLETED is refused while any child
- * is non-terminal (terminal = DONE/CLOSED/COMPLETED), naming the incomplete
- * children. No-op for non-umbrella kinds, non-COMPLETED targets, or when no
- * taskGraphService is available (the MCP/CLI surfaces always inject one;
+ * Parent-rollup-completion guard (mt#1649): refuses a transition to DONE on a
+ * task that HAS children while any child is non-terminal (terminal =
+ * DONE/CLOSED), naming the incomplete children. Applies to ALL task kinds —
+ * since mt#2311 collapsed the workflows to a single success terminal, this
+ * one guard also covers umbrella closeout (formerly mt#2606's separate
+ * umbrella → COMPLETED guard, deleted with that collapse). Childless tasks
+ * transitioning to DONE are unaffected, and the guard is a no-op when no
+ * `taskGraphService` is available (the MCP/CLI surfaces always inject one;
  * direct domain callers without it keep prior behavior).
- *
- * Shared by the live `setTaskStatusFromParams` facade in
- * `packages/domain/src/tasks.ts` (what the `@minsky/domain/tasks` barrel
- * resolves to) and the transition-validating implementation below.
- *
- * See `assertChildrenCompleteForDone` for the DONE-target, any-kind sibling
- * guard (mt#1649) that generalizes this pattern.
- */
-export async function assertUmbrellaChildrenComplete(args: {
-  taskId: string;
-  taskKind: string | undefined;
-  targetStatus: string;
-  taskService: Pick<TaskServiceInterface, "getTasks">;
-  taskGraphService?: Pick<TaskGraphService, "listChildren">;
-}): Promise<void> {
-  const { taskId, taskKind, targetStatus, taskService, taskGraphService } = args;
-  if (taskKind !== "umbrella" || targetStatus !== TaskStatus.COMPLETED || !taskGraphService) {
-    return;
-  }
-  const incomplete = await findIncompleteChildren({ taskId, taskService, taskGraphService });
-  if (incomplete.length > 0) {
-    throw new ValidationError(
-      `Cannot complete umbrella task ${taskId}: ${incomplete.length} child task(s) not terminal (DONE/CLOSED/COMPLETED): ${incomplete.join(", ")}. Complete or close the children first (mt#2606).`,
-      undefined,
-      undefined
-    );
-  }
-}
-
-/**
- * Parent-rollup-completion guard (mt#1649): generalizes the mt#2606 umbrella
- * pattern (injected `taskGraphService` + `isTerminalTaskStatus`) to the DONE
- * target across ALL task kinds — not just umbrella → COMPLETED. Refuses a
- * transition to DONE on a task that HAS children while any child is
- * non-terminal (terminal = DONE/CLOSED/COMPLETED), naming the incomplete
- * children. Childless tasks transitioning to DONE are unaffected, and the
- * guard is a no-op when no `taskGraphService` is available (same fail-open
- * shape as `assertUmbrellaChildrenComplete` — the MCP/CLI surfaces always
- * inject one; direct domain callers without it keep prior behavior).
  *
  * Originating incident: mt#1503 was set DONE while its lynchpin child
  * (mt#1073) sat at PLANNING. See `docs/task-kinds.md` "Parent-DONE guard"
@@ -176,8 +141,8 @@ export async function assertChildrenCompleteForDone(args: {
   const incomplete = await findIncompleteChildren({ taskId, taskService, taskGraphService });
   if (incomplete.length > 0) {
     throw new ValidationError(
-      `Cannot set task ${taskId} to DONE: ${incomplete.length} child task(s) not terminal (DONE/CLOSED/COMPLETED): ${incomplete.join(", ")}. Resolve one of:\n` +
-        `  1. Set the children to DONE (or CLOSED/COMPLETED) first.\n` +
+      `Cannot set task ${taskId} to DONE: ${incomplete.length} child task(s) not terminal (DONE/CLOSED): ${incomplete.join(", ")}. Resolve one of:\n` +
+        `  1. Set the children to DONE (or CLOSED) first.\n` +
         `  2. Amend the parent's success criteria if scope was reframed.\n` +
         `  3. Walk the parent through CLOSED if the rollup is being abandoned.\n` +
         `(mt#1649)`,
@@ -269,16 +234,8 @@ export async function setTaskStatusFromParams(
       }
     }
 
-    // Umbrella closeout guard (mt#2606) — see assertUmbrellaChildrenComplete.
-    await assertUmbrellaChildrenComplete({
-      taskId: validParams.taskId,
-      taskKind: task.kind,
-      targetStatus: validParams.status,
-      taskService,
-      taskGraphService: deps?.taskGraphService,
-    });
-
-    // Parent-rollup-completion guard (mt#1649) — see assertChildrenCompleteForDone.
+    // Parent-rollup-completion guard (mt#1649; since mt#2311 also the umbrella
+    // closeout guard) — see assertChildrenCompleteForDone.
     await assertChildrenCompleteForDone({
       taskId: validParams.taskId,
       targetStatus: validParams.status,

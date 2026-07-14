@@ -8,10 +8,9 @@ export interface TaskFilterOptions {
 /**
  * Statuses hidden by default in task listings (terminal success/cancellation states).
  *
- * Union across all task kinds (mt#1812):
- * - `DONE`: implementation-kind success terminal
- * - `CLOSED`: terminal for both kinds (cancellation / no-longer-needed)
- * - `COMPLETED`: umbrella-kind success terminal
+ * Single success terminal across all kinds since mt#2311:
+ * - `DONE`: success terminal (all kinds)
+ * - `CLOSED`: cancellation / no-longer-needed (all kinds)
  *
  * `BLOCKED` is NOT hidden — blocked tasks need operator attention.
  *
@@ -19,11 +18,7 @@ export interface TaskFilterOptions {
  * `custom/no-domain-singleton` lint rule. Callers should use the
  * `isHiddenByDefaultStatus()` helper instead of building their own Set.
  */
-export const TASK_STATUSES_HIDDEN_BY_DEFAULT = [
-  TASK_STATUS.DONE,
-  TASK_STATUS.CLOSED,
-  TASK_STATUS.COMPLETED,
-] as const;
+export const TASK_STATUSES_HIDDEN_BY_DEFAULT = [TASK_STATUS.DONE, TASK_STATUS.CLOSED] as const;
 
 export function isHiddenByDefaultStatus(status: string | undefined): boolean {
   if (status === undefined) return false;

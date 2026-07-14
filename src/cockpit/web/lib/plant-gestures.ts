@@ -83,7 +83,7 @@ function statusGesture(newStatus: string): GestureSet {
         nodePulses: [{ nodeId: "s1-review", tone: "flow" }],
       };
     case "DONE":
-    case "COMPLETED":
+    case "COMPLETED": // legacy value from pre-mt#2311 events; render like DONE
       return {
         edgeDots: [{ edgeId: "review-to-done", tone: "healthy" }],
         edgeFlashes: [],

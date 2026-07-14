@@ -992,8 +992,7 @@
                 "IN-REVIEW",
                 "DONE",
                 "BLOCKED",
-                "CLOSED",
-                "COMPLETED"
+                "CLOSED"
               ]
             },
             {
@@ -1356,8 +1355,7 @@
                 "IN-REVIEW",
                 "DONE",
                 "BLOCKED",
-                "CLOSED",
-                "COMPLETED"
+                "CLOSED"
               ]
             },
             {

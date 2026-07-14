@@ -18,11 +18,7 @@ describe("status-transitions", () => {
 
     test("CLOSED is reachable from every non-CLOSED status (implementation kind)", () => {
       for (const status of Object.values(TaskStatus)) {
-        // Skip CLOSED (the terminal) and COMPLETED (umbrella-kind terminal — has its
-        // own per-kind workflow in WORKFLOWS.umbrella; the implementation-kind
-        // VALID_TRANSITIONS table only lists it for type exhaustivity with an
-        // empty outgoing array per mt#1812).
-        if (status === TaskStatus.CLOSED || status === TaskStatus.COMPLETED) continue;
+        if (status === TaskStatus.CLOSED) continue;
         expect(VALID_TRANSITIONS[status]).toContain(TaskStatus.CLOSED);
       }
     });
@@ -195,22 +191,22 @@ describe("status-transitions", () => {
       expect(() => validateStatusTransition("PLANNING", "IN-PROGRESS", "umbrella")).not.toThrow();
     });
 
-    test("IN-PROGRESS → COMPLETED is valid for umbrella", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "umbrella")).not.toThrow();
+    test("IN-PROGRESS → DONE is valid for umbrella (single terminal, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "umbrella")).not.toThrow();
     });
 
-    test("COMPLETED → CLOSED is valid for umbrella", () => {
-      expect(() => validateStatusTransition("COMPLETED", "CLOSED", "umbrella")).not.toThrow();
+    test("DONE → CLOSED is valid for umbrella", () => {
+      expect(() => validateStatusTransition("DONE", "CLOSED", "umbrella")).not.toThrow();
     });
 
     test("CLOSED → TODO is valid for umbrella (reopen)", () => {
       expect(() => validateStatusTransition("CLOSED", "TODO", "umbrella")).not.toThrow();
     });
 
-    // Umbrella does not have DONE state
-    test("IN-PROGRESS → DONE is invalid for umbrella (use COMPLETED)", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "umbrella")).toThrow(
-        /Cannot transition from IN-PROGRESS to DONE/
+    // COMPLETED was removed by mt#2311 — it is no longer a state in any workflow.
+    test("IN-PROGRESS → COMPLETED is invalid for umbrella (state removed, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "umbrella")).toThrow(
+        /Cannot transition from IN-PROGRESS to COMPLETED/
       );
     });
 
@@ -231,7 +227,7 @@ describe("status-transitions", () => {
     // Error messages include kind label for non-implementation kinds
     test("error message includes kind label for umbrella transitions", () => {
       try {
-        validateStatusTransition("IN-PROGRESS", "DONE", "umbrella");
+        validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "umbrella");
         expect(true).toBe(false); // Should not reach here
       } catch (error) {
         const message = (error as Error).message;
@@ -278,12 +274,12 @@ describe("status-transitions", () => {
       expect(() => validateStatusTransition("READY", "IN-PROGRESS", "state-ops")).not.toThrow();
     });
 
-    test("IN-PROGRESS → COMPLETED is valid for state-ops", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "state-ops")).not.toThrow();
+    test("IN-PROGRESS → DONE is valid for state-ops (single terminal, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "state-ops")).not.toThrow();
     });
 
-    test("COMPLETED → CLOSED is valid for state-ops", () => {
-      expect(() => validateStatusTransition("COMPLETED", "CLOSED", "state-ops")).not.toThrow();
+    test("DONE → CLOSED is valid for state-ops", () => {
+      expect(() => validateStatusTransition("DONE", "CLOSED", "state-ops")).not.toThrow();
     });
 
     test("CLOSED → TODO is valid for state-ops (reopen)", () => {
@@ -295,9 +291,9 @@ describe("status-transitions", () => {
     });
 
     // Absent states
-    test("IN-PROGRESS → DONE is invalid for state-ops (use COMPLETED)", () => {
-      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "state-ops")).toThrow(
-        /Cannot transition from IN-PROGRESS to DONE/
+    test("IN-PROGRESS → COMPLETED is invalid for state-ops (state removed, mt#2311)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "state-ops")).toThrow(
+        /Cannot transition from IN-PROGRESS to COMPLETED/
       );
     });
 
@@ -316,7 +312,7 @@ describe("status-transitions", () => {
     // Error messages include kind label for non-implementation kinds
     test("error message includes kind label for state-ops transitions", () => {
       try {
-        validateStatusTransition("IN-PROGRESS", "DONE", "state-ops");
+        validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "state-ops");
         expect(true).toBe(false); // Should not reach here
       } catch (error) {
         const message = (error as Error).message;

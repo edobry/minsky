@@ -18,8 +18,10 @@ export enum TaskStatus {
   DONE = "DONE",
   BLOCKED = "BLOCKED",
   CLOSED = "CLOSED",
-  // Per-kind terminal states (mt#1812)
-  COMPLETED = "COMPLETED", // Umbrella kind success terminal (analogous to DONE for implementation)
+  // COMPLETED (the mt#1812 umbrella terminal) was removed by mt#2311: one
+  // success terminal (DONE) across all kinds. The Postgres task_status enum
+  // still carries the COMPLETED value (PG enums can't drop values); rows were
+  // migrated to DONE and the value is a harmless orphan.
 }
 
 /**
@@ -45,7 +47,6 @@ export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
   [TASK_STATUS.DONE]: "x",
   [TASK_STATUS.BLOCKED]: "~",
   [TASK_STATUS.CLOSED]: "!",
-  [TASK_STATUS.COMPLETED]: "c", // Umbrella kind success terminal (mt#1812)
 };
 
 /**
@@ -61,8 +62,8 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   X: TASK_STATUS.DONE, // Accept both cases for DONE
   "~": TASK_STATUS.BLOCKED,
   "!": TASK_STATUS.CLOSED,
-  c: TASK_STATUS.COMPLETED, // Umbrella kind success terminal (mt#1812)
-  C: TASK_STATUS.COMPLETED, // Accept both cases for COMPLETED
+  // "c"/"C" (COMPLETED) accepted historically; removed by mt#2311 — a legacy
+  // "c" checkbox now parses as TODO via getStatusFromCheckbox's default.
 };
 
 /**
