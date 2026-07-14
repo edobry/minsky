@@ -98,7 +98,8 @@ function MultilineStringLeaf({
  * (see MultilineStringLeaf).
  */
 function StringLeaf({ value, entityIndex }: { value: string; entityIndex?: EntityIndex }) {
-  if (value.includes("\n")) {
+  // Any line-break flavor (\n, \r\n, bare \r) takes the block presentation.
+  if (/[\r\n]/.test(value)) {
     return <MultilineStringLeaf value={value} entityIndex={entityIndex} />;
   }
   if (URL_RE.test(value)) {

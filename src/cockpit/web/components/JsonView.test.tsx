@@ -83,6 +83,14 @@ describe("JsonView — multiline string leaves (mt#2788)", () => {
     expect(pre?.className).toContain("max-h-48"); // bounded so one output can't dominate
   });
 
+  test("CRLF and bare-CR strings also take the block presentation", () => {
+    const crlf = renderTree(<JsonView data={{ output: "a\r\nb" }} />);
+    expect(crlf.container.querySelector("pre")).not.toBeNull();
+    cleanup();
+    const cr = renderTree(<JsonView data={{ output: "a\rb" }} />);
+    expect(cr.container.querySelector("pre")).not.toBeNull();
+  });
+
   test("a single-line string stays an inline quoted leaf (no pre)", () => {
     const { container } = renderTree(<JsonView data={{ s: "one line" }} />);
     expect(container.querySelector("pre")).toBeNull();
