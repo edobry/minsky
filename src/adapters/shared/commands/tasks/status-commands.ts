@@ -17,6 +17,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -121,7 +122,8 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
 
   constructor(
     private readonly getPersistenceProvider?: () => PersistenceProvider,
-    private readonly getTaskService?: () => TaskServiceInterface
+    private readonly getTaskService?: () => TaskServiceInterface,
+    private readonly getTaskGraphService?: () => TaskGraphService
   ) {
     super();
   }
@@ -172,7 +174,12 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
         taskId: validatedTaskId,
         status,
       },
-      { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
+      {
+        persistenceProvider: this.getPersistenceProvider?.(),
+        taskService: this.getTaskService?.(),
+        // Enables the umbrella children-completeness closeout guard (mt#2606).
+        taskGraphService: this.getTaskGraphService?.(),
+      }
     );
 
     // Best-effort informational event (mt#2340) — captured for the Phase 2
@@ -206,12 +213,19 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
       throw new ValidationError("Status parameter is required in non-interactive mode");
     }
 
-    // Define the options array for consistency
+    // Define the options array for consistency. Covers the union of all
+    // per-kind workflows (docs/task-kinds.md): PLANNING/READY for the
+    // implementation planning gate, COMPLETED as the umbrella/state-ops
+    // success terminal (mt#2606). Invalid picks for the task's kind are
+    // refused downstream by validateStatusTransition.
     const statusOptions = [
       { value: TASK_STATUS.TODO, label: "TODO" },
+      { value: TASK_STATUS.PLANNING, label: "PLANNING" },
+      { value: TASK_STATUS.READY, label: "READY" },
       { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
       { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
       { value: TASK_STATUS.DONE, label: "DONE" },
+      { value: TASK_STATUS.COMPLETED, label: "COMPLETED" },
       { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
       { value: TASK_STATUS.CLOSED, label: "CLOSED" },
     ];
@@ -247,5 +261,7 @@ export const createTasksStatusGetCommand = (
 
 export const createTasksStatusSetCommand = (
   getPersistenceProvider?: () => PersistenceProvider,
-  getTaskService?: () => TaskServiceInterface
-): TasksStatusSetCommand => new TasksStatusSetCommand(getPersistenceProvider, getTaskService);
+  getTaskService?: () => TaskServiceInterface,
+  getTaskGraphService?: () => TaskGraphService
+): TasksStatusSetCommand =>
+  new TasksStatusSetCommand(getPersistenceProvider, getTaskService, getTaskGraphService);
