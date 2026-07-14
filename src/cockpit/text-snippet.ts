@@ -43,7 +43,13 @@ const HARNESS_WRAPPER_TAGS = [
 export function stripHarnessMarkup(text: string): string {
   let s = text;
   for (const tag of HARNESS_WRAPPER_TAGS) {
-    const re = new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, "g");
+    // `(?:\s+[^>]*)?` tolerates an attribute-bearing or whitespace-padded
+    // opening tag (e.g. `<command-message kind="slash">` or
+    // `<command-message >`) — a bare `<${tag}>` match alone would miss those
+    // variants and leak raw XML back into the label (reviewer-bot PR #1919
+    // R1). Case-insensitive since the harness's exact tag casing isn't a
+    // guaranteed contract.
+    const re = new RegExp(`<${tag}(?:\\s+[^>]*)?>[\\s\\S]*?</${tag}>`, "gi");
     s = s.replace(re, " ");
   }
   return s;

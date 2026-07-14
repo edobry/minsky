@@ -79,6 +79,20 @@ describe("stripHarnessMarkup", () => {
   test("leaves plain prose with no harness tags unchanged", () => {
     expect(stripHarnessMarkup("just a normal user message")).toBe("just a normal user message");
   });
+
+  test("strips an attribute-bearing opening tag (reviewer-bot PR #1919 R1)", () => {
+    expect(
+      stripHarnessMarkup('<command-message kind="slash">error-handling</command-message>')
+    ).toBe(" ");
+  });
+
+  test("strips a whitespace-padded opening tag (reviewer-bot PR #1919 R1)", () => {
+    expect(stripHarnessMarkup("<command-message >error-handling</command-message>")).toBe(" ");
+  });
+
+  test("matches case-insensitively (reviewer-bot PR #1919 R1)", () => {
+    expect(stripHarnessMarkup("<Command-Message>error-handling</Command-Message>")).toBe(" ");
+  });
 });
 
 describe("truncateSnippet", () => {
