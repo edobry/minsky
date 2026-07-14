@@ -29,6 +29,11 @@ interface ReviewerDbStats {
   cacheHitRatio24h: number | null;
   verdictCounts24h: VerdictCounts;
   verdictCounts7d: VerdictCounts;
+  // mt#2758 — query-layer-failure vs genuine-no-data signal. See the
+  // "Query-failure vs no-data" convention note at the top of
+  // src/cockpit/types.ts and docs/architecture/cockpit.md.
+  queryFailureCount: number;
+  queryTotalCount: number;
 }
 
 interface ReviewerBotStatusPayload {
@@ -179,6 +184,30 @@ function ReviewerBotStatusBody({ query }: ReviewerBotStatusBodyProps) {
           {health.ok ? "Healthy" : "Unreachable"}
         </span>
       </div>
+
+      {/* mt#2758 — query-layer-failure indicator. Distinguishes "the DB
+          queries failed" from "the DB queries succeeded and returned zero
+          rows" — both otherwise render identically as zeros/"—" below. This
+          is the class of bug that let the reviewer-bot widget's DB stats
+          render healthy zeros for ~5 weeks (mt#2076/mt#2757) while every
+          query threw. Full failure (every query this cycle failed) uses the
+          destructive token per src/cockpit/CLAUDE.md's error-state
+          convention; a partial failure uses the amber warning variant,
+          consistent with the other AnomalyBanner usages below. */}
+      {db && db.queryFailureCount > 0 && (
+        <AnomalyBanner
+          message={
+            db.queryTotalCount > 0 && db.queryFailureCount === db.queryTotalCount
+              ? `DB query layer failed — all ${db.queryTotalCount} stats queries failed this cycle. Fields below are placeholders, not real zeros.`
+              : `DB query layer degraded — ${db.queryFailureCount} of ${db.queryTotalCount} stats queries failed this cycle. Some fields below may be incomplete or stale.`
+          }
+          variant={
+            db.queryTotalCount > 0 && db.queryFailureCount === db.queryTotalCount
+              ? "error"
+              : "warning"
+          }
+        />
+      )}
 
       {/* Anomaly banners */}
       {anomalies.a1ServiceUnreachable && (

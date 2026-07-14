@@ -224,6 +224,9 @@ describe("createReviewerBotStatusWidget — healthy", () => {
     // Verdict distribution (mt#2287) — same counts for 24h and 7d → no drift
     expect(db.verdictCounts24h).toEqual({ approve: 7, requestChanges: 2, comment: 1 });
     expect(db.verdictCounts7d).toEqual({ approve: 7, requestChanges: 2, comment: 1 });
+    // Query-failure indicator (mt#2758): no failures on the happy path.
+    expect(db.queryFailureCount).toBe(0);
+    expect(db.queryTotalCount).toBe(15);
 
     // All anomalies false
     expect(payload.anomalies.a1ServiceUnreachable).toBe(false);
@@ -486,6 +489,12 @@ describe("createReviewerBotStatusWidget — DB failure degrades gracefully", () 
     expect(payload.anomalies.a3FailureRateSpike).toBe(false);
     expect(payload.anomalies.a4LatencyRegression).toBe(false);
     expect(payload.anomalies.a6VerdictDrift).toBe(false);
+    // Query-failure indicator (mt#2758): every query rejected this cycle, so
+    // the failure count equals the total — this is the "indicator data
+    // present" signal that distinguishes this scenario from genuine no-data.
+    expect(payload.db.queryFailureCount).toBe(payload.db.queryTotalCount);
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBeGreaterThan(0);
   });
 });
 
@@ -771,6 +780,31 @@ describe("createUnsafeQueryRows / buildQueryRows wiring (mt#2757)", () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
+  test("query rejection also invokes the onFailure param (mt#2758 counting seam)", async () => {
+    const warn = mock((_err: unknown) => {});
+    const onFailure = mock(() => {});
+    const unsafe = mock((_query: string, _params?: unknown[]) =>
+      Promise.reject(new Error("NOT_TAGGED_CALL"))
+    );
+    const queryRows = createUnsafeQueryRows({ unsafe }, warn);
+
+    const rows = await queryRows("SELECT 1", undefined, onFailure);
+
+    expect(rows).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
+  test("query success does NOT invoke the onFailure param", async () => {
+    const onFailure = mock(() => {});
+    const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ ok: 1 }]));
+    const queryRows = createUnsafeQueryRows({ unsafe });
+
+    await queryRows("SELECT 1", undefined, onFailure);
+
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
   test("buildQueryRows wires provider.getRawSqlConnection().unsafe (not a plain call)", async () => {
     const unsafe = mock((_query: string, _params?: unknown[]) => Promise.resolve([{ ok: 1 }]));
     const provider = { getRawSqlConnection: () => Promise.resolve({ unsafe }) };
@@ -787,9 +821,106 @@ describe("createUnsafeQueryRows / buildQueryRows wiring (mt#2757)", () => {
     expect(await queryRows("SELECT 1")).toEqual([]);
   });
 
+  test("buildQueryRows's no-raw-SQL fallback invokes onFailure (mt#2758 — a structurally dead connection counts as a failure, not silent no-data)", async () => {
+    const onFailure = mock(() => {});
+    const queryRows = await buildQueryRows(() => Promise.resolve({}));
+    expect(await queryRows("SELECT 1", undefined, onFailure)).toEqual([]);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+
   test("buildQueryRows degrades to empty results when the provider loader throws", async () => {
     const queryRows = await buildQueryRows(() => Promise.reject(new Error("init failed")));
     expect(await queryRows("SELECT 1")).toEqual([]);
+  });
+
+  test("buildQueryRows's loader-throw fallback invokes onFailure (mt#2758)", async () => {
+    const onFailure = mock(() => {});
+    const queryRows = await buildQueryRows(() => Promise.reject(new Error("init failed")));
+    expect(await queryRows("SELECT 1", undefined, onFailure)).toEqual([]);
+    expect(onFailure).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Query-failure indicator (mt#2758) — distinguishes "the query layer failed"
+// from "the query legitimately returned zero rows." Both previously produced
+// identical zero/null/[] output; this counter is the payload-level signal
+// that tells them apart.
+// ---------------------------------------------------------------------------
+
+describe("createReviewerBotStatusWidget — query-failure indicator (mt#2758)", () => {
+  test("all queries failing: queryFailureCount equals queryTotalCount (indicator data present)", async () => {
+    const throwingQueryRows: QueryRows = async () => {
+      throw new Error("connection refused");
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: throwingQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBe(15);
+  });
+
+  test("no failures with genuinely empty result windows: queryFailureCount is 0 (no indicator)", async () => {
+    // Every query resolves successfully but returns no rows — the "genuinely
+    // no data yet" case this counter must NOT flag as a failure.
+    const emptyTablesQueryRows: QueryRows = async () => [];
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: emptyTablesQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryFailureCount).toBe(0);
+    expect(payload.db.queryTotalCount).toBe(15);
+    // Confirm this really is the "empty tables" shape, not the "failure" shape:
+    // fields read their honest empty defaults, same as the failure case would
+    // produce — proving the counter (not the field values) is what
+    // distinguishes the two scenarios.
+    expect(payload.db.reviewCount24h).toBe(0);
+    expect(payload.db.recentTaskIds).toEqual([]);
+  });
+
+  test("partial failure: queryFailureCount reflects only the queries that actually failed", async () => {
+    // Only the stale in-flight query fails ("reviewer_inflight_reviews" is a
+    // unique substring — no other query text matches it). Every other query
+    // succeeds via the standard healthy stub.
+    const singleFailureQueryRows: QueryRows = async (sql, params) => {
+      if (sql.includes("reviewer_inflight_reviews")) {
+        throw new Error('relation "reviewer_inflight_reviews" does not exist');
+      }
+      return makeQueryRows({})(sql, params);
+    };
+
+    const widget = createReviewerBotStatusWidget({
+      probeHealth: healthyProbe,
+      queryRows: singleFailureQueryRows,
+      now: () => FIXED_NOW,
+    });
+
+    const data = await widget.fetch(fakeCtx());
+    const payload = (data as { state: "ok"; payload: ReviewerBotStatusPayload }).payload;
+    if (payload.db === null) throw new Error("expected db to be non-null");
+
+    expect(payload.db.queryTotalCount).toBe(15);
+    expect(payload.db.queryFailureCount).toBe(1);
+    // The failed query's own field degrades to its default...
+    expect(payload.db.staleInflightCount).toBe(0);
+    // ...while unrelated fields from the successful queries are untouched.
+    expect(payload.db.reviewCount24h).toBe(10);
+    expect(payload.db.recentTaskIds).toEqual(["mt#2076", "mt#2075"]);
   });
 });
 

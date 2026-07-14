@@ -75,6 +75,43 @@ The model separates two concerns the old `enabled` flag conflated:
 Any future cockpit configuration (e.g. polling intervals) lives under a `cockpit` tree in
 the main Minsky config (`~/.config/minsky/config.yaml`), not a separate file.
 
+### Query-layer-failure vs no-data convention (mt#2758)
+
+`WidgetData`'s `{ state: "ok" | "degraded" }` split is all-or-nothing per widget — it signals
+that the WHOLE widget failed, not that one of several independent data sources inside an `ok`
+payload silently failed. Widgets that fan out to multiple independent sources (several DB
+queries, several HTTP probes) commonly degrade each source independently — a failing query
+`catch`es to an empty default (`[]`/`null`/`0`) so one bad source doesn't take the rest of the
+widget down. That per-source fail-open creates a structural blind spot: a source that failed
+and a source that legitimately has no data both resolve to the same empty value, so "the query
+layer is broken" and "there's genuinely nothing here yet" render identically. This is exactly
+what happened to the reviewer-bot-status widget for ~5 weeks (mt#2076/mt#2757) — every DB query
+threw `NOT_TAGGED_CALL` while the UI showed healthy-looking zeros, and nobody could tell from
+the cockpit.
+
+**Convention:** a widget with this shape adds ADDITIVE OPTIONAL fields to its own payload
+(payload is `unknown` at the `WidgetData` level, so no framework change is needed) signaling
+per-fetch-cycle failure counts alongside the real data. The reference implementation
+(`src/cockpit/widgets/reviewer-bot-status.ts`) adds `queryFailureCount` / `queryTotalCount` to
+its `db` sub-object: `queryFailureCount` counts how many of the widget's independent queries
+failed to run for real (threw, rejected, or had no live connection) during the CURRENT fetch
+cycle, and `queryTotalCount` is the denominator. The counter is computed as state local to the
+fetch invocation (not module-level) — a widget that single-flights concurrent `fetch()` calls
+(reviewer-bot-status does, mt#2765) would otherwise leak or double-count the failure signal
+across polling cycles. A `degradedFields: string[]` naming the specific affected output fields
+is an equally valid shape when per-field granularity is more useful than a count.
+
+**Frontend rendering:** render a visible degraded indicator when the failure count is nonzero
+— never let it fall through to the same rendering as "no data." `ReviewerBotStatus.tsx` renders
+an `AnomalyBanner` when `db.queryFailureCount > 0`: the amber warning variant for a partial
+failure, the `destructive` semantic token (per `src/cockpit/CLAUDE.md`'s error-state convention)
+when every query in the cycle failed.
+
+This is a reference-implementation convention adopted incrementally, not a framework
+requirement — see the full type-level writeup in `src/cockpit/types.ts` above `WidgetData`.
+Existing widgets are not required to adopt it in one pass; new widgets with a multi-source
+fan-out shape should.
+
 ### Widget parameterization (slice/altitude)
 
 Widgets are slice-parameterizable (mt#2385, Constraint-2 of the mt#2373 widget-contract
@@ -147,6 +184,8 @@ Widget ID: `reviewer-bot-status` (mt#2076). Backend: `src/cockpit/widgets/review
 | A4 — Latency regression  | P95 latency > 120 s in the last 24 h                        | Warning  |
 
 **DB access:** reads four reviewer tables directly via the shared Postgres connection (`getSharedPersistenceService`). The widget degrades gracefully — DB fields become `null` when the DB is unreachable (A1–A4 continue to be computable from the `/health` probe alone). Individual SQL query failures degrade only the affected field(s); the `db` object is still non-null when only some queries fail (e.g. `PERCENTILE_CONT` unsupported on a PG variant causes `avgLatencyMs`/`p95LatencyMs` to be null while all other fields remain populated).
+
+**Query-layer-failure signal (mt#2758):** `db.queryFailureCount` / `db.queryTotalCount` (15 queries per fetch cycle) distinguish "a query failed" from "a query legitimately returned zero rows" — both previously rendered as indistinguishable zeros. The frontend renders an `AnomalyBanner` whenever `queryFailureCount > 0` (amber for partial, `destructive` for every query in the cycle failing). See "Query-layer-failure vs no-data convention" above for the general pattern this widget is the reference implementation of.
 
 **Health endpoint override:** set `MINSKY_REVIEWER_HEALTH_URL` to point at a different host. Default: `https://minsky-reviewer-webhook-production.up.railway.app/health` (the Railway public domain for the `minsky-reviewer-webhook` service).
 
