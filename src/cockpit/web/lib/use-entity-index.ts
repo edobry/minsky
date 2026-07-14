@@ -138,7 +138,8 @@ export function useEntityIndex(): EntityIndex {
         staleTime: 30_000,
       },
       {
-        // Shared key with ConversationsPage's ["context-inspector", "sessions"] —
+        // Shared key with ConversationPage's ["context-inspector", "sessions"]
+        // (the retired ConversationsPage list used the same key pre-mt#2767) —
         // both fetch the raw WidgetData wrapper and extract different projections
         // of it (rows vs ids here), the same compatible-shape sharing pattern the
         // module header documents for agents/attention/memories (mt#2769).

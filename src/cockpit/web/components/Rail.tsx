@@ -22,7 +22,6 @@ import {
   Network,
   Bot,
   MessageCircleQuestion,
-  MessagesSquare,
   Bell,
   Cpu,
   Brain,
@@ -49,7 +48,11 @@ const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitB
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
   { to: "/changesets", label: "Changesets", icon: GitPullRequest },
-  { to: "/conversations", label: "Conversations", icon: MessagesSquare },
+  // mt#2767 — the "Conversations" nav item was removed; `/agents` is now the
+  // unified agent-run list (workspace sessions + conversations + subagents).
+  // Conversations remain ⌘K-findable via the CommandPalette's "Conversations"
+  // group (mt#2769 entity indexing), which reads the context-inspector
+  // source directly rather than via this rail.
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },
   { to: "/activity", label: "Activity", icon: Bell },

@@ -1,32 +1,55 @@
 /**
- * Agents widget frontend (mt#1145, mt#1924)
+ * Agents widget frontend (mt#1145, mt#1924; unified run list per mt#2767)
  *
- * Displays running sessions/agents in a compact table. Self-fetching via
+ * Displays the unified agent-run list — workspace sessions ("dispatched
+ * agent"), standalone harness conversations ("principal conversation"), and
+ * collapsed subagent groups — in a compact table. Self-fetching via
  * TanStack Query (5-second refetch interval).
  *
  * mt#1924: Added pagination, sorting, and filtering controls with URL param
  * persistence. Controls use prefix "ag" to namespace params.
+ * mt#2767: Added the kind filter/badge, subagent expand/collapse, and the
+ * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
+ * same mechanism the retired `/conversations` page used).
  */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
+import { cn } from "../lib/utils";
+
+/** Kind badge (mt#2767 Row model). Always "dispatched-agent" pre-mt#2767. */
+type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group";
+
+/** One nested subagent conversation, collapsed under a parent run's row. */
+interface SubagentEntry {
+  conversationId: string;
+  label: string;
+  cwd: string | null;
+  startedAt: string | null;
+}
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
 // (no imports of server code). Keep in sync with src/cockpit/widgets/agents.ts.
 interface AgentRow {
   sessionId: string;
+  kind: RunKind;
   title: string;
-  liveness: "healthy" | "idle" | "stale" | "orphaned";
+  liveness: "healthy" | "idle" | "stale" | "orphaned" | null;
   taskId: string | null;
   taskTitle: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
   agentId: string | null;
+  conversationId: string | null;
+  cwd: string | null;
+  subagents: SubagentEntry[];
 }
 
 interface AgentsPayload {
@@ -49,6 +72,27 @@ async function fetchAgents(): Promise<WidgetData> {
 }
 
 // ---------------------------------------------------------------------------
+// Kind badge
+// ---------------------------------------------------------------------------
+
+const KIND_BADGE_CONFIG: Record<RunKind, { label: string; className: string }> = {
+  "dispatched-agent": { label: "Agent", className: "bg-primary/15 text-primary" },
+  "principal-conversation": { label: "Conversation", className: "bg-sky-500/15 text-sky-500" },
+  "subagent-group": { label: "Subagent", className: "bg-muted text-muted-foreground" },
+};
+
+function KindBadge({ kind }: { kind: RunKind }) {
+  const cfg = KIND_BADGE_CONFIG[kind];
+  return (
+    <span
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${cfg.className}`}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Sort / filter config
 // ---------------------------------------------------------------------------
 
@@ -57,11 +101,13 @@ type AgentSortKey = "lastActivityAt" | "sessionId" | "liveness";
 interface AgentFilters {
   liveness: "all" | "healthy" | "idle" | "stale" | "orphaned";
   taskId: string; // empty string = no filter
+  kind: "all" | RunKind;
 }
 
 const DEFAULT_FILTERS: AgentFilters = {
   liveness: "all",
   taskId: "",
+  kind: "all",
 };
 
 // ---------------------------------------------------------------------------
@@ -78,6 +124,8 @@ function livenessDotClass(liveness: AgentRow["liveness"]): string {
       return "bg-liveness-stale";
     case "orphaned":
       return "bg-liveness-orphaned";
+    case null:
+      return "";
   }
 }
 
@@ -91,16 +139,20 @@ function livenessLabel(liveness: AgentRow["liveness"]): string {
       return "stale";
     case "orphaned":
       return "orphaned";
+    case null:
+      return "n/a";
   }
 }
 
-// Numeric order for sorting: healthy > idle > stale > orphaned
-const LIVENESS_ORDER: Record<AgentRow["liveness"], number> = {
+// Numeric order for sorting: healthy > idle > stale > orphaned; conversation-
+// derived rows (no workspace liveness) sort after all of them.
+const LIVENESS_ORDER: Record<string, number> = {
   healthy: 0,
   idle: 1,
   stale: 2,
   orphaned: 3,
 };
+const LIVENESS_ORDER_NULL = 4;
 
 // ---------------------------------------------------------------------------
 // Relative-time helper — no external dep
@@ -148,6 +200,7 @@ interface ControlBarProps {
   onSort: (key: AgentSortKey) => void;
   onFilterLiveness: (value: AgentFilters["liveness"]) => void;
   onFilterTaskId: (value: string) => void;
+  onFilterKind: (value: AgentFilters["kind"]) => void;
   onPageSize: (size: number) => void;
   onClearFilters: () => void;
 }
@@ -162,6 +215,7 @@ function AgentsControlBar({
   onSort,
   onFilterLiveness,
   onFilterTaskId,
+  onFilterKind,
   onPageSize,
   onClearFilters,
 }: ControlBarProps) {
@@ -221,6 +275,22 @@ function AgentsControlBar({
         className="text-xs bg-background border border-border rounded px-1.5 py-1 w-20 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
         aria-label="Filter by task ID"
       />
+
+      <span className="text-border mx-1">|</span>
+
+      {/* Kind filter (mt#2767) */}
+      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Kind:</span>
+      <select
+        value={filters.kind}
+        onChange={(e) => onFilterKind(e.target.value as AgentFilters["kind"])}
+        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        aria-label="Filter by kind"
+      >
+        <option value="all">All</option>
+        <option value="dispatched-agent">Agent</option>
+        <option value="principal-conversation">Conversation</option>
+        <option value="subagent-group">Subagent</option>
+      </select>
 
       <span className="text-border mx-1">|</span>
 
@@ -307,28 +377,101 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
 }
 
 // ---------------------------------------------------------------------------
+// Live-tail pulse indicator — mirrors the retired ConversationsPage's dot
+// (mt#2749's useActiveConversationSessions), now surfaced on the unified list.
+// ---------------------------------------------------------------------------
+
+function LiveDot() {
+  return (
+    <span
+      className="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-400 animate-pulse"
+      aria-label="live"
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row-open target (mt#2767 kind-aware routing)
+//
+// - dispatched-agent: the workspace detail route (unchanged, mt#1919).
+// - principal-conversation: the conversation detail route (mt#2398).
+// - subagent-group: no single detail route (it's a synthetic collapsed
+//   container, not a real entity) — the row toggles expand instead of
+//   navigating; individual nested entries below link to their own
+//   conversation.
+// ---------------------------------------------------------------------------
+
+function rowPath(agent: AgentRow): string | null {
+  if (agent.kind === "dispatched-agent") return `/agents/${encodeURIComponent(agent.sessionId)}`;
+  if (agent.kind === "principal-conversation") {
+    return `/conversation/${encodeURIComponent(agent.sessionId)}`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Nested subagent row (collapsed under its parent by default)
+// ---------------------------------------------------------------------------
+
+function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: boolean }) {
+  return (
+    <Link
+      to={`/conversation/${encodeURIComponent(entry.conversationId)}`}
+      className="flex items-center gap-2 py-1 pl-8 border-b border-border/60 last:border-0 hover:bg-accent/40 transition-colors rounded-sm"
+      aria-label={`Open subagent conversation ${entry.label}`}
+    >
+      <KindBadge kind="subagent-group" />
+      <span className="flex-1 min-w-0 flex items-center gap-1.5 text-sm truncate">
+        {entry.label}
+        {isLive && <LiveDot />}
+      </span>
+      <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
+        {entry.startedAt ? formatRelative(entry.startedAt) : ""}
+      </span>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Agent row component
 // ---------------------------------------------------------------------------
 
-function AgentRowItem({ agent }: { agent: AgentRow }) {
+function AgentRowItem({
+  agent,
+  activeConversationIds,
+}: {
+  agent: AgentRow;
+  activeConversationIds: Set<string>;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const label = livenessLabel(agent.liveness);
-  return (
-    <Link
-      to={`/agents/${encodeURIComponent(agent.sessionId)}`}
-      className="flex items-center gap-3 py-1.5 border-b border-border last:border-0 hover:bg-accent/50 transition-colors rounded-sm"
-      aria-label={`Open session ${agent.sessionId}`}
-    >
-      {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
-          spam on the 5s polling refetch; the label is read when the dot receives focus. */}
-      <span
-        aria-label={`Liveness: ${label}`}
-        className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
-      />
+  const path = rowPath(agent);
+  const hasSubagents = agent.subagents.length > 0;
+  const isLive = activeConversationIds.has(agent.conversationId ?? agent.sessionId);
+
+  const body = (
+    <>
+      {/* Liveness dot — only meaningful for workspace rows; passive
+          `aria-label` (no `role="status"`) avoids screen-reader spam on the
+          5s polling refetch; the label is read when the dot receives focus. */}
+      {agent.liveness != null ? (
+        <span
+          aria-label={`Liveness: ${label}`}
+          className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
+        />
+      ) : (
+        <span className="inline-block h-2 w-2 flex-shrink-0" aria-hidden />
+      )}
+
+      <KindBadge kind={agent.kind} />
 
       {/* Primary label: task title when available, branch/sessionId as fallback.
           The taskId secondary line gives the operator the canonical reference. */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{agent.taskTitle ?? agent.title}</span>
+        <span className="text-sm font-medium truncate flex items-center gap-1.5">
+          {agent.taskTitle ?? agent.title}
+          {isLive && <LiveDot />}
+        </span>
         {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
 
@@ -344,7 +487,65 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
       <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
         {formatRelative(agent.lastActivityAt)}
       </span>
-    </Link>
+    </>
+  );
+
+  return (
+    <div className="border-b border-border last:border-0">
+      <div className="flex items-center gap-2">
+        {/* Subagent expand/collapse toggle — always reserves a column so rows
+            without children stay aligned with rows that have them. */}
+        {hasSubagents ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-label={expanded ? "Collapse subagents" : "Expand subagents"}
+            aria-expanded={expanded}
+            className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
+          >
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : (
+          <span className="w-[18px] flex-shrink-0" aria-hidden />
+        )}
+
+        {path ? (
+          <Link
+            to={path}
+            className={cn(
+              "flex flex-1 min-w-0 items-center gap-3 py-1.5 hover:bg-accent/50 transition-colors rounded-sm"
+            )}
+            aria-label={`Open ${agent.kind === "dispatched-agent" ? "session" : "conversation"} ${agent.sessionId}`}
+          >
+            {body}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            className="flex flex-1 min-w-0 items-center gap-3 py-1.5 text-left hover:bg-accent/30 transition-colors rounded-sm"
+          >
+            {body}
+          </button>
+        )}
+      </div>
+
+      {hasSubagents && expanded && (
+        <div className="flex flex-col">
+          {agent.subagents.map((entry) => (
+            <SubagentRowItem
+              key={entry.conversationId}
+              entry={entry}
+              isLive={activeConversationIds.has(entry.conversationId)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -377,6 +578,7 @@ function AgentsTableHeader() {
 
 function agentFilterFn(agent: AgentRow, filters: AgentFilters): boolean {
   if (filters.liveness !== "all" && agent.liveness !== filters.liveness) return false;
+  if (filters.kind !== "all" && agent.kind !== filters.kind) return false;
   if (filters.taskId.trim() !== "") {
     const needle = filters.taskId.trim().toLowerCase();
     if (!agent.taskId?.toLowerCase().includes(needle)) return false;
@@ -393,9 +595,12 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
       cmp = tA - tB;
       break;
     }
-    case "liveness":
-      cmp = LIVENESS_ORDER[a.liveness] - LIVENESS_ORDER[b.liveness];
+    case "liveness": {
+      const orderA = a.liveness == null ? LIVENESS_ORDER_NULL : LIVENESS_ORDER[a.liveness];
+      const orderB = b.liveness == null ? LIVENESS_ORDER_NULL : LIVENESS_ORDER[b.liveness];
+      cmp = orderA - orderB;
       break;
+    }
     case "sessionId":
       cmp = a.sessionId.localeCompare(b.sessionId);
       break;
@@ -417,6 +622,8 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
 function AgentsInner({ agents }: { agents: AgentRow[] }) {
   const filterFn = useCallback(agentFilterFn, []);
   const sortFn = useCallback(agentSortFn, []);
+  const activeSessionsQuery = useActiveConversationSessions();
+  const activeConversationIds = activeSessionsQuery.data ?? new Set<string>();
 
   const {
     pageItems,
@@ -460,6 +667,7 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
           onSort={setSort}
           onFilterLiveness={(v) => setFilter("liveness", v)}
           onFilterTaskId={(v) => setFilter("taskId", v)}
+          onFilterKind={(v) => setFilter("kind", v)}
           onPageSize={setPageSize}
           onClearFilters={clearFilters}
         />
@@ -478,7 +686,11 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
         <div>
           <AgentsTableHeader />
           {pageItems.map((agent) => (
-            <AgentRowItem key={agent.sessionId} agent={agent} />
+            <AgentRowItem
+              key={agent.sessionId}
+              agent={agent}
+              activeConversationIds={activeConversationIds}
+            />
           ))}
           <PaginationBar
             page={page}
