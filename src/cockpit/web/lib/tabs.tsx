@@ -39,6 +39,14 @@ export interface EntityTab {
   path: string;
   /** Short display label — e.g. "mt#2370" or the session id's first 8 chars. */
   label: string;
+  /**
+   * Set when the entity this tab addresses failed to resolve (e.g. a 404 on
+   * the conversation snapshot fetch) — mt#2769. Render-only flag: EXCLUDED
+   * from persistence (see `TabsProvider`'s persist effect) so an errored tab
+   * shows an error chip for the current visit but does not resurrect on
+   * reload. Never read from localStorage — always undefined on load.
+   */
+  error?: boolean;
 }
 
 // localStorage key name, not a credential — gitleaks generic-api-key
@@ -135,6 +143,14 @@ interface TabsContextValue {
    * tab, else the default landing.
    */
   closeTab: (path: string, opts?: { navigateTo?: string }) => void;
+  /**
+   * Mark the tab at `path` as unresolved — its entity 404s (mt#2769). Sets
+   * `EntityTab.error`, which `TabBar` renders as an error chip; the tab is
+   * EXCLUDED from persistence (see the persist effect below) so a reload does
+   * NOT resurrect it. Does not navigate — the caller is presumably already
+   * rendering that route's own error state and should stay there.
+   */
+  markTabError: (path: string) => void;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
@@ -154,13 +170,51 @@ export function isAcceptedTabKind(kind: unknown): kind is EntityTabKind {
   );
 }
 
+const LEGACY_SESSION_PATH_RE = /^\/session\/([^/]+)$/;
+
+/**
+ * Migrate a persisted tab from the pre-mt#2686 `/session/:id` path to the
+ * renamed `/conversation/:id` route (mt#2769 success criterion 1b). The
+ * `/session/:id` route registration is gone (replaced by a redirect,
+ * App.tsx's `SessionIdRedirect`), so a tab persisted before the rename would
+ * otherwise sit as a dead link in the tab strip forever — visiting it 404s
+ * silently since no exact route matches, but the tab itself is never
+ * refreshed to reflect that. `kind` and `entityId` are left untouched (the
+ * segment is already path-encoded, matching what `path` expects); see the
+ * `matchEntityRoute` header comment on why "session" stays the kind for
+ * conversation tabs pending a broader tab-kind rename.
+ *
+ * Exported for direct unit testing without mocking localStorage.
+ */
+export function migrateLegacySessionPath(tab: EntityTab): EntityTab {
+  const match = tab.path.match(LEGACY_SESSION_PATH_RE);
+  if (!match?.[1]) return tab;
+  return { ...tab, path: `/conversation/${match[1]}` };
+}
+
+/**
+ * Drop later duplicates by `path` (stable — keeps the FIRST occurrence).
+ * Guards against a legacy `/session/:id` tab and its already-migrated
+ * `/conversation/:id` sibling coexisting in storage after migration.
+ */
+function dedupeTabsByPath(tabs: EntityTab[]): EntityTab[] {
+  const seen = new Set<string>();
+  const out: EntityTab[] = [];
+  for (const t of tabs) {
+    if (seen.has(t.path)) continue;
+    seen.add(t.path);
+    out.push(t);
+  }
+  return out;
+}
+
 function loadTabs(): EntityTab[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
+    const accepted = parsed.filter(
       (t): t is EntityTab =>
         typeof t === "object" &&
         t !== null &&
@@ -168,6 +222,7 @@ function loadTabs(): EntityTab[] {
         typeof (t as EntityTab).label === "string" &&
         isAcceptedTabKind((t as EntityTab).kind)
     );
+    return dedupeTabsByPath(accepted.map(migrateLegacySessionPath));
   } catch {
     return [];
   }
@@ -179,10 +234,13 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<EntityTab[]>(loadTabs);
 
   // Persist on every change; storage failures are non-fatal (tabs become
-  // session-ephemeral, which is acceptable degradation).
+  // session-ephemeral, which is acceptable degradation). Errored tabs
+  // (mt#2769 `markTabError`) are excluded — a tab whose entity 404'd must not
+  // resurrect on reload.
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs));
+      const persistable = tabs.filter((t) => !t.error);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable));
     } catch {
       /* ignore */
     }
@@ -217,7 +275,14 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     [navigate, pathname]
   );
 
-  const value = useMemo(() => ({ tabs, activePath, closeTab }), [tabs, activePath, closeTab]);
+  const markTabError = useCallback((path: string) => {
+    setTabs((prev) => prev.map((t) => (t.path === path ? { ...t, error: true } : t)));
+  }, []);
+
+  const value = useMemo(
+    () => ({ tabs, activePath, closeTab, markTabError }),
+    [tabs, activePath, closeTab, markTabError]
+  );
 
   return <TabsContext.Provider value={value}>{children}</TabsContext.Provider>;
 }

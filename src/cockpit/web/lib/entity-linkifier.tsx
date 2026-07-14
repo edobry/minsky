@@ -54,6 +54,12 @@ export function buildEntityIndex(opts: {
   memoryIds: string[];
   /** PR numbers (as strings) for open/draft changesets. Gates `PR #N` linkification. */
   changesetIds?: string[];
+  /**
+   * Harness agentSessionIds (conversation ids — distinct id-space from `sessionIds`
+   * above, which are Minsky workspace sessionIds). Gates conversation-id
+   * linkification to `/conversation/:id` (mt#2769).
+   */
+  conversationIds?: string[];
 }): EntityIndex {
   const index: EntityIndex = new Map();
   for (const id of opts.taskIds) index.set(id, "task");
@@ -61,6 +67,7 @@ export function buildEntityIndex(opts: {
   for (const id of opts.askIds) index.set(id, "ask");
   for (const id of opts.memoryIds) index.set(id, "memory");
   for (const id of opts.changesetIds ?? []) index.set(id, "changeset");
+  for (const id of opts.conversationIds ?? []) index.set(id, "conversation");
   return index;
 }
 
