@@ -28,6 +28,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import {
   snapshotBlocksToConversation,
@@ -71,12 +72,21 @@ type ConversationViewProps =
        * alone) where no workspace context exists at all.
        */
       liveByConversationId?: boolean;
+      /**
+       * Called once when the snapshot fetch resolves to a genuine "no
+       * transcript" 404 (mt#2769) — NOT for `wrong_id_space`, which has its
+       * own inline fail-loud surface and is a routing mistake, not an
+       * invalid entity. Lets a URL-routed host (e.g. `ConversationPage`)
+       * prune its own tab-strip entry for an unresolvable id.
+       */
+      onNotFound?: () => void;
     }
   | {
       snapshot: SessionContextSnapshot;
       sessionId?: undefined;
       workspaceSessionId?: never;
       liveByConversationId?: never;
+      onNotFound?: never;
       className?: string;
     };
 
@@ -520,6 +530,7 @@ function ConversationFetcher({
   sessionId,
   workspaceSessionId,
   liveByConversationId,
+  onNotFound,
   className,
 }: {
   sessionId: ConversationId;
@@ -534,12 +545,25 @@ function ConversationFetcher({
    * conversation-keyed live-tail channel directly off `sessionId` (mt#2749).
    */
   liveByConversationId?: boolean;
+  /** See `ConversationViewProps` — fires on a genuine 404, not on wrong_id_space. */
+  onNotFound?: () => void;
   className?: string;
 }) {
   const query = useQuery<SessionContextSnapshot, Error>({
     queryKey: ["conversation", "snapshot", sessionId],
     queryFn: () => fetchSnapshot(sessionId),
     staleTime: 30_000,
+    // Do NOT retry a client error (4xx) — a wrong/unresolvable id will never
+    // succeed on retry, and the default TanStack retry policy (3 attempts,
+    // exponential backoff) left the "Loading conversation…" spinner visible
+    // for 15+s on a genuinely bad id before the error state finally rendered
+    // (mt#2769, observed live 2026-07-13). 5xx/network errors still retry —
+    // those CAN be transient.
+    retry: (failureCount, error) => {
+      const status = error instanceof SnapshotError ? error.status : undefined;
+      if (status !== undefined && status >= 400 && status < 500) return false;
+      return failureCount < 3;
+    },
   });
 
   // Live-tail seam: exactly one of the two channels is active per host —
@@ -554,15 +578,26 @@ function ConversationFetcher({
   );
   const liveBlocks = workspaceSessionId ? workspaceLive.liveBlocks : conversationLive.liveBlocks;
 
+  const snapErr = query.isError && query.error instanceof SnapshotError ? query.error : null;
+  const wrongIdSpace = snapErr?.code === "wrong_id_space" || snapErr?.status === 422;
+  const notFound = !wrongIdSpace && snapErr?.status === 404;
+
+  // Report a genuine unresolvable id to the host (mt#2769) — e.g. so a
+  // URL-routed page can prune its own tab-strip entry. NOT fired for
+  // wrong_id_space: that's a routing mistake (a valid workspace id used on
+  // the wrong route), not an invalid entity.
+  useEffect(() => {
+    if (notFound) onNotFound?.();
+  }, [notFound, onNotFound]);
+
   if (query.isError) {
-    const snapErr = query.error instanceof SnapshotError ? query.error : null;
     // Fail LOUD on the wrong-id-space mistake (mt#2525 / mt#2420): a workspace
     // session id was passed where a harness conversation id is required. This
     // must NOT fall through to the "no transcript yet" empty state — that was
     // the original misleading surface. Also key off the 422 status so an
     // intermediary/proxy that drops the JSON body but preserves the status still
     // routes here (reviewer #1729 robustness suggestion).
-    if (snapErr?.code === "wrong_id_space" || snapErr?.status === 422) {
+    if (wrongIdSpace) {
       return (
         <div
           role="alert"
@@ -572,14 +607,15 @@ function ConversationFetcher({
             Wrong id type for the conversation view.
           </p>
           <p className="max-w-md text-xs text-muted-foreground">
-            This looks like a Minsky workspace session id, not a harness conversation id. Open the
-            workspace&apos;s session detail page and use its &ldquo;View conversation&rdquo; link to
-            reach the transcript.
+            This looks like a Minsky workspace session id, not a harness conversation id.{" "}
+            <Link to={`/agents/${encodeURIComponent(sessionId)}`} className="underline">
+              Open its workspace detail page
+            </Link>{" "}
+            and use its &ldquo;View conversation&rdquo; link to reach the transcript.
           </p>
         </div>
       );
     }
-    const notFound = snapErr?.status === 404;
     if (notFound) {
       return (
         <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>
@@ -631,6 +667,7 @@ export function ConversationView(props: ConversationViewProps) {
       sessionId={props.sessionId}
       workspaceSessionId={props.workspaceSessionId}
       liveByConversationId={props.liveByConversationId}
+      onNotFound={props.onNotFound}
       className={props.className}
     />
   );

@@ -1,8 +1,8 @@
 /**
- * Tests for the entity-tab route matcher (mt#2398, extended mt#1919, mt#2535).
+ * Tests for the entity-tab route matcher (mt#2398, extended mt#1919, mt#2535, mt#2769).
  */
 import { describe, test, expect } from "bun:test";
-import { matchEntityRoute, isAcceptedTabKind } from "./tabs";
+import { matchEntityRoute, isAcceptedTabKind, migrateLegacySessionPath, type EntityTab } from "./tabs";
 
 describe("matchEntityRoute", () => {
   test("matches /conversation/:id as kind session (harness agentSessionId)", () => {
@@ -114,5 +114,56 @@ describe("isAcceptedTabKind (loadTabs kind filter)", () => {
     const matched = matchEntityRoute(persistedTab.path);
     expect(matched?.kind).toBe("changeset");
     expect(matched?.entityId).toBe("42");
+  });
+});
+
+describe("migrateLegacySessionPath (mt#2769 success criterion 1b)", () => {
+  const legacyTab: EntityTab = {
+    kind: "session",
+    entityId: "4d44d12b-58f0-433e-95b3-8b914693fa39",
+    path: "/session/4d44d12b-58f0-433e-95b3-8b914693fa39",
+    label: "4d44d12b…",
+  };
+
+  test("rewrites a persisted /session/:id tab to /conversation/:id", () => {
+    const migrated = migrateLegacySessionPath(legacyTab);
+    expect(migrated.path).toBe("/conversation/4d44d12b-58f0-433e-95b3-8b914693fa39");
+  });
+
+  test("kind and entityId are left untouched (broader tab-kind rename is out of scope)", () => {
+    const migrated = migrateLegacySessionPath(legacyTab);
+    expect(migrated.kind).toBe("session");
+    expect(migrated.entityId).toBe(legacyTab.entityId);
+    expect(migrated.label).toBe(legacyTab.label);
+  });
+
+  test("the migrated path resolves via matchEntityRoute", () => {
+    const migrated = migrateLegacySessionPath(legacyTab);
+    const matched = matchEntityRoute(migrated.path);
+    expect(matched?.kind).toBe("session");
+    expect(matched?.entityId).toBe(legacyTab.entityId);
+  });
+
+  test("a tab already on /conversation/:id passes through unchanged", () => {
+    const currentTab: EntityTab = {
+      kind: "session",
+      entityId: "abc123",
+      path: "/conversation/abc123",
+      label: "abc123",
+    };
+    expect(migrateLegacySessionPath(currentTab)).toEqual(currentTab);
+  });
+
+  test("non-session-shaped tabs (task, agent, ask, memory, changeset) pass through unchanged", () => {
+    const otherTabs: EntityTab[] = [
+      { kind: "task", entityId: "mt#42", path: "/tasks/mt%2342", label: "mt#42" },
+      { kind: "agent", entityId: "xyz", path: "/agents/xyz", label: "xyz" },
+      { kind: "ask", entityId: "a1", path: "/ask/a1", label: "a1" },
+      { kind: "memory", entityId: "m1", path: "/memory/m1", label: "m1" },
+      { kind: "changeset", entityId: "42", path: "/changeset/42", label: "42" },
+    ];
+    for (const tab of otherTabs) {
+      expect(migrateLegacySessionPath(tab)).toEqual(tab);
+    }
   });
 });

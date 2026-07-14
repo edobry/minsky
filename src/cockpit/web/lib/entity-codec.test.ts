@@ -245,6 +245,32 @@ describe("trailing prose-punctuation robustness (mt#2549)", () => {
   });
 });
 
+describe("conversation entity type (mt#2769 — web-route only, NOT a minsky:// URI type)", () => {
+  const CONVERSATION_ID = "4d44d12b-58f0-433e-95b3-8b914693fa39";
+
+  test("entityToPath produces /conversation/:id", () => {
+    expect(entityToPath("conversation", CONVERSATION_ID)).toBe(`/conversation/${CONVERSATION_ID}`);
+  });
+
+  test("round-trips through matchEntityRoute (kind stays 'session', mt#2769/mt#2686)", () => {
+    const path = entityToPath("conversation", CONVERSATION_ID);
+    const tab = matchEntityRoute(path);
+    expect(tab?.kind).toBe("session");
+    expect(tab?.entityId).toBe(CONVERSATION_ID);
+  });
+
+  test("is deliberately ABSENT from parseMinskyUri's minsky:// URI types (ADR-022 stage-1)", () => {
+    // entityToMinskyUri will happily stamp out minsky://conversation/... since it
+    // takes any RoutableEntityType with no switch — but parseMinskyUri must NOT
+    // recognize it back, because "conversation" is not one of the five minsky://
+    // URI types (task/ask/session/memory/changeset). session stays the URI type
+    // that means "workspace id" — this task must not touch that table.
+    const uri = entityToMinskyUri("conversation", CONVERSATION_ID);
+    expect(uri).toBe(`minsky://conversation/${CONVERSATION_ID}`);
+    expect(parseMinskyUri(uri)).toBeNull();
+  });
+});
+
 describe("changeset id numeric enforcement (mt#2536 R1)", () => {
   // The rule/docs pin `changeset id == PR number` (positive integer). A non-numeric
   // changeset id must NOT parse — it would otherwise route to a nonexistent

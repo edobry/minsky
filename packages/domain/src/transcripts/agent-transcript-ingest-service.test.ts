@@ -12,6 +12,7 @@ import { describe, test, expect } from "bun:test";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { AgentTranscriptIngestService } from "./agent-transcript-ingest-service";
 import type { IngestAllResult } from "./agent-transcript-ingest-service";
+import { getSessionsDir } from "@minsky/shared/paths";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -73,21 +74,36 @@ interface FakeRow {
   ingestedAt: Date;
 }
 
+/** Fake `minsky_session_links` row (mt#2441 — cwd_match link writer). */
+interface FakeLinkRow {
+  agentSessionId: string;
+  minskySessionId: string;
+  linkType: string;
+  confidence: number | null;
+}
+
 /**
  * Creates a minimal fake DB that mimics drizzle's fluent builder surface.
  *
  * The service issues queries in a fixed sequence for each session:
  *   (1) select { lastIngestedJsonlTimestamp } ... where agentSessionId = X  → high-water read
  *   (2) select { agentSessionId } ... where agentSessionId = X              → existence check
- *   (3) select { transcript } ... where agentSessionId = X                  → transcript read
+ *   (3) select { transcript, cwd } ... where agentSessionId = X             → transcript+cwd read
  *   (4) update … / insert …
  *
  * Because we cannot inspect the opaque drizzle SQL expression returned by
  * eq(), the fake resolves "which session" by tracking the most-recently
  * inserted/active session ID.  Each ingestSession() call touches exactly one
  * session, so the one-at-a-time ordering is deterministic.
+ *
+ * `linkState` (mt#2441) is a SEPARATE store for `minsky_session_links` writes,
+ * keyed independently from the `agent_transcripts` `FakeRow` store above so a
+ * cwd_match link write can never corrupt transcript state. Routing is by duck
+ * typing: a values object carrying `minskySessionId` + `linkType` (fields no
+ * other table's insert carries) is a link write; everything else falls
+ * through to the existing agent_transcripts/turns/attachments handling.
  */
-function makeDb(state: Map<string, FakeRow>) {
+function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow> = new Map()) {
   // The select chain needs to know which session to look up.  We derive it
   // from the insert/update stream: each insert sets currentSid; each
   // subsequent select chain uses it.  For the very first select (high-water
@@ -99,6 +115,9 @@ function makeDb(state: Map<string, FakeRow>) {
     _primeSession(sid: string) {
       currentSid = sid;
     },
+
+    /** Exposed so tests can assert on written `minsky_session_links` rows. */
+    _links: linkState,
 
     select(fields?: Record<string, unknown>) {
       const fieldKeys = fields ? Object.keys(fields) : [];
@@ -126,7 +145,24 @@ function makeDb(state: Map<string, FakeRow>) {
 
     insert(_table: unknown) {
       return {
-        values(values: Partial<FakeRow> & { agentSessionId: string }) {
+        values(values: (Partial<FakeRow> & { agentSessionId: string }) | FakeLinkRow) {
+          // mt#2441: minsky_session_links writes are duck-typed by the
+          // presence of `minskySessionId` + `linkType` — fields no other
+          // table's insert carries. Routed to a dedicated store so a link
+          // write can never corrupt agent_transcripts state.
+          if ("minskySessionId" in values && "linkType" in values) {
+            const linkValues = values as FakeLinkRow;
+            return {
+              onConflictDoNothing(): Promise<void> {
+                const key = `${linkValues.agentSessionId}:${linkValues.minskySessionId}`;
+                if (!linkState.has(key)) {
+                  linkState.set(key, { ...linkValues });
+                }
+                return Promise.resolve();
+              },
+            };
+          }
+
           const sid = values.agentSessionId;
           currentSid = sid;
 
@@ -359,6 +395,158 @@ describe("AgentTranscriptIngestService", () => {
 
       expect(result.ingested).toBe(0);
       expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe("cwd_match link writing (mt#2441)", () => {
+    test("writes a cwd_match link when the transcript cwd is under the sessions dir", async () => {
+      const workspaceSessionId = "workspace-session-abc";
+      const cwd = `${getSessionsDir()}/${workspaceSessionId}`;
+
+      const lines = makeLines([TS1]);
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, lines);
+      const state = new Map<string, FakeRow>();
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const discovered: DiscoveredSession = { ...makeDiscovered(SESSION_A), cwd };
+      const result = await svc.ingestSession(discovered);
+
+      expect(result.error).toBeUndefined();
+      const link = linkState.get(`${SESSION_A}:${workspaceSessionId}`);
+      expect(link).toBeDefined();
+      expect(link?.linkType).toBe("cwd_match");
+      expect(link?.confidence).toBe(1.0);
+    });
+
+    test("writes a descendant-confidence link when cwd is nested under the session dir", async () => {
+      const workspaceSessionId = "workspace-session-def";
+      const cwd = `${getSessionsDir()}/${workspaceSessionId}/src/nested`;
+
+      const lines = makeLines([TS1]);
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, lines);
+      const state = new Map<string, FakeRow>();
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const discovered: DiscoveredSession = { ...makeDiscovered(SESSION_A), cwd };
+      await svc.ingestSession(discovered);
+
+      const link = linkState.get(`${SESSION_A}:${workspaceSessionId}`);
+      expect(link).toBeDefined();
+      expect(link?.confidence).toBe(0.8);
+    });
+
+    test("does not write a link when cwd does not resolve to a session workspace path", async () => {
+      const lines = makeLines([TS1]);
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, lines);
+      const state = new Map<string, FakeRow>();
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const discovered: DiscoveredSession = {
+        ...makeDiscovered(SESSION_A),
+        cwd: "/some/unrelated/project/dir",
+      };
+      const result = await svc.ingestSession(discovered);
+
+      expect(result.error).toBeUndefined();
+      expect(linkState.size).toBe(0);
+    });
+
+    test("does not write a link and does not fail ingest when cwd is absent", async () => {
+      const lines = makeLines([TS1]);
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, lines);
+      const state = new Map<string, FakeRow>();
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      // makeDiscovered() doesn't set cwd — mirrors a source that couldn't
+      // recover the working directory (mt#1445).
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(result.error).toBeUndefined();
+      expect(linkState.size).toBe(0);
+    });
+
+    test("idempotent: re-ingesting the same session does not duplicate the link row", async () => {
+      const workspaceSessionId = "workspace-session-idempotent";
+      const cwd = `${getSessionsDir()}/${workspaceSessionId}`;
+
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+      const state = new Map<string, FakeRow>();
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const discovered: DiscoveredSession = { ...makeDiscovered(SESSION_A), cwd };
+
+      await svc.ingestSession(discovered);
+      expect(linkState.size).toBe(1);
+
+      // Re-run over the same (now unchanged) source — HWM gate makes this an
+      // ingest no-op, but even a fresh insert attempt would hit
+      // ON CONFLICT DO NOTHING and not duplicate the row.
+      db._primeSession(SESSION_A);
+      await svc.ingestSession(discovered);
+      expect(linkState.size).toBe(1);
+    });
+
+    test("writes a link from session.cwd even when the persisted cwd is still NULL (PR #1899 R1)", async () => {
+      // Reproduces the reviewer-bot R1 finding: a session first ingested
+      // before its cwd was recoverable (persisted cwd stays NULL forever —
+      // the agent_transcripts upsert never updates cwd on conflict, mt#1445)
+      // must still get linked once a LATER ingest call's DiscoveredSession
+      // carries a resolvable session.cwd, even though the stored column
+      // never catches up.
+      const workspaceSessionId = "workspace-session-late-cwd";
+      const cwd = `${getSessionsDir()}/${workspaceSessionId}`;
+
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS1),
+        cwd: null, // first ingest happened before cwd was recoverable
+        projectDir: null,
+        lastIngestedJsonlTimestamp: new Date(TS1),
+        ingestedAt: new Date(),
+      });
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const source = new FakeTranscriptSource();
+      // JSONL grew: a new line at TS2 triggers a re-ingest.
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+
+      const svc = makeSvc(db, source);
+      const discovered: DiscoveredSession = { ...makeDiscovered(SESSION_A), cwd };
+      const result = await svc.ingestSession(discovered);
+
+      expect(result.error).toBeUndefined();
+      // Persisted cwd is still NULL — onConflictDoUpdate never touches it.
+      expect(state.get(SESSION_A)?.cwd).toBeNull();
+      // But the link was written from session.cwd, not the stale persisted value.
+      const link = linkState.get(`${SESSION_A}:${workspaceSessionId}`);
+      expect(link).toBeDefined();
+      expect(link?.confidence).toBe(1.0);
     });
   });
 

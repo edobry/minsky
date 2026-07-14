@@ -25,6 +25,7 @@
  * @see entity-codec.ts — the (type, id) ↔ minsky:// URI ↔ path codec
  * @see mt#2518 — this task
  * @see mt#2536 — PR/changeset linkification
+ * @see mt#2769 — conversation (harness agentSessionId) linkification
  */
 import { createElement, Fragment } from "react";
 import type { ReactNode } from "react";
@@ -38,7 +39,8 @@ import { parseMinskyUri, entityToPath, type RoutableEntityType } from "./entity-
 
 /**
  * A map from entity id → entity type, used to resolve bare references.
- * Built from the data CommandPalette already fetches (tasks/sessions/asks/memories).
+ * Built from the data CommandPalette already fetches
+ * (tasks/sessions/asks/memories/changesets/conversations).
  */
 export type EntityIndex = Map<string, RoutableEntityType>;
 
@@ -54,6 +56,12 @@ export function buildEntityIndex(opts: {
   memoryIds: string[];
   /** PR numbers (as strings) for open/draft changesets. Gates `PR #N` linkification. */
   changesetIds?: string[];
+  /**
+   * Harness agentSessionIds (conversation ids — distinct id-space from `sessionIds`
+   * above, which are Minsky workspace sessionIds). Gates conversation-id
+   * linkification to `/conversation/:id` (mt#2769).
+   */
+  conversationIds?: string[];
 }): EntityIndex {
   const index: EntityIndex = new Map();
   for (const id of opts.taskIds) index.set(id, "task");
@@ -61,6 +69,7 @@ export function buildEntityIndex(opts: {
   for (const id of opts.askIds) index.set(id, "ask");
   for (const id of opts.memoryIds) index.set(id, "memory");
   for (const id of opts.changesetIds ?? []) index.set(id, "changeset");
+  for (const id of opts.conversationIds ?? []) index.set(id, "conversation");
   return index;
 }
 

@@ -28,16 +28,30 @@
  * second fetch. The raw id stays visible underneath in monospace for
  * copy/reference. Falls back to the bare id while the query is loading or if
  * this conversation isn't in the top-50 window the widget returns.
+ *
+ * Tab hygiene (mt#2769): a genuinely unresolvable conversation id (404, not
+ * `wrong_id_space`) reports up via `ConversationView`'s `onNotFound`, which
+ * this page forwards to `markTabError` — the tab-strip entry shows an error
+ * chip for this visit and is excluded from persistence, so it does not
+ * resurrect as a dead tab on the next reload.
  */
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ConversationView } from "../widgets/ConversationView";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { extractConversationRows } from "../lib/conversations-source";
+import { useTabs } from "../lib/tabs";
 import type { ConversationId } from "@minsky/domain/ids";
 
 export function ConversationPage() {
   const { id } = useParams<{ id: string }>();
+  const { pathname } = useLocation();
+  const { markTabError } = useTabs();
+
+  const handleNotFound = useCallback(() => {
+    markTabError(pathname);
+  }, [markTabError, pathname]);
 
   const sessionsQuery = useQuery<WidgetData, Error>({
     queryKey: ["context-inspector", "sessions"],
@@ -67,7 +81,11 @@ export function ConversationPage() {
           {id}
         </span>
       </div>
-      <ConversationView sessionId={conversationId} liveByConversationId />
+      <ConversationView
+        sessionId={conversationId}
+        liveByConversationId
+        onNotFound={handleNotFound}
+      />
     </div>
   );
 }

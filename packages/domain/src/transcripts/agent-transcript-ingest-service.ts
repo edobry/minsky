@@ -23,6 +23,7 @@ import { getErrorMessage } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
+import { writeCwdMatchLink } from "./session-link-writer";
 
 export class AgentTranscriptIngestService {
   constructor(
@@ -185,13 +186,18 @@ export class AgentTranscriptIngestService {
     // Turn ordering is assigned over the WHOLE transcript, so we extract from the
     // full merged row, not from the incremental `newLines` slice.
     let turnExtractError: Error | undefined;
+    let persistedCwd: string | null = null;
     try {
       const fullRows = await this.db
-        .select({ transcript: agentTranscriptsTable.transcript })
+        .select({
+          transcript: agentTranscriptsTable.transcript,
+          cwd: agentTranscriptsTable.cwd,
+        })
         .from(agentTranscriptsTable)
         .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
         .limit(1);
       const fullTranscript = fullRows[0]?.transcript ?? null;
+      persistedCwd = fullRows[0]?.cwd ?? null;
       await writeTurnsForTranscript(this.db, agentSessionId, fullTranscript);
     } catch (err) {
       turnExtractError = err instanceof Error ? err : new Error(String(err));
@@ -200,6 +206,31 @@ export class AgentTranscriptIngestService {
       });
       // Don't fail the whole ingest — the transcript upsert already succeeded.
       // Surface the error so the sweep can count degraded ingests.
+    }
+
+    // ── 4c. Write cwd_match link into minsky_session_links (mt#2441) ────────
+    // Runs from THIS shared ingest core so every ingest path — transcripts_ingest,
+    // the MCP boot sweep, the SessionEnd hook, and the cadence sweep — writes
+    // the same link with no per-consumer duplication (all four funnel through
+    // ingestSession). No-ops (no DB call) when the resolved cwd doesn't
+    // resolve to a session workspace path — the expected common case per the
+    // mt#2749 finding (subagents don't chdir), not an error. Never allowed to
+    // fail the ingest: writeCwdMatchLink swallows its own DB errors, and this
+    // try/catch is a defensive backstop only.
+    //
+    // Prefer `session.cwd` (the freshest value from THIS discovery) over
+    // `persistedCwd` (the stored column, which the upsert above never updates
+    // on conflict — `cwd` is insert-only, mt#1445). Without this precedence a
+    // session first ingested before its cwd was recoverable, then re-ingested
+    // once the source CAN report it, would silently never get a link: the
+    // persisted column stays NULL forever while `session.cwd` carries the
+    // real value on every subsequent call (PR #1899 R1).
+    try {
+      await writeCwdMatchLink(this.db, agentSessionId, session.cwd ?? persistedCwd);
+    } catch (err) {
+      log.warn(`Failed to write cwd_match link for session ${agentSessionId}`, {
+        error: getErrorMessage(err),
+      });
     }
 
     // ── 5. Insert new attachment rows (mt#2022) ──────────────────────────────
