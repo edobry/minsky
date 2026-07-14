@@ -133,9 +133,14 @@ export function useDrivenSession(localId: string | null | undefined): UseDrivenS
 
     const handleOpen = () => setConnectionState("open");
     const handleMessage = (ev: MessageEvent) => {
+      // The daemon only ever sends text frames (JSON), but a WebSocket can
+      // deliver Blob/ArrayBuffer if binaryType changes — guard explicitly so a
+      // non-string frame is skipped rather than coerced into a bogus parse
+      // (mt#2751 R1 non-blocking note).
+      if (typeof ev.data !== "string") return;
       let payload: unknown;
       try {
-        payload = JSON.parse(ev.data as string);
+        payload = JSON.parse(ev.data);
       } catch {
         return; // malformed frame — fail open, skip (mirrors useLiveTail's posture).
       }

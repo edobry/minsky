@@ -71,6 +71,18 @@ function contentBlockStop(index: number) {
 function messageStop() {
   return { type: "stream_event", event: { type: "message_stop" } };
 }
+function messageDelta() {
+  // Carries top-level message changes (final stop_reason + cumulative usage);
+  // arrives BEFORE message_stop while the turn is still open.
+  return {
+    type: "stream_event",
+    event: {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: { output_tokens: 12 },
+    },
+  };
+}
 
 describe("foldDrivenSessionEvent — delta accumulation", () => {
   test("a delta sequence produces a growing block (text accumulates incrementally)", () => {
@@ -106,6 +118,32 @@ describe("foldDrivenSessionEvent — delta accumulation", () => {
     expect(seen).toEqual(["The", "The quick", "The quick brown", "The quick brown fox"]);
     // Not yet finalized — activeTurn is still open (no message_stop yet).
     expect(state.activeTurn).not.toBeNull();
+  });
+
+  test("message_delta does NOT terminate the turn — only message_stop does (mt#2751 R1)", () => {
+    // Per the Anthropic Messages streaming protocol, message_delta (final
+    // stop_reason + usage) arrives BEFORE message_stop while the turn is open.
+    // Treating it as terminating cleared activeTurn one event early and could
+    // fragment content streamed between message_delta and message_stop.
+    let state = createInitialDrivenAccumulatorState();
+    state = fold(state, messageStart(), contentBlockStart(0, "text"), textDelta(0, "before delta"));
+    expect(state.activeTurn).not.toBeNull();
+
+    // message_delta must leave the turn OPEN.
+    state = foldDrivenSessionEvent(state, messageDelta());
+    expect(state.activeTurn).not.toBeNull();
+
+    // Content still streaming after message_delta lands in the SAME block, not a
+    // fragment / new block.
+    state = foldDrivenSessionEvent(state, textDelta(0, " — after delta"));
+    expect(turnText(state, 0)).toBe("before delta — after delta");
+    expect(state.blocks).toHaveLength(1);
+
+    // message_stop is the sole terminator — now the turn closes.
+    state = fold(state, contentBlockStop(0), messageStop());
+    expect(state.activeTurn).toBeNull();
+    expect(turnText(state, 0)).toBe("before delta — after delta");
+    expect(state.blocks).toHaveLength(1);
   });
 
   test("interleaved tool-use renders as its own content element, distinct from the text element", () => {

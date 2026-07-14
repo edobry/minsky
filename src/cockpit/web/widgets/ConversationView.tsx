@@ -578,6 +578,11 @@ function DrivenSessionThread({
   const baseSnapshot = useMemo<SessionContextSnapshot>(
     () => ({
       agentSessionId: drivenSessionId,
+      // `claude_code` is correct-by-construction here, not a placeholder: the
+      // driven-session host (mt#2750) only ever spawns the genuine `claude`
+      // binary, so a driven session IS a Claude Code harness session. If the
+      // host ever drives a second harness, thread the harness through from the
+      // driven-session record instead (mt#2751 R1 note).
       harness: "claude_code",
       blocks: EMPTY_DRIVEN_BASE_BLOCKS,
       assembledAt: DRIVEN_BASE_ASSEMBLED_AT,

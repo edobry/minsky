@@ -339,11 +339,23 @@ function foldStreamEvent(
     return state;
   }
 
-  if (subtype === "message_delta" || subtype === "message_stop") {
-    // Turn's raw model-streaming lifecycle is done. Leave the rendered block
-    // in place — a subsequent complete `assistant` event (if any) replaces it
-    // authoritatively (via lastStreamedTurnId, since activeTurn is cleared
-    // here); if none arrives, the streamed content IS the final content.
+  if (subtype === "message_delta") {
+    // NOT the terminator. Per the Anthropic Messages streaming protocol,
+    // `message_delta` carries top-level message changes (final `stop_reason`,
+    // cumulative `usage`) and arrives BEFORE `message_stop`, while the turn is
+    // still open. Finalizing the turn here would clear `activeTurn` one event
+    // early and fragment any content that streams between `message_delta` and
+    // `message_stop` (mt#2751 R1). Leave the active turn open; `message_stop`
+    // below is the sole terminator.
+    return state;
+  }
+
+  if (subtype === "message_stop") {
+    // The turn's raw model-streaming lifecycle is done — THIS is the terminator.
+    // Leave the rendered block in place: a subsequent complete `assistant` event
+    // (if any) replaces it authoritatively (via lastStreamedTurnId, since
+    // activeTurn is cleared here); if none arrives, the streamed content IS the
+    // final content.
     return {
       ...state,
       activeTurn: null,
