@@ -34,6 +34,9 @@ const ContextPage = lazy(() =>
 const ConversationPage = lazy(() =>
   import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
 );
+const DrivenSessionPage = lazy(() =>
+  import("./pages/DrivenSessionPage").then((m) => ({ default: m.DrivenSessionPage }))
+);
 const ConversationsPage = lazy(() =>
   import("./pages/ConversationsPage").then((m) => ({ default: m.ConversationsPage }))
 );
@@ -449,6 +452,19 @@ export function App() {
             element={
               <ErrorBoundary id="session-page">
                 <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Driven-session view (mt#2751 Rung 2B): consumes mt#2750's per-session
+              WS channel — hosts ConversationView + composer + status for a
+              session the operator is actively driving. Launch entry points
+              (starting a new session, task binding) are Rung 2C, out of scope
+              here — this route is reachable directly by id/deeplink. */}
+          <Route
+            path="/driven/:id"
+            element={
+              <ErrorBoundary id="driven-session-page">
+                <DrivenSessionPage />
               </ErrorBoundary>
             }
           />
