@@ -823,8 +823,9 @@ describe("isOperationalScript", () => {
     expect(isOperationalScript("scripts/foo.test.ts")).toBe(false);
   });
 
-  it("does not match nested scripts (only top-level scripts/*.ts)", () => {
-    expect(isOperationalScript("scripts/sub/x.ts")).toBe(false);
+  it("matches nested scripts at any depth (scripts/**.ts)", () => {
+    expect(isOperationalScript("scripts/sub/x.ts")).toBe(true);
+    expect(isOperationalScript("scripts/migrations/backfill.ts")).toBe(true);
   });
 
   it("does not match non-scripts .ts or non-.ts scripts", () => {
@@ -842,6 +843,22 @@ describe("findNewOperationalScripts", () => {
       { filename: FIXTURE_FOO_TS, status: "added" },
     ];
     expect(findNewOperationalScripts(files)).toEqual([FIXTURE_SCRIPT]);
+  });
+
+  it("includes a rename/copy promotion into scripts/ from a non-script path, excludes script→script renames", () => {
+    const files: PrFile[] = [
+      {
+        filename: "scripts/promoted.ts",
+        status: "renamed",
+        previous_filename: "tools/promoted.ts",
+      },
+      {
+        filename: "scripts/moved.ts",
+        status: "renamed",
+        previous_filename: "scripts/moved-old.ts",
+      },
+    ];
+    expect(findNewOperationalScripts(files)).toEqual(["scripts/promoted.ts"]);
   });
 });
 

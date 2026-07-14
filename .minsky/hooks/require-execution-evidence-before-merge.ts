@@ -100,11 +100,12 @@ export function isTestFile(filename: string): boolean {
  * mt#2774, `scripts/backfill-close-stale-asks.ts` shipped with a broken
  * `--execute` branch its dry-run never exercised).
  */
-const OPERATIONAL_SCRIPT_PATTERN = /^scripts\/[^/]*\.ts$/;
+const OPERATIONAL_SCRIPT_PATTERN = /^scripts\/.*\.ts$/;
 
 /**
- * Returns true when a filename is an operational script (`scripts/<name>.ts`)
- * that is not itself a test file.
+ * Returns true when a filename is an operational script under `scripts/` at ANY
+ * depth (e.g. `scripts/foo.ts`, `scripts/migrations/backfill.ts`) that is not
+ * itself a test file.
  */
 export function isOperationalScript(filename: string): boolean {
   return OPERATIONAL_SCRIPT_PATTERN.test(filename) && !isTestFile(filename);
@@ -138,16 +139,27 @@ export function findNewTestFiles(files: PrFile[]): string[] {
 }
 
 /**
- * Filters a list of PrFile objects to only newly-added operational scripts
- * (`scripts/*.ts`, status "added", not a test file). mt#2776.
- *
- * Rename/copy conversions are not tracked here (unlike test files) — a script
- * moving into `scripts/` is rare and the "added" status covers the originating
- * case (a brand-new backfill/migration/sweep script).
+ * Filters a list of PrFile objects to only newly-introduced operational scripts.
+ * mt#2776. Mirrors `findNewTestFiles`' status logic for parity:
+ *   - status === "added": brand-new script.
+ *   - status === "renamed" | "copied": the new name is an operational script AND
+ *     the previous name was NOT (a promotion into `scripts/`, e.g.
+ *     `tools/foo.ts` -> `scripts/foo.ts`), so it is a newly-introduced artifact.
  */
 export function findNewOperationalScripts(files: PrFile[]): string[] {
   return files
-    .filter((f) => f.status === "added" && isOperationalScript(f.filename))
+    .filter((f) => {
+      if (!isOperationalScript(f.filename)) return false;
+      if (f.status === "added") return true;
+      if (f.status === "renamed" || f.status === "copied") {
+        if (f.previous_filename !== undefined) {
+          return !isOperationalScript(f.previous_filename);
+        }
+        // No previous_filename info available — conservatively include it.
+        return true;
+      }
+      return false;
+    })
     .map((f) => f.filename);
 }
 
