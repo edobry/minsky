@@ -505,6 +505,49 @@ describe("AgentTranscriptIngestService", () => {
       await svc.ingestSession(discovered);
       expect(linkState.size).toBe(1);
     });
+
+    test("writes a link from session.cwd even when the persisted cwd is still NULL (PR #1899 R1)", async () => {
+      // Reproduces the reviewer-bot R1 finding: a session first ingested
+      // before its cwd was recoverable (persisted cwd stays NULL forever —
+      // the agent_transcripts upsert never updates cwd on conflict, mt#1445)
+      // must still get linked once a LATER ingest call's DiscoveredSession
+      // carries a resolvable session.cwd, even though the stored column
+      // never catches up.
+      const workspaceSessionId = "workspace-session-late-cwd";
+      const cwd = `${getSessionsDir()}/${workspaceSessionId}`;
+
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS1),
+        cwd: null, // first ingest happened before cwd was recoverable
+        projectDir: null,
+        lastIngestedJsonlTimestamp: new Date(TS1),
+        ingestedAt: new Date(),
+      });
+      const linkState = new Map<string, FakeLinkRow>();
+      const db = makeDb(state, linkState);
+      db._primeSession(SESSION_A);
+
+      const source = new FakeTranscriptSource();
+      // JSONL grew: a new line at TS2 triggers a re-ingest.
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+
+      const svc = makeSvc(db, source);
+      const discovered: DiscoveredSession = { ...makeDiscovered(SESSION_A), cwd };
+      const result = await svc.ingestSession(discovered);
+
+      expect(result.error).toBeUndefined();
+      // Persisted cwd is still NULL — onConflictDoUpdate never touches it.
+      expect(state.get(SESSION_A)?.cwd).toBeNull();
+      // But the link was written from session.cwd, not the stale persisted value.
+      const link = linkState.get(`${SESSION_A}:${workspaceSessionId}`);
+      expect(link).toBeDefined();
+      expect(link?.confidence).toBe(1.0);
+    });
   });
 
   describe("ingestAll", () => {
