@@ -53,6 +53,12 @@
  * Tier 3 (subagent descriptor) uses only `agent_spawns.agent_kind` (the
  * richer `subagent_invocations`-joined variant is intentionally out of
  * scope here — see context-inspector.ts for that fuller version).
+ *
+ * Tier 2's `pickFirstUserText` below is markup-aware (mt#2784): a
+ * slash-command or hook-injected first turn (e.g. a bare
+ * `<command-message>error-handling</command-message>`) is skipped in favor
+ * of the next substantive user turn, bounded to
+ * `conversation-label.ts`'s `MAX_USER_TURN_CANDIDATES`.
  */
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -67,6 +73,7 @@ import {
   computeConversationLabel,
   composeSubagentDescriptor,
   deriveFallbackLabel,
+  pickSubstantiveUserText,
 } from "../conversation-label";
 
 /** Max standalone conversations considered per merge pass (mirrors context-inspector's window). */
@@ -118,20 +125,33 @@ const EMPTY_RESULT: RunMergeResult = {
   standaloneRows: [],
 };
 
-/** First-user-turn text per conversation, lowest turnIndex wins (tier-2 label input). */
+/**
+ * First-SUBSTANTIVE-user-turn text per conversation (tier-2 label input).
+ * Collects every non-null-userText turn per conversation, sorts ascending by
+ * turnIndex, then lets `pickSubstantiveUserText` (mt#2784) scan only the
+ * earliest MAX_USER_TURN_CANDIDATES of those — skipping a markup-only first
+ * turn (e.g. a bare `<command-message>` slash-command invocation) in favor of
+ * the next real user turn. A conversation whose scanned window is entirely
+ * markup has no entry in the returned map, so `labelFor` below falls through
+ * to tier 3/4 exactly as it does today for a conversation with no user text
+ * at all.
+ */
 function pickFirstUserText(
   turns: { agentSessionId: string; turnIndex: number; userText: string | null }[]
 ): Map<string, string> {
-  const best = new Map<string, { turnIndex: number; userText: string }>();
+  const bySession = new Map<string, { turnIndex: number; userText: string }[]>();
   for (const turn of turns) {
     if (!turn.userText) continue;
-    const existing = best.get(turn.agentSessionId);
-    if (!existing || turn.turnIndex < existing.turnIndex) {
-      best.set(turn.agentSessionId, { turnIndex: turn.turnIndex, userText: turn.userText });
-    }
+    const list = bySession.get(turn.agentSessionId) ?? [];
+    list.push({ turnIndex: turn.turnIndex, userText: turn.userText });
+    bySession.set(turn.agentSessionId, list);
   }
   const result = new Map<string, string>();
-  for (const [id, entry] of best) result.set(id, entry.userText);
+  for (const [id, list] of bySession) {
+    list.sort((a, b) => a.turnIndex - b.turnIndex);
+    const substantive = pickSubstantiveUserText(list.map((entry) => entry.userText));
+    if (substantive) result.set(id, substantive);
+  }
   return result;
 }
 

@@ -30,6 +30,68 @@ Before any of:
 - Any explanation that attributes causality to a mechanism that hasn't been
   directly observed this turn.
 
+## Additional trigger cues (Tier-3 residual slice — mt#2698)
+
+Three narrow per-surface cues, filed as cheap Tier-3 residual-slice
+amendments to the "When to invoke" list above — not a new containment
+strategy. Per the `mt#2485` strategic partition (family record `b0b294ab`):
+the broad-detector tier is demoted; per-surface prose-tier cues like these
+are the accepted residual, with the primary containment staying Tier-1
+(`mt#2488`, tool-boundary evidence gates) and Tier-2 (`mt#2486`,
+code-mechanism-assertion detector). A future recurrence in this tier should
+cite `b0b294ab` and `mt#2485` rather than re-deciding the partition.
+
+### (a) Remedy for a live incident
+
+Trigger: about to hand the user a remedy/fix-it-now instruction for a live
+incident.
+
+Falsifier: when the live repro is at hand, exercise the remedy against it (or
+explicitly label the remedy unverified). A plausible mechanism story is not
+evidence the remedy works — the repro at hand is cheaper and more direct than
+reasoning about the mechanism.
+
+_Origin:_ `b0b294ab` R11 (mt#2688, 2026-07-08) — the agent told the user
+"click Open Cockpit — it force-reloads, it'll render" for a dead-window
+incident while the dead window was still open and reproducible; the remedy's
+premise (`reload()` recovers a never-loaded document) was false, costing the
+user a round-trip.
+
+### (b) Third-party platform/runtime semantics claims
+
+Trigger: mechanism claim about third-party platform/runtime semantics
+(webview, OS, library).
+
+Falsifier: a same-turn read of FIRST-PARTY code does not verify it; read the
+installed third-party source (cargo registry / node_modules) or test
+empirically.
+
+_Origin:_ `b0b294ab` R11 (mt#2688, 2026-07-08) — a same-turn read of
+`menu.rs`'s reload call would have (falsely) satisfied mt#2486's
+same-turn-verification suppression for cue (a)'s claim; separately,
+dead-window detection was designed on `WebviewWindow::url()` liveness while
+flagging WKWebView's failed-load URL semantics as uncertain and proceeding
+anyway — the falsifier (reading wry's `url_from_webview` in the cargo
+registry, one grep) was run only after live verification failed.
+
+### (c) A/B-observation confound
+
+Trigger: about to encode a causal conclusion drawn from A/B observations (X
+happens in context A but not context B) into a durable artifact (task spec,
+memory, PR body).
+
+Falsifier: first ENUMERATE every variable that co-varies with the A/B split,
+then run ONE isolating experiment (vary the hypothesized variable while
+holding the others fixed) before the conclusion lands. A confounded split's
+tell is that the hypothesis variable was never varied in isolation.
+
+_Origin:_ `b0b294ab` R12 (mt#2765, 2026-07-13) — all "hangs" observations
+shared port 3737 (which had live browser-tab traffic) and all "works"
+observations were quiet ports; "tray-spawned vs shell-spawned" was encoded
+into mt#2765's spec v1 when the real variable was concurrent request traffic.
+The isolating experiments (shell daemon ON 3737; exact tray spawn shape on a
+quiet port) took <5 minutes once run, and both falsified the framing.
+
 ## Arguments
 
 Optional: one-phrase description of the claim being made (e.g.,
@@ -108,3 +170,8 @@ unverified premises, say "unverified — need to check X."
   agreeing or disagreeing; use 'Let me check…' before confirming facts."
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference`
   (memory `88d92439`) — sibling family (strategic framing vs mechanism claims).
+- Memory `b0b294ab` — family record for the "assertion frozen as fact without
+  verification" pattern (R6–R12); R11 and R12 are the origin of the three
+  cues above. `mt#2485` — the strategic partition (Tier-1 `mt#2488`, Tier-2
+  `mt#2486`, Tier-3 residual = these per-surface cues). `mt#2698` — this
+  amendment's task.
