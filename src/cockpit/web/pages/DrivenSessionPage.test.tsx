@@ -142,6 +142,37 @@ describe("DrivenSessionPage (mt#2751)", () => {
     expect(JSON.parse(firstWs().sent[0] ?? "{}")).toEqual({ text: "continue please" });
   });
 
+  test("acceptance test 1 shape: a tool-use block renders DURING execution (mid-stream, before content_block_stop/result)", async () => {
+    renderPage("driven-page-tool-use");
+    await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
+
+    firstWs().simulateOpen();
+    firstWs().simulateMessage({ type: "system", subtype: "init", session_id: "harness-tool" });
+    firstWs().simulateMessage({ type: "stream_event", event: { type: "message_start" } });
+    firstWs().simulateMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", id: "toolu_1", name: "mcp__minsky__tasks_get" },
+      },
+    });
+    firstWs().simulateMessage({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: '{"taskId":"mt#2751"}' },
+      },
+    });
+
+    // Still mid-execution — no content_block_stop/message_stop/result yet —
+    // the tool-call element is already visible (renders DURING execution,
+    // not only after the turn completes).
+    await waitFor(() => expect(screen.getByText("mcp__minsky__tasks_get")).toBeDefined());
+    expect(screen.getByText("Live")).toBeDefined();
+  });
+
   test("acceptance test 3 shape: a minsky_exit frame surfaces the exit and result summary rather than freezing", async () => {
     renderPage("driven-page-4");
     await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
