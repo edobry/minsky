@@ -189,6 +189,16 @@ export function createAgentsWidget(
       try {
         const provider = await getProvider();
 
+        // mt#2767 pagination-semantics note (reviewer round 1): `limit`/`offset`
+        // now paginate the MERGED row list (workspace rows + standalone
+        // conversation/subagent-group rows), not the raw workspace-session
+        // list alone. A caller passing offset/limit gets a page drawn from the
+        // combined, kind-heterogeneous array below — not just dispatched-agent
+        // rows. No production caller passes these params today (the frontend
+        // fetches everything and paginates client-side via useListControls,
+        // same as pre-mt#2767); this is a forward-looking note for whoever
+        // wires server-side pagination into the UI next (mt#2084 is the prior
+        // art for that pattern).
         const limit = ctx.query?.limit ? parseInt(ctx.query.limit, 10) : undefined;
         const offset = ctx.query?.offset ? parseInt(ctx.query.offset, 10) : undefined;
         const isPaginated = limit != null && !isNaN(limit);
