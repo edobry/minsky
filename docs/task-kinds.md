@@ -74,6 +74,32 @@ CLOSED    → TODO (reopen)
 - `READY → IN-PROGRESS` can only happen via `session_start`, not `tasks_status_set`.
 - `PLANNING → IN-PROGRESS` must go through READY first.
 
+**Parent-DONE guard (mt#1649).** A transition to `DONE` is refused while the task has
+children and any child is non-terminal — the `implementation`-kind analogue of the
+umbrella closeout guard below, generalized to fire on the DONE target **regardless of
+kind** (a parent doesn't need to be `umbrella` to have children). Semantics:
+
+- **Terminal** for the check is the same domain predicate as the umbrella guard —
+  `isTerminalTaskStatus()`, the union `DONE` / `CLOSED` / `COMPLETED`.
+- On refusal the error names every incomplete child with its status, e.g.
+  `Cannot set task mt#X to DONE: 2 child task(s) not terminal (DONE/CLOSED/COMPLETED):
+mt#A (PLANNING), mt#B (TODO). Resolve one of: ...` followed by the three suggested
+  resolutions (set the children to DONE/CLOSED/COMPLETED first; amend the parent's
+  success criteria if scope was reframed; or walk the parent through CLOSED if the
+  rollup is being abandoned).
+- A task with zero children transitions to DONE freely — this guard only fires when
+  the task actually has children.
+- Enforced in `setTaskStatusFromParams` (`tasks/commands/mutation-commands.ts`,
+  helper `assertChildrenCompleteForDone`), sharing its child-lookup core
+  (`findIncompleteChildren`) with the umbrella guard. Domain-layer only — no
+  Claude Code hook — since the `tasks.ts` facade (mt#2606/PR #1897) already routes
+  every `tasks_status_set` / `tasks_dispatch` caller through this gate server-side.
+  Requires an injected `taskGraphService` (the MCP/CLI registry always injects one);
+  direct domain callers without it skip the guard rather than fail.
+- Originating incident: mt#1503 was set DONE on 2026-05-04 while its lynchpin child
+  (mt#1073) sat at PLANNING; the pinned regression fixture lives in
+  `packages/domain/src/tasks/parent-done-closeout-guard.test.ts`.
+
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |
 |-------|--------------|--------|------|
@@ -137,6 +163,8 @@ children first (mt#2606).` A child whose record cannot be read counts as
   `taskGraphService` (the MCP/CLI registry always injects one); direct domain
   callers without it skip the guard rather than fail.
 - `CLOSED` is not guarded — abandoning an umbrella with open children remains legal.
+- See the `implementation` kind's **Parent-DONE guard (mt#1649)** above for the sibling
+  guard that generalizes this pattern to the DONE target across all kinds.
 
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |
@@ -317,13 +345,54 @@ Where:
 The heuristic is conservative: it prefers to leave ambiguous tasks as `"implementation"`
 rather than mis-classify them.
 
+### Promote-only semantics (mt#2761)
+
+The script is **promote-only**: it never changes a task whose current kind is
+anything other than `"implementation"`. Only `"implementation"` (the default kind,
+and the kind every task had before mt#1812 shipped) is eligible for promotion to
+`"umbrella"`. A task already classified as `"state-ops"` (mt#2661), a hand-set
+`"umbrella"` on a leaf task (see the reclassification table below), or any other
+kind is always left untouched — even when the hasChildren/hasPr heuristic above
+would, taken alone, suggest a different kind for it.
+
+This was added after a 2026-07-13 re-run of the backfill demoted 5 tasks that had
+been deliberately reclassified outside the heuristic's signal:
+
+- `mt#2625`, `mt#2645` — the mt#2661 `state-ops` back-annotations. Both have no
+  children of their own and no PR, so the bare heuristic computes
+  `"implementation"` for them — a demotion of a manual `state-ops` classification.
+- `mt#1533`, `mt#1534`, `mt#1535` — hand-classified `umbrella` leaf tasks (the
+  mt#1451 children; see the reclassification table below). These have no
+  children of their own either, so the bare heuristic also computes
+  `"implementation"` for them — a demotion of a manual `umbrella` classification.
+
+Before the fix, the script only ever computed `"umbrella"` or `"implementation"`
+and treated any mismatch between that computation and the task's current kind as
+a change to apply — which silently demoted any non-default kind the heuristic
+didn't know about. The promote-only guard closes this: a task's current kind is
+only ever changed when it is presently `"implementation"`.
+
+The classification decision is implemented as a small pure function,
+`classifyTaskKind()` in `scripts/migrate-task-kinds-classify.ts` (unit-tested in
+the sibling `.test.ts` file), so the promote-only logic can be verified without
+a live database connection.
+
+Dry-run output distinguishes three dispositions per task:
+
+- `[PROMOTE]` — currently `"implementation"`, heuristic says `"umbrella"` — would
+  be applied under `--execute`.
+- `[SKIPPED]` — currently a non-default kind, heuristic disagrees — reported for
+  visibility, never applied ("skipped (non-default kind, preserving manual
+  classification)").
+- `[  OK  ]` — no change needed either way (shown only with `--verbose`).
+
 **Usage:**
 
 ```bash
 # Preview (no changes made):
 bun scripts/migrate-task-kinds.ts
 
-# Apply:
+# Apply (promotions only — never demotes a non-default kind):
 bun scripts/migrate-task-kinds.ts --execute
 
 # Preview with all tasks listed:
@@ -359,7 +428,9 @@ mt#1768's transition to COMPLETED proved the umbrella terminal-state path end-to
 - `packages/domain/src/tasks/workflows.ts` — the workflow registry
 - `packages/domain/src/tasks/status-transitions.ts` — the gate that dispatches on kind
 - `src/domain/storage/migrations/pg/0036_add_task_kind.sql` — DB migration
-- `scripts/migrate-task-kinds.ts` — kind backfill script
+- `scripts/migrate-task-kinds.ts` — kind backfill script (promote-only, mt#2761)
+- `scripts/migrate-task-kinds-classify.ts` — extracted, unit-tested classification function
 - `scripts/smoke-task-kinds.ts` — smoke test for the system
+- `mt#2761` — promote-only fix + reflect-metadata boot fix for the backfill script
 - CLAUDE.md `## Task Lifecycle` — overview of the current state machine
 - CLAUDE.md `## Verification surfaces` — the merge gate that atomically sets DONE
