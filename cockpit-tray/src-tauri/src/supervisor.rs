@@ -1010,16 +1010,28 @@ fn run_supervisor(
                                 port_held,
                                 throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE),
                             ) {
-                                let sustained_secs = sup.consecutive_http_failed as u64
-                                    * POLL_INTERVAL.as_secs();
-                                eprintln!(
-                                    "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
-                                );
-                                sup.consecutive_http_failed = 0;
-                                sup.last_http_alert = None;
-                                sup.restart_timestamps.push(poll_now);
-                                sup.last_process_started_at_ms = None;
-                                do_spawn(&app, &mut sup, &spawned, &path);
+                                // Final pre-spawn recheck (PR #1927 R1): shrink the
+                                // race between the poll-time port check and our spawn —
+                                // an operator's replacement daemon may have bound the
+                                // port in the gap. If so, stand down; the next poll
+                                // adopts it via the healthy path.
+                                if port_in_use(DAEMON_PORT, &path) {
+                                    eprintln!(
+                                        "[watchdog] takeover aborted — port {DAEMON_PORT} was bound between check and spawn (operator restart in progress?)"
+                                    );
+                                    set_status(&app, &mut sup, LABEL_STARTING);
+                                } else {
+                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                        * POLL_INTERVAL.as_secs();
+                                    eprintln!(
+                                        "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
+                                    );
+                                    sup.consecutive_http_failed = 0;
+                                    sup.last_http_alert = None;
+                                    sup.restart_timestamps.push(poll_now);
+                                    sup.last_process_started_at_ms = None;
+                                    do_spawn(&app, &mut sup, &spawned, &path);
+                                }
                             } else {
                                 set_status(&app, &mut sup, LABEL_STOPPED);
                                 clear_uptime(&app, &mut sup);
