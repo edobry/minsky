@@ -172,9 +172,32 @@ function specResponse(content: string): Response {
 }
 
 function repoSearchResponse(count: number): Response {
-  // Return `count` fake match objects
-  const matches = Array.from({ length: count }, (_, i) => ({ file: `src/foo${i}.ts`, line: i }));
-  return mcpResponse({ matches });
+  // mt#2781: emit the REAL repo.search response shape — `{ success, output }`
+  // where output is raw `git grep -n` text (`<path>:<line>:<content>` per
+  // line). The previous fixture returned an imagined `{ matches: [...] }`
+  // shape the tool never produces, so tests validated the wrong contract
+  // while production always counted 0.
+  const lines = Array.from(
+    { length: count },
+    (_, i) => `src/foo${i}.ts:${i + 1}:const x = someSignal();`
+  );
+  return mcpResponse({ success: true, output: lines.join("\n") });
+}
+
+/**
+ * A repo.search response mixing production and test-file matches (mt#2781):
+ * countCallsites must count only the production `.ts` lines.
+ */
+function repoSearchResponseWithTestFiles(prodCount: number, testCount: number): Response {
+  const prod = Array.from(
+    { length: prodCount },
+    (_, i) => `src/prod${i}.ts:${i + 1}:const x = someSignal();`
+  );
+  const tests = Array.from(
+    { length: testCount },
+    (_, i) => `src/prod${i}.test.ts:${i + 1}:const x = someSignal();`
+  );
+  return mcpResponse({ success: true, output: [...prod, ...tests].join("\n") });
 }
 
 function tasksSearchEmptyResponse(): Response {
@@ -310,6 +333,71 @@ describe("runAdoptionSweep — gap detection", () => {
       if (toolName === "tasks_list") return tasksListResponse(tasks);
       if (toolName === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
       if (toolName === "repo_search") return repoSearchResponse(3); // 3 callsites found
+      if (toolName === "tasks_create") {
+        tasksCreateCalled = true;
+        return tasksCreateResponse("should-not-be-created");
+      }
+      throw new Error(`Unexpected tool call: ${toolName}`);
+    };
+
+    const result = await runAdoptionSweep(BASE_DEPS);
+
+    expect(result.totalGapsFiled).toBe(0);
+    expect(tasksCreateCalled).toBe(false);
+  });
+
+  it("excludes test-file matches from the callsite count (mt#2781): test-only matches file a gap", async () => {
+    const ADOPTION_TASK_ID_202 = "mt#202-adoption-1";
+    const tasks: FakeTask[] = [{ id: "mt#202", status: "DONE" }];
+    const createdTaskIds: string[] = [];
+    let repoSearchArgs: Record<string, unknown> | undefined;
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as {
+        params: { name: string; arguments: Record<string, unknown> };
+      };
+      const toolName = body.params.name;
+
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
+      if (toolName === "tasks_search") return tasksSearchEmptyResponse();
+      if (toolName === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
+      if (toolName === "repo_search") {
+        repoSearchArgs = body.params.arguments;
+        // ONLY test-file matches — production count must be 0 → gap filed.
+        return repoSearchResponseWithTestFiles(0, 3);
+      }
+      if (toolName === "tasks_create") {
+        createdTaskIds.push(ADOPTION_TASK_ID_202);
+        return tasksCreateResponse(ADOPTION_TASK_ID_202);
+      }
+      throw new Error(`Unexpected tool call: ${toolName}`);
+    };
+
+    const result = await runAdoptionSweep(BASE_DEPS);
+
+    // Test-file matches do not count as adoption — the gap IS filed.
+    expect(result.totalGapsFiled).toBe(1);
+    expect(createdTaskIds).toContain(ADOPTION_TASK_ID_202);
+    // The call sends only declared params (post-mt#2778 boundary) and scopes to src/.
+    expect(repoSearchArgs).toBeDefined();
+    expect(repoSearchArgs?.path).toBe("src");
+    expect(Object.keys(repoSearchArgs ?? {}).sort()).toEqual(["path", "pattern"]);
+  });
+
+  it("counts mixed production+test matches by production lines only (mt#2781)", async () => {
+    const tasks: FakeTask[] = [{ id: "mt#203", status: "DONE" }];
+    let tasksCreateCalled = false;
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as {
+        params: { name: string; arguments: Record<string, unknown> };
+      };
+      const toolName = body.params.name;
+
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
+      if (toolName === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
+      // 2 production + 5 test-file matches → count 2 → adopted, no follow-up.
+      if (toolName === "repo_search") return repoSearchResponseWithTestFiles(2, 5);
       if (toolName === "tasks_create") {
         tasksCreateCalled = true;
         return tasksCreateResponse("should-not-be-created");
