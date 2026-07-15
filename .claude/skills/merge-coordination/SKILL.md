@@ -109,6 +109,17 @@ GitHub structurally blocks self-approval: a PR author cannot APPROVE their own P
 
 Use `mcp__minsky__session_pr_merge`. This succeeds after reviewer-bot APPROVE or when the review body satisfies the merge-gate's text patterns.
 
+**Mandatory precondition: direct reviews-list read before citing silence (mt#2777 SC#2).** Before citing reviewer-silence as grounds for ANY `bypassReason` — even after the §7a diagnosis ladder or a `session_pr_wait-for-review` timeout — perform a DIRECT reviews-list read on the PR's current HEAD (`mcp__github__pull_request_read` method `get_reviews`, or a fresh short-`timeoutSeconds` `session_pr_wait-for-review` call) immediately before invoking the bypass. A wait-for-review timeout alone is NOT sufficient evidence of silence — mt#2751's near-bypass timed out twice while a real review had landed mid-churn. (mt#2777 SC#1 folds a fresh re-read into the timeout payload itself — `finalCheckPerformed` / `reviewerCheckRunState` — but the bypass-decision moment is a SEPARATE point in time from when the wait returned, so this direct read is required again, right before the bypass call, not inferred from an earlier timeout.) If the direct read finds a review on the current HEAD, the silence premise is false — refuse the bypass and process the found review instead.
+
+**Numbered step: verify the condition against its definition before invoking any bypass (mt#2777 SC#2).** Before calling either bypass path below, name which ONE of the four documented conditions is firing and verify it against its precise definition — do not invoke the bypass on a name-level match alone:
+
+1. **Self-reversal** — round N's BLOCKING finding contradicts an earlier round's ACCEPTED fix ON THE SAME ARTIFACT STATE. The reviewer re-reviewing DIFFERENT commit states the agent itself created (e.g. an add-then-revert churn across rounds) is NOT self-reversal — each round reviewed genuinely different code, so there is no contradiction to resolve by bypassing.
+2. **CoT-leakage** — the reviewer emitted raw reasoning / chain-of-thought prose instead of structured findings, on the SAME HEAD, at least twice consecutively.
+3. **Webhook-silence** — the reviewer has been absent for >5 minutes AFTER completing the full §7a diagnosis ladder, which now INCLUDES the direct reviews-list read above.
+4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing.
+
+If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
+
 **Preferred audited bypass — in-band `session_pr_merge` `forceBypass` (mt#2215):**
 
 ```
@@ -129,7 +140,7 @@ gh api -X PUT /repos/<owner>/<repo>/pulls/<N>/merge \
 
 The `merge_method=merge` flag is **required**. Minsky preserves merge commits per `docs/pr-workflow.md`. The `merge_method=squash` value is hook-blocked — using it will fail at the pre-merge hook.
 
-**Bypass conditions** (per `feedback_self_authored_pr_merge_constraints`): R ≥ 1 substantive review rounds have completed AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a above.
+**Bypass conditions** (per `feedback_self_authored_pr_merge_constraints`): R ≥ 1 substantive review rounds have completed AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a above. **Verify the fired condition against its precise definition** in the numbered step above before invoking either bypass path — a name-level match to "self-reversal," "CoT-leakage," or "silence" is not sufficient; the mt#2477 originating incident (PR #1688 add-then-revert churn) was reviewing genuinely different commit states across rounds, which fails the same-artifact-state check and is NOT self-reversal.
 
 **Audit trail requirement:** The commit message must document the bypass:
 
