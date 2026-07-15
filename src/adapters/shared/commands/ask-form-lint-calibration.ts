@@ -17,6 +17,14 @@
  * `ClaudeHookInput.cwd` here — the caller supplies the resolved workspace
  * path instead).
  *
+ * PR #1941 review R1: the resolved workspace path (`ctx?.workspacePath ??
+ * process.cwd()` at the `asks.create` callsite — the same fallback already
+ * used by `./calibration.ts`'s `resolveWorkspacePath`, mt#2483) is verified
+ * to actually be a Minsky/git workspace root (`.git` or `minsky.json`
+ * present) before any write. An unverified path (e.g. an MCP server
+ * process whose cwd is not tied to any repo) skips the write with a
+ * warning rather than silently landing a JSONL file somewhere unexpected.
+ *
  * Deliberately NOT registered in
  * `src/domain/calibration/calibration-sweep.ts`'s `CALIBRATION_LOG_REGISTRY`
  * in v1 — that registry has fixed test-asserted length/contents
@@ -36,6 +44,9 @@ import type { FormLintMatch } from "@minsky/domain/ask/form-lint";
 /** Repo-relative path to the calibration JSONL log (per the task spec). */
 export const ASK_FORM_LINT_CALIBRATION_LOG = ".minsky/ask-form-lint-calibration.jsonl";
 
+/** Marker files that indicate `workspacePath` is a real Minsky/git workspace root. */
+const WORKSPACE_ROOT_MARKERS = [".git", "minsky.json"];
+
 /** One JSONL record: an Ask that fired >= 1 form-lint match at create time. */
 export interface AskFormLintCalibrationRecord {
   timestamp: string;
@@ -46,10 +57,31 @@ export interface AskFormLintCalibrationRecord {
 }
 
 /**
+ * True when `workspacePath` looks like a real Minsky/git workspace root
+ * (carries a `.git` directory or a `minsky.json` file at its top level).
+ *
+ * Exported for direct testing. Never throws — any filesystem error (path
+ * doesn't exist, permission denied) is treated as "not verified."
+ */
+export function isVerifiedWorkspaceRoot(workspacePath: string): boolean {
+  try {
+    return WORKSPACE_ROOT_MARKERS.some((marker) => existsSync(resolve(workspacePath, marker)));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Append one calibration record as a JSONL line under `workspacePath`.
  *
- * Fail-open: any filesystem error (missing workspace, permission denied,
- * disk full) is swallowed after logging a warning — a calibration-log write
+ * Skips the write (logging a warning, never throwing) when `workspacePath`
+ * doesn't verify as a real workspace root (`isVerifiedWorkspaceRoot`) — this
+ * is the anchor-to-a-verified-root hardening from the PR #1941 review,
+ * preventing a silent write to an arbitrary `process.cwd()` when no
+ * session/workspace context is available.
+ *
+ * Fail-open beyond that: any filesystem error (permission denied, disk
+ * full) is also swallowed after logging a warning — a calibration-log write
  * failure must never block or fail Ask creation (the calibration log is
  * purely advisory instrumentation, same posture as the hook-based
  * calibration writers this mirrors).
@@ -58,6 +90,14 @@ export function appendAskFormLintCalibrationRecord(
   workspacePath: string,
   record: AskFormLintCalibrationRecord
 ): void {
+  if (!isVerifiedWorkspaceRoot(workspacePath)) {
+    log.warn(
+      "asks.create: skipping form-lint calibration write — workspacePath does not verify " +
+        "as a Minsky/git workspace root (no .git or minsky.json found)",
+      { workspacePath }
+    );
+    return;
+  }
   try {
     const logPath = resolve(workspacePath, ASK_FORM_LINT_CALIBRATION_LOG);
     const dir = dirname(logPath);

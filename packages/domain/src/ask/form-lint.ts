@@ -33,7 +33,19 @@ import type { AskKind } from "./types";
 /** Matches an internal MCP tool id (e.g. `mcp__minsky__setup_github-app`). */
 export const MCP_TOOL_ID_PATTERN = /\bmcp__/;
 
-/** Word-count budget for the question body (spec: "> 150 words"). */
+/**
+ * Word-count budget for the question body (spec Deliverable 2: "> 150
+ * words"). This is the MECHANICAL lint threshold, not the authoring target.
+ *
+ * `humility.mdc §Escalation packaging`'s Form checklist separately tells
+ * AUTHORS to aim for "~120 words" — an aspirational target that leaves
+ * margin before this automated check fires. The two numbers are
+ * intentionally different (120 < 150), by design, not a drift bug: firing
+ * the warning right at the authoring target would make it noisy for asks
+ * that are merely a little over the aspiration but still reasonably
+ * concise; 150 is the point past which the body is unambiguously too long
+ * and the fix ("move justification to contextRefs") is clearly warranted.
+ */
 export const FORM_LINT_WORD_BUDGET = 150;
 
 /** Keywords suggesting the action happens in a portal/UI. */
