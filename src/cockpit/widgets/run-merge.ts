@@ -79,7 +79,17 @@ import {
 /** Max standalone conversations considered per merge pass (mirrors context-inspector's window). */
 export const MAX_CONVERSATION_WINDOW = 50;
 
-export type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group";
+/**
+ * Row kinds. "driven-session" (mt#2752) is produced by the agents widget
+ * itself (./agents.ts splices in the daemon-local driven-session registry),
+ * not by this DB merge — it lives in this union because RunKind is the
+ * shared row-model vocabulary for the unified list.
+ */
+export type RunKind =
+  | "dispatched-agent"
+  | "principal-conversation"
+  | "subagent-group"
+  | "driven-session";
 
 /** One nested subagent conversation, collapsed under a parent run's row. */
 export interface SubagentEntry {
