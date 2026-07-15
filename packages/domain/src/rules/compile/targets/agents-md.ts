@@ -10,6 +10,21 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
+import { evaluateSizeBudget, type SizeBudget } from "../size-budget";
+
+/**
+ * Default size budget for AGENTS.md (mt#2802).
+ *
+ * Proportionate to CLAUDE.md's budget (`DEFAULT_CLAUDE_MD_SIZE_BUDGET`),
+ * grounded in AGENTS.md's larger current corpus footprint (~150.8k chars as
+ * of 2026-07-15) — both `warnChars` and `failChars` sit comfortably above
+ * that baseline so the defaults pass cleanly on the current corpus while
+ * still catching future unbounded regrowth.
+ */
+export const DEFAULT_AGENTS_MD_SIZE_BUDGET: SizeBudget = {
+  warnChars: 160_000,
+  failChars: 200_000,
+};
 
 /**
  * Default section mapping for AGENTS.md target
@@ -152,11 +167,23 @@ export const agentsMdTarget: CompileTarget = {
 
     await fs.writeFile(outputPath, content, "utf-8");
 
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_AGENTS_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+    });
+
     return {
       target: this.id,
       filesWritten: [outputPath],
       rulesIncluded,
       rulesSkipped,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
     };
   },
 };

@@ -37,6 +37,18 @@ import {
   MIGRATION_DIRS,
 } from "./immutable-migration-detector";
 
+/**
+ * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
+ * failure from `runRulesCompileCheck` (mt#2802). Scoped narrowly to the
+ * "budget-exceeded" failure class — a genuinely STALE target still blocks
+ * the commit even with this override set (see the `errorKind` branch in
+ * `runRulesCompileCheck`). Registered in `HOOK_ONLY_ENV_VARS` at
+ * packages/domain/src/configuration/sources/environment.ts per the mt#1788
+ * ESLint rule contract. Follows the same override-with-audit pattern as
+ * `NUL_BYTE_CHECK_OVERRIDE_ENV` etc. (`isOverrideTruthy`, imported above).
+ */
+const SIZE_BUDGET_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_SIZE_BUDGET";
+
 export interface ESLintResult {
   filePath: string;
   messages: {
@@ -1565,6 +1577,24 @@ export class PreCommitHook {
         });
       } catch (error) {
         const result = classifyCompileCheckError(error, target);
+
+        // mt#2802: MINSKY_SKIP_SIZE_BUDGET overrides ONLY the size-budget
+        // failure class — a genuinely stale target still blocks the commit
+        // even with the override set. Mirrors the audited-skip pattern of
+        // MINSKY_SKIP_NUL_CHECK etc. (isOverrideTruthy shared across guards).
+        if (
+          result.errorKind === "budget-exceeded" &&
+          isOverrideTruthy(process.env[SIZE_BUDGET_CHECK_OVERRIDE_ENV])
+        ) {
+          const ts = new Date().toISOString();
+          log.cli(
+            `[pre-commit:rules-compile-size-budget] override ${SIZE_BUDGET_CHECK_OVERRIDE_ENV}=` +
+              `${process.env[SIZE_BUDGET_CHECK_OVERRIDE_ENV]} at ${ts} — ` +
+              `size budget failure for target "${target}" skipped`
+          );
+          continue;
+        }
+
         for (const line of result.logLines) {
           log.cli(line);
         }
@@ -1757,7 +1787,18 @@ export function classifyCompileCheckError(
   // match and the regenerate hint to print. Defaults to "rules" for backward
   // compatibility with existing callers/tests.
   kind: "rules" | "compile" = "rules"
-): { logLines: string[]; message: string } {
+): {
+  logLines: string[];
+  message: string;
+  /**
+   * Discriminates the failure class (mt#2802 adds "budget-exceeded" for the
+   * legacy `rules compile` size-budget check). Callers (e.g.
+   * `runRulesCompileCheck`) use this to decide whether an override env var
+   * applies — overrides are keyed to a specific failure class, not to "any
+   * compile --check failure".
+   */
+  errorKind: "stale" | "budget-exceeded" | "setup-incomplete" | "other";
+} {
   const execError = error as { stdout?: string; stderr?: string };
   const stdout = execError.stdout ?? "";
   const stderr = execError.stderr ?? "";
@@ -1780,6 +1821,33 @@ export function classifyCompileCheckError(
         `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
       ],
       message: `Compile output for target "${target}" is stale`,
+      errorKind: "stale",
+    };
+  }
+
+  // mt#2802: size-budget-exceeded classification. Legacy `rules compile` only —
+  // the new `compile` system's targets don't enforce a size budget, so this
+  // marker never appears in "compile"-kind stdout.
+  const budgetExceededLineRe = new RegExp(
+    `\\[${cmd} --check\\] Target "${escapedTarget}" EXCEEDS SIZE BUDGET`,
+    "m"
+  );
+  const isBudgetExceeded = budgetExceededLineRe.test(stdout);
+
+  if (isBudgetExceeded) {
+    const detail = stdout.trim();
+    const indentedDetail = detail
+      .split("\n")
+      .map((line) => `   ${line}`)
+      .join("\n");
+    return {
+      logLines: [
+        `❌ Compile output for target "${target}" exceeds its size budget.`,
+        indentedDetail,
+        `💡 Trim the rules listed above, or set MINSKY_SKIP_SIZE_BUDGET=1 to override this commit (audit-logged).`,
+      ],
+      message: `Compile output for target "${target}" exceeds its size budget`,
+      errorKind: "budget-exceeded",
     };
   }
 
@@ -1807,6 +1875,7 @@ export function classifyCompileCheckError(
         `   (Re-running "${cmd}" will NOT fix this — the setup must be completed first.)`,
       ],
       message: `Compile check for target "${target}" failed: developer setup incomplete`,
+      errorKind: "setup-incomplete",
     };
   }
 
@@ -1817,6 +1886,7 @@ export function classifyCompileCheckError(
       `💡 Fix the error above before retrying. ("${cmd}" will NOT fix this.)`,
     ],
     message: `Compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+    errorKind: "other",
   };
 }
 

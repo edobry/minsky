@@ -7,6 +7,7 @@
 
 import type { RuleFormat } from "../../rules";
 import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
+import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "../compile/size-budget";
 
 // ─── Rules Selection Config ──────────────────────────────────────────────────
 
@@ -123,6 +124,8 @@ export interface CompileRulesOptions {
   dryRun?: boolean;
   check?: boolean;
   memoryLoadingMode?: MemoryLoadingMode;
+  /** Per-target size-budget override (mt#2802). See `TargetOptions.sizeBudget`. */
+  sizeBudget?: Partial<SizeBudget>;
 }
 
 export interface CompileRulesResult {
@@ -135,6 +138,14 @@ export interface CompileRulesResult {
   filesWritten?: string[];
   rulesIncluded?: string[];
   rulesSkipped?: string[];
+  /** Compiled output size in characters (mt#2802). */
+  sizeChars?: number;
+  /** The effective budget this compile was evaluated against. */
+  sizeBudget?: SizeBudget;
+  /** Where `sizeChars` falls relative to `sizeBudget`. */
+  sizeBudgetStatus?: SizeBudgetStatus;
+  /** Rules ranked by compiled contribution size, descending (top N). */
+  topContributors?: RuleContribution[];
 }
 
 // ─── Get Rule ────────────────────────────────────────────────────────────────

@@ -13,9 +13,24 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
+import { evaluateSizeBudget, type SizeBudget } from "../size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
+
+/**
+ * Default size budget for CLAUDE.md (mt#2802).
+ *
+ * Grounded in the 2026-07-15 planning calibration: `failChars` sits with
+ * margin under the ~150k harness advisory threshold Claude Code applies for
+ * 1M-context models; `warnChars` sits ~13% above the post-mt#1876/mt#1877
+ * baseline (~101.7k chars) so it fires after a few rule additions, not
+ * immediately (observed growth increment: ~3.3k/rule-addition, mt#2801).
+ */
+export const DEFAULT_CLAUDE_MD_SIZE_BUDGET: SizeBudget = {
+  warnChars: 115_000,
+  failChars: 140_000,
+};
 
 /**
  * Build CLAUDE.md content from always-apply rules.
@@ -99,11 +114,23 @@ export const claudeMdTarget: CompileTarget = {
 
     await fs.writeFile(outputPath, content, "utf-8");
 
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+    });
+
     return {
       target: this.id,
       filesWritten: [outputPath],
       rulesIncluded,
       rulesSkipped,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
     };
   },
 };

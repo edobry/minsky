@@ -107,6 +107,7 @@ export async function compileRules(
       outputPath: options.output,
       dryRun: true,
       memoryLoadingMode: options.memoryLoadingMode,
+      sizeBudget: options.sizeBudget,
     });
 
     // Get the registered target so we can call listOutputFiles (generalized target map)
@@ -234,6 +235,10 @@ export async function compileRules(
       staleFile: staleFile,
       rulesIncluded: dryResult.rulesIncluded,
       rulesSkipped: dryResult.rulesSkipped,
+      sizeChars: dryResult.sizeChars,
+      sizeBudget: dryResult.sizeBudget,
+      sizeBudgetStatus: dryResult.sizeBudgetStatus,
+      topContributors: dryResult.topContributors,
     };
   }
 
@@ -242,6 +247,7 @@ export async function compileRules(
     outputPath: options.output,
     dryRun: options.dryRun || false,
     memoryLoadingMode: options.memoryLoadingMode,
+    sizeBudget: options.sizeBudget,
   });
 
   if (options.dryRun) {
@@ -252,6 +258,10 @@ export async function compileRules(
       filesWritten: result.filesWritten,
       rulesIncluded: result.rulesIncluded,
       rulesSkipped: result.rulesSkipped,
+      sizeChars: result.sizeChars,
+      sizeBudget: result.sizeBudget,
+      sizeBudgetStatus: result.sizeBudgetStatus,
+      topContributors: result.topContributors,
     };
   }
 
@@ -261,6 +271,10 @@ export async function compileRules(
     filesWritten: result.filesWritten,
     rulesIncluded: result.rulesIncluded,
     rulesSkipped: result.rulesSkipped,
+    sizeChars: result.sizeChars,
+    sizeBudget: result.sizeBudget,
+    sizeBudgetStatus: result.sizeBudgetStatus,
+    topContributors: result.topContributors,
   };
 }
 
