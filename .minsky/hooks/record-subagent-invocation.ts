@@ -116,16 +116,22 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   const classification = await classifyWorkspaceOutcome(cwd, taskId);
 
   // 3. Read transcript metrics (best-effort).
-  const { readTranscriptMetrics, extractActualModel } = await import(
+  const { readTranscriptMetrics, extractActualModel, readTranscriptLines } = await import(
     "../../packages/domain/src/subagent/transcript-metrics"
   );
   const resolvedTranscriptPath = resolveMetricsTranscriptPath(transcriptPath, agentId);
-  const metrics = await readTranscriptMetrics(resolvedTranscriptPath, agentId);
+  // mt#2796 R1 NON-BLOCKING: read the file once and share the parsed lines
+  // between readTranscriptMetrics and extractActualModel — both scan the same
+  // transcript, and previously each independently re-read it from disk.
+  const transcriptLines = resolvedTranscriptPath
+    ? (readTranscriptLines(resolvedTranscriptPath) ?? undefined)
+    : undefined;
+  const metrics = await readTranscriptMetrics(resolvedTranscriptPath, agentId, transcriptLines);
 
   // mt#2796: extract the first genuine (non-`<synthetic>`) model id from the
   // resolved transcript's assistant-message lines. Best-effort — never throws,
   // returns null when no genuine model id is found.
-  const actualModel = extractActualModel(resolvedTranscriptPath, agentId);
+  const actualModel = extractActualModel(resolvedTranscriptPath, agentId, transcriptLines);
 
   // 4. Open a DB connection and record the invocation.
   const { resolvePersistenceProvider } = await import(

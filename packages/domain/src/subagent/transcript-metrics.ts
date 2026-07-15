@@ -66,6 +66,36 @@ interface TranscriptLine {
 }
 
 // ---------------------------------------------------------------------------
+// Shared line reader (mt#2796 R1 NON-BLOCKING)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a transcript file's non-blank JSONL lines, once.
+ *
+ * Both {@link readTranscriptMetrics} and {@link extractActualModel} scan the
+ * same on-disk file; previously each independently called `readFileSync` on
+ * it, so a single SubagentStop-hook invocation read the (potentially large)
+ * transcript twice. Callers that need both readers should call this once and
+ * pass the result to each via their optional `preReadLines` parameter — see
+ * `.minsky/hooks/record-subagent-invocation.ts`.
+ *
+ * Returns `null` on a missing file or any read error; never throws.
+ */
+export function readTranscriptLines(transcriptPath: string): string[] | null {
+  try {
+    if (!existsSync(transcriptPath)) {
+      return null;
+    }
+    return readFileSync(transcriptPath)
+      .toString()
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Core reader
 // ---------------------------------------------------------------------------
 
@@ -73,15 +103,22 @@ interface TranscriptLine {
  * Read and aggregate metrics from a JSONL transcript.
  *
  * @param transcriptPath    Absolute path to the `.jsonl` transcript file.
- *                          When undefined, all metrics are returned as null.
+ *                          When undefined (and `preReadLines` is not
+ *                          supplied), all metrics are returned as null.
  * @param agentSessionId    Harness-native session ID of the subagent.
  *                          When provided, only lines whose `agent_session_id`
  *                          matches are counted. When undefined, all lines are
  *                          counted.
+ * @param preReadLines      Optional pre-split lines from {@link readTranscriptLines}.
+ *                          When provided, `transcriptPath` is not read again —
+ *                          pass this when a caller (e.g. the SubagentStop
+ *                          hook) also calls {@link extractActualModel} on the
+ *                          same file, to avoid reading it twice.
  */
 export async function readTranscriptMetrics(
   transcriptPath: string | undefined,
-  agentSessionId: string | undefined
+  agentSessionId: string | undefined,
+  preReadLines?: string[]
 ): Promise<TranscriptMetrics> {
   const nullResult: TranscriptMetrics = { toolUseCount: null, totalTokens: null, durationMs: null };
 
@@ -90,13 +127,10 @@ export async function readTranscriptMetrics(
   }
 
   try {
-    if (!existsSync(transcriptPath)) {
+    const lines = preReadLines ?? readTranscriptLines(transcriptPath);
+    if (!lines) {
       return nullResult;
     }
-
-    const rawBuf = readFileSync(transcriptPath);
-    const raw = rawBuf.toString();
-    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
 
     let toolUseCount = 0;
     let totalTokens = 0;
@@ -221,29 +255,32 @@ interface ModelTranscriptLine {
  * lines, or every assistant line is synthetic) — this function never throws.
  *
  * @param transcriptPath   Absolute path to the `.jsonl` transcript file.
- *                         When undefined, returns null.
+ *                         When undefined (and `preReadLines` is not
+ *                         supplied), returns null.
  * @param agentSessionId   Harness-native agent id of the subagent. When a
  *                         line carries an `agentId` or `agent_session_id`
  *                         field and it does not match, the line is skipped.
  *                         Lines with neither field present are always
  *                         considered (the common case: the resolved
  *                         transcript file is already scoped to one agent).
+ * @param preReadLines     Optional pre-split lines from {@link readTranscriptLines}.
+ *                         When provided, `transcriptPath` is not read again —
+ *                         see {@link readTranscriptMetrics}'s matching parameter.
  */
 export function extractActualModel(
   transcriptPath: string | undefined,
-  agentSessionId: string | undefined
+  agentSessionId: string | undefined,
+  preReadLines?: string[]
 ): string | null {
   if (!transcriptPath) {
     return null;
   }
 
   try {
-    if (!existsSync(transcriptPath)) {
+    const lines = preReadLines ?? readTranscriptLines(transcriptPath);
+    if (!lines) {
       return null;
     }
-
-    const raw = readFileSync(transcriptPath).toString();
-    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
 
     for (const line of lines) {
       let parsed: ModelTranscriptLine;

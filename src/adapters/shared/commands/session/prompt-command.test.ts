@@ -131,6 +131,40 @@ describe("session.generate_prompt dispatch-time invocation writer (mt#2796)", ()
     expect(row?.agentType).toBe(result.agentType ?? "implementation");
   });
 
+  test("R1 BLOCKING fix: writes the resolved session's own taskId, not a re-derived value from the raw task input", async () => {
+    // The session record's own taskId is "md#2796" (what validateQualifiedTaskId
+    // produces for a bare-numeric input — also what FakeSessionProvider.
+    // getSessionByTaskId uses for lookup matching). Passing task: "2796"
+    // resolves this session (both sides normalize to "md#2796" for the lookup
+    // comparison), but `normalizeTaskIdInput("2796")` would independently
+    // produce a DIFFERENT value ("mt#2796" — minsky is the default backend).
+    // The write must prefer the canonical `session.taskId` over re-deriving
+    // from the loosely-formatted caller input, so it can never diverge from
+    // what session_records.task_id actually holds.
+    const looseSession: SessionRecord = {
+      ...buildSessionRecord(),
+      sessionId: "loose-task-id-session",
+      taskId: "md#2796",
+    };
+    const sessionDB = new FakeSessionProvider({ initialSessions: [looseSession] });
+    const command = createSessionGeneratePromptCommand(buildGetDeps(sessionDB));
+
+    await command.execute(
+      {
+        task: "2796",
+        type: "implementation",
+        instructions: "do the thing",
+      },
+      {}
+    );
+
+    expect(inserted).toHaveLength(1);
+    const row = inserted[0];
+    // session.taskId ("md#2796") wins — NOT normalizeTaskIdInput("2796")'s
+    // "mt#2796", and NOT the raw "2796" input.
+    expect(row?.taskId).toBe("md#2796");
+  });
+
   test("does not block prompt generation when the tracker write fails", async () => {
     // A DB whose select() throws synchronously — recordSubagentInvocation's
     // own try/catch should swallow it, and this command's own try/catch is a
