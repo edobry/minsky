@@ -40,6 +40,12 @@ export interface SizeBudgetEvaluation {
   status: SizeBudgetStatus;
   /** Rules ranked by compiled contribution size, descending (top N only). */
   topContributors: RuleContribution[];
+  /**
+   * Total chars of ALL included rules' emitted content (not just the top N);
+   * the remainder of `sizeChars` is target scaffolding (banner, headers,
+   * section preamble). Lets messages attribute overage honestly.
+   */
+  ruleContentChars: number;
 }
 
 /** Number of top contributors to report in a budget message (mt#2802 spec). */
@@ -54,10 +60,29 @@ export function resolveSizeBudget(
   defaultBudget: SizeBudget,
   override?: Partial<SizeBudget>
 ): SizeBudget {
-  return {
+  const resolved = {
     warnChars: override?.warnChars ?? defaultBudget.warnChars,
     failChars: override?.failChars ?? defaultBudget.failChars,
   };
+  if (
+    !Number.isFinite(resolved.warnChars) ||
+    !Number.isFinite(resolved.failChars) ||
+    resolved.warnChars <= 0 ||
+    resolved.failChars <= 0
+  ) {
+    throw new Error(
+      `Invalid size budget: thresholds must be positive finite numbers ` +
+        `(warnChars=${resolved.warnChars}, failChars=${resolved.failChars})`
+    );
+  }
+  if (resolved.warnChars >= resolved.failChars) {
+    throw new Error(
+      `Invalid size budget: warnChars (${resolved.warnChars}) must be strictly less than ` +
+        `failChars (${resolved.failChars}) — a warn threshold at or above fail would ` +
+        `misclassify overages`
+    );
+  }
+  return resolved;
 }
 
 /**
@@ -119,6 +144,7 @@ export function evaluateSizeBudget(params: {
     budget,
     status,
     topContributors: topContributors(contributions),
+    ruleContentChars: contributions.reduce((sum, c) => sum + c.size, 0),
   };
 }
 

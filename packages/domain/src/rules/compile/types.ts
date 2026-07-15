@@ -45,6 +45,11 @@ export interface CompileResult {
   sizeBudgetStatus?: SizeBudgetStatus;
   /** Rules ranked by compiled contribution size, descending (top N). */
   topContributors?: RuleContribution[];
+  /**
+   * Total chars of all included rules' emitted content; the remainder of
+   * `sizeChars` is target scaffolding (banner, headers, section preamble).
+   */
+  ruleContentChars?: number;
 }
 
 export interface CompileTarget {

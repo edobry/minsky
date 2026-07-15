@@ -45,6 +45,30 @@ describe("resolveSizeBudget()", () => {
     const budget = resolveSizeBudget(DEFAULT_BUDGET, { warnChars: 10, failChars: 20 });
     expect(budget).toEqual({ warnChars: 10, failChars: 20 });
   });
+
+  it("throws when the resolved warnChars equals or exceeds failChars", () => {
+    expect(() => resolveSizeBudget({ warnChars: 2000, failChars: 2000 })).toThrow(
+      /strictly less than/
+    );
+    expect(() =>
+      resolveSizeBudget(DEFAULT_BUDGET, { warnChars: DEFAULT_BUDGET.failChars + 1 })
+    ).toThrow(/strictly less than/);
+  });
+
+  it("throws when an override inverts the ordering against the other default field", () => {
+    // failChars override drops below the default warnChars (1000)
+    expect(() => resolveSizeBudget(DEFAULT_BUDGET, { failChars: 999 })).toThrow(
+      /strictly less than/
+    );
+  });
+
+  it("throws on non-positive or non-finite thresholds", () => {
+    expect(() => resolveSizeBudget({ warnChars: 0, failChars: 100 })).toThrow(/positive finite/);
+    expect(() => resolveSizeBudget({ warnChars: -5, failChars: 100 })).toThrow(/positive finite/);
+    expect(() => resolveSizeBudget(DEFAULT_BUDGET, { failChars: Number.NaN })).toThrow(
+      /positive finite/
+    );
+  });
 });
 
 describe("evaluateSizeBudgetStatus()", () => {
@@ -184,6 +208,9 @@ describe("evaluateSizeBudget()", () => {
     ]);
     // The excluded rule must not appear even though it is much larger.
     expect(evaluation.topContributors.some((c) => c.id === "excluded-rule")).toBe(false);
+    // ruleContentChars sums ALL included contributions (1200 + 100), so the
+    // remainder vs sizeChars is attributable to target scaffolding.
+    expect(evaluation.ruleContentChars).toBe(1300);
   });
 
   it("applies a per-call override to the resolved budget", () => {

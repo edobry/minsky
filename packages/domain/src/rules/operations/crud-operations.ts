@@ -239,6 +239,7 @@ export async function compileRules(
       sizeBudget: dryResult.sizeBudget,
       sizeBudgetStatus: dryResult.sizeBudgetStatus,
       topContributors: dryResult.topContributors,
+      ruleContentChars: dryResult.ruleContentChars,
     };
   }
 
@@ -262,6 +263,7 @@ export async function compileRules(
       sizeBudget: result.sizeBudget,
       sizeBudgetStatus: result.sizeBudgetStatus,
       topContributors: result.topContributors,
+      ruleContentChars: result.ruleContentChars,
     };
   }
 
@@ -275,6 +277,7 @@ export async function compileRules(
     sizeBudget: result.sizeBudget,
     sizeBudgetStatus: result.sizeBudgetStatus,
     topContributors: result.topContributors,
+    ruleContentChars: result.ruleContentChars,
   };
 }
 

@@ -39,14 +39,14 @@ export function registerCompileMigrateCommands(targetRegistry: {
           // Config not yet initialized or unavailable — use target default (on_demand)
         }
 
-        // mt#2802: only pass a sizeBudget override when at least one field was
-        // supplied — an empty {} would still "win" over the target's default
-        // via resolveSizeBudget's `??` merge only for the unset field, so this
-        // guard just avoids constructing a pointless empty override object.
+        // mt#2802: build the override with ONLY the fields actually supplied —
+        // never `{ warnChars: undefined, failChars: undefined }` (reviewer R1);
+        // an absent field falls back to the target default in resolveSizeBudget.
+        const sizeBudgetOverride: { warnChars?: number; failChars?: number } = {};
+        if (params.warnChars !== undefined) sizeBudgetOverride.warnChars = params.warnChars;
+        if (params.failChars !== undefined) sizeBudgetOverride.failChars = params.failChars;
         const sizeBudget =
-          params.warnChars !== undefined || params.failChars !== undefined
-            ? { warnChars: params.warnChars, failChars: params.failChars }
-            : undefined;
+          Object.keys(sizeBudgetOverride).length > 0 ? sizeBudgetOverride : undefined;
 
         const result = await compileRules({
           workspacePath,
@@ -86,6 +86,12 @@ export function registerCompileMigrateCommands(targetRegistry: {
           for (const line of formatTopContributors(result.topContributors ?? [])) {
             log.cli(`    ${line}`);
           }
+          if (result.ruleContentChars !== undefined) {
+            log.cli(
+              `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+                `remainder is target scaffolding — banner/headers)`
+            );
+          }
           log.cli(
             `  Trim the rules above, or override via target options / MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
           );
@@ -113,6 +119,12 @@ export function registerCompileMigrateCommands(targetRegistry: {
           log.cli(`  Top contributing rules:`);
           for (const line of formatTopContributors(result.topContributors ?? [])) {
             log.cli(`    ${line}`);
+          }
+          if (result.ruleContentChars !== undefined) {
+            log.cli(
+              `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+                `remainder is target scaffolding — banner/headers)`
+            );
           }
         }
 

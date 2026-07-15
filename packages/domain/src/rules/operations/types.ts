@@ -146,6 +146,8 @@ export interface CompileRulesResult {
   sizeBudgetStatus?: SizeBudgetStatus;
   /** Rules ranked by compiled contribution size, descending (top N). */
   topContributors?: RuleContribution[];
+  /** Total chars of included rules' emitted content (remainder = target scaffolding). */
+  ruleContentChars?: number;
 }
 
 // ─── Get Rule ────────────────────────────────────────────────────────────────

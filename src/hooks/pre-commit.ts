@@ -1588,9 +1588,9 @@ export class PreCommitHook {
         ) {
           const ts = new Date().toISOString();
           log.cli(
-            `[pre-commit:rules-compile-size-budget] override ${SIZE_BUDGET_CHECK_OVERRIDE_ENV}=` +
-              `${process.env[SIZE_BUDGET_CHECK_OVERRIDE_ENV]} at ${ts} — ` +
-              `size budget failure for target "${target}" skipped`
+            `[pre-commit:rules-compile-size-budget] override ${SIZE_BUDGET_CHECK_OVERRIDE_ENV} ` +
+              `active at ${ts} — size budget failure for target "${target}" skipped ` +
+              `(env value not echoed)`
           );
           continue;
         }

@@ -165,8 +165,8 @@ export const agentsMdTarget: CompileTarget = {
 
     const { content, rulesIncluded, rulesSkipped } = buildContent(rules, sectionMapping);
 
-    await fs.writeFile(outputPath, content, "utf-8");
-
+    // Evaluate BEFORE writing — same ordering rationale as claude-md.ts
+    // (evaluation must describe the exact emitted content; reviewer R1).
     const sizeEvaluation = evaluateSizeBudget({
       sizeChars: content.length,
       rules,
@@ -174,6 +174,8 @@ export const agentsMdTarget: CompileTarget = {
       defaultBudget: DEFAULT_AGENTS_MD_SIZE_BUDGET,
       override: options.sizeBudget,
     });
+
+    await fs.writeFile(outputPath, content, "utf-8");
 
     return {
       target: this.id,
@@ -184,6 +186,7 @@ export const agentsMdTarget: CompileTarget = {
       sizeBudget: sizeEvaluation.budget,
       sizeBudgetStatus: sizeEvaluation.status,
       topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   },
 };

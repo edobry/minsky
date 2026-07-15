@@ -112,8 +112,9 @@ export const claudeMdTarget: CompileTarget = {
 
     const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules, options);
 
-    await fs.writeFile(outputPath, content, "utf-8");
-
+    // Evaluate BEFORE writing so the reported evaluation always describes the
+    // exact content string being emitted, and a failed/partial write can't
+    // yield an evaluation that doesn't match what's on disk (reviewer R1).
     const sizeEvaluation = evaluateSizeBudget({
       sizeChars: content.length,
       rules,
@@ -121,6 +122,8 @@ export const claudeMdTarget: CompileTarget = {
       defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
       override: options.sizeBudget,
     });
+
+    await fs.writeFile(outputPath, content, "utf-8");
 
     return {
       target: this.id,
@@ -131,6 +134,7 @@ export const claudeMdTarget: CompileTarget = {
       sizeBudget: sizeEvaluation.budget,
       sizeBudgetStatus: sizeEvaluation.status,
       topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   },
 };

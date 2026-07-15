@@ -128,6 +128,7 @@ async function compileDryRun(
       sizeBudget: sizeEvaluation.budget,
       sizeBudgetStatus: sizeEvaluation.status,
       topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   }
 
@@ -153,6 +154,7 @@ async function compileDryRun(
       sizeBudget: sizeEvaluation.budget,
       sizeBudgetStatus: sizeEvaluation.status,
       topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   }
 
