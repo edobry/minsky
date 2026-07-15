@@ -14,6 +14,7 @@
 // @see src/domain/subagent/transcript-metrics.ts — transcript metrics
 // @see mt#2649 — metrics read the wrong file for background-dispatched subagents
 // @see .claude/hooks/transcript.ts — resolveTranscriptCandidates (mt#2637 / PR #1806)
+// @see mt#2796 — actual_model writer (extractActualModel, transcript-metrics.ts)
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -115,11 +116,16 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   const classification = await classifyWorkspaceOutcome(cwd, taskId);
 
   // 3. Read transcript metrics (best-effort).
-  const { readTranscriptMetrics } = await import(
+  const { readTranscriptMetrics, extractActualModel } = await import(
     "../../packages/domain/src/subagent/transcript-metrics"
   );
   const resolvedTranscriptPath = resolveMetricsTranscriptPath(transcriptPath, agentId);
   const metrics = await readTranscriptMetrics(resolvedTranscriptPath, agentId);
+
+  // mt#2796: extract the first genuine (non-`<synthetic>`) model id from the
+  // resolved transcript's assistant-message lines. Best-effort — never throws,
+  // returns null when no genuine model id is found.
+  const actualModel = extractActualModel(resolvedTranscriptPath, agentId);
 
   // 4. Open a DB connection and record the invocation.
   const { resolvePersistenceProvider } = await import(
@@ -191,6 +197,7 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     toolUseCount: metrics.toolUseCount ?? null,
     totalTokens: metrics.totalTokens ?? null,
     durationMs: metrics.durationMs ?? null,
+    actualModel: actualModel ?? null,
     endedAt: now,
     startedAt: now, // tracker preserves startedAt on upsert (per mt#1736 R1 fix)
     // agentType is required by SubagentInvocationInput (NOT NULL) but this

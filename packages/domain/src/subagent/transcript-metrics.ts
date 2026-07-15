@@ -171,3 +171,108 @@ export async function readTranscriptMetrics(
     return nullResult;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Actual-model extraction (mt#2796)
+// ---------------------------------------------------------------------------
+
+/**
+ * Harness-injected placeholder recorded as `message.model` on synthetic
+ * assistant turns — rate-limit / API-error retries the harness manufactures
+ * locally rather than a real model response. Never a genuine model id.
+ * Verified 2026-07-15 against a real on-disk transcript.
+ */
+export const SYNTHETIC_MODEL_SENTINEL = "<synthetic>";
+
+/**
+ * Minimal shape of a real Claude Code transcript line, for the fields this
+ * reader needs. Unlike {@link TranscriptLine} above (which assumes a flat
+ * top-level shape), real transcripts nest message fields — including
+ * `model` — under `message`:
+ *
+ * ```json
+ * {"type":"assistant","message":{"role":"assistant","model":"claude-sonnet-5",...},...}
+ * ```
+ *
+ * Per-agent subagent transcript files (`<session>/subagents/agent-<id>.jsonl`)
+ * additionally carry a top-level `agentId` field identifying which agent
+ * produced each line (verified against real on-disk fixtures 2026-07-15).
+ * `agent_session_id` is kept as a secondary check for parity with the
+ * top-level shape {@link readTranscriptMetrics} already looks for, in case a
+ * caller passes a differently-shaped file.
+ */
+interface ModelTranscriptLine {
+  type?: string;
+  agentId?: string;
+  agent_session_id?: string;
+  message?: {
+    model?: string;
+  };
+}
+
+/**
+ * Extract the first genuine (non-synthetic) model id from a JSONL
+ * transcript's assistant-message lines.
+ *
+ * Scans `type: "assistant"` lines in file order and returns the first
+ * `message.model` value that is a non-empty string and not the
+ * {@link SYNTHETIC_MODEL_SENTINEL} placeholder. Returns `null` when no such
+ * value exists (missing file, unreadable file, malformed JSON, no assistant
+ * lines, or every assistant line is synthetic) — this function never throws.
+ *
+ * @param transcriptPath   Absolute path to the `.jsonl` transcript file.
+ *                         When undefined, returns null.
+ * @param agentSessionId   Harness-native agent id of the subagent. When a
+ *                         line carries an `agentId` or `agent_session_id`
+ *                         field and it does not match, the line is skipped.
+ *                         Lines with neither field present are always
+ *                         considered (the common case: the resolved
+ *                         transcript file is already scoped to one agent).
+ */
+export function extractActualModel(
+  transcriptPath: string | undefined,
+  agentSessionId: string | undefined
+): string | null {
+  if (!transcriptPath) {
+    return null;
+  }
+
+  try {
+    if (!existsSync(transcriptPath)) {
+      return null;
+    }
+
+    const raw = readFileSync(transcriptPath).toString();
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+
+    for (const line of lines) {
+      let parsed: ModelTranscriptLine;
+      try {
+        parsed = JSON.parse(line) as ModelTranscriptLine;
+      } catch {
+        continue;
+      }
+
+      if (parsed.type !== "assistant") {
+        continue;
+      }
+
+      if (agentSessionId != null) {
+        const lineAgentId = parsed.agentId ?? parsed.agent_session_id;
+        if (lineAgentId != null && lineAgentId !== agentSessionId) {
+          continue;
+        }
+      }
+
+      const model = parsed.message?.model;
+      if (typeof model === "string" && model.length > 0 && model !== SYNTHETIC_MODEL_SENTINEL) {
+        return model;
+      }
+    }
+
+    return null;
+  } catch {
+    // Fail-safe: never throw, matching readTranscriptMetrics's contract.
+    return null;
+  }
+}
