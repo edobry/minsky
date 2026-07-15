@@ -144,6 +144,12 @@ function extractBacktickPaths(content: string): string[] {
   while ((match = backtickRe.exec(content)) !== null) {
     const raw = (match[1] ?? "").trim();
     if (raw.length === 0) continue;
+    // mt#2811 R1 (PR #1953 review, NON-BLOCKING #4): exclude URLs
+    // (`https://...`) and CLI-flag-shaped tokens (`--foo/bar`) — both
+    // contain `/` but are not file-path references. A URL's `://` never
+    // appears in a real repo-relative path; a leading `-` never starts one
+    // either (paths in this repo are relative or absolute, never flag-shaped).
+    if (raw.includes("://") || raw.startsWith("-")) continue;
     if (raw.includes("/") || raw.startsWith(".")) {
       const cleaned = raw.replace(/[),.;:]+$/, "");
       if (cleaned.length > 0 && !files.includes(cleaned)) {
@@ -225,6 +231,31 @@ function extractWithFallback(
   };
 }
 
+export interface ExtractInScopeFilesResult {
+  files: string[];
+  warnings: string[];
+  /**
+   * mt#2811 R1 (PR #1953 review 4708851338, BLOCKING #3): true iff the
+   * extractor located a parseable `**In scope:**` bullet-list block but
+   * extracted ZERO file paths from it — a genuine extraction FAILURE (the
+   * original mt#2811 incident class: "Could not extract file paths from
+   * '**In scope:**' block"), AND the fallback chain (Context section /
+   * whole-doc backtick scan) ALSO found nothing.
+   *
+   * `false`/`undefined` for the ROUTINE "no scope structure present at all"
+   * cases — no `## Scope` section, or a `## Scope` section with no
+   * `**In scope:**` sub-block — since those are not parser failures, just
+   * specs with nothing to check (the guard has always tolerated this
+   * gracefully; it is NOT the mt#2811 regression class).
+   *
+   * Consumed by the hook entrypoint (`resolveInScopeFiles` /
+   * `import.meta.main`) to route ONLY genuine failures to stderr
+   * ("GUARD DEGRADED"); routine no-scope-anywhere cases stay on stdout,
+   * matching pre-mt#2811 behavior.
+   */
+  genuineExtractionFailure?: boolean;
+}
+
 /**
  * Extract the `## Scope` → `**In scope:**` file paths from a task spec.
  * Returns the list of paths found and any parse warnings.
@@ -233,10 +264,7 @@ function extractWithFallback(
  * heading or end of content. Extract lines that look like file paths
  * (contain `/` or start with `.`).
  */
-export function extractInScopeFiles(specContent: string): {
-  files: string[];
-  warnings: string[];
-} {
+export function extractInScopeFiles(specContent: string): ExtractInScopeFilesResult {
   // Format A (mt#2811): the exact shape session_generate_prompt's
   // renderScopeSection emits for a subagent prompt ("## Scope Constraints" +
   // bare bullet list). Tried first, unconditionally — a task spec's own
@@ -258,6 +286,7 @@ export function extractInScopeFiles(specContent: string): {
   const scopeMatch = specContent.match(/^##\s+Scope:?\s*$/m);
   if (!scopeMatch) {
     warnings.push("No '## Scope' section found in spec — parallel-work check skipped");
+    // Routine: no scope structure present at all — not a parser failure.
     return extractWithFallback(specContent, warnings);
   }
 
@@ -280,6 +309,8 @@ export function extractInScopeFiles(specContent: string): {
     warnings.push(
       "No '**In scope:**' block found in ## Scope section — parallel-work check skipped"
     );
+    // Routine: has a '## Scope' section but no '**In scope:**' sub-block —
+    // still not a parser failure (nothing to extract from).
     return extractWithFallback(specContent, warnings);
   }
 
@@ -331,7 +362,13 @@ export function extractInScopeFiles(specContent: string): {
     warnings.push(
       "Could not extract file paths from '**In scope:**' block — parallel-work check skipped"
     );
-    return extractWithFallback(specContent, warnings);
+    // GENUINE failure: a '**In scope:**' block WAS located but extraction
+    // found nothing in it — the original mt#2811 incident class. Try the
+    // fallback chain; only report as a genuine failure if the fallback ALSO
+    // recovers nothing (if it recovers files, the check runs — no
+    // degradation to report).
+    const fallback = extractWithFallback(specContent, warnings);
+    return { ...fallback, genuineExtractionFailure: fallback.files.length === 0 };
   }
 
   return { files, warnings };
@@ -1505,6 +1542,45 @@ export interface ResolvedInScopeFiles {
   files: string[];
   warnings: string[];
   source: InScopeFilesSource;
+  /**
+   * mt#2811 R1: propagated from `extractInScopeFiles` when `source ===
+   * "spec-parse"` — true iff the spec HAD a parseable '**In scope:**' block
+   * but extraction genuinely found nothing in it (not "no scope structure
+   * present at all"). Always `undefined` for `dispatch-scope-param` (no
+   * parsing happened) and irrelevant for `spec-fetch-failed` (that source is
+   * ALWAYS treated as a genuine failure — see `shouldReportAsGuardDegraded`).
+   */
+  genuineExtractionFailure?: boolean;
+}
+
+/**
+ * mt#2811 R1 (PR #1953 review, BLOCKING #3): the single decision point for
+ * whether a zero-files resolution should be reported LOUD (stderr, "GUARD
+ * DEGRADED") or QUIET (stdout, routine). Exported and pure so it is
+ * unit-testable directly — the entrypoint (`import.meta.main`) calls this
+ * rather than re-deriving the logic inline, so a test asserting `false` here
+ * is a direct, literal proxy for "this call would not write to stderr."
+ *
+ * LOUD (true) for exactly two genuine-failure classes:
+ *   1. `source === "spec-fetch-failed"` — the `minsky tasks spec get` CLI
+ *      call itself errored (infrastructure failure, same class as
+ *      child-enumeration CLI failures).
+ *   2. `source === "spec-parse" && genuineExtractionFailure === true` — a
+ *      `**In scope:**` block WAS found but extraction found nothing in it
+ *      (the original mt#2811 incident class).
+ *
+ * QUIET (false) for everything else, including the routine "no scope
+ * structure present anywhere in the spec" case (no '## Scope' section, or a
+ * '## Scope' section with no '**In scope:**' sub-block) — this is NOT a
+ * parser failure, just a spec with nothing to check, and has always been
+ * tolerated gracefully (pre-mt#2811 behavior). Also quiet for
+ * `dispatch-scope-param` resolutions (an explicit, empty/absent `scope` is
+ * simply "not supplied," never a failure).
+ */
+export function shouldReportAsGuardDegraded(resolved: ResolvedInScopeFiles): boolean {
+  if (resolved.source === "spec-fetch-failed") return true;
+  if (resolved.source === "spec-parse" && resolved.genuineExtractionFailure === true) return true;
+  return false;
 }
 
 /**
@@ -1552,8 +1628,8 @@ export function resolveInScopeFiles(
     };
   }
 
-  const { files, warnings } = extractInScopeFiles(specContent);
-  return { files, warnings, source: "spec-parse" };
+  const { files, warnings, genuineExtractionFailure } = extractInScopeFiles(specContent);
+  return { files, warnings, source: "spec-parse", genuineExtractionFailure };
 }
 
 // ---------------------------------------------------------------------------
@@ -1892,6 +1968,23 @@ export function parseTaskListJson(stdout: string): Map<string, { title: string; 
  * human/CLI use is fixed at the root, not just this guard's callsite — this
  * argv helper additionally hardens the guard against depending on that
  * registration existing/staying correct.
+ *
+ * DIVERGENCE RISK (mt#2811 R1, PR #1953 review, NON-BLOCKING #5): this argv
+ * shape is NOT mechanically bound to `tasksChildrenParams` / the CLI
+ * customization — it is a hand-maintained mirror of what was verified live
+ * to work. If `--task` is ever renamed or the flag contract changes on the
+ * `tasks.children` command, this function will silently start failing again
+ * with no compile-time or test-time signal (a hook test binding it to the
+ * CLI definition would re-introduce the .minsky/hooks <-> src package-
+ * boundary import risk this same review flagged for the prompt-generation
+ * contract test — see BLOCKING #2 / `extractScopeConstraintsFiles`'s
+ * fixture-based binding above). Mitigation until a lighter-weight binding
+ * exists: `buildTasksChildrenArgv`'s unit test
+ * (parallel-work-guard.test.ts) locks the exact argv array so an
+ * ACCIDENTAL edit to this function is caught immediately, even though an
+ * upstream CLI contract change would not be. If this class of drift
+ * recurs, the fix is a checked-in CLI-help-output fixture (mirroring the
+ * prompt-fixture pattern above), not a live cross-package import.
  */
 export function buildTasksChildrenArgv(parent: string): string[] {
   return ["minsky", "tasks", "children", "--task", parent];
@@ -2463,17 +2556,22 @@ if (import.meta.main) {
   const resolved = resolveInScopeFiles(input.tool_name, input.tool_input, fetchTaskSpec, taskId);
 
   if (resolved.files.length === 0) {
-    // LOUD degradation (mt#2811 success criterion #3): the parallel-work
-    // file-overlap check is being SKIPPED — the guard's core purpose is
-    // inert for this dispatch. stderr, not stdout, so this reads as a guard
-    // error rather than routine info.
+    // mt#2811 R1 (PR #1953 review, BLOCKING #3): only report LOUD (stderr,
+    // "GUARD DEGRADED") for a GENUINE failure — see shouldReportAsGuardDegraded.
+    // A routine "this spec has no scope structure at all" resolution stays
+    // quiet on stdout, matching pre-mt#2811 behavior — that was never the
+    // regression this task fixes, and making every such dispatch noisy on
+    // stderr would be its own new failure mode.
+    const degraded = shouldReportAsGuardDegraded(resolved);
+    const prefix = degraded ? "GUARD DEGRADED: " : "";
+    const stream = degraded ? process.stderr : process.stdout;
     if (resolved.warnings.length > 0) {
       for (const w of resolved.warnings) {
-        process.stderr.write(`[parallel-work-guard] GUARD DEGRADED: ${w}\n`);
+        stream.write(`[parallel-work-guard] ${prefix}${w}\n`);
       }
     } else {
-      process.stderr.write(
-        `[parallel-work-guard] GUARD DEGRADED: no in-scope files resolved for ${taskId} ` +
+      stream.write(
+        `[parallel-work-guard] ${prefix}no in-scope files resolved for ${taskId} ` +
           `(source=${resolved.source}) — parallel-work file-overlap check SKIPPED\n`
       );
     }
