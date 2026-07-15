@@ -29,6 +29,7 @@ import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
 import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-env-var.js";
 import noRawConsole from "./eslint-rules/no-raw-console.js";
 import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-params.js";
+import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 
 export default [
   js.configs.recommended,
@@ -148,6 +149,7 @@ export default [
           "no-unregistered-minsky-env-var": noUnregisteredMinskyEnvVar,
           "no-raw-console": noRawConsole,
           "no-hand-rolled-command-params": noHandRolledCommandParams,
+          "no-entity-id-param-drift": noEntityIdParamDrift,
         },
       },
     },
@@ -769,17 +771,21 @@ export default [
       "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
     },
   },
-  // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) ===
+  // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) + ENTITY-ID DRIFT (mt#2780) ===
   // Execute handlers in the shared-command tree must derive their param types
   // from the command's params map (InferParams<typeof map>) — hand-rolled
   // *Params interfaces let handlers read undeclared keys that compile cleanly
   // and are always undefined at runtime (the mt#2742 Detector-B class).
+  // no-entity-id-param-drift covers the sibling Detector-A class: a family map
+  // declaring the back-compat alias id-name (`task`) without the family's
+  // canonical (`taskId`) — the mt#2741 drift shape, caught at authoring time.
   // Test files are excluded: partial-fixture casts are the legitimate seam.
   {
     files: ["src/adapters/shared/commands/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/no-hand-rolled-command-params": "error",
+      "custom/no-entity-id-param-drift": "error",
     },
   },
 ];
