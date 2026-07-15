@@ -14,6 +14,7 @@ import {
   execSync,
   execWithPath,
   resolveGitBinary,
+  __resetGitBinaryCacheForTests,
 } from "./types";
 
 describe("emitHookFiredOnDeny (mt#2537)", () => {
@@ -163,6 +164,37 @@ describe("resolveGitBinary (mt#2810)", () => {
     expect(calls).toBe(2);
     expect(first).not.toBe(second);
   });
+
+  test("a FAILED resolution is never cached — a later call can still succeed (mt#2810 PR #1952 R1 NON-BLOCKING)", () => {
+    // Uses default (non-noCache) calls deliberately — this exercises the
+    // REAL module-level cache, not the noCache-bypass path. Reset first so
+    // this test is independent of whatever the shared cache's ambient state
+    // happens to be from other tests/production code paths in this process.
+    __resetGitBinaryCacheForTests();
+
+    const failing = resolveGitBinary({
+      whichFn: () => null,
+      fallbackPaths: [],
+      existsSyncFn: () => false,
+    });
+    expect(failing).toBe("git"); // nothing resolved — bare fallback
+
+    // If the failed attempt had been cached, this second call would ignore
+    // its own (successful) whichFn and just replay the cached bare "git".
+    const RESOLVED_GIT_PATH = "/now/it/works/git";
+    const succeeding = resolveGitBinary({
+      whichFn: () => RESOLVED_GIT_PATH,
+    });
+    expect(succeeding).toBe(RESOLVED_GIT_PATH);
+
+    // And the successful resolution DOES cache — a third call with a
+    // DIFFERENT whichFn still returns the cached value, proving positive
+    // resolutions are still cached as before.
+    const third = resolveGitBinary({ whichFn: () => "/should/not/be/used" });
+    expect(third).toBe(RESOLVED_GIT_PATH);
+
+    __resetGitBinaryCacheForTests();
+  });
 });
 
 describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
@@ -171,28 +203,39 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
    * describe block's tests to avoid magic-string duplication. */
   const ENOENT_GIT_ERROR_MESSAGE = 'Executable not found in $PATH: "git"';
 
+  // mt#2810 PR #1952 R1 BLOCKING #2 (reviewer finding): the previous
+  // afterEach duck-typed `if (Bun.spawnSync.mockRestore)` to decide whether
+  // to restore — brittle, since a native (unmocked) function doesn't
+  // reliably expose `mockRestore`, and if any test threw BEFORE calling
+  // `spyOn`, nothing would need restoring but the check itself could
+  // misbehave on an already-unmocked native function. Each test now
+  // captures the spy HANDLE `spyOn` returns and assigns it to these
+  // describe-scoped variables; `afterEach` restores deterministically via
+  // the captured handle (optional-chained, since a given test may not spy
+  // on both) rather than probing the global for a `mockRestore` property.
+  let spawnSyncSpy: ReturnType<typeof spyOn<typeof Bun, "spawnSync">> | undefined;
+  let consoleErrorSpy: ReturnType<typeof spyOn<typeof console, "error">> | undefined;
+
   afterEach(() => {
-    // @ts-expect-error — restore any spy installed by a test
-    if (Bun.spawnSync.mockRestore)
-      (Bun.spawnSync as unknown as { mockRestore: () => void }).mockRestore();
-    // @ts-expect-error — restore console.error if spied
-    if (console.error.mockRestore)
-      (console.error as unknown as { mockRestore: () => void }).mockRestore();
+    spawnSyncSpy?.mockRestore();
+    spawnSyncSpy = undefined;
+    consoleErrorSpy?.mockRestore();
+    consoleErrorSpy = undefined;
   });
 
   test("execWithPath never throws when Bun.spawnSync throws ENOENT", () => {
-    spyOn(Bun, "spawnSync").mockImplementation(() => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
       throw new Error(ENOENT_GIT_ERROR_MESSAGE);
     });
-    spyOn(console, "error").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
     expect(() => execWithPath(["git", "status"])).not.toThrow();
   });
 
   test("execWithPath returns a structured non-zero ExecResult instead of throwing", () => {
-    spyOn(Bun, "spawnSync").mockImplementation(() => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
       throw new Error(ENOENT_GIT_ERROR_MESSAGE);
     });
-    spyOn(console, "error").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
     const result = execWithPath(["git", "status"]);
     expect(result.exitCode).not.toBe(0);
     expect(result.exitCode).toBe(127);
@@ -202,30 +245,30 @@ describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
   });
 
   test("execWithPath logs a loud structured degradation warning naming the failed command", () => {
-    spyOn(Bun, "spawnSync").mockImplementation(() => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
       throw new Error(ENOENT_GIT_ERROR_MESSAGE);
     });
-    const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
     execWithPath(["git", "remote", "get-url", "origin"]);
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    const message = errorSpy.mock.calls[0]?.[0] as string;
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    const message = consoleErrorSpy.mock.calls[0]?.[0] as string;
     expect(message).toContain("[hook-exec] DEGRADED");
     expect(message).toContain("git remote get-url origin");
     expect(message).not.toContain("undefined");
   });
 
   test("execSync never throws when Bun.spawnSync throws ENOENT", () => {
-    spyOn(Bun, "spawnSync").mockImplementation(() => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
       throw new Error(ENOENT_GIT_ERROR_MESSAGE);
     });
-    spyOn(console, "error").mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
     expect(() => execSync(["git", "rev-parse", "HEAD"])).not.toThrow();
     const result = execSync(["git", "rev-parse", "HEAD"]);
     expect(result.exitCode).toBe(127);
   });
 
   test("a non-ENOENT spawn success still passes through normally (no regression)", () => {
-    spyOn(Bun, "spawnSync").mockImplementation(
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(
       () =>
         ({
           exitCode: 0,

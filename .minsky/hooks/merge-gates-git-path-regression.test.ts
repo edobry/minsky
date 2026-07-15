@@ -51,14 +51,24 @@ const GATE_ENTRYPOINTS = [
   "block-out-of-band-merge.ts",
 ] as const;
 
-/** Bun's own uncaught-exception reporter signature (verified empirically —
- * see the mt#2810 PR body's "Execution evidence" section for the repro). A
- * raw crash always includes this stack-frame marker; our caught-and-logged
- * degradation path never does. */
-const RAW_CRASH_STACK_MARKER = "loadAndEvaluateModule";
-/** Bun's crash-report version banner — only appears on an actual uncaught
- * top-level exception, never on a plain `console.error(...)` call. */
-const RAW_CRASH_BANNER_RE = /Bun v[\d.]+ \(/;
+/**
+ * True if `stderr` contains a line shaped like Bun's own top-level
+ * uncaught-exception report — which always starts a line with the literal
+ * token `error: ` (verified empirically — see the mt#2810 PR body's
+ * "Execution evidence" section for the repro). Our own structured
+ * degradation message (`safeSpawnSync` in types.ts) starts with
+ * `[hook-exec] DEGRADED:`, never with that token, so this check
+ * distinguishes "the hook crashed uncaught" from "the hook logged its own
+ * controlled warning" without depending on Bun-version-specific stack-frame
+ * names or the exact crash-report version-banner text (PR #1952 R1
+ * NON-BLOCKING — the original marker set (`loadAndEvaluateModule` stack
+ * frame + `Bun v<version> (...)` banner) was flagged as brittle across Bun
+ * versions; the `error: ` line-prefix is Bun's stable top-level-exception
+ * reporter format).
+ */
+function containsRawUnhandledExceptionLine(stderr: string): boolean {
+  return stderr.split("\n").some((line) => /^error:\s/i.test(line.trim()));
+}
 
 let scratchRepo: string;
 
@@ -95,6 +105,23 @@ interface GateRunResult {
  * of this env var, so this genuinely simulates "PATH doesn't contain git"
  * without needing to strip every other env var the hook process needs to
  * even start.
+ *
+ * Invokes via `[process.execPath, hookPath]` — i.e. `bun <script>.ts`, the
+ * most basic and stable way to run a TS file with Bun (no `run` subcommand
+ * involved, so no dependence on `bun run`'s file-vs-script-name heuristic).
+ * `process.execPath` resolves to the CURRENT process's own Bun binary by
+ * absolute path — this is deliberately NOT how Claude Code itself launches
+ * a hook (it execs the compiled `.claude/hooks/<name>.ts` file directly via
+ * its own `#!/usr/bin/env bun` shebang, letting the OS + `env` resolve
+ * `bun` from the CHILD's PATH). That distinction is intentional: this test
+ * targets the bug that actually happened — an uncaught crash INSIDE the
+ * hook's execution (`deriveRepoFromGit` -> `execWithPath` -> a `git`
+ * spawn), not "can the hook process launch at all" (a shebang-based launch
+ * would itself fail to start under a genuinely broken PATH, since `env`
+ * needs to be resolvable too — a different, unrelated failure mode this
+ * task is not about). PR #1952 R1 BLOCKING #1 (reviewer finding): the
+ * earlier `[process.execPath, "run", hookPath]` form used the `run`
+ * subcommand, an extra, non-essential indirection this doesn't need.
  */
 function runGateWithBrokenPath(hookFilename: string): GateRunResult {
   const hookPath = join(HOOKS_DIR, hookFilename);
@@ -105,7 +132,7 @@ function runGateWithBrokenPath(hookFilename: string): GateRunResult {
     tool_name: "mcp__minsky__session_pr_merge",
     tool_input: { task: "mt#99999999" },
   };
-  const result = Bun.spawnSync([process.execPath, "run", hookPath], {
+  const result = Bun.spawnSync([process.execPath, hookPath], {
     cwd: scratchRepo,
     stdin: Buffer.from(JSON.stringify(input)),
     stdout: "pipe",
@@ -136,13 +163,12 @@ describe("merge-gate entrypoints survive PATH=/nonexistent (mt#2810 regression)"
       // + exit 0, never a nonzero crash exit).
       expect(result.exitCode).toBe(0);
 
-      // Never the raw Bun uncaught-exception signature — this is the exact
-      // shape mt#2810's incident produced pre-fix (verified empirically:
+      // Never a raw, uncaught Bun exception line — this is the exact shape
+      // mt#2810's incident produced pre-fix (verified empirically:
       // `Bun.spawnSync(["git", ...], { env: { PATH: "/nonexistent" } })`
-      // throws synchronously and, uncaught, produces exactly this marker +
-      // banner + exit code 1).
-      expect(result.stderr).not.toContain(RAW_CRASH_STACK_MARKER);
-      expect(result.stderr).not.toMatch(RAW_CRASH_BANNER_RE);
+      // throws synchronously and, uncaught, produces a line starting with
+      // `error: ` followed by a stack trace and exit code 1).
+      expect(containsRawUnhandledExceptionLine(result.stderr)).toBe(false);
 
       // stdout, if present, must be valid JSON (the hook's structured
       // HookOutput contract) — never a stray partial-write from a process

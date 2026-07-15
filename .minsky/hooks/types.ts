@@ -134,7 +134,14 @@ function safeSpawnSync(
       timeout: options.timeout,
       ...(options.env ? { env: options.env } : {}),
     });
-    const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
+    // mt#2810 PR #1952 R1 NON-BLOCKING: broadened from `signalCode ===
+    // "SIGTERM"` — a timed-out `Bun.spawnSync` always reports `exitCode:
+    // null` (it never completed normally), but the signal Bun uses to kill
+    // it can vary by platform/version (e.g. SIGKILL after a grace period).
+    // Gating on SIGTERM specifically produced a false negative (`timedOut:
+    // false`) for any of those other signals. `exitCode === null` alone is
+    // the reliable "did not exit normally" signal.
+    const timedOut = result.exitCode === null;
     return {
       exitCode: result.exitCode ?? 1,
       stdout: result.stdout.toString().trim(),
@@ -179,8 +186,17 @@ const GIT_FALLBACK_PATHS: readonly string[] = [
   "/bin/git",
 ];
 
-/** Module-level cache — git-binary resolution doesn't change mid-process. */
-let cachedGitBinaryPath: string | null | undefined;
+/**
+ * Module-level cache — git-binary resolution doesn't change mid-process.
+ * Only a SUCCESSFUL resolution is ever cached (mt#2810 PR #1952 R1
+ * NON-BLOCKING): caching a failed ("nothing resolved") attempt would
+ * permanently lock the process into re-spawning bare `"git"` even if
+ * whatever made resolution fail (e.g. a not-yet-mounted filesystem, a PATH
+ * that gets repaired mid-process) is no longer true by the next call. Never
+ * holds `null` — an unresolved state is represented by `undefined` so every
+ * call retries full resolution until one succeeds.
+ */
+let cachedGitBinaryPath: string | undefined;
 
 export interface ResolveGitBinaryOptions {
   /** Override the PATH string passed to `Bun.which` (tests only). */
@@ -211,8 +227,8 @@ export interface ResolveGitBinaryOptions {
  * Cached for the lifetime of the hook process.
  */
 export function resolveGitBinary(options: ResolveGitBinaryOptions = {}): string {
-  if (!options.noCache && cachedGitBinaryPath !== undefined) {
-    return cachedGitBinaryPath ?? "git";
+  if (!options.noCache && cachedGitBinaryPath) {
+    return cachedGitBinaryPath;
   }
   const pathPrefix =
     options.pathOverride ?? `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
@@ -239,8 +255,22 @@ export function resolveGitBinary(options: ResolveGitBinaryOptions = {}): string 
       }
     }
   }
-  if (!options.noCache) cachedGitBinaryPath = resolved;
+  // Only a successful resolution is cached — see the `cachedGitBinaryPath`
+  // doc comment above (mt#2810 PR #1952 R1 NON-BLOCKING).
+  if (!options.noCache && resolved) cachedGitBinaryPath = resolved;
   return resolved ?? "git";
+}
+
+/**
+ * Test-only: reset the module-level git-binary resolution cache. Production
+ * code never needs this — the cache is meant to persist for the hook
+ * process's lifetime. Exists so tests can deterministically exercise the
+ * cache-miss path without depending on ambient state from other tests or
+ * production code paths that may have already populated the cache earlier
+ * in the same test-runner process.
+ */
+export function __resetGitBinaryCacheForTests(): void {
+  cachedGitBinaryPath = undefined;
 }
 
 /**
