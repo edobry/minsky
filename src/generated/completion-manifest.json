@@ -1307,7 +1307,7 @@
             },
             {
               "flags": ["--quiet"],
-              "description": "Suppress output"
+              "description": "Suppress the degraded-search warning on stderr (results are unaffected)"
             },
             {
               "flags": ["--repo"],
@@ -1380,7 +1380,7 @@
             },
             {
               "flags": ["--quiet"],
-              "description": "Suppress output"
+              "description": "Suppress progress and degraded-search warnings on stderr (results are unaffected)"
             },
             {
               "flags": ["--repo"],

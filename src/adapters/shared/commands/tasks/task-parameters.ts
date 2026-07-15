@@ -236,9 +236,14 @@ export const tasksSimilarParams = {
     description: "Show detailed output including scores and diagnostics",
     required: false,
   },
-  // mt#2795: declared for parity with tasks.search — suppresses the
-  // degraded-search warning (the mt#2779 R1 review flagged the gap).
-  quiet: CommonParameters.quiet,
+  // mt#2795: declared for parity with tasks.search (the mt#2779 R1 review
+  // flagged the gap). Description overrides the generic "Suppress output" —
+  // this flag only silences stderr diagnostics, never the result output
+  // (PR #1944 R1).
+  quiet: {
+    ...CommonParameters.quiet,
+    description: "Suppress the degraded-search warning on stderr (results are unaffected)",
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -272,8 +277,13 @@ export const tasksSearchParams = {
   status: TaskParameters.status,
   // Workflow-kind filter (mt#2762), consistent with tasks list / tasks available.
   kind: TaskParameters.kind,
-  // Support suppressing progress output
-  quiet: CommonParameters.quiet,
+  // Support suppressing progress output. Same accuracy override as
+  // tasks.similar's quiet (PR #1944 R1): stderr diagnostics only.
+  quiet: {
+    ...CommonParameters.quiet,
+    description:
+      "Suppress progress and degraded-search warnings on stderr (results are unaffected)",
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;

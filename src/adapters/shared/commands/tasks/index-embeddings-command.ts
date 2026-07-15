@@ -48,7 +48,12 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<
       const { log } = await import("@minsky/shared/logger");
       const changed = await service.indexTask(task.id, { force: params.reindex });
       if (!(params.json || ctx.format === "json")) {
-        log.cli(`${task.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
+        const verb = changed
+          ? params.reindex
+            ? "re-indexed (forced)"
+            : "indexed"
+          : "up-to-date (skipped)";
+        log.cli(`${task.id}: ${verb}`);
       }
       return this.formatResult(
         { success: true, indexed: changed ? 1 : 0, skipped: changed ? 0 : 1 },
@@ -94,7 +99,12 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<
         try {
           const changed = await service.indexTask(t.id, { force: params.reindex });
           if (!(params.json || ctx.format === "json")) {
-            log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
+            const verb = changed
+              ? params.reindex
+                ? "re-indexed (forced)"
+                : "indexed"
+              : "up-to-date (skipped)";
+            log.cli(`- ${t.id}: ${verb}`);
           }
           if (changed) indexed++;
           else skipped++;

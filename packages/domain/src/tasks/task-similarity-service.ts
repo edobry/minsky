@@ -291,6 +291,13 @@ export class TaskSimilarityService {
     return `Find tasks related to: ${uniqueTerms.join(", ")}`;
   }
 
+  /**
+   * Embed and store one task's content. Returns true when a new embedding was
+   * stored, false when the up-to-date check skipped the task. Under
+   * `opts.force` (the `tasks index-embeddings --reindex` path, mt#2795) the
+   * up-to-date check is bypassed, so the task is always re-embedded and the
+   * method always returns true (absent an error).
+   */
   async indexTask(taskId: string, opts?: { force?: boolean }): Promise<boolean> {
     const task = await this.findTaskById(taskId);
     if (!task) {
