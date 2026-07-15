@@ -22,7 +22,12 @@
  */
 
 import { z } from "zod";
-import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  defineCommand,
+  type CommandExecutionContext,
+} from "../command-registry";
 import { ValidationError } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 import {
@@ -74,6 +79,8 @@ import { createEventEmitter } from "@minsky/domain/events/emitter";
 import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
 import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -708,6 +715,48 @@ export async function createAsk(
 }
 
 // ---------------------------------------------------------------------------
+// createAsk + form-lint wrapper (mt#2798)
+// ---------------------------------------------------------------------------
+
+/** Result of `createAskWithFormLint`: the created Ask plus its form-lint outcome. */
+export interface CreateAskWithFormLintResult {
+  ask: RoutedAsk | SuspendedAsk | ElicitationClosedAsk;
+  /** Advisory (warn-only) warning messages — NEVER blocks or alters creation. */
+  formWarnings: string[];
+  /** The underlying matches (check + message), for callers that need the check id. */
+  formLintMatches: FormLintMatch[];
+}
+
+/**
+ * Create an Ask via `createAsk` (unchanged), then compute the v1 mechanical
+ * form-lint checks (`@minsky/domain/ask/form-lint`) against the SAME kind +
+ * question that were just persisted (mt#2798).
+ *
+ * This is the seam the `asks.create` MCP command wraps to add
+ * `formWarnings` to its result and drive the calibration-log write — kept
+ * as a standalone exported function (rather than inlining the check in the
+ * command's `execute()` handler) so it is directly testable with
+ * `FakeAskRepository`, mirroring every other `createAsk`-based test in this
+ * file, without requiring a full DI container + live persistence provider.
+ *
+ * Form-lint matches NEVER block or alter Ask creation — `createAsk` above
+ * runs to completion identically regardless of the lint outcome.
+ */
+export async function createAskWithFormLint(
+  repo: AskRepository,
+  params: CreateAskParams,
+  routerOptions: PolicyFirstRouteOptions = {}
+): Promise<CreateAskWithFormLintResult> {
+  const ask = await createAsk(repo, params, routerOptions);
+  const formLintMatches = computeFormLintMatches({ kind: params.kind, question: params.question });
+  return {
+    ask,
+    formWarnings: formLintMatches.map((m) => m.message),
+    formLintMatches,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // asks.wait-for-response — schemas + render helper (mt#2266)
 // ---------------------------------------------------------------------------
 
@@ -843,6 +892,23 @@ export function validateAsksEditParams(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// asks.create — form-lint result shape (mt#2798)
+// ---------------------------------------------------------------------------
+
+/**
+ * `asks.create`'s result shape: the routed/suspended/elicitation-closed Ask
+ * PLUS an advisory (warn-only) `formWarnings` array from the form-lint
+ * checks in `@minsky/domain/ask/form-lint`. Always present (empty array
+ * when no check fires) — see `humility.mdc §Escalation packaging`'s "Form"
+ * sub-checklist for what these checks encode. Warnings never block or alter
+ * Ask creation; they are purely advisory instrumentation feeding
+ * `.minsky/ask-form-lint-calibration.jsonl` for future `/calibration-review`.
+ */
+export type AsksCreateResult = (RoutedAsk | SuspendedAsk | ElicitationClosedAsk) & {
+  formWarnings: string[];
+};
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -1059,7 +1125,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // Reject at the parameter boundary so callers get immediate, actionable feedback.
         validateAsksCreateParams(params);
       },
-      execute: async (params): Promise<RoutedAsk | SuspendedAsk | ElicitationClosedAsk> => {
+      execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
           throw new Error(
@@ -1085,7 +1151,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? { capabilityRegistry }
           : {};
 
-        const result = await createAsk(
+        const {
+          ask: result,
+          formWarnings,
+          formLintMatches,
+        } = await createAskWithFormLint(
           repo,
           {
             kind: params.kind as AskKind,
@@ -1154,7 +1224,21 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           }
         }
 
-        return result;
+        // Advisory (warn-only) form-lint (mt#2798) — humility.mdc §Escalation
+        // packaging's "Form" sub-checklist, structurally checked via
+        // createAskWithFormLint above. NEVER blocks or alters Ask creation;
+        // matches only feed formWarnings on the result and a calibration
+        // JSONL for future /calibration-review.
+        if (formLintMatches.length > 0) {
+          appendAskFormLintCalibrationRecord(ctx?.workspacePath ?? process.cwd(), {
+            timestamp: new Date().toISOString(),
+            askId: result.id,
+            kind: result.kind,
+            matches: formLintMatches.map((m) => ({ class: m.check, phrase: m.message })),
+          });
+        }
+
+        return { ...result, formWarnings };
       },
     })
   );
