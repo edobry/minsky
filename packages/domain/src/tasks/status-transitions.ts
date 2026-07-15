@@ -117,26 +117,33 @@ export function validateStatusTransition(from: string, to: string, kind?: string
  * The heading pattern for the closeout evidence section (case-insensitive).
  * Exported so tests and callers can reference it without duplicating the regex.
  */
-export const CLOSEOUT_EVIDENCE_HEADING = /^##\s+closeout\s+evidence\s*[:.]?\s*$/i;
+// `## Findings` and `## Outcome` are accepted as synonyms (mt#455): they read
+// naturally for investigation-shaped (state-ops) tasks whose deliverable IS the
+// findings section, while "Closeout evidence" remains the canonical name.
+export const CLOSEOUT_EVIDENCE_HEADING =
+  /^##\s+(closeout\s+evidence|findings|outcome)\s*[:.]?\s*$/i;
 
 /**
- * Error message returned when a READY → DONE transition is attempted without a
- * valid `## Closeout evidence` section in the spec.
+ * Error message returned when an evidence-gated transition to DONE is attempted
+ * without a valid closeout-evidence section in the spec (READY → DONE for any
+ * kind; any → DONE for state-ops, mt#455).
  *
  * Exported so callers (mutation-commands.ts) and tests can reference it without
  * duplicating the string.
  */
 export const READY_TO_DONE_MISSING_EVIDENCE_MESSAGE =
-  "READY → DONE requires a '## Closeout evidence' section in the spec with non-empty content. " +
+  "Transitioning to DONE on this path (READY → DONE, or any transition to DONE for " +
+  "state-ops kind) requires a '## Closeout evidence' (or '## Findings' / '## Outcome') " +
+  "section in the spec with non-empty content. " +
   "See the External-deliverable closeout rule in .minsky/rules/task-lifecycle-external-deliverable.mdc " +
   "(or the compiled CLAUDE.md section) for details.";
 
 /**
- * Check whether a task spec contains a populated `## Closeout evidence` section.
+ * Check whether a task spec contains a populated closeout-evidence section.
  *
  * Rules:
- *   - The heading must match `## Closeout evidence` (case-insensitive, with or
- *     without trailing punctuation).
+ *   - The heading must match `## Closeout evidence`, `## Findings`, or
+ *     `## Outcome` (case-insensitive, with or without trailing punctuation).
  *   - The section must contain at least one non-blank line of content after the
  *     heading and before the next `##`-level heading or end-of-spec.
  *
@@ -157,10 +164,13 @@ export function hasCloseoutEvidence(specContent: string): boolean {
         inSection = true;
       }
     } else {
-      // We are inside the Closeout evidence section.
-      // If we hit another ## heading, the section has ended.
+      // We are inside an evidence section. Another ##-level heading ends it,
+      // but keep scanning — with multiple accepted headings (mt#455), a later
+      // section may still carry the evidence. The ending heading may itself
+      // open a new evidence section.
       if (/^##\s/.test(line)) {
-        return false;
+        inSection = CLOSEOUT_EVIDENCE_HEADING.test(line.trim());
+        continue;
       }
       // If we find a non-blank line, the section is non-empty — success.
       if (line.trim().length > 0) {

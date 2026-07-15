@@ -217,10 +217,18 @@ export async function setTaskStatusFromParams(
       );
     }
 
-    // READY → DONE requires a ## Closeout evidence section with non-empty content.
-    // This path is for external-deliverable tasks that complete without a PR merge.
-    // See .minsky/rules/task-lifecycle-external-deliverable.mdc (or the compiled CLAUDE.md section) for the convention.
-    if (task.status === TaskStatus.READY && validParams.status === TaskStatus.DONE) {
+    // Evidence-gated DONE. Two triggers:
+    //   - READY → DONE (any kind): the external-deliverable closeout path —
+    //     tasks that complete without a PR merge. See
+    //     .minsky/rules/task-lifecycle-external-deliverable.mdc (or the
+    //     compiled CLAUDE.md section) for the convention.
+    //   - state-ops → DONE (mt#455): a no-code/investigation task's deliverable
+    //     IS its findings — DONE requires a populated `## Closeout evidence`,
+    //     `## Findings`, or `## Outcome` section regardless of the from-status.
+    const evidenceGated =
+      validParams.status === TaskStatus.DONE &&
+      (task.status === TaskStatus.READY || task.kind === "state-ops");
+    if (evidenceGated) {
       let specContent = "";
       try {
         const specResult = await taskService.getTaskSpecContent(validParams.taskId);

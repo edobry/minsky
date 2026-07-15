@@ -192,6 +192,12 @@ human reviewer. Reject criteria that:
 
 For each weak criterion, write a concrete revision and surface it as a gap.
 
+**state-ops kind (mt#455):** findings-shaped criteria are acceptable — "audit produces a
+report identifying classes X/Y/Z", "decision recorded with rationale and options considered".
+The verifiability test still applies: a reader must be able to check the resulting
+\`## Findings\` / \`## Outcome\` section against the criterion. Reject only criteria whose
+satisfaction cannot be judged from the findings text.
+
 #### Gate criterion (c) — Scope is bounded
 
 \`## Scope\` must contain explicit **In scope** and **Out of scope** (or equivalent) lists.
@@ -290,6 +296,11 @@ overlap.
 If no check hits, this criterion passes.
 
 #### Gate criterion (h) — Contract-propagation enumeration
+
+**state-ops kind (mt#455):** report this criterion as **N/A** in the gate output —
+state-ops tasks are no-code/pure-state work and modify no code contracts. (If a
+"state-ops" spec DOES describe contract changes, that's a kind-misclassification gap:
+surface it and recommend \`kind: "implementation"\` instead.)
 
 When the task retires or modifies a contract — a function/type signature, skill text, command
 name, env-var name, config key, or schema field — the spec's \`## Scope\` → \`In scope\` section
@@ -803,6 +814,16 @@ verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requiremen
 
 1. Report the gate summary (all green).
 2. Call \`mcp__minsky__tasks_status_set\` to transition the task to **READY**.
+
+   **state-ops kind — no-session walk (mt#455).** For \`kind: "state-ops"\` tasks, SKIP
+   step 3's \`/implement-task\` chain-walk entirely — state-ops work runs WITHOUT a session
+   (\`session_start\` refuses the kind). Instead, walk the task in main-agent context:
+   (i) \`tasks_status_set\` READY → IN-PROGRESS (a legal direct transition for this kind);
+   (ii) do the investigation / state operation; (iii) record the deliverable in the spec
+   via \`tasks_spec_patch\` under \`## Findings\`, \`## Outcome\`, or \`## Closeout evidence\`;
+   (iv) \`tasks_status_set\` → DONE — the transition is refused unless that evidence
+   section is populated. Then continue the conversation's next step as usual.
+
 3. **Continue the lifecycle: invoke \`/implement-task mt#X\` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use \`/implement-task\` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory \`feedback_auto_mode_chains_skills_at_affirmative_tokens\`, id \`4b83ff51-4bc2-49f5-84be-7e4eac073125\`).
 
    **Only halt before \`/implement-task\` if** one of these explicit halt conditions holds:
