@@ -260,6 +260,17 @@ export interface DrivenSessionRecord {
   readonly permissionMode: PermissionMode;
   readonly argv: string[];
   readonly startedAt: string;
+  /**
+   * Task binding (mt#2752, Rung 2C). Opaque display/link strings recorded at
+   * launch time by the caller (routes/driven-sessions.ts via
+   * ../driven-session-launch.ts) — this module never resolves or mutates
+   * them (the "no domain-layer session mutation" invariant in the module
+   * docblock holds; these are data, not domain calls). Null for untasked
+   * "scratch" sessions.
+   */
+  readonly taskId: string | null;
+  /** The Minsky workspace sessionId the session was launched against (see taskId). */
+  readonly minskySessionId: string | null;
   status: DrivenSessionStatus;
   harnessSessionId: string | null;
   pid: number | undefined;
@@ -353,6 +364,19 @@ export interface StartDrivenSessionOptions {
   cwd: string;
   /** Explicit, logged permission mode (SC6). Defaults to DEFAULT_PERMISSION_MODE. */
   permissionMode?: PermissionMode;
+  /** Task binding recorded on the record (mt#2752) — opaque to this module. */
+  taskId?: string | null;
+  /** Workspace-session binding recorded on the record (mt#2752) — opaque to this module. */
+  minskySessionId?: string | null;
+  /**
+   * Observer invoked once, when the child's `system/init` event links the
+   * harness session id (mt#2752 spawn-time identity registration). The
+   * CALLER owns any domain-side effect (e.g. the `driven_spawn` link write
+   * in ../driven-session-launch.ts) — keeping this module free of domain
+   * imports per the docblock invariant. Errors are caught and logged; a
+   * throwing observer never disturbs the event loop.
+   */
+  onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
   /** Override the claude binary command (test seam — points at a fake). */
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
@@ -394,6 +418,8 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     permissionMode,
     argv,
     startedAt: new Date().toISOString(),
+    taskId: opts.taskId ?? null,
+    minskySessionId: opts.minskySessionId ?? null,
     status: "spawned",
     harnessSessionId: null,
     pid: proc.pid,
@@ -416,7 +442,19 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
       const payload = parseStreamJsonLine(line);
       if (isInitEvent(payload) && !record.harnessSessionId) {
         const harnessSessionId = extractHarnessSessionId(payload);
-        if (harnessSessionId) registry.linkHarnessId(record, harnessSessionId);
+        if (harnessSessionId) {
+          registry.linkHarnessId(record, harnessSessionId);
+          if (opts.onHarnessSessionLinked) {
+            try {
+              opts.onHarnessSessionLinked(record);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              log.error(
+                `[driven-session] onHarnessSessionLinked observer threw for ${record.localId}: ${message}`
+              );
+            }
+          }
+        }
       }
       appendEvent(record, payload);
     }

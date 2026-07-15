@@ -89,6 +89,9 @@ export interface ConversationCandidate {
 export interface WorkspaceDetailPayload extends WorkspaceOverviewFields {
   conversation: { agentSessionId: string } | null;
   conversations: ConversationCandidate[];
+  /** App-started driven session bound to this workspace (mt#2752) — drives
+   *  the "open live drive view" banner. Absent/null for observe-only rows. */
+  driven?: { sessionId: string; status: string } | null;
 }
 
 export interface ConversationOverviewPayload {
@@ -398,8 +401,34 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
     navigate(pathForTab(base, keySpace, value as RunTab));
   }
 
+  // mt#2752 — an app-started driven session bound to this workspace gets a
+  // banner linking to the input-capable drive view (/driven/:id). This is
+  // how a workspace deeplink (minsky://session/<id> -> /agents/:id) reaches
+  // the driven-session view without a new minsky:// URI type (spec SC5;
+  // ADR-022 pins the URI type set).
+  const driven = keySpace === "workspace" ? (workspaceQuery.data?.driven ?? null) : null;
+  const drivenActive = driven != null && (driven.status === "running" || driven.status === "spawned");
+
   return (
     <div className="flex flex-col gap-4">
+      {driven && (
+        <Link
+          to={`/driven/${encodeURIComponent(driven.sessionId)}`}
+          className={`flex items-center gap-2 rounded border px-3 py-2 text-sm transition-colors ${
+            drivenActive
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"
+              : "border-border bg-muted/40 text-muted-foreground hover:bg-accent/40"
+          }`}
+          aria-label={`Open driven session (${driven.status})`}
+        >
+          {drivenActive && (
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+          )}
+          {drivenActive
+            ? "Driven session live — open the drive view to interact"
+            : `Driven session ${driven.status} — open the drive view`}
+        </Link>
+      )}
       <div className="border-b border-border/60">
         <Tabs value={tab} onValueChange={handleTabChange}>
           <TabsList className="h-8 gap-0.5 bg-transparent p-0 border-0">

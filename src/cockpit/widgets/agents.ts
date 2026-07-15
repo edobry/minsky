@@ -77,6 +77,31 @@ export interface AgentRow {
   cwd: string | null;
   /** Subagent conversations collapsed under this row (mt#2767 grouping) — empty when none. */
   subagents: SubagentEntry[];
+  /**
+   * App-started driven-session binding (mt#2752). Non-null when this row IS
+   * a driven session (`kind: "driven-session"`) or when a workspace row has
+   * a driven session attached to it (launched against that workspace).
+   * `sessionId` addresses `/driven/:id`; `status` is the host's lifecycle
+   * status. This is the driven-vs-observed distinction (spec SC4): rows with
+   * `driven` carry the input affordance, rows without stay observe-only.
+   */
+  driven: { sessionId: string; status: string } | null;
+}
+
+/**
+ * Snapshot shape the driven-session source provides (mt#2752) — a structural
+ * subset of ../driven-session-host.ts's DrivenSessionRecord, so the
+ * production factory can pass registry records straight through while tests
+ * construct plain objects.
+ */
+export interface DrivenSessionSnapshot {
+  localId: string;
+  cwd: string;
+  status: string;
+  startedAt: string;
+  taskId: string | null;
+  minskySessionId: string | null;
+  harnessSessionId: string | null;
 }
 
 /** Full payload returned by this widget when state === "ok" */
@@ -136,7 +161,63 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
     conversationId: null,
     cwd: null,
     subagents: [],
+    // Attached from the driven-session registry snapshot (mt#2752) when a
+    // driven session was launched against this workspace.
+    driven: null,
   };
+}
+
+/**
+ * Splice driven-session registry snapshots into the merged row list
+ * (mt#2752): a driven session whose `minskySessionId` matches a visible
+ * workspace row ANNOTATES that row (`row.driven`); every other driven
+ * session (untasked scratch, or workspace not in view) becomes its own
+ * `kind: "driven-session"` row addressed by the driven-session local id.
+ * Exported for direct unit testing.
+ */
+export function spliceDrivenSessions(
+  rows: AgentRow[],
+  driven: DrivenSessionSnapshot[]
+): AgentRow[] {
+  if (driven.length === 0) return rows;
+
+  const byWorkspaceId = new Map<string, AgentRow>();
+  for (const row of rows) {
+    if (row.kind === "dispatched-agent") byWorkspaceId.set(row.sessionId, row);
+  }
+
+  const standalone: AgentRow[] = [];
+  for (const record of driven) {
+    const workspaceRow = record.minskySessionId
+      ? byWorkspaceId.get(record.minskySessionId)
+      : undefined;
+    if (workspaceRow) {
+      // Latest launch wins if several driven sessions target one workspace —
+      // registry order is insertion order, so the last record is newest.
+      workspaceRow.driven = { sessionId: record.localId, status: record.status };
+      continue;
+    }
+    const cwdTail = record.cwd.split("/").filter(Boolean).pop() ?? record.cwd;
+    standalone.push({
+      sessionId: record.localId,
+      kind: "driven-session",
+      // SC3: an untasked scratch session is "clearly labeled" — the kind
+      // badge carries "Driven"; the title marks it scratch when unbound.
+      title: record.taskId ? cwdTail : `Scratch: ${cwdTail}`,
+      liveness: null,
+      taskId: record.taskId,
+      taskTitle: null,
+      prNumber: null,
+      prStatus: null,
+      lastActivityAt: record.startedAt,
+      agentId: null,
+      conversationId: record.harnessSessionId,
+      cwd: record.cwd,
+      subagents: [],
+      driven: { sessionId: record.localId, status: record.status },
+    });
+  }
+  return [...rows, ...standalone];
 }
 
 /**
@@ -177,7 +258,8 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
 export function createAgentsWidget(
   getProvider: () => Promise<SessionProviderInterface>,
   getTaskProvider?: () => Promise<TaskProviderLike>,
-  getConversationDb?: () => Promise<PostgresJsDatabase | null>
+  getConversationDb?: () => Promise<PostgresJsDatabase | null>,
+  getDrivenSessions?: () => DrivenSessionSnapshot[]
 ): WidgetModule {
   const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
   // mt#2767 latency follow-up — short-TTL cache in front of the conversation
@@ -272,11 +354,23 @@ export function createAgentsWidget(
                 row.subagents = attrs.subagents;
               }
             }
-            standaloneRows = merge.standaloneRows.map((r) => ({ ...r }));
+            standaloneRows = merge.standaloneRows.map((r) => ({ ...r, driven: null }));
           }
         }
 
-        const merged = [...workspaceRows, ...standaloneRows];
+        // mt#2752 — splice in app-started driven sessions (annotate matching
+        // workspace rows; standalone rows for scratch/unmatched). The
+        // snapshot source is synchronous (in-process registry) and empty on
+        // deployments with no local driven-session host (e.g. Railway).
+        let drivenSnapshots: DrivenSessionSnapshot[] = [];
+        if (getDrivenSessions) {
+          try {
+            drivenSnapshots = getDrivenSessions();
+          } catch {
+            drivenSnapshots = [];
+          }
+        }
+        const merged = spliceDrivenSessions([...workspaceRows, ...standaloneRows], drivenSnapshots);
         const totalCount = merged.length;
         const agents = isPaginated ? merged.slice(offset ?? 0, (offset ?? 0) + limit) : merged;
 
@@ -361,9 +455,31 @@ async function defaultConversationDbFactory(): Promise<PostgresJsDatabase | null
   return getContextInspectorDb();
 }
 
+// ---------------------------------------------------------------------------
+// Default driven-session snapshot source (mt#2752) — reads the daemon-local
+// in-process registry (../driven-session-host.ts). Static import is safe:
+// the host module has no heavyweight/domain dependencies by design, and
+// deployments that never spawn driven sessions just see an empty registry.
+// ---------------------------------------------------------------------------
+
+import { drivenSessionRegistry } from "../driven-session-host";
+
+function defaultDrivenSessionsFactory(): DrivenSessionSnapshot[] {
+  return drivenSessionRegistry.list().map((record) => ({
+    localId: record.localId,
+    cwd: record.cwd,
+    status: record.status,
+    startedAt: record.startedAt,
+    taskId: record.taskId,
+    minskySessionId: record.minskySessionId,
+    harnessSessionId: record.harnessSessionId,
+  }));
+}
+
 /** Default agents widget — ready to drop into WIDGET_REGISTRY */
 export const agentsWidget: WidgetModule = createAgentsWidget(
   defaultProviderFactory,
   defaultTaskProviderFactory,
-  defaultConversationDbFactory
+  defaultConversationDbFactory,
+  defaultDrivenSessionsFactory
 );
