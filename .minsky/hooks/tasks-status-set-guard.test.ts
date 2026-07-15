@@ -220,10 +220,30 @@ describe("checkTransition — kind-aware dispatch (mt#1862)", () => {
     expect(r.reason).toContain("session_start");
   });
 
-  it("allows IN-PROGRESS -> COMPLETED for kind=umbrella", () => {
+  it(
+    "denies IN-PROGRESS -> COMPLETED for kind=umbrella (mt#2311: single DONE terminal " +
+      "supersedes mt#1812's per-kind COMPLETED)",
+    () => {
+      // mt#1812 originally gave each kind its own COMPLETED terminal; mt#2311
+      // (principal decision, 2026-06-05) superseded that with a single DONE
+      // terminal across all kinds. The umbrella workflow (workflows.ts ~line
+      // 226) has no COMPLETED state at all — IN-PROGRESS only transitions to
+      // DONE or CLOSED.
+      const r = checkTransition(
+        TARGET,
+        { taskId: "mt#1862", status: "COMPLETED" },
+        withKind("IN-PROGRESS", "umbrella")
+      );
+      expect(r.decision).toBe("deny");
+      expect(r.reason).toContain("IN-PROGRESS");
+      expect(r.reason).toContain("COMPLETED");
+    }
+  );
+
+  it("allows IN-PROGRESS -> DONE for kind=umbrella (mt#2311 single success terminal)", () => {
     const r = checkTransition(
       TARGET,
-      { taskId: "mt#1862", status: "COMPLETED" },
+      { taskId: "mt#1862", status: "DONE" },
       withKind("IN-PROGRESS", "umbrella")
     );
     expect(r.decision).toBe("allow");

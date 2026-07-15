@@ -306,26 +306,35 @@ describe("appendGuardGrant", () => {
   });
 
   it("appends to existing grants, preserving prior entries", () => {
+    // Both grants are issued at fixture NOW with the default 30-minute TTL, so
+    // passing NOW as the injectable clock (mt#2839) keeps neither expired —
+    // deterministic regardless of when this suite actually runs. Without an
+    // injectable clock this test silently time-bombed: appendGuardGrant used
+    // to prune with real Date.now(), so `existing` (issued at fixture NOW)
+    // read as expired the moment the real wall clock passed NOW + 30min.
     const existing = makeGrant({ scope: "mt#1" });
     const fakeFs = makeFakeFs({
       [MOCK_STORE_PATH]: JSON.stringify({ grants: [existing] }),
     });
-    appendGuardGrant(MOCK_STORE_PATH, makeGrant({ scope: "mt#2" }), fakeFs);
+    appendGuardGrant(MOCK_STORE_PATH, makeGrant({ scope: "mt#2" }), fakeFs, NOW);
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.grants).toHaveLength(2);
     expect(written.grants.map((g: GuardGrant) => g.scope).sort()).toEqual(["mt#1", "mt#2"]);
   });
 
   it("prunes already-expired grants when appending", () => {
+    // Expired relative to fixture NOW (not the real wall clock, mt#2839): issued
+    // 24h before NOW with a 1-minute TTL, so it is well past its expiry at NOW
+    // regardless of when this suite actually runs.
     const longExpired = makeGrant({
       scope: "mt#old",
-      issuedAt: new Date(NOW - 1000 * 60 * 60 * 24).toISOString(), // 24h ago
-      ttlMs: 60 * 1000, // 1 minute TTL — long expired by "now" (Date.now())
+      issuedAt: new Date(NOW - 1000 * 60 * 60 * 24).toISOString(), // 24h before fixture NOW
+      ttlMs: 60 * 1000, // 1 minute TTL — expired well before fixture NOW
     });
     const fakeFs = makeFakeFs({
       [MOCK_STORE_PATH]: JSON.stringify({ grants: [longExpired] }),
     });
-    appendGuardGrant(MOCK_STORE_PATH, makeGrant({ scope: "mt#new" }), fakeFs);
+    appendGuardGrant(MOCK_STORE_PATH, makeGrant({ scope: "mt#new" }), fakeFs, NOW);
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.grants).toHaveLength(1);
     expect(written.grants[0].scope).toBe("mt#new");
