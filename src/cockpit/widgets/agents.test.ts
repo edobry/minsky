@@ -445,3 +445,101 @@ describe("createAgentsWidget — pagination and caching", () => {
     expect(agents.find((a) => a.sessionId === S1)?.taskTitle).toBe("Title mt#100");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Driven-session splice (mt#2752)
+// ---------------------------------------------------------------------------
+
+import { spliceDrivenSessions } from "./agents";
+import type { DrivenSessionSnapshot } from "./agents";
+
+const DRIVEN_LOCAL_ID = "dddddddd-0000-0000-0000-000000000001";
+
+function makeDrivenSnapshot(overrides: Partial<DrivenSessionSnapshot> = {}): DrivenSessionSnapshot {
+  return {
+    localId: DRIVEN_LOCAL_ID,
+    cwd: "/fixture-state/sessions/aaaaaaaa-0000-0000-0000-000000000001",
+    status: "running",
+    startedAt: NOW.toISOString(),
+    taskId: "mt#9999",
+    minskySessionId: "aaaaaaaa-0000-0000-0000-000000000001",
+    harnessSessionId: null,
+    ...overrides,
+  };
+}
+
+describe("spliceDrivenSessions", () => {
+  test("annotates the matching workspace row instead of adding a new row", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ taskId: "mt#9999" })]),
+      undefined,
+      undefined,
+      () => [makeDrivenSnapshot()]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+
+    expect(agents.length).toBe(1);
+    const row = agents[0];
+    expect(row?.kind).toBe("dispatched-agent");
+    expect(row?.driven).toEqual({
+      sessionId: DRIVEN_LOCAL_ID,
+      status: "running",
+    });
+  });
+
+  test("emits a standalone driven-session row for an untasked scratch session", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([]),
+      undefined,
+      undefined,
+      () => [
+        makeDrivenSnapshot({
+          taskId: null,
+          minskySessionId: null,
+          cwd: "/Users/op/projects/minsky",
+          harnessSessionId: "cccccccc-0000-0000-0000-000000000003",
+        }),
+      ]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+
+    expect(agents.length).toBe(1);
+    const row = agents[0];
+    expect(row?.kind).toBe("driven-session");
+    expect(row?.sessionId).toBe(DRIVEN_LOCAL_ID);
+    expect(row?.title).toBe("Scratch: minsky");
+    expect(row?.taskId).toBeNull();
+    expect(row?.conversationId).toBe("cccccccc-0000-0000-0000-000000000003");
+    expect(row?.driven?.status).toBe("running");
+  });
+
+  test("emits a standalone row when the bound workspace is not in view", () => {
+    const rows: AgentRow[] = [];
+    const result = spliceDrivenSessions(rows, [makeDrivenSnapshot()]);
+    expect(result.length).toBe(1);
+    expect(result[0]?.kind).toBe("driven-session");
+    // Task binding is preserved on the standalone row.
+    expect(result[0]?.taskId).toBe("mt#9999");
+  });
+
+  test("a throwing snapshot source degrades to no driven rows, not a widget error", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession()]),
+      undefined,
+      undefined,
+      () => {
+        throw new Error("registry unavailable");
+      }
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents.length).toBe(1);
+    expect(agents[0]?.driven).toBeNull();
+  });
+});

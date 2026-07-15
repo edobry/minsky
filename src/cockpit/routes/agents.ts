@@ -138,6 +138,22 @@ export function mountAgentRoutes(app: express.Express): void {
       const { pickBestConversationLink } = await import("../session-detail");
       const conversation = pickBestConversationLink(conversations);
 
+      // mt#2752 — surface an app-started driven session bound to this
+      // workspace (newest first if several), so the run-detail page can
+      // offer the live drive view (/driven/:id). In-process registry read;
+      // empty on deployments with no driven-session host.
+      let driven: { sessionId: string; status: string } | null = null;
+      try {
+        const { drivenSessionRegistry } = await import("../driven-session-host");
+        const bound = drivenSessionRegistry
+          .list()
+          .filter((r) => r.minskySessionId === sessionId)
+          .at(-1);
+        if (bound) driven = { sessionId: bound.localId, status: bound.status };
+      } catch {
+        driven = null;
+      }
+
       res.json({
         session,
         commits,
@@ -147,6 +163,7 @@ export function mountAgentRoutes(app: express.Express): void {
           agentSessionId: c.agentSessionId,
           startedAt: c.startedAt,
         })),
+        driven,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
