@@ -64,47 +64,114 @@ function resolveModuleFilePath(specifier: string): string {
 }
 
 /**
- * Remove the first `if (import.meta.main) { ... }` block from `source`,
- * using brace-balance counting to find the matching close (handles nested
- * braces inside the block correctly, unlike a naive non-greedy regex).
- * Returns `source` UNCHANGED if no such block is found at all — callers
- * distinguish "no gate present" from "gate present" via a separate check.
+ * Strip EVERY `if (import.meta.main) { ... }` gate block from `source`
+ * (looping until none remain — PR #1948 R1 fix: a single-pass strip only
+ * removed the FIRST such block, so a file with more than one gate would
+ * leave a second gate's legitimately-guarded `main()` call in the
+ * remainder and false-positive it as ungated). Brace-balance counting finds
+ * each block's matching close (handles nested braces correctly, unlike a
+ * naive non-greedy regex).
+ *
+ * Also strips the no-braces one-liner form, `if (import.meta.main) <stmt>;`
+ * (e.g. `if (import.meta.main) main();`) — a valid gate shape the
+ * brace-balance walker doesn't recognize on its own (PR #1948 R1 fix: this
+ * form previously false-positived as ungated).
  */
-function stripEntrypointGateBlock(source: string): string {
-  const gateRe = /if\s*\(\s*import\.meta\.main\s*\)\s*\{/;
-  const match = gateRe.exec(source);
-  if (!match) return source;
+function stripEntrypointGateBlocks(source: string): string {
+  let result = source;
+  const braceGateRe = /if\s*\(\s*import\.meta\.main\s*\)\s*\{/;
+  for (;;) {
+    const match = braceGateRe.exec(result);
+    if (!match) break;
 
-  const openBraceIdx = match.index + match[0].length - 1;
-  let depth = 0;
-  let endIdx = -1;
-  for (let i = openBraceIdx; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        endIdx = i;
-        break;
+    const openBraceIdx = match.index + match[0].length - 1;
+    let depth = 0;
+    let endIdx = -1;
+    for (let i = openBraceIdx; i < result.length; i++) {
+      const ch = result[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
       }
     }
-  }
-  if (endIdx === -1) return source; // malformed (unbalanced braces) — leave as-is, don't crash
+    if (endIdx === -1) break; // malformed (unbalanced braces) — bail rather than loop forever
 
-  return source.slice(0, match.index) + source.slice(endIdx + 1);
+    result = result.slice(0, match.index) + result.slice(endIdx + 1);
+  }
+
+  // One-liner (no-brace) gate form: `if (import.meta.main) <stmt>;` — strip
+  // every occurrence, not just the first (`g` flag).
+  const oneLinerGateRe = /if\s*\(\s*import\.meta\.main\s*\)\s*(?!\{)[^;{}]*;/g;
+  result = result.replace(oneLinerGateRe, "");
+
+  return result;
 }
 
 /**
- * True iff `source` contains a bare top-level call invoking `main(...)` —
- * i.e. a source line (module scope, arbitrary leading whitespace) that
- * starts with `main()` or `await main()`. Deliberately does NOT match
- * function declarations (`function main(`, `async function main(`,
- * `export function main(`) since those never start a line with the literal
- * token `main(` or `await main(`.
+ * True iff `source` contains an UNGATED call to `main(...)` — a zero-arg
+ * invocation of the identifier `main`, in ANY position (not just
+ * line-start — PR #1948 R1 fix: the original line-anchored regex missed a
+ * call embedded mid-line, e.g. inside a same-line `if (x) main().catch(...)`,
+ * and missed IIFE-wrapped forms like `(async () => { await main(); })();`
+ * where the call sits on an indented inner line but the OUTER expression is
+ * what's actually ungated).
+ *
+ * Excludes two shapes that are never the regression this test guards
+ * against:
+ *   - Function DECLARATIONS (`function main(`, `async function main(`,
+ *     `export function main(`) — defining `main` is not invoking it.
+ *   - Property/method calls on some other value (`obj.main()`,
+ *     `this.main()`) — a call to a DIFFERENT `main`, not this file's own
+ *     module-scope entrypoint function.
+ *
+ * `source` is expected to already have every `if (import.meta.main) { ... }`
+ * / one-liner gate block stripped via {@link stripEntrypointGateBlocks} —
+ * this function has no gate-awareness of its own.
  */
 function hasUngatedMainCall(source: string): boolean {
-  return /^[ \t]*(?:await\s+)?main\(\s*\)/m.test(source);
+  const callRe = /\bmain\s*\(\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = callRe.exec(source)) !== null) {
+    const before = source.slice(0, match.index).trimEnd();
+    if (before.endsWith("function")) continue; // "function main(" / "async function main(" declaration
+    if (before.endsWith(".")) continue; // "obj.main()" — a different main, not this file's entrypoint
+    return true;
+  }
+  return false;
 }
+
+/**
+ * Strip `//` line comments and `/* ... *\/` block comments from `source` — a
+ * pragmatic (not fully lexical) pass, sufficient for this scanner's guard
+ * files. NEEDED because several guards' own JSDoc/header comments literally
+ * say things like "Mirrors `main()`'s orchestration" in prose (documenting
+ * the `run()` ⇄ `main()` relationship per ADR-028 Phase 2a/2b) — without
+ * stripping comments first, {@link hasUngatedMainCall}'s token scan
+ * false-positives on every such mention (confirmed empirically: the
+ * unstripped scan flagged all 15 real UserPromptSubmit guards). Not a
+ * general-purpose lexer — does not special-case `//`/`/*` occurring inside
+ * string or template literals — but none of the files under scan embed
+ * either inside a string in a way that would collide with a real call site.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+}
+
+/** Full pipeline: strip comments, then strip every entrypoint-gate block, leaving only the code a real `main()` invocation could live in. */
+function toScannableSource(source: string): string {
+  return stripEntrypointGateBlocks(stripComments(source));
+}
+
+// Shared fixture fragments — extracted to constants (rather than repeated
+// per-test string literals) to avoid `custom/no-magic-string-duplication`
+// warnings across the many small fixtures below.
+const MAIN_DECL = "async function main(): Promise<void> {\n  return;\n}";
+const GATE_BRACE_OPEN = "if (import.meta.main) {";
+const GATE_ONE_LINER_PREFIX = "if (import.meta.main)";
 
 describe("GUARD_REGISTRY entrypoint-gate parity (mt#2835)", () => {
   test("no registered guard module executes module-level main() ungated by if (import.meta.main)", () => {
@@ -114,9 +181,8 @@ describe("GUARD_REGISTRY entrypoint-gate parity (mt#2835)", () => {
       const specifier = resolveModuleSpecifier(reg.module);
       const filePath = resolveModuleFilePath(specifier);
       const source = readFileSync(filePath, "utf8");
-      const withoutGate = stripEntrypointGateBlock(source);
 
-      if (hasUngatedMainCall(withoutGate)) {
+      if (hasUngatedMainCall(toScannableSource(source))) {
         ungated.push(reg.name);
       }
     }
@@ -124,31 +190,117 @@ describe("GUARD_REGISTRY entrypoint-gate parity (mt#2835)", () => {
     expect(ungated).toEqual([]);
   });
 
-  test("sanity: the scanner actually detects an ungated main() call (regression-detection self-check)", () => {
-    const fixtureSource = [
-      "async function main(): Promise<void> {",
-      "  return;",
-      "}",
-      "",
-      "main().catch(() => process.exit(0));",
-      "",
-    ].join("\n");
+  test("sanity: the scanner correctly ignores `main()` mentioned only in a comment (comment-stripping self-check)", () => {
+    const fixtureSource = `// Mirrors \`main()\`'s orchestration but returns a GuardOutcome instead
+/**
+ * Guard-dispatcher entry point. Mirrors \`main()\`'s orchestration.
+ */
+${MAIN_DECL}
+${GATE_BRACE_OPEN}
+  await main();
+}
+`;
 
-    expect(hasUngatedMainCall(stripEntrypointGateBlock(fixtureSource))).toBe(true);
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
   });
 
-  test("sanity: a properly-gated main() call is not flagged", () => {
-    const fixtureSource = [
-      "async function main(): Promise<void> {",
-      "  return;",
-      "}",
-      "",
-      "if (import.meta.main) {",
-      "  await main();",
-      "}",
-      "",
-    ].join("\n");
+  test("sanity: the scanner actually detects an ungated main() call (regression-detection self-check)", () => {
+    const fixtureSource = `${MAIN_DECL}
+main().catch(() => process.exit(0));
+`;
 
-    expect(hasUngatedMainCall(stripEntrypointGateBlock(fixtureSource))).toBe(false);
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(true);
+  });
+
+  test("sanity: a properly-gated main() call (brace form) is not flagged", () => {
+    const fixtureSource = `${MAIN_DECL}
+${GATE_BRACE_OPEN}
+  await main();
+}
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
+  });
+
+  test("sanity: a properly-gated main() call (no-brace one-liner form) is not flagged (PR #1948 R1)", () => {
+    const fixtureSource = `${MAIN_DECL}
+${GATE_ONE_LINER_PREFIX} main();
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
+  });
+
+  test("sanity: a properly-gated no-brace one-liner using await main() is not flagged", () => {
+    const fixtureSource = `${MAIN_DECL}
+${GATE_ONE_LINER_PREFIX} await main();
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
+  });
+
+  test("sanity: an ungated IIFE-wrapped main() call is flagged (PR #1948 R1)", () => {
+    const fixtureSource = `${MAIN_DECL}
+(async () => {
+  await main();
+})();
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(true);
+  });
+
+  test("sanity: a gated IIFE-wrapped main() call is not flagged", () => {
+    const fixtureSource = `${MAIN_DECL}
+${GATE_BRACE_OPEN}
+  await (async () => {
+    await main();
+  })();
+}
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
+  });
+
+  test("sanity: an ungated same-line call after other code is flagged (line-start-anchoring gap, PR #1948 R1)", () => {
+    const fixtureSource = `${MAIN_DECL}
+if (someUnrelatedCondition) main().catch(() => process.exit(0));
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(true);
+  });
+
+  test("sanity: an ungated void main() call is flagged (mixed-shape coverage, PR #1948 R1)", () => {
+    const fixtureSource = `${MAIN_DECL}
+void main();
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(true);
+  });
+
+  test("sanity: multiple gate blocks in one file are ALL stripped, not just the first (PR #1948 R1)", () => {
+    const fixtureSource = `${MAIN_DECL}
+if (someFlag) {
+  doSomethingUnrelated();
+}
+
+${GATE_BRACE_OPEN}
+  await main();
+}
+
+${GATE_BRACE_OPEN}
+  console.log('a second, redundant gate block — still must not false-positive');
+}
+`;
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
+  });
+
+  test("sanity: a call to an unrelated object's .main() method is not flagged (false-positive guard)", () => {
+    const fixtureSource = "someModule.main();\n";
+
+    expect(hasUngatedMainCall(toScannableSource(fixtureSource))).toBe(false);
+  });
+
+  test("sanity: a bare function declaration with no invocation at all is not flagged", () => {
+    expect(hasUngatedMainCall(toScannableSource(MAIN_DECL))).toBe(false);
   });
 });
