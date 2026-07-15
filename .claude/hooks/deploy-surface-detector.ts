@@ -35,25 +35,38 @@ import {
 export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile };
 
 /**
- * Filter a PR's changed files to the deploy-surface ones (by new path, OR by the
- * pre-rename path so a rename AWAY from a deploy surface — e.g. `Dockerfile` →
- * `Dockerfile.bak` — still counts as a deploy change). ALL statuses are
- * considered, including `removed`: deleting a deploy-config file is a
- * deploy-impacting change too.
+ * Filter a PR's changed files to the deploy-surface ones.
  *
- * mt#2809 root-cause fix: previously guarded the `previous_filename` branch
- * with `f.previous_filename !== undefined`. At runtime `previous_filename`
- * is `null` (not `undefined`) for every non-renamed file — see the `PrFile`
- * doc comment in `./pr-context` for why — so `null !== undefined` evaluated
- * to `true` and fed `null` straight into `isDeploySurfaceFile`, crashing
+ * TWO independent checks, either of which qualifies a file:
+ *   1. `isDeploySurfaceFile(f.filename)` — runs UNCONDITIONALLY for every
+ *      entry, regardless of `status` or `previous_filename`. This is what
+ *      covers `removed` (and `added`/`modified`/etc.): a file's own
+ *      `filename` is ALWAYS present per GitHub's PR-files API, deletion
+ *      included — deleting a deploy-config file is a deploy-impacting
+ *      change too, and this check alone classifies it correctly with zero
+ *      dependency on `previous_filename`.
+ *   2. `isDeploySurfaceFile(f.previous_filename)` — an ADDITIONAL check that
+ *      only ever matters for a `renamed`/`copied` entry (the one status pair
+ *      where GitHub actually populates `previous_filename` with a real
+ *      path). It exists so a rename AWAY from a deploy surface — e.g.
+ *      `Dockerfile` → `Dockerfile.bak` — still counts as a deploy change
+ *      even though the NEW filename no longer matches.
+ *
+ * mt#2809 root-cause fix: check 2 used to be guarded by
+ * `f.previous_filename !== undefined`. At runtime `previous_filename` is
+ * `null` (not `undefined`) for every NON-renamed file — see the `PrFile` doc
+ * comment in `./pr-context` for why — so `null !== undefined` evaluated to
+ * `true` and fed `null` straight into `isDeploySurfaceFile`, crashing
  * `normalisePath` on ~every file in ~every PR (observed: 8/8 and 10/10
  * merges). `isDeploySurfaceFile` is now itself null-safe (returns `false`
  * for a non-string input, per `packages/domain/src/deployment/deploy-surface.ts`),
  * so the explicit presence check is no longer needed at all: calling it
- * unconditionally is both simpler and correct — `null`/`undefined`
- * `previous_filename` naturally evaluates to `false` (not a rename away from
- * a deploy surface), and a real rename's `previous_filename` string is
- * classified normally.
+ * unconditionally is both simpler and correct — a `null`/`undefined`
+ * `previous_filename` (every status OTHER than renamed/copied, including
+ * `removed`) naturally evaluates check 2 to `false` and falls through to
+ * check 1, which is unaffected. See the "classifies via filename regardless
+ * of previous_filename value" test in the sibling `.test.ts` for an explicit
+ * proof this does not regress removed-file handling.
  */
 export function findDeploySurfaceFiles(files: PrFile[]): string[] {
   return files

@@ -9,6 +9,7 @@ import type { PrFile } from "./require-execution-evidence-before-merge";
 const INFRA_INDEX = "infra/index.ts";
 const REVIEWER_RAILWAY_JSON = "services/reviewer/railway.json";
 const REVIEWER_DOCKERFILE = "services/reviewer/Dockerfile";
+const REVIEWER_DEPLOY_CONFIG = "services/reviewer/deploy.config.ts";
 
 describe("isDeploySurfaceFile (mt#2353)", () => {
   test("matches the infra/** infra-as-code tree", () => {
@@ -77,8 +78,27 @@ describe("findDeploySurfaceFiles (mt#2353)", () => {
   });
 
   test("flags a removed deploy-config file", () => {
-    const files: PrFile[] = [f("services/reviewer/deploy.config.ts", "removed")];
-    expect(findDeploySurfaceFiles(files)).toEqual(["services/reviewer/deploy.config.ts"]);
+    const files: PrFile[] = [f(REVIEWER_DEPLOY_CONFIG, "removed")];
+    expect(findDeploySurfaceFiles(files)).toEqual([REVIEWER_DEPLOY_CONFIG]);
+  });
+
+  // mt#2809 PR #1951 R1: explicit proof that removed-file classification is
+  // via `filename` UNCONDITIONALLY and does NOT depend on `previous_filename`
+  // in any way -- including the actual runtime shape where a removed file's
+  // `previous_filename` is a literal `null` (removed files never carry a
+  // previous_filename; GitHub only sets it for renamed/copied). The
+  // `isDeploySurfaceFile(f.filename)` check runs first and unconditionally
+  // for every entry, so a `null` (or even a garbage) `previous_filename` on a
+  // removed file has zero effect on classification.
+  test("mt#2809: a removed deploy-config file classifies via filename regardless of previous_filename value", () => {
+    const files = [
+      {
+        filename: REVIEWER_DEPLOY_CONFIG,
+        status: "removed",
+        previous_filename: null,
+      },
+    ] as unknown as PrFile[];
+    expect(findDeploySurfaceFiles(files)).toEqual([REVIEWER_DEPLOY_CONFIG]);
   });
 
   test("mt#2345 incident reproduction: infra/index.ts + services/reviewer/railway.json", () => {
