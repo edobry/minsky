@@ -208,11 +208,11 @@ async function callMcpTool(
  * sweeper filed adoption follow-ups even for adopted signals. The test
  * fixture asserted the same imagined shape, masking the bug.)
  *
- * Production-callsite semantics (the intent of the pre-mt#2778 undeclared
- * `includePattern`/`excludePattern` keys, restored here): the grep is scoped
- * to `src/` via the declared `path` param (a plain-directory git pathspec),
- * and match lines are counted only when the file path ends in `.ts` but not
- * `.test.ts`.
+ * Counting semantics: one count per matching grep line in a production
+ * TypeScript file (see {@link isProductionTsPath}). Lines without a
+ * `<path>:` prefix — blanks, and `git grep`'s "Binary file X matches"
+ * shape — carry no colon-terminated path and are dropped by the parse
+ * guard below.
  */
 async function countCallsites(
   mcpUrl: string,
@@ -223,7 +223,6 @@ async function countCallsites(
 
   const resultText = await callMcpTool(mcpUrl, mcpToken, "repo_search", {
     pattern,
-    path: "src",
   });
 
   if (!resultText) return 0;
@@ -237,13 +236,43 @@ async function countCallsites(
 
     return parsed.output.split("\n").filter((line) => {
       const sep = line.indexOf(":");
-      if (sep <= 0) return false; // blank or malformed line
-      const filePath = line.slice(0, sep);
-      return filePath.endsWith(".ts") && !filePath.endsWith(".test.ts");
+      if (sep <= 0) return false; // blank, malformed, or "Binary file ... matches" line
+      return isProductionTsPath(line.slice(0, sep));
     }).length;
   } catch {
     return 0;
   }
+}
+
+/**
+ * Test-infrastructure path segments excluded from the production-callsite
+ * count (mt#2781, PR #1947 R1): suffix-based test files plus the repo's
+ * test-infrastructure directory conventions.
+ */
+const TEST_PATH_SEGMENTS = [
+  "/tests/",
+  "/__tests__/",
+  "/__fixtures__/",
+  "/test-utils/",
+  "/test-helpers/",
+] as const;
+
+/**
+ * Path-based predicate: is this a production (non-test) TypeScript file?
+ *
+ * Production means any `.ts` file in the repo — `src/`, `packages/`,
+ * `services/`, `scripts/`, hooks — that is not a test file (`.test.ts`,
+ * `.spec.ts`) and does not live under a test-infrastructure directory.
+ * Deliberately repo-wide (PR #1947 R1 BLOCKING): production source spans
+ * multiple roots post-`packages/` extraction, so scoping the grep to `src/`
+ * would undercount adopted signals and re-create the false-positive
+ * follow-up bug this task fixes.
+ */
+function isProductionTsPath(filePath: string): boolean {
+  if (!filePath.endsWith(".ts")) return false;
+  if (filePath.endsWith(".test.ts") || filePath.endsWith(".spec.ts")) return false;
+  const normalized = `/${filePath}`;
+  return !TEST_PATH_SEGMENTS.some((segment) => normalized.includes(segment));
 }
 
 // ---------------------------------------------------------------------------

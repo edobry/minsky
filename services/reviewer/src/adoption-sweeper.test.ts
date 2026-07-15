@@ -378,10 +378,50 @@ describe("runAdoptionSweep — gap detection", () => {
     // Test-file matches do not count as adoption — the gap IS filed.
     expect(result.totalGapsFiled).toBe(1);
     expect(createdTaskIds).toContain(ADOPTION_TASK_ID_202);
-    // The call sends only declared params (post-mt#2778 boundary) and scopes to src/.
+    // The call sends only declared params (post-mt#2778 boundary). Repo-wide
+    // grep (no path scoping) per PR #1947 R1 — production source spans
+    // src/, packages/, services/.
     expect(repoSearchArgs).toBeDefined();
-    expect(repoSearchArgs?.path).toBe("src");
-    expect(Object.keys(repoSearchArgs ?? {}).sort()).toEqual(["path", "pattern"]);
+    expect(Object.keys(repoSearchArgs ?? {})).toEqual(["pattern"]);
+  });
+
+  it("counts production paths across repo roots; excludes .spec.ts, test dirs, and binary lines (mt#2781 R1)", async () => {
+    const tasks: FakeTask[] = [{ id: "mt#204", status: "DONE" }];
+    let tasksCreateCalled = false;
+
+    // 3 production lines (src/, packages/, services/) + 5 excluded shapes.
+    const output = [
+      "src/foo.ts:10:const x = someSignal();",
+      "packages/domain/src/bar.ts:20:const y = someSignal();",
+      "services/reviewer/src/baz.ts:30:const z = someSignal();",
+      "src/foo.spec.ts:1:const t = someSignal();", // .spec.ts excluded
+      "tests/adapters/thing.ts:2:const t = someSignal();", // tests/ dir excluded
+      "src/utils/test-utils/mocking.ts:3:const t = someSignal();", // test-utils/ excluded
+      "docs/guide.md:4:someSignal usage", // non-.ts excluded
+      "Binary file assets/blob.bin matches", // git-grep binary line ignored
+    ].join("\n");
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as {
+        params: { name: string; arguments: Record<string, unknown> };
+      };
+      const toolName = body.params.name;
+
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
+      if (toolName === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
+      if (toolName === "repo_search") return mcpResponse({ success: true, output });
+      if (toolName === "tasks_create") {
+        tasksCreateCalled = true;
+        return tasksCreateResponse("should-not-be-created");
+      }
+      throw new Error(`Unexpected tool call: ${toolName}`);
+    };
+
+    const result = await runAdoptionSweep(BASE_DEPS);
+
+    // 3 production callsites counted → adopted → no follow-up filed.
+    expect(result.totalGapsFiled).toBe(0);
+    expect(tasksCreateCalled).toBe(false);
   });
 
   it("counts mixed production+test matches by production lines only (mt#2781)", async () => {
