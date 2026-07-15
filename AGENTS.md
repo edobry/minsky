@@ -1525,312 +1525,269 @@ Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batch
 
 # Hook Files
 
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates
-`644` by default. Pre-commit hook enforces this.
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Write` tool creates
+`644` by default — pre-commit enforces this).
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620).** Each entry below is a
-terse index: purpose, hook file, trigger, override env var, fail posture, doc pointer. Incident
-narration, worked examples, and cross-reference blocks moved to the linked doc — read the doc for
-"why", this rule for "what to do this turn."
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
+below is a file in that directory. Entries are a terse index (trigger, hook, override, fail posture,
+doc); narration lives in the linked doc.
 
 ## Vocabulary (mt#2626)
 
-**"Hook"** here names the Claude Code registration mechanics only (`PreToolUse`/`PostToolUse`/
-`UserPromptSubmit`/etc. files under `.claude/hooks/` and `.minsky/hooks/`). The domain noun for the
-conceptual mechanism a hook implements is **"interlock"** (docs/cockpit UI copy); "Guard" naming in
-section headers below is left as-is pending a future corpus pass.
+**"Hook"** = the Claude Code registration mechanics; the domain noun for the mechanism is
+**"interlock"** (docs/cockpit copy). "Guard" naming is pending a corpus pass.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
-A shared in-process framework (`.minsky/hooks/registry.ts` + `.minsky/hooks/dispatcher.ts` + per-event entrypoints
-`dispatch-pretooluse.ts` / `dispatch-userpromptsubmit.ts`) letting multiple guards share ONE spawned
-Bun process per lifecycle event. Ships inert; only guards with a `GUARD_REGISTRY` entry run through
-it. Migrated: `check-guessed-session-path` (Phase 1); the full `UserPromptSubmit` event (Phase 2,
-mt#2652 + mt#2687) — 15 guards across two sub-waves, taking this event from 14 spawns/turn to 1:
-Phase 2a's six guidance detectors (`substrate-bypass-detector`, `retrospective-trigger-scanner`,
-`pre-narration-detector`, `causal-premise-detector`, `code-mechanism-assertion-detector`,
-`ask-routing-deferral-detector`) and Phase 2b's remaining nine (`auto-session-title`,
-`inject-current-time`, `inject-git-state`, `inject-prod-state`, `inject-dispatch-watchdog`,
-`memory-search`, `skill-staleness-detector`, `mcp-daemon-staleness-detector`,
-`calibration-review-cadence-detector`). `policy-coverage-detector` is NOT part of this family — it's
-registered on `PreToolUse`, not `UserPromptSubmit`, despite being named among the detectors in both
-phases' specs (recorded as a spec discrepancy each time). Every other guard below (PreToolUse,
-PostToolUse, Stop, etc.) is still a standalone `settings.json` registration. Full history:
-`docs/architecture/hooks/guard-dispatcher-framework.md`, `docs/architecture/adr-028-*.md`.
+A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
+entrypoints) so multiple guards share ONE spawned Bun process per event; only
+`GUARD_REGISTRY`-listed guards run through it. Migrated: `check-guessed-session-path` (Phase 1, mt#2650);
+the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc). `policy-coverage-detector` is NOT in this family: it is registered on
+`PreToolUse` (both phases' specs named it — recorded spec discrepancy). Every other guard
+below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md`, ADR-028.
 
 **Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
-alongside its existing `if (import.meta.main)` CLI entrypoint. `ctx` (built once per invocation)
-carries `hostCapSec`/`budgets` and, when present, `transcriptLines` (via `resolveTranscriptCandidates`/
-`parseTranscript`, mt#2637) — guards read these from `ctx`, never re-derive, closing the
-"naive-transcript-read breaks for background subagents" bug class at the framework boundary.
+alongside its CLI entrypoint; `ctx` carries `hostCapSec`/`budgets`/`transcriptLines` (mt#2637) —
+read from `ctx`, never re-derive (closes the background-subagent transcript-read bug).
 
 **Dispatcher host-cap budget model (load-bearing).** A dispatcher's `settings.json` `timeout` is the
-HOST CAP for the whole process; every matched guard runs SEQUENTIALLY within it — so the entry's
-timeout must cover the FAMILY'S worst-case SUM, not any single guard's budget. Copying one guard's old
-timeout onto a multi-guard entry silently starves guards after the first. Size a newly-migrated
-family's entry to at least the sum of the guards' pre-migration individual timeouts.
+HOST CAP for the whole process and matched guards run SEQUENTIALLY within it — size a family's entry
+to at least the SUM of its guards' pre-migration timeouts, never one guard's budget.
 
 **Recompile rule (mt#2304 — load-bearing).** Source lives in `.minsky/hooks/`; `.claude/hooks/*` is
 GENERATED. After editing `.minsky/hooks/*.ts`, run `bun run minsky compile --target claude-hooks` and
 commit sources + generated output together (pre-commit blocks otherwise). This RULE file is itself a
-compiled source — after editing it, run `rules compile` and verify EACH target regenerated (`grep` the
-change into `CLAUDE.md`; the no-`--target` invocation doesn't reliably hit every output, so run
-`--target claude.md` / `--target cursor-rules` explicitly if one is stale).
+compiled source — after editing it, run `rules compile --target claude.md` /
+`--target agents.md` / `--target cursor-rules` and grep the change into `CLAUDE.md` (bare
+invocation hits only one target; mt#2803 fixes this).
 
-No override for the framework itself (library code). `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all` is
-the override FOR migrated guards.
+The framework has no override; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all`
+overrides migrated guards.
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`mcp__minsky__tasks_dispatch`/`tasks_create`(parent set): blocks
-`session_start` (and existing-task `tasks_dispatch`, which binds a session in-process the same
-way, mt#2657) on open-PR file overlap (advisory-only for recently-merged); blocks
-`tasks_create` — and new-task-mode `tasks_dispatch` (`title` + `parentTaskId`), which creates
-the subtask in-process (mt#2683) — on duplicate-child titles vs an ACTIVE sibling. Terminal
-(DONE/CLOSED/COMPLETED) sibling matches WARN instead of blocking, and tokens from the parent's
-own title are discounted from the overlap count (mt#2683 matcher tuning; re-filing-shipped-work
-coverage stays with `/plan-task` gate (g)(3)). Tier-3 ceiling for the
-parallel-work ladder (mt#1362); Tier-2 floor is `/plan-task` gate (g).
-Hook: `parallel-work-guard.ts`. Override: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1`
-— both launch-time-env-only (unreachable mid-session); the duplicate-child matcher ALSO
-consults a mid-session-reachable, reason-mandatory grant file (mt#2658, ADR-028 D8):
-`bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`
-— per the mt#2683 decision record, the grant channel (not a new in-band tool_input field) is
-the sanctioned mid-session override.
-Fail: closed (open-PR sweep) / open (duplicate sweep, unreadable data warns+permits).
-Doc: `docs/architecture/hooks/parallel-work-guard.md`.
+PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create`(parent set): blocks session-binding
+calls (mt#2657) on open-PR file overlap (advisory-only for recently-merged); blocks subtask creation
+(incl. new-task-mode `tasks_dispatch`, mt#2683) on duplicate-child titles vs an ACTIVE sibling —
+terminal-status siblings WARN; parent-title tokens discounted. Tier-3 ceiling (mt#1362); Tier-2 floor:
+`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1`
+/ `MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only); the duplicate-child matcher also honors the
+reason-mandatory grant file (mt#2658) — the sanctioned mid-session override:
+`bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
+Fail: closed (open-PR sweep) / open (duplicate sweep: only unreadable data warns+permits;
+ACTIVE-sibling duplicates block).
+Doc: `parallel-work-guard.md`.
 
 ## Bypass-Merge Guard
 
-PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge`. Prefer
-`session_pr_merge`'s audited `forceBypass` over this raw path. Subagent invocations always blocked,
-no override. Hook: `block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent
-only). Fail: default-deny, no fail-open path. Doc: `docs/architecture/hooks/bypass-merge-guard.md`.
+PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge` — prefer
+`session_pr_merge`'s audited `forceBypass`. Subagent invocations always blocked, no override. Hook: `block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent
+only). Fail: default-deny, no fail-open path. Doc: `bypass-merge-guard.md`.
 
 ## Out-of-Band Merge Guard
 
-PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge when the PR body documents a
-coupled out-of-band step never confirmed executed. Scans body (markdown-aware elision of code/quotes)
-for standalone + pair-required trigger phrases. Hook: `block-out-of-band-merge.ts`. Override:
-`MINSKY_ACK_OOB_MERGE=1`. Fail: open — `gh pr view` failure allows with a warning.
-Doc: `docs/architecture/hooks/out-of-band-merge-guard.md`.
+PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR body documents a
+coupled out-of-band step never confirmed executed (markdown-aware scan). Hook:
+`block-out-of-band-merge.ts`. Override: `MINSKY_ACK_OOB_MERGE=1`. Fail: open — `gh` failure allows
+with a warning. Doc: `out-of-band-merge-guard.md`.
 
 ## Skill/Agent/Rule Staleness Detector
 
-UserPromptSubmit: warns when `.claude/skills/**`, `.claude/agents/**`, or `.minsky/rules/**` changed
+UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**` changed
 since the session's baseline mtime snapshot. Hook: `skill-staleness-detector.ts`.
-Override: `MINSKY_SKIP_SKILL_STALENESS=1`. Fail: informational only, silent on any error.
-Doc: `docs/architecture/hooks/skill-staleness-detector.md`.
+Override: `MINSKY_SKIP_SKILL_STALENESS=1`. Fail: informational, silent on error.
+Doc: `skill-staleness-detector.md`.
 
 ## Generated File Edit Guard
 
-PreToolUse on file-edit tools (`Edit`, `Write`, `session_edit_file`, `session_write_file`,
-`session_search_replace`): blocks editing a file whose first 5 lines carry a generation-banner
-marker. Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`.
+PreToolUse on file-edit tools (`Edit`/`Write`/`session_edit_file`/`session_write_file`/
+`session_search_replace`): blocks edits to a file whose first 5 lines carry a generation banner. Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`.
 Fail: open — no match/missing file/read error all permit.
-Doc: `docs/architecture/hooks/generated-file-edit-guard.md`.
+Doc: `generated-file-edit-guard.md`.
 
 ## Branch Freshness Guard
 
 PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main` has
-commits the session branch lacks. On block: `session_update` to rebase, review for overlap, retry.
+commits the session branch lacks; on block, `session_update` to rebase, review overlap, retry.
 Hook: `check-branch-fresh.ts`. Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine
-paths (even, fresh branch, detached HEAD, no default branch); merge-in-progress allows w/ audit line;
-fetch-failure warnings always surface. Doc: `docs/architecture/hooks/branch-freshness-guard.md`.
+paths; merge-in-progress allows with audit line; fetch failures always warn.
+Doc: `branch-freshness-guard.md`.
 
 ## Bundle-Boot Smoke Gate
 
-Merge-gate extension: denies `session_pr_merge` unless the `bundle-boot-smoke` CI check_run concluded
-`success` on HEAD — catches dev-vs-bundled-boot divergence. Workflow:
-`.github/workflows/bundle-boot-smoke.yml`. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after manually
-verifying local boot). Fail: deny-by-default (merge gate); 4 denial classes (API failure, no
-check_run, in-progress, conclusion != success). Doc: `docs/architecture/hooks/bundle-boot-smoke-gate.md`.
+Merge-gate extension: denies `session_pr_merge` unless the `bundle-boot-smoke` CI check_run
+concluded `success` on HEAD (catches dev-vs-bundled-boot divergence). Override: `MINSKY_SKIP_BUNDLE_SMOKE=1`
+(only after manually verifying local boot). Fail: deny-by-default (4 denial classes).
+Doc: `bundle-boot-smoke-gate.md`.
 
 ## Single Shared PR-Data Fetch Layer
 
-Not a guard — `.claude/hooks/pr-context.ts` (mt#2617) is the ONE place the four `session_pr_merge`
-gates (Review, Execution-Evidence, Deploy-Verification, Out-of-Band) fetch PR data from `gh`,
-replacing per-gate ad hoc calls and hardcoded repo names. No trigger/override of its own (a library);
-zero-behavior-change to the consuming gates' decisions.
-Doc: `docs/architecture/hooks/pr-data-fetch-layer.md`.
+Not a guard: `.claude/hooks/pr-context.ts` (mt#2617), the ONE place the four `session_pr_merge`
+gates fetch PR data from `gh`. No trigger/override (library). Doc: `pr-data-fetch-layer.md`.
 
 ## Execution-Evidence Merge Gate
 
-PreToolUse on `session_pr_merge`: blocks a merge when the PR diff adds newly-created **test
-files** (mt#1459) OR newly-added **operational scripts** (`scripts/*.ts` — backfill/migration/
-sweep/probe, mt#2776) but the PR body lacks an `Execution evidence:` block. Rationale: a
-behavior-effecting artifact must actually be RUN before merge — and for a dual-mode script, EACH
-production branch (dry-run AND a bounded `--execute`), not just the safe mode (mt#2760/mt#2774
-originating incident). Accepts the mt#2648 marker forms (Markdown heading, or a colon-label line).
-Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]` title tag (file
-a follow-up verification task). Fail: open — unresolvable repo/PR or a `gh` fetch failure allows
-with a warning. Siblings: mt#1460 `/prepare-pr` §1b (PR-creation-time), `/implement-task` §7a
-dual-mode discipline; mt#2421 (open) extends this gate to no-test user-facing render-path PRs.
+PreToolUse on `session_pr_merge`: blocks a merge when the PR diff adds new **test files** (mt#1459)
+or new **operational scripts** (`scripts/*.ts`, mt#2776) but the PR body lacks an
+`Execution evidence:` block — run the artifact before merge; dual-mode scripts need EACH production
+branch exercised (dry-run AND bounded `--execute`, mt#2760/mt#2774). Marker forms: mt#2648 (below). Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]`
+title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings:
+`/prepare-pr` §1b, `/implement-task` §7a; mt#2421 extends to render-path PRs.
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
 `services/*/railway.json`, `services/*/deploy.config.ts`, `.github/workflows/deploy-*.yml`) lacking a
 `Deploy verification:` commitment; paired PostToolUse injects a mandatory post-merge
-`deployment_wait-for-latest` reminder. Hooks: `deploy-surface-detector.ts`,
-`require-deploy-verification-before-merge.ts`, `deploy-verification-after-merge.ts`. Escape hatches:
-`[no-deploy-impact]` title tag; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
+`deployment_wait-for-latest` reminder. Hooks: `deploy-surface-detector.ts` +
+`require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escape hatches:
+`[no-deploy-impact]` title tag; `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 
-**Marker acceptance (mt#2648 — load-bearing, write one of these forms).** Both this hook's
-`Deploy verification:` marker and the sibling mt#1459 `Execution evidence:` marker accept,
-case-insensitive: a plain label line WITH a colon, OR a Markdown heading (any level 1-6) with an
-OPTIONAL trailing colon. The colon is required only for the non-heading form.
+**Marker acceptance (mt#2648 — load-bearing).** Both `Deploy verification:` and
+`Execution evidence:` accept, case-insensitive: a plain label line WITH a colon, OR a Markdown heading
+(any level), optional trailing colon — the colon is required only for the
+non-heading form.
 
 Fail: open — unresolvable repo/PR/non-surface PR allows silently; PostToolUse always exits 0.
-Doc: `docs/architecture/hooks/deploy-verification-merge-gate.md`.
+Doc: `deploy-verification-merge-gate.md`.
 
 ## NUL-Byte Pre-Commit Guard
 
-Pre-commit step (`src/hooks/pre-commit.ts` → `runNulByteCheck()`, not a Claude Code hook): blocks
-staged text files containing literal NUL bytes. Allowlist: binary extensions + `tests/fixtures/`.
+Pre-commit step (`runNulByteCheck()` in `src/hooks/pre-commit.ts`): blocks staged text files
+containing literal NUL bytes (allowlist: binary extensions + `tests/fixtures/`).
 Override: `MINSKY_SKIP_NUL_CHECK=1`. Fail: blocks on any hit outside the allowlist.
-Doc: `docs/architecture/hooks/nul-byte-precommit-guard.md`.
+Doc: `nul-byte-precommit-guard.md`.
 
 ## Workspace-COPY Pre-Commit Guard
 
-Pre-commit step that REGENERATES (not detect-and-block, since mt#2621) the workspace `package.json`
-COPY block in every protected Dockerfile (root, `services/reviewer`, `services/cockpit`) from root
-`package.json`'s `workspaces` glob, and auto-restages changed files. No override — it only ever
-auto-fixes forward. Fail: blocks ONLY when a protected Dockerfile is missing the generated-block
-markers entirely (a one-time setup gap, not drift).
-Doc: `docs/architecture/hooks/workspace-copy-precommit-guard.md`.
+Pre-commit step: REGENERATES (mt#2621) the workspace `package.json` COPY block in every protected
+Dockerfile from the root `workspaces` glob, auto-restaging. No override — only ever auto-fixes
+forward. Fail: blocks only when a protected Dockerfile lacks the generated-block markers entirely.
+Doc: `workspace-copy-precommit-guard.md`.
 
 ## Deploy-Domain Ownership Guard
 
 Pre-commit step: blocks committing a domain **asserted** as a deploy target (`infra/index.ts`,
-`services/*/deploy.config.ts`, `services/*/astro.config.ts`, README "Deployed at" claims) unless it's
-in `infra/controlled-domains.json`'s verified allowlist; distinguishes assertions from mere mentions.
+`services/*/{deploy,astro}.config.ts`, README "Deployed at" claims) unless it's
+in `infra/controlled-domains.json`'s verified allowlist; distinguishes assertions from mentions.
 Override: `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`. Fail: blocks on any unallowlisted asserted domain.
-Doc: `docs/architecture/hooks/deploy-domain-ownership-guard.md`.
+Doc: `deploy-domain-ownership-guard.md`.
 
 ## Drive-PR-To-Convergence Reminder
 
-PostToolUse on successful `session_pr_create`: injects a mandatory convergence-driving reminder
-naming `session_pr_wait-for-review` as the required next action and forbidding deferral phrases
-("ready for your review", "ping me when done"). Hook: `drive-pr-to-convergence.ts`. No override
-(informational only). Fail: always exits 0.
-Doc: `docs/architecture/hooks/drive-pr-to-convergence-reminder.md`.
+PostToolUse on successful `session_pr_create`: injects a mandatory convergence reminder naming
+`session_pr_wait-for-review` as the next action, forbidding deferral phrases.
+Hook: `drive-pr-to-convergence.ts`. No override (informational). Fail: always exits 0.
+Doc: `drive-pr-to-convergence-reminder.md`.
 
 ## Substrate-Bypass Detector
 
 UserPromptSubmit: detects verbal commitments with no same-turn encoding call, inline-retrospective
-prose without a `/retrospective` call, and DB-substrate-bypass phrasing near "transcript" in the prior
-assistant turn. Hook: `substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`.
-Fail: open on transcript read/parse error; silent on session's first turn.
-Doc: `docs/architecture/hooks/substrate-bypass-detector.md`.
+prose without `/retrospective`, and DB-substrate-bypass phrasing in the prior turn. Hook:
+`substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`. Fail: open on transcript
+error; silent on first turn.
+Doc: `substrate-bypass-detector.md`.
 
 ## Retrospective-Trigger Scanner
 
-UserPromptSubmit: scans the prior assistant turn for 4 retrospective-trigger phrase families +
-user-correction signals in the current prompt; reminds to invoke `/retrospective`. Suppressed when the
-prior turn already called it. Hook: `retrospective-trigger-scanner.ts`. Calibration log:
+UserPromptSubmit: scans the prior assistant turn for retrospective-trigger phrase families +
+user-correction signals; reminds to invoke `/retrospective` (suppressed when the prior turn already
+did). Hook: `retrospective-trigger-scanner.ts`. Calibration log:
 `.minsky/retrospective-trigger-calibration.jsonl`. Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`.
-Fail: open on transcript error. Doc: `docs/architecture/hooks/retrospective-trigger-scanner.md`.
+Fail: open on transcript error. Doc: `retrospective-trigger-scanner.md`.
 
 ## Current-Time Injection Hook
 
-UserPromptSubmit: injects current date/day/local-time/UTC into every turn's context (fixes
-date-staleness in long sessions). Hook: `inject-current-time.ts`. Always fires (<1ms, no I/O).
-Override: `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `docs/architecture/hooks/current-time-injection-hook.md`.
+UserPromptSubmit: injects current date/day/local-time/UTC every turn. Hook:
+`inject-current-time.ts` (always fires, <1ms). Override: `MINSKY_SKIP_TIME_INJECTION=1`.
+Doc: `current-time-injection-hook.md`.
 
 ## Git-State Injection Hook
 
-UserPromptSubmit: injects branch, working-tree status, ahead/behind vs last-fetched default branch,
-and 5 recent commits (collapses to one line when clean+in-sync). No per-turn `git fetch`.
+UserPromptSubmit: injects branch, working-tree status, ahead/behind, and 5 recent commits (one line
+when clean+in-sync); no per-turn `git fetch`.
 Hook: `inject-git-state.ts`. Override: `MINSKY_SKIP_GIT_STATE_INJECTION=1`. Fail: silent bail on
-non-repo/detached-HEAD/timeout; subsidiary failures degrade gracefully.
-Doc: `docs/architecture/hooks/git-state-injection-hook.md`.
+non-repo/detached-HEAD/timeout. Doc: `git-state-injection-hook.md`.
 
 ## Prod-State Injection Hook
 
-UserPromptSubmit: injects a prod migration-ledger snapshot via producer (cockpit sweep, ~10m, reads
-`drizzle.__drizzle_migrations`)/consumer (this hook, local cache only) split. Three shapes: fresh
-(≤30m, ground truth), stale (re-verify), unknown (do NOT assert from memory). Hook:
-`inject-prod-state.ts`. Override: `MINSKY_SKIP_PROD_STATE_INJECTION=1`. Fail: never crashes; emits
-UNKNOWN/STALE notes. Doc: `docs/architecture/hooks/prod-state-injection-hook.md`.
+UserPromptSubmit: injects a prod migration-ledger snapshot (producer: cockpit sweep; consumer:
+local cache). Shapes: fresh (ground truth), stale (re-verify), unknown (do NOT assert from memory). Hook: `inject-prod-state.ts`. Override:
+`MINSKY_SKIP_PROD_STATE_INJECTION=1`. Fail: never crashes; emits UNKNOWN/STALE notes.
+Doc: `prod-state-injection-hook.md`.
 
 ## Dispatch-Watchdog Injection Hook
 
-UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (producer: cockpit sweep
-every 5m over `subagent_invocations` + git activity; consumer: local-cache read). Paired recovery:
-`session.status probe:true` + `/orchestrate`'s resume protocol. Hook: `inject-dispatch-watchdog.ts`.
-Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Fail: silent on empty/missing cache (absence is
-not evidence of a problem here). Doc: `docs/architecture/hooks/dispatch-watchdog-injection-hook.md`.
+UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (producer: cockpit sweep;
+consumer: local cache). Recovery: `session.status probe:true` + `/orchestrate`.
+Hook: `inject-dispatch-watchdog.ts`. Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Fail:
+silent on empty/missing cache.
+Doc: `dispatch-watchdog-injection-hook.md`.
 
 ## Immutable-Migration Pre-Commit Guard
 
-Pre-commit step: blocks a staged modification/rename of a migration `.sql` file already listed in its
-dir's `meta/_journal.json` — editing an applied migration silently drifts the file hash from the
-recorded ledger. Override: `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks on any staged M/R
-of a journaled tag; additions and unjournaled edits always allowed.
-Doc: `docs/architecture/hooks/immutable-migration-precommit-guard.md`.
+Pre-commit step: blocks a staged modification/rename of a journaled migration `.sql` (editing an applied
+migration drifts its ledger hash). Override:
+`MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks any staged M/R of a journaled tag;
+additions/unjournaled edits allowed.
+Doc: `immutable-migration-precommit-guard.md`.
 
 ## Guessed-Session-Path Guard
 
 PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
-path whose directory doesn't exist — catches guessed-session-id references before `session_start`
-returns the real one. Phase-1 dispatcher pilot (mt#2650). Hook: `check-guessed-session-path.ts`.
+path whose directory doesn't exist (guessed session ids). Hook: `check-guessed-session-path.ts`.
 Override: `MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
-Doc: `docs/architecture/hooks/guessed-session-path-guard.md`.
+Doc: `guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `mcp__minsky__tasks_status_set` (READY) / `mcp__minsky__session_start` /
-`mcp__minsky__tasks_dispatch` (existing-task `taskId` mode only, mt#2657): blocks when the target
-task's spec was never surfaced (`tasks_spec_get`, or `tasks_get includeSpec:true`) anywhere in the
-session transcript. On hit: read the spec in full before retrying. Hook:
-`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any
-error/missing transcript/unresolvable id. Doc: `docs/architecture/hooks/bind-advance-spec-read-guard.md`.
+PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task mode,
+mt#2657): blocks when the target task's spec was never surfaced (`tasks_spec_get` / `tasks_get
+includeSpec:true`) in the transcript. On hit: read the full spec, retry. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error. Doc: `bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 
-`SessionEnd` hook: synchronously ingests the finished session's transcript into `agent_transcripts`.
-Covers normal session end; does NOT cover crash-terminated sessions (backed up by the MCP boot sweep).
-Hook: `transcript-ingest-on-session-end.ts`. Override: `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1` (skip);
-`MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed, default off). Fail: always exits 0.
-Doc: `docs/architecture/hooks/session-end-transcript-ingest-hook.md`.
+`SessionEnd` hook: synchronously ingests the finished session's transcript into `agent_transcripts`
+(crash-terminated sessions: MCP boot sweep). Hook:
+`transcript-ingest-on-session-end.ts`. Overrides: `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`;
+`MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed). Fail: always exits 0.
+Doc: `session-end-transcript-ingest-hook.md`.
 
 ## Causal-Premise Detector (calibration)
 
-UserPromptSubmit (v1 calibration-only, no injection yet): logs volunteered causal/mechanism claims
-about tool/system behavior lacking same-turn verification to JSONL. Hook: `causal-premise-detector.ts`.
-Calibration log: `.minsky/causal-premise-calibration.jsonl`. Companion skill: `/check-premise`.
-Override: `MINSKY_ACK_CAUSAL_PREMISE=1`. Fail: open on transcript error.
-Doc: `docs/architecture/hooks/causal-premise-detector.md`.
+UserPromptSubmit (v1 calibration-only, no injection): logs volunteered causal/mechanism claims
+lacking same-turn verification. Hook: `causal-premise-detector.ts`. Log:
+`.minsky/causal-premise-calibration.jsonl`. Companion: `/check-premise`. Override:
+`MINSKY_ACK_CAUSAL_PREMISE=1`. Fail: open on transcript error.
+Doc: `causal-premise-detector.md`.
 
 ## Ask-Routing Deferral Detector (calibration)
 
 UserPromptSubmit (v1 calibration-only): logs decision deferrals routed via chat prose instead of the
-Ask substrate — PRINCIPAL-RESERVED and DEFERRAL-MENU sub-classes. Suppressed when the turn already
-called `asks_create`. Hook: `ask-routing-deferral-detector.ts`. Calibration log:
-`.minsky/ask-routing-deferral-calibration.jsonl`. Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`.
-Fail: open on transcript error. Doc: `docs/architecture/hooks/ask-routing-deferral-detector.md`.
+Ask substrate (suppressed when the turn already called `asks_create`). Hook:
+`ask-routing-deferral-detector.ts`. Log: `.minsky/ask-routing-deferral-calibration.jsonl`. Override:
+`MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript error.
+Doc: `ask-routing-deferral-detector.md`.
 
 ## Calibration-Review Cadence Detector
 
 UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires +
-≥3 distinct phrases) OR goes stale (reviewed before, ≥10 days since, ≥1 new fire). On fire: run
-`/calibration-review` — unless a disposition Ask is already open for that log (mt#2659 watermark
-`openAskId`), in which case a single low-noise pending line replaces the warning, at most once per
-session. `policy-coverage`-class (per-tool-call-volume) logs re-warn on cooldown only, not fire-count
-growth (mt#2659). Hook: `calibration-review-cadence-detector.ts`. Override:
+≥3 distinct phrases) or goes stale; on fire run `/calibration-review` — unless a disposition Ask is
+already open (mt#2659 watermark: one pending line, once per session; `policy-coverage`-class logs
+re-warn on cooldown only). Hook: `calibration-review-cadence-detector.ts`. Override:
 `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
-Doc: `docs/architecture/hooks/calibration-review-cadence-detector.md`.
+Doc: `calibration-review-cadence-detector.md`.
 
 ## Subagent Merge Capability Guard
 
-PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) unless a valid,
-unexpired capability grant covers the task — ADR-028 D5 default-deny. Issue a grant before dispatch:
+PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without a
+valid, unexpired capability grant (ADR-028 D5 default-deny). Grant before dispatch:
 `bun scripts/grant-subagent-merge.ts --task mt#<id> --ttl-minutes 30`. Hooks:
 `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`. Override:
-`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: fail-open reserved for GENUINE grant-store read errors only —
-a missing store or no-match is the default-deny path working, not fail-open.
-Doc: `docs/architecture/hooks/subagent-merge-capability-guard.md`.
+`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on GENUINE grant-store read errors — a missing
+store or no-match is default-deny working.
+Doc: `subagent-merge-capability-guard.md`.
 
 # Cockpit Deeplinks in Terminal Output
 
@@ -2237,17 +2194,15 @@ When compacting, preserve: current task ID and the workspace session path (the `
 
 # Decision Defaults
 
-When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Pre-training emphasizes industry-average patterns; without a contrary anchor in this file, the textbook wins. Each entry below names the Minsky-grounded answer, the generic-SE alternative it overrides, and the originating memory.
-
-This file is the **policy corpus** that the mt#1541 policy-coverage detector (Surface 1 of the System 3* detector family, mt#1035) consults at preference-encoding actions. Today the corpus is human-consulted; once the detector ships, uncovered actions block until the agent files an Ask.
+When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Each entry names the Minsky answer, the generic-SE alternative it overrides, and a one-line origin pointer; full incident histories live in the cited memories and task specs.
 
 ## Datastores: Postgres-via-Supabase by default
 
 When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
 
-**Scope note (added 2026-05-12):** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy` below). Conflating the two is the policy-laundering pattern from `feedback_build_vs_buy_default_for_non_core`.
+**Scope note:** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy`).
 
-**Generic-SE override:** "use Redis for queues, MinIO for blob storage, Mongo for documents, polyglot persistence." See `feedback_postgres_default_datastore`.
+**Generic-SE override:** "use Redis for queues, MinIO for blobs, polyglot persistence." See `feedback_postgres_default_datastore`.
 
 ## Reliability: sweeper, not durable queue
 
@@ -2257,9 +2212,9 @@ For single-node services with an external source of truth: a periodic sweeper + 
 
 ## Thresholds: ground in observed cadence, not round numbers
 
-When picking a window, retry count, timeout, or budget threshold: ground the number in observed cadence (memory mtimes, PR timestamps, calibration-data files), not generic SE defaults. Round-number anchoring (1 week, 2 weeks, 30 days) silently imports industry sprint cadences that don't match Minsky's loop.
+Ground every window, retry count, timeout, or budget threshold in observed cadence (memory mtimes, PR timestamps, calibration files), not generic SE defaults — round-number anchoring silently imports sprint cadences that don't match Minsky's loop.
 
-**Minsky-velocity defaults (calibrated 2026-04-30):**
+**Minsky-velocity defaults:**
 
 - **Budget windows:** 5 days
 - **Burst-detection windows:** 24h
@@ -2272,37 +2227,33 @@ When picking a window, retry count, timeout, or budget threshold: ground the num
 
 Don't quote "X days," "an hour," "a week" for future work. Estimates anchored on industry velocity are reliably wrong. Substitute **scope descriptors grounded in code**: file count, LOC, comparable task IDs.
 
-**Generic-SE override:** "agile estimation, story-pointing, velocity-based forecasting." See `feedback_no_time_estimates`.
+**Generic-SE override:** "agile estimation, velocity-based forecasting." See `feedback_no_time_estimates`.
 
 ## Task overlap: subsume when subset, coordinate when independent
 
-When two tasks describe the same outcome via different mechanisms: close one and absorb its constraints into the other (subsume). Coordinating two tasks via a shared join column is generic-SE; subsuming is the Minsky-grounded move when one trivially supersedes the other. Don't subsume when the tasks address separate concerns that share only a join column — coordinate then.
+When two tasks describe the same outcome via different mechanisms: close one and absorb its constraints into the other (subsume). Don't subsume when the tasks address separate concerns that share only a join column — coordinate then.
 
-**Generic-SE override:** "keep tasks independent, coordinate via dependencies, never close active scope." See `feedback_subsume_overlapping_task`, `feedback_default_to_merge_without_subsume_signal`.
+**Generic-SE override:** "keep tasks independent, never close active scope." See `feedback_subsume_overlapping_task`, `feedback_default_to_merge_without_subsume_signal`.
 
 ## Strategic frame first
 
-Tactical asks may be instances of named strategic concepts (cockpit, mesh, attention-allocation, asks subsystem, mode-1/2 review, System 3\*). Before specking a tactical solution, run a cheap Notion/task/memory check for the named frame. If the frame applies, name it explicitly and structure the work as an instance of that frame.
+Tactical asks may be instances of named strategic concepts (cockpit, mesh, attention-allocation, asks subsystem, mode-1/2 review, System 3\*). Before specking a tactical solution, run a cheap Notion/task/memory check for the named frame; if it applies, name it and structure the work as an instance of it.
 
 **Generic-SE override:** "treat the request at face value, don't reframe." See `feedback_strategic_reframe_first`.
 
 ## Turnkey, not portal
 
-When a workflow needs an external system action (creating a GitHub App, configuring infrastructure, registering a service): check first whether Minsky tooling already automates it (manifest flow, TokenProvider, MCP tools, hosted-MCP). The default move is **automation-via-Minsky**; routing the user to a portal is the fallback when automation isn't possible.
+When a workflow needs an external-system action: check first whether Minsky tooling already automates it (manifest flow, TokenProvider, MCP tools, hosted-MCP). Default is **automation-via-Minsky**; a portal is the fallback. **In-band config edits are portals too**: telling the user to hand-edit one of Minsky's own config files to enable a feature is manual work the agent should have automated away (default-enablement, reconciliation, a settings-UI control, or removing the gate). Documenting the manual edit is not the fix; eliminating the need for it is.
 
-**In-band config edits are portals too.** The same rule fires when the "external action" is editing one of Minsky's *own* config files. Telling the user to hand-edit a JSON/YAML file to surface or enable a feature is the in-band equivalent of routing them to a GitHub portal — it's manual operator work the agent could have automated (default-enablement, a reconciliation pass, a settings-UI control, or removing the gate entirely). Documenting the manual edit is **not** the fix; eliminating the need for it is.
-
-**In-band trigger phrases** (when you are about to write any of these in a PR body, summary, docs file, or spec amendment, STOP — treat it as a UX defect, not a workflow):
+**In-band trigger phrases** (about to write one → STOP; it's a UX defect):
 
 - "edit `~/.config/X/Y.json`" / "add Z to your `<config-file>`"
 - "operator follow-up: add Z to your config"
 - "manually add Z to surface this feature" / "one-time config edit required"
 
-Before writing the instruction: is there a settings-UI surface that could host the control, a default-enablement / reconciliation path that should kick in automatically, or a gate that should simply be removed? If a proper UX is missing, file the task for it before shipping the manual-edit step, and mark the manual step temporary per `Work Completion §Temporary mechanism budget`.
+If a proper UX is missing, file the task for it before shipping the manual-edit step, and mark the step temporary per `Work Completion §Temporary mechanism budget`.
 
-**Generic-SE override:** "user goes to GitHub portal / cloud console / docs to provision X" — and its in-band sibling, "user edits the config file to turn the feature on."
-
-**Originating incidents:** mt#1507 (GitHub App provisioning assumed manual portal flow despite manifest tooling existing); mt#2150 → mt#2294 (the **canonical retired example**: Cockpit shipped requiring operators to add widget IDs to `~/.config/minsky/cockpit.json` by hand, and the agent documented the hand-edit workflow as the operator interface rather than fixing the gap — mt#2294 removed the config file entirely and made widgets registry-gated so they work with no manual edit).
+**Generic-SE override:** "user goes to the portal / edits the config file." **Origins:** mt#1507; mt#2150 → mt#2294 (Cockpit widget-ID hand-edits, retired by registry-gating).
 
 ## Workarounds: budget + tracking task required
 
@@ -2312,31 +2263,9 @@ When introducing a "temporary," "escape hatch," "workaround," "interim," or "unt
 
 ## Missing MCP tool — escalate, don't silently work around
 
-When you need a capability and (a) reach for bash before checking MCP, (b) the MCP tool exists but errors for the specific subject, or (c) no MCP tool covers the capability AND bash is denied by a hook: **escalate to the user** rather than silently abandoning the goal, switching to a non-equivalent workaround, or proceeding with degraded behavior.
+When you need a capability and (a) reach for bash before checking MCP, (b) the MCP tool exists but errors for the specific subject, or (c) no MCP tool covers the capability AND bash is denied: **escalate to the user** rather than silently abandoning the goal, switching to a non-equivalent workaround, or proceeding with degraded behavior. Sub-patterns: (1) bash-first reflex when an MCP tool exists — MCP-first is the default; (2) tool precondition fails for this subject — escalate, don't spelunk around it; (3) no tool AND bash denied — escalate.
 
-**The three sub-patterns:**
-
-1. **Bash-first reflex when MCP exists.** Reaching for `gh pr view`, `git pull`, `gh api`, etc. before checking whether `mcp__github__*` or `mcp__minsky__*` covers the same capability. Block-and-redirect hooks (mt#1196's `block-git-gh-cli.ts`, etc.) catch most of these post-hoc, but reaching for CLI first is the wrong default. MCP-first.
-
-2. **MCP tool exists but precondition fails for the specific subject.** Example: `mcp__minsky__deployment_status service:"reviewer"` returns "No deploy.config.ts found for service 'reviewer'". The tool exists; the subject isn't covered (the platform-neutral abstraction can't track services that only have a `railway.config.ts`). Silently moving to `ls` to investigate the filesystem is the failure mode. Escalate.
-
-3. **No MCP tool for the capability AND bash denied.** The agent has no fallback. The narrow git-only precedent (memory `b30bfabe`, "Known MCP-toolkit gaps") covers this case for git; the general principle applies to deployment, gh API surface beyond what's wrapped, Railway, and any other domain where MCP coverage is partial.
-
-**Required escalation form** (when any of (1)–(3) fires) — surface to the user with:
-
-- **Capability needed** — one sentence on what you need to do.
-- **What's missing** — no MCP tool / MCP tool errored / bash denied.
-- **Concrete options** — present as [a]/[b]/[c]/[d]:
-  - [a] add a new MCP tool for the capability,
-  - [b] add the config (or other precondition) the existing tool needs,
-  - [c] use a non-equivalent workaround Z with explicit acknowledgment,
-  - [d] accept the gap and proceed.
-
-**Anti-patterns (do NOT do any of these):**
-
-- Silently **abandon** the goal ("I'll skip the X check").
-- Silently **switch to a non-equivalent workaround** ("falling back to Y").
-- Proceed with **degraded behavior** the user doesn't know about.
+**Required escalation form:** capability needed (one sentence); what's missing (no tool / tool errored / bash denied); options — [a] add a new MCP tool, [b] add the config/precondition the existing tool needs, [c] non-equivalent workaround with explicit acknowledgment, [d] accept the gap. Never: silent abandon, silent workaround-switch, or undisclosed degraded behavior.
 
 **Trigger-phrase self-recognition (STOP before any of these land in user-facing output):**
 
@@ -2346,24 +2275,9 @@ When you need a capability and (a) reach for bash before checking MCP, (b) the M
 - "No MCP tool covers this — proceeding with..."
 - "The MCP tool errored — moving on"
 
-**Generic-SE override:** "the agent's job is to keep moving — when a tool doesn't fit, find another path." That heuristic is correct for routine tooling friction, but the missing-MCP-tool case is exactly where silent workarounds accumulate undocumented capability gaps the user can't see and therefore can't prioritize closing.
+**Generic-SE override:** "keep moving — find another path." Wrong here: silent workarounds accumulate capability gaps the user can't see and therefore can't prioritize closing.
 
-**Originating incident:** 2026-05-20 (mt#1983 close-out session). Three reaches in one 60-minute window — two correct-recovery (`gh pr view` denied → `mcp__github__pull_request_read`; `git pull` denied → `mcp__minsky__git_pull`), one silent abandon (`mcp__minsky__deployment_status service:"reviewer"` → "No deploy.config.ts found", agent moved to `ls` instead of escalating). User articulated: "whenever there's a missing MCP tool and you get denied the bash route, you should escalate this to me and ask for me to give you a new tool." See memory `3408717a` (bridge) and `b30bfabe` (narrow git-only precedent being generalized).
-
-**Why agent-discipline-tier, not hook-tier.** A PostToolUse hook could pattern-match on the trigger phrases in agent output, but string-match on natural language is brittle. The current tier is rule + memory bridge until the pattern recurs structurally past this rule. If this rule fails to prevent a future instance, escalate to hook-tier per `Work Completion §Process corrections require structural fixes`. Same escalation shape as `§Build vs buy` (memory → corpus rule → `/declare-framework` skill) and `§Subsystem-assignment verification` (memory → corpus rule, Phase 2 in mt#1873).
-
-**Cross-references:**
-
-- `error-investigation.mdc` — adjacent rule covering tool errors (2-strikes rule, workarounds-need-bug-task); covers tool errors, not capability gaps.
-- CLAUDE.md `§Using your tools` (system-prompt-level) — encourages MCP-first; doesn't cover the missing-tool escalation case.
-- Memory `b30bfabe` (Git and MCP tool usage) — narrow git-only precedent this rule generalizes.
-- Memory `3408717a` (bridge memory for this rule; retires when this section lands AND a subsequent missing-MCP-tool gap is caught by it).
-- Memory `39701a9a` (Stop and confirm when shared-state writes hit systemic tool errors) — adjacent rule for shared-state-write tool errors.
-- Memory `7f67af43` (session_update aborts on conflict without leaving markers) — concrete instance of the broader pattern in git domain.
-- mt#1196 — `block-git-gh-cli.ts` hook (catches CLI-first reflex post-hoc for git/gh; this rule covers domains the hook doesn't).
-- mt#1197 — git-toolkit gap filling (narrower, ongoing).
-- mt#1983 — originating session.
-- mt#1989 — concrete instance: filled the specific pattern-(2) gap (`services/reviewer/deploy.config.ts`) surfaced in the originating incident.
+**Origins:** mt#1983, shipped via mt#1988; memories `3408717a` (bridge), `b30bfabe`, `39701a9a`, `7f67af43`; siblings mt#1196/mt#1197/mt#1989. On recurrence, escalate to hook-tier.
 
 ## User does not review PRs in the loop
 
@@ -2373,198 +2287,74 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 ## Agent todos vs. Minsky tasks: durable to Minsky, ephemeral to harness
 
-Agent harnesses ship internal task-tracking systems (Claude Code's `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`, Cursor's `.cursor/scratchpad.md`, Cline, Devin, OpenHands). Minsky's task system covers a different layer: durable, status-machine-driven, audit-trailed, multi-backend (the orchestration substrate). These two surfaces overlap, and the boundary needs an explicit policy.
+Harnesses ship internal todo tracking (Claude Code `TaskCreate`/`TaskUpdate`, Cursor scratchpads); Minsky's task system is the durable, status-machine-driven, audit-trailed orchestration substrate. The boundary:
 
-**Durable work → Minsky task.** Anything with a spec, a status transition, a PR or merge milestone, cross-conversation relevance, or an audit-trail requirement. Use `mcp__minsky__tasks_create`, `mcp__minsky__tasks_status_set`, the skill chain.
+- **Durable work → Minsky task**: anything with a spec, status transition, PR/merge milestone, cross-conversation relevance, or audit-trail requirement.
+- **Ephemeral, intra-conversation work → harness todo**: pre-task triage, subagent bookkeeping, multi-step plans benefiting from a progress view, investigation before task-filing.
+- **Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo; a parallel harness checklist is a sync hazard.
+- **Harness `TaskCreate` reminder during a Minsky chain → disregard silently.** The user can't see the reminder; echoing it turns harness noise into chat noise.
 
-**Ephemeral, intra-conversation work → harness todo.** Pre-task triage (request hasn't been task-fied yet), multi-subagent intra-conversation bookkeeping, multi-step plans where the user benefits from a rendered progress view in the harness UI, investigation before deciding what's a task.
-
-**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
-
-**When the harness emits a `TaskCreate` reminder during a Minsky skill chain → disregard silently.** Do NOT echo acknowledgment text ("ignoring harness reminder", "not applicable", etc.) to the user. The reminder fires on a frequency-based heuristic the harness operates that does not know the agent is inside a Minsky chain; environmental shaping (this rule) is the fix, not user-facing commentary. The user cannot see the reminder; making it visible by echoing turns harness noise into chat noise.
-
-**Generic-SE override:** "use the harness's todo system for all task tracking" or "use no task tracking at all." The first duplicates state with sync hazards; the second loses the external-memory benefit that research validates for long-horizon work. See `feedback_agent_todos_vs_minsky_tasks` and the position paper [*Position: Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c).
-
-**Deferred follow-up:** mt#1797 (RFC: harness-agnostic working-notes surface — Shape C). Activates when the operator regularly uses a second harness on the same Minsky backend, OR cross-harness session-resume becomes recurring, OR upstream Claude Code [Issue #6760](https://github.com/anthropics/claude-code/issues/6760) lands enabling cheap MCP-backed routing.
-
-**Pattern note:** This is the second instance of the "Minsky abstraction meets harness/protocol-native primitive" decision shape; the first was mt#1316 (Asks ↔ MCP elicitation). Both decompose into three architectural shapes — A (independent), B (bounded boundary with policy), C (Minsky owns both) — with the same decision drivers (overlap, protocol-native richness, build/maintain cost, cross-harness portability benefit). Future instances of this shape (harness file-edit tracking, harness search, harness memory) can use the same template; see the position paper for the reusable analysis frame.
-
-**Worked example.** During `/implement-task mt#X`: do not call `TaskCreate`. The Minsky task spec, gate criteria, and status transitions are the plan state. If a `TaskCreate` reminder fires mid-task, continue without echoing it. Versus: a user asks "look into the duplicate session-cleanup edge case I keep seeing", with no task filed yet. `TaskCreate` is appropriate here — list the diagnostic steps as ephemeral checklist items while you investigate; once you know what the bug is and want to fix it, call `mcp__minsky__tasks_create` to file the durable task and continue the work under the skill chain (at which point the harness todo becomes redundant and is dropped).
+**Generic-SE override:** "harness todos for everything" (duplicated state) or "no tracking" (loses external memory). See `feedback_agent_todos_vs_minsky_tasks`; the position paper [*Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c) carries worked examples + the Shape A/B/C frame (first instance mt#1316; Shape-C follow-up mt#1797).
 
 ## Build vs buy: default to buy for non-core capabilities
 
-When considering whether to build a capability in-house vs adopt an existing tool: **for any capability that is not Minsky's core differentiating value-add, the default is buy (or use existing OSS)**, not build. Minsky's core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer. Auxiliary capabilities — LLM observability, analytics, eval UIs, dashboards, CI infrastructure, tracing platforms, prompt-management UIs — are **not** the core. Building any of these consumes engineering time that does not advance Minsky's value.
+For any capability that is not Minsky's core differentiating value-add, the default is **buy** (or existing OSS), not build. The core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer; observability, analytics, eval UIs, dashboards, CI infra, and tracing are not. The bar to flip the default requires all four:
 
-The bar to flip the default (from buy to build) requires all four:
-
-1. **Core relevance** — the capability is part of Minsky's distinctive value, not an industry-standard auxiliary
-2. **No mature option** — at least 3 mature OSS/SaaS options have been evaluated against concrete needs, each failing on a named requirement
+1. **Core relevance** — part of Minsky's distinctive value, not an industry-standard auxiliary
+2. **No mature option** — ≥3 mature OSS/SaaS options evaluated against concrete needs, each failing on a named requirement
 3. **Build cost ≪ ongoing buy cost** — quantified at our scale, not estimated
-4. **Strategic ownership** — clear product reason to own the capability (differentiator, unique integration with Minsky structures)
+4. **Strategic ownership** — clear product reason to own the capability
 
-**Generic-SE override:** "build from scratch is the safe / principled / open-source-pure / no-vendor-lock-in choice." That bias treats engineering time as free; it isn't. Engineering time is the scarcest resource for a small team; every hour spent building auxiliary infra is an hour not spent on Minsky core.
+**Generic-SE override:** "build from scratch is the safe / principled / no-lock-in choice." Engineering time is the scarcest resource; that bias treats it as free.
 
-**Specific biases to watch for in self:**
-
-1. **Policy-laundering at recommendation-time** — invoking `§Datastores: Postgres-via-Supabase by default` to justify building auxiliary analytics on Postgres. That policy is about Minsky's **source-of-truth state**, NOT about observability / analytics / event sinks. Observability data has near-zero lock-in cost (OTel is the wire standard; switching backends is an afternoon). Conflating the two is the confabulation pattern from `feedback_confabulated_strategic_frame_to_justify_tactical_preference` (memory id `88d92439-ae5a-4594-ab5e-e020150cb26b`). "Recommending the cheaper-or-faster option AND describing it as 'principled'" is the tell. (mt#1781 extension, 2026-05-14: the confabulation memory now explicitly enumerates 7 policy-citation trigger phrases — "per `§X`", "per the `X` policy", "the policy says X", "the default per `§X` is", "this would violate the `§X` default", "the `§X` rule covers this", and any sentence asserting a rule section covers the current case — and names *scope-laundering* as a distinct anti-pattern from design-intent invention. Verify the memory contents via `mcp__minsky__memory_get id:88d92439-ae5a-4594-ab5e-e020150cb26b` if the rule's claim needs an audit trail.)
-
-2. **Build-path-as-research at action-execution-time** (added 2026-05-12 R2): "use existing signals" / "capture from logs" / "extend in-house schemas (mt#1306, mt#1110, etc.)" / "grep what's already there" reads as research-discipline but is functionally the build path. Extracting from `/tmp/<hook>.log` or GitHub API by hand instead of adopting a tool that ingests the same data with a UI is the same substitution shape as policy-laundering, but operates at action-execution-time rather than recommendation-time. The corpus rule fires at recommendation; this anti-pattern slips past during action-now execution. Originating incident: 2026-05-12 PR #1073 was shipped using grep-of-logs as the baseline substrate while skipping the user-sequenced observability-platform-evaluation step. Triggered by "do it now" action-bias.
+**Biases to watch for in self:** (1) **Policy-laundering** — citing `§Datastores` to justify building auxiliary analytics on Postgres; that policy covers source-of-truth state only. The tell: recommending the cheaper option AND describing it as "principled." Any "per `§X`"-style claim that a rule section covers the current case is a trigger to re-verify that section's actual scope first — full trigger enumeration in memory `88d92439`. (2) **Build-path-as-research at action time** — "use existing signals" / "grep what's already there" reads as research but is functionally the build path, skipping the user-sequenced evaluation step; see `feedback_build_path_as_research_at_action_time`.
 
 **Anti-pattern checklist before recommending OR executing build:**
 
-- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance) before recommending?
-- [ ] Did I evaluate ≥3 mature OSS/SaaS options with concrete cost / feature comparison, not just name them?
-- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation from scratch.
-- [ ] Is my "principled" framing actually preference-laundering? (If the principled story arrived AFTER the build preference, it's laundering.)
-- [ ] **At action-execution time:** is my chosen first action "extract from existing in-house data"? If yes, I'm in the build path — the SaaS evaluation step was skipped. Stop, restate the user's plan, name the skipped step.
-- [ ] **At action-execution time:** if the user gave multi-step direction and then said "do it now," did I restate the steps and identify which one is next BEFORE my first tool call? (See `§Multi-step direction execution` below.)
+- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance)?
+- [ ] Did I evaluate ≥3 mature options with concrete comparison, not just name them?
+- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation.
+- [ ] Is my "principled" framing preference-laundering? (Principled story arriving AFTER the build preference = laundering.)
+- [ ] **At action time:** is my first action "extract from existing in-house data"? That IS the build path — stop, restate the plan, name the skipped step.
+- [ ] **At action time:** multi-step direction + "do it now" → restate steps first (see `§Multi-step direction execution`).
 
-**Originating incidents:**
-
-- 2026-05-12 R1 (recommendation-time): recommended "build narrow on Postgres" for context-economics measurement (mt#1776) across three turns despite mature community OSS+SaaS options. See `feedback_build_vs_buy_default_for_non_core`.
-- 2026-05-12 R2 (action-execution-time): even after the R1 fix landed in this rule, executed on "do it now" by skipping the user-sequenced platform-evaluation step and reverting to in-house data extraction. See `feedback_build_path_as_research_at_action_time`.
+**Origins:** R1 + R2 (2026-05-12) — `feedback_build_vs_buy_default_for_non_core`, `feedback_build_path_as_research_at_action_time`.
 
 ### Spec-amendment-time premise check (R4, 2026-05-13)
 
-A third action surface where the build-vs-buy default can be confabulated is **spec
-amendment** — applying a categorization label to an existing artifact in a way that
-determines its substrate/policy treatment.
-
-The R4 incident (mt#1306, 2026-05-13): agent labeled mt#1306 "source-of-truth state" to
-justify keeping it on in-house Postgres, applied that framing across three spec amendments,
-then on user challenge discovered the label didn't fit the actual definition in `§Datastores`.
-The corpus rule (`§Build vs buy`) and the R1 memory (`feedback_confabulated_strategic_frame_to_justify_tactical_preference`)
-both existed at the time; neither prevented the failure because both fire at recommendation-time
-or action-execution-time, not at spec-amendment-time.
-
-**Structural enforcement:** `/plan-task` gate (j) — Premise label verification (mt#1820).
-Fires when a spec amendment contains a categorization label that determines policy treatment,
-requires the four-step citation-and-mapping protocol before the label can be applied.
-
-**At self-trigger time** (when about to write a categorization label into a spec amendment),
-the agent runs the protocol manually until gate (j) ships:
-
-1. Cite the rule that defines the label
-2. Quote the definition verbatim
-3. Map the artifact's properties to the criteria
-4. State the verdict (met / not met / ambiguous)
-
-If the mapping fails, do not apply the label. Surface the gap.
-
-**Cross-references:**
-
-- mt#1820 — gate (j) implementation task
-- `feedback_premise_label_verification_required` — bridge memory until gate (j) ships
-- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — R1 originating
-  pattern + R4 sub-pattern documented
-- `/declare-framework` (mt#1789) — sibling skill addressing framework selection (distinct
-  from label application)
+Third confabulation surface: **spec amendment** — applying a categorization label that determines an artifact's substrate/policy treatment. Before writing such a label: (1) cite the rule that defines the label; (2) quote the definition verbatim; (3) map the artifact's properties to the criteria; (4) state the verdict (met / not met / ambiguous). If the mapping fails, don't apply the label — surface the gap. Enforcement: `/plan-task` gate (j) (mt#1820). Origin: mt#1306 — `feedback_premise_label_verification_required`; family root `88d92439`.
 
 ## Subsystem-assignment verification
 
-When recommending that content move FROM one subsystem TO another — rules ↔ memory, memory ↔ skill, skill ↔ rule, doc-type → doc-type, code-module ↔ code-module — apply the same four-step protocol as `§Build vs buy → Spec-amendment-time premise check (R4)`, but at recommendation-time, not spec-amendment-time:
+When recommending content move FROM one subsystem TO another — rules ↔ memory, memory ↔ skill, skill ↔ rule, doc-type → doc-type, code-module ↔ code-module — run the same four-step protocol at recommendation-time: **cite** the destination subsystem's defining rule; **quote** its inclusion/exclusion criteria verbatim; **map** the source content's properties to the criteria; **state the verdict** (ambiguous → file an Ask). If NOT MET, the migration is wrong — subsystems are defined by their criteria, not their names.
 
-1. **Cite** the destination subsystem's defining rule, memory, or doc (the source of truth on what the subsystem is FOR).
-2. **Quote** its inclusion/exclusion criteria verbatim.
-3. **Map** the source content's properties to the criteria — explicitly list what the criteria say and what the content actually has.
-4. **State the verdict:** criteria met / criteria not met / criteria ambiguous (in which case file an Ask).
+**Generic-SE override:** "X is for durable knowledge → durable Y belongs in X."
 
-If verdict is NOT MET, the migration is the wrong move regardless of how attractive the destination's name sounds. Names like "memory store," "skill," "rule," "doc" are evocative; their actual purpose is narrower than the name suggests and is encoded in the subsystem's defining rule.
-
-**Generic-SE override:** "X is for durable knowledge → durable Y belongs in X." Subsystems are defined by their inclusion/exclusion criteria, not by their names. The agent's pattern-matching on names without citation is the failure mode this rule prevents.
-
-**Originating incident:** 2026-05-17 (R5 of the premise-verification family). Agent recommended "migrate durable rules out of CLAUDE.md into the memory store" without checking that:
-
-- CLAUDE.md is a compiled output of `rules_compile` from `.minsky/rules/*.mdc` (banner on line 1 names the pipeline)
-- The memory store's defining rule (CLAUDE.md `§Memory Usage`) explicitly excludes rules from its scope: "something durable that's **not derivable from code, git history, specs, or rules**"
-
-Both criteria were present in injected context at the time of recommendation. Neither was cited. User caught the category error.
-
-**Why this rule extends `§Build vs buy → R4 (spec-amendment-time premise check)`:** R4 fires when a categorization label is being written into a spec; gate (j) in `/plan-task` enforces it. R5's slip occurred during a live recommendation in a research/planning turn outside any skill chain — neither R4's corpus rule nor gate (j) cover this surface. R5 is the recommendation-time / subsystem-assignment-time slice of the same family.
-
-**Structural enforcement (Phase 1 / Phase 2 split, mt#1868):**
-
-- **Phase 1 (this corpus rule):** the four-step protocol above is the immediate discipline upgrade. It's in injected context at every session start and consulted at recommendation time per `§How this is enforced` below. Same shape as `§Build vs buy` R1's corpus rule preceding mt#1789's `/declare-framework` skill. Walked against the R5 incident, this protocol blocks the original "migrate rules to memory store" recommendation at the citation step.
-- **Phase 2 (mt#1873, followup to mt#1868):** coverage analysis of recommendation surfaces NOT covered by gate (j) or `/declare-framework`, enforcement decision among Options A–E (extend gate j / new `/verify-destination` skill / text-pattern hook / combination), implementation, and retrospective acceptance walkthrough against R1–R5.
-
-PR #1141 (this PR) ships Phase 1, closing mt#1868. Phase 2 is tracked in mt#1873.
-
-**Cross-references:**
-
-- `§Build vs buy → R4` — sibling premise-check at spec-amendment-time
-- `feedback_premise_label_verification_required` — bridge memory; updated with R5 sub-pattern
-- mt#1820 — shipped gate (j) for the spec-amendment surface
-- mt#1789 — shipped `/declare-framework` for the strategic-recommendation surface (framework selection, not destination categorization)
-- mt#1868 — Phase 1 corpus-rule bridge (this rule); DONE on PR #1141 merge
-- mt#1873 — Phase 2 broader structural enforcement (followup)
+**Origins:** R5 (2026-05-17). Phase 1 shipped via mt#1868; Phase 2 is mt#1873. Bridge: `feedback_premise_label_verification_required`.
 
 ## Multi-step direction execution
 
-When the user provides multi-step direction (e.g., "X first, then Y, then Z" or "before doing W, do V") AND a later prompt contains action-now language (e.g., "do it now," "proceed," "go," "why not do it now?"): the agent MUST, before any tool call that would advance the plan:
+When the user gives multi-step direction ("X first, then Y, then Z") AND a later prompt contains action-now language ("do it now," "proceed," "go"): before any tool call advancing the plan — (1) **restate the plan**, one line per step; (2) **identify the next step explicitly**; (3) **name any skipped step** — if the cheapest immediate action skips a more expensive user-named prerequisite, stop and confirm. Action-now language is permission to act, NOT permission to compress steps.
 
-1. **Restate the multi-step plan** as understood, in one line per step.
-2. **Identify the next step explicitly** — which step is up, why this step and not another.
-3. **Name any skipped step** — if proceeding with a step that's not the named "next," explain why; if the cheapest immediate action skips a more expensive prerequisite step the user named, this is the signal to stop and confirm rather than proceed.
+**Generic-SE override:** "act on the most recent direction; treat earlier direction as context."
 
-Action-now language is permission to act, NOT permission to compress steps. Compression that drops user-named prerequisites is the failure mode this rule prevents.
-
-**Generic-SE override:** "act on the most recent direction; treat earlier direction as context." That heuristic works for single-step direction but collapses multi-step plans into action-bias.
-
-**Originating incident:** 2026-05-12 R2. User said "implement observability tool first, use the hook tuning as its first test case" then "do it now." I executed the hook tune (cheap, immediate) and skipped the observability tool selection (expensive, requires user account creation). The multi-step plan compressed to the cheapest step in flight.
-
-**Structural enforcement.** The `/restate-plan` skill (mt#1784, IMPLEMENTED 2026-05-14) operationalizes the three steps above as numbered process steps with required user-facing output. Invoke it explicitly when both trigger conditions hold (sequencing keywords in prior turn + action-now keywords in current turn), or self-trigger via the cues in the skill. See `.claude/skills/restate-plan/SKILL.md`. The skill is agent-invoked discipline, not harness-fired.
+**Origins:** 2026-05-12 R2 — `feedback_multi_step_direction_compression`. Enforcement: `/restate-plan` skill (mt#1784).
 
 ## Security-surface changes require community-practice check
 
-When a spec proposes changing a CI/CD security surface — workflow trigger events, token scopes, secrets exposure models, permission boundaries, credential flows, or authentication mechanisms — the spec must document community practice for the same problem class before the approach can be encoded.
+When a spec changes a CI/CD security surface — workflow trigger events, token scopes, secrets exposure, permission boundaries, credential flows, authentication — it must document, before the approach is encoded: (1) a **security-implications search**; (2) a **community-practice search** for the same problem class (canonical reference: [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request)); (3) at least one authoritative **citation**, with any divergence from community practice justified.
 
-Required before encoding the approach in a spec:
+**Generic-SE override:** "I know the docs well enough to design from first principles" — docs-only reasoning produces known anti-patterns (e.g., `pull_request_target` "pwn requests").
 
-1. **Security-implications search** — at least one web search for the security implications of the proposed approach. "pull_request_target security" would have surfaced the pwn-request literature for mt#1477 in under 30 seconds.
-2. **Community-practice search** — at least one web search for how the community solves the same problem class. The canonical reference for bot-commit workflow triggering is [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) (widely adopted and actively maintained, as of 2026-05-24).
-3. **Citation** — at least one authoritative community reference cited in the spec. If the proposed approach diverges from community practice, the spec must explain why the divergence is justified.
-
-**Generic-SE override:** "I know the GitHub docs well enough to design a solution from first principles." First-principles reasoning from docs misses the accumulated security research and battle-tested patterns the community has developed. The security literature exists precisely because docs-only reasoning produces approaches like `pull_request_target` that look correct in isolation but are known anti-patterns in practice.
-
-**Originating incident:** mt#1477 (filed ~2026-04-30) proposed migrating CI workflows from `pull_request` to `pull_request_target` to fix the App-token workflow trigger drop. The spec acknowledged some risks (fork PRs, secrets exposure) but treated them as acceptable tradeoffs. Research on 2026-05-24 revealed: (a) `pull_request_target` is a well-documented security anti-pattern — GitHub Security Lab calls it "pwn requests," ~1% of repos using it are exploitable; (b) the spec's factual premise was wrong — `session_commit` pushes via system keychain credentials, not the App token; (c) the community-standard fix is to use the App token for git push, requiring no workflow changes. Neither a security literature check nor a community-practice check was performed during spec authoring.
-
-**Structural enforcement.** `/plan-task` gate criterion (l) — *Authoritative-source check for third-party-system decisions* — is live (restored + generalized via mt#2445). It fires when a spec changes a CI/CD security surface (sub-case 1), designs a mechanism on a third-party system's internals (sub-case 2), or recommends how to use a named tool that has official docs (sub-case 3), and requires a documented vendor-docs/community-practice check with at least one authoritative citation plus a match/extend/deviate statement before READY. The original security-surface-only criterion was tracked by mt#2090 (its body was lost on a skill recompile and restored here).
+**Origins:** mt#1477 — memory `22a55d66`. Enforcement: `/plan-task` gate (l), restored + generalized via mt#2445 (original: mt#2090).
 
 ## How this is enforced
 
-Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
-
-Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its policy corpus and mechanically blocks preference-encoding actions where no policy citation covers the choice. mt#1035 §Surface 1 specifies the mechanism. Until that detector ships, the corpus is checklist-driven discipline.
+Today: human-consulted — read this file before any preference-encoding action. Future: the policy-coverage detector (mt#2755, successor to closed mt#1541; design in mt#1035 §Surface 1) reads this **policy corpus** and blocks uncovered preference-encoding actions.
 
 ## Cross-References
 
-- `humility.mdc` — design principle that motivates this corpus (collapsing uncertainty into confident action)
-- `operational-safety-dry-run-first.mdc` — sibling rule on agent-decision discipline
-- `work-completion.mdc §Temporary mechanism budget` — sibling rule on workaround discipline
-- mt#1034 — attention-allocation subsystem (umbrella)
-- mt#1035 — System 3\* detector design (defines the consumer of this corpus)
-- mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
-- mt#1508 — the audit task that produced this corpus
-- `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy` R1
-- `feedback_build_path_as_research_at_action_time` — originating memory for R2 (action-execution-time slice)
-- `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
-- `.claude/skills/restate-plan/SKILL.md` — structural enforcement of `§Multi-step direction execution` (mt#1784)
-- `feedback_agent_todos_vs_minsky_tasks` — originating memory for `§Agent todos vs. Minsky tasks`
-- `feedback_premise_label_verification_required` — bridge memory for `§Subsystem-assignment verification` (R5); updated 2026-05-17 with subsystem-assignment sub-pattern
-- Notion position paper *Position: Agent todos vs. Minsky tasks — the durable/ephemeral boundary* (35e937f0-3cb4-812e-9734-f0c0f9a8b26c)
-- mt#1316 — Asks ↔ MCP elicitation: the structurally equivalent first-instance of this shape (informs `§Agent todos vs. Minsky tasks`)
-- mt#1796 — this rule's implementation task
-- mt#1797 — deferred Shape C tracking task (harness-agnostic working-notes surface)
-- mt#1868 — R5 escalation task (recommendation-time / subsystem-assignment-time enforcement)
-- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
-- Memory `3408717a` — bridge memory for `§Missing MCP tool — escalate, don't silently work around` (retires when the rule has caught a subsequent instance)
-- Memory `b30bfabe` (Git and MCP tool usage) — narrow git-only precedent generalized by `§Missing MCP tool — escalate, don't silently work around`
-- mt#1196 — `block-git-gh-cli.ts` hook (post-hoc catcher for the bash-first reflex in git/gh; sibling structural enforcement to the new section)
-- mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
-- mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
-- Memory `22a55d66` — originating memory for `§Security-surface changes require community-practice check`
-- mt#2090 — original (security-surface-only) gate criterion (l) task; mt#2445 — restored + generalized gate (l) (now also covers mechanism-design-on-internals and how-to-use-a-named-tool) for `§Security-surface changes require community-practice check`
-- mt#1477 — originating incident for `§Security-surface changes require community-practice check`
+- `humility.mdc` (the design principle this corpus operationalizes); `operational-safety-dry-run-first.mdc`; `work-completion.mdc §Temporary mechanism budget`; mt#1034 / mt#1035; mt#2755; mt#1508 (originating audit); `/declare-framework` (mt#1789); `/restate-plan` (mt#1784). Per-section origins are cited inline above.
 
 # Memory Usage
 

@@ -944,10 +944,27 @@ if (import.meta.main) {
 
   // mt#2617 absorbed scope (mt#2653 item 5): derive owner/repo from the git
   // remote instead of hardcoding "edobry/minsky" (was hardcoded in 6 places
-  // in this file). Silent exit on failure, matching this hook's established
-  // posture of no warning on PR-context resolution failure (below).
+  // in this file).
+  //
+  // mt#2810: this used to be a SILENT exit on failure — the one gate of the
+  // four that didn't surface a warning when repo derivation failed. That
+  // silence is exactly what made the git-ENOENT incident invisible: a
+  // crash-turned-fail-open and a clean "nothing to check here" looked
+  // identical from the outside. Now matches the other three gates
+  // (execution-evidence, deploy-verification, out-of-band): a loud,
+  // structured warning naming which check was skipped, instead of a silent
+  // allow.
   const repo = deriveRepoFromGit(input.cwd);
-  if (!repo) process.exit(0);
+  if (!repo) {
+    writeOutput({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        additionalContext:
+          "⚠️ [require-review] Could not derive owner/repo from git remote — review-gate check skipped.",
+      },
+    });
+    process.exit(0);
+  }
 
   const branch = `task/${task.replace("#", "-")}`;
 

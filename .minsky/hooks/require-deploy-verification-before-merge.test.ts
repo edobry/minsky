@@ -15,6 +15,7 @@ const INFRA_INDEX = "infra/index.ts";
 const REVIEWER_RAILWAY_JSON = "services/reviewer/railway.json";
 const SECTION_HEADING = "## Deploy verification:";
 const DEPLOY_CHANGE_TITLE = "feat: deploy change";
+const NO_SECTION_BODY = "## Summary\nno section";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
 const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
 const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("services/reviewer/src/server.ts")];
@@ -143,7 +144,7 @@ describe("checkDeployVerification (mt#2353)", () => {
   });
 
   test("BLOCKS a deploy-surface PR with no Deploy verification: section", () => {
-    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, "## Summary\nno section");
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
     expect(r.blocked).toBe(true);
     expect(r.deploySurfaceFiles).toEqual([INFRA_INDEX, REVIEWER_RAILWAY_JSON]);
     expect(r.reason).toContain("Deploy verification:");
@@ -151,7 +152,7 @@ describe("checkDeployVerification (mt#2353)", () => {
   });
 
   test("error message names the accepted marker forms (mt#2648)", () => {
-    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, "## Summary\nno section");
+    const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
     expect(r.reason).toContain("Accepted marker forms");
     expect(r.reason).toContain("## Deploy verification");
   });
@@ -179,6 +180,44 @@ describe("checkDeployVerification (mt#2353)", () => {
     expect(r.blocked).toBe(false);
     expect(r.bypassDetected).toBe(true);
     expect(r.warnings.length).toBeGreaterThan(0);
+  });
+
+  // mt#2809 regression (integration level): reproduces the EXACT payload
+  // shape `fetchPrFiles` returns in production — every non-renamed file
+  // carries a literal `previous_filename: null` (see the PrFile doc comment
+  // in ./pr-context and the deploy-surface-detector.test.ts regression for
+  // the jq-projection root cause). Before the fix, `checkDeployVerification`
+  // -> `findDeploySurfaceFiles` -> `isDeploySurfaceFile(f.previous_filename)`
+  // threw `TypeError: null is not an object (evaluating 'filename.replace')`
+  // on this exact shape, which is what every real `session_pr_merge`
+  // attempt's file list looks like — hence the observed 8/8 and 10/10 crash
+  // rate. This test proves the gate now produces a real verdict instead of a
+  // stack trace.
+  describe("mt#2809 regression: real verdict on the crashing payload shape", () => {
+    const nullPrevFile = (filename: string, status: PrFile["status"] = "modified"): PrFile =>
+      ({ filename, status, previous_filename: null }) as unknown as PrFile;
+
+    const crashingFiles: PrFile[] = [
+      nullPrevFile("src/app.ts"),
+      nullPrevFile(REVIEWER_RAILWAY_JSON),
+      nullPrevFile("README.md", "added"),
+    ];
+
+    test("BLOCKS with a real reason (not a throw) when no Deploy verification: section is present", () => {
+      // A throw here (the pre-fix behavior) fails the test on its own; the
+      // assertions below confirm it's a REAL verdict, not just "didn't crash".
+      const r = checkDeployVerification(crashingFiles, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
+      expect(r.blocked).toBe(true);
+      expect(r.deploySurfaceFiles).toEqual([REVIEWER_RAILWAY_JSON]);
+      expect(r.reason).toContain("Deploy verification:");
+    });
+
+    test("ALLOWS with a real verdict when the crashing payload also carries a Deploy verification section", () => {
+      const body = `${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS; /health 200.`;
+      const r = checkDeployVerification(crashingFiles, DEPLOY_CHANGE_TITLE, body);
+      expect(r.blocked).toBe(false);
+      expect(r.deploySurfaceFiles).toEqual([REVIEWER_RAILWAY_JSON]);
+    });
   });
 });
 

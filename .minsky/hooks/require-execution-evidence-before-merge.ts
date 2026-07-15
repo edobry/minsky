@@ -126,8 +126,12 @@ export function findNewTestFiles(files: PrFile[]): string[] {
       if (!isTestFile(f.filename)) return false;
       if (f.status === "added") return true;
       if (f.status === "renamed" || f.status === "copied") {
-        // Only count if the source was NOT already a test file (new-test-file conversion)
-        if (f.previous_filename !== undefined) {
+        // Only count if the source was NOT already a test file (new-test-file
+        // conversion). mt#2809: check `!= null` (covers both `undefined` AND
+        // a literal `null` — the PrFile.previous_filename doc comment in
+        // ./pr-context explains why `!== undefined` alone is unsafe), not
+        // just `!== undefined`.
+        if (f.previous_filename != null) {
           return !isTestFile(f.previous_filename);
         }
         // No previous_filename info available — conservatively include it
@@ -152,7 +156,9 @@ export function findNewOperationalScripts(files: PrFile[]): string[] {
       if (!isOperationalScript(f.filename)) return false;
       if (f.status === "added") return true;
       if (f.status === "renamed" || f.status === "copied") {
-        if (f.previous_filename !== undefined) {
+        // mt#2809: `!= null`, not `!== undefined` alone — see the
+        // PrFile.previous_filename doc comment in ./pr-context.
+        if (f.previous_filename != null) {
           return !isOperationalScript(f.previous_filename);
         }
         // No previous_filename info available — conservatively include it.
