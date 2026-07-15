@@ -173,8 +173,16 @@ reflected in `mappings.linear.type = "Project"`. Jira's natural primitive is **E
 
 ### `state-ops`
 
-No-code / pure-state tasks — triage sweeps, config-only ops, decision records — that
-terminate honestly without a session workspace or a PR (mt#2661).
+No-code / pure-state tasks — triage sweeps, config-only ops, decision records, and
+**investigations** — that terminate honestly without a session workspace or a PR (mt#2661).
+
+**Investigation tasks live here (mt#455).** A separate `kind: "research"` was proposed and
+declined (ask `0480a4c3`, 2026-07-15): after mt#2311's single-terminal collapse its state
+machine was identical to state-ops, and the classification-axes RFC's decision frame (Q1)
+reserves new kinds for state-machine differences. Investigation-shaped work — "audit X and
+report", "compare A/B and decide", "root-cause Y" — is filed as `kind: "state-ops"`; the
+work-content distinction (research vs. ops) belongs to the future `type` axis (mt#455's
+original framing).
 
 **States:** `TODO`, `PLANNING`, `READY`, `IN-PROGRESS`, `DONE`, `CLOSED`
 
@@ -208,6 +216,19 @@ CLOSED      → TODO (reopen)
 - `state-ops` **keeps the `READY` planning gate** that `umbrella` skips. A state-ops
   task still goes through `/plan-task` before work starts; it just doesn't require a
   session workspace to move past `READY` into `IN-PROGRESS`.
+
+**Findings-gated DONE + no-session walk (mt#455):**
+
+- **`session_start` refuses state-ops tasks** with an error naming this flow — there is
+  no code workspace to clone. Work happens in the main agent context.
+- **Any transition to `DONE` requires closeout evidence**: a populated
+  `## Closeout evidence`, `## Findings`, or `## Outcome` section in the spec
+  (`hasCloseoutEvidence()` in `status-transitions.ts`, enforced kind-aware in
+  `mutation-commands.ts`). The deliverable of a state-ops task IS that section.
+- **The walk**: `tasks_status_set` READY → IN-PROGRESS → do the work → record findings
+  via `tasks_spec_patch` → `tasks_status_set` → DONE. `/plan-task` Step 4 encodes this
+  (it skips the `/implement-task` chain-walk for this kind), and its gate criteria adapt:
+  (b) accepts findings-shaped success criteria; (h) reports N/A.
 
 **Tool mappings:**
 | State | GitHub Issues | Linear | Jira |
