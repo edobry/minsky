@@ -1306,6 +1306,10 @@
               "description": "Show detailed output including scores and diagnostics"
             },
             {
+              "flags": ["--quiet"],
+              "description": "Suppress output"
+            },
+            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true
@@ -1749,10 +1753,6 @@
               "description": "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
               "takesValue": true,
               "values": ["shortest-path", "value-first", "ready-first"]
-            },
-            {
-              "flags": ["--parallel"],
-              "description": "Show parallel execution opportunities"
             },
             {
               "flags": ["--json"],

@@ -46,7 +46,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<
         { taskService: this.getTaskService?.() }
       );
       const { log } = await import("@minsky/shared/logger");
-      const changed = await service.indexTask(task.id);
+      const changed = await service.indexTask(task.id, { force: params.reindex });
       if (!(params.json || ctx.format === "json")) {
         log.cli(`${task.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
       }
@@ -92,7 +92,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<
         if (idx >= tasks.length) break;
         const t = elementAt(tasks, idx, "index-embeddings worker tasks");
         try {
-          const changed = await service.indexTask(t.id);
+          const changed = await service.indexTask(t.id, { force: params.reindex });
           if (!(params.json || ctx.format === "json")) {
             log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
           }

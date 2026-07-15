@@ -72,11 +72,11 @@ const tasksRouteParams = {
       "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
     required: false,
   },
-  parallel: {
-    schema: z.boolean().default(false),
-    description: "Show parallel execution opportunities",
-    required: false,
-  },
+  // mt#2795: the former `parallel` param ("Show parallel execution
+  // opportunities") was declared-but-unread since the command shipped — the
+  // handler never threaded it and TaskRoutingService's parallel-track
+  // detection is an unimplemented TODO. Removed so the declared surface
+  // matches real behavior; mt#2834 implements the feature and reinstates it.
   json: {
     schema: z.boolean().default(false),
     description: "Output in JSON format",

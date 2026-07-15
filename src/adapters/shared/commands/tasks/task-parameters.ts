@@ -236,6 +236,9 @@ export const tasksSimilarParams = {
     description: "Show detailed output including scores and diagnostics",
     required: false,
   },
+  // mt#2795: declared for parity with tasks.search — suppresses the
+  // degraded-search warning (the mt#2779 R1 review flagged the gap).
+  quiet: CommonParameters.quiet,
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -368,26 +371,7 @@ export const tasksEditParams = {
   ...outputFormatParams,
 } satisfies CommandParameterMap;
 
-/**
- * Parameters for tasks migrate command (md#429 importer by default)
- */
-export const tasksMigrateParams = {
-  execute: {
-    schema: z.boolean().default(false),
-    description: "Apply changes (defaults to dry-run without this flag)",
-    required: false,
-  },
-  limit: {
-    schema: z.number().int().positive().optional(),
-    description: "Limit number of tasks to import",
-    required: false,
-  },
-  filterStatus: {
-    schema: z.string().optional(),
-    description: "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
-    required: false,
-  },
-  quiet: CommonParameters.quiet,
-  ...taskContextParams,
-  ...outputFormatParams,
-} satisfies CommandParameterMap;
+// mt#2795: the former `tasksMigrateParams` export (md#429 importer era) was a
+// dead map — zero consumers anywhere in src/ (tasks.migrate-backend declares
+// its own map in migrate-backend-command.ts). Removed by the
+// declared-but-unread param audit.
