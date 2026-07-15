@@ -92,8 +92,23 @@ import { execWithPath } from "./types";
 export interface PrFile {
   filename: string;
   status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
-  /** Present for renamed/copied files — the filename before the rename/copy */
-  previous_filename?: string;
+  /**
+   * Present (as a real string) for renamed/copied files — the filename
+   * before the rename/copy.
+   *
+   * mt#2809: typed to include `null`, not just `undefined`, because that is
+   * what this field ACTUALLY is at runtime for every non-renamed entry.
+   * `fetchPrFiles` below builds this via a `gh api ... --jq` projection
+   * (`previous_filename: .previous_filename`) that evaluates the field on
+   * every file regardless of status; jq's `.foo` access on a missing key
+   * returns `null` rather than omitting the key, so the JSON that
+   * `JSON.parse` sees carries a literal `null` — not an absent key — for
+   * every non-renamed file. Consumers MUST check `!= null` (or
+   * `typeof x === "string"`), never `!== undefined` alone — the latter
+   * treats `null` as "present" and was the mt#2809 crash's root cause
+   * (`isDeploySurfaceFile(f.previous_filename)` called with `null`).
+   */
+  previous_filename?: string | null;
 }
 
 /** A single PR review (subset of GitHub's review shape). */

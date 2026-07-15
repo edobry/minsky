@@ -37,13 +37,23 @@ export { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile };
  * `Dockerfile.bak` — still counts as a deploy change). ALL statuses are
  * considered, including `removed`: deleting a deploy-config file is a
  * deploy-impacting change too.
+ *
+ * mt#2809 root-cause fix: previously guarded the `previous_filename` branch
+ * with `f.previous_filename !== undefined`. At runtime `previous_filename`
+ * is `null` (not `undefined`) for every non-renamed file — see the `PrFile`
+ * doc comment in `./pr-context` for why — so `null !== undefined` evaluated
+ * to `true` and fed `null` straight into `isDeploySurfaceFile`, crashing
+ * `normalisePath` on ~every file in ~every PR (observed: 8/8 and 10/10
+ * merges). `isDeploySurfaceFile` is now itself null-safe (returns `false`
+ * for a non-string input, per `packages/domain/src/deployment/deploy-surface.ts`),
+ * so the explicit presence check is no longer needed at all: calling it
+ * unconditionally is both simpler and correct — `null`/`undefined`
+ * `previous_filename` naturally evaluates to `false` (not a rename away from
+ * a deploy surface), and a real rename's `previous_filename` string is
+ * classified normally.
  */
 export function findDeploySurfaceFiles(files: PrFile[]): string[] {
   return files
-    .filter(
-      (f) =>
-        isDeploySurfaceFile(f.filename) ||
-        (f.previous_filename !== undefined && isDeploySurfaceFile(f.previous_filename))
-    )
+    .filter((f) => isDeploySurfaceFile(f.filename) || isDeploySurfaceFile(f.previous_filename))
     .map((f) => f.filename);
 }

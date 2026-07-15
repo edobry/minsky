@@ -37,6 +37,17 @@ describe("isDeploySurfaceFile", () => {
     expect(isDeploySurfaceFile("./infra/index.ts")).toBe(true);
     expect(isDeploySurfaceFile("infra\\index.ts")).toBe(true);
   });
+
+  test("mt#2809: tolerates null/undefined filename without throwing (trust-boundary guard)", () => {
+    // Reproduces the actual runtime shape: `gh api .../files --jq` projects
+    // `previous_filename` on every file entry, and jq returns `null` (not
+    // "field omitted") for a missing key — so JSON.parse'd PrFile entries
+    // carry a real `null`, not `undefined`, for non-renamed files.
+    expect(() => isDeploySurfaceFile(null)).not.toThrow();
+    expect(() => isDeploySurfaceFile(undefined)).not.toThrow();
+    expect(isDeploySurfaceFile(null)).toBe(false);
+    expect(isDeploySurfaceFile(undefined)).toBe(false);
+  });
 });
 
 describe("extractServiceFromPath", () => {
@@ -49,6 +60,12 @@ describe("extractServiceFromPath", () => {
     expect(extractServiceFromPath("infra/index.ts")).toBeUndefined();
     expect(extractServiceFromPath(DEPLOY_WORKFLOW)).toBeUndefined();
     expect(extractServiceFromPath("src/domain/session.ts")).toBeUndefined();
+  });
+
+  test("mt#2809: returns undefined (not a throw) for null/undefined", () => {
+    expect(() => extractServiceFromPath(null)).not.toThrow();
+    expect(extractServiceFromPath(null)).toBeUndefined();
+    expect(extractServiceFromPath(undefined)).toBeUndefined();
   });
 });
 

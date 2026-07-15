@@ -85,4 +85,46 @@ describe("findDeploySurfaceFiles (mt#2353)", () => {
     const files: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
     expect(findDeploySurfaceFiles(files).length).toBe(2);
   });
+
+  // mt#2809 regression: `fetchPrFiles`'s `gh api ... --jq` projection
+  // (`previous_filename: .previous_filename`) evaluates that field on EVERY
+  // file entry regardless of status. jq returns `null` (not "field omitted")
+  // for a missing key, so a non-renamed file's JSON.parse'd PrFile carries a
+  // literal `previous_filename: null` — NOT `undefined`, which is what every
+  // fixture above (built via the `f()` helper, which never sets the field at
+  // all) actually produces. The old `f.previous_filename !== undefined`
+  // guard treated `null` as "present" and crashed `normalisePath` on this
+  // exact shape — reproduced here via an explicit `previous_filename: null`
+  // rather than the `f()` helper, to match the real runtime payload.
+  test("mt#2809: does not throw on the actual runtime payload shape (previous_filename: null on non-renamed files)", () => {
+    const files = [
+      { filename: "src/app.ts", status: "modified", previous_filename: null },
+      { filename: REVIEWER_RAILWAY_JSON, status: "modified", previous_filename: null },
+      { filename: "README.md", status: "added", previous_filename: null },
+      {
+        filename: `${REVIEWER_DOCKERFILE}.bak`,
+        status: "renamed",
+        previous_filename: REVIEWER_DOCKERFILE,
+      },
+    ] as unknown as PrFile[];
+
+    expect(() => findDeploySurfaceFiles(files)).not.toThrow();
+    // Correct surface classification for the remaining (non-null) files:
+    // the railway.json modification and the rename-away-from-Dockerfile are
+    // both deploy-surface; the plain app/README edits are not.
+    expect(findDeploySurfaceFiles(files)).toEqual([
+      REVIEWER_RAILWAY_JSON,
+      `${REVIEWER_DOCKERFILE}.bak`,
+    ]);
+  });
+
+  test("mt#2809: does not throw when a file's OWN filename is null (defense in depth)", () => {
+    const files = [
+      { filename: null, status: "modified", previous_filename: null },
+      f(REVIEWER_RAILWAY_JSON),
+    ] as unknown as PrFile[];
+
+    expect(() => findDeploySurfaceFiles(files)).not.toThrow();
+    expect(findDeploySurfaceFiles(files)).toEqual([REVIEWER_RAILWAY_JSON]);
+  });
 });
