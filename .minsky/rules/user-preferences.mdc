@@ -66,6 +66,14 @@ tags:
 
   Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts.
 
+- **Plain-language first in chat reports (mt#2801).** When reporting investigation, planning, review, or incident results in chat, LEAD with a plain-language account that a reader who has never seen the skill's internals can follow: what the situation is, what's wrong, and what should be done — in prose, before any process artifacts. Process-internal vocabulary (gate letters like "(l)", premise-audit labels like "(iii)", criterion tables, checklist IDs) is for the audit trail, not the principal: keep it out of the opening, and append it after the plain-language account — or put it in the durable artifact (task spec, PR body) and reference it — so it never displaces the explanation.
+
+  **Working test:** if understanding the first three paragraphs requires knowing what a named internal label means, rewrite. Target: the situation plus the recommendation readable in under a minute (~300–400 words); full structured detail beneath or on request.
+
+  This does NOT weaken any skill's requirement to produce structured reports (gap reports, gate tables, premise audits). Those are records — produce them in full, but render them after the plain-language lead or into the durable artifact. Placement changes; rigor does not.
+
+  Originating incident: 2026-07-15, mt#2777 planning. The gate output led with a four-part premise audit and a 14-row criterion table; the principal responded "This is too much information. Help me understand what the situation is and what should be done about this," and approved the plain rewrite (what happened → the two underlying problems → what's wrong with the task as written → three recommended actions) as the standard. Structural fix: this bullet plus the `/plan-task` Step 4 output amendment (same task). Sibling rules: `§Professional communication` (tone), `humility.mdc §Escalation packaging` (self-contained decision escalations); this bullet covers report-shaped output.
+
 - **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
 
 - **Address all linter errors:** Acknowledge all linter errors in modified files. Fix straightforward ones; document limitations for complex ones.
