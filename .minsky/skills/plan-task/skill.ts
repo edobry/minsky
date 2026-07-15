@@ -812,8 +812,9 @@ premise-audit answer and criterion verdict is still produced in full.
 **All gate criteria pass:**
 
 1. Report in plain language that planning found no gaps (one or two sentences on what was
-   checked and why the task is ready); the per-criterion detail follows as the audit trail —
-   do not lead with it.
+   checked and why the task is ready). Never lead with the criterion dump: the full
+   per-criterion verdicts are still produced, but they render beneath the plain-language
+   lead — or in the task record — as the audit trail.
 2. Call \`mcp__minsky__tasks_status_set\` to transition the task to **READY**.
 3. **Continue the lifecycle: invoke \`/implement-task mt#X\` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use \`/implement-task\` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory \`feedback_auto_mode_chains_skills_at_affirmative_tokens\`, id \`4b83ff51-4bc2-49f5-84be-7e4eac073125\`).
 
