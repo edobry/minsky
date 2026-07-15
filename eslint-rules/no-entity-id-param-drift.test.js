@@ -82,6 +82,17 @@ tsTester.run("no-entity-id-param-drift", rule, {
       filename: tasksFile,
       code: `const notAMap = { task: "mt#1" };`,
     },
+    // Generic options bag NAMED `parameters` with a `task` string field —
+    // not param-def shaped, so the shape guard bails (PR #1933 R1 blocker 1).
+    {
+      filename: tasksFile,
+      code: `const cfg = { parameters: { task: "mt#1", retries: 3 } };`,
+    },
+    // Class field named `parameters` holding a non-map object — same guard.
+    {
+      filename: tasksFile,
+      code: `class Helper { readonly parameters = { task: buildTask(), verbose: true }; }`,
+    },
     // Full valid fixture.
     {
       filename: tasksFile,

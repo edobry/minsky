@@ -18,10 +18,25 @@
  *   - canonical + alias (back-compat pair) ... clean (the mt#2737/mt#2741 pattern)
  *   - alias alone ............................ FLAGGED
  *
- * Conservatism: a map containing a spread (`...taskContextParams`) may
- * receive the canonical key through the spread, which per-file analysis
- * cannot see — such maps are skipped when the canonical is not locally
- * visible (zero-false-positive requirement, mt#2780 acceptance test 3).
+ * Coverage model (PR #1933 R1): the ESLint config block enumerates the
+ * covered family directories as explicit `files` globs — config, not
+ * path-parsing, is what determines enforcement scope. Adding a family =
+ * add a `FAMILY_CONVENTIONS` entry here AND its glob in `eslint.config.js`
+ * (both named in the code-style rule doc). The path parsing below is
+ * defense-in-depth for direct/RuleTester invocations, not the scoping
+ * mechanism.
+ *
+ * Conservatism (zero-false-positive requirement, mt#2780 acceptance test 3):
+ * - A map containing a spread (`...taskContextParams`) may receive the
+ *   canonical key through the spread, which per-file analysis cannot see —
+ *   such maps are skipped when the canonical is not locally visible.
+ * - The `parameters:` object/class-field paths only fire on objects that
+ *   LOOK like command param maps (at least one property value shaped like a
+ *   param definition — an object literal with a `schema` key). A generic
+ *   options bag that happens to be named `parameters` and contain a `task`
+ *   string field is not a param map and is not checked. The
+ *   `satisfies CommandParameterMap` path needs no shape guard — the type
+ *   assertion is definitive.
  *
  * NOTE: alias names are only checked within their OWN family directory —
  * `session` is a legitimate workspace-scoping context param in `tasks/`
@@ -63,6 +78,25 @@ function propertyKeyName(prop) {
   if (prop.key?.type === "Identifier") return prop.key.name;
   if (prop.key?.type === "Literal" && typeof prop.key.value === "string") return prop.key.value;
   return null;
+}
+
+/** A value shaped like a CommandParameterDefinition: `{ schema: ..., ... }`. */
+function isParamDefShaped(valueNode) {
+  return (
+    valueNode?.type === "ObjectExpression" &&
+    valueNode.properties.some((p) => p.type === "Property" && propertyKeyName(p) === "schema")
+  );
+}
+
+/**
+ * Shape guard for the `parameters:` property/class-field paths: only treat
+ * the object as a command param map when at least one property value is
+ * param-definition-shaped. Prevents false positives on generic objects that
+ * happen to be named `parameters` (PR #1933 R1 blocker 1).
+ */
+function looksLikeParamMap(objectNode) {
+  if (!objectNode || objectNode.type !== "ObjectExpression") return false;
+  return objectNode.properties.some((p) => p.type === "Property" && isParamDefShaped(p.value));
 }
 
 export default {
@@ -135,14 +169,14 @@ export default {
         }
       },
 
-      // `parameters: { ... }` in registration object literals
+      // `parameters: { ... }` in registration object literals — shape-guarded
       "Property[key.name='parameters']"(node) {
-        checkMapObject(node.value);
+        if (looksLikeParamMap(node.value)) checkMapObject(node.value);
       },
 
-      // `readonly parameters = { ... }` class fields
+      // `readonly parameters = { ... }` class fields — shape-guarded
       "PropertyDefinition[key.name='parameters']"(node) {
-        checkMapObject(node.value);
+        if (looksLikeParamMap(node.value)) checkMapObject(node.value);
       },
     };
   },

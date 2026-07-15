@@ -771,20 +771,37 @@ export default [
       "custom/no-skipped-tests": "error", // Prevent .skip() and .todo() in test files (mt#1151)
     },
   },
-  // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) + ENTITY-ID DRIFT (mt#2780) ===
+  // === MAP-DERIVED COMMAND PARAM TYPES (mt#2779) ===
   // Execute handlers in the shared-command tree must derive their param types
   // from the command's params map (InferParams<typeof map>) — hand-rolled
   // *Params interfaces let handlers read undeclared keys that compile cleanly
   // and are always undefined at runtime (the mt#2742 Detector-B class).
-  // no-entity-id-param-drift covers the sibling Detector-A class: a family map
-  // declaring the back-compat alias id-name (`task`) without the family's
-  // canonical (`taskId`) — the mt#2741 drift shape, caught at authoring time.
   // Test files are excluded: partial-fixture casts are the legitimate seam.
   {
     files: ["src/adapters/shared/commands/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/no-hand-rolled-command-params": "error",
+    },
+  },
+  // === ENTITY-ID PARAM-NAME DRIFT (mt#2780) ===
+  // The mt#2741 Detector-A class: a family map declaring the back-compat
+  // alias id-name (`task`) without the family's canonical (`taskId`).
+  // COVERAGE IS DECLARED HERE (PR #1933 R1): the globs below enumerate
+  // exactly the family directories with confirmed conventions — config, not
+  // path heuristics, determines enforcement scope. Adding a family = add its
+  // FAMILY_CONVENTIONS entry in eslint-rules/no-entity-id-param-drift.js AND
+  // its glob here (both steps; the rule doc in code-style.mdc names this
+  // pairing). Directories not listed (memory/, knowledge/, compile/, ...)
+  // have no confirmed canonical+alias pair yet and are deliberately out of
+  // scope, not silently skipped-by-heuristic.
+  {
+    files: [
+      "src/adapters/shared/commands/tasks/**/*.ts",
+      "src/adapters/shared/commands/session/**/*.ts",
+    ],
+    ignores: ["**/*.test.ts"],
+    rules: {
       "custom/no-entity-id-param-drift": "error",
     },
   },
