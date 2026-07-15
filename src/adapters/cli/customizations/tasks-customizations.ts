@@ -109,6 +109,33 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        // mt#2811: taskId/task are both OPTIONAL in tasksChildrenParams (deps-commands.ts),
+        // so the bridge's auto-promotion (which only promotes the first REQUIRED param) never
+        // registered a positional argument here — unlike every sibling tasks.* command below.
+        // Root cause of a 100%-failure-rate bug: `minsky tasks children <id>` (bare positional)
+        // errored "too many arguments for 'children'. Expected 0 arguments but got 1." (verified
+        // live during mt#2811's investigation), silently breaking the parallel-work guard's
+        // duplicate-child enumeration (`fetchTaskChildren` in .minsky/hooks/parallel-work-guard.ts,
+        // which now also defends itself by calling `--task` explicitly regardless of this fix).
+        "tasks.children": {
+          useFirstRequiredParamAsArgument: false,
+          parameters: {
+            taskId: {
+              asArgument: true,
+              description: "ID of the parent task to list children for",
+            },
+          },
+        },
+        // mt#2811: same root cause and fix shape as tasks.children above.
+        "tasks.parent": {
+          useFirstRequiredParamAsArgument: false,
+          parameters: {
+            taskId: {
+              asArgument: true,
+              description: "ID of the task to find parent of",
+            },
+          },
+        },
         "tasks.status.set": {
           parameters: {
             taskId: {
