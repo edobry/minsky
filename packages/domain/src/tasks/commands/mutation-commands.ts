@@ -217,31 +217,6 @@ export async function setTaskStatusFromParams(
       );
     }
 
-    // Evidence-gated DONE. Two triggers:
-    //   - READY → DONE (any kind): the external-deliverable closeout path —
-    //     tasks that complete without a PR merge. See
-    //     .minsky/rules/task-lifecycle-external-deliverable.mdc (or the
-    //     compiled CLAUDE.md section) for the convention.
-    //   - state-ops → DONE (mt#455): a no-code/investigation task's deliverable
-    //     IS its findings — DONE requires a populated `## Closeout evidence`,
-    //     `## Findings`, or `## Outcome` section regardless of the from-status.
-    const evidenceGated =
-      validParams.status === TaskStatus.DONE &&
-      (task.status === TaskStatus.READY || task.kind === "state-ops");
-    if (evidenceGated) {
-      let specContent = "";
-      try {
-        const specResult = await taskService.getTaskSpecContent(validParams.taskId);
-        specContent = specResult.content ?? "";
-      } catch {
-        // If spec cannot be read, treat as missing — the check will fail below.
-        specContent = "";
-      }
-      if (!hasCloseoutEvidence(specContent)) {
-        throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
-      }
-    }
-
     // Parent-rollup-completion guard (mt#1649; since mt#2311 also the umbrella
     // closeout guard) — see assertChildrenCompleteForDone.
     await assertChildrenCompleteForDone({
@@ -258,6 +233,33 @@ export async function setTaskStatusFromParams(
       validParams.status as TaskStatus,
       task.kind
     );
+
+    // Evidence-gated DONE — runs AFTER validateStatusTransition so an illegal
+    // transition surfaces as an invalid-transition error, not a misleading
+    // missing-evidence error (PR #1937 R1). Two triggers:
+    //   - READY → DONE (any kind): the external-deliverable closeout path —
+    //     tasks that complete without a PR merge. See
+    //     .minsky/rules/task-lifecycle-external-deliverable.mdc (or the
+    //     compiled CLAUDE.md section) for the convention.
+    //   - state-ops → DONE (mt#455): a no-code/investigation task's deliverable
+    //     IS its findings — DONE requires a populated `## Closeout evidence`,
+    //     `## Findings`, or `## Outcome` section regardless of the from-status.
+    const evidenceGated =
+      validParams.status === TaskStatus.DONE &&
+      (task.status === TaskStatus.READY || task.kind === "state-ops");
+    if (evidenceGated) {
+      let specContent = "";
+      try {
+        const specResult = await taskService.getTaskSpecContent(validParams.taskId);
+        specContent = specResult?.content ?? "";
+      } catch {
+        // If spec cannot be read, treat as missing — the check will fail below.
+        specContent = "";
+      }
+      if (!hasCloseoutEvidence(specContent)) {
+        throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
+      }
+    }
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);

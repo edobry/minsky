@@ -79,6 +79,20 @@ describe("state-ops findings-gated DONE (mt#455)", () => {
     expect(taskService.statusSpy.mock.calls.length).toBe(1);
   });
 
+  it("reports invalid transitions as such, not as missing evidence (guard ordering, PR #1937 R1)", async () => {
+    // state-ops TODO → DONE is illegal (TODO → PLANNING/CLOSED only). The error
+    // must be the invalid-transition one — the evidence gate runs after
+    // validateStatusTransition and must not mask it.
+    const taskService = makeTaskService({
+      status: "TODO",
+      spec: "## Summary\nNo evidence.\n",
+    });
+    await expect(
+      setTaskStatusFromParams({ taskId: "mt#9100", status: "DONE" }, { taskService })
+    ).rejects.toThrow(/Cannot transition from TODO to DONE/);
+    expect(taskService.statusSpy.mock.calls.length).toBe(0);
+  });
+
   it("does not evidence-gate non-DONE state-ops transitions", async () => {
     const taskService = makeTaskService({
       status: "READY",
