@@ -29,6 +29,7 @@ import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
 import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-env-var.js";
 import noRawConsole from "./eslint-rules/no-raw-console.js";
 import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-params.js";
+import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 
 export default [
   js.configs.recommended,
@@ -148,6 +149,7 @@ export default [
           "no-unregistered-minsky-env-var": noUnregisteredMinskyEnvVar,
           "no-raw-console": noRawConsole,
           "no-hand-rolled-command-params": noHandRolledCommandParams,
+          "no-entity-id-param-drift": noEntityIdParamDrift,
         },
       },
     },
@@ -780,6 +782,27 @@ export default [
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/no-hand-rolled-command-params": "error",
+    },
+  },
+  // === ENTITY-ID PARAM-NAME DRIFT (mt#2780) ===
+  // The mt#2741 Detector-A class: a family map declaring the back-compat
+  // alias id-name (`task`) without the family's canonical (`taskId`).
+  // COVERAGE IS DECLARED HERE (PR #1933 R1): the globs below enumerate
+  // exactly the family directories with confirmed conventions — config, not
+  // path heuristics, determines enforcement scope. Adding a family = add its
+  // FAMILY_CONVENTIONS entry in eslint-rules/no-entity-id-param-drift.js AND
+  // its glob here (both steps; the rule doc in code-style.mdc names this
+  // pairing). Directories not listed (memory/, knowledge/, compile/, ...)
+  // have no confirmed canonical+alias pair yet and are deliberately out of
+  // scope, not silently skipped-by-heuristic.
+  {
+    files: [
+      "src/adapters/shared/commands/tasks/**/*.ts",
+      "src/adapters/shared/commands/session/**/*.ts",
+    ],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "custom/no-entity-id-param-drift": "error",
     },
   },
 ];
