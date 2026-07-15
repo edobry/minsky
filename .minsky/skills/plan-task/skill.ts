@@ -799,9 +799,21 @@ verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requiremen
 
 ### Step 4: Act on gate results
 
+**Output altitude (both branches).** The chat message is for the principal; the structured
+record is for the audit trail. LEAD with a plain-language account a reader who has never seen
+this skill's internals can follow — what the task is trying to do, what the investigation
+found, what (if anything) blocks it, and what should happen next — with NO gate letters or
+premise-audit labels in that lead. THEN append the structured detail (premise-audit answers,
+per-criterion results, gap report) beneath it. Per \`user-preferences.mdc §Plain-language first
+in chat reports\` (mt#2801; originating incident: the mt#2777 planning output that led with a
+14-row criterion table and had to be re-explained). This changes placement only — every
+premise-audit answer and criterion verdict is still produced in full.
+
 **All gate criteria pass:**
 
-1. Report the gate summary (all green).
+1. Report in plain language that planning found no gaps (one or two sentences on what was
+   checked and why the task is ready); the per-criterion detail follows as the audit trail —
+   do not lead with it.
 2. Call \`mcp__minsky__tasks_status_set\` to transition the task to **READY**.
 3. **Continue the lifecycle: invoke \`/implement-task mt#X\` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use \`/implement-task\` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory \`feedback_auto_mode_chains_skills_at_affirmative_tokens\`, id \`4b83ff51-4bc2-49f5-84be-7e4eac073125\`).
 
@@ -840,7 +852,10 @@ verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requiremen
 
 1. Do **not** call \`tasks_status_set\` → READY.
 2. Task remains in PLANNING.
-3. Present a structured gap report:
+3. LEAD with a plain-language summary per the Output-altitude rule above: 3–6 sentences of
+   prose covering what the task is trying to do, what the investigation found, what actually
+   blocks it, and the recommended actions — no gate letters, no premise-audit labels in this
+   lead. THEN present the structured gap report for the audit trail:
 
 \`\`\`
 ## Gap Report for mt#X (PLANNING — not yet READY)
