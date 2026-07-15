@@ -193,6 +193,15 @@ export const sessionDirCommandParams = {
 };
 
 /**
+ * Session ps (alias: session attached) command parameters (mt#2284).
+ */
+export const sessionPsCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  json: commonSessionParams.json,
+};
+
+/**
  * Session search command parameters
  */
 export const sessionSearchCommandParams = {

@@ -18,6 +18,10 @@ import {
   sessionSearchCommandParams,
   sessionExecCommandParams,
 } from "./session-parameters";
+import {
+  annotateSessionsWithAttachment,
+  annotateSessionWithAttachment,
+} from "./attachment-annotation";
 
 export function createSessionListCommand(
   getDeps: LazySessionDeps,
@@ -112,12 +116,21 @@ export function createSessionListCommand(
         sessions = sessions.map(({ pullRequest: _pr, prState: _ps, ...rest }) => rest);
       }
 
-      return { success: true, sessions, verbose };
+      // mt#2284: attached/detached indicator, best-effort (never blocks the list).
+      const annotatedSessions = await annotateSessionsWithAttachment(
+        sessions,
+        getPersistenceProvider
+      );
+
+      return { success: true, sessions: annotatedSessions, verbose };
     }),
   };
 }
 
-export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefinition {
+export function createSessionGetCommand(
+  getDeps: LazySessionDeps,
+  getPersistenceProvider?: () => PersistenceProvider | undefined
+): CommandDefinition {
   return {
     id: "session.get",
     category: CommandCategory.SESSION,
@@ -156,7 +169,10 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
         // ignore
       }
 
-      return { success: true, session };
+      // mt#2284: attached/detached indicator, best-effort (never blocks get).
+      const annotatedSession = await annotateSessionWithAttachment(session, getPersistenceProvider);
+
+      return { success: true, session: annotatedSession };
     }),
   };
 }

@@ -2076,6 +2076,46 @@
           ]
         },
         {
+          "name": "ps",
+          "description": "List sessions with a live runtime attachment (self-registered), cross-checked against a local `lsof -d cwd` scan. Reports stored-but-not-live and live-but-not-stored discrepancies distinctly. Local-host only (v0).",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "attached",
+          "description": "List sessions with a live runtime attachment (self-registered), cross-checked against a local `lsof -d cwd` scan. Reports stored-but-not-live and live-but-not-stored discrepancies distinctly. Local-host only (v0). (alias of `session ps`)",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
           "name": "delete",
           "description": "Delete a session",
           "options": [
