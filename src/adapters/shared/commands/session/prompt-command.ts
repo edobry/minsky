@@ -6,6 +6,8 @@
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { z } from "zod";
+import { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
+import { log } from "@minsky/shared/logger";
 
 const promptCommandParams = {
   task: { schema: z.string(), description: "Task ID (required)", required: true },
@@ -84,6 +86,52 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         scope,
         omitOperatingEnvelope,
       });
+
+      // mt#2796: write a pending dispatch-time invocation row so
+      // `suggested_model` is populated before the subagent even starts,
+      // mirroring tasks.dispatch's Step 5 pending-row pattern (see
+      // dispatch-command.ts). This is the primary dispatch path — a main
+      // agent calling session_generate_prompt directly (per the Subagent
+      // Routing convention) then dispatching via the Agent tool — which,
+      // unlike tasks_dispatch, previously wrote no row at all until
+      // SubagentStop. The SubagentStop hook upserts on subagentSessionId
+      // and never clobbers suggestedModel (it doesn't include the field in
+      // its own object literal), so this pending row's value survives.
+      // Best-effort — never blocks prompt generation on a tracker failure.
+      //
+      // R1 BLOCKING fix: `task` is the raw, loosely-formatted caller input
+      // (any of "mt#2796" / "2796" / "#2796" — the Zod schema is a bare
+      // `z.string()`). Every other writer of `subagent_invocations.task_id`
+      // (tasks.dispatch's `taskId`, and the SubagentStop hook's
+      // `resolveTaskId`) always produces the qualified "mt#N" form — writing
+      // `task` verbatim here would silently store an unqualified id on a
+      // bare-numeric or "#N" input, breaking JOINs/reporting against every
+      // other qualified taskId in the table.
+      //
+      // Prefer `session.taskId` — the canonical qualified value already
+      // resolved from storage (`service.get({ task })` above), which can't
+      // diverge from `session_records.task_id` even when `task` was resolved
+      // via auto-detection rather than matched literally. Fall back to
+      // `normalizeTaskIdInput` (the same helper dispatch-command.ts uses for
+      // its existing-task-mode taskId — NOT `validateQualifiedTaskId`, which
+      // qualifies bare input to the legacy "md#" prefix, not "mt#") for the
+      // rare case where the resolved session record has no taskId set.
+      try {
+        const { normalizeTaskIdInput } = await import(
+          "@minsky/domain/tasks/commands/shared-helpers"
+        );
+        const tracker = SubagentDispatchTracker.getInstance();
+        await tracker.recordSubagentInvocation({
+          taskId: session.taskId ?? normalizeTaskIdInput(task),
+          subagentSessionId: sessionId,
+          agentType: result.agentType ?? type,
+          suggestedModel: result.suggestedModel ?? null,
+          startedAt: new Date(),
+          outcome: "crashed-no-output",
+        });
+      } catch (err) {
+        log.warn(`[session.generate_prompt] Failed to write pending invocation row: ${err}`);
+      }
 
       return { success: true, ...result };
     }),

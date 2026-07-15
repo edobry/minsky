@@ -174,6 +174,22 @@ Navigate to your main workspace and try again:
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
+    // state-ops tasks never take a session (mt#455): they are no-code/pure-state
+    // work (investigations, triage sweeps, config-only ops) with no code
+    // workspace to clone. Refuse with the no-session flow spelled out.
+    const startKind = (taskObj as { kind?: string }).kind || "implementation";
+    if (startKind === "state-ops") {
+      throw new ValidationError(
+        `Task ${normalizedTaskId} is kind "state-ops" — it runs without a session. ` +
+          `Work in the main agent context: transition READY → IN-PROGRESS via tasks_status_set, ` +
+          `record findings in the spec (tasks_spec_patch, '## Findings' / '## Outcome' / ` +
+          `'## Closeout evidence'), then set DONE (the evidence section is required). See ` +
+          `docs/task-kinds.md §state-ops (mt#455).`,
+        undefined,
+        undefined
+      );
+    }
+
     // Validate task status. The valid precursor for session_start is kind-aware:
     // - implementation kind: requires READY (planning gate must complete first)
     // - umbrella kind: requires PLANNING (no READY state in the umbrella workflow;
