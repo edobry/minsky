@@ -7,6 +7,8 @@ import type { PresenceClaim, PresenceClaimRepository } from "../presence/index";
 import {
   listSessionAttachments,
   listAllSessionAttachments,
+  listLiveSessionAttachments,
+  isAttachmentConfirmedLive,
   clearSessionAttachments,
   isPidAlive,
   reapStaleSessionAttachments,
@@ -78,6 +80,53 @@ describe("listAllSessionAttachments", () => {
 
     expect(listAllForKind).toHaveBeenCalledWith("session");
     expect(result).toHaveLength(2);
+  });
+});
+
+describe("isAttachmentConfirmedLive (mt#2284 R1 review fix)", () => {
+  test("returns true for a local-host attachment with a live pid", () => {
+    expect(isAttachmentConfirmedLive({ host: undefined, pid: process.pid }, "local-host")).toBe(
+      true
+    );
+  });
+
+  test("returns false for a local-host attachment with a dead pid", () => {
+    expect(isAttachmentConfirmedLive({ host: undefined, pid: 999999999 }, "local-host")).toBe(
+      false
+    );
+  });
+
+  test("returns false when no pid is recorded — a stored row is not proof of liveness", () => {
+    expect(isAttachmentConfirmedLive({ host: undefined, pid: undefined }, "local-host")).toBe(
+      false
+    );
+  });
+
+  test("returns false for a remote-host attachment — cannot be verified locally (v0 scope)", () => {
+    expect(isAttachmentConfirmedLive({ host: "other-host", pid: process.pid }, "local-host")).toBe(
+      false
+    );
+  });
+});
+
+describe("listLiveSessionAttachments (mt#2284 R1 review fix)", () => {
+  test("filters out stored attachments whose pid is confirmed dead", async () => {
+    const alive = makeClaim({ id: "alive", pid: process.pid });
+    const dead = makeClaim({ id: "dead", pid: 999999999 });
+    const repo = makeFakeRepo({ listAllForKind: mock(async () => [alive, dead]) });
+
+    const result = await listLiveSessionAttachments(repo);
+
+    expect(result.map((a) => a.id)).toEqual(["alive"]);
+  });
+
+  test("scoped to a single session when sessionId is provided", async () => {
+    const alive = makeClaim({ id: "alive", subjectId: "session-a", pid: process.pid });
+    const repo = makeFakeRepo({ listClaims: mock(async () => [{ ...alive, stale: false }]) });
+
+    const result = await listLiveSessionAttachments(repo, "session-a");
+
+    expect(result.map((a) => a.id)).toEqual(["alive"]);
   });
 });
 

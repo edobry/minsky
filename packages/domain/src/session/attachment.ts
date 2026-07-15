@@ -97,6 +97,46 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Whether a stored attachment is CONFIRMED live right now (mt#2284 R1 review
+ * fix). A stored claim row is a fact about the past ("this actor registered
+ * at time T"), not proof of current liveness — a hard-killed harness leaves
+ * the row in place until the reaper runs. Consumers that render a
+ * point-in-time "is this attached NOW" indicator (the `session list`/`get`
+ * glyph) must not treat row-presence alone as "attached"; they should use
+ * this predicate (or `listLiveSessionAttachments` below), not raw
+ * `listAllSessionAttachments`/`listSessionAttachments`.
+ *
+ * Local-host only (v0, same scope as the reaper): a remote-host claim (future
+ * cross-host case) cannot be liveness-checked here and is conservatively
+ * treated as NOT confirmed live, rather than trusting an unverifiable row.
+ */
+export function isAttachmentConfirmedLive(
+  attachment: Pick<SessionAttachment, "host" | "pid">,
+  localHost: string = hostname()
+): boolean {
+  if (attachment.host && attachment.host !== localHost) return false;
+  if (typeof attachment.pid !== "number") return false;
+  return isPidAlive(attachment.pid);
+}
+
+/**
+ * List only the attachments confirmed live right now (local-host pid-liveness
+ * check applied) — the correct source for a live "attached" indicator, as
+ * opposed to `listAllSessionAttachments`/`listSessionAttachments`, which
+ * return the raw stored (possibly stale) claim set.
+ */
+export async function listLiveSessionAttachments(
+  repo: PresenceClaimRepository,
+  sessionId?: string
+): Promise<SessionAttachment[]> {
+  const all = sessionId
+    ? await listSessionAttachments(repo, sessionId)
+    : await listAllSessionAttachments(repo);
+  const localHost = hostname();
+  return all.filter((a) => isAttachmentConfirmedLive(a, localHost));
+}
+
 export interface ReapStaleAttachmentsResult {
   reapedIds: string[];
   reapedCount: number;

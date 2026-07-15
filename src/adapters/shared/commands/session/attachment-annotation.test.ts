@@ -27,7 +27,12 @@ function makeGetPersistenceProvider(db: unknown): () => PersistenceProvider | un
   return () => sqlProvider as unknown as PersistenceProvider;
 }
 
-function makeClaimRow(sessionId: string) {
+// pid: process.pid — the test runner's own pid, guaranteed alive for the
+// duration of the test — so listLiveSessionAttachments' pid-liveness check
+// (mt#2284 R1 review fix) confirms this row as live, matching the
+// "genuinely attached" scenario these tests exercise. host: null so the
+// check treats it as local (no host mismatch to reject on).
+function makeClaimRow(sessionId: string, overrides: { pid?: number | null } = {}) {
   return {
     id: `claim-${sessionId}`,
     subjectKind: "session",
@@ -38,7 +43,7 @@ function makeClaimRow(sessionId: string) {
     host: null,
     sessionId: null,
     projectId: null,
-    pid: null,
+    pid: overrides.pid !== undefined ? overrides.pid : process.pid,
     entrypoint: null,
     terminalContext: null,
     claimedAt: new Date("2026-01-01T00:00:00Z"),
@@ -47,7 +52,7 @@ function makeClaimRow(sessionId: string) {
 }
 
 describe("annotateSessionsWithAttachment", () => {
-  test("marks sessions with a stored attachment as attached: true, others as false", async () => {
+  test("marks sessions with a live stored attachment as attached: true, others as false", async () => {
     const db = makeFakeDbWithRows([makeClaimRow("s1")]);
     const getPersistenceProvider = makeGetPersistenceProvider(db);
 
@@ -56,6 +61,21 @@ describe("annotateSessionsWithAttachment", () => {
 
     expect(result.find((s) => s.sessionId === "s1")?.attached).toBe(true);
     expect(result.find((s) => s.sessionId === "s2")?.attached).toBe(false);
+  });
+
+  test("R1 review fix: a stored attachment whose pid is confirmed DEAD is NOT reported as attached", async () => {
+    // This pins the exact bug the reviewer-bot flagged: row-presence alone
+    // (no liveness check) previously caused a false "attached" after the
+    // registering process exited. 999999999 is treated as dead by isPidAlive.
+    const db = makeFakeDbWithRows([makeClaimRow("s1", { pid: 999999999 })]);
+    const getPersistenceProvider = makeGetPersistenceProvider(db);
+
+    const result = await annotateSessionsWithAttachment(
+      [{ sessionId: "s1" }],
+      getPersistenceProvider
+    );
+
+    expect(result[0]?.attached).toBe(false);
   });
 
   test("leaves sessions unannotated (no `attached` field) when persistence is unavailable", async () => {

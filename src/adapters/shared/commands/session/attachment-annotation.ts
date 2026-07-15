@@ -2,12 +2,17 @@
  * Attached/detached annotation for `session list` / `session get` (mt#2284).
  *
  * Best-effort: annotates session records with an `attached: boolean` field
- * derived from the stored (self-registered) session-grain presence-claim
- * set. Never throws — when persistence is unavailable or the read fails,
- * sessions are returned with `attached` left unset rather than blocking the
- * underlying list/get command. This indicator is visually and semantically
- * distinct from the existing activity-derived `liveness` field (see
- * cli-result-formatters.ts's separate glyph for it).
+ * derived from the LIVE (pid-liveness-confirmed) session-grain presence-claim
+ * set — `listLiveSessionAttachments`, NOT the raw stored claim set. A stored
+ * claim row alone is not proof of current liveness (the reaper may not have
+ * run yet since a hard-killed harness), so this deliberately re-checks pid
+ * liveness rather than trusting row-presence — see
+ * `packages/domain/src/session/attachment.ts`'s `isAttachmentConfirmedLive`
+ * doc comment. Never throws — when persistence is unavailable or the read
+ * fails, sessions are returned with `attached` left unset rather than
+ * blocking the underlying list/get command. This indicator is visually and
+ * semantically distinct from the existing activity-derived `liveness` field
+ * (see cli-result-formatters.ts's separate glyph for it).
  */
 import { log } from "@minsky/shared/logger";
 import type {
@@ -30,9 +35,9 @@ async function buildAttachedSessionIdSet(
     const repo = buildPresenceClaimRepository(db);
     if (!repo) return null;
 
-    const { listAllSessionAttachments } = await import("@minsky/domain/session/index");
-    const attachments = await listAllSessionAttachments(repo);
-    return new Set(attachments.map((a) => a.sessionId));
+    const { listLiveSessionAttachments } = await import("@minsky/domain/session/index");
+    const liveAttachments = await listLiveSessionAttachments(repo);
+    return new Set(liveAttachments.map((a) => a.sessionId));
   } catch (err) {
     log.debug("[session attachment annotation] Failed to resolve stored attachments", {
       error: err instanceof Error ? err.message : String(err),

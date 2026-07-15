@@ -24,6 +24,8 @@ export type { SessionAttachment, ReapStaleAttachmentsResult } from "./attachment
 export {
   listSessionAttachments,
   listAllSessionAttachments,
+  listLiveSessionAttachments,
+  isAttachmentConfirmedLive,
   clearSessionAttachments,
   isPidAlive,
   reapStaleSessionAttachments,
