@@ -1306,6 +1306,10 @@
               "description": "Show detailed output including scores and diagnostics"
             },
             {
+              "flags": ["--quiet"],
+              "description": "Suppress the degraded-search warning on stderr (results are unaffected)"
+            },
+            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true
@@ -1376,7 +1380,7 @@
             },
             {
               "flags": ["--quiet"],
-              "description": "Suppress output"
+              "description": "Suppress progress and degraded-search warnings on stderr (results are unaffected)"
             },
             {
               "flags": ["--repo"],
@@ -1749,10 +1753,6 @@
               "description": "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
               "takesValue": true,
               "values": ["shortest-path", "value-first", "ready-first"]
-            },
-            {
-              "flags": ["--parallel"],
-              "description": "Show parallel execution opportunities"
             },
             {
               "flags": ["--json"],

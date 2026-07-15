@@ -469,3 +469,60 @@ describe("TaskSimilarityService embed-split reuses one query vector (mt#2754)", 
     expect(response.results.length).toBeGreaterThan(0);
   });
 });
+
+describe("TaskSimilarityService.indexTask force re-embed (mt#2795)", () => {
+  const task = { id: "md#201", title: "Reindex target", status: "TODO" };
+  const spec = "Stable spec content — hash does not change between calls.";
+
+  function buildService() {
+    const stored: Array<{ id: string; metadata: Record<string, unknown> }> = [];
+    let lastMetadata: Record<string, unknown> | undefined;
+
+    const vector: VectorStorage = {
+      initialize: async () => void 0,
+      store: async (id: string, _vec: number[], metadata: Record<string, unknown>) => {
+        lastMetadata = metadata;
+        stored.push({ id, metadata });
+      },
+      search: async () => [],
+      // Replays whatever the service last stored — so the second indexTask call
+      // sees a matching contentHash and takes the up-to-date skip path.
+      getMetadata: async () => lastMetadata,
+    } as unknown as VectorStorage;
+
+    const embedding: EmbeddingService = {
+      generateEmbedding: async () => [0, 0, 0],
+    } as unknown as EmbeddingService;
+
+    const service = new TaskSimilarityService(
+      embedding,
+      vector,
+      async (id: string) => (id === task.id ? (task as any) : null),
+      async () => [task] as any,
+      async () => ({ content: spec, specPath: "", task: task as any }),
+      {}
+    );
+
+    return { service, stored };
+  }
+
+  it("skips an up-to-date task by default, re-embeds it under force (--reindex)", async () => {
+    const { service, stored } = buildService();
+
+    // First index: nothing stored yet → embeds and stores.
+    expect(await service.indexTask(task.id)).toBe(true);
+    expect(stored.length).toBe(1);
+
+    // Second index, same content: up-to-date skip.
+    expect(await service.indexTask(task.id)).toBe(false);
+    expect(stored.length).toBe(1);
+
+    // Forced: bypasses the up-to-date check and re-embeds (mt#2795 --reindex wiring).
+    expect(await service.indexTask(task.id, { force: true })).toBe(true);
+    expect(stored.length).toBe(2);
+
+    // force: false behaves like the default skip path.
+    expect(await service.indexTask(task.id, { force: false })).toBe(false);
+    expect(stored.length).toBe(2);
+  });
+});
