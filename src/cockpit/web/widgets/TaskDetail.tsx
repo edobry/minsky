@@ -209,6 +209,7 @@ function StartSessionButton({ taskId, status }: { taskId: string; status: string
         disabled={start.isPending}
         className="h-7 px-2.5 text-xs"
         aria-label={`Start driven session for ${taskId}`}
+        title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
       >
         <Play className="h-3.5 w-3.5 mr-1" />
         {start.isPending ? "Starting…" : "Start session"}

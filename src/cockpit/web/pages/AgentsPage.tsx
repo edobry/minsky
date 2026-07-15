@@ -31,7 +31,7 @@ function StartScratchSessionButton() {
         disabled={start.isPending}
         className="h-7 px-2.5 text-xs"
         aria-label="Start a scratch driven session (repo directory, no task binding)"
-        title="Spawn a driven claude session in the daemon's repo directory, bound to no task"
+        title="Spawns a driven claude session (bypassPermissions) in the daemon's repo directory, bound to no task"
       >
         <Play className="h-3.5 w-3.5 mr-1" />
         {start.isPending ? "Starting…" : "Start scratch session"}
