@@ -110,6 +110,13 @@ describe("Prose — minsky:// markdown deeplinks (mt#2797)", () => {
     expect(a).not.toBeNull();
     expect(a?.getAttribute("target")).toBe("_blank");
   });
+
+  test("relative links still render as in-SPA links (unchanged)", () => {
+    const { container } = renderProse(<Prose>{"[tasks](/tasks/mt%232370)"}</Prose>);
+    const a = container.querySelector('a[href="/tasks/mt%232370"]');
+    expect(a).not.toBeNull();
+    expect(a?.getAttribute("target")).toBeNull();
+  });
 });
 
 describe("Prose — safety and edge cases", () => {
