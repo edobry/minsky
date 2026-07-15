@@ -50,6 +50,21 @@ export interface PresenceClaim {
   /** Minsky session workspace id — set when the claim coincides with a session. */
   sessionId?: string;
 
+  // ---- Session-grain extras (mt#2284; nullable, unused by task/subagent grain) ----
+
+  /** Self-registering process's OS pid (session grain; local-host v0). */
+  pid?: number;
+
+  /** `CLAUDE_CODE_ENTRYPOINT` (e.g. "cli", "sdk-cli"), when present. */
+  entrypoint?: string;
+
+  /**
+   * Env bag of only-the-keys-present terminal-context vars: TERM_PROGRAM,
+   * TERM_SESSION_ID, TERM, TMUX, TMUX_PANE, WEZTERM_PANE, KITTY_WINDOW_ID.
+   * Emulator-agnostic: stores env strings, introspects no terminal app.
+   */
+  terminalContext?: Record<string, string>;
+
   // ---- Project scoping -------------------------------------------------------
 
   /** Project uuid (FK to projects.id). Stamped on write. */
@@ -83,6 +98,9 @@ export interface UpsertPresenceClaimInput {
   host?: string;
   sessionId?: string;
   projectId?: string;
+  pid?: number;
+  entrypoint?: string;
+  terminalContext?: Record<string, string>;
 }
 
 /**

@@ -1,4 +1,13 @@
-import { pgTable, text, uuid, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  uuid,
+  timestamp,
+  uniqueIndex,
+  index,
+  integer,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects-schema";
 
 /**
@@ -9,7 +18,10 @@ import { projectsTable } from "./projects-schema";
  * the same table without a breaking schema change:
  *
  *   subject_kind = 'task'     → subject_id is a normalized task id (e.g. "mt#2562")
- *   subject_kind = 'session'  → reserved for mt#2284
+ *   subject_kind = 'session'  → session-grain runtime attachment (mt#2284; subject_id is the
+ *                               Minsky workspace session id). The domain-layer `registeredAt`
+ *                               maps onto `lastRefreshedAt` — "repeated activity refreshes
+ *                               rather than duplicates" is the same upsert semantics as task grain.
  *   subject_kind = 'subagent' → reserved for mt#2292
  *
  * Key design decisions (mt#2562, decision [C] 2026-06-26):
@@ -18,9 +30,19 @@ import { projectsTable } from "./projects-schema";
  * - project_id STAMPED ON WRITE (mt#2563 lesson: asks shipped without write-stamping).
  * - All where-context columns (cc_conversation_id, tty, host, session_id) nullable.
  *
+ * Grain-specific extras (mt#2284, migration 0056 — deferred nullable additions per mt#2562's
+ * plan, "not v1"):
+ * - pid: integer — the self-registering process's OS pid (session grain; local-host v0). Used
+ *   by the session-grain stale-attachment reaper for pid-liveness checks.
+ * - entrypoint: text — `CLAUDE_CODE_ENTRYPOINT` (e.g. "cli", "sdk-cli"), when present.
+ * - terminal_context: jsonb — env bag of only-the-keys-present among TERM_PROGRAM,
+ *   TERM_SESSION_ID, TERM, TMUX, TMUX_PANE, WEZTERM_PANE, KITTY_WINDOW_ID. Emulator-agnostic:
+ *   stores env strings, introspects no terminal app.
+ *
  * Staleness / TTL:
  *   A claim is stale when last_refreshed_at < now() - PRESENCE_CLAIM_TTL (15m default).
- *   Hard reap at 24h via reapStale(). Actor pid-liveness is deferred (local-only concern).
+ *   Hard reap at 24h via reapStale(). Task-grain actor pid-liveness is deferred (local-only
+ *   concern); session-grain (mt#2284) uses the new `pid` column for its own reaper instead.
  *
  * Cross-references: mt#2562 (this), mt#2284 (session grain), mt#2292 (subagent grain),
  * mt#1990 (RFC: substrate), ADR-006 (agent-identity authority tiers).
@@ -64,6 +86,23 @@ export const presenceClaimsTable = pgTable(
     // Project scoping (mt#2563 lesson: stamp on write, not just on read)
     // -------------------------------------------------------------------------
     projectId: uuid("project_id").references(() => projectsTable.id),
+
+    // -------------------------------------------------------------------------
+    // Session-grain extras (mt#2284, migration 0056). Nullable; unused by task/
+    // subagent grain rows.
+    // -------------------------------------------------------------------------
+
+    // Self-registering process's OS pid (session grain; local-host v0 — used by
+    // the session-attachment stale reaper for pid-liveness checks).
+    pid: integer("pid"),
+
+    // CLAUDE_CODE_ENTRYPOINT (e.g. "cli", "sdk-cli"), when present.
+    entrypoint: text("entrypoint"),
+
+    // Env bag of only-the-keys-present terminal-context vars (TERM_PROGRAM,
+    // TERM_SESSION_ID, TERM, TMUX, TMUX_PANE, WEZTERM_PANE, KITTY_WINDOW_ID).
+    // Emulator-agnostic: stores env strings, introspects no terminal app.
+    terminalContext: jsonb("terminal_context").$type<Record<string, string>>(),
 
     // -------------------------------------------------------------------------
     // Timestamps

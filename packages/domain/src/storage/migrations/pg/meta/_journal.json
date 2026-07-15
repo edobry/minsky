@@ -393,6 +393,13 @@
       "when": 1784039300000,
       "tag": "0055_collapse_completed_to_done",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1784155671648,
+      "tag": "0056_session_attachment_extras",
+      "breakpoints": true
     }
   ]
 }
