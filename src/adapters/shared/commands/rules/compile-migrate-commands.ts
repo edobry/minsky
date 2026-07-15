@@ -13,6 +13,7 @@ import { resolveWorkspacePath } from "@minsky/domain/workspace";
 import { compileRules, migrateRules } from "@minsky/domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
 import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
+import { formatTopContributors } from "@minsky/domain/rules/compile/size-budget";
 
 export function registerCompileMigrateCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
@@ -38,6 +39,15 @@ export function registerCompileMigrateCommands(targetRegistry: {
           // Config not yet initialized or unavailable — use target default (on_demand)
         }
 
+        // mt#2802: build the override with ONLY the fields actually supplied —
+        // never `{ warnChars: undefined, failChars: undefined }` (reviewer R1);
+        // an absent field falls back to the target default in resolveSizeBudget.
+        const sizeBudgetOverride: { warnChars?: number; failChars?: number } = {};
+        if (params.warnChars !== undefined) sizeBudgetOverride.warnChars = params.warnChars;
+        if (params.failChars !== undefined) sizeBudgetOverride.failChars = params.failChars;
+        const sizeBudget =
+          Object.keys(sizeBudgetOverride).length > 0 ? sizeBudgetOverride : undefined;
+
         const result = await compileRules({
           workspacePath,
           target: params.target,
@@ -45,16 +55,77 @@ export function registerCompileMigrateCommands(targetRegistry: {
           dryRun: params.dryRun,
           check: params.check,
           memoryLoadingMode,
+          sizeBudget,
         });
+
+        const target = params.target || "agents.md";
+
+        // Report output size on every compile (mt#2802 success criterion #1).
+        if (result.sizeChars !== undefined) {
+          log.cli(`[rules compile] Target "${target}" output size: ${result.sizeChars} chars`);
+        }
 
         // --check mode: exit non-zero when output is stale so CI/hooks can detect it.
         if (result.check && result.stale) {
-          const target = params.target || "agents.md";
           const staleFile = result.staleFile || "(unknown file)";
           log.cli(`[rules compile --check] Target "${target}" is STALE`);
           log.cli(`  Stale file: ${staleFile}`);
           log.cli(`  Run "minsky rules compile --target ${target}" to regenerate.`);
           throw new Error(`rules compile --check: target "${target}" is stale (${staleFile})`);
+        }
+
+        // --check mode: exit non-zero when output exceeds its fail threshold (mt#2802).
+        // Only reachable when NOT stale — a stale target is fixed by regenerating first,
+        // at which point the next --check run evaluates the budget against fresh content.
+        if (result.check && result.sizeBudgetStatus === "fail" && result.sizeBudget) {
+          log.cli(`[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`);
+          log.cli(
+            `  Size: ${result.sizeChars} chars (fail threshold: ${result.sizeBudget.failChars} chars)`
+          );
+          log.cli(`  Top contributing rules:`);
+          for (const line of formatTopContributors(result.topContributors ?? [])) {
+            log.cli(`    ${line}`);
+          }
+          if (result.ruleContentChars !== undefined) {
+            log.cli(
+              `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+                `remainder is target scaffolding — banner/headers)`
+            );
+          }
+          log.cli(
+            `  Trim the rules above, or override via target options / MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
+          );
+          throw new Error(
+            `rules compile --check: target "${target}" exceeds size budget ` +
+              `(${result.sizeChars} > ${result.sizeBudget.failChars} chars)`
+          );
+        }
+
+        // Non-check compiles never fail on budget — warn loudly instead (mt#2802 criterion #6),
+        // for either threshold crossed (warn or fail) since only --check hard-fails.
+        if (
+          !result.check &&
+          (result.sizeBudgetStatus === "warn" || result.sizeBudgetStatus === "fail") &&
+          result.sizeBudget
+        ) {
+          const thresholdChars =
+            result.sizeBudgetStatus === "fail"
+              ? result.sizeBudget.failChars
+              : result.sizeBudget.warnChars;
+          log.cli(
+            `[rules compile] WARNING: target "${target}" output (${result.sizeChars} chars) ` +
+              `exceeds its ${result.sizeBudgetStatus} threshold (${thresholdChars} chars).`
+          );
+          log.cli(`  Top contributing rules:`);
+          for (const line of formatTopContributors(result.topContributors ?? [])) {
+            log.cli(`    ${line}`);
+          }
+          if (result.ruleContentChars !== undefined) {
+            log.cli(
+              `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+                `remainder is target scaffolding — banner/headers)`
+            );
+          }
         }
 
         return result;

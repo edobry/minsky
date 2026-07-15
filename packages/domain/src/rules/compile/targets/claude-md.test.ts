@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { claudeMdTarget, buildClaudeMdContent } from "./claude-md";
+import { claudeMdTarget, buildClaudeMdContent, DEFAULT_CLAUDE_MD_SIZE_BUDGET } from "./claude-md";
 import {
   ALWAYS_APPLY_CONTENT,
   MANUAL_RULE_CONTENT,
@@ -159,5 +159,25 @@ describe("claude-md target: buildClaudeMdContent()", () => {
     it("memory-usage rule is marked alwaysApply: true", () => {
       expect(memoryUsageRule.alwaysApply).toBe(true);
     });
+  });
+});
+
+// Note: `claudeMdTarget.compile()` writes via a module-level `fs/promises`
+// import (no fs-injection seam), so its size-budget wiring is NOT exercised
+// here with real filesystem I/O (forbidden by `custom/no-real-fs-in-tests`).
+// It shares the exact same `evaluateSizeBudget()` call shape as the
+// dry-run path (`compileDryRun` in compile-service.ts), which IS exercised
+// end-to-end — with an injected mock fs — by `../check.test.ts`'s
+// "compileRules --check size budget" suite. `./size-budget.test.ts` covers
+// the evaluation logic itself in isolation.
+describe("claude-md target: DEFAULT_CLAUDE_MD_SIZE_BUDGET (mt#2802)", () => {
+  it("current-corpus defaults are grounded: warn=115000, fail=140000", () => {
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET).toEqual({ warnChars: 115_000, failChars: 140_000 });
+  });
+
+  it("fail sits strictly above warn", () => {
+    expect(DEFAULT_CLAUDE_MD_SIZE_BUDGET.failChars).toBeGreaterThan(
+      DEFAULT_CLAUDE_MD_SIZE_BUDGET.warnChars
+    );
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { agentsMdTarget, buildContent } from "./agents-md";
+import { agentsMdTarget, buildContent, DEFAULT_AGENTS_MD_SIZE_BUDGET } from "./agents-md";
 import {
   ALWAYS_APPLY_CONTENT,
   MANUAL_RULE_CONTENT,
@@ -206,5 +206,25 @@ describe("agents-md target: buildContent()", () => {
       expect(rulesSkipped).not.toContain("always-rule");
       expect(rulesSkipped).toContain("manual-rule");
     });
+  });
+});
+
+// Note: `agentsMdTarget.compile()` writes via a module-level `fs/promises`
+// import (no fs-injection seam), so its size-budget wiring is NOT exercised
+// here with real filesystem I/O (forbidden by `custom/no-real-fs-in-tests`).
+// It shares the exact same `evaluateSizeBudget()` call shape as the
+// dry-run path (`compileDryRun` in compile-service.ts), which IS exercised
+// end-to-end — with an injected mock fs — by `../check.test.ts`'s
+// "compileRules --check size budget" suite. `./size-budget.test.ts` covers
+// the evaluation logic itself in isolation.
+describe("agents-md target: DEFAULT_AGENTS_MD_SIZE_BUDGET (mt#2802)", () => {
+  it("current-corpus defaults are grounded: warn=160000, fail=200000", () => {
+    expect(DEFAULT_AGENTS_MD_SIZE_BUDGET).toEqual({ warnChars: 160_000, failChars: 200_000 });
+  });
+
+  it("fail sits strictly above warn", () => {
+    expect(DEFAULT_AGENTS_MD_SIZE_BUDGET.failChars).toBeGreaterThan(
+      DEFAULT_AGENTS_MD_SIZE_BUDGET.warnChars
+    );
   });
 });

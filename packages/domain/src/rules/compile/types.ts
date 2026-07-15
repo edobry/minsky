@@ -7,6 +7,7 @@
 import type { Rule } from "../types";
 import type { RuleType } from "../rule-classifier";
 import type { MemoryLoadingMode } from "../../configuration/schemas/memory";
+import type { SizeBudget, SizeBudgetStatus, RuleContribution } from "./size-budget";
 
 export interface TargetOptions {
   outputPath?: string;
@@ -19,6 +20,13 @@ export interface TargetOptions {
    * - `"legacy"`: suppress the directive; relies on MEMORY.md preamble loader
    */
   memoryLoadingMode?: MemoryLoadingMode;
+  /**
+   * Per-call override of a target's default size budget (mt#2802). Either
+   * field may be supplied independently; unset fields fall back to the
+   * target's default. Only `claude.md` and `agents.md` currently enforce a
+   * size budget — other targets ignore this option.
+   */
+  sizeBudget?: Partial<SizeBudget>;
 }
 
 export interface CompileResult {
@@ -26,6 +34,22 @@ export interface CompileResult {
   filesWritten: string[];
   rulesIncluded: string[];
   rulesSkipped: string[];
+  /**
+   * Compiled output size in characters (mt#2802). Present for targets that
+   * enforce a size budget (`claude.md`, `agents.md`).
+   */
+  sizeChars?: number;
+  /** The effective (default-or-override) budget this compile was evaluated against. */
+  sizeBudget?: SizeBudget;
+  /** Where `sizeChars` falls relative to `sizeBudget`. */
+  sizeBudgetStatus?: SizeBudgetStatus;
+  /** Rules ranked by compiled contribution size, descending (top N). */
+  topContributors?: RuleContribution[];
+  /**
+   * Total chars of all included rules' emitted content; the remainder of
+   * `sizeChars` is target scaffolding (banner, headers, section preamble).
+   */
+  ruleContentChars?: number;
 }
 
 export interface CompileTarget {

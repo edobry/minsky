@@ -14,6 +14,7 @@ import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
 import { cursorRulesTarget } from "./targets/cursor-rules";
 import { resolveActiveRules } from "../rule-selection";
+import { evaluateSizeBudget } from "./size-budget";
 
 @injectable()
 export class CompileService {
@@ -104,29 +105,56 @@ async function compileDryRun(
   workspacePath: string
 ): Promise<CompileResult & { content: string }> {
   if (target.id === "agents.md") {
-    const { buildContent, DEFAULT_AGENTS_MD_SECTIONS } = await import("./targets/agents-md");
+    const { buildContent, DEFAULT_AGENTS_MD_SECTIONS, DEFAULT_AGENTS_MD_SIZE_BUDGET } =
+      await import("./targets/agents-md");
     const { content, rulesIncluded, rulesSkipped } = buildContent(
       rules,
       DEFAULT_AGENTS_MD_SECTIONS
     );
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_AGENTS_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+    });
     return {
       target: target.id,
       filesWritten: [],
       rulesIncluded,
       rulesSkipped,
       content,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   }
 
   if (target.id === "claude.md") {
-    const { buildClaudeMdContent } = await import("./targets/claude-md");
+    const { buildClaudeMdContent, DEFAULT_CLAUDE_MD_SIZE_BUDGET } = await import(
+      "./targets/claude-md"
+    );
     const { content, rulesIncluded, rulesSkipped } = buildClaudeMdContent(rules, options);
+    const sizeEvaluation = evaluateSizeBudget({
+      sizeChars: content.length,
+      rules,
+      includedIds: rulesIncluded,
+      defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
+      override: options.sizeBudget,
+    });
     return {
       target: target.id,
       filesWritten: [],
       rulesIncluded,
       rulesSkipped,
       content,
+      sizeChars: sizeEvaluation.sizeChars,
+      sizeBudget: sizeEvaluation.budget,
+      sizeBudgetStatus: sizeEvaluation.status,
+      topContributors: sizeEvaluation.topContributors,
+      ruleContentChars: sizeEvaluation.ruleContentChars,
     };
   }
 

@@ -204,6 +204,18 @@ export const rulesCompileCommandParams = {
     required: false,
     defaultValue: false,
   },
+  warnChars: {
+    schema: z.number().int().positive().optional(),
+    description:
+      "Override the target's default WARN size-budget threshold (chars). mt#2802 — only claude.md and agents.md enforce a size budget.",
+    required: false,
+  },
+  failChars: {
+    schema: z.number().int().positive().optional(),
+    description:
+      "Override the target's default FAIL size-budget threshold (chars, --check mode only). mt#2802 — only claude.md and agents.md enforce a size budget.",
+    required: false,
+  },
 } satisfies CommandParameterMap;
 
 export const rulesMigrateCommandParams = {
