@@ -5,6 +5,8 @@
 // Types for Claude Code hook stdin/stdout contract
 // Utility: spawnSync wrapper that returns { exitCode, stdout, stderr } without throwing
 
+import { existsSync } from "node:fs";
+
 export interface ClaudeHookInput {
   session_id: string;
   transcript_path?: string;
@@ -41,50 +43,249 @@ export interface HookOutput {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Crash-safe spawn + robust git-binary resolution (mt#2810)
+// ---------------------------------------------------------------------------
+//
+// ## The incident
+//
+// Four `session_pr_merge` PreToolUse gates (require-review-before-merge,
+// require-execution-evidence-before-merge, require-deploy-verification-
+// before-merge, block-out-of-band-merge) all crashed with
+// `ENOENT: posix_spawn 'git'` from the shared `pr-context.ts` fetch layer
+// (`deriveRepoFromGit` -> `execWithPath` -> `Bun.spawnSync(["git", ...])`),
+// on two separate days (2026-07-14 in a session workspace, 2026-07-15 in
+// the main repo). Per each gate's documented fail-open posture, a hook that
+// crashes before writing a `permissionDecision` is indistinguishable from
+// one that ran and allowed — so the merges were silently permitted with
+// ZERO gate enforcement, invisible to both agent and user, and the only
+// trace was a raw uncaught-exception stack trace instead of a diagnosable
+// warning.
+//
+// ## Two independent bugs, two independent fixes
+//
+// 1. **`Bun.spawnSync` THROWS on ENOENT instead of returning a failed
+//    result.** Verified directly: `Bun.spawnSync(["git", ...], { env: {
+//    PATH: "/nonexistent" } })` throws a synchronous `Error: Executable not
+//    found in $PATH: "git" { code: "ENOENT", path: "git", errno: -2 }`
+//    rather than returning `{ exitCode: <nonzero>, ... }`. Neither the
+//    pre-mt#2810 `execSync` nor `execWithPath` wrapped the call in
+//    try/catch, despite this file's own header comment claiming the
+//    opposite ("spawnSync wrapper that returns { exitCode, stdout, stderr }
+//    WITHOUT THROWING") — the comment described the intended contract; the
+//    implementation didn't deliver it. `safeSpawnSync` below is the actual
+//    fix: it catches ANY spawn-time throw (missing binary, exec permission
+//    denied, etc.) and returns a synthetic non-zero `ExecResult` instead,
+//    so a spawn failure degrades exactly like a normal non-zero command
+//    exit — which every caller in this codebase (starting with
+//    `deriveRepoFromGit` in `pr-context.ts`) already handles gracefully.
+//    It also logs a loud `console.error` naming the failed command, so the
+//    failure is visible in the hook's own stderr even for a caller (like
+//    `require-review-before-merge.ts`, pre-mt#2810) that has no warning
+//    path of its own for this branch.
+//
+// 2. **WHY the hook spawn env lacked PATH (root-cause finding, documented
+//    per mt#2810 acceptance criteria).** `execWithPath`'s PATH augmentation
+//    was `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}` — it
+//    assumes git lives under one of those two hardcoded prefixes, OR that
+//    `process.env.PATH` (the hook subprocess's OWN inherited PATH, set by
+//    whatever spawned the hook — Claude Code's main-agent process, or a
+//    dispatched/backgrounded subagent's harness) already contains git's
+//    location. Neither is guaranteed for every hook-spawn context:
+//      - A dispatched/backgrounded subagent process is not guaranteed to
+//        inherit the same interactive-shell PATH the main agent has (login
+//        shells source `.zshrc`/`.zprofile`, which is what actually adds
+//        Homebrew to `PATH` on a fresh shell — a non-interactive subprocess
+//        spawn can plausibly skip that and hand the hook a minimal PATH).
+//      - Even a well-formed inherited PATH can point at a distro layout
+//        the hardcoded two-entry prefix doesn't anticipate (e.g. Debian/
+//        Ubuntu's default `/usr/bin/git`, which this file's prefix did NOT
+//        special-case — it relied entirely on `process.env.PATH` already
+//        containing `/usr/bin`).
+//    Net effect: `execWithPath`'s augmentation is a PATH *prefix*, not a
+//    binary *resolution* strategy — it never actually asks "does a `git`
+//    executable exist," it just hopes one of a few directories is both
+//    present in the final PATH string AND contains git. `resolveGitBinary`
+//    below replaces that hope with an actual resolution: `Bun.which`
+//    first (respects whatever real PATH is present), then a filesystem
+//    existence check against a short list of standard install locations
+//    (no subprocess spawn, so this step can't itself throw ENOENT) — and
+//    only falls through to the bare, unresolved `"git"` (still crash-safe
+//    via `safeSpawnSync`) if truly nothing is found anywhere.
+
+/** Options accepted by `Bun.spawnSync`'s `env` field. */
+type SpawnEnv = Record<string, string | undefined>;
+
+/**
+ * Spawn a command synchronously WITHOUT throwing on failure to resolve or
+ * exec the binary (mt#2810 fix #1 — see the module comment above). Every
+ * exec helper in this module funnels through here so a spawn failure
+ * (missing binary, permission denied, etc.) always degrades to a
+ * structured `ExecResult` instead of crashing the hook process, and always
+ * logs a loud, structured `console.error` naming the exact command that
+ * failed to spawn — visible in the hook's own stderr regardless of whether
+ * the caller has its own fail-open warning path.
+ */
+function safeSpawnSync(
+  cmd: string[],
+  options: { cwd?: string; timeout?: number; env?: SpawnEnv }
+): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+  try {
+    const result = Bun.spawnSync(cmd, {
+      cwd: options.cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: options.timeout,
+      ...(options.env ? { env: options.env } : {}),
+    });
+    const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
+    return {
+      exitCode: result.exitCode ?? 1,
+      stdout: result.stdout.toString().trim(),
+      stderr: result.stderr.toString().trim(),
+      timedOut,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Loud degradation signal (mt#2810 success criterion: "when git
+    // genuinely cannot be resolved, emit a loud structured warning naming
+    // the degradation — not a bare stack trace"). This is the lowest
+    // common layer every gate's exec call funnels through, so it fires
+    // regardless of which of the four gates (or future callers) triggered
+    // it, and regardless of whether that caller has its own warning path.
+    console.error(
+      `[hook-exec] DEGRADED: failed to spawn \`${cmd.join(" ")}\` — ${message}. ` +
+        `Returning a synthetic failed result instead of crashing; any gate check ` +
+        `depending on this call will fail-open with that result (see the gate's own ` +
+        `fail-open warning, if any, for which check was skipped).`
+    );
+    return {
+      exitCode: 127, // conventional shell "command not found" exit code
+      stdout: "",
+      stderr: `spawn failed: ${message}`,
+      timedOut: false,
+    };
+  }
+}
+
+/**
+ * Standard-location fallbacks for `git`, tried when `Bun.which` can't
+ * resolve it from the (PATH-augmented) spawn environment. Checked with
+ * `existsSync` — no subprocess spawn, so this step can never itself throw
+ * ENOENT. Covers macOS Homebrew (Apple Silicon `/opt/homebrew`, Intel
+ * `/usr/local`), Xcode Command Line Tools / system git, and the common
+ * Linux distro location.
+ */
+const GIT_FALLBACK_PATHS: readonly string[] = [
+  "/opt/homebrew/bin/git",
+  "/usr/local/bin/git",
+  "/usr/bin/git",
+  "/bin/git",
+];
+
+/** Module-level cache — git-binary resolution doesn't change mid-process. */
+let cachedGitBinaryPath: string | null | undefined;
+
+export interface ResolveGitBinaryOptions {
+  /** Override the PATH string passed to `Bun.which` (tests only). */
+  pathOverride?: string;
+  /** Override the fallback candidate list (tests only). */
+  fallbackPaths?: readonly string[];
+  /** Override `existsSync` (tests only — simulate "nothing found"). */
+  existsSyncFn?: (path: string) => boolean;
+  /** Override `Bun.which` (tests only). */
+  whichFn?: (command: string, options?: { PATH?: string }) => string | null;
+  /** Bypass the module-level cache (tests only — production always caches). */
+  noCache?: boolean;
+}
+
+/**
+ * Resolve an absolute path to the `git` binary, robust to a hook spawn
+ * environment whose PATH doesn't include it (mt#2810 fix #2 — see the
+ * module comment above for the root-cause finding this replaces).
+ *
+ * Resolution order:
+ *   1. `Bun.which("git", { PATH: <augmented PATH> })` — respects whatever
+ *      real PATH customization is present (Homebrew, asdf, nix, etc.)
+ *   2. `GIT_FALLBACK_PATHS`, checked via `existsSync` (no subprocess).
+ *   3. Bare `"git"` as a last resort — spawning this can still fail if
+ *      truly nothing resolves, but `safeSpawnSync` (above) now catches
+ *      that failure instead of letting it crash the hook process.
+ *
+ * Cached for the lifetime of the hook process.
+ */
+export function resolveGitBinary(options: ResolveGitBinaryOptions = {}): string {
+  if (!options.noCache && cachedGitBinaryPath !== undefined) {
+    return cachedGitBinaryPath ?? "git";
+  }
+  const pathPrefix =
+    options.pathOverride ?? `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
+  const which =
+    options.whichFn ?? ((cmd: string, opts?: { PATH?: string }) => Bun.which(cmd, opts));
+  const exists = options.existsSyncFn ?? existsSync;
+  const fallbacks = options.fallbackPaths ?? GIT_FALLBACK_PATHS;
+
+  let resolved: string | null = null;
+  try {
+    resolved = which("git", { PATH: pathPrefix });
+  } catch {
+    resolved = null;
+  }
+  if (!resolved) {
+    for (const candidate of fallbacks) {
+      try {
+        if (exists(candidate)) {
+          resolved = candidate;
+          break;
+        }
+      } catch {
+        // Treat a filesystem-check error as "not found" — keep scanning.
+      }
+    }
+  }
+  if (!options.noCache) cachedGitBinaryPath = resolved;
+  return resolved ?? "git";
+}
+
+/**
+ * Substitute `cmd[0]` with the resolved absolute git path when the command
+ * invokes `git` by bare name. No-op for any other command (e.g. `gh`).
+ */
+function resolveGitCommand(cmd: string[]): string[] {
+  if (cmd[0] !== "git") return cmd;
+  return [resolveGitBinary(), ...cmd.slice(1)];
+}
+
 // Sync exec helper — returns exit code + output without throwing
 export function execSync(
   cmd: string[],
   options?: { cwd?: string; timeout?: number }
 ): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
-  const result = Bun.spawnSync(cmd, {
+  return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
     timeout: options?.timeout,
   });
-  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-    timedOut,
-  };
 }
 
 /**
  * PATH-augmented sync exec helper. Prepends common homebrew/system binary
- * directories to PATH so that `gh` and `git` resolve correctly regardless of
- * the shell PATH that launched Claude Code. Used by hooks that call `gh`/`git`.
+ * directories to PATH so that `gh` resolves correctly regardless of the
+ * shell PATH that launched Claude Code, and additionally resolves `git`
+ * robustly via `resolveGitBinary` (mt#2810 — PATH augmentation alone is not
+ * a resolution strategy, see the module comment above). Used by hooks that
+ * call `gh`/`git`. Never throws — spawn failures degrade to a structured
+ * `ExecResult` (see `safeSpawnSync`).
  */
 export function execWithPath(
   cmd: string[],
   options?: { cwd?: string; timeout?: number }
 ): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
   const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
-  const result = Bun.spawnSync(cmd, {
+  return safeSpawnSync(resolveGitCommand(cmd), {
     cwd: options?.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
     timeout: options?.timeout ?? 10000,
     env: { ...process.env, PATH: pathPrefix },
   });
-  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString().trim(),
-    stderr: result.stderr.toString().trim(),
-    timedOut,
-  };
 }
 
 // Read hook input from stdin
