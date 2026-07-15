@@ -76,6 +76,49 @@ describe("Prose — entity linkification", () => {
   });
 });
 
+describe("Prose — minsky:// markdown deeplinks (mt#2797)", () => {
+  test("a minsky:// task deeplink renders as an in-SPA link", () => {
+    const { container } = renderProse(
+      <Prose>{"Implemented [mt#2779](minsky://task/mt%232779) today."}</Prose>
+    );
+    const a = container.querySelector('a[href="/tasks/mt%232779"]');
+    expect(a).not.toBeNull();
+    expect(a?.textContent).toBe("mt#2779");
+  });
+
+  test("a minsky:// changeset deeplink renders as an in-SPA link", () => {
+    const { container } = renderProse(<Prose>{"Merged [PR #1234](minsky://changeset/1234)."}</Prose>);
+    expect(container.querySelector('a[href="/changeset/1234"]')).not.toBeNull();
+  });
+
+  test("an unparseable minsky:// URI degrades to a non-link styled span", () => {
+    const { container } = renderProse(<Prose>{"See [thing](minsky://bogus/xyz)."}</Prose>);
+    expect(container.querySelector("a")).toBeNull();
+    const span = [...container.querySelectorAll("span")].find((s) => s.textContent === "thing");
+    expect(span).not.toBeNull();
+  });
+
+  test("javascript: links are still stripped (sanitizer intact)", () => {
+    const { container } = renderProse(<Prose>{"[x](javascript:alert(1))"}</Prose>);
+    const a = container.querySelector("a");
+    expect(a).toBeNull();
+  });
+
+  test("external https links still open in a new tab", () => {
+    const { container } = renderProse(<Prose>{"[ext](https://example.com/x)"}</Prose>);
+    const a = container.querySelector('a[href="https://example.com/x"]');
+    expect(a).not.toBeNull();
+    expect(a?.getAttribute("target")).toBe("_blank");
+  });
+
+  test("relative links still render as in-SPA links (unchanged)", () => {
+    const { container } = renderProse(<Prose>{"[tasks](/tasks/mt%232370)"}</Prose>);
+    const a = container.querySelector('a[href="/tasks/mt%232370"]');
+    expect(a).not.toBeNull();
+    expect(a?.getAttribute("target")).toBeNull();
+  });
+});
+
 describe("Prose — safety and edge cases", () => {
   test("raw HTML is inert (no script/img elements created)", () => {
     const { container } = renderProse(
