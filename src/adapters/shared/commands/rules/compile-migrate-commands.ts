@@ -39,6 +39,15 @@ export function registerCompileMigrateCommands(targetRegistry: {
           // Config not yet initialized or unavailable — use target default (on_demand)
         }
 
+        // mt#2802: only pass a sizeBudget override when at least one field was
+        // supplied — an empty {} would still "win" over the target's default
+        // via resolveSizeBudget's `??` merge only for the unset field, so this
+        // guard just avoids constructing a pointless empty override object.
+        const sizeBudget =
+          params.warnChars !== undefined || params.failChars !== undefined
+            ? { warnChars: params.warnChars, failChars: params.failChars }
+            : undefined;
+
         const result = await compileRules({
           workspacePath,
           target: params.target,
@@ -46,6 +55,7 @@ export function registerCompileMigrateCommands(targetRegistry: {
           dryRun: params.dryRun,
           check: params.check,
           memoryLoadingMode,
+          sizeBudget,
         });
 
         const target = params.target || "agents.md";
