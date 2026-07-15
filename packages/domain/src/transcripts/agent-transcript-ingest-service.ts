@@ -221,6 +221,11 @@ export class AgentTranscriptIngestService {
                 )
             )`,
             endedAt: sql`EXCLUDED.ended_at`,
+            // NULL-safety: Postgres GREATEST *ignores* NULL arguments (result
+            // is NULL only when ALL args are NULL) — unlike MySQL, where any
+            // NULL poisons the result. GREATEST(NULL, ts) = ts here, so a
+            // NULL existing watermark advances and a NULL incoming one cannot
+            // regress a stored value. Verified empirically on PG17.
             lastIngestedJsonlTimestamp: sql`GREATEST(${agentTranscriptsTable.lastIngestedJsonlTimestamp}, EXCLUDED.last_ingested_jsonl_timestamp)`,
             ingestedAt: sql`EXCLUDED.ingested_at`,
           },
