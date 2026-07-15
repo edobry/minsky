@@ -262,4 +262,16 @@ describe("GET /api/driven-session", () => {
     const scratch = body.sessions.find((s) => s.cwd === "/tmp/scratchy");
     expect(scratch.taskId).toBeNull();
   });
+
+  test("list rows carry the SAME shape as the POST response, argv included (PR #1943 R2)", async () => {
+    const h = await makeHarness();
+    const created = await post(h.url, { cwd: "/tmp/shape-check" });
+
+    const res = await fetch(`${h.url}/api/driven-session`);
+    const body = (await res.json()) as { sessions: any[] };
+    const row = body.sessions.find((s) => s.sessionId === created.body.sessionId);
+    expect(row).toBeDefined();
+    expect(Object.keys(row).sort()).toEqual(Object.keys(created.body).sort());
+    expect(Array.isArray(row.argv)).toBe(true);
+  });
 });

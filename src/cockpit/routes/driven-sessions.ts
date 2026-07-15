@@ -66,7 +66,9 @@ export interface DrivenSessionRoutesOptions {
   scratchCwd?: string;
 }
 
-/** Serialize one registry record for the list/detail responses (mt#2752). */
+/** Serialize one registry record for the create/list responses (mt#2752).
+ * ONE row shape for both endpoints — docs/cockpit-ui.md §Operator endpoints
+ * documents them as identical (PR #1943 R1 finding: they had drifted). */
 function toSessionSummary(record: DrivenSessionRecord) {
   return {
     sessionId: record.localId,
@@ -79,6 +81,7 @@ function toSessionSummary(record: DrivenSessionRecord) {
     pid: record.pid,
     startedAt: record.startedAt,
     exitCode: record.exitCode,
+    argv: record.argv,
   };
 }
 
@@ -173,10 +176,7 @@ export function mountDrivenSessionRoutes(
         command: opts.command,
         registry,
       });
-      res.status(201).json({
-        ...toSessionSummary(record),
-        argv: record.argv,
-      });
+      res.status(201).json(toSessionSummary(record));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[driven-session] spawn failed: ${message}`);
