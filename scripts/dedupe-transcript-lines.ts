@@ -142,6 +142,7 @@ async function main() {
   let totalRemoved = 0;
   let written = 0;
   let errored = 0;
+  let skippedConcurrent = 0;
   const affectedDetails: Array<{ id: string; lines: number; removed: number }> = [];
 
   for (const { agentSessionId } of idRows) {
@@ -175,11 +176,29 @@ async function main() {
 
     if (execute) {
       try {
-        await db
+        // Optimistic concurrency guard (PR #1955 R1): a live ingest actor can
+        // append lines BETWEEN our read and this write; an unguarded UPDATE
+        // would overwrite the row with the stale in-memory array and lose
+        // those lines. Guard on the array length observed at read time — if
+        // the row grew (or changed) since, the WHERE matches nothing, we skip
+        // and report. Skipped rows are safe to re-run: the next pass re-reads
+        // the grown array (whose new tail is already uuid-deduped by the
+        // merged mt#2789 write path).
+        const updated = await db
           .update(agentTranscriptsTable)
-          .set({ transcript: sql`${JSON.stringify(deduped)}::jsonb` })
-          .where(eq(agentTranscriptsTable.agentSessionId, row.agentSessionId));
-        written++;
+          .set({ transcript: deduped })
+          .where(
+            sql`${agentTranscriptsTable.agentSessionId} = ${row.agentSessionId} AND jsonb_array_length(${agentTranscriptsTable.transcript}) = ${transcript.length}`
+          )
+          .returning({ agentSessionId: agentTranscriptsTable.agentSessionId });
+        if (updated.length === 1) {
+          written++;
+        } else {
+          skippedConcurrent++;
+          console.error(
+            `  SKIPPED (concurrent modification) ${row.agentSessionId}: row changed between read and write — re-run to retry`
+          );
+        }
       } catch (err) {
         errored++;
         console.error(`  WRITE FAILED ${row.agentSessionId}: ${getErrorMessage(err)}`);
@@ -195,6 +214,7 @@ async function main() {
   console.log(`  duplicate lines total:   ${totalRemoved}`);
   if (execute) {
     console.log(`  rows rewritten:          ${written}`);
+    console.log(`  skipped (concurrent):    ${skippedConcurrent}`);
     console.log(`  write errors:            ${errored}`);
   }
   if (affectedDetails.length > 0) {
