@@ -148,6 +148,39 @@ const changesetInfoParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Resolve the repository URL for a changeset command (mt#2745).
+ *
+ * Honors an explicit `repo` param via the existing `repoParam` short-circuit
+ * in `resolveRepositoryAndBackend` (the same `--repo` semantic the rest of
+ * the CLI uses, e.g. `session.start`); falls back to ambient config
+ * resolution when absent. Before mt#2745 all four changeset handlers called
+ * `getRepositoryBackendFromConfig()` unconditionally, so the DECLARED `repo`
+ * param was silently ignored and callers were misrouted to the ambient repo.
+ *
+ * `deps` is the domain module's injection seam, threaded through both
+ * branches so tests can inject `getConfiguration` without module mocks.
+ * Exported for unit tests.
+ */
+export async function resolveChangesetRepoUrl(
+  repoParam: string | undefined,
+  deps?: import("@minsky/domain/session/repository-backend-detection").RepositoryBackendDetectionDeps
+): Promise<string> {
+  const { getRepositoryBackendFromConfig, resolveRepositoryAndBackend } = await import(
+    "@minsky/domain/session/repository-backend-detection"
+  );
+  if (repoParam) {
+    const { repoUrl } = deps
+      ? await resolveRepositoryAndBackend({ repoParam }, deps)
+      : await resolveRepositoryAndBackend({ repoParam });
+    return repoUrl;
+  }
+  const { repoUrl } = deps
+    ? await getRepositoryBackendFromConfig(deps)
+    : await getRepositoryBackendFromConfig();
+  return repoUrl;
+}
+
+/**
  * List changesets in the repository
  */
 async function executeChangesetList(
@@ -155,11 +188,8 @@ async function executeChangesetList(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository (lazy-imported to defer domain loading)
-    const { getRepositoryBackendFromConfig } = await import(
-      "@minsky/domain/session/repository-backend-detection"
-    );
-    const { repoUrl } = await getRepositoryBackendFromConfig();
+    // Resolve repository — honors params.repo when provided (mt#2745)
+    const repoUrl = await resolveChangesetRepoUrl(params.repo as string | undefined);
 
     // Create changeset service (lazy-imported)
     const { createChangesetService } = await import("@minsky/domain/changeset/index");
@@ -245,11 +275,8 @@ async function executeChangesetSearch(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository (lazy-imported to defer domain loading)
-    const { getRepositoryBackendFromConfig } = await import(
-      "@minsky/domain/session/repository-backend-detection"
-    );
-    const { repoUrl } = await getRepositoryBackendFromConfig();
+    // Resolve repository — honors params.repo when provided (mt#2745)
+    const repoUrl = await resolveChangesetRepoUrl(params.repo as string | undefined);
 
     // Create changeset service (lazy-imported)
     const { createChangesetService } = await import("@minsky/domain/changeset/index");
@@ -337,11 +364,8 @@ async function executeChangesetGet(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository (lazy-imported to defer domain loading)
-    const { getRepositoryBackendFromConfig } = await import(
-      "@minsky/domain/session/repository-backend-detection"
-    );
-    const { repoUrl } = await getRepositoryBackendFromConfig();
+    // Resolve repository — honors params.repo when provided (mt#2745)
+    const repoUrl = await resolveChangesetRepoUrl(params.repo as string | undefined);
 
     // Create changeset service (lazy-imported)
     const { createChangesetService } = await import("@minsky/domain/changeset/index");
@@ -424,11 +448,8 @@ async function executeChangesetInfo(
   ctx?: CommandExecutionContext
 ): Promise<Record<string, unknown>> {
   try {
-    // Resolve repository (lazy-imported to defer domain loading)
-    const { getRepositoryBackendFromConfig } = await import(
-      "@minsky/domain/session/repository-backend-detection"
-    );
-    const { repoUrl } = await getRepositoryBackendFromConfig();
+    // Resolve repository — honors params.repo when provided (mt#2745)
+    const repoUrl = await resolveChangesetRepoUrl(params.repo as string | undefined);
 
     // Create changeset service (lazy-imported)
     const { createChangesetService } = await import("@minsky/domain/changeset/index");
