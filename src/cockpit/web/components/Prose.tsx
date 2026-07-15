@@ -23,12 +23,29 @@
  * @see ../lib/entity-linkifier.tsx — tokenizer + rehypeEntityLinks plugin
  * @see ../lib/use-entity-index.ts — the id-set hook callers pass in
  */
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "react-markdown";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";
+import { minskyUriToPath } from "../lib/entity-codec";
+
+/**
+ * URL transform that admits the `minsky://` deeplink scheme (mt#2797).
+ *
+ * Agents emit markdown deeplinks — `[mt#2779](minsky://task/mt%232779)` — in
+ * terminal chat per the cockpit-deeplinks rule, and stored transcripts must
+ * keep resolving them. react-markdown's defaultUrlTransform strips protocols
+ * outside its safe list to '' (so the `a` override saw no href and rendered a
+ * dead blue span). Pass `minsky:` URLs through untouched — the `a` override
+ * maps them to in-SPA routes via the entity codec — and defer to the default
+ * transform for everything else (javascript: etc. still stripped).
+ */
+function urlTransformWithMinsky(value: string): string {
+  if (value.startsWith("minsky://")) return value;
+  return defaultUrlTransform(value);
+}
 
 // Element overrides give the dense, dark cockpit look (the @tailwindcss/typography
 // `prose` defaults are tuned for article spacing and clash with mission-control
@@ -40,6 +57,23 @@ const COMPONENTS: Components = {
     // dangling <a href={undefined}>.
     if (!href) {
       return <span className={cn("text-primary", className)}>{children}</span>;
+    }
+    // minsky:// deeplinks (admitted by urlTransformWithMinsky) resolve to SPA
+    // routes via the shared entity codec; an unparseable URI degrades to the
+    // same non-link span as the no-href case (mt#2797).
+    if (href.startsWith("minsky://")) {
+      const path = minskyUriToPath(href);
+      if (!path) {
+        return <span className={cn("text-primary", className)}>{children}</span>;
+      }
+      return (
+        <Link
+          to={path}
+          className={cn("text-primary underline-offset-2 hover:underline", className)}
+        >
+          {children}
+        </Link>
+      );
     }
     // Entity links and internal markdown links resolve to SPA routes (href
     // starts with "/", always produced by entityToPath); render as react-router
@@ -153,6 +187,7 @@ export function Prose({ children, entityIndex, className }: ProseProps) {
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
         components={COMPONENTS}
+        urlTransform={urlTransformWithMinsky}
       >
         {children}
       </ReactMarkdown>
