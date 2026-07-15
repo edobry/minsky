@@ -236,6 +236,14 @@ export const tasksSimilarParams = {
     description: "Show detailed output including scores and diagnostics",
     required: false,
   },
+  // mt#2795: declared for parity with tasks.search (the mt#2779 R1 review
+  // flagged the gap). Description overrides the generic "Suppress output" —
+  // this flag only silences stderr diagnostics, never the result output
+  // (PR #1944 R1).
+  quiet: {
+    ...CommonParameters.quiet,
+    description: "Suppress the degraded-search warning on stderr (results are unaffected)",
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -269,8 +277,13 @@ export const tasksSearchParams = {
   status: TaskParameters.status,
   // Workflow-kind filter (mt#2762), consistent with tasks list / tasks available.
   kind: TaskParameters.kind,
-  // Support suppressing progress output
-  quiet: CommonParameters.quiet,
+  // Support suppressing progress output. Same accuracy override as
+  // tasks.similar's quiet (PR #1944 R1): stderr diagnostics only.
+  quiet: {
+    ...CommonParameters.quiet,
+    description:
+      "Suppress progress and degraded-search warnings on stderr (results are unaffected)",
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -368,26 +381,7 @@ export const tasksEditParams = {
   ...outputFormatParams,
 } satisfies CommandParameterMap;
 
-/**
- * Parameters for tasks migrate command (md#429 importer by default)
- */
-export const tasksMigrateParams = {
-  execute: {
-    schema: z.boolean().default(false),
-    description: "Apply changes (defaults to dry-run without this flag)",
-    required: false,
-  },
-  limit: {
-    schema: z.number().int().positive().optional(),
-    description: "Limit number of tasks to import",
-    required: false,
-  },
-  filterStatus: {
-    schema: z.string().optional(),
-    description: "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
-    required: false,
-  },
-  quiet: CommonParameters.quiet,
-  ...taskContextParams,
-  ...outputFormatParams,
-} satisfies CommandParameterMap;
+// mt#2795: the former `tasksMigrateParams` export (md#429 importer era) was a
+// dead map — zero consumers anywhere in src/ (tasks.migrate-backend declares
+// its own map in migrate-backend-command.ts). Removed by the
+// declared-but-unread param audit.

@@ -89,7 +89,73 @@ defined in `src/cockpit/web/index.css` and documented in
 [`docs/brand-system.md`](brand-system.md) §2. They follow the brand system's
 semantic-token discipline — no raw hex on the surface.
 
+## Driven sessions (`/driven/:id`, mt#2750–mt#2752)
+
+The drive surface of the harness-host ladder (umbrella mt#2230): the cockpit
+daemon spawns a genuine `claude` binary as a managed child and the SPA renders
+its live stream with an input composer. **Local daemon only** — never mounted on
+the public (Railway) deployment; the invariant is genuine binary + the
+operator's own credentials + the operator's own machine.
+
+### Launching (mt#2752)
+
+- **From a task** — the task detail page (`/tasks/:id`) shows a **Start
+  session** button for tasks in a startable (non-terminal) status. One click
+  binds-or-creates the task's workspace via the real `session_start` machinery,
+  spawns the driven session with the workspace as its working directory, and
+  lands you in the live view at `/driven/:id`.
+- **Scratch** — the Agents page (`/agents`) has a **Start scratch session**
+  button: an untasked session in the daemon's own repo directory, clearly
+  labeled `Scratch:` in the run list.
+- Both launch buttons name the permission mode in their tooltip. The default is
+  `bypassPermissions` (headless print-mode sessions have no prompt UI to answer
+  with); for task-bound sessions the isolated workspace clone is the
+  containment.
+
+### Reading the run list
+
+Driven sessions appear in the unified `/agents` run list alongside observe-only
+rows. The distinction (driven = you can type; observed = read-only) is carried
+by the amber **Driven** marker:
+
+- A standalone **Driven**-badged row is an app-started session; opening it goes
+  to the drive view (`/driven/:id`).
+- A workspace (**Agent**) row with a small **Driven** chip has an app-started
+  session bound to it — the chip links to the drive view; the row itself still
+  opens the workspace detail page.
+- iTerm/externally-started sessions never get the marker and stay observe-only.
+
+### Identity registration and deeplinks
+
+App-started sessions register their workspace↔conversation identity **at spawn
+time**: when the child's `system/init` event yields its harness session id, the
+daemon writes a `driven_spawn` row (confidence 1.0) into `minsky_session_links`
+(plus the `agent_transcripts` stub row the FK requires). The workspace detail
+page therefore resolves the live conversation with no cwd-matching heuristics.
+`minsky://session/<workspace-id>` deeplinks keep routing to `/agents/:id` (the
+`minsky://` URI type set is pinned by ADR-022 stage 1); a banner on that page
+links through to the drive view when a driven session is bound.
+
 ## Operator endpoints
+
+### `POST /api/driven-session`
+
+Spawn a driven session (mutation — bearer/cookie auth). Body shapes, all
+optional and `taskId`/`cwd` mutually exclusive (400 when both are present):
+
+| Body                    | Behavior                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `{ "taskId": "mt#N" }`  | Task-bound: bind-or-create the task's workspace, spawn with cwd = the workspace directory. |
+| `{ "cwd": "/abs/dir" }` | Explicit-directory launch (the original mt#2750 shape).                                    |
+| `{}`                    | Scratch: cwd defaults to the daemon's own working directory; no task binding.              |
+
+Optional on any shape: `"permissionMode": "bypassPermissions" \| "default"`.
+Returns `201` with `{ sessionId, harnessSessionId, cwd, taskId,
+minskySessionId, permissionMode, status, pid, startedAt, exitCode, argv }` —
+`sessionId` is the spawn-time local id that addresses `/driven/:id` and the
+per-session WebSocket. Companions: `POST /api/driven-session/:id/stop`
+(graceful stop) and `GET /api/driven-session` (registry snapshot, same row
+shape).
 
 ### `GET /api/health`
 
@@ -124,5 +190,7 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
 - mt#2626 — guard vocabulary alignment ("hook" = registration mechanics,
   "interlock" = domain noun, "weld" = verb only); route renamed from
   `/plant/weld-history`
+- mt#2230 / mt#2237 / mt#2750 / mt#2751 / mt#2752 — harness-host ladder: driven-session
+  host, drive view, task-bound launch (the §Driven sessions surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`

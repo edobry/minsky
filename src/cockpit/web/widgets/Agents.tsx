@@ -23,8 +23,8 @@ import { useListControls, type SortDir } from "../lib/useListControls";
 import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
 import { cn } from "../lib/utils";
 
-/** Kind badge (mt#2767 Row model). Always "dispatched-agent" pre-mt#2767. */
-type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group";
+/** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
+type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
 
 /** One nested subagent conversation, collapsed under a parent run's row. */
 interface SubagentEntry {
@@ -50,6 +50,9 @@ interface AgentRow {
   conversationId: string | null;
   cwd: string | null;
   subagents: SubagentEntry[];
+  /** App-started driven-session binding (mt#2752) — the driven-vs-observed
+   *  marker (SC4): non-null rows carry the input affordance. */
+  driven: { sessionId: string; status: string } | null;
 }
 
 interface AgentsPayload {
@@ -79,7 +82,34 @@ const KIND_BADGE_CONFIG: Record<RunKind, { label: string; className: string }> =
   "dispatched-agent": { label: "Agent", className: "bg-primary/15 text-primary" },
   "principal-conversation": { label: "Conversation", className: "bg-sky-500/15 text-sky-500" },
   "subagent-group": { label: "Subagent", className: "bg-muted text-muted-foreground" },
+  // mt#2752 — app-started driven sessions: the amber tint marks "you can type
+  // here" (input affordance), vs the read-only observe rows above (SC4).
+  "driven-session": { label: "Driven", className: "bg-amber-500/15 text-amber-500" },
 };
+
+/**
+ * Small "Driven" chip attached to a WORKSPACE row whose session was launched
+ * from the app (mt#2752) — links straight to the drive view. Distinct from
+ * the kind badge: the row's kind stays "dispatched-agent" (it IS a workspace
+ * row); this chip is the input affordance marker.
+ */
+function DrivenChip({ driven }: { driven: NonNullable<AgentRow["driven"]> }) {
+  const active = driven.status === "running" || driven.status === "spawned";
+  return (
+    <Link
+      to={`/driven/${encodeURIComponent(driven.sessionId)}`}
+      onClick={(e) => e.stopPropagation()}
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 transition-colors ${
+        active
+          ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+          : "bg-muted text-muted-foreground hover:bg-accent"
+      }`}
+      aria-label={`Open driven session (${driven.status})`}
+    >
+      Driven{active ? "" : ` (${driven.status})`}
+    </Link>
+  );
+}
 
 function KindBadge({ kind }: { kind: RunKind }) {
   const cfg = KIND_BADGE_CONFIG[kind];
@@ -290,6 +320,7 @@ function AgentsControlBar({
         <option value="dispatched-agent">Agent</option>
         <option value="principal-conversation">Conversation</option>
         <option value="subagent-group">Subagent</option>
+        <option value="driven-session">Driven</option>
       </select>
 
       <span className="text-border mx-1">|</span>
@@ -406,6 +437,10 @@ function rowPath(agent: AgentRow): string | null {
   if (agent.kind === "principal-conversation") {
     return `/conversation/${encodeURIComponent(agent.sessionId)}`;
   }
+  // mt#2752 — a standalone driven-session row opens the drive view (the
+  // input-capable surface); a workspace row with a driven session attached
+  // keeps its workspace-detail route and gets a DrivenChip link instead.
+  if (agent.kind === "driven-session") return `/driven/${encodeURIComponent(agent.sessionId)}`;
   return null;
 }
 
@@ -475,6 +510,11 @@ function AgentRowItem({
         {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
 
+      {/* Driven chip — workspace rows with an app-started driven session
+          (mt#2752). Standalone driven rows already navigate to /driven/:id
+          via rowPath, so the chip is only for the annotated-workspace case. */}
+      {agent.kind === "dispatched-agent" && agent.driven && <DrivenChip driven={agent.driven} />}
+
       {/* PR badge */}
       {agent.prNumber != null && (
         <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground flex-shrink-0">
@@ -519,7 +559,13 @@ function AgentRowItem({
             className={cn(
               "flex flex-1 min-w-0 items-center gap-3 py-1.5 hover:bg-accent/50 transition-colors rounded-sm"
             )}
-            aria-label={`Open ${agent.kind === "dispatched-agent" ? "session" : "conversation"} ${agent.sessionId}`}
+            aria-label={`Open ${
+              agent.kind === "dispatched-agent"
+                ? "session"
+                : agent.kind === "driven-session"
+                  ? "driven session"
+                  : "conversation"
+            } ${agent.sessionId}`}
           >
             {body}
           </Link>

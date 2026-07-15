@@ -172,8 +172,10 @@ describe("Routing Commands", () => {
 
       expect(params.target).toBeDefined();
       expect(params.strategy).toBeDefined();
-      expect(params.parallel).toBeDefined();
       expect(params.json).toBeDefined();
+      // mt#2795: `parallel` was removed — declared-but-unread since the
+      // command shipped (mt#2834 reinstates it WITH its implementation).
+      expect("parallel" in params).toBe(false);
 
       // Check parameter requirements
       expect(params.target?.required).toBe(true);

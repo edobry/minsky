@@ -120,6 +120,7 @@ const COLUMN_TO_FIELD: Record<string, keyof FakeRow> = {
   agent_type: "agentType",
   task_id: "taskId",
   session_id: "sessionId",
+  actual_model: "actualModel",
 };
 
 const pgDialect = new PgDialect();
@@ -288,6 +289,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
   ): ((row: FakeRow) => string) | null {
     if ("outcome" in selectedFields) return (row) => row.outcome;
     if ("agentType" in selectedFields) return (row) => row.agentType;
+    if ("model" in selectedFields) return (row) => row.actualModel ?? "";
     if ("hour" in selectedFields) {
       return (row) => {
         const d = row.startedAt;
@@ -314,6 +316,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         const entry: Record<string, unknown> = { cnt: groupRows.length };
         if ("outcome" in ctx.selectedFields && firstRow) entry.outcome = firstRow.outcome;
         if ("agentType" in ctx.selectedFields && firstRow) entry.agentType = firstRow.agentType;
+        if ("model" in ctx.selectedFields && firstRow) entry.model = firstRow.actualModel;
         if ("hour" in ctx.selectedFields) entry.hour = key;
         result.push(entry);
       }
@@ -535,8 +538,24 @@ describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
     expect("lastDispatch" in dispatches).toBe(true);
     expect("byOutcome" in dispatches).toBe(true);
     expect("byAgentType" in dispatches).toBe(true);
+    expect("byModel" in dispatches).toBe(true);
     expect("byHourLast24h" in dispatches).toBe(true);
     expect("escalation" in dispatches).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Acceptance test 3 (mt#2796): one dispatch → non-empty byModel
+  // -------------------------------------------------------------------------
+
+  test("one dispatch with a classified actualModel → byModel is non-empty", async () => {
+    await tracker.recordSubagentInvocation(makeInput({ actualModel: "claude-sonnet-5" }));
+
+    const result = await callSystemInfo();
+    const dispatches = result.subagentDispatches as Record<string, unknown>;
+    const byModel = dispatches.byModel as Record<string, number>;
+    expect(byModel).toBeDefined();
+    expect(Object.keys(byModel).length).toBeGreaterThan(0);
+    expect(byModel["claude-sonnet-5"]).toBe(1);
   });
 
   // -------------------------------------------------------------------------

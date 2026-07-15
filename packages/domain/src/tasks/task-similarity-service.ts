@@ -291,7 +291,14 @@ export class TaskSimilarityService {
     return `Find tasks related to: ${uniqueTerms.join(", ")}`;
   }
 
-  async indexTask(taskId: string): Promise<boolean> {
+  /**
+   * Embed and store one task's content. Returns true when a new embedding was
+   * stored, false when the up-to-date check skipped the task. Under
+   * `opts.force` (the `tasks index-embeddings --reindex` path, mt#2795) the
+   * up-to-date check is bypassed, so the task is always re-embedded and the
+   * method always returns true (absent an error).
+   */
+  async indexTask(taskId: string, opts?: { force?: boolean }): Promise<boolean> {
     const task = await this.findTaskById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
@@ -301,9 +308,10 @@ export class TaskSimilarityService {
     let content = await this.extractTaskContent(task);
     const contentHash = createHash("sha256").update(content).digest("hex");
 
-    // Skip if up-to-date
+    // Skip if up-to-date — unless a forced re-embed was requested
+    // (`tasks index-embeddings --reindex`, mt#2795).
     try {
-      if (typeof this.vectorStorage.getMetadata === "function") {
+      if (!opts?.force && typeof this.vectorStorage.getMetadata === "function") {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const meta = await this.vectorStorage.getMetadata!(taskId);
         const storedHash = meta?.content_hash || meta?.contentHash;

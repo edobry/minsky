@@ -110,6 +110,10 @@ export type SubagentInvocationInput = SubagentInvocationInsert;
  * - `byOutcome` — count per outcome class (all 6 enum values present,
  *   defaulting to 0 for classes with no rows).
  * - `byAgentType` — count per `agentType` string.
+ * - `byModel` — count per `actualModel` string (mt#2796). Rows with a null
+ *   `actualModel` (not yet classified at Stop time, or the classifier found
+ *   no genuine model id) are excluded rather than bucketed under a sentinel
+ *   key, mirroring `byAgentType`'s "only values that appear" contract.
  * - `byHourLast24h` — array of `{ hour: string; count: number }` where `hour`
  *   is an ISO-8601 truncated timestamp (hourly granularity, UTC). Only hours
  *   with at least one row are included.
@@ -123,6 +127,8 @@ export interface SubagentDispatchCadence {
   byOutcome: Record<SubagentInvocationOutcome, number>;
   /** Count per agentType. Only types that appear in the table. */
   byAgentType: Record<string, number>;
+  /** Count per actualModel (mt#2796). Rows with a null actualModel are excluded. */
+  byModel: Record<string, number>;
   /** Hourly dispatch counts for the last 24 hours. Hours with 0 rows omitted. */
   byHourLast24h: Array<{ hour: string; count: number }>;
 }
@@ -445,6 +451,26 @@ export class SubagentDispatchTracker {
       }
     }
 
+    // ── 3b. byModel (mt#2796) ────────────────────────────────────────────────
+    // Excludes rows with a null actualModel (not yet classified, or the
+    // classifier found no genuine model id) rather than bucketing them under
+    // a sentinel key — mirrors byAgentType's "only values that appear" shape.
+    const modelRows = await this.db
+      .select({
+        model: subagentInvocationsTable.actualModel,
+        cnt: count(),
+      })
+      .from(subagentInvocationsTable)
+      .where(isNotNull(subagentInvocationsTable.actualModel))
+      .groupBy(subagentInvocationsTable.actualModel);
+
+    const byModel: Record<string, number> = {};
+    for (const row of modelRows) {
+      if (row.model != null) {
+        byModel[row.model] = row.cnt;
+      }
+    }
+
     // ── 4. byHourLast24h ─────────────────────────────────────────────────────
     // Enforce UTC explicitly for hour bucketing. `timestamp with time zone` is
     // stored in UTC, but `date_trunc('hour', ts)` operates in the session time
@@ -472,6 +498,7 @@ export class SubagentDispatchTracker {
       lastDispatch,
       byOutcome,
       byAgentType,
+      byModel,
       byHourLast24h,
     };
   }
@@ -564,6 +591,7 @@ function emptyCADENCE(): SubagentDispatchCadence {
       number
     >,
     byAgentType: {},
+    byModel: {},
     byHourLast24h: [],
   };
 }

@@ -309,18 +309,24 @@ export function findValidGuardGrant(
  * function's tolerance.
  *
  * @param fsDeps — injectable fs functions; defaults to real `node:fs`.
+ * @param nowMs — clock reading used for the expiry prune, mirroring the
+ *   `findValidGuardGrant(grants, query, nowMs)` injectable-clock pattern.
+ *   Defaults to `Date.now()` for production callers (no behavior change);
+ *   tests pass a fixed `nowMs` so pruning is deterministic relative to their
+ *   fixture clock instead of the real wall clock (mt#2839).
  */
 export function appendGuardGrant(
   storePath: string,
   grant: GuardGrant,
-  fsDeps: GuardGrantStoreFsDeps = defaultFsDeps
+  fsDeps: GuardGrantStoreFsDeps = defaultFsDeps,
+  nowMs: number = Date.now()
 ): void {
   fsDeps.mkdirSync(path.dirname(storePath));
 
   const existing = readGuardGrantStore(storePath, fsDeps);
   const currentGrants = existing.status === "ok" ? existing.grants : [];
 
-  const now = Date.now();
+  const now = nowMs;
   const unexpired = currentGrants.filter((g) => {
     const issuedMs = Date.parse(g.issuedAt);
     return !Number.isNaN(issuedMs) && now < issuedMs + g.ttlMs;

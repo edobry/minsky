@@ -9,11 +9,14 @@
  */
 import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { Play } from "lucide-react";
+import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
+import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -176,6 +179,45 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // Inner — rendered after data is confirmed
 // ---------------------------------------------------------------------------
 
+/**
+ * Task statuses the launch affordance shows for (mt#2752 SC1 — "a task in a
+ * startable state"). Terminal statuses (DONE / CLOSED) have nothing to drive.
+ * Non-READY statuses still show the button: an existing workspace is reused
+ * regardless of status, and a create against a non-startable status surfaces
+ * the domain error verbatim rather than being second-guessed client-side.
+ */
+const STARTABLE_STATUSES = new Set(["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW"]);
+
+/**
+ * "Start session" — launches a driven session bound to this task's workspace
+ * and navigates to /driven/:id (mt#2752, Rung 2C launch affordance).
+ */
+function StartSessionButton({ taskId, status }: { taskId: string; status: string }) {
+  const start = useStartDrivenSession();
+  if (!STARTABLE_STATUSES.has(status.toUpperCase())) return null;
+
+  return (
+    <span className="ml-auto flex items-center gap-2">
+      {start.isError && (
+        <span className="text-xs text-destructive" role="alert">
+          {start.error.message}
+        </span>
+      )}
+      <Button
+        size="sm"
+        onClick={() => start.mutate({ taskId })}
+        disabled={start.isPending}
+        className="h-7 px-2.5 text-xs"
+        aria-label={`Start driven session for ${taskId}`}
+        title="Spawns a driven claude session (bypassPermissions) in the task's isolated workspace clone"
+      >
+        <Play className="h-3.5 w-3.5 mr-1" />
+        {start.isPending ? "Starting…" : "Start session"}
+      </Button>
+    </span>
+  );
+}
+
 function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
   const { task, spec, parent, children, deps } = data;
 
@@ -198,6 +240,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
             {tag}
           </span>
         ))}
+        <StartSessionButton taskId={task.id} status={task.status} />
       </div>
 
       {/* Parent */}
