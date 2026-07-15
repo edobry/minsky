@@ -402,6 +402,33 @@ describe("status-transitions", () => {
       expect(hasCloseoutEvidence(spec)).toBe(true);
     });
 
+    // --- Synonym headings (mt#455: investigation-shaped closeout) ---
+
+    test("accepts ## Findings as a synonym", () => {
+      const spec = `## Summary\n...\n\n## Findings\nThe root cause is X; see the trace at Y.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("accepts ## Outcome as a synonym", () => {
+      const spec = `## Outcome\nDecision: fold research into state-ops (ask 0480a4c3).\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("synonyms are case-insensitive and accept trailing colon", () => {
+      expect(hasCloseoutEvidence(`## FINDINGS:\ncontent\n`)).toBe(true);
+      expect(hasCloseoutEvidence(`## outcome\ncontent\n`)).toBe(true);
+    });
+
+    test("an empty evidence section does not mask a later populated synonym section", () => {
+      const spec = `## Outcome\n\n## Notes\nfiller\n\n## Findings\nActual findings here.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("does not match ## Findings-adjacent headings", () => {
+      expect(hasCloseoutEvidence(`## Findings summary\ncontent\n`)).toBe(false);
+      expect(hasCloseoutEvidence(`## Outcomes\ncontent\n`)).toBe(false);
+    });
+
     // --- Negative cases ---
 
     test("returns false when spec is empty string", () => {
@@ -455,6 +482,11 @@ describe("status-transitions", () => {
 
     test("CLOSEOUT_EVIDENCE_HEADING does not match ## without the words", () => {
       expect(CLOSEOUT_EVIDENCE_HEADING.test("## Summary")).toBe(false);
+    });
+
+    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE names the synonym headings (mt#455)", () => {
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Findings");
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Outcome");
     });
   });
 });
