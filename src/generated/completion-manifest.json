@@ -2092,6 +2092,10 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--reap"],
+              "description": "Run the stale-attachment reaper before listing (drops attachment records whose pid is confirmed dead on this host; local-host only, v0 — remote-host attachments are skipped, never reaped by this flag)."
             }
           ]
         },
@@ -2112,6 +2116,10 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--reap"],
+              "description": "Run the stale-attachment reaper before listing (drops attachment records whose pid is confirmed dead on this host; local-host only, v0 — remote-host attachments are skipped, never reaped by this flag)."
             }
           ]
         },

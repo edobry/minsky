@@ -32,9 +32,12 @@ async function executeSessionPs(
   success: true;
   entries: unknown[];
   warning?: string;
+  reaped?: { reapedCount: number; skippedRemoteHostCount: number };
 }> {
   const { getSessionsDir } = await import("@minsky/shared/paths");
-  const { buildSessionPsReport } = await import("@minsky/domain/session/index");
+  const { buildSessionPsReport, reapStaleSessionAttachments } = await import(
+    "@minsky/domain/session/index"
+  );
   const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
 
   const provider = getPersistenceProvider?.();
@@ -65,6 +68,18 @@ async function executeSessionPs(
     };
   }
 
+  // mt#2284: manual invocation path for the stale-attachment reaper —
+  // `minsky session ps --reap`. Runs BEFORE building the report so a just-reaped
+  // dead pid doesn't show up as a stale entry in the same call.
+  let reaped: { reapedCount: number; skippedRemoteHostCount: number } | undefined;
+  if (params.reap === true) {
+    const result = await reapStaleSessionAttachments(repo);
+    reaped = {
+      reapedCount: result.reapedCount,
+      skippedRemoteHostCount: result.skippedRemoteHostCount,
+    };
+  }
+
   let report = await buildSessionPsReport(repo, getSessionsDir());
 
   const sessionIdFilter = params.sessionId as string | undefined;
@@ -79,7 +94,7 @@ async function executeSessionPs(
     report = record ? report.filter((entry) => entry.sessionId === record.sessionId) : [];
   }
 
-  return { success: true, entries: report };
+  return { success: true, entries: report, ...(reaped ? { reaped } : {}) };
 }
 
 export function createSessionPsCommand(
