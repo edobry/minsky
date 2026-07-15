@@ -178,6 +178,170 @@ fn should_takeover_adopted(consecutive_http_failed: u32, port_held: bool, thrott
     consecutive_http_failed > ADOPTED_TAKEOVER_POLL_THRESHOLD && !port_held && throttle_ok
 }
 
+// ---------------------------------------------------------------------------
+// mt#2794: health-down/no-child poll arm, extracted for testability.
+//
+// The live `Some(Err(_)) | None` poll arm (below, in `run_supervisor`) needs
+// an `&AppHandle` and a live `Sup` to actually spawn a daemon, toast a
+// notification, or push a status/uptime label. None of that is available in
+// a `cargo test` without a Tauri runtime. `handle_health_down_no_child`
+// carries the ARM'S DECISION LOGIC (the mt#2786 takeover branch + its PR
+// #1927 R1 pre-spawn recheck) without touching any of that: the two seams a
+// test controls are `port_in_use` (stubbed port checks) and `effect`
+// (records which live operation the arm would have performed instead of
+// performing it). `NoChildCounters` carries the plain-data slice of `Sup`
+// this arm reads/writes.
+// ---------------------------------------------------------------------------
+
+/// Watchdog counters the health-down/no-child poll arm reads and mutates,
+/// pulled out of `Sup` into an owned value. `handle_health_down_no_child`
+/// takes this instead of `&mut Sup` directly: the live call site also needs
+/// a SEPARATE `&mut Sup` borrow inside its `effect` closure (for
+/// `do_spawn` / `set_status` / `clear_uptime`), and Rust doesn't allow two
+/// live mutable borrows of the same value at once. Callers move the
+/// relevant fields out with `take_from` and copy them back with
+/// `write_back_to` after the call; `last_spawn` is read-only here — the
+/// real `do_spawn`, invoked through the `Spawn` effect, updates
+/// `Sup::last_spawn` directly on its own `&mut Sup`.
+struct NoChildCounters {
+    consecutive_http_failed: u32,
+    last_http_alert: Option<Instant>,
+    last_spawn: Option<Instant>,
+    restart_timestamps: Vec<Instant>,
+    last_process_started_at_ms: Option<u64>,
+}
+
+impl NoChildCounters {
+    fn take_from(sup: &mut Sup) -> Self {
+        Self {
+            consecutive_http_failed: sup.consecutive_http_failed,
+            last_http_alert: sup.last_http_alert,
+            last_spawn: sup.last_spawn,
+            restart_timestamps: std::mem::take(&mut sup.restart_timestamps),
+            last_process_started_at_ms: sup.last_process_started_at_ms,
+        }
+    }
+
+    fn write_back_to(self, sup: &mut Sup) {
+        sup.consecutive_http_failed = self.consecutive_http_failed;
+        sup.last_http_alert = self.last_http_alert;
+        sup.restart_timestamps = self.restart_timestamps;
+        sup.last_process_started_at_ms = self.last_process_started_at_ms;
+    }
+}
+
+/// A live effect `handle_health_down_no_child` asks its caller to perform.
+/// Bundled into one enum (rather than four separate closures) so the call
+/// site needs only ONE `FnMut` capturing `&mut Sup` / `&AppHandle` — Rust
+/// doesn't allow several closures to each independently capture the same
+/// `&mut` binding.
+enum NoChildEffect {
+    /// Fire the sustained-HTTP-failure toast with this message. Owns the
+    /// String (PR #1936 R1) so the effect carries its message without
+    /// borrowing a callee-local.
+    Notify(String),
+    /// mt#2786 takeover: spawn a new daemon (`do_spawn` in the live loop).
+    Spawn,
+    /// Push this label to the status line.
+    SetStatus(&'static str),
+    /// Clear the uptime line (no daemon running).
+    ClearUptime,
+}
+
+/// Body of the poll loop's `Some(Err(_)) | None` arm: no child of ours
+/// (adopted daemon down, or never spawned). Split out (mt#2794, a PR #1927
+/// follow-up) so the mt#2786 takeover branch is testable without a live
+/// Tokio loop — `port_in_use` and `effect` are the seams a test stubs;
+/// `counters` is the plain-data slice of `Sup` this arm touches.
+///
+/// `port_in_use` may be called TWICE in one invocation: once for the
+/// takeover gate, once for the PR #1927 R1 pre-spawn recheck. A caller can
+/// return a different result per call to model the port being bound in the
+/// gap between the two checks.
+///
+/// Two time parameters (PR #1936 R1): `poll_now` is the tick timestamp used
+/// for alert-cooldown and restart-storm bookkeeping (as in the original
+/// inline arm), while `now` is a FRESH instant used only for the
+/// respawn-throttle check — the original arm called `Instant::now()` inline
+/// there, and reusing the earlier `poll_now` would silently shorten the
+/// throttle window by the tick's processing time.
+///
+/// Behavior-preserving versus the original inline arm, with one in-scope
+/// fix (PR #1927 R2 non-blocking): the aborted-takeover path now also
+/// emits `ClearUptime`, so an aborted takeover no longer leaves a stale
+/// uptime line visible for one more poll cycle.
+fn handle_health_down_no_child(
+    counters: &mut NoChildCounters,
+    poll_now: Instant,
+    now: Instant,
+    mut port_in_use: impl FnMut() -> bool,
+    mut effect: impl FnMut(NoChildEffect),
+) {
+    // Don't IMMEDIATELY spawn over an adopted daemon — but see the mt#2786
+    // takeover below. Apply the same sustained-HTTP-failure alert here: an
+    // expected adopted daemon that stops responding is an alert-worthy
+    // condition.
+    if counters.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+        let cooldown_elapsed = counters
+            .last_http_alert
+            .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+            .unwrap_or(true);
+        if cooldown_elapsed {
+            let sustained_secs =
+                counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
+            let reason = format!(
+                "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
+                 daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
+            );
+            eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
+            effect(NoChildEffect::Notify(reason));
+            counters.last_http_alert = Some(poll_now);
+        }
+    }
+
+    // mt#2786: takeover-respawn. Once the outage is sustained (2× the alert
+    // threshold) and nobody holds the port (an operator's replacement
+    // daemon would), convert from adopted to spawned supervision instead of
+    // staying "stopped" forever. Counts toward restart-storm accounting so
+    // a flapping takeover still alerts.
+    let port_held = port_in_use();
+    if should_takeover_adopted(
+        counters.consecutive_http_failed,
+        port_held,
+        throttle_ok(counters.last_spawn, now, RESPAWN_THROTTLE),
+    ) {
+        // Final pre-spawn recheck (PR #1927 R1): shrink the race between the
+        // poll-time port check and our spawn — an operator's replacement
+        // daemon may have bound the port in the gap. If so, stand down; the
+        // next poll adopts it via the healthy path.
+        if port_in_use() {
+            eprintln!(
+                "[watchdog] takeover aborted — port {DAEMON_PORT} was bound between check and spawn (operator restart in progress?)"
+            );
+            effect(NoChildEffect::SetStatus(LABEL_STARTING));
+            // PR #1927 R2 non-blocking (closed by mt#2794): the aborted
+            // takeover leaves no daemon running — clear the uptime line
+            // rather than leaving a stale entry visible for one more poll
+            // cycle.
+            effect(NoChildEffect::ClearUptime);
+        } else {
+            let sustained_secs =
+                counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
+            eprintln!(
+                "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
+            );
+            counters.consecutive_http_failed = 0;
+            counters.last_http_alert = None;
+            counters.restart_timestamps.push(poll_now);
+            counters.last_process_started_at_ms = None;
+            effect(NoChildEffect::Spawn);
+        }
+    } else {
+        effect(NoChildEffect::SetStatus(LABEL_STOPPED));
+        effect(NoChildEffect::ClearUptime);
+    }
+}
+
 /// Build a PATH that includes the common locations a GUI app (launched from
 /// /Applications with a minimal PATH) won't otherwise have, so `minsky` / `bun`
 /// / `lsof` resolve. Mirrors the launchd plist's PATH handling
@@ -977,65 +1141,31 @@ fn run_supervisor(
                             set_status(&app, &mut sup, LABEL_STARTING);
                         }
                         Some(Err(_)) | None => {
-                            // No child of ours (adopted daemon down, or never spawned).
-                            // Don't IMMEDIATELY spawn over an adopted daemon — but see the
-                            // mt#2786 takeover below. Apply the same
-                            // sustained-HTTP-failure alert here: an expected adopted daemon
-                            // that stops responding is an alert-worthy condition.
-                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
-                                let cooldown_elapsed = sup.last_http_alert
-                                    .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
-                                    .unwrap_or(true);
-                                if cooldown_elapsed {
-                                    let sustained_secs = sup.consecutive_http_failed as u64
-                                        * POLL_INTERVAL.as_secs();
-                                    let reason = format!(
-                                        "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
-                                         daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
-                                    );
-                                    notify_daemon_unhealthy(&app, &reason);
-                                    sup.last_http_alert = Some(poll_now);
-                                    eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
-                                }
-                            }
-                            // mt#2786: takeover-respawn. Once the outage is sustained
-                            // (2× the alert threshold) and nobody holds the port (an
-                            // operator's replacement daemon would), convert from
-                            // adopted to spawned supervision instead of staying
-                            // "stopped" forever. Counts toward restart-storm
-                            // accounting so a flapping takeover still alerts.
-                            let port_held = port_in_use(DAEMON_PORT, &path);
-                            if should_takeover_adopted(
-                                sup.consecutive_http_failed,
-                                port_held,
-                                throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE),
-                            ) {
-                                // Final pre-spawn recheck (PR #1927 R1): shrink the
-                                // race between the poll-time port check and our spawn —
-                                // an operator's replacement daemon may have bound the
-                                // port in the gap. If so, stand down; the next poll
-                                // adopts it via the healthy path.
-                                if port_in_use(DAEMON_PORT, &path) {
-                                    eprintln!(
-                                        "[watchdog] takeover aborted — port {DAEMON_PORT} was bound between check and spawn (operator restart in progress?)"
-                                    );
-                                    set_status(&app, &mut sup, LABEL_STARTING);
-                                } else {
-                                    let sustained_secs = sup.consecutive_http_failed as u64
-                                        * POLL_INTERVAL.as_secs();
-                                    eprintln!(
-                                        "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
-                                    );
-                                    sup.consecutive_http_failed = 0;
-                                    sup.last_http_alert = None;
-                                    sup.restart_timestamps.push(poll_now);
-                                    sup.last_process_started_at_ms = None;
-                                    do_spawn(&app, &mut sup, &spawned, &path);
-                                }
-                            } else {
-                                set_status(&app, &mut sup, LABEL_STOPPED);
-                                clear_uptime(&app, &mut sup);
-                            }
+                            // No child of ours (adopted daemon down, or never
+                            // spawned). Decision logic lives in
+                            // `handle_health_down_no_child` (mt#2794) — this
+                            // call site just wires the live AppHandle/lsof/
+                            // process seams.
+                            let mut counters = NoChildCounters::take_from(&mut sup);
+                            handle_health_down_no_child(
+                                &mut counters,
+                                poll_now,
+                                Instant::now(),
+                                || port_in_use(DAEMON_PORT, &path),
+                                |eff| match eff {
+                                    NoChildEffect::Notify(reason) => {
+                                        notify_daemon_unhealthy(&app, &reason)
+                                    }
+                                    NoChildEffect::Spawn => {
+                                        do_spawn(&app, &mut sup, &spawned, &path)
+                                    }
+                                    NoChildEffect::SetStatus(label) => {
+                                        set_status(&app, &mut sup, label)
+                                    }
+                                    NoChildEffect::ClearUptime => clear_uptime(&app, &mut sup),
+                                },
+                            );
+                            counters.write_back_to(&mut sup);
                         }
                     }
                 }
@@ -1391,6 +1521,159 @@ mod tests {
             false,
             false
         ));
+    }
+
+    // --- mt#2794: `handle_health_down_no_child` integration-style coverage
+    // of the mt#2786 takeover branch, wired through the extracted seam
+    // function instead of a live Tokio poll loop. ---
+
+    #[derive(Default)]
+    struct NoChildLog {
+        notifies: Vec<String>,
+        spawn_calls: u32,
+        status_calls: Vec<&'static str>,
+        clear_uptime_calls: u32,
+    }
+
+    fn base_counters(consecutive_http_failed: u32) -> NoChildCounters {
+        NoChildCounters {
+            consecutive_http_failed,
+            last_http_alert: None,
+            last_spawn: None,
+            restart_timestamps: Vec::new(),
+            last_process_started_at_ms: Some(42),
+        }
+    }
+
+    /// Drive `handle_health_down_no_child` with stubbed `port_in_use`
+    /// results (consumed in call order) and record every effect it asks
+    /// for, instead of performing any live AppHandle/process operation.
+    fn run_no_child_arm(
+        counters: &mut NoChildCounters,
+        poll_now: Instant,
+        mut port_results: std::collections::VecDeque<bool>,
+    ) -> NoChildLog {
+        let mut log = NoChildLog::default();
+        handle_health_down_no_child(
+            counters,
+            poll_now,
+            Instant::now(),
+            || port_results.pop_front().expect("unexpected extra port_in_use() call"),
+            |eff| match eff {
+                NoChildEffect::Notify(reason) => log.notifies.push(reason.to_string()),
+                NoChildEffect::Spawn => log.spawn_calls += 1,
+                NoChildEffect::SetStatus(label) => log.status_calls.push(label),
+                NoChildEffect::ClearUptime => log.clear_uptime_calls += 1,
+            },
+        );
+        log
+    }
+
+    // Scenario 1: sustained outage + free port -> takeover invokes the spawn
+    // seam, resets the watchdog counters, and pushes a restart timestamp.
+    #[test]
+    fn no_child_sustained_outage_and_free_port_takes_over() {
+        let poll_now = Instant::now();
+        let mut counters = base_counters(ADOPTED_TAKEOVER_POLL_THRESHOLD + 1);
+        // Two port_in_use calls expected: the takeover gate, then the
+        // pre-spawn recheck — both report the port free.
+        let log = run_no_child_arm(
+            &mut counters,
+            poll_now,
+            std::collections::VecDeque::from([false, false]),
+        );
+
+        assert_eq!(log.spawn_calls, 1, "takeover should invoke the spawn seam");
+        assert_eq!(log.notifies.len(), 1, "sustained outage should also alert");
+        assert!(
+            log.status_calls.is_empty(),
+            "the success path doesn't set status directly (do_spawn does that live)"
+        );
+        assert_eq!(
+            log.clear_uptime_calls, 0,
+            "the success path doesn't clear uptime directly"
+        );
+
+        assert_eq!(counters.consecutive_http_failed, 0, "counter resets on takeover");
+        assert_eq!(counters.last_http_alert, None, "alert cooldown resets on takeover");
+        assert_eq!(
+            counters.restart_timestamps,
+            vec![poll_now],
+            "takeover pushes a restart timestamp"
+        );
+        assert_eq!(
+            counters.last_process_started_at_ms, None,
+            "takeover clears the adopted-restart baseline"
+        );
+    }
+
+    // Scenario 2: pre-spawn recheck bail-out when the port becomes bound
+    // between the takeover-gate check and the spawn (PR #1927 R1). Also
+    // covers the PR #1927 R2 non-blocking fix folded into this task: the
+    // aborted path must clear the uptime line.
+    #[test]
+    fn no_child_aborts_takeover_when_port_binds_between_check_and_spawn() {
+        let poll_now = Instant::now();
+        let mut counters = base_counters(ADOPTED_TAKEOVER_POLL_THRESHOLD + 1);
+        // Gate check sees the port free; the pre-spawn recheck sees it
+        // bound — an operator's replacement daemon won the race.
+        let log = run_no_child_arm(
+            &mut counters,
+            poll_now,
+            std::collections::VecDeque::from([false, true]),
+        );
+
+        assert_eq!(log.spawn_calls, 0, "an aborted takeover must not spawn");
+        assert_eq!(log.notifies.len(), 1, "the sustained-failure alert still fires");
+        assert_eq!(log.status_calls, vec![LABEL_STARTING]);
+        assert_eq!(
+            log.clear_uptime_calls, 1,
+            "PR #1927 R2: the aborted path must clear the stale uptime line"
+        );
+
+        // Counters are untouched by an aborted takeover — it retries next poll.
+        assert_eq!(
+            counters.consecutive_http_failed,
+            ADOPTED_TAKEOVER_POLL_THRESHOLD + 1
+        );
+        assert!(counters.restart_timestamps.is_empty());
+    }
+
+    // Scenario 3: alert fires at the 1-minute threshold without taking over.
+    #[test]
+    fn no_child_alerts_at_threshold_without_taking_over() {
+        let poll_now = Instant::now();
+        // Above the alert threshold but below the 2x takeover threshold.
+        let mut counters = base_counters(HTTP_FAILURE_POLL_THRESHOLD + 1);
+        let log = run_no_child_arm(
+            &mut counters,
+            poll_now,
+            std::collections::VecDeque::from([false]),
+        );
+
+        assert_eq!(log.notifies.len(), 1, "sustained-failure alert should fire");
+        assert_eq!(log.spawn_calls, 0, "must not take over below the takeover threshold");
+        assert_eq!(log.status_calls, vec![LABEL_STOPPED]);
+        assert_eq!(log.clear_uptime_calls, 1);
+        assert_eq!(counters.last_http_alert, Some(poll_now));
+    }
+
+    // Scenario 4: port held throughout -> no takeover ever, regardless of
+    // how long the outage has been sustained (mt#2786's core conservatism).
+    #[test]
+    fn no_child_never_takes_over_while_port_is_held() {
+        let poll_now = Instant::now();
+        let mut counters = base_counters(ADOPTED_TAKEOVER_POLL_THRESHOLD * 10);
+        let log = run_no_child_arm(
+            &mut counters,
+            poll_now,
+            std::collections::VecDeque::from([true]),
+        );
+
+        assert_eq!(log.spawn_calls, 0, "a held port must never be fought");
+        assert_eq!(log.status_calls, vec![LABEL_STOPPED]);
+        assert_eq!(log.clear_uptime_calls, 1);
+        assert_eq!(log.notifies.len(), 1, "still alerts even though it won't take over");
     }
 
     #[test]
