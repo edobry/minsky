@@ -8,7 +8,14 @@
  * back into the caller regardless of spawn success/failure.
  */
 import { describe, test, expect, spyOn, afterEach } from "bun:test";
-import { emitHookFiredOnDeny, writeOutput } from "./types";
+import {
+  emitHookFiredOnDeny,
+  writeOutput,
+  execSync,
+  execWithPath,
+  resolveGitBinary,
+  __resetGitBinaryCacheForTests,
+} from "./types";
 
 describe("emitHookFiredOnDeny (mt#2537)", () => {
   afterEach(() => {
@@ -72,5 +79,222 @@ describe("emitHookFiredOnDeny (mt#2537)", () => {
     ).not.toThrow();
     expect(writeSpy).toHaveBeenCalledTimes(1);
     writeSpy.mockRestore();
+  });
+});
+
+/**
+ * resolveGitBinary / execSync / execWithPath crash-safety tests (mt#2810).
+ *
+ * Covers the two independent fixes documented in the module comment above
+ * `safeSpawnSync` in types.ts:
+ *   1. `Bun.spawnSync` throwing ENOENT is caught, never propagates.
+ *   2. `resolveGitBinary` resolves an absolute git path via `Bun.which` then
+ *      a filesystem-existence fallback list, independent of whether the
+ *      spawn environment's PATH happens to contain it.
+ */
+describe("resolveGitBinary (mt#2810)", () => {
+  test("returns Bun.which's result when it resolves", () => {
+    const resolved = resolveGitBinary({
+      noCache: true,
+      whichFn: () => "/custom/path/to/git",
+    });
+    expect(resolved).toBe("/custom/path/to/git");
+  });
+
+  test("falls through to the fallback candidate list when Bun.which fails", () => {
+    const resolved = resolveGitBinary({
+      noCache: true,
+      whichFn: () => null,
+      fallbackPaths: ["/does/not/exist/git", "/also/missing/git", "/found/it/git"],
+      existsSyncFn: (p) => p === "/found/it/git",
+    });
+    expect(resolved).toBe("/found/it/git");
+  });
+
+  test("returns bare 'git' when neither Bun.which nor any fallback resolves", () => {
+    const resolved = resolveGitBinary({
+      noCache: true,
+      whichFn: () => null,
+      fallbackPaths: ["/does/not/exist/git"],
+      existsSyncFn: () => false,
+    });
+    expect(resolved).toBe("git");
+  });
+
+  test("a throwing whichFn is treated the same as 'not found' — falls through to fallbacks", () => {
+    const resolved = resolveGitBinary({
+      noCache: true,
+      whichFn: () => {
+        throw new Error("which boom");
+      },
+      fallbackPaths: ["/fallback/git"],
+      existsSyncFn: (p) => p === "/fallback/git",
+    });
+    expect(resolved).toBe("/fallback/git");
+  });
+
+  test("a throwing existsSyncFn is treated as 'not found' for that candidate — keeps scanning", () => {
+    const resolved = resolveGitBinary({
+      noCache: true,
+      whichFn: () => null,
+      fallbackPaths: ["/throws/git", "/ok/git"],
+      existsSyncFn: (p) => {
+        if (p === "/throws/git") throw new Error("existsSync boom");
+        return p === "/ok/git";
+      },
+    });
+    expect(resolved).toBe("/ok/git");
+  });
+
+  test("noCache:true bypasses the module cache — each call re-resolves independently", () => {
+    let calls = 0;
+    const whichFn = () => {
+      calls++;
+      return `/cached/git/${calls}`;
+    };
+    // noCache:true never reads OR writes the module-level cache, so two
+    // noCache:true calls each re-invoke whichFn and can return different
+    // values — proving this option genuinely bypasses caching (as opposed
+    // to a default call, which is expected to cache for the process
+    // lifetime; that default-path behavior isn't asserted here since it
+    // would depend on the module cache's ambient state from other tests/
+    // production code paths in the same process).
+    const first = resolveGitBinary({ noCache: true, whichFn });
+    const second = resolveGitBinary({ noCache: true, whichFn });
+    expect(calls).toBe(2);
+    expect(first).not.toBe(second);
+  });
+
+  test("a FAILED resolution is never cached — a later call can still succeed (mt#2810 PR #1952 R1 NON-BLOCKING)", () => {
+    // Uses default (non-noCache) calls deliberately — this exercises the
+    // REAL module-level cache, not the noCache-bypass path. Reset first so
+    // this test is independent of whatever the shared cache's ambient state
+    // happens to be from other tests/production code paths in this process.
+    __resetGitBinaryCacheForTests();
+
+    const failing = resolveGitBinary({
+      whichFn: () => null,
+      fallbackPaths: [],
+      existsSyncFn: () => false,
+    });
+    expect(failing).toBe("git"); // nothing resolved — bare fallback
+
+    // If the failed attempt had been cached, this second call would ignore
+    // its own (successful) whichFn and just replay the cached bare "git".
+    const RESOLVED_GIT_PATH = "/now/it/works/git";
+    const succeeding = resolveGitBinary({
+      whichFn: () => RESOLVED_GIT_PATH,
+    });
+    expect(succeeding).toBe(RESOLVED_GIT_PATH);
+
+    // And the successful resolution DOES cache — a third call with a
+    // DIFFERENT whichFn still returns the cached value, proving positive
+    // resolutions are still cached as before.
+    const third = resolveGitBinary({ whichFn: () => "/should/not/be/used" });
+    expect(third).toBe(RESOLVED_GIT_PATH);
+
+    __resetGitBinaryCacheForTests();
+  });
+});
+
+describe("execWithPath / execSync spawn-failure safety (mt#2810)", () => {
+  /** The exact message Bun.spawnSync throws on a real ENOENT (verified empirically —
+   * see the module comment above `safeSpawnSync` in types.ts). Shared across this
+   * describe block's tests to avoid magic-string duplication. */
+  const ENOENT_GIT_ERROR_MESSAGE = 'Executable not found in $PATH: "git"';
+
+  // mt#2810 PR #1952 R1 BLOCKING #2 (reviewer finding): the previous
+  // afterEach duck-typed `if (Bun.spawnSync.mockRestore)` to decide whether
+  // to restore — brittle, since a native (unmocked) function doesn't
+  // reliably expose `mockRestore`, and if any test threw BEFORE calling
+  // `spyOn`, nothing would need restoring but the check itself could
+  // misbehave on an already-unmocked native function. Each test now
+  // captures the spy HANDLE `spyOn` returns and assigns it to these
+  // describe-scoped variables; `afterEach` restores deterministically via
+  // the captured handle (optional-chained, since a given test may not spy
+  // on both) rather than probing the global for a `mockRestore` property.
+  let spawnSyncSpy: ReturnType<typeof spyOn<typeof Bun, "spawnSync">> | undefined;
+  let consoleErrorSpy: ReturnType<typeof spyOn<typeof console, "error">> | undefined;
+
+  afterEach(() => {
+    spawnSyncSpy?.mockRestore();
+    spawnSyncSpy = undefined;
+    consoleErrorSpy?.mockRestore();
+    consoleErrorSpy = undefined;
+  });
+
+  test("execWithPath never throws when Bun.spawnSync throws ENOENT", () => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
+    });
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+    expect(() => execWithPath(["git", "status"])).not.toThrow();
+  });
+
+  test("execWithPath returns a structured non-zero ExecResult instead of throwing", () => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
+    });
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+    const result = execWithPath(["git", "status"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.exitCode).toBe(127);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("spawn failed");
+    expect(result.timedOut).toBe(false);
+  });
+
+  test("execWithPath logs a loud structured degradation warning naming the failed command", () => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
+    });
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+    execWithPath(["git", "remote", "get-url", "origin"]);
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    const message = consoleErrorSpy.mock.calls[0]?.[0] as string;
+    expect(message).toContain("[hook-exec] DEGRADED");
+    expect(message).toContain("git remote get-url origin");
+    expect(message).not.toContain("undefined");
+  });
+
+  test("execSync never throws when Bun.spawnSync throws ENOENT", () => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error(ENOENT_GIT_ERROR_MESSAGE);
+    });
+    consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+    expect(() => execSync(["git", "rev-parse", "HEAD"])).not.toThrow();
+    const result = execSync(["git", "rev-parse", "HEAD"]);
+    expect(result.exitCode).toBe(127);
+  });
+
+  test("a non-ENOENT spawn success still passes through normally (no regression)", () => {
+    spawnSyncSpy = spyOn(Bun, "spawnSync").mockImplementation(
+      () =>
+        ({
+          exitCode: 0,
+          stdout: Buffer.from("hello\n"),
+          stderr: Buffer.from(""),
+          signalCode: null,
+        }) as never
+    );
+    const result = execWithPath(["gh", "pr", "view"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("hello");
+  });
+
+  test("execWithPath resolves git to an absolute path even when process.env.PATH is broken", () => {
+    // Real (unmocked) Bun.spawnSync + real filesystem — exercises the actual
+    // resolution path end-to-end. Every dev/CI machine that can run this
+    // test suite at all has SOME git binary, so this proves the augmented
+    // resolution (Bun.which + fallback list) finds it regardless of PATH.
+    const originalPath = process.env.PATH;
+    try {
+      process.env.PATH = "/mt2810-nonexistent-path-for-testing";
+      const result = execWithPath(["git", "--version"]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("git version");
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 });
