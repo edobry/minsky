@@ -18,3 +18,21 @@ export { resolveSessionDirectory } from "./resolve-session-directory";
 
 // Export read-only interfaces for ADR-004 validate() phase
 export type { ReadonlySessionProvider } from "./readonly-interfaces";
+
+// Export session runtime-attachment (presence) domain layer (mt#2284)
+export type { SessionAttachment, ReapStaleAttachmentsResult } from "./attachment";
+export {
+  listSessionAttachments,
+  listAllSessionAttachments,
+  clearSessionAttachments,
+  isPidAlive,
+  reapStaleSessionAttachments,
+} from "./attachment";
+export type { LiveSessionProcess, LsofRunner } from "./attachment-lsof";
+export {
+  detectLiveSessionProcesses,
+  parseLsofCwdOutput,
+  defaultLsofRunner,
+} from "./attachment-lsof";
+export type { SessionPsEntry } from "./session-ps";
+export { buildSessionPsReport } from "./session-ps";
