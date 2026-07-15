@@ -20,6 +20,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createAsk,
+  createAskWithFormLint,
   respondToAsk,
   validateAsksCreateParams,
   validateAsksEditParams,
@@ -474,6 +475,71 @@ describe("createAsk", () => {
     // Subagent transport — never touches elicitation regardless of registry state.
     expect(result.transport.kind).toBe("subagent");
     expect(result.state).toBe("routed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createAskWithFormLint — asks.create's form-lint wrapper (mt#2798)
+// ---------------------------------------------------------------------------
+
+describe("createAskWithFormLint", () => {
+  test(
+    "synthetic bad ask (mcp__ tool id, 200 words, authorization.approve + 'settings' + no URL) " +
+      "-> 3 formWarnings; ask still created",
+    async () => {
+      const repo = new FakeAskRepository();
+      const badWord = "word";
+      // ~200-word body: opens with justification, then names an mcp__ tool
+      // call and a "settings" portal reference with no URL — matches the
+      // Acceptance Tests' synthetic-bad-ask description exactly.
+      const question =
+        `${Array.from({ length: 170 }, () => badWord).join(" ")} ` +
+        "I'll run mcp__minsky__setup_github-app to update the app settings and grant this permission.";
+
+      const { ask, formWarnings, formLintMatches } = await createAskWithFormLint(
+        repo,
+        {
+          kind: KIND_AUTHORIZATION_APPROVE,
+          title: "Grant a permission",
+          question,
+        },
+        { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+      );
+
+      // Ask is still created — form-lint never blocks creation.
+      expect(ask.id).toBeTruthy();
+      const persisted = await repo.getById(ask.id);
+      expect(persisted).not.toBeNull();
+
+      expect(formWarnings).toHaveLength(3);
+      const expectedChecks: Array<"internal-tool-id" | "over-word-budget" | "portal-no-link"> = [
+        "internal-tool-id",
+        "over-word-budget",
+        "portal-no-link",
+      ];
+      expect(formLintMatches.map((m) => m.check).sort()).toEqual(expectedChecks.sort());
+    }
+  );
+
+  test("well-formed ask (action-first, direct link, <120 words) -> zero warnings", async () => {
+    const repo = new FakeAskRepository();
+    const question =
+      "Open https://github.com/settings/apps/minsky-ai/permissions and set Actions to " +
+      "Read and write, then save. This unblocks the CI-rerun tool.";
+
+    const { ask, formWarnings, formLintMatches } = await createAskWithFormLint(
+      repo,
+      {
+        kind: KIND_AUTHORIZATION_APPROVE,
+        title: "Approve one GitHub App permission",
+        question,
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    expect(ask.id).toBeTruthy();
+    expect(formWarnings).toEqual([]);
+    expect(formLintMatches).toEqual([]);
   });
 });
 
