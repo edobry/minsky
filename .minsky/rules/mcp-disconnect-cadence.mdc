@@ -1,7 +1,7 @@
 ---
 name: MCP disconnect cadence
 description: Cause classification, escalation thresholds, and operator-side reading of the MCP disconnect tracker (mt#1645 + mt#1682 + mt#1705).
-alwaysApply: true
+alwaysApply: false
 tags:
   - minsky
   - mcp
