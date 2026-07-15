@@ -14,10 +14,8 @@ tags:
 - Multi-backend tasks: GitHub Issues, Minsky DB
 - Dependency injection via tsyringe (`docs/architecture.md` §6)
 
-## Operational reference rules (on demand, not always-loaded)
+## Operational reference rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
 
-- `mcp-disconnect-cadence` — disconnect cause classes, escalation thresholds, log-reading recipes (read when investigating MCP disconnects)
-- `subagent-dispatch-cadence` — dispatch outcome taxonomy, escalation thresholds, SQL inspection patterns (read when investigating subagent outcomes)
-- `documentation-taxonomy` — doc-type taxonomy, homes, title patterns (read when authoring docs; `/create-task`, `/draft-rfc`, `/draft-adr` carry the workflow)
-
-Read via `.minsky/rules/<name>.mdc` or `mcp__minsky__rules_get`.
+- `mcp-disconnect-cadence` — disconnect cause classes, escalation thresholds, log-reading recipes (investigating MCP disconnects)
+- `subagent-dispatch-cadence` — dispatch outcome taxonomy, escalation thresholds, SQL inspection patterns (investigating subagent outcomes)
+- `documentation-taxonomy` — doc-type taxonomy, homes, title patterns (authoring docs; `/create-task`, `/draft-rfc`, `/draft-adr` carry the workflow)
