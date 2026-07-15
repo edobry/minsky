@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   annotateReviewRejections,
   explainReviewRejection,
+  fetchReviewerCheckRunState,
   findMatchingReview,
   parseReviewFindings,
   resolveReviewerFilter,
@@ -29,6 +30,8 @@ const IMPLEMENTER_BOT = "minsky-ai[bot]";
 const CHANGES_REQUESTED_STATE = "CHANGES_REQUESTED" as const;
 /** Shared fixture body text for mt#2656 fullBody/trimReview tests. */
 const RAW_REVIEW_BODY_TEXT = "raw markdown body text";
+/** Shared check-run name literal (extracted per custom/no-magic-string-duplication, mt#2777 SC#1). */
+const FINDINGS_CHECK_NAME = "minsky-reviewer/findings";
 
 describe("findMatchingReview", () => {
   // mt#2656: strictly after `since` — one second after the `since` threshold
@@ -834,6 +837,196 @@ describe("sessionPrWaitForReview", () => {
       }
     }
   });
+
+  // ==========================================================================
+  // mt#2777 SC#1 — final authoritative check before reporting timeout
+  // ==========================================================================
+
+  test("final authoritative check catches a review that lands just outside the poll window (mt#2777 SC#1)", async () => {
+    // Both regular loop polls (t=0, t=5) return no match; the deadline
+    // (10s) is reached exactly at t=10, so the top-of-loop deadline check
+    // fires and triggers the final authoritative check — a THIRD
+    // listReviews call, outside the regular poll cadence — which returns
+    // the churn-delayed review. Reproduces the false-silence class from
+    // the mt#2751 near-bypass incident (Restructure note, mt#2777 spec).
+    const deps = makeDeps([[], [], [match]]);
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 10, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewId).toBe(42);
+    }
+    // pollCount reflects only the regular poll-loop iterations (2); the
+    // final authoritative check is a separate, uncounted extra read — it is
+    // not a "3rd poll" in the pollCount sense.
+    expect(deps.listCalls).toBe(3);
+  });
+
+  test("timeout payload surfaces reviewer check-run state on genuine timeout (mt#2777 SC#1)", async () => {
+    const sessionRecordChecks: SessionRecord = {
+      session: "s-checks",
+      repoName: "edobry-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
+      createdAt: new Date(0).toISOString(),
+      pullRequest: { number: 456, branch: "task/mt-test", baseBranch: "main" },
+      taskId: "mt#2777",
+    } as unknown as SessionRecord;
+
+    const backend = {
+      review: {
+        listReviews: async () => [],
+      },
+      ci: {
+        getChecksForPR: async () => ({
+          allPassed: false,
+          summary: { total: 1, passed: 0, failed: 0, pending: 1 },
+          checks: [
+            {
+              name: FINDINGS_CHECK_NAME,
+              status: "in_progress",
+              conclusion: null,
+              url: null,
+            },
+          ],
+        }),
+      },
+    } as unknown as RepositoryBackend;
+
+    let clock = 1_000_000;
+    const deps: SessionPrWaitForReviewDependencies = {
+      sessionDB: {
+        getSession: async () => sessionRecordChecks,
+      } as unknown as SessionProviderInterface,
+      createBackend: async () => backend,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+    };
+
+    const result = await sessionPrWaitForReview(
+      { sessionId: "s-checks", timeoutSeconds: 5, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.finalCheckPerformed).toBe(true);
+      expect(result.reviewerCheckRunState).toEqual({
+        name: FINDINGS_CHECK_NAME,
+        status: "in_progress",
+        conclusion: null,
+        url: null,
+      });
+    }
+  });
+
+  test("timeout payload reports an absent check-run distinctly from a failed check-run fetch (mt#2777 SC#1)", async () => {
+    const sessionRecordAbsent: SessionRecord = {
+      session: "s-absent",
+      repoName: "edobry-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
+      createdAt: new Date(0).toISOString(),
+      pullRequest: { number: 457, branch: "task/mt-test", baseBranch: "main" },
+      taskId: "mt#2777",
+    } as unknown as SessionRecord;
+
+    const backend = {
+      review: {
+        listReviews: async () => [],
+      },
+      ci: {
+        getChecksForPR: async () => ({
+          allPassed: false,
+          summary: { total: 0, passed: 0, failed: 0, pending: 0 },
+          checks: [],
+        }),
+      },
+    } as unknown as RepositoryBackend;
+
+    let clock = 1_000_000;
+    const deps: SessionPrWaitForReviewDependencies = {
+      sessionDB: {
+        getSession: async () => sessionRecordAbsent,
+      } as unknown as SessionProviderInterface,
+      createBackend: async () => backend,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+    };
+
+    const result = await sessionPrWaitForReview(
+      { sessionId: "s-absent", timeoutSeconds: 5, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.reviewerCheckRunState).toEqual({
+        name: FINDINGS_CHECK_NAME,
+        status: "absent",
+        conclusion: null,
+        url: null,
+      });
+    }
+  });
+
+  test("final check I/O failure degrades to timeout gracefully — no throw, finalCheckPerformed: false (mt#2777 SC#1)", async () => {
+    let callCount = 0;
+    const sessionRecordFail: SessionRecord = {
+      session: "s-fail",
+      repoName: "edobry-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
+      createdAt: new Date(0).toISOString(),
+      pullRequest: { number: 789, branch: "task/mt-test", baseBranch: "main" },
+      taskId: "mt#2777",
+    } as unknown as SessionRecord;
+
+    const backend = {
+      review: {
+        listReviews: async () => {
+          callCount++;
+          // The first two calls are the regular poll loop; the third is
+          // the final authoritative check — simulate a transient failure
+          // there specifically to exercise the best-effort degrade path.
+          if (callCount > 2) {
+            throw new Error("simulated transient network failure on final re-read");
+          }
+          return [];
+        },
+      },
+      // No `ci` — mirrors a backend that doesn't implement check-run
+      // queries; fetchReviewerCheckRunState must degrade to null, not throw.
+    } as unknown as RepositoryBackend;
+
+    let clock = 1_000_000;
+    const deps: SessionPrWaitForReviewDependencies = {
+      sessionDB: {
+        getSession: async () => sessionRecordFail,
+      } as unknown as SessionProviderInterface,
+      createBackend: async () => backend,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        clock += ms;
+      },
+    };
+
+    const result = await sessionPrWaitForReview(
+      { sessionId: "s-fail", timeoutSeconds: 10, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.finalCheckPerformed).toBe(false);
+      expect(result.reviewerCheckRunState).toBeNull();
+    }
+    expect(callCount).toBe(3);
+  });
 });
 
 // ============================================================================
@@ -1497,5 +1690,79 @@ describe("sessionPrWaitForReview since-default = PR created_at (mt#2043)", () =>
     }
     // Backend lookup skipped on explicit since.
     expect(deps.createdAtCalls).toBe(0);
+  });
+});
+
+// ============================================================================
+// mt#2777 SC#1 — fetchReviewerCheckRunState (direct unit tests)
+// ============================================================================
+
+describe("fetchReviewerCheckRunState (mt#2777 SC#1)", () => {
+  test("returns null when the backend does not implement ci.getChecksForPR", async () => {
+    const backend = { review: {} } as unknown as RepositoryBackend;
+    const state = await fetchReviewerCheckRunState(backend, 1);
+    expect(state).toBeNull();
+  });
+
+  test("returns null (best-effort) when getChecksForPR throws", async () => {
+    const backend = {
+      review: {},
+      ci: {
+        getChecksForPR: async () => {
+          throw new Error("simulated API failure");
+        },
+      },
+    } as unknown as RepositoryBackend;
+    const state = await fetchReviewerCheckRunState(backend, 1);
+    expect(state).toBeNull();
+  });
+
+  test("returns status: absent when no check run matches the findings name", async () => {
+    const backend = {
+      review: {},
+      ci: {
+        getChecksForPR: async () => ({
+          allPassed: true,
+          summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+          checks: [
+            { name: "some-other-check", status: "completed", conclusion: "success", url: null },
+          ],
+        }),
+      },
+    } as unknown as RepositoryBackend;
+    const state = await fetchReviewerCheckRunState(backend, 1);
+    expect(state).toEqual({
+      name: FINDINGS_CHECK_NAME,
+      status: "absent",
+      conclusion: null,
+      url: null,
+    });
+  });
+
+  test("returns the matched check run's status/conclusion/url", async () => {
+    const backend = {
+      review: {},
+      ci: {
+        getChecksForPR: async () => ({
+          allPassed: false,
+          summary: { total: 1, passed: 0, failed: 1, pending: 0 },
+          checks: [
+            {
+              name: FINDINGS_CHECK_NAME,
+              status: "completed",
+              conclusion: "failure",
+              url: "https://github.com/edobry/minsky/runs/1",
+            },
+          ],
+        }),
+      },
+    } as unknown as RepositoryBackend;
+    const state = await fetchReviewerCheckRunState(backend, 1);
+    expect(state).toEqual({
+      name: FINDINGS_CHECK_NAME,
+      status: "completed",
+      conclusion: "failure",
+      url: "https://github.com/edobry/minsky/runs/1",
+    });
   });
 });
