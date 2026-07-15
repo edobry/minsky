@@ -255,6 +255,30 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     log.debug(
       deleted ? `Session deleted: ${sessionId}` : `Session not found for deletion: ${sessionId}`
     );
+
+    // mt#2284: teardown — clear any runtime-attachment records for this
+    // session so no dangling "attached" row survives session removal. This
+    // is the single chokepoint every deletion path (session.delete,
+    // session.cleanup, the stale-attachment reaper's own bookkeeping) goes
+    // through, so wiring it here covers all of them without threading a new
+    // dependency through each caller. Best-effort: never blocks or fails the
+    // session deletion itself.
+    if (deleted) {
+      try {
+        const { buildPresenceClaimRepository } = await import("../presence/index");
+        const { clearSessionAttachments } = await import("./attachment");
+        const presenceRepo = buildPresenceClaimRepository(this.db);
+        if (presenceRepo) {
+          await clearSessionAttachments(presenceRepo, sessionId);
+        }
+      } catch (err) {
+        log.debug("Failed to clear session attachment records on delete (non-blocking)", {
+          sessionId,
+          error: getErrorMessage(err),
+        });
+      }
+    }
+
     return deleted;
   }
 
