@@ -235,9 +235,11 @@ impl NoChildCounters {
 /// site needs only ONE `FnMut` capturing `&mut Sup` / `&AppHandle` — Rust
 /// doesn't allow several closures to each independently capture the same
 /// `&mut` binding.
-enum NoChildEffect<'a> {
-    /// Fire the sustained-HTTP-failure toast with this message.
-    Notify(&'a str),
+enum NoChildEffect {
+    /// Fire the sustained-HTTP-failure toast with this message. Owns the
+    /// String (PR #1936 R1) so the effect carries its message without
+    /// borrowing a callee-local.
+    Notify(String),
     /// mt#2786 takeover: spawn a new daemon (`do_spawn` in the live loop).
     Spawn,
     /// Push this label to the status line.
@@ -257,6 +259,13 @@ enum NoChildEffect<'a> {
 /// return a different result per call to model the port being bound in the
 /// gap between the two checks.
 ///
+/// Two time parameters (PR #1936 R1): `poll_now` is the tick timestamp used
+/// for alert-cooldown and restart-storm bookkeeping (as in the original
+/// inline arm), while `now` is a FRESH instant used only for the
+/// respawn-throttle check — the original arm called `Instant::now()` inline
+/// there, and reusing the earlier `poll_now` would silently shorten the
+/// throttle window by the tick's processing time.
+///
 /// Behavior-preserving versus the original inline arm, with one in-scope
 /// fix (PR #1927 R2 non-blocking): the aborted-takeover path now also
 /// emits `ClearUptime`, so an aborted takeover no longer leaves a stale
@@ -264,6 +273,7 @@ enum NoChildEffect<'a> {
 fn handle_health_down_no_child(
     counters: &mut NoChildCounters,
     poll_now: Instant,
+    now: Instant,
     mut port_in_use: impl FnMut() -> bool,
     mut effect: impl FnMut(NoChildEffect),
 ) {
@@ -283,9 +293,9 @@ fn handle_health_down_no_child(
                 "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
                  daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
             );
-            effect(NoChildEffect::Notify(&reason));
-            counters.last_http_alert = Some(poll_now);
             eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
+            effect(NoChildEffect::Notify(reason));
+            counters.last_http_alert = Some(poll_now);
         }
     }
 
@@ -298,7 +308,7 @@ fn handle_health_down_no_child(
     if should_takeover_adopted(
         counters.consecutive_http_failed,
         port_held,
-        throttle_ok(counters.last_spawn, poll_now, RESPAWN_THROTTLE),
+        throttle_ok(counters.last_spawn, now, RESPAWN_THROTTLE),
     ) {
         // Final pre-spawn recheck (PR #1927 R1): shrink the race between the
         // poll-time port check and our spawn — an operator's replacement
@@ -1140,10 +1150,11 @@ fn run_supervisor(
                             handle_health_down_no_child(
                                 &mut counters,
                                 poll_now,
+                                Instant::now(),
                                 || port_in_use(DAEMON_PORT, &path),
                                 |eff| match eff {
                                     NoChildEffect::Notify(reason) => {
-                                        notify_daemon_unhealthy(&app, reason)
+                                        notify_daemon_unhealthy(&app, &reason)
                                     }
                                     NoChildEffect::Spawn => {
                                         do_spawn(&app, &mut sup, &spawned, &path)
@@ -1546,6 +1557,7 @@ mod tests {
         handle_health_down_no_child(
             counters,
             poll_now,
+            Instant::now(),
             || port_results.pop_front().expect("unexpected extra port_in_use() call"),
             |eff| match eff {
                 NoChildEffect::Notify(reason) => log.notifies.push(reason.to_string()),
