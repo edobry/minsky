@@ -164,8 +164,19 @@ function extractBacktickPaths(content: string): string[] {
  * Slice out the content of a `## <headingName>` section (up to the next `##`
  * heading or end of document). Returns `null` when the heading isn't found.
  */
+/**
+ * Escape RegExp metacharacters in `s` so it can be safely interpolated into
+ * a `new RegExp(...)` template as a LITERAL substring match. Only the
+ * current call site passes a fixed literal ("Context"), but escaping makes
+ * `extractNamedSection` safe for any future heading name (PR #1953 review
+ * 4708851338 R2 nit).
+ */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function extractNamedSection(specContent: string, headingName: string): string | null {
-  const headingRe = new RegExp(`^##\\s+${headingName}:?\\s*$`, "m");
+  const headingRe = new RegExp(`^##\\s+${escapeRegex(headingName)}:?\\s*$`, "m");
   const match = specContent.match(headingRe);
   if (!match || match.index === undefined) return null;
   const start = match.index + match[0].length;
