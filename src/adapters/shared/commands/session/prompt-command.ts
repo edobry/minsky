@@ -6,6 +6,8 @@
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { z } from "zod";
+import { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
+import { log } from "@minsky/shared/logger";
 
 const promptCommandParams = {
   task: { schema: z.string(), description: "Task ID (required)", required: true },
@@ -84,6 +86,31 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         scope,
         omitOperatingEnvelope,
       });
+
+      // mt#2796: write a pending dispatch-time invocation row so
+      // `suggested_model` is populated before the subagent even starts,
+      // mirroring tasks.dispatch's Step 5 pending-row pattern (see
+      // dispatch-command.ts). This is the primary dispatch path — a main
+      // agent calling session_generate_prompt directly (per the Subagent
+      // Routing convention) then dispatching via the Agent tool — which,
+      // unlike tasks_dispatch, previously wrote no row at all until
+      // SubagentStop. The SubagentStop hook upserts on subagentSessionId
+      // and never clobbers suggestedModel (it doesn't include the field in
+      // its own object literal), so this pending row's value survives.
+      // Best-effort — never blocks prompt generation on a tracker failure.
+      try {
+        const tracker = SubagentDispatchTracker.getInstance();
+        await tracker.recordSubagentInvocation({
+          taskId: task,
+          subagentSessionId: sessionId,
+          agentType: result.agentType ?? type,
+          suggestedModel: result.suggestedModel ?? null,
+          startedAt: new Date(),
+          outcome: "crashed-no-output",
+        });
+      } catch (err) {
+        log.warn(`[session.generate_prompt] Failed to write pending invocation row: ${err}`);
+      }
 
       return { success: true, ...result };
     }),

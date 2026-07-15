@@ -134,6 +134,7 @@ const COLUMN_TO_FIELD: Record<string, keyof FakeRow> = {
   agent_type: "agentType",
   task_id: "taskId",
   session_id: "sessionId",
+  actual_model: "actualModel",
 };
 
 const pgDialect = new PgDialect();
@@ -367,6 +368,9 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
     if ("agentType" in selectedFields) {
       return (row) => row.agentType;
     }
+    if ("model" in selectedFields) {
+      return (row) => row.actualModel ?? "";
+    }
     if ("hour" in selectedFields) {
       // Truncate to UTC hour
       return (row) => {
@@ -401,6 +405,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         const entry: Record<string, unknown> = { cnt: groupRows.length };
         if ("outcome" in ctx.selectedFields && firstRow) entry.outcome = firstRow.outcome;
         if ("agentType" in ctx.selectedFields && firstRow) entry.agentType = firstRow.agentType;
+        if ("model" in ctx.selectedFields && firstRow) entry.model = firstRow.actualModel;
         if ("hour" in ctx.selectedFields) entry.hour = key;
         result.push(entry);
       }
@@ -825,6 +830,38 @@ describe("SubagentDispatchTracker", () => {
     test("byAgentType is empty for empty table", async () => {
       const cadence = await tracker.getCadence(BASE_DATE);
       expect(Object.keys(cadence.byAgentType)).toHaveLength(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getCadence — byModel (mt#2796)
+  // -------------------------------------------------------------------------
+
+  describe("getCadence - byModel", () => {
+    test("groups counts by actualModel, excluding null", async () => {
+      await tracker.recordSubagentInvocation(makeInput({ actualModel: "claude-sonnet-5" }));
+      await tracker.recordSubagentInvocation(makeInput({ actualModel: "claude-sonnet-5" }));
+      await tracker.recordSubagentInvocation(makeInput({ actualModel: "claude-opus-4-8" }));
+      // No actualModel — not yet Stop-classified. Must not appear in byModel.
+      await tracker.recordSubagentInvocation(makeInput());
+
+      const cadence = await tracker.getCadence(BASE_DATE);
+      expect(cadence.byModel["claude-sonnet-5"]).toBe(2);
+      expect(cadence.byModel["claude-opus-4-8"]).toBe(1);
+      expect(Object.keys(cadence.byModel)).toHaveLength(2);
+    });
+
+    test("byModel is empty for empty table", async () => {
+      const cadence = await tracker.getCadence(BASE_DATE);
+      expect(Object.keys(cadence.byModel)).toHaveLength(0);
+    });
+
+    test("byModel is empty when no row has a classified actualModel", async () => {
+      await tracker.recordSubagentInvocation(makeInput());
+      await tracker.recordSubagentInvocation(makeInput());
+
+      const cadence = await tracker.getCadence(BASE_DATE);
+      expect(Object.keys(cadence.byModel)).toHaveLength(0);
     });
   });
 
