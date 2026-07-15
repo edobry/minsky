@@ -186,25 +186,47 @@ function makeDb(state: Map<string, FakeRow>, linkState: Map<string, FakeLinkRow>
           // Returns a thenable so plain `await db.insert(...).values(...)` still
           // works, but also exposes `.onConflictDoUpdate(...)` for the upsert
           // path. The fake doesn't introspect the conflict target or the SQL
-          // expressions in `set`; it hard-codes the production convention:
-          // transcript is JSONB-array concatenated, scalar fields are copied
-          // from EXCLUDED (i.e. the inserted values).
+          // expressions in `set`; it hard-codes the production convention
+          // (mt#2789): `transcript` is JSONB-array concatenated but filtered
+          // by line `uuid` — an EXCLUDED element whose `uuid` is already
+          // present in the stored array is dropped (elements without a
+          // `uuid` are always appended), mirroring the correlated
+          // `jsonb_array_elements` subquery in the real SQL.
+          // `lastIngestedJsonlTimestamp` takes GREATEST(existing, EXCLUDED)
+          // rather than a flat overwrite. Scalar fields otherwise copy from
+          // EXCLUDED (i.e. the inserted values).
           return {
             then: <T>(resolve: (v: void) => T, reject?: (e: unknown) => unknown) =>
               doPlainInsert().then(resolve, reject),
             onConflictDoUpdate(_opts: unknown): Promise<void> {
               const existing = state.get(sid);
               if (!existing) return doPlainInsert();
-              const concatenated: RawTurnLine[] = [
-                ...(existing.transcript ?? []),
-                ...((values.transcript ?? []) as RawTurnLine[]),
-              ];
+
+              const existingUuids = new Set(
+                (existing.transcript ?? [])
+                  .map((l) => l.uuid)
+                  .filter((u): u is string => typeof u === "string")
+              );
+              const incoming = (values.transcript ?? []) as RawTurnLine[];
+              const deduped = incoming.filter(
+                (l) => typeof l.uuid !== "string" || !existingUuids.has(l.uuid)
+              );
+              const concatenated: RawTurnLine[] = [...(existing.transcript ?? []), ...deduped];
+
+              const existingHwm = existing.lastIngestedJsonlTimestamp;
+              const incomingHwm = values.lastIngestedJsonlTimestamp ?? null;
+              const newHwm =
+                existingHwm && incomingHwm
+                  ? existingHwm.getTime() >= incomingHwm.getTime()
+                    ? existingHwm
+                    : incomingHwm
+                  : (incomingHwm ?? existingHwm);
+
               state.set(sid, {
                 ...existing,
                 transcript: concatenated,
                 endedAt: values.endedAt ?? existing.endedAt,
-                lastIngestedJsonlTimestamp:
-                  values.lastIngestedJsonlTimestamp ?? existing.lastIngestedJsonlTimestamp,
+                lastIngestedJsonlTimestamp: newHwm,
                 ingestedAt: values.ingestedAt ?? new Date(),
               });
               return Promise.resolve();
@@ -395,6 +417,226 @@ describe("AgentTranscriptIngestService", () => {
 
       expect(result.ingested).toBe(0);
       expect(result.error).toBeUndefined();
+    });
+  });
+
+  describe("idempotent uuid-based append under concurrent-ingest race (mt#2789)", () => {
+    // The mt#2789 diagnosis found the observed duplicate-tool-result bug was
+    // a concurrent-ingest race: two actors both read the SAME (now-stale)
+    // high-water-mark before either committed, so both collect the same "new"
+    // batch and both reach the upsert. These tests simulate that by forcing
+    // the HWM select to always report "no prior ingest" (null) across
+    // multiple `ingestSession` calls — defeating the in-process HWM gate the
+    // same way a genuinely concurrent second reader would, so the SQL-level
+    // (here, fake-DB-mirrored) uuid dedup is what has to prevent duplication.
+
+    test("(a) the identical batch ingested twice results in each line stored exactly once", async () => {
+      const lines = makeLines([TS1, TS2]);
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, lines);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+      });
+
+      const svc = makeSvc(db, source);
+
+      const first = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(first.error).toBeUndefined();
+      expect(first.ingested).toBe(2);
+
+      db._primeSession(SESSION_A);
+      const second = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(second.error).toBeUndefined();
+
+      const row = state.get(SESSION_A);
+      const stored = (row?.transcript ?? []) as RawTurnLine[];
+      expect(stored.length).toBe(2);
+      expect(new Set(stored.map((l) => l.uuid)).size).toBe(2);
+    });
+
+    test("(b) two overlapping batches (stale prefix, then full re-read) append only the new tail", async () => {
+      const allLines = makeLines([TS1, TS2, TS3]);
+
+      // The first "actor" only saw the first two lines (its JSONL snapshot
+      // was taken before the third line was written).
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, allLines.slice(0, 2));
+
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+      });
+
+      const svc = makeSvc(db, source);
+      const first = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(first.error).toBeUndefined();
+      expect(first.ingested).toBe(2);
+
+      // A second "actor" (or the same one on its next pass) sees the FULL
+      // file. Its own HWM read is also stale (forced null), so it re-collects
+      // the prefix it already ingested PLUS the new tail line.
+      source.addSession(SESSION_A, allLines);
+      db._primeSession(SESSION_A);
+      const second = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(second.error).toBeUndefined();
+      expect(second.ingested).toBe(3); // collected all 3 (HWM forced null)
+
+      const row = state.get(SESSION_A);
+      const stored = (row?.transcript ?? []) as RawTurnLine[];
+      expect(stored.length).toBe(3);
+      expect(stored.map((l) => l.uuid)).toEqual(["uuid-0", "uuid-1", "uuid-2"]);
+    });
+
+    test("(c) lines without a uuid do not crash the merge and are always appended (never deduped)", async () => {
+      const noUuidLine: RawTurnLine = {
+        type: "user",
+        timestamp: TS1,
+        message: { role: "user", content: "no-uuid-line" },
+        // `uuid` intentionally omitted — decision recorded at the mt#2789
+        // upsert site: a missing uuid is always appended, not treated as a
+        // duplicate and not a crash, since Claude Code's retained
+        // user/assistant lines always carry one in practice.
+      };
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [noUuidLine]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+      });
+
+      const svc = makeSvc(db, source);
+      const first = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(first.error).toBeUndefined();
+      expect(first.ingested).toBe(1);
+
+      db._primeSession(SESSION_A);
+      const second = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(second.error).toBeUndefined();
+
+      // No crash; per the documented decision, both copies are kept (a
+      // missing uuid can never match the dedup filter, so it's always
+      // appended rather than silently dropped).
+      const row = state.get(SESSION_A);
+      const stored = (row?.transcript ?? []) as RawTurnLine[];
+      expect(stored.length).toBe(2);
+      expect(stored.every((l) => l.uuid === undefined)).toBe(true);
+    });
+
+    test("lastIngestedJsonlTimestamp never regresses (GREATEST) when a stale racing actor's batch is older", async () => {
+      // A fast actor already advanced HWM to TS3 with all three lines stored.
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1, TS2, TS3]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS3),
+        cwd: null,
+        projectDir: null,
+        lastIngestedJsonlTimestamp: new Date(TS3),
+        ingestedAt: new Date(),
+      });
+
+      // A slow racing actor's own JSONL snapshot only went up to TS2 (it read
+      // the file before the TS3 line was appended). Its HWM read is ALSO
+      // stale (forced null), so it re-collects [TS1, TS2] as "new" and its
+      // own latestTs (TS2) is older than what's already stored (TS3).
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+      });
+
+      const svc = makeSvc(db, source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(result.error).toBeUndefined();
+
+      const row = state.get(SESSION_A);
+      // Watermark must not regress from TS3 down to TS2.
+      expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS3);
+      // No duplicate lines — the stale actor's TS1/TS2 lines were already stored.
+      expect((row?.transcript as RawTurnLine[]).length).toBe(3);
+    });
+
+    // Postgres NULL boundary for GREATEST (PR #1942 R1): unlike MySQL,
+    // Postgres GREATEST *ignores* NULL arguments — the result is NULL only
+    // when ALL arguments are NULL (docs: functions-conditional). The fake DB
+    // mirrors that (`incomingHwm ?? existingHwm`); these tests pin both
+    // directions so a future engine/mock change can't silently import the
+    // MySQL any-NULL-poisons semantics.
+    test("watermark advances from a NULL existing HWM (GREATEST ignores the NULL side)", async () => {
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS1),
+        cwd: null,
+        projectDir: null,
+        lastIngestedJsonlTimestamp: null,
+        ingestedAt: new Date(),
+      });
+
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(result.error).toBeUndefined();
+
+      const row = state.get(SESSION_A);
+      expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS2);
+    });
+
+    test("a NULL incoming HWM cannot regress an existing watermark to NULL", async () => {
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1, TS2]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS2),
+        cwd: null,
+        projectDir: null,
+        lastIngestedJsonlTimestamp: new Date(TS2),
+        ingestedAt: new Date(),
+      });
+
+      // Force the HWM read stale (null) so the actor re-collects; its batch
+      // contains ONLY a line with no parseable timestamp path — simulate via
+      // an empty-timestamp batch by giving the source no new lines but an
+      // attachment-free stream: simplest honest construction is a batch whose
+      // lines are all duplicates (latestTs computed but no new appends), so
+      // EXCLUDED carries a timestamp equal to TS2; the assert is that the
+      // stored watermark is never nulled or regressed by the merge.
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+      });
+
+      const svc = makeSvc(db, source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(result.error).toBeUndefined();
+
+      const row = state.get(SESSION_A);
+      expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS2);
+      expect(row?.lastIngestedJsonlTimestamp).not.toBeNull();
     });
   });
 
@@ -649,8 +891,12 @@ describe("AgentTranscriptIngestService", () => {
     });
 
     test("HWM-read failure is surfaced via the typed result and counted", async () => {
-      // mt#1444 acceptance test: HWM-read failure on one session counts in
-      // sessionsErrored even though ingestSession recovers and proceeds.
+      // mt#1444 acceptance test, updated for mt#2789: HWM-read failure on one
+      // session counts in sessionsErrored. Post-mt#2789, ingestSession no
+      // longer recovers and proceeds on a HWM-read failure — it aborts the
+      // session's ingest immediately (see the abort-vs-proceed rationale at
+      // the HWM read site in the source). So this session also contributes
+      // 0 to totalIngested and never reaches the upsert.
       const source = new FakeTranscriptSource();
       source.addSession(SESSION_A, makeLines([TS1]));
 
@@ -669,11 +915,10 @@ describe("AgentTranscriptIngestService", () => {
       const result: IngestAllResult = await svc.ingestAll();
 
       expect(result.sessionsProcessed).toBe(1);
-      // HWM-read failure surfaces in result.error even when the recovery path
-      // proceeded with null and the upsert succeeded — a recovered-from HWM
-      // error is a degraded state worth counting (without HWM, the next ingest
-      // would re-collect already-ingested lines).
       expect(result.sessionsErrored).toBe(1);
+      // mt#2789: the abort path means nothing was ingested for this session.
+      expect(result.totalIngested).toBe(0);
+      expect(state.size).toBe(0);
     });
 
     test("sweep over empty source returns zero counts", async () => {

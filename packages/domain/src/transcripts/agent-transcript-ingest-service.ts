@@ -35,21 +35,25 @@ export class AgentTranscriptIngestService {
    * Ingest a single session identified by its agent session ID.
    *
    * Returns a typed result so the caller can distinguish success from a caught
-   * failure. Failures along the three swallow paths (HWM read, stream, upsert)
-   * surface as `error !== undefined` instead of being lost — that's what
-   * `ingestAll` uses to count `sessionsErrored` honestly (mt#1444).
+   * failure. Three paths — HWM read, stream, upsert — ABORT immediately on
+   * failure (mt#2789: HWM-read failure moved from "swallow and proceed" to
+   * "abort" so it can no longer append a whole-file re-collect onto a stored
+   * transcript, see the comment at the HWM read site). Two further paths —
+   * turn-row materialization, attachment insert — are best-effort: they log
+   * and continue, surfacing their error on an otherwise-successful return.
+   * Either way, a non-undefined `error` means `ingestAll` counts the session
+   * in `sessionsErrored` honestly (mt#1444).
    *
    * @param session - The discovered session metadata (from discoverSessions() or a direct lookup).
    * @returns `{ ingested: number; error?: Error }` — `ingested` is the number of new
-   *   lines written (0 on idempotent re-run or on caught failure); `error` is set
-   *   when any of the three internal paths swallowed a failure.
+   *   lines written (0 on idempotent re-run or on an abort path); `error` is set
+   *   when any of the five internal paths above hit a failure.
    */
   async ingestSession(session: DiscoveredSession): Promise<IngestSessionResult> {
     const { agentSessionId, harness, jsonlPath, mtime } = session;
 
     // ── 1. Read the current high-water-mark ──────────────────────────────────
     let highWaterMark: Date | null = null;
-    let hwmReadError: Error | undefined;
     try {
       const rows = await this.db
         .select({
@@ -61,12 +65,25 @@ export class AgentTranscriptIngestService {
 
       highWaterMark = rows[0]?.lastIngestedJsonlTimestamp ?? null;
     } catch (err) {
-      hwmReadError = err instanceof Error ? err : new Error(String(err));
+      const hwmReadError = err instanceof Error ? err : new Error(String(err));
       log.warn(`Failed to read high-water-mark for session ${agentSessionId}`, {
         error: getErrorMessage(err),
       });
-      // Proceed with null — treat as no prior ingest, will collect all lines.
-      // The error is surfaced in the return value so the sweep can count it.
+      // mt#2789: abort this session's ingest rather than proceeding with
+      // highWaterMark=null. Proceeding used to mean "treat as no prior
+      // ingest" — re-collecting and re-appending the ENTIRE transcript onto
+      // whatever is already stored. That was one of the two concrete
+      // duplication mechanisms found in the mt#2789 diagnosis (the other
+      // being the plain concurrent-actor race, which the uuid-dedup UPDATE
+      // below now closes). We picked abort over "proceed, uuid-dedup makes
+      // it safe" for two reasons even though the dedup WOULD in fact make a
+      // full re-collect safe: (a) it avoids the O(whole-transcript) resend
+      // and the O(new*existing) dedup-subquery cost on every transient HWM
+      // read failure, and (b) it keeps the failure legible — the sweep
+      // already counts `result.error` (mt#1444) and will retry this session
+      // on the next pass once the read succeeds, so nothing is lost by not
+      // pushing through on a degraded read.
+      return { ingested: 0, error: hwmReadError };
     }
 
     // ── 2. Stream new lines ──────────────────────────────────────────────────
@@ -124,10 +141,10 @@ export class AgentTranscriptIngestService {
       log.debug(
         `No new lines for session ${agentSessionId} (high-water-mark: ${highWaterMark?.toISOString() ?? "none"})`
       );
-      // Idempotent re-run. Still surface any HWM-read failure that occurred —
-      // a recovered-from HWM error is a degraded state worth counting (without
-      // a HWM, the next ingest would re-collect already-ingested lines).
-      return { ingested: 0, error: hwmReadError };
+      // Idempotent re-run. (mt#2789: a HWM-read failure aborts above, before
+      // this point is reached, so there is no swallowed HWM error to surface
+      // here anymore.)
+      return { ingested: 0, error: undefined };
     }
 
     // ── 3. Derive metadata from the source's DiscoveredSession ───────────────
@@ -136,9 +153,40 @@ export class AgentTranscriptIngestService {
 
     // ── 4. Upsert into agent_transcripts ─────────────────────────────────────
     // Single atomic statement: INSERT … ON CONFLICT (agent_session_id) DO UPDATE.
-    // The on-conflict UPDATE merges transcript lines via SQL JSONB array concat
-    // (`transcript || EXCLUDED.transcript`), eliminating both the TOCTOU
-    // duplicate-key race and the lost-update window of a JS read-modify-write.
+    //
+    // mt#2789: the append is now idempotent BY LINE `uuid`, not just
+    // timestamp-gated. Diagnosis found the observed subagent-transcript
+    // duplication was a concurrent-ingest race: two actors (the cockpit
+    // watcher, the MCP boot sweep, the SessionEnd hook — any two of the N
+    // processes that can call ingestSession) both read the same
+    // high-water-mark, both collect the same "new" batch, and both append.
+    // The in-process HWM gate at step 2 is a cheap first-pass filter but
+    // can't see a concurrent actor's read; only the DB has the information
+    // needed to detect the race, and only at the moment of the write.
+    //
+    // The fix: filter `EXCLUDED.transcript` down to elements whose `uuid` is
+    // NOT already present in the stored `transcript` array, via a correlated
+    // subquery over `jsonb_array_elements`, before concatenating. This is
+    // race-free WITHOUT an advisory lock because the UPDATE's row lock
+    // already serializes concurrent writers to the same `agent_session_id`:
+    // under Postgres READ COMMITTED, a blocked `ON CONFLICT DO UPDATE`
+    // re-evaluates its SET expressions against the just-committed row once
+    // unblocked — so the second writer's uuid check sees the first writer's
+    // already-appended lines and correctly filters them out.
+    //
+    // Lines without a `uuid` are always appended (never treated as
+    // duplicates) — Claude Code's retained user/assistant lines always carry
+    // one, so this is a defensive default for a case that should not occur
+    // in practice, not a silent-drop.
+    //
+    // `lastIngestedJsonlTimestamp` uses GREATEST(existing, EXCLUDED) rather
+    // than a flat overwrite so a racing writer that read an OLDER
+    // high-water-mark (and is therefore behind) cannot regress the
+    // watermark below a value a faster concurrent writer already advanced
+    // it to — regressing it would cause the NEXT ingest to re-collect
+    // already-ingested lines (harmless now that the append is uuid-deduped,
+    // but wasteful).
+    //
     // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
     // are not overwritten on conflict.
     try {
@@ -162,9 +210,23 @@ export class AgentTranscriptIngestService {
         .onConflictDoUpdate({
           target: agentTranscriptsTable.agentSessionId,
           set: {
-            transcript: sql`COALESCE(${agentTranscriptsTable.transcript}, '[]'::jsonb) || EXCLUDED.transcript`,
+            transcript: sql`COALESCE(${agentTranscriptsTable.transcript}, '[]'::jsonb) || (
+              SELECT COALESCE(jsonb_agg(new_elem ORDER BY ord), '[]'::jsonb)
+              FROM jsonb_array_elements(EXCLUDED.transcript) WITH ORDINALITY AS t(new_elem, ord)
+              WHERE (new_elem->>'uuid') IS NULL
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements(COALESCE(${agentTranscriptsTable.transcript}, '[]'::jsonb)) AS existing_elem
+                  WHERE existing_elem->>'uuid' = new_elem->>'uuid'
+                )
+            )`,
             endedAt: sql`EXCLUDED.ended_at`,
-            lastIngestedJsonlTimestamp: sql`EXCLUDED.last_ingested_jsonl_timestamp`,
+            // NULL-safety: Postgres GREATEST *ignores* NULL arguments (result
+            // is NULL only when ALL args are NULL) — unlike MySQL, where any
+            // NULL poisons the result. GREATEST(NULL, ts) = ts here, so a
+            // NULL existing watermark advances and a NULL incoming one cannot
+            // regress a stored value. Verified empirically on PG17.
+            lastIngestedJsonlTimestamp: sql`GREATEST(${agentTranscriptsTable.lastIngestedJsonlTimestamp}, EXCLUDED.last_ingested_jsonl_timestamp)`,
             ingestedAt: sql`EXCLUDED.ingested_at`,
           },
         });
@@ -266,15 +328,16 @@ export class AgentTranscriptIngestService {
       }
     );
 
-    // Surface any HWM-read OR attachment-insert failure on success — caller
-    // may want to know the HWM was lost (the upsert merged via JSONB-array-
-    // concat so we may have duplicated already-ingested lines) or that
-    // attachments were skipped. The `ingested` count counts turn lines only,
-    // matching the pre-mt#2022 semantics; attachments live in their own table
-    // and don't roll into this number.
+    // Surface any turn-extract OR attachment-insert failure on success — the
+    // caller may want to know turn rows weren't materialized (FTS lag) or
+    // that attachments were skipped. (mt#2789: HWM-read failure can no longer
+    // reach this point — it aborts above — so it's not part of this union
+    // anymore.) The `ingested` count counts turn lines only, matching the
+    // pre-mt#2022 semantics; attachments live in their own table and don't
+    // roll into this number.
     return {
       ingested: newLines.length,
-      error: hwmReadError ?? turnExtractError ?? attachmentError,
+      error: turnExtractError ?? attachmentError,
     };
   }
 
@@ -297,8 +360,9 @@ export class AgentTranscriptIngestService {
         const result = await this.ingestSession(session);
         totalIngested += result.ingested;
         if (result.error !== undefined) {
-          // ingestSession swallowed a failure along one of three paths
-          // (HWM read, stream, upsert). Count it honestly (mt#1444).
+          // ingestSession hit a failure along one of its internal paths
+          // (HWM read, stream, upsert — abort; turn-extract, attachment
+          // insert — best-effort). Count it honestly (mt#1444).
           sessionsErrored++;
           log.warn(`Session ${session.agentSessionId} reported a degraded ingest`, {
             error: getErrorMessage(result.error),
@@ -324,9 +388,12 @@ export interface IngestSessionResult {
   /** Number of new lines written to agent_transcripts for this session. */
   ingested: number;
   /**
-   * Set when ingestSession swallowed a failure along one of three paths
-   * (HWM read, stream, upsert). The function continued (recovered or returned
-   * 0); the error is surfaced so callers can count it. mt#1444.
+   * Set when ingestSession hit a failure along one of its internal paths.
+   * HWM read / stream / upsert failures ABORT the ingest (mt#2789) and
+   * return `{ ingested: 0, error }`; turn-extract / attachment-insert
+   * failures are best-effort — the function continues and surfaces the
+   * error on an otherwise-successful return. Either way, callers can count
+   * it. mt#1444.
    */
   error?: Error;
 }
