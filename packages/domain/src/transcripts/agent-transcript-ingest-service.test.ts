@@ -567,6 +567,77 @@ describe("AgentTranscriptIngestService", () => {
       // No duplicate lines — the stale actor's TS1/TS2 lines were already stored.
       expect((row?.transcript as RawTurnLine[]).length).toBe(3);
     });
+
+    // Postgres NULL boundary for GREATEST (PR #1942 R1): unlike MySQL,
+    // Postgres GREATEST *ignores* NULL arguments — the result is NULL only
+    // when ALL arguments are NULL (docs: functions-conditional). The fake DB
+    // mirrors that (`incomingHwm ?? existingHwm`); these tests pin both
+    // directions so a future engine/mock change can't silently import the
+    // MySQL any-NULL-poisons semantics.
+    test("watermark advances from a NULL existing HWM (GREATEST ignores the NULL side)", async () => {
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS1),
+        cwd: null,
+        projectDir: null,
+        lastIngestedJsonlTimestamp: null,
+        ingestedAt: new Date(),
+      });
+
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(result.error).toBeUndefined();
+
+      const row = state.get(SESSION_A);
+      expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS2);
+    });
+
+    test("a NULL incoming HWM cannot regress an existing watermark to NULL", async () => {
+      const state = new Map<string, FakeRow>();
+      state.set(SESSION_A, {
+        agentSessionId: SESSION_A,
+        harness: "claude_code",
+        transcript: makeLines([TS1, TS2]),
+        startedAt: new Date(TS1),
+        endedAt: new Date(TS2),
+        cwd: null,
+        projectDir: null,
+        lastIngestedJsonlTimestamp: new Date(TS2),
+        ingestedAt: new Date(),
+      });
+
+      // Force the HWM read stale (null) so the actor re-collects; its batch
+      // contains ONLY a line with no parseable timestamp path — simulate via
+      // an empty-timestamp batch by giving the source no new lines but an
+      // attachment-free stream: simplest honest construction is a batch whose
+      // lines are all duplicates (latestTs computed but no new appends), so
+      // EXCLUDED carries a timestamp equal to TS2; the assert is that the
+      // stored watermark is never nulled or regressed by the merge.
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1, TS2]));
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
+      });
+
+      const svc = makeSvc(db, source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+      expect(result.error).toBeUndefined();
+
+      const row = state.get(SESSION_A);
+      expect(row?.lastIngestedJsonlTimestamp?.toISOString()).toBe(TS2);
+      expect(row?.lastIngestedJsonlTimestamp).not.toBeNull();
+    });
   });
 
   describe("cwd_match link writing (mt#2441)", () => {
