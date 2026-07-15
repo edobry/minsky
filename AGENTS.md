@@ -1529,27 +1529,26 @@ All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Wr
 `644` by default — pre-commit enforces this).
 
 **Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
-below is a file in that directory. Entries are a terse index (trigger, hook file, override, fail
-posture, doc); narration and examples live in the linked doc.
+below is a file in that directory. Entries are a terse index (trigger, hook, override, fail posture,
+doc); narration lives in the linked doc.
 
 ## Vocabulary (mt#2626)
 
 **"Hook"** = the Claude Code registration mechanics; the domain noun for the mechanism is
-**"interlock"** (docs/cockpit copy). "Guard" naming below is pending a future corpus pass.
+**"interlock"** (docs/cockpit copy). "Guard" naming is pending a corpus pass.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
 A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
 entrypoints) so multiple guards share ONE spawned Bun process per event; only
 `GUARD_REGISTRY`-listed guards run through it. Migrated: `check-guessed-session-path` (Phase 1, mt#2650);
-the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards, 14 spawns/turn → 1; roster
-in doc). `policy-coverage-detector` is NOT in this family (PreToolUse-registered despite both
-phases' specs naming it — recorded discrepancy). Every other guard
-below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md` + ADR-028.
+the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc). `policy-coverage-detector` is NOT in this family: it is registered on
+`PreToolUse` (both phases' specs named it — recorded spec discrepancy). Every other guard
+below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md`, ADR-028.
 
 **Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
 alongside its CLI entrypoint; `ctx` carries `hostCapSec`/`budgets`/`transcriptLines` (mt#2637) —
-read from `ctx`, never re-derive (closes the background-subagent transcript-read bug class).
+read from `ctx`, never re-derive (closes the background-subagent transcript-read bug).
 
 **Dispatcher host-cap budget model (load-bearing).** A dispatcher's `settings.json` `timeout` is the
 HOST CAP for the whole process and matched guards run SEQUENTIALLY within it — size a family's entry
@@ -1558,10 +1557,11 @@ to at least the SUM of its guards' pre-migration timeouts, never one guard's bud
 **Recompile rule (mt#2304 — load-bearing).** Source lives in `.minsky/hooks/`; `.claude/hooks/*` is
 GENERATED. After editing `.minsky/hooks/*.ts`, run `bun run minsky compile --target claude-hooks` and
 commit sources + generated output together (pre-commit blocks otherwise). This RULE file is itself a
-compiled source — after editing it, run `rules compile` PER TARGET and grep the change into
-`CLAUDE.md` (bare `rules compile` hits only one target; mt#2803 fixes this).
+compiled source — after editing it, run `rules compile --target claude.md` /
+`--target agents.md` / `--target cursor-rules` and grep the change into `CLAUDE.md` (bare
+invocation hits only one target; mt#2803 fixes this).
 
-The framework has no override (library code); `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all`
+The framework has no override; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all`
 overrides migrated guards.
 
 ## Parallel-Work Guard
@@ -1569,12 +1569,13 @@ overrides migrated guards.
 PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create`(parent set): blocks session-binding
 calls (mt#2657) on open-PR file overlap (advisory-only for recently-merged); blocks subtask creation
 (incl. new-task-mode `tasks_dispatch`, mt#2683) on duplicate-child titles vs an ACTIVE sibling —
-terminal-status siblings WARN; parent-title tokens discounted. Tier-3 ceiling (mt#1362); Tier-2
-floor is `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1`
+terminal-status siblings WARN; parent-title tokens discounted. Tier-3 ceiling (mt#1362); Tier-2 floor:
+`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1`
 / `MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only); the duplicate-child matcher also honors the
 reason-mandatory grant file (mt#2658) — the sanctioned mid-session override:
 `bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
-Fail: closed (open-PR sweep) / open (duplicate sweep warns+permits).
+Fail: closed (open-PR sweep) / open (duplicate sweep: only unreadable data warns+permits;
+ACTIVE-sibling duplicates block).
 Doc: `parallel-work-guard.md`.
 
 ## Bypass-Merge Guard
@@ -1629,8 +1630,7 @@ gates fetch PR data from `gh`. No trigger/override (library). Doc: `pr-data-fetc
 PreToolUse on `session_pr_merge`: blocks a merge when the PR diff adds new **test files** (mt#1459)
 or new **operational scripts** (`scripts/*.ts`, mt#2776) but the PR body lacks an
 `Execution evidence:` block — run the artifact before merge; dual-mode scripts need EACH production
-branch exercised (dry-run AND bounded `--execute`, mt#2760/mt#2774). Accepts the mt#2648 marker
-forms (below). Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]`
+branch exercised (dry-run AND bounded `--execute`, mt#2760/mt#2774). Marker forms: mt#2648 (below). Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]`
 title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings:
 `/prepare-pr` §1b, `/implement-task` §7a; mt#2421 extends to render-path PRs.
 
@@ -1644,8 +1644,8 @@ PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `servi
 `[no-deploy-impact]` title tag; `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
 
 **Marker acceptance (mt#2648 — load-bearing).** Both `Deploy verification:` and
-`Execution evidence:` accept, case-insensitive: a plain label line WITH a colon, OR a Markdown
-heading (any level) with an optional trailing colon — the colon is required only for the
+`Execution evidence:` accept, case-insensitive: a plain label line WITH a colon, OR a Markdown heading
+(any level), optional trailing colon — the colon is required only for the
 non-heading form.
 
 Fail: open — unresolvable repo/PR/non-surface PR allows silently; PostToolUse always exits 0.
@@ -1718,16 +1718,16 @@ Doc: `prod-state-injection-hook.md`.
 
 ## Dispatch-Watchdog Injection Hook
 
-UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (producer: cockpit
-sweep; consumer: local-cache read). Recovery: `session.status probe:true` + `/orchestrate`.
+UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (producer: cockpit sweep;
+consumer: local cache). Recovery: `session.status probe:true` + `/orchestrate`.
 Hook: `inject-dispatch-watchdog.ts`. Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Fail:
 silent on empty/missing cache.
 Doc: `dispatch-watchdog-injection-hook.md`.
 
 ## Immutable-Migration Pre-Commit Guard
 
-Pre-commit step: blocks a staged modification/rename of a journaled migration `.sql` (editing an
-applied migration drifts its hash from the ledger). Override:
+Pre-commit step: blocks a staged modification/rename of a journaled migration `.sql` (editing an applied
+migration drifts its ledger hash). Override:
 `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks any staged M/R of a journaled tag;
 additions/unjournaled edits allowed.
 Doc: `immutable-migration-precommit-guard.md`.
@@ -1743,7 +1743,7 @@ Doc: `guessed-session-path-guard.md`.
 
 PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task mode,
 mt#2657): blocks when the target task's spec was never surfaced (`tasks_spec_get` / `tasks_get
-includeSpec:true`) in the transcript. On hit: read the spec in full, then retry. Hook:
+includeSpec:true`) in the transcript. On hit: read the full spec, retry. Hook:
 `check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error. Doc: `bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
