@@ -592,6 +592,21 @@ function hasRenderablePreparedElement(el: PreparedElement): boolean {
   }
 }
 
+// ── API-error text detection (mt#2793) ──────────────────────────────────────
+//
+// Harness-emitted failure text sometimes lands as an ordinary assistant text
+// turn (e.g. "API Error: Connection closed mid-response.") rather than a
+// tool-result error — it renders identically to normal prose and is easy to
+// scroll past. Detection is intentionally conservative: an ANCHORED prefix
+// match on the turn's TRIMMED text, not a substring match anywhere in the
+// turn — a turn that merely discusses "the API Error" elsewhere in its text
+// stays unstyled.
+const API_ERROR_PREFIX = "API Error:";
+
+function isApiErrorText(text: string): boolean {
+  return text.trim().startsWith(API_ERROR_PREFIX);
+}
+
 function ElementView({
   element,
   entityIndex,
@@ -603,12 +618,24 @@ function ElementView({
   expandSignal: ExpandSignal;
 }) {
   switch (element.kind) {
-    case "text":
+    case "text": {
       // Assistant/user prose turns are Markdown — render via the shared <Prose>
       // (Markdown structure + entity-linkification). mt#2550.
-      return element.text.trim().length > 0 ? (
-        <Prose entityIndex={entityIndex}>{element.text}</Prose>
-      ) : null;
+      if (element.text.trim().length === 0) return null;
+      // A harness-emitted "API Error: …" turn gets destructive-toned treatment
+      // (semantic `destructive` token only, per src/cockpit/CLAUDE.md §status
+      // colors) so a terminal failure is visible without reading every turn.
+      if (isApiErrorText(element.text)) {
+        return (
+          <div role="alert" className="rounded border border-destructive/40 bg-destructive/5 px-2 py-1">
+            <Prose entityIndex={entityIndex} className="text-destructive">
+              {element.text}
+            </Prose>
+          </div>
+        );
+      }
+      return <Prose entityIndex={entityIndex}>{element.text}</Prose>;
+    }
     case "thinking":
       return element.thinking.trim().length > 0 ? (
         <ThinkingBlock thinking={element.thinking} entityIndex={entityIndex} />
