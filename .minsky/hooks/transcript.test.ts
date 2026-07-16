@@ -60,6 +60,22 @@ const interruptMarker = (variant: "tool use" | "bare" = "tool use"): TranscriptL
   },
 });
 
+/**
+ * The same synthetic interrupt marker, but as a bare STRING `message.content`
+ * rather than an array-of-text-blocks — the content shape NOT observed in
+ * the two originating transcripts, but which the PR #1963 R2 review flagged
+ * as uncovered by the original fix (which only excluded the array shape and
+ * asserted, without defensive justification, that the string shape was
+ * safe). Uses `userPrompt`'s exact content shape (`message.content` is a
+ * plain string) with the marker text as the string value.
+ */
+const interruptMarkerString = (variant: "tool use" | "bare" = "tool use"): TranscriptLine =>
+  userPrompt(
+    variant === "tool use"
+      ? "[Request interrupted by user for tool use]"
+      : "[Request interrupted by user]"
+  );
+
 // ---------------------------------------------------------------------------
 // isRealUserPrompt — the text-content discriminator
 // ---------------------------------------------------------------------------
@@ -98,6 +114,42 @@ describe("isRealUserPrompt", () => {
 
   test("'[Request interrupted by user]' marker is NOT a real prompt", () => {
     expect(isRealUserPrompt(interruptMarker("bare"))).toBe(false);
+  });
+
+  // PR #1963 R2 (2026-07-15): the original fix excluded the marker only in
+  // its array-of-text-blocks content shape (the shape actually observed in
+  // the two originating transcripts) and asserted the STRING content shape
+  // needed no check because the marker "hadn't been observed there." That
+  // reasoning doesn't hold — the array shape's exact form was itself a
+  // surprise, so "not yet observed" in the string shape is not evidence the
+  // string shape is safe. Both shapes must exclude the marker identically.
+  test("'[Request interrupted by user for tool use]' marker as STRING content is NOT a real prompt", () => {
+    expect(isRealUserPrompt(interruptMarkerString("tool use"))).toBe(false);
+  });
+
+  test("'[Request interrupted by user]' marker as STRING content is NOT a real prompt", () => {
+    expect(isRealUserPrompt(interruptMarkerString("bare"))).toBe(false);
+  });
+
+  test("marker text with surrounding whitespace is still excluded (both shapes trim before comparing)", () => {
+    expect(isRealUserPrompt(userPrompt("  [Request interrupted by user]  "))).toBe(false);
+    expect(
+      isRealUserPrompt(userPromptTextArray("  [Request interrupted by user for tool use]  "))
+    ).toBe(false);
+  });
+
+  test("marker text is NOT excluded when it's a substring of otherwise-real human text (either shape)", () => {
+    // A human quoting or referencing the marker phrase inside a real message
+    // must not be misclassified as the synthetic marker itself — only an
+    // EXACT (trimmed) match is excluded.
+    expect(isRealUserPrompt(userPrompt("why did [Request interrupted by user] show up?"))).toBe(
+      true
+    );
+    expect(
+      isRealUserPrompt(
+        userPromptTextArray("why did [Request interrupted by user for tool use] show up?")
+      )
+    ).toBe(true);
   });
 });
 

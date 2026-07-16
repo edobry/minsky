@@ -180,12 +180,28 @@ const SYNTHETIC_INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
   "[Request interrupted by user]",
 ]);
 
+/**
+ * True iff `trimmedText` is exactly one of {@link SYNTHETIC_INTERRUPT_MARKERS}.
+ * Shared by BOTH content shapes `isRealUserPrompt` checks (string content and
+ * array-of-text-blocks content) — PR #1963 R2 finding: the original fix only
+ * covered the array-content-block shape (the shape actually observed in the
+ * two originating transcripts) and asserted, without defensive justification,
+ * that the string shape "needs no exclusion check" because the marker hadn't
+ * been OBSERVED there. That the array shape's exact form was itself a
+ * surprise (Claude Code's transcript format is not a schema this repo
+ * controls or can assume is stable) means "not yet observed in one shape" is
+ * not evidence the OTHER shape is safe — both shapes get the same check.
+ */
+function isSyntheticInterruptText(trimmedText: string): boolean {
+  return SYNTHETIC_INTERRUPT_MARKERS.has(trimmedText);
+}
+
 function isRealTextBlock(block: unknown): boolean {
   if (!block || typeof block !== "object") return false;
   const b = block as Record<string, unknown>;
   if (b["type"] !== "text") return false;
   const text = typeof b["text"] === "string" ? b["text"].trim() : undefined;
-  if (text !== undefined && SYNTHETIC_INTERRUPT_MARKERS.has(text)) return false;
+  if (text !== undefined && isSyntheticInterruptText(text)) return false;
   return true;
 }
 
@@ -195,27 +211,26 @@ function isRealTextBlock(block: unknown): boolean {
  * {@link SYNTHETIC_INTERRUPT_MARKERS} harness-internal marker.
  *
  * A real prompt carries text content:
- *   - `message.content` is a STRING (always — even empty/whitespace; a
- *     string-content user line is never a `tool_result`, which is always an
- *     array, so it is a genuine human boundary), OR
+ *   - `message.content` is a STRING that is not itself (once trimmed) a
+ *     synthetic interrupt marker — even empty/whitespace otherwise still
+ *     counts as real (a string-content user line is never a `tool_result`,
+ *     which is always an array, so an ordinary string is a genuine human
+ *     boundary — review NON-BLOCKING, mt#2255), OR
  *   - `message.content` is an array containing at least one `{ type: "text" }`
  *     block whose text is not a synthetic interrupt marker.
  *
  * A tool_result line is a user-role content array whose blocks are all
  * `tool_result` (no `text` block) — it returns false here. A
- * synthetic-interrupt-marker-only line is likewise excluded.
+ * synthetic-interrupt-marker-only line is likewise excluded, in EITHER
+ * content shape (PR #1963 R2 — both shapes must be covered, not just the
+ * array-content-block shape actually observed in the wild).
  */
 export function isRealUserPrompt(line: TranscriptLine): boolean {
   if (!isUserRole(line)) return false;
   const content = line.message?.content;
-  // String content is always a real prompt: tool_result lines are always
-  // content ARRAYS, so a string-content user line is unambiguously human input
-  // (an empty/whitespace prompt still resets the turn boundary, matching the
-  // prior user-role-split behavior — review NON-BLOCKING, mt#2255). The
-  // synthetic interrupt markers are only ever observed in array content-block
-  // form (confirmed by corpus scan, mt#2824), so the string branch needs no
-  // exclusion check.
-  if (typeof content === "string") return true;
+  if (typeof content === "string") {
+    return !isSyntheticInterruptText(content.trim());
+  }
   if (Array.isArray(content)) {
     return content.some(isRealTextBlock);
   }
