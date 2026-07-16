@@ -20,6 +20,8 @@ import type {
 } from "@minsky/domain/session/commands/pr-wait-for-review-subcommand";
 
 const REVIEWER_BOT = "minsky-reviewer[bot]";
+/** Shared check-run name literal (extracted per custom/no-magic-string-duplication, mt#2777 SC#1). */
+const FINDINGS_CHECK_NAME = "minsky-reviewer/findings";
 
 describe("formatMatchMessage", () => {
   test("renders reviewer, state, elapsed, pollCount, submitted, URL, body excerpt", () => {
@@ -155,6 +157,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 21,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: [],
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("Timeout reached without a match");
@@ -162,6 +166,51 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     expect(msg).toContain("21 poll(s)");
     expect(msg).toContain("Threshold (since): 2026-05-22T18:32:55.000Z");
     expect(msg).toContain("No reviews on the PR at the final poll");
+  });
+
+  // mt#2777 SC#1: the final-authoritative-check outcome must be legible in
+  // text mode, not just the JSON payload (mirrors the mt#2043 precedent for
+  // lastSeenReviews/sinceUsed).
+  test("renders the final-authoritative-check outcome and reviewer check-run state", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 600_000,
+      pollCount: 21,
+      sinceUsed: "2026-05-22T18:32:55.000Z",
+      lastSeenReviews: [],
+      finalCheckPerformed: true,
+      reviewerCheckRunState: {
+        name: FINDINGS_CHECK_NAME,
+        status: "in_progress",
+        conclusion: null,
+        url: null,
+      },
+    };
+    const msg = formatTimeoutMessage(result);
+    expect(msg).toContain(
+      "Final authoritative check: re-read reviews list immediately before timing out"
+    );
+    expect(msg).toContain('Reviewer check-run "minsky-reviewer/findings": in_progress');
+  });
+
+  test("renders a failed-conclusion check-run state and a failed final-check re-read", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 600_000,
+      pollCount: 21,
+      sinceUsed: "2026-05-22T18:32:55.000Z",
+      lastSeenReviews: [],
+      finalCheckPerformed: false,
+      reviewerCheckRunState: {
+        name: FINDINGS_CHECK_NAME,
+        status: "completed",
+        conclusion: "failure",
+        url: "https://github.com/edobry/minsky/runs/1",
+      },
+    };
+    const msg = formatTimeoutMessage(result);
+    expect(msg).toContain("Final authoritative check: re-read attempt failed");
+    expect(msg).toContain('Reviewer check-run "minsky-reviewer/findings": completed (failure)');
   });
 
   test("renders up to 5 lastSeenReviews entries with rejectionReason", () => {
@@ -190,6 +239,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 21,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: reviews,
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("Last seen 2 review(s):");
@@ -214,6 +265,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 21,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: reviews,
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("Last seen 8 review(s):");
@@ -243,6 +296,8 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
       pollCount: 1,
       sinceUsed: "2026-05-22T18:32:55.000Z",
       lastSeenReviews: reviews,
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("[PENDING] <null> @ <no submittedAt>");

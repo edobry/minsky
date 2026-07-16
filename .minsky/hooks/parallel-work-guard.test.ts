@@ -20,6 +20,12 @@ import {
 } from "./parallel-work-guard";
 import type { ToolHookInput } from "./types";
 
+// mt#2811 (PR #1953 review 4708851338 R1 — max-lines): the extractor
+// contract test, fallback-chain tests, shouldReportAsGuardDegraded tests,
+// resolveInScopeFiles tests, and buildTasksChildrenArgv test moved to
+// ./parallel-work-guard-extraction.test.ts to keep this file under the
+// 1500-line ESLint max-lines threshold. See that file for those suites.
+
 // ---------------------------------------------------------------------------
 // Shared test fixtures (extracted to avoid magic-string duplication warnings)
 // ---------------------------------------------------------------------------

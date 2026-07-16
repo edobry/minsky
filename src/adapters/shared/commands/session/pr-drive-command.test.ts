@@ -169,6 +169,8 @@ describe("formatDriveMessage", () => {
       pollCount: 21,
       sinceUsed: "2026-07-07T00:00:00.000Z",
       lastSeenReviews: [],
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
     };
     const msg = formatDriveMessage(result);
     expect(msg).toContain("No matching review after 600s");
