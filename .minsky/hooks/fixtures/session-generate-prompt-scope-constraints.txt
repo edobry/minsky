@@ -1,0 +1,83 @@
+<!--
+  FIXTURE (mt#2811, PR #1953 review 4708851338 R1 BLOCKING #2).
+
+  This is a REAL captured output of
+  packages/domain/src/session/prompt-generation.ts's generateSubagentPrompt().
+  It exists so parallel-work-guard.test.ts's contract test can bind
+  extractInScopeFiles's "## Scope Constraints" parser to the ACTUAL render
+  format WITHOUT the hook test importing the domain package's internal
+  module across the .minsky/hooks <-> packages/domain boundary (the
+  cycle/fragility risk the review flagged). This file, not a live import, is
+  the binding mechanism — if renderScopeSection's output shape ever changes,
+  regenerate this fixture and the contract test will fail until the parser is
+  updated to match (or vice versa).
+
+  Regenerate with:
+    bun run scripts/regenerate-mt2811-prompt-fixture.ts > .minsky/hooks/fixtures/session-generate-prompt-scope-constraints.txt
+
+  Generated with:
+    sessionDir:   "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000"
+    sessionId:    "00000000-0000-0000-0000-000000000000"
+    taskId:       "2811"
+    type:         "implementation"
+    instructions: "Fix the thing."
+    scope: [
+      "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/foo.ts",
+      "/Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/bar.ts",
+    ]
+    harness: "claude-code"  (lean/native-harness path — no filesystem skill-loading)
+-->
+You are working in Minsky session at /Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000. All file paths MUST be absolute paths under this directory.
+
+Task mt#2811: Implementation work
+
+Fix the thing.
+
+## Scope Constraints
+
+Only modify the following files:
+- /Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/foo.ts
+- /Users/example/.local/state/minsky/sessions/00000000-0000-0000-0000-000000000000/src/bar.ts
+
+## Operating Envelope
+
+You have a bounded tool-call budget per dispatch. Recent dispatches have cut off between 24 and 65 tool uses — typically with substantial work done but uncommitted. To land softly:
+
+**Budget awareness.** Commit or hand off *before* you run out, not after. Don't save the checkpoint for the end.
+
+**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (`feat`/`fix`/`refactor`/`docs`/etc.) and prefix the description with `partial:` to signal in-progress state — e.g., `feat(mt#2811): partial: <what's done>`. The commit-msg hook rejects `wip(...)`; status lives in the description, not the type.
+
+**Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop starting new work:
+1. If code is modified, commit with `<type>(mt#2811): partial: <status>` via `mcp__minsky__session_commit` (use the type matching the work)
+2. Write a handoff note to `.minsky/sessions/00000000-0000-0000-0000-000000000000/handoff.md` with four fields:
+   - **Done:** what shipped this dispatch
+   - **In progress:** partial work, with file paths and line ranges
+   - **Remaining:** what still needs doing
+   - **Known issues:** bugs/blockers encountered
+3. Exit early with a brief summary citing the handoff path
+
+**Handoff path convention.** The canonical handoff location is `.minsky/sessions/00000000-0000-0000-0000-000000000000/handoff.md`. Main-agent recovery reads this first — leaving it unwritten forces expensive state reconstruction from `git diff`.
+
+## Running commands in the session
+
+Use `mcp__minsky__session_exec(task: "mt#2811", command: "<cmd>")` to run shell commands inside the session workspace (e.g., `bun test`, `bun run format:check`, `git status`). The session directory is resolved automatically — never use `git -C <path>` or shell `cd` workarounds.
+
+## Committing Your Work
+
+When your changes are ready, commit using:
+- Tool: `mcp__minsky__session_commit`
+- Parameters: `sessionId: "00000000-0000-0000-0000-000000000000"`, `all: true`
+
+## Creating a Pull Request
+
+After committing, create a PR using:
+- Tool: `mcp__minsky__session_pr_create`
+- Parameters: `task: "mt#2811"`
+
+Do NOT merge the PR.
+
+## Important
+
+Do NOT run Bash commands for formatting, linting, type-checking, or tests — the pre-commit hooks handle all of that.
+
+<!-- minsky:prompt:v1 -->

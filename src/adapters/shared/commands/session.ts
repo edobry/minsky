@@ -22,6 +22,7 @@ import {
   createSessionMigrateCommand,
 } from "./session/management-commands";
 import { createSessionCleanupCommand } from "./session/cleanup-command";
+import { createSessionPsCommand, createSessionAttachedCommand } from "./session/ps-command";
 import {
   createSessionCommitCommand,
   createSessionInspectCommand,
@@ -89,11 +90,13 @@ export async function registerSessionCommands(
   const commands: AnyCommandDefinition[] = [
     // Basic
     createSessionListCommand(getDeps, getOptionalPersistenceProvider),
-    createSessionGetCommand(getDeps),
+    createSessionGetCommand(getDeps, getOptionalPersistenceProvider),
     createSessionStartCommand(getDeps, getOptionalPersistenceProvider),
     createSessionDirCommand(getDeps),
     createSessionSearchCommand(getDeps),
     createSessionExecCommand(getDeps),
+    createSessionPsCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionAttachedCommand(getDeps, getOptionalPersistenceProvider),
 
     // Management
     createSessionDeleteCommand(getDeps),

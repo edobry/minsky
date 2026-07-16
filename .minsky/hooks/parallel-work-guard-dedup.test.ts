@@ -489,6 +489,28 @@ describe("decideTasksCreateGuard (mt#1435)", () => {
       { fetchChildren: fetchNull, overrideActive: false }
     );
     expect(d.action).toBe("skip");
+    // mt#2811 acceptance test: "Simulate child-enumeration API failure ->
+    // guard output explicitly names the skipped check and the reason."
+    // reason names WHAT (duplicate-child overlap check, for this parent) and
+    // points at WHERE the why lives (stderr, written by fetchTaskChildren at
+    // the point of CLI failure); `degraded: true` routes the message to
+    // stderr at the entrypoint instead of routine stdout info.
+    if (d.action === "skip") {
+      expect(d.reason).toContain("could not enumerate children of mt#2370");
+      expect(d.reason).toContain("duplicate-child overlap check is SKIPPED");
+      expect(d.degraded).toBe(true);
+    }
+  });
+
+  it("does NOT mark a routine no-op skip (no parent) as a degradation", () => {
+    const d = decideTasksCreateGuard(
+      { title: RAIL_TITLE },
+      { fetchChildren: fetchOk, overrideActive: false }
+    );
+    expect(d.action).toBe("skip");
+    if (d.action === "skip") {
+      expect(d.degraded).toBeUndefined();
+    }
   });
 
   it("override bypasses the block and reports the would-be match for audit", () => {

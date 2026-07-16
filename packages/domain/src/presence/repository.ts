@@ -13,7 +13,7 @@
  * Models: packages/domain/src/ask/repository.ts
  */
 
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { presenceClaimsTable } from "../storage/schemas/presence-claims-schema";
@@ -45,6 +45,9 @@ export function toPresenceClaim(row: PresenceClaimRecord): PresenceClaim {
     host: row.host ?? undefined,
     sessionId: row.sessionId ?? undefined,
     projectId: row.projectId ?? undefined,
+    pid: row.pid ?? undefined,
+    entrypoint: row.entrypoint ?? undefined,
+    terminalContext: row.terminalContext ?? undefined,
     claimedAt: row.claimedAt.toISOString(),
     lastRefreshedAt: row.lastRefreshedAt.toISOString(),
   };
@@ -86,6 +89,26 @@ export interface PresenceClaimRepository {
    * Returns the count of deleted rows.
    */
   reapStale(olderThanMs: number): Promise<number>;
+
+  /**
+   * List every claim for a given grain, across all subjects (mt#2284: used by
+   * `session ps` to enumerate all session-grain attachments, and by the
+   * stale-attachment reaper's pid-liveness sweep).
+   */
+  listAllForKind(subjectKind: PresenceSubjectKind): Promise<PresenceClaim[]>;
+
+  /**
+   * Delete every claim for one (subjectKind, subjectId) pair (mt#2284: session
+   * teardown on merge/cleanup). Returns the count of deleted rows.
+   */
+  deleteBySubject(subjectKind: PresenceSubjectKind, subjectId: string): Promise<number>;
+
+  /**
+   * Delete a specific set of claims by id (mt#2284: the pid-liveness reaper
+   * deletes only the rows whose pid is confirmed dead, not the whole subject).
+   * Returns the count of deleted rows.
+   */
+  deleteByIds(ids: string[]): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +135,9 @@ export class DrizzlePresenceClaimRepository implements PresenceClaimRepository {
         host: input.host ?? null,
         sessionId: input.sessionId ?? null,
         projectId: input.projectId ?? null,
+        pid: input.pid ?? null,
+        entrypoint: input.entrypoint ?? null,
+        terminalContext: input.terminalContext ?? null,
         claimedAt: now,
         lastRefreshedAt: now,
       })
@@ -127,6 +153,9 @@ export class DrizzlePresenceClaimRepository implements PresenceClaimRepository {
           host: input.host ?? null,
           sessionId: input.sessionId ?? null,
           projectId: input.projectId ?? null,
+          pid: input.pid ?? null,
+          entrypoint: input.entrypoint ?? null,
+          terminalContext: input.terminalContext ?? null,
           lastRefreshedAt: now,
         },
       })
@@ -169,6 +198,41 @@ export class DrizzlePresenceClaimRepository implements PresenceClaimRepository {
     const result = await this.db
       .delete(presenceClaimsTable)
       .where(lt(presenceClaimsTable.lastRefreshedAt, cutoff))
+      .returning({ id: presenceClaimsTable.id });
+
+    return result.length;
+  }
+
+  async listAllForKind(subjectKind: PresenceSubjectKind): Promise<PresenceClaim[]> {
+    const rows = await this.db
+      .select()
+      .from(presenceClaimsTable)
+      .where(eq(presenceClaimsTable.subjectKind, subjectKind))
+      .orderBy(desc(presenceClaimsTable.lastRefreshedAt));
+
+    return rows.map(toPresenceClaim);
+  }
+
+  async deleteBySubject(subjectKind: PresenceSubjectKind, subjectId: string): Promise<number> {
+    const result = await this.db
+      .delete(presenceClaimsTable)
+      .where(
+        and(
+          eq(presenceClaimsTable.subjectKind, subjectKind),
+          eq(presenceClaimsTable.subjectId, subjectId)
+        )
+      )
+      .returning({ id: presenceClaimsTable.id });
+
+    return result.length;
+  }
+
+  async deleteByIds(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    const result = await this.db
+      .delete(presenceClaimsTable)
+      .where(inArray(presenceClaimsTable.id, ids))
       .returning({ id: presenceClaimsTable.id });
 
     return result.length;

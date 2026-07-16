@@ -193,6 +193,24 @@ export const sessionDirCommandParams = {
 };
 
 /**
+ * Session ps (alias: session attached) command parameters (mt#2284).
+ */
+export const sessionPsCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  json: commonSessionParams.json,
+  reap: {
+    schema: z.boolean(),
+    description:
+      "Run the stale-attachment reaper before listing (drops attachment records whose " +
+      "pid is confirmed dead on this host; local-host only, v0 — remote-host " +
+      "attachments are skipped, never reaped by this flag).",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
  * Session search command parameters
  */
 export const sessionSearchCommandParams = {

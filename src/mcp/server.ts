@@ -21,6 +21,7 @@ import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-ca
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
+import { hostname } from "os";
 import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -1098,6 +1099,16 @@ export class MinskyMCPServer {
             });
           });
 
+          // mt#2284: Write session-grain runtime-attachment claim (fire-and-forget).
+          // Session-SCOPED (unlike writeTaskClaim) — requires a resolvable session,
+          // same resolution priority as writeAgentIdToSession.
+          this.writeSessionAttachment(request.params.arguments || {}, agentId).catch((err) => {
+            log.debug("session attachment write failed (non-blocking)", {
+              error: getErrorMessage(err),
+              tool: request.params.name,
+            });
+          });
+
           // Convert result to proper MCP tool response format
           let responseText: string;
 
@@ -1452,28 +1463,8 @@ export class MinskyMCPServer {
    * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
    */
   private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
-    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
-    // or build per-call from the container (resilient fallback — mirrors
-    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
-    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
-    // servers, leaving presenceClaimRepo unset and making every call a no-op.
-    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
-    if (!repo) {
-      if (!this.container?.has("persistence")) return;
-      try {
-        const persistence = this.container.get("persistence") as {
-          getDatabaseConnection?: () => Promise<unknown>;
-        };
-        if (!persistence.getDatabaseConnection) return;
-        const db = await persistence.getDatabaseConnection();
-        if (!db) return;
-        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
-        repo = buildPresenceClaimRepository(db);
-        if (!repo) return;
-      } catch {
-        return; // fail silently — presence tracking is best-effort
-      }
-    }
+    const repo = await this.getPresenceClaimRepo();
+    if (!repo) return;
 
     const taskId =
       (typeof args.task === "string" ? args.task : undefined) ||
@@ -1487,8 +1478,62 @@ export class MinskyMCPServer {
     const subjectId = normalizeTaskSubjectId(taskId);
     if (!subjectId) return;
 
-    // Resolve project scope (best-effort; fail silently on error)
-    let projectId: string | undefined;
+    const projectId = await this.resolveProjectIdBestEffort();
+
+    // Capture the caller's CC conversation id (best-effort from environment)
+    const ccConversationId =
+      typeof process.env.CC_CONVERSATION_ID === "string"
+        ? process.env.CC_CONVERSATION_ID
+        : undefined;
+
+    await repo.upsertClaim({
+      subjectKind: "task",
+      subjectId,
+      actorId,
+      ccConversationId,
+      projectId,
+    });
+
+    log.debug("presence claim written", { taskId, actorId });
+  }
+
+  /**
+   * mt#2284: resolve the presence-claim repository, fast-path or per-call
+   * (mirrors the pre-set-vs-container-build pattern buildAskRepository uses).
+   * Shared by writeTaskClaim (mt#2562) and writeSessionAttachment (mt#2284).
+   */
+  private async getPresenceClaimRepo(): Promise<PresenceClaimRepository | null> {
+    // Use pre-set repo (fast-path from one-shot startup wiring in start-command.ts),
+    // or build per-call from the container (resilient fallback — mirrors
+    // buildAskRepository which constructs new DrizzleAskRepository(db) on each call).
+    // mt#2567: the one-shot wiring may not complete on proxy/staleness-respawned
+    // servers, leaving presenceClaimRepo unset and making every call a no-op.
+    let repo: PresenceClaimRepository | null = this.presenceClaimRepo ?? null;
+    if (!repo) {
+      if (!this.container?.has("persistence")) return null;
+      try {
+        const persistence = this.container.get("persistence") as {
+          getDatabaseConnection?: () => Promise<unknown>;
+        };
+        if (!persistence.getDatabaseConnection) return null;
+        const db = await persistence.getDatabaseConnection();
+        if (!db) return null;
+        const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+        repo = buildPresenceClaimRepository(db);
+        if (!repo) return null;
+      } catch {
+        return null; // fail silently — presence tracking is best-effort
+      }
+    }
+    return repo;
+  }
+
+  /**
+   * mt#2284: resolve the caller's project scope, best-effort (shared by
+   * writeTaskClaim and writeSessionAttachment). Fails silently — project
+   * scope is informational for presence, never a hard requirement.
+   */
+  private async resolveProjectIdBestEffort(): Promise<string | undefined> {
     try {
       const { resolveProjectIdentity } = await import("@minsky/domain/project/identity");
       const { resolveProjectScope } = await import("@minsky/domain/project/scope-resolver");
@@ -1507,7 +1552,7 @@ export class MinskyMCPServer {
             const { isAllProjects } = await import("@minsky/domain/project/scope");
             // ProjectScope = string | AllProjects; narrow to string branch = the project UUID
             if (!isAllProjects(scope)) {
-              projectId = scope;
+              return scope;
             }
           }
         }
@@ -1515,22 +1560,114 @@ export class MinskyMCPServer {
     } catch {
       // Fail silently — project scope is informational for presence
     }
+    return undefined;
+  }
 
-    // Capture the caller's CC conversation id (best-effort from environment)
+  /**
+   * mt#2284: self-registration write path for session runtime-attachment.
+   * Fires at the same seam as writeAgentIdToSession — session-SCOPED (unlike
+   * writeTaskClaim, which is session-independent): requires a resolvable
+   * session (args.session/sessionId directly, or via args.task/taskId lookup).
+   *
+   * Records/refreshes a `subject_kind = "session"` presence claim keyed on
+   * (sessionId, actorId) — repeated activity from the same actor refreshes
+   * `registeredAt` (the domain-layer name for `lastRefreshedAt`) rather than
+   * appending a duplicate row; a distinct actor (e.g. a subagent attached to
+   * the same session workspace) produces its own row (set semantics).
+   *
+   * Runs fire-and-forget (caller catches errors). Failures are logged at
+   * debug level and never surface to the MCP caller — attachment tracking is
+   * best-effort, matching writeAgentIdToSession/writeTaskClaim's posture.
+   */
+  private async writeSessionAttachment(
+    args: Record<string, unknown>,
+    actorId: string
+  ): Promise<void> {
+    if (!this.container) return;
+
+    const sessionName =
+      (typeof args.session === "string" ? args.session : undefined) ||
+      (typeof args.sessionId === "string" ? args.sessionId : undefined);
+
+    let sessionId = sessionName;
+    if (!sessionId) {
+      const taskId =
+        (typeof args.task === "string" ? args.task : undefined) ||
+        (typeof args.taskId === "string" ? args.taskId : undefined);
+      if (!taskId || !this.container.has("sessionProvider")) return;
+      const sessionProvider = this.container.get(
+        "sessionProvider"
+      ) as import("@minsky/domain/session/types").SessionProviderInterface;
+      const storageTaskId = taskId.replace(/^mt#/i, "");
+      const record = await sessionProvider.getSessionByTaskId(storageTaskId);
+      if (!record) return;
+      sessionId = record.sessionId;
+    }
+    if (!sessionId) return;
+
+    const repo = await this.getPresenceClaimRepo();
+    if (!repo) return;
+
+    const projectId = await this.resolveProjectIdBestEffort();
+
+    // "Where" context — env bag of only-the-keys-present (emulator-agnostic;
+    // stores env strings, introspects no terminal app). Claude Code sets
+    // CLAUDE_CODE_SESSION_ID (the conversation UUID) and CLAUDE_CODE_ENTRYPOINT
+    // (e.g. "cli", "sdk-cli") — see packages/domain/src/runtime/harness-detection.ts.
     const ccConversationId =
-      typeof process.env.CC_CONVERSATION_ID === "string"
-        ? process.env.CC_CONVERSATION_ID
+      typeof process.env.CLAUDE_CODE_SESSION_ID === "string"
+        ? process.env.CLAUDE_CODE_SESSION_ID
+        : undefined;
+    const entrypoint =
+      typeof process.env.CLAUDE_CODE_ENTRYPOINT === "string"
+        ? process.env.CLAUDE_CODE_ENTRYPOINT
         : undefined;
 
-    await repo.upsertClaim({
-      subjectKind: "task",
-      subjectId,
-      actorId,
-      ccConversationId,
-      projectId,
-    });
+    const TERMINAL_CONTEXT_KEYS = [
+      "TERM_PROGRAM",
+      "TERM_SESSION_ID",
+      "TERM",
+      "TMUX",
+      "TMUX_PANE",
+      "WEZTERM_PANE",
+      "KITTY_WINDOW_ID",
+    ] as const;
+    const terminalContext: Record<string, string> = {};
+    for (const key of TERMINAL_CONTEXT_KEYS) {
+      const value = process.env[key];
+      if (typeof value === "string") terminalContext[key] = value;
+    }
 
-    log.debug("presence claim written", { taskId, actorId });
+    // pid: local stdio MCP servers are spawned AS A CHILD of the calling
+    // harness process, so process.ppid is the caller's pid (OS-level fact,
+    // no terminal-app introspection). This assumption does not hold for the
+    // hosted-HTTP transport; process.ppid there is not a meaningful "who is
+    // attached" signal, but recording it is still harmless (host/ccConversationId
+    // remain the primary identifying context for that path).
+    // (Cast mirrors diagnostic-capture.ts's ExtendedProcess — this repo's
+    // legacy ambient `process` shim, src/types/node.d.ts, omits `ppid`.)
+    const ppid = (process as typeof process & { ppid?: number }).ppid;
+    const pid = typeof ppid === "number" ? ppid : undefined;
+
+    try {
+      await repo.upsertClaim({
+        subjectKind: "session",
+        subjectId: sessionId,
+        actorId,
+        ccConversationId,
+        host: hostname(),
+        projectId,
+        pid,
+        entrypoint,
+        terminalContext: Object.keys(terminalContext).length > 0 ? terminalContext : undefined,
+      });
+      log.debug("session attachment written", { sessionId, actorId, pid });
+    } catch (err) {
+      log.debug("session attachment write failed (non-blocking)", {
+        error: getErrorMessage(err),
+        sessionId,
+      });
+    }
   }
 
   /**
