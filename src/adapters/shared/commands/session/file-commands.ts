@@ -25,6 +25,22 @@ export async function resolveSessionId(
     return explicit;
   }
 
+  // mt#2816: accept `task` as a convenience-resolution alias, matching
+  // session_start/session_exec semantics (single active session for the
+  // task -> resolve; ambiguity -> structured error naming the candidates).
+  if (params.task) {
+    const { resolveSessionIdForCommand } = await import(
+      "@minsky/domain/session/session-context-resolver"
+    );
+    const resolved = await resolveSessionIdForCommand({
+      task: params.task,
+      sessionProvider: deps.sessionProvider,
+    });
+    if (resolved) {
+      return resolved;
+    }
+  }
+
   const currentSession = await deps.getCurrentSession(process.cwd());
 
   if (!currentSession) {

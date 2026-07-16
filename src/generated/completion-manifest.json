@@ -2280,6 +2280,11 @@
               "takesValue": true
             },
             {
+              "flags": ["--task"],
+              "description": "Task identifier",
+              "takesValue": true
+            },
+            {
               "flags": ["--json"],
               "description": "Output in JSON format"
             },
@@ -3310,6 +3315,11 @@
             {
               "flags": ["--session-id"],
               "description": "Session ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
               "takesValue": true
             },
             {

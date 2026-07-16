@@ -1207,6 +1207,10 @@ export const sessionRepairCommandParams = {
  */
 export const sessionEditFileCommandParams = {
   sessionId: commonSessionParams.sessionId,
+  // mt#2816: convenience-resolution alias — same semantics as
+  // session_start/session_exec (`task` resolves to the session bound to
+  // that task). sessionId still wins when both are supplied.
+  task: commonSessionParams.task,
   path: {
     schema: z.string(),
     description: "Path to the file within the session workspace",
