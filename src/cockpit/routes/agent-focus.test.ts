@@ -107,6 +107,20 @@ describe("POST /api/agents/:id/focus", () => {
     expect(body.message).toMatch(/Nothing attached to session session-x/);
   });
 
+  test("does not double-decode a sessionId containing a literal '%' (R1 review fix)", async () => {
+    // Express decodes route params ONCE. A sessionId whose literal value
+    // contains "%20" must survive round-trip through encodeURIComponent ->
+    // Express's single decode unchanged. A second decodeURIComponent() in
+    // the handler would corrupt "with%20space" into "with space".
+    const literalSessionId = "with%20space";
+    const { url } = await makeHarness({ rows: [] });
+    const { status, body } = await post(url, literalSessionId);
+
+    expect(status).toBe(200);
+    expect(body.message).toContain(literalSessionId);
+    expect(body.message).not.toContain("with space");
+  });
+
   test("focuses the live attachment via the injected executor and reports 'focused'", async () => {
     const row = makeAttachmentRow({ terminalContext: { TMUX_PANE: "%3" } });
     const calls: string[][] = [];

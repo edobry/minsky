@@ -47,12 +47,17 @@ export function mountAgentFocusRoutes(
   const getHostname = opts.hostname ?? osHostname;
 
   app.post("/api/agents/:id/focus", async (req, res) => {
-    const rawId = req.params.id;
-    if (!rawId) {
+    // Express already URI-decodes route params once (verified empirically —
+    // `req.params.id` for a request to `/foo%2520bar` arrives as `foo%20bar`,
+    // not `foo bar`). A second decodeURIComponent() here would corrupt any
+    // sessionId containing a literal `%` and can throw a URIError on a
+    // malformed escape sequence (R1 review finding, mt#2286) — do not
+    // decode again.
+    const sessionId = req.params.id;
+    if (!sessionId) {
       res.status(400).json({ error: "Session ID required" });
       return;
     }
-    const sessionId = decodeURIComponent(rawId);
 
     try {
       const getDb = opts.getDb ?? (await import("../db-providers")).getContextInspectorDb;

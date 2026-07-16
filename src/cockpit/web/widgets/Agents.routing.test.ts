@@ -50,10 +50,15 @@ describe("resolveGoToAction — dispatched-agent rows (mt#2284 attachState routi
     expect(action.reason).toMatch(/nothing attached/i);
   });
 
-  test("null attachState (lookup unavailable/degraded) -> disabled, same as detached", () => {
+  test("null attachState (lookup unavailable/degraded) -> disabled with a distinct 'unavailable' reason", () => {
     const row = makeRow({ sessionId: "ws-1", attachState: null });
     const action = resolveGoToAction(row);
     expect(action.type).toBe("disabled");
+    if (action.type !== "disabled") throw new Error("expected disabled");
+    // Distinct from the "detached" reason text above (R1 review fix) — a
+    // degraded lookup is NOT the same claim as "confirmed nothing attached".
+    expect(action.reason).toMatch(/unavailable/i);
+    expect(action.reason).not.toMatch(/nothing attached/i);
   });
 
   test("encodes a sessionId that needs URI escaping in the navigate path", () => {

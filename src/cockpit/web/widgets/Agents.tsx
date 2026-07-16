@@ -12,10 +12,18 @@
  * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
  * same mechanism the retired `/conversations` page used).
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ArrowUpRight, Terminal, AppWindow, Unlink } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ArrowUpRight,
+  Terminal,
+  AppWindow,
+  Unlink,
+  X,
+} from "lucide-react";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
@@ -505,11 +513,16 @@ export function resolveGoToAction(agent: AgentRow): GoToAction {
         path: pathForTab(basePathFor("workspace", agent.sessionId), "workspace", "conversation"),
       };
     case "detached":
-    case null:
-      // `null` (attachment lookup unavailable/degraded) is treated the same
-      // as "detached" — fail closed rather than guessing whether there's
-      // something to focus.
       return { type: "disabled", reason: "Nothing attached" };
+    case null:
+      // The lookup failed/degraded server-side this cycle (agents.ts logs a
+      // warning) — behaviorally the same fail-closed "disabled" outcome as
+      // "detached" (never guess whether there's something to focus), but the
+      // operator-facing text says so honestly rather than falsely asserting
+      // "nothing attached" when the real answer is "unknown" (mt#2286 R1
+      // review finding — distinguishes a genuine detached state from a
+      // degraded/unavailable read).
+      return { type: "disabled", reason: "Attachment status unavailable" };
   }
 }
 
@@ -566,6 +579,25 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
     );
   }
 
+  const outcomeShowing = focusMutation.isSuccess || focusMutation.isError;
+
+  // Auto-dismiss the transient outcome message (mt#2286 R1 review finding:
+  // the prior version had no timeout/dismissal, so a stale outcome could
+  // persist indefinitely across the widget's 5s polling refetches, and a
+  // screen-reader user reading the live region had no way to move past it).
+  // Runs `focusMutation.reset()`, which clears isSuccess/isError and
+  // unmounts the message below — NOT a page/DOM focus change, which would be
+  // the wrong move for a polite/assertive live-region announcement.
+  useEffect(() => {
+    if (!outcomeShowing) return;
+    const timer = setTimeout(() => focusMutation.reset(), 8000);
+    return () => clearTimeout(timer);
+    // Deps intentionally exclude focusMutation: its identity is stable across
+    // TanStack Query re-renders for a given hook instance, and re-running this
+    // effect on every render (from including the whole mutation object) would
+    // restart the timer on unrelated re-renders.
+  }, [outcomeShowing]);
+
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -574,6 +606,12 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
       return;
     }
     focusMutation.mutate(action.sessionId);
+  }
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    focusMutation.reset();
   }
 
   return (
@@ -592,21 +630,37 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
         <span
           role="status"
           className={cn(
-            "absolute right-0 top-full z-10 mt-1 max-w-[16rem] whitespace-normal rounded border px-2 py-1 text-xs shadow-sm",
+            "absolute right-0 top-full z-10 mt-1 flex max-w-[16rem] items-start gap-1.5 whitespace-normal rounded border px-2 py-1 text-xs shadow-sm",
             focusMutation.data.success
               ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
               : "border-amber-500/40 bg-amber-500/10 text-amber-600"
           )}
         >
-          {focusMutation.data.message}
+          <span className="flex-1">{focusMutation.data.message}</span>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+            className="flex-shrink-0 opacity-70 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </span>
       )}
       {focusMutation.isError && (
         <span
           role="alert"
-          className="absolute right-0 top-full z-10 mt-1 max-w-[16rem] whitespace-normal rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive shadow-sm"
+          className="absolute right-0 top-full z-10 mt-1 flex max-w-[16rem] items-start gap-1.5 whitespace-normal rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive shadow-sm"
         >
-          {focusMutation.error.message}
+          <span className="flex-1">{focusMutation.error.message}</span>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+            className="flex-shrink-0 opacity-70 hover:opacity-100"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </span>
       )}
     </div>

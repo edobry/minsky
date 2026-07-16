@@ -377,7 +377,17 @@ export function createAgentsWidget(
         // indicator, derived from the CURRENT live mt#2284 attachment set.
         // One batch call for every row, not N — mirrors the task-title
         // enrichment above. Degrades to "every row stays null" (same as
-        // omitting the factory) on any lookup failure.
+        // omitting the factory) on any lookup failure — but UNLIKE the
+        // conversation-merge/driven-session enrichments above (which are
+        // cosmetic decorations), a null attachState directly changes the
+        // "go to" action's behavior (it disables the row), so a swallowed
+        // failure here has a higher blast radius. Logged at `warn` — not
+        // `debug` — so it is operator-visible in production logs (matches
+        // the established precedent for the same failure class in
+        // src/adapters/shared/commands/session/attachment-annotation.ts).
+        // No metrics emission here: no sibling enrichment in this file emits
+        // metrics either, and adding a new mechanism is out of this task's
+        // scope — tracked as a follow-up rather than expanded here.
         if (getLiveAttachments) {
           try {
             const liveAttachments = await getLiveAttachments();
@@ -387,7 +397,7 @@ export function createAgentsWidget(
             }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            log.debug(`[agents widget] attachment-state enrichment degraded: ${message}`);
+            log.warn(`[agents widget] attachment-state enrichment degraded: ${message}`);
           }
         }
 
