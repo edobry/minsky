@@ -19,6 +19,18 @@ CLAUDE.md
 AGENTS.md
 .cursor/rules/
 
+# Compiled claude-rules outputs — managed by "minsky rules compile --target
+# claude-rules" (mt#2868), not Prettier. Same single/double-quote conflict as
+# .claude/agents/ below: the emitter single-quotes the `paths:` flow-sequence
+# so a sanitized `\[` bracket-escape survives YAML round-trip untouched
+# (single-quoted YAML scalars have no backslash-escape processing); Prettier's
+# markdown formatter rewrites those to double quotes (and would also collapse
+# the deliberate lack of a blank line between the closing `---` and the
+# generation banner, which matters for the check-generated-file-edit 5-line
+# scan window — see claude-rules.ts's module doc). The compile-check guard
+# (src/hooks/pre-commit.ts runRulesCompileCheck) owns staleness instead.
+.claude/rules/
+
 # Compiled agent outputs — managed by "minsky compile --target claude-agents",
 # not Prettier. js-yaml emits single-quoted YAML for comma-containing scalars
 # (e.g. `tools: 'Read, Bash'`) which Prettier rewrites to double quotes; the two

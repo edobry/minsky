@@ -29,13 +29,17 @@ export const DEFAULT_AGENTS_MD_SIZE_BUDGET: SizeBudget = {
 /**
  * Default section mapping for AGENTS.md target
  */
+// mt#2868: "Minsky Workflow" section and the "pr-preparation-workflow" entry
+// removed — both ids were orphan .cursor/rules/*.mdc files with no
+// .minsky/rules/ source (minsky-workflow, minsky-workflow-orchestrator,
+// pr-preparation-workflow). Their content is superseded by the skill chain
+// (/implement-task, /prepare-pr) and preserved in git history.
 const DEFAULT_AGENTS_MD_SECTIONS: Record<string, string[]> = {
   "Build & Test": ["bun_over_node", "tests"],
   "Code Style": ["comments", "constants-management", "ensure-ascii-code-symbols"],
   Architecture: ["domain-oriented-modules", "architecture"],
   Testing: ["testing-standards", "test-infrastructure", "testing-boundaries"],
-  "Minsky Workflow": ["minsky-workflow", "minsky-workflow-orchestrator"],
-  "Git & PR Workflow": ["pr-description-guidelines", "pr-preparation-workflow"],
+  "Git & PR Workflow": ["pr-description-guidelines"],
   Boundaries: ["operational-safety-dry-run-first", "terminal-command-best-practices"],
 };
 

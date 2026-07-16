@@ -281,16 +281,47 @@ interface Rule {
   CompileTarget.compile()        format-specific rendering
        |
        +--> agents-md.ts         → AGENTS.md  (Codex / OpenAI Agents)
-       +--> claude-md.ts         → CLAUDE.md  (Claude Code)
-       +--> cursor-rules.ts      → .cursor/rules/*.mdc  (Cursor)
+       +--> claude-md.ts         → CLAUDE.md  (Claude Code — always-loaded)
+       +--> cursor-rules.ts      → .cursor/rules/*.mdc  (Cursor — per-rule files)
+       +--> claude-rules.ts      → .claude/rules/*.md  (Claude Code — path-scoped, lazy-loaded)
 ```
 
-`CompileService` (`src/domain/rules/compile/compile-service.ts`) manages a registry of
-`CompileTarget` implementations and routes `compile(targetId, options)` calls to the correct
-one. Each target applies its own section layout and frontmatter stripping.
+`CompileService` (`packages/domain/src/rules/compile/compile-service.ts`) manages a registry
+of `CompileTarget` implementations and routes `compile(targetId, options)` calls to the
+correct one. Each target applies its own section layout and frontmatter stripping.
 
 Rule selection configuration (presets, explicitly enabled/disabled IDs) is stored in
 `.minsky/config.yaml` under the `rules` key.
+
+#### `claude-rules` target (mt#2868) — path-scoped delivery for Claude Code
+
+`claude-md.ts` emits ONE monolithic `CLAUDE.md` that loads unconditionally every session —
+every rule in it counts against the always-loaded context budget (mt#1876/mt#1877/mt#2802).
+`claude-rules.ts` is the escape valve: it emits one `.claude/rules/<id>.md` file PER ELIGIBLE
+rule, each carrying `paths:` frontmatter (a YAML list of globs) that Claude Code uses to load
+the rule's content only when a matching file enters context — never at session start.
+
+**Eligibility predicate (hard constraint):** a rule is emitted ONLY when it has a non-empty
+`globs` array AND `alwaysApply` is the literal boolean `false`. A `.claude/rules/*.md` file
+WITHOUT `paths:` frontmatter loads unconditionally, at the same priority as `CLAUDE.md` — so a
+rule with no globs, or with `alwaysApply: true`, is never emitted here (it stays covered by
+`claude-md.ts`'s monolithic file instead). As of 2026-07-15 this excludes the majority of the
+non-`alwaysApply` corpus outright: most rules describe conversational/process guidance rather
+than a file-scoped concern, and forcing a glob onto them to gain lazy-loading would either be
+semantically wrong or so broad (e.g. `**/*.ts`) that it recreates always-loading through the
+back door — the target's own unit tests reject that pattern.
+
+Stale-file removal is active (unlike `cursor-rules.ts`, which never deletes orphaned `.mdc`
+files): a `.claude/rules/<id>.md` whose source rule loses its globs, flips to
+`alwaysApply: true`, or is disabled via selection config is removed on the next compile. Only
+files carrying the generation banner are ever removed — hand-authored files in
+`.claude/rules/` are left untouched.
+
+`.claude/rules/` is excluded from Prettier (`.prettierignore`) for the same reason
+`.claude/agents/` is: the emitter single-quotes each glob so a `\[`-escaped literal bracket
+(design decision 4 — Claude Code's matcher requires `[` escaped or it silently fails to match)
+survives YAML round-trip untouched, and Prettier would rewrite that to double quotes. The
+compile-check guard (`src/hooks/pre-commit.ts` `runRulesCompileCheck`) owns staleness instead.
 
 ---
 
