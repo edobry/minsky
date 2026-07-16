@@ -90,6 +90,13 @@ export {
   restoreFromParams,
   resetFromParams,
   gitStatsFromParams,
+  repairGitLockFromParams,
+  scanGitRefsFromParams,
+  repairGitRefFromParams,
+} from "./git/git-params-facade";
+export type {
+  GitLockRepairFromParamsResult,
+  GitRefRepairFromParamsResult,
 } from "./git/git-params-facade";
 
 /**

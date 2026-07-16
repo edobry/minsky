@@ -29,6 +29,13 @@ import {
 import { restoreImpl, type RestoreResult } from "./restore-operations";
 import { resetImpl, type ResetResult } from "./reset-operations";
 import { gitStatsImpl, type GitStatsResult } from "./stats-operations";
+import { detectIndexLock, repairIndexLock, LOCK_STALE_THRESHOLD_MS } from "./lock-operations";
+import {
+  checkRef,
+  scanForBadRefs,
+  repairBadRef,
+  type BadRefCheckResult,
+} from "./ref-repair-operations";
 
 /**
  * Interface-agnostic function to create a pull request
@@ -163,8 +170,46 @@ export async function rebaseFromParams(params: {
   return await modularGitCommandsManager.rebaseFromParams(params);
 }
 
-/** Default deps using project execAsync */
-const defaultExecDeps = { execAsync };
+/**
+ * Bound the wall-clock time any single git_* main-workspace-ops subprocess
+ * may run before `executeCommand` (packages/shared/src/exec.ts) sends its
+ * hardcoded `killSignal: "SIGTERM"` (per Node's `child_process.exec` timeout
+ * option) — mt#2820 root-cause hardening.
+ *
+ * Prior to this change, NONE of git_status/git_restore/git_pull/git_stash
+ * (or its pop/list/drop siblings)/git_reset passed a `timeout` option, so
+ * Node's exec() never times out on
+ * its own: a wedged subprocess (credential prompt, filesystem stall, or any
+ * other hang) would run indefinitely, holding `.git/index.lock` for as long
+ * as it stayed alive. A bounded, SIGTERM-first timeout gives git's own
+ * lockfile signal handler (`lockfile.c` chains SIGINT/SIGTERM/SIGHUP/SIGQUIT
+ * to clean up pending lockfiles) a chance to self-remove the lock on
+ * termination, instead of relying on this task's after-the-fact repair tool
+ * to clean up every time.
+ *
+ * 60s is chosen because: every op in this family except `pull` is a purely
+ * local, single-command invocation that normally completes in well under a
+ * second; `pull`'s network round-trip to `origin` rarely exceeds a few
+ * seconds even on a slow connection. 60s is comfortably above any observed
+ * duration for these commands while still bounding a genuine hang to a
+ * reasonable wait — a large multiple of the MCP server's own 30s
+ * staleness-drain cap (`staleDrainCapMs`, mt#2701), not an arbitrary round
+ * number.
+ *
+ * NOTE: this does NOT fully close the class of abandoned-lock incidents
+ * this task investigates — a subprocess orphaned by the PARENT MCP server
+ * process itself exiting (rather than hanging) is not reached by an
+ * in-process timeout, since the timer dies with the process. See the
+ * root-cause investigation notes in this task's spec/PR body and the filed
+ * follow-up task for the residual cross-process race.
+ */
+const GIT_EXEC_TIMEOUT_MS = 60_000;
+
+/** Default deps using project execAsync, bounded by GIT_EXEC_TIMEOUT_MS. */
+const defaultExecDeps = {
+  execAsync: (command: string, options?: Record<string, unknown>) =>
+    execAsync(command, { timeout: GIT_EXEC_TIMEOUT_MS, ...options }),
+};
 
 /**
  * Pull latest changes from remote using --ff-only.
@@ -173,9 +218,15 @@ export async function pullFromParams(params: {
   repo?: string;
   remote?: string;
   branch?: string;
+  repairLock?: boolean;
 }): Promise<PullImplResult> {
   return pullImpl(
-    { repoPath: params.repo, remote: params.remote, branch: params.branch },
+    {
+      repoPath: params.repo,
+      remote: params.remote,
+      branch: params.branch,
+      repairLock: params.repairLock,
+    },
     defaultExecDeps
   );
 }
@@ -183,8 +234,11 @@ export async function pullFromParams(params: {
 /**
  * Get working tree status for the main workspace.
  */
-export async function statusFromParams(params: { repo?: string }): Promise<StatusResult> {
-  return statusImpl({ repoPath: params.repo }, defaultExecDeps);
+export async function statusFromParams(params: {
+  repo?: string;
+  repairLock?: boolean;
+}): Promise<StatusResult> {
+  return statusImpl({ repoPath: params.repo, repairLock: params.repairLock }, defaultExecDeps);
 }
 
 /**
@@ -194,9 +248,15 @@ export async function stashFromParams(params: {
   repo?: string;
   message?: string;
   paths?: string[];
+  repairLock?: boolean;
 }): Promise<StashImplResult> {
   return stashImpl(
-    { repoPath: params.repo, message: params.message, paths: params.paths },
+    {
+      repoPath: params.repo,
+      message: params.message,
+      paths: params.paths,
+      repairLock: params.repairLock,
+    },
     defaultExecDeps
   );
 }
@@ -207,8 +267,12 @@ export async function stashFromParams(params: {
 export async function stashPopFromParams(params: {
   repo?: string;
   ref?: string;
+  repairLock?: boolean;
 }): Promise<StashPopResult> {
-  return stashPopImpl({ repoPath: params.repo, ref: params.ref }, defaultExecDeps);
+  return stashPopImpl(
+    { repoPath: params.repo, ref: params.ref, repairLock: params.repairLock },
+    defaultExecDeps
+  );
 }
 
 /**
@@ -238,8 +302,12 @@ export async function stashDropFromParams(params: {
 export async function restoreFromParams(params: {
   repo?: string;
   paths: string[];
+  repairLock?: boolean;
 }): Promise<RestoreResult> {
-  return restoreImpl({ repoPath: params.repo, paths: params.paths }, defaultExecDeps);
+  return restoreImpl(
+    { repoPath: params.repo, paths: params.paths, repairLock: params.repairLock },
+    defaultExecDeps
+  );
 }
 
 /**
@@ -250,6 +318,7 @@ export async function resetFromParams(params: {
   mode: "soft" | "mixed" | "hard";
   target?: string;
   confirmHard?: boolean;
+  repairLock?: boolean;
 }): Promise<ResetResult> {
   return resetImpl(
     {
@@ -257,6 +326,7 @@ export async function resetFromParams(params: {
       mode: params.mode,
       target: params.target,
       confirmHard: params.confirmHard,
+      repairLock: params.repairLock,
     },
     defaultExecDeps
   );
@@ -289,4 +359,140 @@ export async function gitStatsFromParams(params: {
     },
     defaultExecDeps
   );
+}
+
+// ---------------------------------------------------------------------------
+// git_repair_lock (mt#2820)
+// ---------------------------------------------------------------------------
+
+export interface GitLockRepairFromParamsResult {
+  present: boolean;
+  lockPath?: string;
+  ageMs?: number;
+  sizeBytes?: number;
+  liveProcess?: boolean;
+  holderPid?: number;
+  livenessDetermined?: boolean;
+  /** true when the lock has no live owner AND has aged past the staleness threshold. */
+  staleEligible?: boolean;
+  removed: boolean;
+  message: string;
+}
+
+/**
+ * Inspect (and, with `confirm: true`, repair) a `.git/index.lock`.
+ *
+ * Without `confirm`: pure diagnostic — reports presence, age, size, and
+ * owning-process liveness, with no mutation.
+ *
+ * With `confirm: true`: attempts removal. Throws (does not silently no-op)
+ * when the lock is held by a live process or its staleness is ambiguous —
+ * see `repairIndexLock` for the exact refusal conditions.
+ */
+export async function repairGitLockFromParams(params: {
+  repo?: string;
+  confirm?: boolean;
+}): Promise<GitLockRepairFromParamsResult> {
+  const info = await detectIndexLock({ repoPath: params.repo }, defaultExecDeps);
+  if (!info) {
+    return { present: false, removed: false, message: "No index.lock present." };
+  }
+
+  const staleEligible =
+    info.livenessDetermined && !info.liveProcess && info.ageMs >= LOCK_STALE_THRESHOLD_MS;
+
+  const base = {
+    present: true,
+    lockPath: info.lockPath,
+    ageMs: info.ageMs,
+    sizeBytes: info.sizeBytes,
+    liveProcess: info.liveProcess,
+    holderPid: info.holderPid,
+    livenessDetermined: info.livenessDetermined,
+    staleEligible,
+  };
+
+  if (!params.confirm) {
+    const ageMinutes = (info.ageMs / 60_000).toFixed(1);
+    return {
+      ...base,
+      removed: false,
+      message: staleEligible
+        ? `Lock appears stale (age ${ageMinutes}m, no live process) — pass confirm: true to remove it.`
+        : info.liveProcess
+          ? `Lock is held by a live process (PID ${info.holderPid ?? "unknown"}) — busy.`
+          : `Lock is present but not yet stale-eligible (age ${ageMinutes}m below threshold).`,
+    };
+  }
+
+  const result = await repairIndexLock({ repoPath: params.repo, confirm: true }, defaultExecDeps);
+  return {
+    ...base,
+    removed: result.removed,
+    message: result.removed ? `Removed stale lock at ${result.lockPath}.` : "Lock not removed.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// git_repair_refs (mt#2820)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan refs under a prefix (default `refs/remotes/origin`) for corruption.
+ * Read-only — no repair. Use `repairGitRefFromParams` to fix a specific ref.
+ */
+export async function scanGitRefsFromParams(params: {
+  repo?: string;
+  refPrefix?: string;
+}): Promise<{ results: BadRefCheckResult[] }> {
+  const results = await scanForBadRefs(
+    { repoPath: params.repo, refPrefix: params.refPrefix },
+    defaultExecDeps
+  );
+  return { results };
+}
+
+export interface GitRefRepairFromParamsResult {
+  ref: string;
+  bad: boolean;
+  error?: string;
+  deleted: boolean;
+  refetched: boolean;
+  remote?: string;
+}
+
+/**
+ * Inspect (and, with `confirm: true`, repair) a single remote-tracking ref.
+ *
+ * Without `confirm`: pure diagnostic (identify — is this ref bad?).
+ * With `confirm: true`: delete + re-fetch. Refuses (throws) if the ref
+ * turns out to be healthy — never deletes a ref that isn't actually bad.
+ */
+export async function repairGitRefFromParams(params: {
+  repo?: string;
+  ref: string;
+  confirm?: boolean;
+  remote?: string;
+}): Promise<GitRefRepairFromParamsResult> {
+  if (!params.confirm) {
+    const check = await checkRef({ repoPath: params.repo, ref: params.ref }, defaultExecDeps);
+    return {
+      ref: params.ref,
+      bad: check.bad,
+      error: check.error,
+      deleted: false,
+      refetched: false,
+    };
+  }
+  const result = await repairBadRef(
+    { repoPath: params.repo, ref: params.ref, confirm: true, remote: params.remote },
+    defaultExecDeps
+  );
+  return {
+    ref: result.ref,
+    bad: true,
+    deleted: result.deleted,
+    refetched: result.refetched,
+    remote: result.remote,
+  };
 }
