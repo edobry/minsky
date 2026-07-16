@@ -87,20 +87,20 @@ registry that also gates the CLI's env-var-to-config dot-path parser):
 **R1 fix (PR #1989 review round 1): env/grant attribution.** The dispatcher's
 `checkOverride()` consults TWO channels — the `MINSKY_HOOK_OVERRIDE` env var, and
 (Phase-7 adjunct, mt#2658) a TTL-bound, reason-mandatory grant-file match. The
-original landing collapsed a grant-sourced override to `overrideEnvVar: undefined`
+original landing collapsed a grant-sourced override to a record carrying
+`overrideEnvVar: undefined` and `overrideClassification: "contested"`,
+indistinguishable from "bypassed with no accountability at all." Since a grant is
+itself TTL-bound and reason-mandatory by construction — the same property that
+makes the env-var channel an "authorized exception" — this was a
+misclassification, not a design choice. The fix
+(`.minsky/hooks/dispatcher.ts`'s `buildOverrideFireLogFields`):
 
-- `overrideClassification: "contested"`, indistinguishable from "bypassed with no
-  accountability at all." Since a grant is itself TTL-bound and reason-mandatory by
-  construction — the same property that makes the env-var channel an "authorized
-  exception" — this was a misclassification, not a design choice. The fix
-  (`.minsky/hooks/dispatcher.ts`'s `buildOverrideFireLogFields`):
-
-* Adds an `overrideSource: "env" | "grant"` discriminator to the schema (see
+- Adds an `overrideSource: "env" | "grant"` discriminator to the schema (see
   above) so a reader can tell which channel decided even when both classify as
   `authorized_exception`.
-* Classifies grant-channel overrides as `authorized_exception` directly, not via
+- Classifies grant-channel overrides as `authorized_exception` directly, not via
   `classifyOverride(undefined)`'s generic fallback.
-* Attributes deterministically when both channels are technically "present" in
+- Attributes deterministically when both channels are technically "present" in
   the environment (e.g. `MINSKY_HOOK_OVERRIDE` configured for a different
   guard/token than the one being evaluated, while a grant separately matches this
   guard) — by trusting `checkOverride()`'s own invariant (`grantReason` is
