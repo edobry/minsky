@@ -65,6 +65,7 @@ import {
   snapshotRetry,
   SnapshotError,
 } from "../lib/conversation-snapshot";
+import { splitInjectedContent, type InjectedSpan } from "../lib/injected-content";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -367,6 +368,59 @@ function ToolResult({
   );
 }
 
+// ── Injected-content block (mt#2791) ────────────────────────────────────────────
+//
+// Harness-injected content — slash-command wrappers, skill-body preambles,
+// `<system-reminder>` blocks — collapsed by default behind a muted,
+// origin-labeled header (see ../lib/injected-content.ts for the detector).
+// Mirrors ToolInvocation's collapsed/expand-on-click + expandSignal
+// participation, but muted (not blue-accented) styling — this is harness
+// plumbing, not an agent action.
+
+function InjectedContentBlock({
+  span,
+  entityIndex,
+  expandSignal,
+}: {
+  span: InjectedSpan;
+  entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
+}) {
+  const [open, setOpen] = useState(false);
+  // Re-sync on a NEW broadcast only (epoch), not on every `expandSignal.open`
+  // identity change — mirrors ToolInvocation (mt#2790).
+  const expandEpoch = expandSignal?.epoch;
+  useEffect(() => {
+    if (expandSignal) setOpen(expandSignal.open);
+  }, [expandEpoch]);
+
+  return (
+    <div className="rounded border border-border/40 bg-muted/10">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground"
+      >
+        <span className="italic">{span.label}</span>
+        <span className="text-muted-foreground/50">
+          ({span.content.length.toLocaleString()} chars)
+        </span>
+        <span aria-hidden className="ml-auto text-muted-foreground/60">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-2 py-1">
+          <Prose entityIndex={entityIndex} className="text-muted-foreground/90">
+            {span.content}
+          </Prose>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Tool-invocation pairing (mt#2790) ───────────────────────────────────────────
 //
 // A pre-render assembly pass that merges each tool-call with its matching
@@ -387,6 +441,7 @@ type PreparedElement =
   | { kind: "thinking"; thinking: string }
   | { kind: "tool-invocation"; call: ToolCallElement; result?: ToolResultElement }
   | { kind: "tool-result-orphan"; result: ToolResultElement; callName: string | undefined }
+  | { kind: "injected"; span: InjectedSpan }
   | { kind: "unknown"; rawType: string; raw: unknown };
 
 interface PreparedTurn {
@@ -420,29 +475,99 @@ function pairToolInvocations(
 
   return turns.map((turn) => {
     const elements: PreparedElement[] = [];
-    for (const el of turn.elements) {
-      switch (el.kind) {
-        case "tool-call": {
-          const result = el.id ? resultById.get(el.id) : undefined;
-          elements.push({ kind: "tool-invocation", call: el, result });
-          break;
+
+    // Injected-content detection is scoped to USER turns (mt#2791) — command
+    // wrappers, skill-body preambles, and system reminders are ALWAYS
+    // harness-injected into a user turn, never assistant-authored, so
+    // scoping here (rather than substring-matching everywhere) keeps
+    // detection conservative per the module's anchored-pattern design.
+    // Non-user turns keep the pre-mt#2791 pass-through, unchanged below.
+    if (turn.role !== "user") {
+      for (const el of turn.elements) {
+        switch (el.kind) {
+          case "tool-call": {
+            const result = el.id ? resultById.get(el.id) : undefined;
+            elements.push({ kind: "tool-invocation", call: el, result });
+            break;
+          }
+          case "tool-result": {
+            const pairedInWindow = el.toolUseId ? callById.has(el.toolUseId) : false;
+            if (pairedInWindow) break;
+            elements.push({
+              kind: "tool-result-orphan",
+              result: el,
+              callName: el.toolUseId ? callNameByToolUseId.get(el.toolUseId) : undefined,
+            });
+            break;
+          }
+          default:
+            elements.push(el);
         }
-        case "tool-result": {
-          const pairedInWindow = el.toolUseId ? callById.has(el.toolUseId) : false;
-          // Already rendered at the call's position above — don't duplicate,
-          // and never under a USER-role label (mt#2790 success criterion).
-          if (pairedInWindow) break;
-          elements.push({
-            kind: "tool-result-orphan",
-            result: el,
-            callName: el.toolUseId ? callNameByToolUseId.get(el.toolUseId) : undefined,
-          });
-          break;
-        }
-        default:
-          elements.push(el);
       }
+    } else {
+      // Consecutive `text` elements are concatenated into one run BEFORE
+      // injected-content detection (mt#2791). The harness sometimes splits
+      // one logical injection across adjacent text sub-blocks in a turn's
+      // message content array — e.g. a skill invocation arrives as TWO
+      // parts: `<command-message>…</command-message><command-name>…</command-name>
+      // <skill-format>true</skill-format>` as one block, then
+      // "Base directory for this skill: <path>\n\n<body>" as the next
+      // (verified against a live transcript). Splitting each part in
+      // isolation misses the cross-element join: the first part fails the
+      // skill-body pattern (no "Base directory..." follows it WITHIN that
+      // block) and falls back to a bare "command:" match, leaking the raw
+      // `<skill-format>` tag as literal prose between two mis-split blocks.
+      // Concatenating the run first reconstructs the single contiguous
+      // string the harness effectively injected, so the pair renders as ONE
+      // correctly-labeled "skill body: <name>" block.
+      let textRun = "";
+      let hasTextRun = false;
+      const flushTextRun = () => {
+        if (!hasTextRun) return;
+        for (const seg of splitInjectedContent(textRun)) {
+          if (seg.type === "injected") {
+            elements.push({ kind: "injected", span: seg.span });
+          } else if (seg.text.trim().length > 0) {
+            // A mixed turn splits: only the injected span collapses, the
+            // genuine prose renders exactly as it would have unsplit.
+            elements.push({ kind: "text", text: seg.text });
+          }
+        }
+        textRun = "";
+        hasTextRun = false;
+      };
+
+      for (const el of turn.elements) {
+        switch (el.kind) {
+          case "text":
+            textRun += el.text;
+            hasTextRun = true;
+            break;
+          case "tool-call": {
+            flushTextRun();
+            const result = el.id ? resultById.get(el.id) : undefined;
+            elements.push({ kind: "tool-invocation", call: el, result });
+            break;
+          }
+          case "tool-result": {
+            flushTextRun();
+            const pairedInWindow = el.toolUseId ? callById.has(el.toolUseId) : false;
+            if (pairedInWindow) break;
+            elements.push({
+              kind: "tool-result-orphan",
+              result: el,
+              callName: el.toolUseId ? callNameByToolUseId.get(el.toolUseId) : undefined,
+            });
+            break;
+          }
+          default:
+            flushTextRun();
+            elements.push(el);
+        }
+      }
+      flushTextRun();
     }
+
     return {
       blockId: turn.blockId,
       role: turn.role,
@@ -460,6 +585,8 @@ function hasRenderablePreparedElement(el: PreparedElement): boolean {
       return el.text.trim().length > 0;
     case "thinking":
       return el.thinking.trim().length > 0;
+    // "injected" / "tool-invocation" / "tool-result-orphan" / "unknown" all
+    // fall to the default: always renderable (mirrors pre-mt#2791 behavior).
     default:
       return true;
   }
@@ -498,6 +625,10 @@ function ElementView({
     case "tool-result-orphan":
       return (
         <ToolResult element={element.result} callName={element.callName} entityIndex={entityIndex} />
+      );
+    case "injected":
+      return (
+        <InjectedContentBlock span={element.span} entityIndex={entityIndex} expandSignal={expandSignal} />
       );
     case "unknown":
       return (
