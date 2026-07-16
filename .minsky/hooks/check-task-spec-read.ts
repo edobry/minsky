@@ -155,10 +155,26 @@ export function specWasSurfaced(lines: TranscriptLine[], targetId: string): bool
 /**
  * True iff `targetId` was AUTHORED in this transcript — a same-transcript
  * spec-WRITING action credited as read-equivalent (mt#2814): a
- * {@link TASKS_CREATE_TOOL} call that supplied a non-empty `spec` body and
- * whose result reports the created task's id as `targetId`, OR a
- * {@link SPEC_PATCH_TOOL} / {@link SPEC_SEARCH_REPLACE_TOOL} call whose
- * `taskId` input matches `targetId`.
+ * {@link TASKS_CREATE_TOOL} call that supplied a non-empty `spec` body AND
+ * whose CORRELATED RESULT both explicitly confirms success and reports the
+ * created task's id as `targetId`, OR a {@link SPEC_PATCH_TOOL} /
+ * {@link SPEC_SEARCH_REPLACE_TOOL} call whose `taskId` input matches
+ * `targetId`.
+ *
+ * Server-side confirmation (PR #1982 review): the `tasks_create` credit does
+ * NOT rely on the call's local `spec` input alone as proof a spec was
+ * persisted — that input is merely what the CALLER asked for, not
+ * confirmation the domain layer accepted it. The gate also requires
+ * `result.success === true` in the correlated tool_result JSON. This is the
+ * strongest server-side signal actually available: the success response
+ * (`createSuccessResponse({ taskId, task, ... })`) does not echo the spec
+ * content back, so exact-content confirmation isn't obtainable from the
+ * transcript — but the domain command (`TasksCreateCommand.execute`) only
+ * ever reaches its success path AFTER `createTaskFromTitleAndSpec` persists
+ * the spec; any failure (including the empty-spec `ValidationError`) throws
+ * before a taskId is minted, so a result reporting BOTH `success === true`
+ * AND a matching `taskId` is not obtainable except via a real, accepted
+ * creation.
  *
  * Partial-edit decision (mt#2814, spec's open question — see
  * docs/architecture/hooks/bind-advance-spec-read-guard.md for the full
@@ -182,10 +198,16 @@ export function specWasAuthored(lines: TranscriptLine[], targetId: string): bool
     if (normalizeTaskId(input["taskId"]) === targetId) return true;
   }
 
-  for (const { input, createdId } of findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId")) {
+  for (const { input, createdId, result } of findCreatedResourceIds(
+    lines,
+    TASKS_CREATE_TOOL,
+    "taskId"
+  )) {
     const spec = input["spec"];
     if (typeof spec !== "string" || spec.trim() === "") continue;
-    if (createdId !== undefined && normalizeTaskId(createdId) === targetId) return true;
+    if (createdId === undefined || normalizeTaskId(createdId) !== targetId) continue;
+    if (result?.["success"] !== true) continue;
+    return true;
   }
 
   return false;

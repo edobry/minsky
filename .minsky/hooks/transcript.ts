@@ -391,19 +391,30 @@ export function findToolUseInputs(
 
 /**
  * Concatenate the text content of a `tool_result` block's `content` field.
- * `content` is either a plain string or an array of `{ type: "text", text }`
- * blocks (the shape observed in real Claude Code transcripts — see
- * {@link findCreatedResourceIds}). Non-text blocks are ignored; a malformed
- * or absent content contributes "".
+ * `content` is either a plain string or an array of blocks. The common shape
+ * observed in real Claude Code transcripts is `{ type: "text", text }`, but
+ * (PR #1982 review) matching is deliberately not pinned to `type === "text"`
+ * exactly — ANY block carrying a string `text` field is accepted, so a
+ * differently-tagged text block (a future harness format change, or an
+ * alternate MCP content-block variant) is not silently dropped. A block
+ * whose text is nested one level deeper — e.g. an embedded-resource-style
+ * `{ content: [...] }` wrapper — is recursed into once. Non-text, non-nested
+ * blocks are ignored; a malformed or absent content contributes "".
  */
 function extractToolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
     for (const block of content) {
-      if (block && typeof block === "object") {
-        const b = block as Record<string, unknown>;
-        if (b["type"] === "text" && typeof b["text"] === "string") parts.push(b["text"] as string);
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      if (typeof b["text"] === "string") {
+        parts.push(b["text"] as string);
+        continue;
+      }
+      if (b["content"] !== undefined) {
+        const nested = extractToolResultText(b["content"]);
+        if (nested) parts.push(nested);
       }
     }
     return parts.join("");
@@ -411,38 +422,44 @@ function extractToolResultText(content: unknown): string {
   return "";
 }
 
-/** JSON-parse `text` and read `idField` off the parsed object as a non-empty string, or undefined. */
-function extractIdField(text: string | undefined, idField: string): string | undefined {
+/**
+ * JSON-parse `text` into an object, or undefined if `text` is absent /
+ * unparseable / not a JSON object (e.g. an error-path plain-text result).
+ */
+function parseResultJson(text: string | undefined): Record<string, unknown> | undefined {
   if (!text) return undefined;
   try {
     const parsed: unknown = JSON.parse(text);
-    if (parsed && typeof parsed === "object") {
-      const val = (parsed as Record<string, unknown>)[idField];
-      if (typeof val === "string" && val.length > 0) return val;
-    }
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
   } catch {
-    // not JSON (e.g. an error-path plain-text result) — no id extractable
+    return undefined;
   }
-  return undefined;
 }
 
 /**
- * Extract every `tool_use` block for `toolName`, each paired with the id its
- * OWN JSON result reports under `idField` — for tools that MINT a new
- * resource id server-side rather than taking one as input (e.g.
- * `mcp__minsky__tasks_create`, which never receives a `taskId`: the backend
- * assigns one and returns it in the result). Contrast {@link findToolUseInputs},
- * which only reads the CALL's input and cannot see a server-assigned id.
+ * Extract every `tool_use` block for `toolName`, each paired with (a) its own
+ * call input, (b) the id its JSON result reports under `idField`, and (c) the
+ * full parsed result object — for tools that MINT a new resource id
+ * server-side rather than taking one as input (e.g. `mcp__minsky__tasks_create`,
+ * which never receives a `taskId`: the backend assigns one and returns it in
+ * the result). Contrast {@link findToolUseInputs}, which only reads the
+ * CALL's input and cannot see a server-assigned id or confirm the call
+ * actually succeeded.
  *
  * Correlation: Claude Code stamps every `tool_use` block with an `id`
  * (`toolu_...`); the matching outcome is a LATER user-role line whose
  * `message.content` array contains a `{ type: "tool_result", tool_use_id,
  * content }` block carrying that same id. `content` is JSON-parsed (via
- * {@link extractToolResultText} + {@link extractIdField}) and `idField` read
- * off the parsed object. A `tool_use` with no correlated result in `lines`,
- * or whose result isn't parseable JSON / lacks the field (including the
- * error-path case — a thrown command has no `taskId` in its result),
- * contributes `createdId: undefined` rather than throwing.
+ * {@link extractToolResultText} + {@link parseResultJson}). A `tool_use` with
+ * no correlated result in `lines`, or whose result isn't parseable JSON,
+ * contributes `createdId: undefined` and `result: undefined` rather than
+ * throwing; `createdId` is additionally `undefined` when the parsed result
+ * lacks a non-empty string at `idField` (including the error-path case — a
+ * thrown command's result has no `taskId`). Exposing the full `result` object
+ * (not just the extracted id) lets a caller apply its own additional
+ * server-side-confirmation checks — e.g. requiring `result.success === true`
+ * — without this generic helper needing tool-specific knowledge of what
+ * "confirmed" means for every possible `toolName`.
  *
  * Handles both transcript shapes for tool_use, mirroring
  * {@link findToolUseInputs}: a top-level `type === "tool_use"` line, or an
@@ -452,7 +469,11 @@ export function findCreatedResourceIds(
   lines: TranscriptLine[],
   toolName: string,
   idField: string
-): Array<{ input: Record<string, unknown>; createdId: string | undefined }> {
+): Array<{
+  input: Record<string, unknown>;
+  createdId: string | undefined;
+  result: Record<string, unknown> | undefined;
+}> {
   // Pass 1: tool_use_id -> concatenated result text, from every tool_result
   // block anywhere in the transcript (not scoped to toolName — a tool_result
   // only carries its correlating id, not the originating tool's name).
@@ -470,12 +491,19 @@ export function findCreatedResourceIds(
   }
 
   // Pass 2: tool_use blocks for toolName, resolving each against pass 1's map.
-  const results: Array<{ input: Record<string, unknown>; createdId: string | undefined }> = [];
+  const results: Array<{
+    input: Record<string, unknown>;
+    createdId: string | undefined;
+    result: Record<string, unknown> | undefined;
+  }> = [];
   const pushResult = (id: unknown, rawInput: unknown): void => {
     const input =
       rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
     const resultText = typeof id === "string" ? resultTextById.get(id) : undefined;
-    results.push({ input, createdId: extractIdField(resultText, idField) });
+    const result = parseResultJson(resultText);
+    const idValue = result?.[idField];
+    const createdId = typeof idValue === "string" && idValue.length > 0 ? idValue : undefined;
+    results.push({ input, createdId, result });
   };
   for (const line of lines) {
     if (line.type === "tool_use") {

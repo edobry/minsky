@@ -260,15 +260,71 @@ describe("findCreatedResourceIds", () => {
     expect(results).toHaveLength(1);
     expect(results[0]?.createdId).toBe("mt#2814");
     expect(results[0]?.input["spec"]).toBe("## Summary");
+    expect(results[0]?.result).toEqual({ success: true, taskId: "mt#2814", message: "created" });
   });
 
-  test("no correlated tool_result -> createdId undefined, never throws", () => {
+  test("no correlated tool_result -> createdId AND result undefined, never throws", () => {
     const lines: TranscriptLine[] = [
       assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
     ];
     const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
     expect(results).toHaveLength(1);
     expect(results[0]?.createdId).toBeUndefined();
+    expect(results[0]?.result).toBeUndefined();
+  });
+
+  // PR #1982 review: extractToolResultText is not pinned to `{ type: "text" }`
+  // exactly — any block carrying a string `text` field is accepted, so an
+  // alternately-tagged text block is not silently dropped.
+  test("tool_result block WITHOUT an explicit type field, but with a text property -> still parsed", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: "toolu_1",
+              type: "tool_result",
+              content: [{ text: JSON.stringify({ success: true, taskId: "mt#2814" }) }],
+            },
+          ],
+        },
+      },
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results[0]?.createdId).toBe("mt#2814");
+  });
+
+  // A block whose text is nested one level deeper (an embedded-resource-style
+  // `{ content: [...] }` wrapper) is recursed into once rather than dropped.
+  test("tool_result text nested inside a wrapper block's own content array -> still parsed", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: "toolu_1",
+              type: "tool_result",
+              content: [
+                {
+                  type: "resource",
+                  content: [
+                    { type: "text", text: JSON.stringify({ success: true, taskId: "mt#2814" }) },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results[0]?.createdId).toBe("mt#2814");
   });
 
   test("tool_result is non-JSON (error path) -> createdId undefined, never throws", () => {
@@ -410,6 +466,27 @@ describe("specWasAuthored", () => {
     const lines: TranscriptLine[] = [
       assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
       toolResultJson("toolu_1", { success: false, message: "--spec must be provided" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  // Server-side confirmation (PR #1982 review): a matching taskId alone is
+  // not sufficient — the correlated result must also explicitly report
+  // success:true. Guards against crediting authorship from a result that
+  // merely echoes an id-shaped field without confirming the create actually
+  // succeeded.
+  test("tasks_create result reports a matching taskId but NOT success:true -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      toolResultJson("toolu_1", { taskId: "mt#2814", message: "created" }), // no `success` field
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_create result has success:false but a (spurious) matching taskId -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      toolResultJson("toolu_1", { success: false, taskId: "mt#2814" }),
     ];
     expect(specWasAuthored(lines, "mt2814")).toBe(false);
   });

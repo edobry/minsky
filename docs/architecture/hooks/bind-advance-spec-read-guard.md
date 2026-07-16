@@ -65,19 +65,41 @@ read-equivalent, any of the following occurring **in the same transcript
 tree** as the guarded call:
 
 - `mcp__minsky__tasks_create` with a non-empty `spec` input, whose result
-  reports the created task's id (`taskId`) matching the target. Because
-  `tasks_create` never receives a `taskId` as INPUT — the backend mints one —
-  the correlation goes through the RESULT: `findCreatedResourceIds()` (added
-  to `transcript.ts`) pairs each `tool_use` block's Claude-Code-stamped
-  `id` (`toolu_...`) against the later `tool_result` block carrying the same
-  `tool_use_id`, JSON-parses that result's text content, and reads `taskId`
-  off it. An uncorrelated call (no result yet), a non-JSON result (the
-  command's own error path — `tasks.create` throws when `spec` is missing),
-  or a result lacking the field all resolve to "no created id" rather than
-  throwing.
+  BOTH explicitly confirms success AND reports the created task's id
+  (`taskId`) matching the target. Because `tasks_create` never receives a
+  `taskId` as INPUT — the backend mints one — the correlation goes through
+  the RESULT: `findCreatedResourceIds()` (added to `transcript.ts`) pairs
+  each `tool_use` block's Claude-Code-stamped `id` (`toolu_...`) against the
+  later `tool_result` block carrying the same `tool_use_id`, JSON-parses that
+  result's text content, and returns the FULL parsed result object alongside
+  the extracted `taskId`. An uncorrelated call (no result yet), a non-JSON
+  result (the command's own error path — `tasks.create` throws when `spec`
+  is missing), or a result lacking the field all resolve to "no created id"
+  rather than throwing.
+  - **Server-side confirmation (PR #1982 review).** The local `spec` input
+    alone is not trusted as proof a spec was persisted — that's what the
+    CALLER asked for, not confirmation the domain layer accepted it.
+    `specWasAuthored()` additionally requires `result.success === true` in
+    the correlated JSON. This is the strongest signal actually available in
+    the transcript: the success response
+    (`createSuccessResponse({ taskId, task, ... })`) does not echo the spec
+    content back, but `TasksCreateCommand.execute` only reaches its success
+    path AFTER `createTaskFromTitleAndSpec` persists the spec — any failure
+    (including the empty-spec `ValidationError`) throws before a `taskId` is
+    minted, so `success === true` co-occurring with a matching `taskId` is
+    not obtainable except via a real, accepted creation.
 - `mcp__minsky__tasks_spec_patch` whose `taskId` input matches the target.
 - `mcp__minsky__tasks_spec_search_replace` whose `taskId` input matches the
   target.
+
+**Result-parsing robustness (PR #1982 review).** `extractToolResultText()`
+(the helper that reads a `tool_result` block's text before JSON-parsing it)
+is deliberately not pinned to `{ type: "text" }` exactly — it accepts ANY
+block carrying a string `text` field, and recurses one level into a block
+that nests its text under its own `content` array (an embedded-resource-style
+wrapper). This guards against a differently-tagged or more deeply nested
+content shape silently under-crediting authorship and perpetuating the very
+false-positive class this change fixes.
 
 Evidence motivating this change: 3+ false-positive fires across two
 conversations in one week (session `ac4f5675`: mt#2774 and mt#2776, both
