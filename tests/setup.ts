@@ -6,8 +6,25 @@ import "reflect-metadata";
  * It mocks the logger to prevent console output noise during test runs.
  */
 
+// eslint-disable-next-line custom/no-real-fs-in-tests -- this is the test PRELOAD, not a test: it must create a REAL writable temp dir so any code path that writes Minsky state during tests lands somewhere harmless (a fake path would make fail-open writers degrade and change behavior under test)
+import { mkdtempSync } from "node:fs";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- see above; mkdtempSync guarantees per-run uniqueness, no race
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { mock } from "bun:test";
 import { mockLogger } from "../src/utils/test-utils/mock-logger";
+
+// State-dir isolation (mt#2872): any code path that resolves the Minsky state
+// dir (guard-health log, disconnect log, caches) must NEVER touch the
+// operator's real ~/.local/state/minsky during tests. A dispatcher test that
+// exercised a throwing guard without overriding the default recorder wrote
+// fixture rows (guard "throws", error "boom") into the REAL guard-health log,
+// firing a CRITICAL operator escalation for a guard that doesn't exist.
+// Point MINSKY_STATE_DIR at a per-run temp dir unless the invoker already set
+// one (individual tests still set/restore their own for path-specific cases).
+if (!process.env.MINSKY_STATE_DIR) {
+  process.env.MINSKY_STATE_DIR = mkdtempSync(join(tmpdir(), "minsky-test-state-"));
+}
 
 // Global test setup - logger mocks apply to all tests
 // Use Bun's mock system to replace the logger module
