@@ -5595,7 +5595,7 @@
         },
         {
           "name": "get",
-          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Return all turns for a harness conversation in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Optionally filter to a role ('user' or 'assistant', mt#2818) and/or request a lean text-only projection (projection: 'text') that excludes tool-call payloads (already excluded from userText/assistantText by construction) and strips/flags detectable harness-injected markup (system-reminder / command wrappers — heuristic, see docs). Throws if the conversation is not found. Coverage: conversations are auto-ingested on MCP server boot; if a conversation is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--conversation-id"],
@@ -5611,6 +5611,33 @@
               "flags": ["--turn-range"],
               "description": "Inclusive turn index range in 'start-end' format (e.g. '10-20'). Returns only turns with turn_index between start and end (inclusive).",
               "takesValue": true
+            },
+            {
+              "flags": ["--role"],
+              "description": "Filter to turns by role: 'user' returns only turns with a non-null userText; 'assistant' returns only turns with a non-null assistantText.",
+              "takesValue": true,
+              "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--projection"],
+              "description": "'full' (default) returns the structured TranscriptTurnResult[] shape (session metadata, timestamps, spawn-boundary flag). 'text' returns a lean { turnIndex, role, text, injected }[] — see the command description for the injected-markup heuristic and its documented limits.",
+              "takesValue": true,
+              "values": ["full", "text"]
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "description": "List recent harness conversations, most-recent-first, with summary metadata: turn count, first/last turn timestamps, an mt#2770 content-derived label, LLM summary (when generated), and workspace/task linkage where known. Zero disk access by default (see checkDiskCoverage for the opt-in disk-discovery sweep). Loud-cap truncation metadata (mt#2817): { returned, total, truncated }. Coverage: reports whether a disk-discovery sweep ran, and surfaces lastIngestedJsonlTimestamp per conversation so staleness is never silently invisible.",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of conversations to return (default: 500)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--check-disk-coverage"],
+              "description": "Opt into a live on-disk discovery sweep (reuses the same discovery the ingest sweep uses) to detect conversations that exist on disk but have never been ingested. Off by default — this touches disk (stats every project dir, reads JSONL heads for cwd recovery) and is NOT part of the tool's zero-disk-access default contract."
             }
           ]
         }

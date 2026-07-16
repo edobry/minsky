@@ -13,8 +13,8 @@
  * derived `label` (mt#2770 — conversation labeling). Self-fetching via
  * TanStack Query on the React side — no app-level polling.
  *
- * Label precedence (mt#2770 — see `../conversation-label.ts` for the pure
- * decision logic):
+ * Label precedence (mt#2770 — see `@minsky/domain/transcripts/conversation-label.ts`
+ * for the pure decision logic, lifted to the domain layer by mt#2818):
  *   1. Bound task title, via `minsky_session_links` -> `sessions` -> task
  *      backend. `minsky_session_links` is sparse until mt#2441/mt#2756 land
  *      writers for it — an empty/missing link is NOT an error, it's just a
@@ -24,7 +24,7 @@
  *      first turn (e.g. a bare slash-command `<command-message>` invocation)
  *      is skipped in favor of the next real user turn — see
  *      `pickSubstantiveUserText` / `MAX_USER_TURN_CANDIDATES` in
- *      `../conversation-label.ts` (mt#2784).
+ *      `@minsky/domain/transcripts/conversation-label.ts` (mt#2784).
  *   3. Subagent dispatch descriptor, composed from `agent_spawns` /
  *      `subagent_invocations` where resolvable.
  *   4. The original timestamp·cwd·id fallback (unchanged).
@@ -61,12 +61,14 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import type { WorkspaceId } from "@minsky/domain/ids";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
+// mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
+// shared command import the SAME mt#2770 precedence decision.
 import {
   computeConversationLabel,
   composeSubagentDescriptor,
   deriveFallbackLabel,
   pickSubstantiveUserText,
-} from "../conversation-label";
+} from "@minsky/domain/transcripts/conversation-label";
 
 /** Shape of a single session-picker row */
 export interface ContextInspectorSessionRow {
@@ -78,7 +80,7 @@ export interface ContextInspectorSessionRow {
   /**
    * Human-readable label — precedence: bound task title, first-user-prompt
    * snippet, subagent dispatch descriptor, timestamp·cwd·id fallback. See the
-   * module docblock above and `../conversation-label.ts` (mt#2770).
+   * module docblock above and `@minsky/domain/transcripts/conversation-label.ts` (mt#2770).
    */
   label: string;
 }

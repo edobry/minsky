@@ -14,6 +14,16 @@
  * markup, not operator prose, so the whole block (tag markers AND contained
  * text) is discarded — the same "discard the block" treatment already
  * applied to fenced code above, not a partial unwrap.
+ *
+ * mt#2818 lifted this module from `src/cockpit/text-snippet.ts` into the
+ * domain layer (`packages/domain/src/transcripts/`) so BOTH the cockpit app
+ * (mt#2770's conversation labels) and the shared-command layer
+ * (`transcripts_get`'s text projection) import the SAME
+ * {@link stripHarnessMarkup} heuristic instead of the command layer
+ * depending on cockpit's app layer (or vice versa). The old
+ * `src/cockpit/text-snippet.ts` copy was deleted; cockpit consumers
+ * (`widgets/context-inspector.ts`, `widgets/run-merge.ts`) now import
+ * directly from this module.
  */
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
@@ -39,6 +49,12 @@ const HARNESS_WRAPPER_TAGS = [
  * BEFORE {@link stripMarkdown} in {@link toDisplaySnippet} so a slash-command
  * turn like `<command-message>error-handling</command-message>` reduces to
  * an empty string rather than leaking raw XML into a label.
+ *
+ * **Heuristic limits** (mt#2818): this is a FIXED tag allowlist (the four
+ * names above), not a general parser. A harness-injected wrapper using a tag
+ * name outside this list is NOT detected and passes through unflagged. It is
+ * also a regex match, not a real XML/HTML parser, so pathological
+ * malformed/nested tags could mismatch.
  */
 export function stripHarnessMarkup(text: string): string {
   let s = text;
