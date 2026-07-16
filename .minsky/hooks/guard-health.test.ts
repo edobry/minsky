@@ -310,7 +310,7 @@ describe("computeGuardHealthSummary", () => {
     expect(summary.escalation).toBe("critical");
   });
 
-  test("errorCount24h / errorCount7d window correctly", () => {
+  test("failureCount24h / failureCount7d window correctly", () => {
     const now = new Date("2026-07-14T12:00:00.000Z");
     const summary = computeGuardHealthSummary(
       [
@@ -320,8 +320,8 @@ describe("computeGuardHealthSummary", () => {
       ],
       now
     );
-    expect(summary.byGuard["test-guard"]?.errorCount24h).toBe(1);
-    expect(summary.byGuard["test-guard"]?.errorCount7d).toBe(2);
+    expect(summary.byGuard["test-guard"]?.failureCount24h).toBe(1);
+    expect(summary.byGuard["test-guard"]?.failureCount7d).toBe(2);
   });
 });
 

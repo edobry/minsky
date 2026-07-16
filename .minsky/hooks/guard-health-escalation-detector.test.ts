@@ -37,8 +37,8 @@ describe("buildCriticalWarning", () => {
     const summary: GuardHealthSummary = {
       byGuard: {
         "some-guard": {
-          errorCount24h: 2,
-          errorCount7d: 2,
+          failureCount24h: 2,
+          failureCount7d: 2,
           consecutiveStreak: 2,
           lastEvent: null,
           escalation: "attention",
@@ -56,8 +56,8 @@ describe("buildCriticalWarning", () => {
     const summary: GuardHealthSummary = {
       byGuard: {
         [guardName]: {
-          errorCount24h: 18,
-          errorCount7d: 18,
+          failureCount24h: 18,
+          failureCount7d: 18,
           consecutiveStreak: 18,
           lastEvent: {
             timestamp: "2026-07-14T10:00:00.000Z",
@@ -86,15 +86,15 @@ describe("buildCriticalWarning", () => {
     const summary: GuardHealthSummary = {
       byGuard: {
         "guard-a": {
-          errorCount24h: 3,
-          errorCount7d: 3,
+          failureCount24h: 3,
+          failureCount7d: 3,
           consecutiveStreak: 3,
           lastEvent: null,
           escalation: "critical",
         },
         "guard-b": {
-          errorCount24h: 4,
-          errorCount7d: 4,
+          failureCount24h: 4,
+          failureCount7d: 4,
           consecutiveStreak: 4,
           lastEvent: null,
           escalation: "critical",

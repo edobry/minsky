@@ -21,7 +21,7 @@
 //       reference wiring).
 //
 // Read side: computeGuardHealthSummary() aggregates the on-disk JSONL log
-// into per-guard error counts (24h/7d), consecutive-failure streaks, and an
+// into per-guard failure counts (24h/7d, errors + check-skips), consecutive-failure streaks, and an
 // escalation tier (none | attention | critical). Guard processes are
 // SHORT-LIVED — one fresh Bun process per hook event, not a long-running
 // server — so unlike disconnect-tracker's in-memory ring buffer (built up
@@ -275,8 +275,8 @@ export const CRITICAL_STREAK_THRESHOLD = 2;
 export type GuardEscalation = "none" | "attention" | "critical";
 
 export interface GuardHealthEntry {
-  errorCount24h: number;
-  errorCount7d: number;
+  failureCount24h: number;
+  failureCount7d: number;
   /** Consecutive-failure streak (see STREAK_RESET_GAP_MS for the reset rule). */
   consecutiveStreak: number;
   lastEvent: GuardHealthEvent | null;
@@ -326,8 +326,10 @@ export function computeGuardHealthSummary(
     const sorted = [...guardEvents].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
-    const errorCount24h = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff24h).length;
-    const errorCount7d = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff7d).length;
+    const failureCount24h = sorted.filter(
+      (e) => new Date(e.timestamp).getTime() >= cutoff24h
+    ).length;
+    const failureCount7d = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff7d).length;
 
     let streak = sorted.length > 0 ? 1 : 0;
     for (let i = sorted.length - 1; i > 0; i--) {
@@ -346,8 +348,8 @@ export function computeGuardHealthSummary(
     const lastEvent = sorted.length > 0 ? (sorted[sorted.length - 1] ?? null) : null;
 
     byGuard[guardName] = {
-      errorCount24h,
-      errorCount7d,
+      failureCount24h,
+      failureCount7d,
       consecutiveStreak: streak,
       lastEvent,
       escalation,

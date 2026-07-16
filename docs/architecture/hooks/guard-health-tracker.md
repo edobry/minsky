@@ -48,7 +48,7 @@ working even when the main codebase has type errors). Exports:
 - `readGuardHealthEvents(options?)` — parse the on-disk JSONL log, skipping malformed lines.
   Missing file or read error resolves to `[]`, never a throw.
 - `computeGuardHealthSummary(events, now)` — the pure aggregation core (fault-injection test
-  target): per-guard error counts (24h/7d) and a **consecutive-failure streak**.
+  target): per-guard failure counts (24h/7d, errors + check-skips) and a **consecutive-failure streak**.
 - `getGuardHealthSummary(options?)` — convenience wrapper: read + aggregate, fail-safe.
 
 **Persisted event shape:** `{ timestamp, guardName, event, kind: "error" | "check-skip",

@@ -83,8 +83,8 @@ export const CRITICAL_STREAK_THRESHOLD = 2;
 export type GuardEscalation = "none" | "attention" | "critical";
 
 export interface GuardHealthEntry {
-  errorCount24h: number;
-  errorCount7d: number;
+  failureCount24h: number;
+  failureCount7d: number;
   consecutiveStreak: number;
   lastEvent: GuardHealthEvent | null;
   escalation: GuardEscalation;
@@ -127,8 +127,10 @@ export function computeGuardHealthSummary(
     const sorted = [...guardEvents].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
-    const errorCount24h = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff24h).length;
-    const errorCount7d = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff7d).length;
+    const failureCount24h = sorted.filter(
+      (e) => new Date(e.timestamp).getTime() >= cutoff24h
+    ).length;
+    const failureCount7d = sorted.filter((e) => new Date(e.timestamp).getTime() >= cutoff7d).length;
 
     let streak = sorted.length > 0 ? 1 : 0;
     for (let i = sorted.length - 1; i > 0; i--) {
@@ -147,8 +149,8 @@ export function computeGuardHealthSummary(
     const lastEvent = sorted.length > 0 ? (sorted[sorted.length - 1] ?? null) : null;
 
     byGuard[guardName] = {
-      errorCount24h,
-      errorCount7d,
+      failureCount24h,
+      failureCount7d,
       consecutiveStreak: streak,
       lastEvent,
       escalation,

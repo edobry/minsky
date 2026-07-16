@@ -238,7 +238,7 @@ export function registerDebugCommands(): void {
            * call the shared recordGuardError/recordGuardCheckSkip helper
            * (.minsky/hooks/guard-health.ts) directly.
            *
-           * `byGuard[name]` — per-guard error counts (24h/7d), consecutive-
+           * `byGuard[name]` — per-guard failure counts (24h/7d, errors + check-skips), consecutive-
            * failure streak, and that guard's own escalation tier.
            * `criticalGuards` / `attentionGuards` — guard names currently at
            * each tier (disjoint sets).

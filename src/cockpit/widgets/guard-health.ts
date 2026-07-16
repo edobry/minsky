@@ -16,7 +16,7 @@ import { GuardHealthTracker } from "../../mcp/guard-health-tracker";
 export const guardHealthWidget: WidgetModule = {
   id: "guard-health",
   title: "Guard Health",
-  updateMode: { type: "polling", intervalMs: 30_000 },
+  updateMode: { type: "polling", intervalMs: 15_000 },
   async fetch(_ctx: WidgetContext): Promise<WidgetData> {
     try {
       const payload = GuardHealthTracker.getInstance().getSummary();
