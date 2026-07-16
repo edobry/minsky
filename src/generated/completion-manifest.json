@@ -4874,7 +4874,7 @@
               "options": [
                 {
                   "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
                 },
                 {
@@ -4895,7 +4895,7 @@
               "options": [
                 {
                   "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
                 }
               ]
@@ -4916,7 +4916,7 @@
                 },
                 {
                   "flags": ["--service"],
-                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service, a 'deployment.defaultService' config key is set, or the tool is running inside the target Railway service (RAILWAY_SERVICE_ID match). Otherwise required — the resulting error lists every candidate.",
                   "takesValue": true
                 }
               ]

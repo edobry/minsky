@@ -2,15 +2,18 @@
  * Service-name → DeploymentConfig resolver.
  *
  * Reads `services/<svc>/deploy.config.ts` files. Resolution rules (per
- * docs/deployment-platforms.md):
+ * docs/deployment-platforms.md, extended by mt#2821):
  *
  *   1. If `service` is passed, load `services/<service>/deploy.config.ts`.
  *   2. If `service` is omitted AND the project has exactly one deploy.config.ts,
  *      use it.
- *   3. If `service` is omitted AND multiple are present, throw a typed error
- *      listing the available services.
+ *   3. If `service` is omitted AND multiple are present, try a configured
+ *      default service (`options.configuredDefaultService`), then
+ *      unambiguous runtime inference (`inferRunningService`).
+ *   4. If neither resolves, throw a typed error listing every candidate
+ *      service name.
  *
- * Tracking task: mt#1730.
+ * Tracking task: mt#1730. Multi-service disambiguation: mt#2821.
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -104,15 +107,76 @@ async function loadDeploymentConfig(
 }
 
 /**
- * Resolve a service name (or auto-select when there's exactly one) into a
- * loaded DeploymentConfig.
+ * Options for the multi-service disambiguation fallbacks (mt#2821).
+ */
+export interface ResolveDeploymentConfigOptions {
+  /**
+   * A configured default service name (from Minsky's EXISTING config
+   * surface — `deployment.defaultService`, read via
+   * `getConfigurationProvider()` — see
+   * `src/adapters/shared/commands/deployment.ts`). Checked when `service`
+   * is omitted and multiple candidates exist. Passed in as a plain value
+   * (rather than read here) so this module has zero dependency on the
+   * configuration system and stays trivially unit-testable without
+   * initializing the global config provider.
+   */
+  configuredDefaultService?: string;
+}
+
+/**
+ * Best-effort match of the CURRENTLY RUNNING process against one of the
+ * candidate services' declared Railway `serviceId`, using the
+ * platform-injected `RAILWAY_SERVICE_ID` environment variable — a standard
+ * Railway system variable (https://docs.railway.com/variables/reference),
+ * automatically present in every Railway-hosted container, naming that
+ * container's OWN service. This is genuinely unambiguous (the platform's
+ * ground truth for "which service am I", not a guess) and requires no
+ * configuration: it naturally no-ops for local/dev invocations, where the
+ * variable is absent, falling through to the ambiguity error.
+ *
+ * Exported for direct unit testing.
+ */
+export async function inferRunningService(
+  available: string[],
+  projectRoot: string
+): Promise<{ service: string; config: DeploymentConfig } | undefined> {
+  const runningServiceId = process.env.RAILWAY_SERVICE_ID;
+  if (!runningServiceId) return undefined;
+
+  for (const candidate of available) {
+    let config: DeploymentConfig;
+    try {
+      config = await loadDeploymentConfig(candidate, projectRoot);
+    } catch {
+      continue;
+    }
+    if (config.platform === "railway" && config.railway.serviceId === runningServiceId) {
+      return { service: candidate, config };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a service name into a loaded DeploymentConfig.
+ *
+ * Resolution order when `service` is omitted (per
+ * docs/deployment-platforms.md, extended by mt#2821):
+ *   1. Exactly one `deploy.config.ts` exists — auto-select it.
+ *   2. Multiple exist — try `options.configuredDefaultService`.
+ *   3. Multiple exist and no configured default matched — try
+ *      `inferRunningService` (RAILWAY_SERVICE_ID match).
+ *   4. Otherwise — throw `AmbiguousDeploymentServiceError` listing every
+ *      candidate service name.
  *
  * @param service       Explicit service name, or undefined for auto-select.
  * @param projectRoot   Project root (default: cwd).
+ * @param options       Multi-service disambiguation fallbacks (mt#2821).
  */
 export async function resolveDeploymentConfig(
   service: string | undefined,
-  projectRoot: string = process.cwd()
+  projectRoot: string = process.cwd(),
+  options: ResolveDeploymentConfigOptions = {}
 ): Promise<{ service: string; config: DeploymentConfig }> {
   if (service) {
     const config = await loadDeploymentConfig(service, projectRoot);
@@ -123,14 +187,29 @@ export async function resolveDeploymentConfig(
   if (available.length === 0) {
     throw new NoDeploymentServicesError(resolveServicesDir(projectRoot));
   }
-  if (available.length > 1) {
-    throw new AmbiguousDeploymentServiceError(available);
+
+  if (available.length === 1) {
+    const [onlyService] = available;
+    if (!onlyService) {
+      // Defensive — listServicesWithDeployConfig already returned length-1 here.
+      throw new NoDeploymentServicesError(resolveServicesDir(projectRoot));
+    }
+    const config = await loadDeploymentConfig(onlyService, projectRoot);
+    return { service: onlyService, config };
   }
-  const [onlyService] = available;
-  if (!onlyService) {
-    // Defensive — listServicesWithDeployConfig already returned length-1 here.
-    throw new NoDeploymentServicesError(resolveServicesDir(projectRoot));
+
+  // Multiple candidates and no explicit service (mt#2821): try the
+  // configured default, then unambiguous runtime inference, before giving
+  // up with the ambiguity error (which lists every candidate).
+  if (options.configuredDefaultService && available.includes(options.configuredDefaultService)) {
+    const config = await loadDeploymentConfig(options.configuredDefaultService, projectRoot);
+    return { service: options.configuredDefaultService, config };
   }
-  const config = await loadDeploymentConfig(onlyService, projectRoot);
-  return { service: onlyService, config };
+
+  const inferred = await inferRunningService(available, projectRoot);
+  if (inferred) {
+    return inferred;
+  }
+
+  throw new AmbiguousDeploymentServiceError(available);
 }

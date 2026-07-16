@@ -60,6 +60,8 @@ import {
 
 import { projectConfigSchema, type ProjectConfig } from "./project";
 
+import { deploymentConfigSchema, type DeploymentSectionConfig } from "./deployment";
+
 /**
  * Complete application configuration schema
  *
@@ -141,6 +143,9 @@ export const configurationSchema = z.object({
   // Project identity configuration (mt#2414 — Phase 1.1 of mt#2391)
   // Stamped by `minsky init` / `minsky setup` with the project slug.
   project: projectConfigSchema,
+
+  // Deployment-tooling configuration (mt#2821 — default-service disambiguation)
+  deployment: deploymentConfigSchema,
 });
 
 /**
@@ -198,6 +203,7 @@ export type {
   ObservabilityProviderConfig,
   ObservabilityProvidersConfig,
   ProjectConfig,
+  DeploymentSectionConfig,
 };
 
 // Re-export schemas for external use
@@ -224,6 +230,7 @@ export {
   oauthProviderSchema,
   observabilityConfigSchema,
   projectConfigSchema,
+  deploymentConfigSchema,
 };
 
 // Export the main schema as default
