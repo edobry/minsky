@@ -261,10 +261,14 @@ export interface GuardRegistration {
 // block's relative order — auto-session-title .. mcp-daemon-staleness-detector
 // (Phase 2b's 8), THEN the Phase 2a dispatcher's original slot (the six
 // guidance detectors, which took `substrate-bypass-detector`'s position when
-// Phase 2a folded them in), THEN calibration-review-cadence-detector (which
-// sat AFTER the Phase 2a dispatcher slot in settings.json). `runDispatcher`
-// concatenates `additionalContext` fragments in registry-array order, so
-// resorting this array resorts what operators see.
+// Phase 2a folded them in). `runDispatcher` concatenates `additionalContext`
+// fragments in registry-array order, so resorting this array resorts what
+// operators see. mt#2812 x mt#2824 merge (2026-07-16): guard-health-
+// escalation-detector (mt#2812) and silent-stretch-detector (mt#2824) were
+// each independently authored to land right after calibration-review-
+// cadence-detector; both are appended here, BEFORE calibration-review-
+// cadence-detector, which is relocated to stay the true last entry (its
+// documented invariant — see the comment on that registration below).
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
     name: "check-guessed-session-path",
@@ -392,17 +396,6 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     needsTranscript: true,
   },
   // -------------------------------------------------------------------------
-  // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
-  // Phase 2a dispatcher slot in the pre-migration settings.json order.
-  // -------------------------------------------------------------------------
-  {
-    name: "calibration-review-cadence-detector",
-    event: "UserPromptSubmit",
-    module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    denyCapable: false,
-  },
-  // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
   // Reads the guard-health JSONL log (a pure fs read + string compare, no
   // network/git calls) and injects a warning when any guard has reached
@@ -413,6 +406,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     event: "UserPromptSubmit",
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
+    denyCapable: false,
+  },
+  // -------------------------------------------------------------------------
+  // mt#2824 — silent-stretch heartbeat detector. New guard authored directly
+  // onto this framework (not a migrated legacy standalone hook), so it has
+  // no bespoke pre-migration settings.json slot to preserve ordering for.
+  // Needs transcriptLines (D6) to walk the just-completed turn for
+  // tool-only silence.
+  // -------------------------------------------------------------------------
+  {
+    name: "silent-stretch-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./silent-stretch-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "silent-stretch",
+    denyCapable: false,
+    needsTranscript: true,
+  },
+  // -------------------------------------------------------------------------
+  // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
+  // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
+  // as the LAST entry across the mt#2812 x mt#2824 merge (2026-07-16): both
+  // new guards above were independently appended right after this entry on
+  // their respective branches; re-appending it last here preserves the
+  // documented invariant
+  // (docs/architecture/hooks/calibration-review-cadence-detector.md: "the
+  // LAST entry") through the additive merge of both new guards.
+  // -------------------------------------------------------------------------
+  {
+    name: "calibration-review-cadence-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
     denyCapable: false,
   },
 ];

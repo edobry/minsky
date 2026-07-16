@@ -282,6 +282,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_MERGE_GRANT_CHECK", // .claude/hooks/block-subagent-merge-without-grant.ts (mt#2651) — override for the ADR-028 D5 subagent merge-capability-grant guard
   "MINSKY_HOOK_OVERRIDE", // .claude/hooks/dispatcher.ts (mt#2650) — ADR-028 D3 unified guard-dispatcher override (comma-separated guard names, or "all")
   "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md)
+  "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
 ]);
 
 /**

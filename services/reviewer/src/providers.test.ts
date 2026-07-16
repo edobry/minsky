@@ -9,7 +9,7 @@ import {
 import type OpenAI from "openai";
 import type { ReviewerToolContext } from "./tools";
 import type { ReviewToolCall } from "./output-tools";
-import { captureConsoleLogs } from "./test-helpers/log-capture";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 describe("isReasoningModel", () => {
   describe("o-series reasoning models", () => {
@@ -852,6 +852,228 @@ describe("callOpenAIWithClient output tool accumulation (mt#1399)", () => {
     expect(result.toolCalls).toBeDefined();
     expect(Array.isArray(result.toolCalls)).toBe(true);
     expect(result.toolCalls).toHaveLength(0);
+  });
+});
+
+// ----- conclude_review forcing function (mt#2828) -----
+//
+// Integration coverage for the service-layer forcing function wired into the
+// tool-use loop (conclude-review-guard.ts's evaluateConcludeReviewCall). Unit
+// coverage for the pure decision function itself lives in
+// conclude-review-guard.test.ts; these tests verify the actual in-loop
+// behavior: a rejected call returns a corrective tool-result error instead of
+// being accumulated, the model can self-correct within the SAME review, and
+// the bound-exhausted case falls through to let the mt#2685 recovery pass
+// backstop it. Model responses here are simulated fixtures run through the
+// exact same production code path (`callOpenAIWithClient`) that
+// `review-worker.ts` / `review-finalize.ts` call in production — this is the
+// mt#2828 spec's "simulated model-response fixture through the finalize path"
+// execution evidence.
+
+describe("callOpenAIWithClient conclude_review forcing function (mt#2828)", () => {
+  const MODEL = "gpt-5";
+  const REJECTED_EVENT = "reviewer.conclude_review_rejected_zero_findings";
+  const BOUND_EXHAUSTED_EVENT = "reviewer.conclude_review_zero_findings_bound_exhausted";
+
+  const makeUsage = (prompt = 100, completion = 50) => ({
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    completion_tokens_details: { reasoning_tokens: 0 },
+  });
+
+  const VALID_FINDING_ARGS = JSON.stringify({
+    severity: "BLOCKING",
+    file: "src/foo.ts",
+    line: 10,
+    summary: "Null deref",
+    details: "May crash at runtime.",
+  });
+
+  const REQUEST_CHANGES_ARGS = JSON.stringify({
+    event: "REQUEST_CHANGES",
+    summary: "Blocking issues found in this round.",
+  });
+
+  const APPROVE_ARGS = JSON.stringify({
+    event: "APPROVE",
+    summary: "Nothing to flag this round.",
+  });
+
+  function makeOutputToolCall(id: string, name: string, argsJson: string) {
+    return {
+      id,
+      type: "function",
+      function: { name, arguments: argsJson },
+    };
+  }
+
+  function makeFakeClient(
+    responses: Array<{
+      choices: Array<{ message: { content: string | null; tool_calls?: unknown[] } }>;
+      usage?: ReturnType<typeof makeUsage>;
+    }>
+  ): { client: OpenAI } {
+    let callCount = 0;
+    const client = {
+      chat: {
+        completions: {
+          create: async (_params: { messages: unknown[] }) => {
+            return responses[callCount++];
+          },
+        },
+      },
+    } as unknown as OpenAI;
+    return { client };
+  }
+
+  const defaultTools: ReviewerToolContext = {
+    readFile: mock(async () => null),
+    listDirectory: mock(async () => null),
+  };
+
+  test("rejects REQUEST_CHANGES with zero findings, model self-corrects on retry, call accepted", async () => {
+    const { client } = makeFakeClient([
+      // Round 1: an incoherent conclude_review (REQUEST_CHANGES, zero
+      // findings so far) — nothing else. The unrelated post-loop forced
+      // doc-impact pass also fires here (no submit_documentation_impact call
+      // in this fixture); it fails against the fake client's exhausted
+      // response queue and is swallowed, same as the sibling "output tool
+      // accumulation" tests above that don't stage a doc-impact response.
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("cr1", "conclude_review", REQUEST_CHANGES_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 2: model self-corrects — submits the BLOCKING finding it
+      // described in prose, then re-calls conclude_review.
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall("sf1", "submit_finding", VALID_FINDING_ARGS),
+                makeOutputToolCall("cr2", "conclude_review", REQUEST_CHANGES_ARGS),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 3: model exits.
+      {
+        choices: [{ message: { content: "done" } }],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { logs, restore } = captureConsoleLogs();
+    let result: Awaited<ReturnType<typeof callOpenAIWithClient>>;
+    try {
+      result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+    } finally {
+      restore();
+    }
+
+    // The rejected conclude_review call was NOT accumulated; the retried one was.
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+    expect(result.toolCalls[1]?.name).toBe("conclude_review");
+
+    expect(result.concludeReviewGuard).toEqual({ rejectionCount: 1, boundExhausted: false });
+
+    const rejectedEvent = findLogEvent(logs, REJECTED_EVENT);
+    expect(rejectedEvent).not.toBeNull();
+    expect(rejectedEvent?.["rejectionCount"]).toBe(1);
+    expect(findLogEvent(logs, BOUND_EXHAUSTED_EVENT)).toBeNull();
+  });
+
+  test("bound exhausted: 3rd incoherent REQUEST_CHANGES call is accepted with zero findings", async () => {
+    const requestChangesRound = () => ({
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [makeOutputToolCall("cr", "conclude_review", REQUEST_CHANGES_ARGS)],
+          },
+        },
+      ],
+      usage: makeUsage(),
+    });
+
+    const { client } = makeFakeClient([
+      requestChangesRound(), // rejected (rejectionCount 1)
+      requestChangesRound(), // rejected (rejectionCount 2, the default bound)
+      requestChangesRound(), // bound exhausted — accepted with zero findings
+      // The accepted conclude_review call doesn't itself stop the tool-use
+      // loop — the model still needs to exit voluntarily (or hit the round
+      // cap) on a subsequent round.
+      { choices: [{ message: { content: "done" } }], usage: makeUsage() },
+    ]);
+
+    const { logs, restore } = captureConsoleLogs();
+    let result: Awaited<ReturnType<typeof callOpenAIWithClient>>;
+    try {
+      result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+    } finally {
+      restore();
+    }
+
+    // The 3rd call was accepted (incoherent — zero BLOCKING findings) so the
+    // mt#2685 recovery pass is the backstop for it downstream.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("conclude_review");
+    expect(result.concludeReviewGuard).toEqual({ rejectionCount: 2, boundExhausted: true });
+
+    const rejectionEvents = logs
+      .map((l) => {
+        try {
+          return JSON.parse(l) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is Record<string, unknown> => e !== null && e["event"] === REJECTED_EVENT);
+    expect(rejectionEvents).toHaveLength(2);
+
+    expect(findLogEvent(logs, BOUND_EXHAUSTED_EVENT)).not.toBeNull();
+  });
+
+  test("regression: APPROVE with zero findings is never rejected", async () => {
+    const { client } = makeFakeClient([
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("cr1", "conclude_review", APPROVE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      { choices: [{ message: { content: "done" } }], usage: makeUsage() },
+    ]);
+
+    const { logs, restore } = captureConsoleLogs();
+    let result: Awaited<ReturnType<typeof callOpenAIWithClient>>;
+    try {
+      result = await callOpenAIWithClient(client, MODEL, "system", "user", defaultTools);
+    } finally {
+      restore();
+    }
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("conclude_review");
+    expect(result.concludeReviewGuard).toEqual({ rejectionCount: 0, boundExhausted: false });
+    expect(findLogEvent(logs, REJECTED_EVENT)).toBeNull();
   });
 });
 

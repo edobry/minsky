@@ -25,9 +25,10 @@ doc); narration lives in the linked doc.
 A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
 entrypoints) so multiple guards share ONE spawned Bun process per event; only
 `GUARD_REGISTRY`-listed guards run through it. Migrated: `check-guessed-session-path` (Phase 1, mt#2650);
-the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc) plus
-`guard-health-escalation-detector` (mt#2812, a new guard registered directly, not part of the
-Phase 2 legacy-settings.json migration — 16 guards total in this family as of mt#2812).
+the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc), plus
+`guard-health-escalation-detector` (mt#2812) and `silent-stretch-detector` (mt#2824), each
+authored directly onto the framework rather than migrated from a prior standalone
+registration — 17 guards in the family as of the mt#2812 x mt#2824 merge.
 `policy-coverage-detector` is NOT in this family: it is registered on
 `PreToolUse` (both phases' specs named it — recorded spec discrepancy). Every other guard
 below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md`, ADR-028.
@@ -301,3 +302,15 @@ erroring (owner: the evaluation-loop RFC, mt#2589/mt#2597); out-of-process death
 `process.exit()` killing the dispatcher mid-loop (owner: mt#2835's `guard-entrypoint-gate.test.ts`
 + `dispatch-userpromptsubmit.e2e.test.ts`).
 Doc: `guard-health-tracker.md`.
+
+## Silent-Stretch Detector (calibration)
+
+UserPromptSubmit (v1 calibration-only, no injection): measures the just-completed turn for a
+tool-only silent stretch — no assistant TEXT output — and logs a record when it crossed 10 minutes
+of wall-clock silence OR 15 consecutive tool calls, whichever first (mt#2824). Pairs with the
+`§Progress heartbeats` discipline bullet in `user-preferences.mdc` (the agent-side narration
+requirement this detector calibrates); sibling to `inject-dispatch-watchdog.ts` (that guard covers
+SUBAGENT silence from the dispatching agent's side; this one covers the MAIN agent's own silence).
+Hook: `silent-stretch-detector.ts`. Log: `.minsky/silent-stretch-calibration.jsonl`. Override:
+`MINSKY_SKIP_SILENT_STRETCH=1`. Fail: open on transcript error or missing `transcript_path`.
+Doc: `silent-stretch-detector.md`.
