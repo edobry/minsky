@@ -13,18 +13,28 @@
  * same mechanism the retired `/conversations` page used).
  */
 import { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ArrowUpRight, Terminal, AppWindow, Unlink } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { useActiveConversationSessions } from "../hooks/useActiveConversationSessions";
+import { useFocusAttachment } from "../hooks/useFocusAttachment";
+import { basePathFor, pathForTab } from "./RunDetail";
 import { cn } from "../lib/utils";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
+
+/**
+ * Row attachment-state indicator (mt#2286) — mirrors the server-side
+ * RowAttachState (src/cockpit/attachment-state.ts). Only ever populated for
+ * `kind: "dispatched-agent"` rows; `null` for every other kind and for a
+ * dispatched-agent row whose lookup degraded server-side.
+ */
+type RowAttachState = "attached-external" | "in-cockpit" | "detached";
 
 /** One nested subagent conversation, collapsed under a parent run's row. */
 interface SubagentEntry {
@@ -36,7 +46,8 @@ interface SubagentEntry {
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
 // (no imports of server code). Keep in sync with src/cockpit/widgets/agents.ts.
-interface AgentRow {
+// Exported for direct unit testing (Agents.routing.test.ts — resolveGoToAction).
+export interface AgentRow {
   sessionId: string;
   kind: RunKind;
   title: string;
@@ -53,6 +64,8 @@ interface AgentRow {
   /** App-started driven-session binding (mt#2752) — the driven-vs-observed
    *  marker (SC4): non-null rows carry the input affordance. */
   driven: { sessionId: string; status: string } | null;
+  /** Attachment-state indicator (mt#2286) — see the RowAttachState doc comment above. */
+  attachState: RowAttachState | null;
 }
 
 interface AgentsPayload {
@@ -445,6 +458,162 @@ function rowPath(agent: AgentRow): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// "Go to" action routing (mt#2286)
+//
+// Distinct from rowPath() above: rowPath() is the row's PRIMARY click target
+// (a dispatched-agent row lands on the Overview tab, unchanged since
+// mt#1919). This explicit per-row action routes by mt#2284 attachment state
+// instead — an externally-attached session hits the focus endpoint (raises
+// the operator's own terminal); an in-cockpit/no-terminal-context session (or
+// any row kind with no attachment concept at all) navigates straight to the
+// run's Conversation tab, since that's the point of "going to" a run rather
+// than its Overview.
+// ---------------------------------------------------------------------------
+
+export type GoToAction =
+  | { type: "focus"; sessionId: string }
+  | { type: "navigate"; path: string }
+  | { type: "disabled"; reason: string };
+
+/** Exported for direct unit testing (Agents.routing.test.ts) — pure, no React/router dependency. */
+export function resolveGoToAction(agent: AgentRow): GoToAction {
+  if (agent.kind === "subagent-group") {
+    // Synthetic collapsed container, not a real entity (mirrors rowPath()'s
+    // treatment above) — nothing to go to until it's expanded.
+    return { type: "disabled", reason: "Expand the row to open a subagent conversation" };
+  }
+  if (agent.kind === "driven-session") {
+    // Inherently app-started ("in-cockpit" by construction) — no attachment
+    // lookup applies.
+    return { type: "navigate", path: `/driven/${encodeURIComponent(agent.sessionId)}` };
+  }
+  if (agent.kind === "principal-conversation") {
+    return {
+      type: "navigate",
+      path: pathForTab(basePathFor("conversation", agent.sessionId), "conversation", "conversation"),
+    };
+  }
+
+  // dispatched-agent — the only kind whose sessionId is a Minsky workspace
+  // sessionId, the grain mt#2284's attachState is keyed on.
+  switch (agent.attachState) {
+    case "attached-external":
+      return { type: "focus", sessionId: agent.sessionId };
+    case "in-cockpit":
+      return {
+        type: "navigate",
+        path: pathForTab(basePathFor("workspace", agent.sessionId), "workspace", "conversation"),
+      };
+    case "detached":
+    case null:
+      // `null` (attachment lookup unavailable/degraded) is treated the same
+      // as "detached" — fail closed rather than guessing whether there's
+      // something to focus.
+      return { type: "disabled", reason: "Nothing attached" };
+  }
+}
+
+const ATTACH_STATE_CONFIG: Record<
+  RowAttachState,
+  { icon: typeof Terminal; label: string; dim?: boolean }
+> = {
+  "attached-external": { icon: Terminal, label: "Attached — external terminal" },
+  "in-cockpit": { icon: AppWindow, label: "Attached — in-cockpit" },
+  detached: { icon: Unlink, label: "Nothing attached", dim: true },
+};
+
+/**
+ * Small attachment-state indicator (mt#2286 SC) — distinct from the liveness
+ * dot (activity-recency) and the live-tail pulse (active-conversation), so it
+ * intentionally stays subtle (muted, icon-only, no color-coding) in an
+ * already-dense row.
+ */
+function AttachStateIndicator({ state }: { state: AgentRow["attachState"] }) {
+  if (state == null) return null;
+  const cfg = ATTACH_STATE_CONFIG[state];
+  const Icon = cfg.icon;
+  return (
+    <span
+      title={cfg.label}
+      aria-label={cfg.label}
+      className={cn("flex-shrink-0", cfg.dim ? "text-muted-foreground/30" : "text-muted-foreground")}
+    >
+      <Icon className="h-3 w-3" />
+    </span>
+  );
+}
+
+/**
+ * The explicit "go to" row action (mt#2286). Rendered as a SIBLING of the
+ * row's main Link/button, not nested inside it — the row already nests a
+ * DrivenChip <Link> inside the outer row <Link> (pre-existing), and adding a
+ * second nested interactive element would compound that rather than fix it.
+ */
+function GoToActionButton({ agent }: { agent: AgentRow }) {
+  const navigate = useNavigate();
+  const focusMutation = useFocusAttachment();
+  const action = resolveGoToAction(agent);
+
+  if (action.type === "disabled") {
+    return (
+      <span
+        title={action.reason}
+        aria-label={`Go to (disabled — ${action.reason})`}
+        className="flex-shrink-0 p-1 text-muted-foreground/30"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (action.type === "navigate") {
+      navigate(action.path);
+      return;
+    }
+    focusMutation.mutate(action.sessionId);
+  }
+
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={focusMutation.isPending}
+        title={action.type === "focus" ? "Raise the attached terminal" : "Go to conversation"}
+        aria-label="Go to"
+        className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+      >
+        <ArrowUpRight className="h-3.5 w-3.5" />
+      </button>
+      {focusMutation.isSuccess && (
+        <span
+          role="status"
+          className={cn(
+            "absolute right-0 top-full z-10 mt-1 max-w-[16rem] whitespace-normal rounded border px-2 py-1 text-xs shadow-sm",
+            focusMutation.data.success
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+              : "border-amber-500/40 bg-amber-500/10 text-amber-600"
+          )}
+        >
+          {focusMutation.data.message}
+        </span>
+      )}
+      {focusMutation.isError && (
+        <span
+          role="alert"
+          className="absolute right-0 top-full z-10 mt-1 max-w-[16rem] whitespace-normal rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive shadow-sm"
+        >
+          {focusMutation.error.message}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Nested subagent row (collapsed under its parent by default)
 // ---------------------------------------------------------------------------
 
@@ -499,6 +668,11 @@ function AgentRowItem({
       )}
 
       <KindBadge kind={agent.kind} />
+
+      {/* Attachment-state indicator (mt#2286) — distinct from the liveness
+          dot and the live-tail pulse; null (hidden) for every kind other
+          than dispatched-agent. */}
+      <AttachStateIndicator state={agent.attachState} />
 
       {/* Primary label: task title when available, branch/sessionId as fallback.
           The taskId secondary line gives the operator the canonical reference. */}
@@ -578,6 +752,11 @@ function AgentRowItem({
             {body}
           </button>
         )}
+
+        {/* Explicit "go to" action (mt#2286) — a SIBLING of the row Link
+            above, not nested inside it (the row Link already nests a
+            DrivenChip Link; this stays out of that). */}
+        <GoToActionButton agent={agent} />
       </div>
 
       {hasSubagents && expanded && (
