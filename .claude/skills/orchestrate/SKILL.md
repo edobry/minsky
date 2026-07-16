@@ -370,7 +370,9 @@ SUBAGENT's silence (>=30 min, no activity). The ORCHESTRATING agent's OWN silenc
 coordination stretch — repeated probe calls, dependency checks, dispatch calls across several
 tasks with no interstitial prose — is a separate concern: emit a one-line heartbeat at least
 every 10 minutes or 15 tool calls, per `user-preferences.mdc §Progress heartbeats during
-tool-only stretches`.
+tool-only stretches`. When the coordination stretch ends, the turn-end report follows the
+Tier-1 contract in `communication-contract.mdc` (what happened / what you need to know / what's
+next) rather than a per-task narrative recap.
 
 ### Detection: the dispatch watchdog
 

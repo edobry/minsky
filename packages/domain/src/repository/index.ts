@@ -486,6 +486,50 @@ export interface ReviewOperations {
    * require an explicit `services` override instead.
    */
   listChangedFiles?(prIdentifier: string | number): Promise<PrChangedFile[]>;
+
+  /**
+   * List every inline (diff-anchored) review comment on a pull request,
+   * across all pages — the flat REST listing, correlated to its parent
+   * review via `reviewId` (GitHub's `pull_request_review_id`).
+   *
+   * Introduced for mt#2829: in-band read of posted PR review prose. Paired
+   * with `listReviews` to reconstruct "what did review N say inline" without
+   * a blind `reviewer_retrigger`. Distinct from `getPRReviewThreads`
+   * (GraphQL-based, grouped into resolved/unresolved conversation threads
+   * without per-review correlation) — this is the raw per-comment listing.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "inline-comment listing not supported on this backend."
+   */
+  listReviewComments?(prIdentifier: string | number): Promise<PostedReviewComment[]>;
+}
+
+/**
+ * A single inline (diff-anchored) comment on a posted pull request review,
+ * as returned by `ReviewOperations.listReviewComments`.
+ *
+ * Intentionally a narrow projection of GitHub's PR review comment object
+ * (mirroring the `ReviewListEntry` convention above) — no diff hunk, no
+ * commit SHAs, so non-GitHub backends can implement this without leaking
+ * forge-specific payload shape into domain code.
+ */
+export interface PostedReviewComment {
+  /** Forge-assigned comment ID. */
+  commentId: number;
+  /**
+   * Forge-assigned ID of the review this comment was submitted with
+   * (GitHub's `pull_request_review_id`). `null` in the rare case the forge
+   * does not associate the comment with a review.
+   */
+  reviewId: number | null;
+  /** Repo-relative file path the comment is anchored to. */
+  path: string;
+  /** Current diff line (1-based, RIGHT side unless the forge says otherwise); `null` when the anchor is outdated (no longer present in the current diff). */
+  line: number | null;
+  /** Line at comment-creation time; present even when `line` is `null` (outdated), so the original anchor is still recoverable. */
+  originalLine: number | null;
+  /** Full comment body text (may be trimmed by a consuming-layer payload cap — this raw projection carries the untrimmed text). */
+  body: string;
 }
 
 /**
