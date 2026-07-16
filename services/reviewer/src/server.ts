@@ -1536,14 +1536,27 @@ if (import.meta.main) {
       signal,
       uptime_sec: Math.round(uptimeSec * 1000) / 1000,
     });
-    gracefulShutdown().catch((err: unknown) => {
-      log.error("shutdown_error", {
-        event: "shutdown_error",
-        signal,
-        error: err instanceof Error ? err.message : String(err),
+    gracefulShutdown()
+      .catch((err: unknown) => {
+        log.error("shutdown_error", {
+          event: "shutdown_error",
+          signal,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        process.exitCode = 1;
+      })
+      .finally(() => {
+        // mt#2799 kill-test finding: background setInterval handles (e.g.
+        // the webhook-event retention pruner below, a 24h interval with no
+        // corresponding clearInterval) keep the event loop alive
+        // indefinitely — `process.exitCode = 0` alone never actually exits
+        // the process. Pre-mt#2799 this was masked by Railway's default
+        // drainingSeconds=0 (SIGKILL arrived almost immediately regardless);
+        // now that a real drain window exists, an un-exited process would
+        // sit alive for the full window even after draining had genuinely
+        // finished. Exit explicitly once gracefulShutdown has settled.
+        process.exit(process.exitCode ?? 0);
       });
-      process.exitCode = 1;
-    });
   }
   process.on("SIGTERM", () => handleShutdownSignal("SIGTERM"));
   process.on("SIGINT", () => handleShutdownSignal("SIGINT"));
