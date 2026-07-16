@@ -78,6 +78,12 @@ a status transition; everything else is investigation and gate-check.
 3. Note any file:line references and verify them against the current codebase (use
    \`mcp__minsky__session_exec\` or \`mcp__minsky__session_grep_search\` to confirm they exist
    and point to the right code).
+4. **Heartbeat reminder (mt#2824).** This investigation step and the premise audit below
+   commonly chain several tool calls back-to-back with no interstitial prose. Emit a
+   one-line heartbeat (current activity + health signal) at least every 10 minutes or 15
+   consecutive tool calls, whichever comes first — see \`user-preferences.mdc §Progress
+   heartbeats during tool-only stretches\`. Don't hold a genuine blocking finding for the
+   next scheduled heartbeat; report it immediately.
 
 ### Step 2.5: Premise audit
 

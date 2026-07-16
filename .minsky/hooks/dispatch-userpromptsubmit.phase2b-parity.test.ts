@@ -54,6 +54,10 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
       "calibration-review-cadence-detector",
+      // mt#2824 — silent-stretch-detector is a NEW guard authored directly
+      // onto the framework (not a Phase 2b migration), appended after the
+      // pre-migration order this test otherwise byte-preserves.
+      "silent-stretch-detector",
     ]);
   });
 });

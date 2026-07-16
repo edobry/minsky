@@ -362,6 +362,13 @@ stopped cleanly but pre-convergence. Every case required manually noticing the s
 session state by hand, and improvising recovery. This section mechanizes that probe-and-recover
 sequence.
 
+**Heartbeat reminder while coordinating (mt#2824).** This watchdog covers a DISPATCHED
+SUBAGENT's silence (>=30 min, no activity). The ORCHESTRATING agent's OWN silence during a
+coordination stretch — repeated probe calls, dependency checks, dispatch calls across several
+tasks with no interstitial prose — is a separate concern: emit a one-line heartbeat at least
+every 10 minutes or 15 tool calls, per \`user-preferences.mdc §Progress heartbeats during
+tool-only stretches\`.
+
 ### Detection: the dispatch watchdog
 
 A cockpit cadence sweep (\`startDispatchWatchdogSweeper\`, \`src/cockpit/dispatch-watchdog.ts\`)

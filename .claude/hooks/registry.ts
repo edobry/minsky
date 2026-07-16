@@ -402,6 +402,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 10000,
     denyCapable: false,
   },
+  // -------------------------------------------------------------------------
+  // mt#2824 — silent-stretch heartbeat detector. New guard authored directly
+  // onto this framework (not a migrated legacy standalone hook), so it has
+  // no bespoke pre-migration settings.json slot to preserve ordering for.
+  // Appended at the end of the family; needs transcriptLines (D6) to walk
+  // the just-completed turn for tool-only silence.
+  // -------------------------------------------------------------------------
+  {
+    name: "silent-stretch-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./silent-stretch-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "silent-stretch",
+    denyCapable: false,
+    needsTranscript: true,
+  },
 ];
 
 // ---------------------------------------------------------------------------
