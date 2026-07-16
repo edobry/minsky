@@ -281,6 +281,7 @@ async function compileSingleTarget(
     const isStale = staleFile !== undefined;
     return {
       success: true,
+      target: targetId,
       check: true,
       stale: isStale,
       staleFile: staleFile,
@@ -305,6 +306,7 @@ async function compileSingleTarget(
   if (options.dryRun) {
     return {
       success: true,
+      target: targetId,
       dryRun: true,
       content: result.content,
       filesWritten: result.filesWritten,
@@ -320,6 +322,7 @@ async function compileSingleTarget(
 
   return {
     success: true,
+    target: targetId,
     dryRun: false,
     filesWritten: result.filesWritten,
     rulesIncluded: result.rulesIncluded,
@@ -408,6 +411,7 @@ export async function compileRules(
 
   return {
     success: overallSuccess,
+    target: targetIds.join(", "),
     check: options.check,
     stale: options.check ? anyStale : undefined,
     dryRun: options.dryRun,

@@ -15,8 +15,10 @@ export function createCompileCommand(): Command {
     .description("Compile TypeScript definition modules into harness-specific output files.")
     .option(
       "--target <target>",
-      'Compile target to run (e.g. "claude-skills"). Defaults to "claude-skills".',
-      "claude-skills"
+      'Compile target to run (e.g. "claude-skills"). When omitted (bare invocation), ' +
+        "compiles every target whose .minsky/ source dir exists (mt#2803) — a partial " +
+        'regen is never silently reported as success. Falls back to "claude-skills" ' +
+        "when no source dir exists yet (fresh repo)."
     )
     .option("--output <path>", "Override the default output directory for the target.")
     .option("--dry-run", "Print compiled content without writing files.", false)
@@ -28,15 +30,44 @@ export function createCompileCommand(): Command {
     .action(async (opts) => {
       try {
         const result = await runMinskyCompile({
-          target: opts.target as string,
+          target: opts.target as string | undefined,
           output: opts.output as string | undefined,
           dryRun: opts.dryRun as boolean,
           check: opts.check as boolean,
         });
 
-        // --check mode: exit non-zero when stale so CI/hooks can detect it.
+        // mt#2803: bare invocation compiled multiple targets — render one
+        // line (+ dry-run content, if requested) per target so a partial
+        // regen is visible, and aggregate --check failures across ALL
+        // probed targets rather than stopping at the first.
+        if (result.targets && result.targets.length > 0) {
+          let anyStale = false;
+          for (const targetResult of result.targets) {
+            log.cli(
+              `[compile] Target "${targetResult.target}": ` +
+                `${targetResult.filesWritten.length} file(s) written`
+            );
+            if (opts.dryRun && targetResult.content) {
+              log.cli(targetResult.content);
+            }
+            if (result.check && targetResult.stale) {
+              const staleFile = targetResult.staleFile ?? "(unknown file)";
+              log.cli(`[compile --check] Target "${targetResult.target}" is STALE`);
+              log.cli(`  Stale file: ${staleFile}`);
+              log.cli(`  Run "minsky compile --target ${targetResult.target}" to regenerate.`);
+              anyStale = true;
+            }
+          }
+          if (anyStale) {
+            process.exit(1);
+          }
+          return;
+        }
+
+        // Single-target path (explicit --target, or a bare invocation that
+        // probed to exactly one applicable target) — unchanged behavior.
         if (result.check && result.stale) {
-          const target = (opts.target as string) ?? "claude-skills";
+          const target = (opts.target as string | undefined) ?? result.target ?? "claude-skills";
           const staleFile = result.staleFile ?? "(unknown file)";
           log.cli(`[compile --check] Target "${target}" is STALE`);
           log.cli(`  Stale file: ${staleFile}`);
