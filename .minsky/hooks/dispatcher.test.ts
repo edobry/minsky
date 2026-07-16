@@ -729,6 +729,12 @@ describe("runDispatcher", () => {
       writeOutputFn: (o) => written.push(o),
       stderrWrite: (s) => stderr.push(s),
       resolveDispatchContextFn: () => stubContext(),
+      // Recording is not this test's subject — stub it so the throwing guard
+      // never reaches the real guard-health log (mt#2872: this test's default
+      // recorder wrote fixture "throws"/"boom" rows into the operator's real
+      // state and fired a CRITICAL escalation; tests/setup.ts now also
+      // isolates MINSKY_STATE_DIR globally as the class-level backstop).
+      recordGuardErrorFn: () => {},
     });
     expect(stderr.length).toBe(1);
     expect(stderr[0]).toContain("guard=throws threw: boom");
