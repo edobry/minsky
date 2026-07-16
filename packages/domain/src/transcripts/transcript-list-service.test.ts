@@ -129,15 +129,18 @@ describe("TranscriptListService", () => {
       expect(truncation).toEqual({ returned: 2, total: 3, truncated: true });
     });
 
-    test("turn stats (count/first/last) are attached from the turn-stats query", async () => {
+    test("turn stats (count/first/last) are attached from the turn-stats query, coercing the raw-SQL aggregate string result to Date", async () => {
+      // postgres.js returns min()/max() aggregate results as ISO strings, NOT
+      // Date instances (unlike a plain typed column) — fixture mirrors that,
+      // not `new Date(...)`, so this test actually exercises `coerceDate`.
       const db = makeFakeDb({
         baseRows: [makeBaseRow({ agentSessionId: "conv-a" })],
         turnStatsRows: [
           {
             agentSessionId: "conv-a",
             turnCount: 4,
-            firstTurnAt: new Date("2026-07-15T10:00:00Z"),
-            lastTurnAt: new Date("2026-07-15T10:25:00Z"),
+            firstTurnAt: "2026-07-15T10:00:00.000Z",
+            lastTurnAt: "2026-07-15T10:25:00.000Z",
           },
         ],
       });
@@ -146,6 +149,8 @@ describe("TranscriptListService", () => {
       const { conversations } = await svc.listConversations();
       const row = conversations[0] as TranscriptListRow;
       expect(row.turnCount).toBe(4);
+      expect(row.firstTurnAt).toBeInstanceOf(Date);
+      expect(row.lastTurnAt).toBeInstanceOf(Date);
       expect(row.firstTurnAt).toEqual(new Date("2026-07-15T10:00:00Z"));
       expect(row.lastTurnAt).toEqual(new Date("2026-07-15T10:25:00Z"));
     });

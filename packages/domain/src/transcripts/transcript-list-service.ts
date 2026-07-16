@@ -278,8 +278,8 @@ export class TranscriptListService {
 
         result.set(id, {
           turnCount: stats?.turnCount ?? 0,
-          firstTurnAt: stats?.firstTurnAt ?? null,
-          lastTurnAt: stats?.lastTurnAt ?? null,
+          firstTurnAt: coerceDate(stats?.firstTurnAt),
+          lastTurnAt: coerceDate(stats?.lastTurnAt),
           linkedTaskId: linkedTaskIdBySession.get(id) ?? null,
           firstUserTurnCandidates: candidates,
           subagentSpawnAgentKind: spawnKindBySession.get(id) ?? null,
@@ -298,6 +298,26 @@ export class TranscriptListService {
       return new Map<string, Enrichment>();
     }
   }
+}
+
+/**
+ * Coerce a `min()`/`max()` raw-SQL aggregate result to a `Date`.
+ *
+ * Unlike a plain typed column (e.g. `agentTranscriptsTable.startedAt`), a
+ * `sql<Date | null>` template built over an aggregate function is NOT run
+ * through Drizzle's column-type mapping — postgres.js returns it as an ISO
+ * timestamp STRING, not a `Date` instance. Without this coercion,
+ * `firstTurnAt`/`lastTurnAt` silently read as non-Date values downstream
+ * (e.g. `list-command.ts`'s `toIso()`'s `instanceof Date` check would fail
+ * and drop the value to `null` even though real data was returned).
+ */
+function coerceDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
 }
 
 /** Fields sourced directly from the `agent_transcripts` base row (not enrichment). */
