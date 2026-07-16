@@ -34,6 +34,7 @@ import { registerTranscriptSimilarCommand } from "./transcripts/similar-command"
 import { registerTranscriptSpawnsExtractCommand } from "./transcripts/spawns-extract-command";
 import { registerTranscriptSearchTextCommand } from "./transcripts/search-text-command";
 import { registerTranscriptGetCommand } from "./transcripts/get-command";
+import { registerTranscriptListCommand } from "./transcripts/list-command";
 
 /**
  * Result returned by `transcripts.ingest`.
@@ -209,4 +210,7 @@ export function registerTranscriptCommands(
 
   // ── transcripts.get ──────────────────────────────────────────────────────
   registerTranscriptGetCommand(_container, targetRegistry);
+
+  // ── transcripts.list ─────────────────────────────────────────────────────
+  registerTranscriptListCommand(_container, targetRegistry);
 }

@@ -57,6 +57,12 @@ export interface TranscriptFtsSearchOptions {
 export interface TranscriptGetSessionOptions {
   /** Return only turns in this inclusive index range. */
   turnRange?: { start: number; end: number };
+  /**
+   * Filter to turns by role (mt#2818): 'user' returns only turns with a
+   * non-null userText; 'assistant' returns only turns with a non-null
+   * assistantText. Mirrors the role filter already applied in searchText().
+   */
+  role?: "user" | "assistant";
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -184,6 +190,12 @@ export class TranscriptFtsService {
         sql`${agentTranscriptTurnsTable.turnIndex} >= ${opts.turnRange.start}`,
         sql`${agentTranscriptTurnsTable.turnIndex} <= ${opts.turnRange.end}`
       );
+    }
+
+    if (opts.role === "user") {
+      conditions.push(sql`${agentTranscriptTurnsTable.userText} IS NOT NULL`);
+    } else if (opts.role === "assistant") {
+      conditions.push(sql`${agentTranscriptTurnsTable.assistantText} IS NOT NULL`);
     }
 
     try {
