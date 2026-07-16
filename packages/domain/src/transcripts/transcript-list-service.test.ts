@@ -182,7 +182,10 @@ describe("TranscriptListService", () => {
             detectedAt: new Date("2026-07-15T09:00:00Z"),
           },
         ],
-        sessionTaskRows: [{ sessionId: "session-xyz", taskId: "2818" }],
+        // Already-qualified id (matches real production data, e.g. postgresSessions.taskId
+        // stores "mt#2818", not a bare "2818" — formatTaskIdForDisplay only prefixes
+        // unqualified numeric ids with the legacy "md#" default, which would be wrong here).
+        sessionTaskRows: [{ sessionId: "session-xyz", taskId: "mt#2818" }],
       });
       const svc = new TranscriptListService(db);
 
@@ -198,7 +201,8 @@ describe("TranscriptListService", () => {
         invocationRows: [
           {
             agentSessionId: "conv-a",
-            taskId: "2818",
+            // Already-qualified — see the sibling tier-1 test's comment for why.
+            taskId: "mt#2818",
             agentType: "implementer",
             startedAt: new Date("2026-07-15T09:00:00Z"),
           },
