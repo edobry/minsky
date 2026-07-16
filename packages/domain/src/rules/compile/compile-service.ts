@@ -13,6 +13,7 @@ import type { Rule } from "../types";
 import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
 import { cursorRulesTarget } from "./targets/cursor-rules";
+import { claudeRulesTarget } from "./targets/claude-rules";
 import { resolveActiveRules } from "../rule-selection";
 import { evaluateSizeBudget } from "./size-budget";
 
@@ -174,6 +175,22 @@ async function compileDryRun(
     };
   }
 
+  if (target.id === "claude-rules") {
+    const { buildClaudeRulesContent } = await import("./targets/claude-rules");
+    const outputDir = options.outputPath || claudeRulesTarget.defaultOutputPath(workspacePath);
+    const { files, rulesIncluded, rulesSkipped } = buildClaudeRulesContent(rules, outputDir);
+    const summary = files
+      .map(({ path: filePath, content }) => `// ${filePath}\n${content}`)
+      .join("\n\n");
+    return {
+      target: target.id,
+      filesWritten: [],
+      rulesIncluded,
+      rulesSkipped,
+      content: summary,
+    };
+  }
+
   // For unknown targets, fallback: actually compile and return result without content
   const result = await target.compile(rules, options, workspacePath);
   return { ...result, content: "" };
@@ -187,5 +204,6 @@ export function createCompileService(): CompileService {
   service.registerTarget(agentsMdTarget);
   service.registerTarget(claudeMdTarget);
   service.registerTarget(cursorRulesTarget);
+  service.registerTarget(claudeRulesTarget);
   return service;
 }
