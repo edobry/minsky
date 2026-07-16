@@ -138,7 +138,7 @@ describe("recordFireLogEntry", () => {
     expect(entries[0]?.sessionId).toBe("sess-9");
   });
 
-  test("NEVER throws even when the fs seam throws on every call (fail-open)", () => {
+  test("NEVER throws even when the fs seam throws on every call (fail-open) -- guarded operation still completes", () => {
     const brokenFs: FireLogFsDeps = {
       existsSync: () => {
         throw new Error("fs is down");
@@ -174,6 +174,53 @@ describe("recordFireLogEntry", () => {
       recordFireLogEntry(
         { guardName: "g", event: "PreToolUse", decision: "deny", durationMs: 5 },
         { logPath: LOG_PATH, fs: throwingAppend }
+      )
+    ).not.toThrow();
+  });
+
+  test("a write failure emits a non-throwing 'degraded' stderr marker naming the guard (acceptance test: destination killed -> operation still completes, degraded marker emitted)", () => {
+    const throwingAppend: FireLogFsDeps = {
+      existsSync: () => true,
+      mkdirSync: () => {},
+      appendFileSync: () => {
+        throw new Error("EACCES: permission denied");
+      },
+      readFileSync: () => "",
+    };
+    const stderrWrites: string[] = [];
+    recordFireLogEntry(
+      {
+        guardName: "check-generated-file-edit",
+        event: "PreToolUse",
+        decision: "deny",
+        durationMs: 2,
+      },
+      { logPath: LOG_PATH, fs: throwingAppend, stderrWrite: (s) => stderrWrites.push(s) }
+    );
+    expect(stderrWrites.length).toBe(1);
+    expect(stderrWrites[0]).toContain("[fire-log] degraded");
+    expect(stderrWrites[0]).toContain("check-generated-file-edit");
+  });
+
+  test("even the degraded-marker stderr write itself throwing never propagates", () => {
+    const throwingAppend: FireLogFsDeps = {
+      existsSync: () => true,
+      mkdirSync: () => {},
+      appendFileSync: () => {
+        throw new Error("disk full");
+      },
+      readFileSync: () => "",
+    };
+    expect(() =>
+      recordFireLogEntry(
+        { guardName: "g", event: "PreToolUse", decision: "deny", durationMs: 1 },
+        {
+          logPath: LOG_PATH,
+          fs: throwingAppend,
+          stderrWrite: () => {
+            throw new Error("stderr is broken too");
+          },
+        }
       )
     ).not.toThrow();
   });

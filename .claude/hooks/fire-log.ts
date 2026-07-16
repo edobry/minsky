@@ -112,6 +112,15 @@ export interface FireLogRecordOptions {
   fs?: FireLogFsDeps;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  /**
+   * Injectable for tests — defaults to `process.stderr.write`. Used ONLY to
+   * emit the best-effort "degraded" marker on a write failure (see
+   * {@link recordFireLogEntry}'s acceptance test: "Kill the log destination
+   * -> the guarded operation still completes; a degraded marker is
+   * emitted"). Itself wrapped in a try/catch — a broken stderr stream can
+   * never escalate into a thrown error either.
+   */
+  stderrWrite?: (s: string) => void;
 }
 
 export interface FireLogReadOptions {
@@ -187,9 +196,20 @@ export function recordFireLogEntry(
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     };
     fs.appendFileSync(logPath, `${JSON.stringify(ev)}\n`);
-  } catch {
+  } catch (err) {
     // Best-effort — recording must never break guard execution (fail-open,
     // verified by fire-log.test.ts's "throwing fs never propagates" case).
+    // Still emit a non-JSON stderr "degraded" marker so the failure is
+    // OBSERVABLE (per the acceptance test) without risking a second throw —
+    // this inner try/catch has no further fallback, it just gives up.
+    try {
+      const stderrWrite = options?.stderrWrite ?? ((s: string) => process.stderr.write(s));
+      stderrWrite(
+        `[fire-log] degraded: failed to record guard=${input.guardName} event=${input.event} — ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    } catch {
+      // Truly nothing more we can do.
+    }
   }
 }
 
