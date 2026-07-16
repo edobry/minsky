@@ -23,6 +23,7 @@ import {
 } from "./session/management-commands";
 import { createSessionCleanupCommand } from "./session/cleanup-command";
 import { createSessionPsCommand, createSessionAttachedCommand } from "./session/ps-command";
+import { createSessionFocusCommand, createSessionGotoCommand } from "./session/focus-command";
 import {
   createSessionCommitCommand,
   createSessionInspectCommand,
@@ -97,6 +98,8 @@ export async function registerSessionCommands(
     createSessionExecCommand(getDeps),
     createSessionPsCommand(getDeps, getOptionalPersistenceProvider),
     createSessionAttachedCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionFocusCommand(getDeps, getOptionalPersistenceProvider),
+    createSessionGotoCommand(getDeps, getOptionalPersistenceProvider),
 
     // Management
     createSessionDeleteCommand(getDeps),

@@ -11,9 +11,92 @@ import {
 import { log } from "@minsky/shared/logger";
 import { resolveWorkspacePath } from "@minsky/domain/workspace";
 import { compileRules, migrateRules } from "@minsky/domain/rules/rules-command-operations";
+import type { CompileRulesResult } from "@minsky/domain/rules/rules-command-operations";
 import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
 import type { MemoryLoadingMode } from "@minsky/domain/configuration/schemas/memory";
 import { formatTopContributors } from "@minsky/domain/rules/compile/size-budget";
+
+/**
+ * Log per-target compile diagnostics (size report, staleness, and mt#2802
+ * size-budget status) for a single target's `CompileRulesResult`. Extracted
+ * from the original single-target inline logic so the bare-invocation
+ * multi-target loop (mt#2803) can call it once per probed target. Returns a
+ * short failure descriptor when --check mode failed for this target (stale
+ * or size-budget exceeded) so callers can aggregate failures across ALL
+ * probed targets instead of throwing on the first one found. Returns
+ * undefined when the target passed (or when not in --check mode).
+ */
+function reportSingleTargetCompile(target: string, result: CompileRulesResult): string | undefined {
+  // Report output size on every compile (mt#2802 success criterion #1).
+  if (result.sizeChars !== undefined) {
+    log.cli(`[rules compile] Target "${target}" output size: ${result.sizeChars} chars`);
+  }
+
+  // --check mode: report + fail when output is stale so CI/hooks can detect it.
+  if (result.check && result.stale) {
+    const staleFile = result.staleFile || "(unknown file)";
+    log.cli(`[rules compile --check] Target "${target}" is STALE`);
+    log.cli(`  Stale file: ${staleFile}`);
+    log.cli(`  Run "minsky rules compile --target ${target}" to regenerate.`);
+    return `target "${target}" is stale (${staleFile})`;
+  }
+
+  // --check mode: report + fail when output exceeds its fail threshold (mt#2802).
+  // Only reachable when NOT stale — a stale target is fixed by regenerating first,
+  // at which point the next --check run evaluates the budget against fresh content.
+  if (result.check && result.sizeBudgetStatus === "fail" && result.sizeBudget) {
+    log.cli(`[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`);
+    log.cli(
+      `  Size: ${result.sizeChars} chars (fail threshold: ${result.sizeBudget.failChars} chars)`
+    );
+    log.cli(`  Top contributing rules:`);
+    for (const line of formatTopContributors(result.topContributors ?? [])) {
+      log.cli(`    ${line}`);
+    }
+    if (result.ruleContentChars !== undefined) {
+      log.cli(
+        `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+          `remainder is target scaffolding — banner/headers)`
+      );
+    }
+    log.cli(
+      `  Trim the rules above, or override via target options / MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
+    );
+    return (
+      `target "${target}" exceeds size budget ` +
+      `(${result.sizeChars} > ${result.sizeBudget.failChars} chars)`
+    );
+  }
+
+  // Non-check compiles never fail on budget — warn loudly instead (mt#2802 criterion #6),
+  // for either threshold crossed (warn or fail) since only --check hard-fails.
+  if (
+    !result.check &&
+    (result.sizeBudgetStatus === "warn" || result.sizeBudgetStatus === "fail") &&
+    result.sizeBudget
+  ) {
+    const thresholdChars =
+      result.sizeBudgetStatus === "fail"
+        ? result.sizeBudget.failChars
+        : result.sizeBudget.warnChars;
+    log.cli(
+      `[rules compile] WARNING: target "${target}" output (${result.sizeChars} chars) ` +
+        `exceeds its ${result.sizeBudgetStatus} threshold (${thresholdChars} chars).`
+    );
+    log.cli(`  Top contributing rules:`);
+    for (const line of formatTopContributors(result.topContributors ?? [])) {
+      log.cli(`    ${line}`);
+    }
+    if (result.ruleContentChars !== undefined) {
+      log.cli(
+        `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
+          `remainder is target scaffolding — banner/headers)`
+      );
+    }
+  }
+
+  return undefined;
+}
 
 export function registerCompileMigrateCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;
@@ -58,74 +141,30 @@ export function registerCompileMigrateCommands(targetRegistry: {
           sizeBudget,
         });
 
-        const target = params.target || "agents.md";
-
-        // Report output size on every compile (mt#2802 success criterion #1).
-        if (result.sizeChars !== undefined) {
-          log.cli(`[rules compile] Target "${target}" output size: ${result.sizeChars} chars`);
-        }
-
-        // --check mode: exit non-zero when output is stale so CI/hooks can detect it.
-        if (result.check && result.stale) {
-          const staleFile = result.staleFile || "(unknown file)";
-          log.cli(`[rules compile --check] Target "${target}" is STALE`);
-          log.cli(`  Stale file: ${staleFile}`);
-          log.cli(`  Run "minsky rules compile --target ${target}" to regenerate.`);
-          throw new Error(`rules compile --check: target "${target}" is stale (${staleFile})`);
-        }
-
-        // --check mode: exit non-zero when output exceeds its fail threshold (mt#2802).
-        // Only reachable when NOT stale — a stale target is fixed by regenerating first,
-        // at which point the next --check run evaluates the budget against fresh content.
-        if (result.check && result.sizeBudgetStatus === "fail" && result.sizeBudget) {
-          log.cli(`[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`);
-          log.cli(
-            `  Size: ${result.sizeChars} chars (fail threshold: ${result.sizeBudget.failChars} chars)`
-          );
-          log.cli(`  Top contributing rules:`);
-          for (const line of formatTopContributors(result.topContributors ?? [])) {
-            log.cli(`    ${line}`);
+        // mt#2803: bare invocation compiled multiple targets — report each
+        // one via reportSingleTargetCompile so a partial regen is visible,
+        // then aggregate --check / size-budget failures across ALL probed
+        // targets rather than stopping at the first.
+        if (result.targets && result.targets.length > 0) {
+          const failures: string[] = [];
+          for (const targetResult of result.targets) {
+            const failure = reportSingleTargetCompile(targetResult.target, targetResult);
+            if (failure) failures.push(failure);
           }
-          if (result.ruleContentChars !== undefined) {
-            log.cli(
-              `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
-                `remainder is target scaffolding — banner/headers)`
+          if (failures.length > 0) {
+            throw new Error(
+              `rules compile --check: ${failures.length} target(s) failed: ${failures.join("; ")}`
             );
           }
-          log.cli(
-            `  Trim the rules above, or override via target options / MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
-          );
-          throw new Error(
-            `rules compile --check: target "${target}" exceeds size budget ` +
-              `(${result.sizeChars} > ${result.sizeBudget.failChars} chars)`
-          );
+          return result;
         }
 
-        // Non-check compiles never fail on budget — warn loudly instead (mt#2802 criterion #6),
-        // for either threshold crossed (warn or fail) since only --check hard-fails.
-        if (
-          !result.check &&
-          (result.sizeBudgetStatus === "warn" || result.sizeBudgetStatus === "fail") &&
-          result.sizeBudget
-        ) {
-          const thresholdChars =
-            result.sizeBudgetStatus === "fail"
-              ? result.sizeBudget.failChars
-              : result.sizeBudget.warnChars;
-          log.cli(
-            `[rules compile] WARNING: target "${target}" output (${result.sizeChars} chars) ` +
-              `exceeds its ${result.sizeBudgetStatus} threshold (${thresholdChars} chars).`
-          );
-          log.cli(`  Top contributing rules:`);
-          for (const line of formatTopContributors(result.topContributors ?? [])) {
-            log.cli(`    ${line}`);
-          }
-          if (result.ruleContentChars !== undefined) {
-            log.cli(
-              `  (rule content: ${result.ruleContentChars} of ${result.sizeChars} chars; ` +
-                `remainder is target scaffolding — banner/headers)`
-            );
-          }
+        // Single-target path (explicit --target, or a bare invocation that
+        // probed to exactly one applicable target) — unchanged behavior.
+        const target = result.target || params.target || "agents.md";
+        const failure = reportSingleTargetCompile(target, result);
+        if (failure) {
+          throw new Error(`rules compile --check: ${failure}`);
         }
 
         return result;
