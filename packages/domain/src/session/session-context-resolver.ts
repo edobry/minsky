@@ -259,3 +259,84 @@ export async function validateSessionContext(options: SessionContextOptions): Pr
     return false;
   }
 }
+
+/**
+ * Resolve a definite session ID from `{sessionId, task}` params — the
+ * convenience-resolution semantics `session_start` / `session_exec` already
+ * expose (mt#2816: closes the session_* param-alias drift where
+ * `session_commit` accepted `sessionId` but silently rejected `task`, and
+ * `session_start({ taskId })` silently rejected wanting `task`).
+ *
+ * No auto-detection, no repo/cwd fallback — this resolver is for MUTATING
+ * commands that must act on an EXPLICITLY identified session, never a
+ * guessed one:
+ *
+ * - Explicit `sessionId` always wins outright. Existence validation is left
+ *   to the caller/domain layer (matching each command's pre-existing
+ *   behavior — duplicating it here would risk diverging wording).
+ * - `task` resolves via `sessionProvider.listSessions({ taskId })` (the same
+ *   canonical unscoped-by-project taskId-filtered query mt#2697 established
+ *   for session.start's "is this task already in use" collision probe and
+ *   session.list's task-filtered query, so this resolver can never
+ *   structurally diverge from what those two surfaces consider "the active
+ *   session(s) for this task"):
+ *     - exactly one match -> resolve to it
+ *     - zero matches -> `ResourceNotFoundError`
+ *     - more than one match -> `ValidationError` naming every candidate
+ *       session ID. This is deliberately an ambiguity ERROR, not a silent
+ *       first-match pick — unlike the legacy `getSessionByTaskId` lookup
+ *       other call sites use (`.find()` under the hood), which returns the
+ *       first session on multiple matches with no signal to the caller that
+ *       a choice was made on its behalf.
+ * - Neither `sessionId` nor `task` provided -> returns `undefined` so each
+ *   call site keeps its own "session identifier required" wording (several
+ *   pre-existing commands already differ here; a single generic message
+ *   would either diverge from or shadow them).
+ */
+export async function resolveSessionIdForCommand(options: {
+  sessionId?: string;
+  task?: string;
+  sessionProvider: SessionProviderInterface;
+}): Promise<string | undefined> {
+  const { sessionId, task, sessionProvider } = options;
+
+  if (sessionId) {
+    return sessionId;
+  }
+
+  if (!task) {
+    return undefined;
+  }
+
+  const validatedTaskId = taskIdSchema.parse(task);
+  const candidates = await sessionProvider.listSessions({ taskId: validatedTaskId });
+
+  if (candidates.length === 0) {
+    throw new ResourceNotFoundError(
+      `No session found for task ID "${validatedTaskId}"`,
+      "task",
+      validatedTaskId
+    );
+  }
+
+  if (candidates.length > 1) {
+    const candidateSessionIds = candidates.map((s) => s.sessionId);
+    throw new ValidationError(
+      `Multiple sessions found for task ID "${validatedTaskId}": ${candidateSessionIds.join(", ")}. ` +
+        `Specify sessionId explicitly to disambiguate which one to use.`,
+      { taskId: validatedTaskId, candidateSessionIds }
+    );
+  }
+
+  const [onlyCandidate] = candidates;
+  if (!onlyCandidate) {
+    // Unreachable: the length === 0 branch above already returned. Narrows
+    // the type without a non-null assertion.
+    throw new ResourceNotFoundError(
+      `No session found for task ID "${validatedTaskId}"`,
+      "task",
+      validatedTaskId
+    );
+  }
+  return onlyCandidate.sessionId;
+}
