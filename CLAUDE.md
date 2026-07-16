@@ -159,26 +159,26 @@ narration lives in the linked doc.
 ## Vocabulary (mt#2626)
 
 **"Hook"** = Claude Code registration mechanics; domain noun for the mechanism: **"interlock"**
-(docs/cockpit copy). "Guard" naming is pending a corpus pass.
+(cockpit copy). "Guard" naming pending a corpus pass.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
 A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
-entrypoints) letting multiple guards share ONE spawned Bun process per event. Ships inert; only
-`GUARD_REGISTRY`-listed guards run through it — 17 migrated (Phase-1 pilot + full
-`UserPromptSubmit` event: mt#2650/2652/2687/2812/2824). `policy-coverage-detector` stays on
+entrypoints) letting multiple guards share ONE spawned Bun process per event. Only `GUARD_REGISTRY`-listed
+guards run through it — 17 migrated (Phase 1: `check-guessed-session-path`, mt#2650; Phase 2:
+the full `UserPromptSubmit` event, mt#2652/2687/2812/2824). `policy-coverage-detector` stays on
 `PreToolUse` (spec discrepancy). Every other guard below is a standalone `settings.json`
 registration.
 
 **Load-bearing.** A dispatcher's `timeout` is the HOST CAP for the process; guards run
 SEQUENTIALLY — size a family's entry to the SUM of pre-migration timeouts, not one guard's budget
-(`ctx` also carries `hostCapSec`/`budgets`/`transcriptLines`, mt#2637, read once, never
-re-derived). Source lives in `.minsky/hooks/`; `.claude/hooks/*` is GENERATED (mt#2304) —
+(`ctx` carries `hostCapSec`/`budgets`/`transcriptLines`, mt#2637 — read once, never
+re-derive). Source lives in `.minsky/hooks/`; `.claude/hooks/*` is GENERATED (mt#2304) —
 after editing, run `bun run minsky compile --target claude-hooks` and commit both together
-(pre-commit blocks otherwise). This rule is itself compiled — after editing, run `rules compile`
-(mt#2803) and grep the change into `CLAUDE.md`.
+(pre-commit blocks otherwise). This rule is itself compiled — after editing, run `rules compile` and grep
+the change into `CLAUDE.md`.
 
-No override for the framework; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all` overrides migrated
+Framework has no override; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all` covers migrated
 guards.
 Doc: `guard-dispatcher-framework.md`.
 
@@ -501,7 +501,7 @@ through Asks, or placed after routine narrative).
 
 Origin: `mt#2713` §Originating signal (the principal's multi-screen-report pushback this shape
 derives from; ids below are illustrative). "**What happened:** Two PRs merged
-([PR #1](minsky://changeset/1)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
+([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
 need to know:** one judgment call — bypass-merged under a documented escape valve; no other
 exceptions. **What's next:** nothing pending." A partial turn folds status into "what happened"
 instead of a fourth heading.

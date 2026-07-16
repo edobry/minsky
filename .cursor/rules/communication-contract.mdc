@@ -81,7 +81,7 @@ through Asks, or placed after routine narrative).
 
 Origin: `mt#2713` §Originating signal (the principal's multi-screen-report pushback this shape
 derives from; ids below are illustrative). "**What happened:** Two PRs merged
-([PR #1](minsky://changeset/1)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
+([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2)); umbrella [mt#100](minsky://task/mt%23100) closed. **What you
 need to know:** one judgment call — bypass-merged under a documented escape valve; no other
 exceptions. **What's next:** nothing pending." A partial turn folds status into "what happened"
 instead of a fourth heading.
