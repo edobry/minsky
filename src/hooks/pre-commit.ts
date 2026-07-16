@@ -36,6 +36,10 @@ import {
   IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
   MIGRATION_DIRS,
 } from "./immutable-migration-detector";
+import {
+  recordPreCommitFireLogEntry,
+  classifyOverride as classifyPreCommitOverride,
+} from "./pre-commit-fire-log";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
@@ -81,6 +85,52 @@ export class PreCommitHook {
   constructor(private projectRoot: string = process.cwd()) {}
 
   /**
+   * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — instruments a
+   * single pre-commit step without touching the step method's own body.
+   * Records exactly one fire-log entry per step invocation: decision=allow
+   * on success, decision=deny on failure.
+   *
+   * Override-classification caveat: unlike the guard-dispatcher's
+   * `checkOverride` (which observes the decision BEFORE the guard runs, so
+   * it always knows definitively whether an override applied), a pre-commit
+   * step's override env-var (e.g. `MINSKY_SKIP_NUL_CHECK`) is read INSIDE
+   * the step's own body — this wrapper has no visibility into whether a
+   * violation was actually found and suppressed. The best available proxy
+   * without invasively changing each step's internals: classify as
+   * "overridden" only when the associated override env-var is truthy AND
+   * the step's result was a pass. This can occasionally over-attribute (the
+   * override was set but the step would have passed anyway) — acceptable
+   * for Phase 1's "emit-only, no scoring/judgment" posture; a later phase
+   * can thread an explicit "was the override actually consulted" signal
+   * out of each step if the approximation proves too noisy.
+   */
+  private async instrumented(
+    guardName: string,
+    fn: () => Promise<HookResult>,
+    overrideEnvVar?: string
+  ): Promise<HookResult> {
+    const startMs = Date.now();
+    const result = await fn();
+    const durationMs = Date.now() - startMs;
+    const overridden =
+      result.success &&
+      overrideEnvVar !== undefined &&
+      isOverrideTruthy(process.env[overrideEnvVar]);
+    recordPreCommitFireLogEntry({
+      guardName,
+      decision: result.success ? "allow" : "deny",
+      durationMs,
+      ...(overridden
+        ? {
+            overrideEnvVar,
+            overrideClassification: classifyPreCommitOverride(overrideEnvVar),
+          }
+        : {}),
+    });
+    return result;
+  }
+
+  /**
    * Run all pre-commit validation steps
    */
   async run(): Promise<HookResult> {
@@ -90,7 +140,9 @@ export class PreCommitHook {
       // ── Instant checks (~0s) ──
 
       // Step 0: Hook file permissions
-      const hookPermResult = await this.runHookPermissionCheck();
+      const hookPermResult = await this.instrumented("hook-permission-check", () =>
+        this.runHookPermissionCheck()
+      );
       if (!hookPermResult.success) {
         return hookPermResult;
       }
@@ -98,7 +150,9 @@ export class PreCommitHook {
       // ── Fast, lightweight checks first (~1s each) ──
 
       // Step 1: Code formatting (lint-staged, only staged files, ~1s)
-      const formatResult = await this.runCodeFormatting();
+      const formatResult = await this.instrumented("code-formatting", () =>
+        this.runCodeFormatting()
+      );
       if (!formatResult.success) {
         return formatResult;
       }
@@ -114,7 +168,9 @@ export class PreCommitHook {
       // re-staging a corrected version carries none of the "don't want an
       // unreviewed content rewrite auto-committed" risk that motivates the
       // rules/skills compile checks blocking instead of auto-fixing.
-      const completionManifestResult = await this.runCompletionManifestRegen();
+      const completionManifestResult = await this.instrumented("completion-manifest-regen", () =>
+        this.runCompletionManifestRegen()
+      );
       if (!completionManifestResult.success) {
         return completionManifestResult;
       }
@@ -125,13 +181,17 @@ export class PreCommitHook {
       // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
-      const variableResult = await this.runVariableNamingCheck();
+      const variableResult = await this.instrumented("variable-naming-check", () =>
+        this.runVariableNamingCheck()
+      );
       if (!variableResult.success) {
         return variableResult;
       }
 
       // Step 3a: Node shim detection — ban node shebangs, npm run, npx in source files (~0s)
-      const nodeShimResult = await this.runNodeShimCheck();
+      const nodeShimResult = await this.instrumented("node-shim-check", () =>
+        this.runNodeShimCheck()
+      );
       if (!nodeShimResult.success) {
         return nodeShimResult;
       }
@@ -140,7 +200,11 @@ export class PreCommitHook {
       // a literal 0x00 byte (mt#1824). Closes the gate-gap exposed by mt#1821
       // / PR #1107 R1 where a JSON-escaped U+0000 landed on disk inside a TS
       // template literal and slipped past every other quality gate.
-      const nulByteResult = await this.runNulByteCheck();
+      const nulByteResult = await this.instrumented(
+        "nul-byte-check",
+        () => this.runNulByteCheck(),
+        NUL_BYTE_CHECK_OVERRIDE_ENV
+      );
       if (!nulByteResult.success) {
         return nulByteResult;
       }
@@ -156,7 +220,10 @@ export class PreCommitHook {
       // manifest auto-fix-and-restage pattern). Eliminates the drift class
       // that caused mt#1977 (75-minute root-Dockerfile outage) and mt#1991
       // (4-hour reviewer-Dockerfile outage).
-      const dockerfileWorkspaceCopyResult = await this.runDockerfileWorkspaceCopyRegen();
+      const dockerfileWorkspaceCopyResult = await this.instrumented(
+        "dockerfile-workspace-copy-regen",
+        () => this.runDockerfileWorkspaceCopyRegen()
+      );
       if (!dockerfileWorkspaceCopyResult.success) {
         return dockerfileWorkspaceCopyResult;
       }
@@ -166,7 +233,11 @@ export class PreCommitHook {
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
       // hand-written SQL file ships without a journal entry, making it
       // invisible to Drizzle's migrator.
-      const migrationJournalResult = await this.runMigrationJournalCheck();
+      const migrationJournalResult = await this.instrumented(
+        "migration-journal-check",
+        () => this.runMigrationJournalCheck(),
+        MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV
+      );
       if (!migrationJournalResult.success) {
         return migrationJournalResult;
       }
@@ -176,7 +247,11 @@ export class PreCommitHook {
       // directories whose tag is already listed in meta/_journal.json.
       // Editing an applied migration drifts Drizzle's sha256 ledger —
       // the mt#1641/mt#2250 root cause (migrations 0002/0014/0015).
-      const immutableMigrationResult = await this.runImmutableMigrationCheck();
+      const immutableMigrationResult = await this.instrumented(
+        "immutable-migration-check",
+        () => this.runImmutableMigrationCheck(),
+        IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV
+      );
       if (!immutableMigrationResult.success) {
         return immutableMigrationResult;
       }
@@ -189,7 +264,11 @@ export class PreCommitHook {
       // Prevents recurrence of the minsky.dev class: an illustrative example URL
       // that hardened into authoritative config + a false "Deployed at" claim,
       // never ownership-verified.
-      const deployDomainResult = await this.runDeployDomainCheck();
+      const deployDomainResult = await this.instrumented(
+        "deploy-domain-check",
+        () => this.runDeployDomainCheck(),
+        DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV
+      );
       if (!deployDomainResult.success) {
         return deployDomainResult;
       }
@@ -197,13 +276,15 @@ export class PreCommitHook {
       // ── Medium-weight static analysis (~5s each) ──
 
       // Step 4: TypeScript type checking (~5s)
-      const typeCheckResult = await this.runTypeCheck();
+      const typeCheckResult = await this.instrumented("type-check", () => this.runTypeCheck());
       if (!typeCheckResult.success) {
         return typeCheckResult;
       }
 
       // Step 5: ESLint validation (~5-10s)
-      const lintResult = await this.runESLintValidation();
+      const lintResult = await this.instrumented("eslint-validation", () =>
+        this.runESLintValidation()
+      );
       if (!lintResult.success) {
         return lintResult;
       }
@@ -211,7 +292,9 @@ export class PreCommitHook {
       // ── Security scanning (~2-3s, critical but rare) ──
 
       // Step 6: Secret scanning
-      const secretsResult = await this.runSecretScanning();
+      const secretsResult = await this.instrumented("secret-scanning", () =>
+        this.runSecretScanning()
+      );
       if (!secretsResult.success) {
         return secretsResult;
       }
@@ -219,25 +302,33 @@ export class PreCommitHook {
       // ── Expensive runtime checks (tests) ──
 
       // Step 7: Unit tests (most expensive)
-      const testsResult = await this.runUnitTests();
+      const testsResult = await this.instrumented("unit-tests", () => this.runUnitTests());
       if (!testsResult.success) {
         return testsResult;
       }
 
       // Step 8: ESLint rule tooling tests (niche)
-      const ruleTestsResult = await this.runESLintRuleTests();
+      const ruleTestsResult = await this.instrumented("eslint-rule-tests", () =>
+        this.runESLintRuleTests()
+      );
       if (!ruleTestsResult.success) {
         return ruleTestsResult;
       }
 
       // Step 9: Rules compile staleness check (legacy `rules compile` system)
-      const rulesCheckResult = await this.runRulesCompileCheck();
+      const rulesCheckResult = await this.instrumented(
+        "rules-compile-check",
+        () => this.runRulesCompileCheck(),
+        SIZE_BUDGET_CHECK_OVERRIDE_ENV
+      );
       if (!rulesCheckResult.success) {
         return rulesCheckResult;
       }
 
       // Step 9b: Compile staleness check (new `compile` system — mt#2252)
-      const compileCheckResult = await this.runCompileCheck();
+      const compileCheckResult = await this.instrumented("compile-check", () =>
+        this.runCompileCheck()
+      );
       if (!compileCheckResult.success) {
         return compileCheckResult;
       }
