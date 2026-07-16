@@ -7,7 +7,7 @@
  * @see mt#2092 — Event log Phase 1a
  */
 
-import { and, desc, eq, gte, lte, inArray, isNotNull, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, inArray, isNotNull, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   systemEventsTable,
@@ -65,22 +65,11 @@ export interface ListEventsOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Query function
+// Shared WHERE-clause builder (mt#2817 — reused by listEvents + countEvents so
+// the count query matches the exact same filter set as the page query)
 // ---------------------------------------------------------------------------
 
-/**
- * List system events with optional filters.
- *
- * Results are ordered by `created_at` DESC (most recent first).
- * Default limit is 50; maximum is 500.
- */
-export async function listEvents(
-  db: PostgresJsDatabase,
-  options: ListEventsOptions = {}
-): Promise<SystemEvent[]> {
-  const limit = Math.min(options.limit ?? 50, 500);
-
-  // Build WHERE clauses
+function buildConditions(options: ListEventsOptions): SQL[] {
   const conditions: SQL[] = [];
 
   if (options.eventType !== undefined) {
@@ -113,6 +102,26 @@ export async function listEvents(
     conditions.push(eq(systemEventsTable.relatedTaskId, options.relatedTaskId));
   }
 
+  return conditions;
+}
+
+// ---------------------------------------------------------------------------
+// Query functions
+// ---------------------------------------------------------------------------
+
+/**
+ * List system events with optional filters.
+ *
+ * Results are ordered by `created_at` DESC (most recent first).
+ * Default limit is 50; maximum is 500.
+ */
+export async function listEvents(
+  db: PostgresJsDatabase,
+  options: ListEventsOptions = {}
+): Promise<SystemEvent[]> {
+  const limit = Math.min(options.limit ?? 50, 500);
+  const conditions = buildConditions(options);
+
   const query = db
     .select()
     .from(systemEventsTable)
@@ -125,4 +134,27 @@ export async function listEvents(
       : await query;
 
   return rows.map(toSystemEvent);
+}
+
+/**
+ * Count system events matching the same filters as `listEvents` (mt#2817),
+ * WITHOUT the limit — used to compute loud-cap truncation metadata
+ * (`{returned, total, truncated}`). Deliberately shares `buildConditions`
+ * with `listEvents` so the two queries can never drift apart on filter
+ * semantics.
+ */
+export async function countEvents(
+  db: PostgresJsDatabase,
+  options: Omit<ListEventsOptions, "limit"> = {}
+): Promise<number> {
+  const conditions = buildConditions(options);
+
+  const query = db.select({ value: count() }).from(systemEventsTable);
+
+  const rows =
+    conditions.length > 0
+      ? await query.where(conditions.length === 1 ? conditions[0] : and(...conditions))
+      : await query;
+
+  return rows[0]?.value ?? 0;
 }
