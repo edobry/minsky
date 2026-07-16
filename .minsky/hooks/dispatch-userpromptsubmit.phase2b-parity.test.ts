@@ -54,6 +54,10 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
       "calibration-review-cadence-detector",
+      // mt#2812 — new guard, not part of the Phase 2a/2b legacy-settings.json
+      // migration this test otherwise pins byte-for-byte; appended after the
+      // preserved legacy order.
+      "guard-health-escalation-detector",
     ]);
   });
 });

@@ -398,6 +398,19 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 10000,
     denyCapable: false,
   },
+  // -------------------------------------------------------------------------
+  // mt#2812 — new guard, not part of any legacy settings.json migration.
+  // Reads the guard-health JSONL log (a pure fs read + string compare, no
+  // network/git calls) and injects a warning when any guard has reached
+  // "critical" escalation (3+ consecutive errors/check-skips).
+  // -------------------------------------------------------------------------
+  {
+    name: "guard-health-escalation-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+  },
 ];
 
 // ---------------------------------------------------------------------------
