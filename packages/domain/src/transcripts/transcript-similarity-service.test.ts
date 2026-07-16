@@ -133,6 +133,15 @@ describe("TranscriptSimilarityService", () => {
       expect(first.sessionMetadata.model).toBe("claude-3-5-sonnet");
     });
 
+    test("resumeHint (mt#2523): each result carries a ready `claude --resume <id>` hint", async () => {
+      const rows = [makeTurnRow({ agentSessionId: "session-resume-me" })];
+      const db = makeFakeDb(rows, [{ agentSessionId: "session-resume-me", count: 1 }]);
+      const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);
+
+      const results = await svc.search("test query");
+      expect(results[0]?.resumeHint).toBe("claude --resume session-resume-me");
+    });
+
     test("embeds the query string via EmbeddingService", async () => {
       const db = makeFakeDb([]);
       const svc = new TranscriptSimilarityService(db as unknown as DrizzlePgDb, embeddingService);

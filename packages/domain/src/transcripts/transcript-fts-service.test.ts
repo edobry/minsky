@@ -242,6 +242,15 @@ describe("TranscriptFtsService", () => {
       expect(results).toHaveLength(1);
       expect(results[0]?.agentSessionId).toBe("session-a");
     });
+
+    test("resumeHint (mt#2523): each result carries a ready `claude --resume <id>` hint", async () => {
+      const turnRows = [makeTurnRow({ agentSessionId: "session-resume-me" })];
+      const db = makeFakeDb(turnRows, []);
+      const svc = new TranscriptFtsService(db);
+
+      const results = await svc.searchText("test");
+      expect(results[0]?.resumeHint).toBe("claude --resume session-resume-me");
+    });
   });
 
   // ── Tests: getSession ────────────────────────────────────────────────────────
@@ -326,6 +335,16 @@ describe("TranscriptFtsService", () => {
 
       const results = await svc.getSession("session-cnt");
       expect(results[0]?.sessionMetadata.messageCount).toBe(7);
+    });
+
+    test("resumeHint (mt#2523): getSession results also carry the resume hint", async () => {
+      const existenceRows = [makeExistenceRow("session-x")];
+      const turnRows = [makeTurnRow({ agentSessionId: "session-x" })];
+      const db = makeFakeDb(turnRows, [], existenceRows);
+      const svc = new TranscriptFtsService(db);
+
+      const results = await svc.getSession("session-x");
+      expect(results[0]?.resumeHint).toBe("claude --resume session-x");
     });
   });
 });
