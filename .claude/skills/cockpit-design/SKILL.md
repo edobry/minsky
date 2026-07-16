@@ -19,7 +19,7 @@ You are designing or implementing UI for Minsky's Cockpit web app (`src/cockpit/
 
 The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read it first if you haven't. This skill is the depth layer; CLAUDE.md is the breadth.
 
-The product/derivation layer ABOVE this skill is [`/product-thinking`](../product-thinking/SKILL.md) — deriving what a surface should BE from the principal's supervision loop (job, owning question, altitude, decision-forcing principles). Invoke it first when the question is surface purpose or IA rather than rendering.
+The product/derivation layer ABOVE this skill is `/product-thinking` — deriving what a surface should BE from the principal's supervision loop (job, owning question, altitude, decision-forcing principles). Invoke it first when the question is surface purpose or IA rather than rendering.
 
 ## When to invoke
 
