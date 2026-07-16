@@ -24,6 +24,7 @@ import type { AskRepository } from "@minsky/domain/ask/repository";
 import type { AskKind } from "@minsky/domain/ask/types";
 import { log } from "@minsky/shared/logger";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
+import { applyListCap } from "@minsky/domain/utils/list-pagination";
 
 /** Shape of the blockingAsk field returned in tasks_list (JSON) and tasks_get. */
 export interface BlockingAskInfo {
@@ -74,13 +75,16 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
 
     // List tasks with filters. `kind` is validated against the workflow registry
     // and filtered server-side inside listTasksFromParams (mt#2762) — not here.
+    // NOTE (mt#2817): `limit` is intentionally NOT forwarded here — capping
+    // happens below, after the since/until filter, so `total` reflects the
+    // true count of everything matching the caller's filters (not just a
+    // pre-time-filter count) and so the cap is never silent.
     let tasks = await listTasksFromParams(
       {
         ...this.createTaskParams(params),
         all: params.all,
         status: params.status,
         filter: params.filter,
-        limit: params.limit,
         tags,
         allProjects: params.allProjects,
         kind: params.kind,
@@ -97,6 +101,14 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
     } catch {
       // If utilities unavailable, skip
     }
+
+    // mt#2817: apply a "loud" cap — never silently drop rows. `total` here is
+    // the true count of everything matching status/kind/tags/project/time
+    // filters; `truncated`/`returned` are always reported in the response so
+    // a caller relying on the full set (e.g. a bulk cross-reference) can tell
+    // it got a partial page.
+    const { items: cappedTasks, meta: truncation } = applyListCap(tasks, params.limit);
+    tasks = cappedTasks;
 
     // Enrich with parent info and build hierarchical view if requested
     let depthMap: Map<string, number> | undefined;
@@ -280,7 +292,14 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         }
         return enriched;
       });
-      return enrichedTasks;
+      // mt#2817: BREAKING — JSON output used to be a bare array. It is now an
+      // object carrying loud-cap metadata alongside the tasks, matching the
+      // shape already used by asks.list/events.list/session.list. See PR
+      // "Breaking Changes" section.
+      return {
+        tasks: enrichedTasks,
+        ...truncation,
+      };
     }
 
     // Format output with optional hierarchy and dependency status
@@ -314,6 +333,7 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         success: true,
         count: tasks.length,
         output: lines.join("\n"),
+        ...truncation,
       };
     }
 
@@ -336,7 +356,10 @@ export class TasksListCommand extends BaseTaskCommand<typeof tasksListParams> {
         success: true,
         count: tasks.length,
         tasks: displayTasks,
-        message: `Found ${tasks.length} tasks`,
+        message: truncation.truncated
+          ? `Found ${truncation.total} tasks; showing ${tasks.length} (truncated — pass a higher limit for more)`
+          : `Found ${tasks.length} tasks`,
+        ...truncation,
       },
       false
     );

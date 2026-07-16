@@ -16,7 +16,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { eq, and, isNull, inArray, or, lt, sql } from "drizzle-orm";
+import { eq, and, isNull, inArray, or, lt, gte, lte, sql } from "drizzle-orm";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { memoriesTable } from "../storage/schemas/memory-embeddings";
@@ -221,6 +221,22 @@ export class MemoryService implements MemoryServiceSurface {
       const { type: assocType, targetId } = filter.association;
       const containsObj = { [assocType]: [targetId] };
       conditions.push(sql`${memoriesTable.associations} @> ${JSON.stringify(containsObj)}::jsonb`);
+    }
+    // mt#2817: since/until filter on createdAt (see MemoryListFilter doc comment
+    // for why createdAt rather than updatedAt). Invalid date strings are
+    // dropped rather than throwing — same defensive posture as the rest of
+    // this filter set (a bad filter degrades to "no filter", not a 500).
+    if (filter?.since) {
+      const since = new Date(filter.since);
+      if (!Number.isNaN(since.getTime())) {
+        conditions.push(gte(memoriesTable.createdAt, since));
+      }
+    }
+    if (filter?.until) {
+      const until = new Date(filter.until);
+      if (!Number.isNaN(until.getTime())) {
+        conditions.push(lte(memoriesTable.createdAt, until));
+      }
     }
 
     const baseQuery = this.deps.db.select().from(memoriesTable);
