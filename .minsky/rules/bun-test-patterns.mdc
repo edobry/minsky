@@ -1,5 +1,8 @@
 ---
 description: Use this when doing stuff
+globs:
+  - '**/*.test.ts'
+  - 'tests/**'
 alwaysApply: false
 tags:
   - testing

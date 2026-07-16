@@ -1,5 +1,8 @@
 ---
 description: Use when updating test assertions or expected outputs. Apply with testing-boundaries to ensure proper test focus
+globs:
+  - '**/*.test.ts'
+  - 'tests/**'
 alwaysApply: false
 tags:
   - testing

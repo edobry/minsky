@@ -1,10 +1,5 @@
 ---
-description: Use when writing or refactoring import statements. Prefer static imports over dynamic imports.
-globs:
-  - '**/*.ts'
-  - '**/*.tsx'
-  - '**/*.js'
-  - '**/*.jsx'
+description: Use when writing or refactoring import statements. Prefer static imports over dynamic imports. No globs by design — the blast radius would be every source file (effectively always-loaded), and eslint.config.js's allowDynamicImports:false already enforces this mechanically.
 alwaysApply: false
 tags:
   - typescript
