@@ -5,6 +5,7 @@ import {
   extractAssistantText,
   extractToolUseNames,
   extractLastUserMessage,
+  findRealPromptIndices,
   type TranscriptLine,
 } from "./transcript";
 
@@ -158,5 +159,41 @@ describe("extractLastUserMessage", () => {
 
   test("returns '' when no real prompt exists", () => {
     expect(extractLastUserMessage([toolResult(), assistantText("x")])).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findRealPromptIndices — the raw index list extractLastAssistantTurn slices
+// between (mt#2824: factored out so callers can read the boundary LINES'
+// own fields, e.g. timestamps, not just the slice between them)
+// ---------------------------------------------------------------------------
+
+describe("findRealPromptIndices", () => {
+  test("returns indices of real prompts only, skipping tool_result/assistant lines", () => {
+    const lines: TranscriptLine[] = [
+      userPrompt("first"), // 0
+      assistantToolUse("Read"), // 1
+      toolResult(), // 2
+      assistantText("done"), // 3
+      userPrompt("second"), // 4
+    ];
+    expect(findRealPromptIndices(lines)).toEqual([0, 4]);
+  });
+
+  test("returns [] when there are no real prompts", () => {
+    expect(findRealPromptIndices([toolResult(), assistantText("x")])).toEqual([]);
+  });
+
+  test("extractLastAssistantTurn's boundaries match findRealPromptIndices' last two entries", () => {
+    const lines: TranscriptLine[] = [
+      userPrompt("first"),
+      assistantToolUse("Read"),
+      toolResult(),
+      userPrompt("second"),
+    ];
+    const indices = findRealPromptIndices(lines);
+    expect(indices).toEqual([0, 3]);
+    const turn = extractLastAssistantTurn(lines);
+    expect(turn).toEqual(lines.slice((indices[0] as number) + 1, indices[1] as number));
   });
 });

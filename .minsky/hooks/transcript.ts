@@ -40,6 +40,15 @@ export interface TranscriptLine {
   name?: string;
   tool_name?: string;
   input?: Record<string, unknown>;
+  /**
+   * ISO-8601 wall-clock timestamp Claude Code stamps on every transcript
+   * line (user/assistant/tool_result alike). Optional here because not
+   * every caller-constructed synthetic TranscriptLine in tests sets it, but
+   * real on-disk transcripts always carry it. Added for mt#2824 (silent-
+   * stretch detector) — the first consumer that needs wall-clock gap
+   * measurement rather than just line-order/content.
+   */
+  timestamp?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +197,27 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Return the transcript-line index of every REAL user prompt, in order.
+ *
+ * Factored out of {@link extractLastAssistantTurn} (mt#2824) so callers that
+ * need the boundary LINES themselves — not just the turn slice between them
+ * — can locate them without re-implementing the real-prompt scan. The
+ * silent-stretch detector is the first such consumer: it needs the previous
+ * and current prompts' `timestamp` fields to measure wall-clock silence,
+ * which `extractLastAssistantTurn`'s turn-slice return value (exclusive of
+ * both boundary lines) does not expose.
+ */
+export function findRealPromptIndices(lines: TranscriptLine[]): number[] {
+  const promptIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (isRealUserPrompt(line)) promptIndices.push(i);
+  }
+  return promptIndices;
+}
+
+/**
  * Extract the just-completed logical turn: every line between the
  * second-to-last and the last REAL user prompt (the last real prompt is the
  * current prompt that fired the hook and is excluded).
@@ -201,12 +231,7 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
  * session, or no prior assistant turn).
  */
 export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  const promptIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (isRealUserPrompt(line)) promptIndices.push(i);
-  }
+  const promptIndices = findRealPromptIndices(lines);
 
   if (promptIndices.length < 2) return [];
 
