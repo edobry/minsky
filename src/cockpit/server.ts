@@ -15,6 +15,9 @@
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
  *   GET /api/agents/:id       — workspace-session detail: meta, commits, PR
  *                               state, transcript bridge (mt#1919)
+ *   POST /api/agents/:id/focus — resolve + raise the session's externally
+ *                               attached terminal (mt#2284 + mt#2285, local-
+ *                               only, mt#2286)
  *   GET /api/conversation/:agentSessionId/live-tail — conversation-keyed live
  *                               tail SSE stream, no workspace bridge (mt#2749)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
@@ -27,10 +30,11 @@
  *   GET /                     — serves web/dist/index.html
  *
  * @see ./routes/health.ts, ./routes/tasks.ts, ./routes/agents.ts,
- *   ./routes/conversations.ts, ./routes/changesets.ts, ./routes/events.ts,
- *   ./routes/activity.ts, ./routes/asks.ts, ./routes/credentials.ts,
- *   ./routes/context-inspector.ts, ./routes/embeddings.ts,
- *   ./routes/driven-sessions.ts — the per-domain route modules
+ *   ./routes/agent-focus.ts, ./routes/conversations.ts, ./routes/changesets.ts,
+ *   ./routes/events.ts, ./routes/activity.ts, ./routes/asks.ts,
+ *   ./routes/credentials.ts, ./routes/context-inspector.ts,
+ *   ./routes/embeddings.ts, ./routes/driven-sessions.ts — the per-domain
+ *   route modules
  * @see ./driven-session-host.ts, ./driven-session-ws.ts — Rung 2A
  *   driven-session spawn/registry logic + its WS channel (mt#2750; the WS
  *   channel is attached separately by
@@ -53,6 +57,8 @@ import type { CredentialModuleOverride } from "./routes/credentials";
 import { mountHealthRoutes } from "./routes/health";
 import { mountTaskRoutes } from "./routes/tasks";
 import { mountAgentRoutes } from "./routes/agents";
+import { mountAgentFocusRoutes } from "./routes/agent-focus";
+import type { AgentFocusRouteOptions } from "./routes/agent-focus";
 import { mountConversationRoutes } from "./routes/conversations";
 import type { ConversationRoutesOptions } from "./routes/conversations";
 import { mountChangesetRoutes } from "./routes/changesets";
@@ -159,6 +165,14 @@ export interface CockpitServerOptions {
    * ./driven-session-host.ts. Never set in production.
    */
   overrideDrivenSession?: DrivenSessionRoutesOptions;
+  /**
+   * Test-only injection seams for the Agents-view "go to" focus endpoint
+   * (mt#2286) — overrides the SQL-connection getter and the mt#2285 focus
+   * executor so tests exercise the full attachment-resolution + delegation
+   * path against injected fakes instead of a real DB and a real terminal
+   * focus action. See ./routes/agent-focus.ts. Never set in production.
+   */
+  overrideAgentFocus?: AgentFocusRouteOptions;
 }
 
 /**
@@ -273,6 +287,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountHealthRoutes(app, { serverDirname: __dirname, availableWidgets });
   mountTaskRoutes(app);
   mountAgentRoutes(app);
+  mountAgentFocusRoutes(app, opts.overrideAgentFocus ?? {});
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountChangesetRoutes(app);
   mountEventsRoutes(app, { sseBrokerOverride });

@@ -22,13 +22,25 @@
  * for production use (no DI container needed).
  */
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { log } from "@minsky/shared/logger";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session/types";
 import { SessionStatus } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
+import type { SessionAttachment } from "@minsky/domain/session/index";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
+import {
+  deriveRowAttachState,
+  groupAttachmentsBySessionId,
+  type RowAttachState,
+} from "../attachment-state";
+
+// Re-exported so other server-side consumers of AgentRow can reference the
+// type from this module directly (mt#2286). The frontend keeps its own
+// inline mirror (web/widgets/Agents.tsx — no server-code imports there).
+export type { RowAttachState };
 
 // Re-exported for backward compatibility — callers that imported
 // `TaskProviderLike` from this module keep working; the canonical definition
@@ -77,6 +89,17 @@ export interface AgentRow {
   cwd: string | null;
   /** Subagent conversations collapsed under this row (mt#2767 grouping) — empty when none. */
   subagents: SubagentEntry[];
+  /**
+   * Row attachment-state (mt#2286), derived from the row's live mt#2284
+   * attachment set via `deriveRowAttachState`. Only ever populated for
+   * `kind: "dispatched-agent"` rows — that is the only kind whose
+   * `sessionId` is a Minsky workspace sessionId, the grain mt#2284's
+   * presence claims are keyed on. `null` for every other kind, and for a
+   * dispatched-agent row when no attachment source was supplied (or the
+   * lookup degraded) — the frontend's "go to" action treats `null` the same
+   * as `"detached"` (fails closed rather than guessing).
+   */
+  attachState: RowAttachState | null;
   /**
    * App-started driven-session binding (mt#2752). Non-null when this row IS
    * a driven session (`kind: "driven-session"`) or when a workspace row has
@@ -164,6 +187,9 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
     // Attached from the driven-session registry snapshot (mt#2752) when a
     // driven session was launched against this workspace.
     driven: null,
+    // Filled in below (createAgentsWidget's fetch()) when a live-attachments
+    // source is supplied; null otherwise (mt#2286).
+    attachState: null,
   };
 }
 
@@ -215,6 +241,9 @@ export function spliceDrivenSessions(
       cwd: record.cwd,
       subagents: [],
       driven: { sessionId: record.localId, status: record.status },
+      // A driven session is inherently app-started, not a workspace row —
+      // attachState (mt#2284/mt#2286) doesn't apply (mt#2286).
+      attachState: null,
     });
   }
   return [...rows, ...standalone];
@@ -259,7 +288,17 @@ export function createAgentsWidget(
   getProvider: () => Promise<SessionProviderInterface>,
   getTaskProvider?: () => Promise<TaskProviderLike>,
   getConversationDb?: () => Promise<PostgresJsDatabase | null>,
-  getDrivenSessions?: () => DrivenSessionSnapshot[]
+  getDrivenSessions?: () => DrivenSessionSnapshot[],
+  /**
+   * Optional async factory returning every CURRENTLY LIVE mt#2284 session
+   * attachment (the whole-table batch shape returned by
+   * `listLiveSessionAttachments(repo)` with no `sessionId` filter — mt#2286).
+   * When provided, each `dispatched-agent` row's `attachState` is derived via
+   * `deriveRowAttachState`. When omitted, or when the call throws, every
+   * row's `attachState` stays `null` (exact pre-mt#2286 behavior) — every
+   * pre-existing test in this repo omits this parameter.
+   */
+  getLiveAttachments?: () => Promise<SessionAttachment[]>
 ): WidgetModule {
   const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
   // mt#2767 latency follow-up — short-TTL cache in front of the conversation
@@ -334,6 +373,34 @@ export function createAgentsWidget(
           return toAgentRow(r, taskTitle);
         });
 
+        // mt#2286 — annotate each workspace row with its attachment-state
+        // indicator, derived from the CURRENT live mt#2284 attachment set.
+        // One batch call for every row, not N — mirrors the task-title
+        // enrichment above. Degrades to "every row stays null" (same as
+        // omitting the factory) on any lookup failure — but UNLIKE the
+        // conversation-merge/driven-session enrichments above (which are
+        // cosmetic decorations), a null attachState directly changes the
+        // "go to" action's behavior (it disables the row), so a swallowed
+        // failure here has a higher blast radius. Logged at `warn` — not
+        // `debug` — so it is operator-visible in production logs (matches
+        // the established precedent for the same failure class in
+        // src/adapters/shared/commands/session/attachment-annotation.ts).
+        // No metrics emission here: no sibling enrichment in this file emits
+        // metrics either, and adding a new mechanism is out of this task's
+        // scope — tracked as a follow-up rather than expanded here.
+        if (getLiveAttachments) {
+          try {
+            const liveAttachments = await getLiveAttachments();
+            const bySessionId = groupAttachmentsBySessionId(liveAttachments);
+            for (const row of workspaceRows) {
+              row.attachState = deriveRowAttachState(bySessionId.get(row.sessionId) ?? []);
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log.warn(`[agents widget] attachment-state enrichment degraded: ${message}`);
+          }
+        }
+
         // mt#2767 — merge in standalone conversations (principal + collapsed
         // subagent groups) and dedup/attach conversation links onto the
         // workspace rows above. Degrades silently to "workspace rows only"
@@ -354,7 +421,13 @@ export function createAgentsWidget(
                 row.subagents = attrs.subagents;
               }
             }
-            standaloneRows = merge.standaloneRows.map((r) => ({ ...r, driven: null }));
+            standaloneRows = merge.standaloneRows.map((r) => ({
+              ...r,
+              driven: null,
+              // Conversation-derived rows have no Minsky workspace sessionId
+              // — attachState (mt#2284/mt#2286) doesn't apply.
+              attachState: null,
+            }));
           }
         }
 
@@ -476,10 +549,31 @@ function defaultDrivenSessionsFactory(): DrivenSessionSnapshot[] {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Default live-attachments factory (mt#2286) — reuses the SAME cockpit-wide
+// SQL connection getter as the conversation-merge factory above (no second
+// pool), then builds a presence-claim repository over it and reads the
+// whole-table live-attachment batch (mt#2284).
+// ---------------------------------------------------------------------------
+
+async function defaultLiveAttachmentsFactory(): Promise<SessionAttachment[]> {
+  const { getContextInspectorDb } = await import("../db-providers");
+  const db = await getContextInspectorDb();
+  if (!db) return [];
+
+  const { buildPresenceClaimRepository } = await import("@minsky/domain/presence/index");
+  const repo = buildPresenceClaimRepository(db);
+  if (!repo) return [];
+
+  const { listLiveSessionAttachments } = await import("@minsky/domain/session/index");
+  return listLiveSessionAttachments(repo);
+}
+
 /** Default agents widget — ready to drop into WIDGET_REGISTRY */
 export const agentsWidget: WidgetModule = createAgentsWidget(
   defaultProviderFactory,
   defaultTaskProviderFactory,
   defaultConversationDbFactory,
-  defaultDrivenSessionsFactory
+  defaultDrivenSessionsFactory,
+  defaultLiveAttachmentsFactory
 );

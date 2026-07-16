@@ -252,6 +252,113 @@ describe("Memory Commands", () => {
       const result = (await cmd!.execute({ limit: 2 }, {})) as { records: MemoryRecord[] };
       expect(result.records).toHaveLength(2);
     });
+
+    // ── mt#2817: truncation metadata ────────────────────────────────────────
+    test("reports {returned, total, truncated} — untruncated case", async () => {
+      const records = [makeRecord({ id: "a" }), makeRecord({ id: "b" })];
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: records }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({}, {})) as {
+        records: MemoryRecord[];
+        returned: number;
+        total: number;
+        truncated: boolean;
+      };
+      expect(result.returned).toBe(2);
+      expect(result.total).toBe(2);
+      expect(result.truncated).toBe(false);
+    });
+
+    test("reports truncated:true when limit caps the result set", async () => {
+      const records = [makeRecord({ id: "a" }), makeRecord({ id: "b" }), makeRecord({ id: "c" })];
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: records }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({ limit: 2 }, {})) as {
+        records: MemoryRecord[];
+        returned: number;
+        total: number;
+        truncated: boolean;
+      };
+      expect(result.returned).toBe(2);
+      expect(result.total).toBe(3);
+      expect(result.truncated).toBe(true);
+    });
+
+    // ── mt#2817: summary projection ─────────────────────────────────────────
+    test("summary:true strips content and non-summary fields", async () => {
+      const record = makeRecord({
+        id: "mem-summary",
+        name: "Summary Memory",
+        type: "feedback",
+        description: "A record with a large body",
+        content: "x".repeat(5000),
+        tags: ["di-cleanup"],
+        scope: "cross_project",
+      });
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: [record] }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({ summary: true }, {})) as {
+        records: Array<Record<string, unknown>>;
+      };
+      expect(result.records).toHaveLength(1);
+      const row = result.records[0] as Record<string, unknown>;
+      expect(row).toEqual({
+        id: "mem-summary",
+        name: "Summary Memory",
+        type: "feedback",
+        description: "A record with a large body",
+        tags: ["di-cleanup"],
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      });
+      expect(row.content).toBeUndefined();
+      expect(row.scope).toBeUndefined();
+    });
+
+    test("summary:false (default) preserves the full record shape, including content", async () => {
+      const record = makeRecord({ id: "mem-full", content: "full body text" });
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, makeDeps({ listResults: [record] }));
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = (await cmd!.execute({}, {})) as { records: MemoryRecord[] };
+      expect(result.records[0]?.content).toBe("full body text");
+    });
+
+    // ── mt#2817: since/until forwarding ──────────────────────────────────────
+    test("forwards parsed since/until as ISO strings to the service filter", async () => {
+      let capturedFilter: Record<string, unknown> | undefined;
+      const registry = createSharedCommandRegistry();
+      registerMemoryCommands(registry, {
+        memoryService: {
+          ...makeFakeMemoryService({ listResults: [] }),
+          list: async (filter) => {
+            capturedFilter = filter as unknown as Record<string, unknown>;
+            return [];
+          },
+        },
+      });
+
+      const cmd = registry.getCommand(LIST_CMD);
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      await cmd!.execute({ since: "2026-07-01", until: "2026-07-31" }, {});
+
+      expect(typeof capturedFilter?.since).toBe("string");
+      expect(typeof capturedFilter?.until).toBe("string");
+      expect(new Date(capturedFilter?.since as string).toISOString()).toBe(
+        capturedFilter?.since as string
+      );
+    });
   });
 
   // ── memory.create ───────────────────────────────────────────────────────────

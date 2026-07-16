@@ -22,7 +22,7 @@ import {
   type EventCategory,
   type SystemEvent,
 } from "@minsky/domain/storage/schemas/system-events-schema";
-import { listEvents } from "@minsky/domain/events/query";
+import { listEvents, countEvents } from "@minsky/domain/events/query";
 import { DrizzleEventEmitter } from "@minsky/domain/events/emitter";
 import type { SystemEventInput } from "@minsky/domain/events/emitter";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -99,8 +99,18 @@ const eventsListParams = {
 
 interface EventsListResult {
   events: SystemEvent[];
+  /**
+   * True count of everything matching the filters, BEFORE the SQL-level
+   * `limit` (mt#2817 — previously this field was `events.length`, i.e. the
+   * post-limit count mislabeled as "total"; a caller could not tell whether
+   * a full page meant "that's everything" or "there's more past the cap").
+   */
   total: number;
   limit: number;
+  /** Number of events actually returned in `events` (mt#2817). */
+  returned: number;
+  /** `returned < total` — true when this payload does NOT contain every match (mt#2817). */
+  truncated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,24 +173,39 @@ export function registerEventsCommands(container?: AppContainerInterface): void 
         const db = await getDb(container);
         if (!db) {
           log.warn("events.list: DB connection unavailable — returning empty results");
-          return { events: [], total: 0, limit: (params.limit as number | undefined) ?? 50 };
+          return {
+            events: [],
+            total: 0,
+            limit: (params.limit as number | undefined) ?? 50,
+            returned: 0,
+            truncated: false,
+          };
         }
 
-        const events = await listEvents(db, {
+        const filterOptions = {
           eventType: params.eventType as SystemEventType | undefined,
           category: params.category as EventCategory | undefined,
           since: params.since as string | undefined,
           until: params.until as string | undefined,
           relatedTaskId: params.relatedTaskId as string | undefined,
-          limit: params.limit as number | undefined,
-        });
+        };
+
+        // mt#2817: fetch the page AND the true total (same filters, no limit)
+        // in parallel so `total` reflects everything matching, not just what
+        // fit under the SQL-level cap.
+        const [events, total] = await Promise.all([
+          listEvents(db, { ...filterOptions, limit: params.limit as number | undefined }),
+          countEvents(db, filterOptions),
+        ]);
 
         const limit = (params.limit as number | undefined) ?? 50;
 
         return {
           events,
-          total: events.length,
+          total,
           limit,
+          returned: events.length,
+          truncated: events.length < total,
         };
       },
     })
