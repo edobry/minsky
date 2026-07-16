@@ -294,7 +294,22 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
         const { log } = await import("@minsky/shared/logger");
         const { createTokenProvider } = await import("@minsky/domain/auth");
         const { getConfiguration } = await import("@minsky/domain/configuration");
+        const { resolveSessionIdForCommand } = await import(
+          "@minsky/domain/session/session-context-resolver"
+        );
         const deps = await getDeps();
+
+        // mt#2816: accept `task` as a convenience-resolution alias for `sessionId`,
+        // matching session_start/session_exec semantics. An explicit sessionId still
+        // wins outright (unchanged from prior behavior); when neither is supplied,
+        // resolvedSessionId stays undefined and sessionCommit()'s own
+        // "Session parameter is required" check below fires exactly as before.
+        const resolvedSessionId = await resolveSessionIdForCommand({
+          sessionId: params.sessionId as string | undefined,
+          task: params.task as string | undefined,
+          sessionProvider: deps.sessionProvider,
+        });
+
         // Guard: skip DB touch when persistence is not registered in the container.
         // buildAskRepository is a no-op when container is absent, but calling it
         // unconditionally still triggers an async DB-init path and log.warn noise
@@ -316,7 +331,7 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
         try {
           const result = await sessionCommit(
             {
-              session: (params.sessionId as string | undefined) ?? "",
+              session: resolvedSessionId ?? "",
               message: (params.message as string | undefined) ?? "",
               all: params.all as boolean | undefined,
               amend: params.amend as boolean | undefined,
@@ -338,7 +353,7 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
 
           return {
             success: result.success,
-            sessionId: params.sessionId,
+            sessionId: resolvedSessionId,
             commitHash: result.commitHash,
             shortHash: result.shortHash,
             subject: result.subject,
