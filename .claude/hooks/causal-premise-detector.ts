@@ -15,9 +15,15 @@
 //     - Retrodictive: "X behaved this way because Y", "the reason is Y",
 //       "X blocks/causes Y", "X happened because…"
 //     - Forward: "running X will do Y", "X is unsafe because…"
+//     - Inductive/correlational (mt#2832, R12 gap): "N in a row, while Y",
+//       "the one remaining/only difference is Y" — an A/B generalization
+//       drawn from a small, unisolated sample rather than an explicit
+//       "because"/"due to" mechanism phrase. See mt#2765 / memory b0b294ab
+//       R12: "tray-spawned hangs, shell-spawned works" — attributed to spawn
+//       context when the real confound was which port had live traffic.
 //   WHERE Y invokes a structural mechanism (identity / permission / config /
-//   algorithm / data-shape) AND the same turn contains NO backing tool call
-//   AND NO file:line or node_modules/… citation.
+//   algorithm / data-shape / process-environment) AND the same turn contains
+//   NO backing tool call AND NO file:line or node_modules/… citation.
 //
 //   DOES NOT FIRE when:
 //   - A same-turn tool result backs the claim.
@@ -110,6 +116,27 @@ export const FORWARD_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Causal phrase patterns — inductive / correlational A/B generalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Inductive/correlational patterns (mt#2832, R12 gap): a causal conclusion
+ * drawn from a small, un-isolated A/B comparison — "N in a row while Y",
+ * "the one remaining/only difference is Y" — rather than an explicit
+ * "because"/"due to" mechanism phrase. This is the exact shape of the
+ * mt#2765 misdiagnosis (memory b0b294ab R12): "tray-spawned hangs three
+ * times in a row, shell-spawned works — the one remaining structural
+ * difference is the working directory" attributed causation to spawn
+ * context when the real confound (which port had live traffic) was never
+ * isolated.
+ */
+export const INDUCTIVE_GENERALIZATION_PATTERNS: RegExp[] = [
+  /\bthe\s+(one\s+)?(remaining|only)\s+(structural\s+)?difference\b/i,
+  /\b(in\s+a\s+row)\b[^.]{0,100}\bwhile\b/i,
+  /\bevery\s+time\b[^.]{0,100}\b(but|while|whereas)\b/i,
+];
+
+// ---------------------------------------------------------------------------
 // Mechanism indicator patterns (Y must invoke a structural mechanism)
 // ---------------------------------------------------------------------------
 
@@ -126,6 +153,11 @@ export const MECHANISM_PATTERNS: RegExp[] = [
   /\b(App\s+id|installation|bot\s+id|agent\s+id|user\s+id|service\s+account)\b/i,
   /\b(high[- ]?water[- ]?mark|ledger|journal|timestamp|migration)\b/i,
   /\b(cach[ei]|memoriz|remember|stored|retained|inherit)\b/i,
+  // mt#2832 R12 gap: process/spawn-context mechanism vocabulary — narrow
+  // compound terms only (not bare "spawn"/"environment", which are too
+  // common in this codebase's discourse and would broaden the mechanism
+  // gate for every OTHER causal-phrase category, not just this one).
+  /\b(spawn\s+context|working\s+director(?:y|ies)|process\s+environment)\b/i,
 ];
 
 // ---------------------------------------------------------------------------
@@ -232,6 +264,16 @@ export function detectCausalPremise(
 
   // Check forward predictive patterns
   for (const pattern of FORWARD_PATTERNS) {
+    const match = pattern.exec(filteredText);
+    if (match) {
+      if (hasMechanismInProximity(filteredText, match.index, 500)) {
+        matchedPhrases.push(match[0].slice(0, 120));
+      }
+    }
+  }
+
+  // Check inductive/correlational A/B generalization patterns (mt#2832 R12 gap)
+  for (const pattern of INDUCTIVE_GENERALIZATION_PATTERNS) {
     const match = pattern.exec(filteredText);
     if (match) {
       if (hasMechanismInProximity(filteredText, match.index, 500)) {
