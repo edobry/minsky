@@ -1542,7 +1542,9 @@ doc); narration lives in the linked doc.
 A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
 entrypoints) so multiple guards share ONE spawned Bun process per event; only
 `GUARD_REGISTRY`-listed guards run through it. Migrated: `check-guessed-session-path` (Phase 1, mt#2650);
-the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc). `policy-coverage-detector` is NOT in this family: it is registered on
+the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc), plus
+`silent-stretch-detector` (mt#2824), authored directly onto the framework rather than migrated
+from a prior standalone registration — 16 guards in the family as of mt#2824. `policy-coverage-detector` is NOT in this family: it is registered on
 `PreToolUse` (both phases' specs named it — recorded spec discrepancy). Every other guard
 below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md`, ADR-028.
 
@@ -1789,6 +1791,18 @@ valid, unexpired capability grant (ADR-028 D5 default-deny). Grant before dispat
 store or no-match is default-deny working.
 Doc: `subagent-merge-capability-guard.md`.
 
+## Silent-Stretch Detector (calibration)
+
+UserPromptSubmit (v1 calibration-only, no injection): measures the just-completed turn for a
+tool-only silent stretch — no assistant TEXT output — and logs a record when it crossed 10 minutes
+of wall-clock silence OR 15 consecutive tool calls, whichever first (mt#2824). Pairs with the
+`§Progress heartbeats` discipline bullet in `user-preferences.mdc` (the agent-side narration
+requirement this detector calibrates); sibling to `inject-dispatch-watchdog.ts` (that guard covers
+SUBAGENT silence from the dispatching agent's side; this one covers the MAIN agent's own silence).
+Hook: `silent-stretch-detector.ts`. Log: `.minsky/silent-stretch-calibration.jsonl`. Override:
+`MINSKY_SKIP_SILENT_STRETCH=1`. Fail: open on transcript error or missing `transcript_path`.
+Doc: `silent-stretch-detector.md`.
+
 # Cockpit Deeplinks in Terminal Output
 
 When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset (PR)** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
@@ -1915,6 +1929,12 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
   This does NOT weaken any skill's requirement to produce structured reports (gap reports, gate tables, premise audits). Those are records — produce them in full, but render them after the plain-language lead or into the durable artifact. Placement changes; rigor does not.
 
   Originating incident: 2026-07-15, mt#2777 planning. The gate output led with a four-part premise audit and a 14-row criterion table; the principal responded "This is too much information. Help me understand what the situation is and what should be done about this," and approved the plain rewrite (what happened → the two underlying problems → what's wrong with the task as written → three recommended actions) as the standard. Structural fix: this bullet plus the `/plan-task` Step 4 output amendment (same task). Sibling rules: `§Professional communication` (tone), `humility.mdc §Escalation packaging` (self-contained decision escalations); this bullet covers report-shaped output.
+
+- **Progress heartbeats during tool-only stretches (mt#2824).** During research/build chains where several tool calls run back-to-back with no interstitial prose, emit a one-line status update — current activity plus a health signal (e.g., "still reading the auth module, no blockers" or "3 of 5 files migrated, tests pending") — at least every **10 minutes of wall-clock time OR 15 consecutive tool calls, whichever comes first.** A stretch below BOTH thresholds needs no heartbeat.
+
+  Cadence pinned at planning (2026-07-15) and grounded in two originating interrupts (conversations a9c1a09b at 24 minutes, ac4f5675 at 28 minutes) — this cadence yields at least two heartbeats before either historical interrupt point. Applies at **every altitude register, including executive-level summaries** — per [`RFC: Communication altitude`](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Draft), heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report. Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
+
+  This is the discipline layer of a two-layer fix; the detection layer is `silent-stretch-detector.ts` (`.minsky/hooks/`, ADR-028 `GUARD_REGISTRY`) — a calibration-first (mt#2263 ladder) `UserPromptSubmit` guard that measures the just-completed turn for tool-only silence and logs a record to `.minsky/silent-stretch-calibration.jsonl` when a stretch crossed the threshold without a heartbeat; it does not yet inject a reminder (v1 is log-only). Originating incident: *"I think you ran into the harness bug again. Maybe you're making progress. I can't see it because there's been no UI updates in 24 minutes"* — the operator interrupted two in-flight, healthy tool calls because silence was indistinguishable from a hang. See `docs/architecture/hooks/silent-stretch-detector.md` and `hook-files.mdc`'s entry for the detector's trigger/override/fail-posture summary.
 
 - **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
 
