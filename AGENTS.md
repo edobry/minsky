@@ -1832,6 +1832,188 @@ Hook: `silent-stretch-detector.ts`. Log: `.minsky/silent-stretch-calibration.jso
 `MINSKY_SKIP_SILENT_STRETCH=1`. Fail: open on transcript error or missing `transcript_path`.
 Doc: `silent-stretch-detector.md`.
 
+# Principal Communication Contract
+
+The principal operates as an attention-limited engineering manager: agent→principal communication
+must be brief by default, exception-driven, with full detail addressable rather than pushed, and
+nothing lost. This extends the `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
+attention-allocation frame from **asks** (decisions routed to the principal) to **reports** (status
+pushed at the principal). Source: [`RFC: Communication altitude — attention-calibrated
+agent↔principal reporting`](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Notion
+`39e937f0-3cb4-81fe-bdea-e249014e356f`, Accepted 2026-07-15) — this rule encodes that RFC's Phase 1
+channel contract.
+
+## The channel model
+
+Chat is a management interface, not an engineering record. Each channel carries a different slice
+of "what happened," and chat is deliberately the thinnest one:
+
+| Channel | Carries | Mode |
+| --- | --- | --- |
+| **Chat** (conversation) | Turn outcomes, exceptions, judgment calls, decision summaries; heartbeats during long work | Push into the scroll; read synchronously when the principal is attending |
+| **Asks** | Decisions that block on the principal, packaged to be answerable from the ask alone | Routed push with lifecycle + attention accounting |
+| **Task record** | The engineering audit trail: gate reports, premise audits, verification evidence, planning notes | Pull; one deeplink away from any chat mention |
+| **Cockpit** | Fleet and workstream state; digests | Pull today; ambient push per the ambient-cockpit RFC |
+| **Transcript archive** | Everything, verbatim | Pull; searchable |
+
+**The rule that binds them: nothing is lost by compression, because chat was never the storage
+layer.** Structured process artifacts (gate tables, premise audits, criterion checklists) are still
+produced in full — they land in the task record, or after the plain-language lead per
+`user-preferences.mdc §Plain-language first` — never as the opening of a chat message.
+
+## The four report tiers
+
+- **Tier 0 — interrupt (decision needed).** The Ask subsystem. Keep the escalation-packaging
+  discipline in `humility.mdc §Escalation packaging`.
+- **Tier 1 — turn-end report.** The BLUF contract below. This is the tier this rule governs.
+- **Tier 2 — digest.** Cross-session rollup ("what happened across the fleet today"). Deferred to
+  RFC Phase 3 — owned by `mt#2869` (cross-session digest on the cockpit, depends on mt#2713) —
+  not implemented by this rule; see `## Scope` below.
+- **Tier 3 — archive.** Everything queryable: tasks, PRs, transcripts, memory. The "nothing lost"
+  guarantee this contract depends on already exists.
+
+## The Tier-1 turn-report contract
+
+A turn-end report is three parts, **each 1–3 sentences**:
+
+1. **What happened**
+2. **What you need to know** — exceptions, plus contestable judgment calls (see below)
+3. **What's next**
+
+Rules that bound the shape:
+
+- **Routine success is one line.** A clean turn with no exceptions and no judgment calls does not
+  need three paragraphs to say so.
+- **Detail lives behind a pointer, never inline.** Use `minsky://` deeplinks
+  (`cockpit-deeplinks.mdc`) or a file path into the task record. **Don't re-narrate the substrate —
+  point into it.** Never restate a PR body, a spec section, or a gate report's contents in chat;
+  link to it.
+- **Hard budget: the lead must be readable in under 30 seconds — roughly 200 words.** If the lead
+  is longer, detail that belongs in the task record is leaking into chat.
+- **No skill-internal labels in the lead.** Gate letters (`(l)`), premise-audit labels (`(iii)`),
+  criterion-table IDs, and other process-internal vocabulary are for the audit trail, not the
+  principal — keep them out of the three-part lead entirely (per
+  `user-preferences.mdc §Plain-language first`, which this rule's Tier-1 shape specializes for the
+  turn-end report specifically).
+
+**When to expand beyond the compressed lead.** Two triggers, and only two: **the principal asks**
+(directly, or via a standing per-conversation override — register selection is out of this rule's
+scope, see `## Scope`), or **an exception warrants it** — a severity event, a judgment call whose
+stakes are high enough that a one-line mention isn't enough context to contest it, or a finding the
+principal would plausibly want to probe further. Even when expanding, prefer widening the pointer
+(link to the specific section of the task record, PR, or transcript that has the detail) over
+re-narrating that detail inline — expansion is "give a more precise pointer and more context around
+the judgment call," not "paste the substrate into chat."
+
+## Judgment calls are load-bearing (RFC Position 3)
+
+**Summaries carry judgment calls, not receipts.** The "what you need to know" line must surface the
+contestable decisions the agent made on the principal's behalf — the calls the principal would want
+to catch and comment on. Mechanical verifications that passed (tests green, typecheck clean, lint
+clean, a routine gate that passed with no surprises) are receipts: they go to the task record, not
+the lead.
+
+Examples of judgment calls that belong in the lead:
+
+- Choosing to bypass-merge a PR under a documented escape valve, instead of waiting longer for
+  review.
+- Deciding not to run a live verification and shipping an "UNVERIFIED" marker instead.
+- Picking one of several viable implementation approaches without asking first.
+- Descoping part of a spec's stated scope as out-of-bounds.
+
+Examples that do NOT belong in the lead (record them, don't lead with them):
+
+- "20/20 tests passed."
+- "Typecheck and lint are clean."
+- "The PR rebased cleanly on main."
+
+Surfacing judgment calls is what preserves the value of "scrolling and noticing" that a shorter
+report would otherwise lose — the contestable decisions are exactly what the principal used to
+catch by reading everything.
+
+## Anti-patterns
+
+Do not produce any of the following:
+
+- **Multi-screen final reports.** A report spanning multiple screens has already blown the Tier-1
+  budget, independent of whether its content is individually reasonable.
+- **Re-narrating PR bodies/specs in chat.** Repeating what a PR body, task spec, or gate report
+  already says instead of pointing to it duplicates the durable record in the ephemeral one.
+- **Detail without a pointer.** Expanding on a topic in chat without giving the principal a
+  `minsky://` deeplink or file path to go deeper defeats the addressable-detail design — the reader
+  gets partial detail with no way to get the rest.
+- **Burying the needed-decision below the fold.** A Tier-0-shaped decision (something that blocks
+  on the principal) placed inside a Tier-1 report instead of routed through the Ask subsystem, or
+  placed after routine narrative instead of leading with it.
+
+## Worked example: the 2026-07-08 originating incident
+
+**Before (named, not reproduced).** After a long autonomous work turn — two PRs driven to merge, an
+umbrella task closed — the agent delivered a multi-screen final report: PR-by-PR narrative
+recapping each change, a full commit-by-commit walkthrough, and a detailed rationale for the
+umbrella closure. The principal's response: *"This is a lot for me to read and process… my role
+really is more of an engineering manager… very attention-limited… also, I don't want to lose track
+of everything that's going on — we need to strike the right balance."*
+
+**After (the shape the principal accepted, in this contract's three-part form; task/PR ids below
+are illustrative, not the actual originating references):**
+
+> **What happened:** Two PRs merged ([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2));
+> umbrella [mt#100](minsky://task/mt%23100) closed as a result.
+>
+> **What you need to know:** One judgment call — bypass-merged PR #2 under the documented
+> CoT-leakage escape valve after two consecutive leakage rounds on the same HEAD; no other
+> exceptions.
+>
+> **What's next:** Nothing pending on this thread; ready for the next task.
+
+The principal's originally-accepted rewrite (2026-07-08) carried a fourth heading, "Current
+status," between "what happened" and "what you need to know." This contract folds that into "what
+happened," because at turn-end the two collapse — what happened by the end of the turn *is* the
+current status. A report covering a partial or interrupted turn (work still in flight) states both
+in the same first line rather than adding a fourth heading: e.g., "Two of three planned commits
+landed; the third is blocked on a failing test" is still one "what happened" sentence-cluster.
+
+## Scope
+
+This rule ships the Tier-1 turn-report contract and the channel model. It deliberately does **not**
+ship:
+
+- **A register/altitude-selection layer** (which of receipts / standard / executive applies to a
+  given conversation). That is `mt#2867` (RFC Phase 2) — this rule defines the *shapes* a report can
+  take, not *which* shape a given conversation should default to.
+- **A Tier-2 digest mechanism.** Deferred to RFC Phase 3 — owned by `mt#2869` (cross-session
+  digest on the cockpit, depends on mt#2713), under the ambient-cockpit RFC's push discipline,
+  with a pull-only-widget fallback if the algedonic filter stalls.
+- **A calibration-first enforcement detector** (e.g., a wall-of-text or shape-violation detector).
+  Deferred to RFC Phase 3 — owned by `mt#2870` (wall-of-text detector, calibration-first, depends
+  on mt#2713). Per the ADR-024 detector ladder, the rule is the cheapest-sufficient rung; the
+  detector graduates only on calibration evidence.
+
+## Cross-references
+
+- `user-preferences.mdc §Plain-language first (mt#2801)` — the sibling discipline for
+  investigation/planning/incident reports (lead with plain prose, no internal labels in the
+  opening); this rule specializes that discipline into the turn-end report's specific three-part
+  shape and the channel model it depends on.
+- `user-preferences.mdc §Progress heartbeats during tool-only stretches (mt#2824)` — the heartbeat
+  floor this contract's "silence must be designed, not accidental" premise depends on. This rule
+  cites that section's cadence rather than restating it; do not duplicate the cadence numbers here.
+- `cockpit-deeplinks.mdc` — the `minsky://` deeplink format used by this contract's
+  point-into-it-don't-re-narrate-it discipline.
+- `humility.mdc §Escalation packaging` — the Tier 0 sibling discipline (self-contained decision
+  escalations that block on the principal).
+- `decision-defaults.mdc` — the policy-corpus sibling this rule's judgment-calls requirement feeds:
+  a judgment call surfaced here is exactly the kind of preference-bound choice that corpus asks
+  agents to name rather than silently resolve.
+- `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md` — the attention-allocation
+  frame this contract extends from asks to reports.
+- `mt#2713` — this task (Phase 1 implementation). `mt#2824` — the heartbeat-owning dependency
+  (shipped). `mt#2867` — the register-selection follow-on (Phase 2, out of scope here). `mt#2869` —
+  the Tier-2 digest owner (RFC Phase 3, depends on mt#2713). `mt#2870` — the calibration-first
+  enforcement-detector owner (RFC Phase 3, depends on mt#2713). `mt#2258` — the
+  principal-attention-scarcity umbrella.
+
 # Cockpit Deeplinks in Terminal Output
 
 When you reference a Minsky entity — a **task**, **ask**, **session**, **memory**, or **changeset (PR)** — in your live terminal output (the chat the principal reads), wrap the reference as a clickable markdown deeplink so a click opens that entity in the cockpit:
@@ -1959,11 +2141,15 @@ Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are alrea
 
   Originating incident: 2026-07-15, mt#2777 planning. The gate output led with a four-part premise audit and a 14-row criterion table; the principal responded "This is too much information. Help me understand what the situation is and what should be done about this," and approved the plain rewrite (what happened → the two underlying problems → what's wrong with the task as written → three recommended actions) as the standard. Structural fix: this bullet plus the `/plan-task` Step 4 output amendment (same task). Sibling rules: `§Professional communication` (tone), `humility.mdc §Escalation packaging` (self-contained decision escalations); this bullet covers report-shaped output.
 
+  For the specific shape of a turn-end status report (BLUF, exceptions + judgment calls, pointers instead of re-narration), see `communication-contract.mdc` — this bullet's plain-language discipline is the sibling covering investigation/planning/incident reports generally; that rule specializes it for the turn-end report.
+
 - **Progress heartbeats during tool-only stretches (mt#2824).** During research/build chains where several tool calls run back-to-back with no interstitial prose, emit a one-line status update — current activity plus a health signal (e.g., "still reading the auth module, no blockers" or "3 of 5 files migrated, tests pending") — at least every **10 minutes of wall-clock time OR 15 consecutive tool calls, whichever comes first.** A stretch below BOTH thresholds needs no heartbeat.
 
   Cadence pinned at planning (2026-07-15) and grounded in two originating interrupts (conversations a9c1a09b at 24 minutes, ac4f5675 at 28 minutes) — this cadence yields at least two heartbeats before either historical interrupt point. Applies at **every altitude register, including executive-level summaries** — per [`RFC: Communication altitude`](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Draft), heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report. Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
 
   This is the discipline layer of a two-layer fix; the detection layer is `silent-stretch-detector.ts` (`.minsky/hooks/`, ADR-028 `GUARD_REGISTRY`) — a calibration-first (mt#2263 ladder) `UserPromptSubmit` guard that measures the just-completed turn for tool-only silence and logs a record to `.minsky/silent-stretch-calibration.jsonl` when a stretch crossed the threshold without a heartbeat; it does not yet inject a reminder (v1 is log-only). Originating incident: *"I think you ran into the harness bug again. Maybe you're making progress. I can't see it because there's been no UI updates in 24 minutes"* — the operator interrupted two in-flight, healthy tool calls because silence was indistinguishable from a hang. See `docs/architecture/hooks/silent-stretch-detector.md` and `hook-files.mdc`'s entry for the detector's trigger/override/fail-posture summary.
+
+  `communication-contract.mdc` cites this section's cadence for its "silence must be designed, not accidental" premise rather than restating the numbers — this bullet stays the single source of truth for heartbeat cadence.
 
 - **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
 
