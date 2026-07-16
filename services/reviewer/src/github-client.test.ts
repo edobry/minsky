@@ -25,6 +25,7 @@ import {
   createOctokit,
   createAppIdentityOctokit,
   fetchPriorReviews,
+  fetchCommitMessagesSince,
   fetchListFiles,
   MAX_FILES_FETCHED,
   fetchReviewThreads,
@@ -870,5 +871,138 @@ describe("createAppIdentityOctokit (mt#2717)", () => {
     const appAuth = (await octokit.auth({ type: "app" })) as { type: string; token: string };
     expect(appAuth.type).toBe("app");
     expect(appAuth.token.split(".")).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchCommitMessagesSince (mt#2836)
+// ---------------------------------------------------------------------------
+
+interface FakeCommitData {
+  sha: string;
+  commit: {
+    message: string;
+    committer?: { date: string } | null;
+    author?: { date: string } | null;
+  };
+}
+
+function buildFakeCommitOctokit(commits: FakeCommitData[]): Octokit {
+  const paginateMock = mock(async (_endpoint: unknown, _options: unknown) => commits);
+  return {
+    paginate: paginateMock,
+    rest: {
+      pulls: {
+        listCommits: mock(async () => ({ data: [] })),
+      },
+    },
+  } as unknown as Octokit;
+}
+
+function makeRawCommit(overrides: Partial<FakeCommitData> = {}): FakeCommitData {
+  return {
+    sha: "abc123",
+    commit: {
+      message: "fix: address review feedback",
+      committer: { date: "2026-07-15T12:00:00Z" },
+    },
+    ...overrides,
+  };
+}
+
+describe("fetchCommitMessagesSince", () => {
+  test("calls octokit.paginate (not listCommits directly) to follow Link headers", async () => {
+    const octokit = buildFakeCommitOctokit([makeRawCommit()]);
+    await fetchCommitMessagesSince(octokit, "owner", "repo", 1);
+
+    expect((octokit.paginate as unknown as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+    expect(
+      (octokit.rest.pulls.listCommits as unknown as ReturnType<typeof mock>).mock.calls
+    ).toHaveLength(0);
+  });
+
+  test("returns all commits when sinceIso is omitted", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "a",
+        commit: { message: "one", committer: { date: "2026-07-01T00:00:00Z" } },
+      }),
+      makeRawCommit({
+        sha: "b",
+        commit: { message: "two", committer: { date: "2026-07-02T00:00:00Z" } },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(octokit, "owner", "repo", 1);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((c) => c.message)).toEqual(["one", "two"]);
+  });
+
+  test("filters out commits authored at or before sinceIso", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "old",
+        commit: { message: "before the review", committer: { date: "2026-07-01T00:00:00Z" } },
+      }),
+      makeRawCommit({
+        sha: "new",
+        commit: { message: "after the review", committer: { date: "2026-07-03T00:00:00Z" } },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      "2026-07-02T00:00:00Z"
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.message).toBe("after the review");
+  });
+
+  test("falls back to author.date when committer.date is absent", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "x",
+        commit: {
+          message: "authored, not committed",
+          committer: null,
+          author: { date: "2026-07-05T00:00:00Z" },
+        },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      "2026-07-01T00:00:00Z"
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.authoredAt).toBe("2026-07-05T00:00:00Z");
+  });
+
+  test("includes a commit with no resolvable date rather than dropping it", async () => {
+    const commits = [
+      makeRawCommit({
+        sha: "no-date",
+        commit: { message: "no date info", committer: null, author: null },
+      }),
+    ];
+    const octokit = buildFakeCommitOctokit(commits);
+    const results = await fetchCommitMessagesSince(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      "2026-07-01T00:00:00Z"
+    );
+
+    expect(results).toHaveLength(1);
   });
 });
