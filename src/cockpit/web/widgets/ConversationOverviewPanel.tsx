@@ -32,7 +32,10 @@ import { shortenId } from "../lib/format";
 import { formatDurationShort } from "../lib/format-duration";
 import { computeConversationStats, computeDurationMs } from "../lib/conversation-stats";
 import { fetchSnapshot, snapshotQueryKey, snapshotRetry } from "../lib/conversation-snapshot";
-import { MetaItem, type ConversationOverviewPayload, type WorkspaceOverviewFields } from "./RunDetail";
+import { MetaItem } from "../components/MetaItem";
+// Type-only import — erased at compile time, so no runtime module cycle with
+// RunDetail (which imports this panel). PR #1967 R1.
+import type { ConversationOverviewPayload, WorkspaceOverviewFields } from "./RunDetail";
 
 const LINK_CLASS = "text-primary hover:underline";
 const CHIP_CLASS =

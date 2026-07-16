@@ -34,6 +34,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
+import { MetaItem } from "../components/MetaItem";
 import { ConversationView } from "./ConversationView";
 import { ContextBlockView } from "./ContextBlockView";
 import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
@@ -204,15 +205,6 @@ function formatTimestamp(iso: string | null): string {
   const t = new Date(iso);
   if (Number.isNaN(t.getTime())) return "—";
   return t.toLocaleString();
-}
-
-export function MetaItem({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground uppercase tracking-wide">{label}</dt>
-      <dd className="text-sm truncate">{children}</dd>
-    </div>
-  );
 }
 
 function WorkspaceOverviewBody({ fields }: { fields: WorkspaceOverviewFields }) {
