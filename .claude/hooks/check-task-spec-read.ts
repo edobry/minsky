@@ -26,28 +26,48 @@
 // role=user tool_result turn-boundary hazard (mt#2255 / memory a3e60471: a turn
 // slice keyed on user-role lines silently drops earlier tool calls).
 //
+// Same-transcript authorship credit (mt#2814): a spec-surfacing READ is not
+// the only way this session can have engaged a task's identity and content.
+// Writing the spec is at least as strong a signal — `tasks_create` (with a
+// spec body), `tasks_spec_patch`, and `tasks_spec_search_replace` all require
+// the caller to name the target task id and supply content addressed to it.
+// `specWasAuthored()` credits these the same as a read. Partial-edit decision
+// (spec's open question, resolved here): ANY same-transcript spec_patch /
+// search_replace call targeting the task counts, with NO minimum edit size or
+// patch-count threshold — see specWasAuthored()'s docstring and
+// docs/architecture/hooks/bind-advance-spec-read-guard.md for the rationale.
+// Cross-session authorship does NOT count: the same
+// resolveTranscriptCandidates() tree-scoping that already isolates the
+// spec-READ check to this session's conversation tree isolates the
+// spec-AUTHORED check the same way — a prior session's transcript file is
+// never a candidate for the CURRENT session's scan.
+//
 // Subagent-aware resolution (mt#2637): for a background-Agent-dispatched
 // subagent, the harness passes `transcript_path` pointing at the PARENT
 // session's top-level transcript while the subagent's own tool calls are
 // recorded under `<session-dir>/subagents/agent-<agentId>.jsonl` — so the scan
 // walks resolveTranscriptCandidates() (given path + per-agent file + sibling
-// agent files) instead of the single given file. A spec read anywhere in the
-// session's conversation tree counts; a tree with NO read still denies.
+// agent files) instead of the single given file. A spec read (or same-
+// transcript authorship) anywhere in the session's conversation tree counts;
+// a tree with NO read/authorship still denies.
 //
 // Fail-open: any error — or a missing transcript — allows the call (exit 0).
 // Override: MINSKY_SKIP_SPEC_READ_CHECK=1.
 //
 // @see mt#2511 — parent (task-hijack guard); mt#2514 — Seam 2 (merge-time)
 // @see mt#2637 — subagent transcript_path false-positive fix
+// @see mt#2814 — same-transcript spec-authorship credit (this change)
 // @see mt#979 — subsumed (this hook adds the spec-read detection mt#979 deemed "too brittle")
 // @see .claude/hooks/check-guessed-session-path.ts — PreToolUse deny-class template
-// @see .claude/hooks/transcript.ts — parseTranscript / findToolUseInputs / resolveTranscriptCandidates
+// @see .claude/hooks/transcript.ts — parseTranscript / findToolUseInputs /
+//      findCreatedResourceIds / resolveTranscriptCandidates
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
   findToolUseInputs,
+  findCreatedResourceIds,
   resolveTranscriptCandidates,
   type TranscriptLine,
 } from "./transcript";
@@ -62,6 +82,17 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SPEC_READ_CHECK";
 /** Tools whose result surfaces a task's spec body into the transcript. */
 export const SPEC_GET_TOOL = "mcp__minsky__tasks_spec_get";
 export const TASKS_GET_TOOL = "mcp__minsky__tasks_get";
+
+/**
+ * Tools whose CALL is same-transcript spec AUTHORSHIP, credited as
+ * read-equivalent (mt#2814). `tasks_create`'s target id is not in its own
+ * input (the backend mints it) — its result is correlated via
+ * {@link findCreatedResourceIds}; the spec-patch tools carry `taskId`
+ * directly in their input, like the read-detection tools above.
+ */
+export const TASKS_CREATE_TOOL = "mcp__minsky__tasks_create";
+export const SPEC_PATCH_TOOL = "mcp__minsky__tasks_spec_patch";
+export const SPEC_SEARCH_REPLACE_TOOL = "mcp__minsky__tasks_spec_search_replace";
 
 /** Guarded tools. */
 export const STATUS_SET_TOOL = "mcp__minsky__tasks_status_set";
@@ -125,12 +156,55 @@ export function specWasSurfaced(lines: TranscriptLine[], targetId: string): bool
 }
 
 /**
+ * True iff `targetId` was AUTHORED in this transcript — a same-transcript
+ * spec-WRITING action credited as read-equivalent (mt#2814): a
+ * {@link TASKS_CREATE_TOOL} call that supplied a non-empty `spec` body and
+ * whose result reports the created task's id as `targetId`, OR a
+ * {@link SPEC_PATCH_TOOL} / {@link SPEC_SEARCH_REPLACE_TOOL} call whose
+ * `taskId` input matches `targetId`.
+ *
+ * Partial-edit decision (mt#2814, spec's open question — see
+ * docs/architecture/hooks/bind-advance-spec-read-guard.md for the full
+ * rationale): ANY same-transcript spec_patch/search_replace call targeting
+ * the task counts, with no minimum edit size and no patch-count threshold.
+ * This guard's purpose is task-hijack prevention (the session never engaged
+ * the CORRECT task's identity at all, per the mt#2191 originating incident) —
+ * not read-completeness enforcement, which is `/plan-task`'s concern. A
+ * patch/search-replace call requires the caller to name the target task id
+ * and supply content addressed to it; that is itself unambiguous identity
+ * engagement regardless of the edit's size, so a trivial one-line fix counts
+ * exactly like a full-spec create.
+ */
+export function specWasAuthored(lines: TranscriptLine[], targetId: string): boolean {
+  if (!targetId) return false;
+
+  for (const input of findToolUseInputs(lines, SPEC_PATCH_TOOL)) {
+    if (normalizeTaskId(input["taskId"]) === targetId) return true;
+  }
+  for (const input of findToolUseInputs(lines, SPEC_SEARCH_REPLACE_TOOL)) {
+    if (normalizeTaskId(input["taskId"]) === targetId) return true;
+  }
+
+  for (const { input, createdId } of findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId")) {
+    const spec = input["spec"];
+    if (typeof spec !== "string" || spec.trim() === "") continue;
+    if (createdId !== undefined && normalizeTaskId(createdId) === targetId) return true;
+  }
+
+  return false;
+}
+
+/**
  * True iff ANY transcript in the session's conversation tree — the given
  * transcript_path, the dispatching agent's own per-agent file, or a sibling
  * subagent file (see {@link resolveTranscriptCandidates}) — contains a
- * spec-surfacing tool_use for `targetId`. Candidates are scanned in order and
- * short-circuit on the first hit, so the extra files are only read on the
- * would-deny path (mt#2637).
+ * spec-surfacing tool_use (a READ, {@link specWasSurfaced}) OR a same-
+ * transcript spec-authorship action (a WRITE, {@link specWasAuthored},
+ * mt#2814) for `targetId`. Candidates are scanned in order and short-circuit
+ * on the first hit, so the extra files are only read on the would-deny path
+ * (mt#2637). Because candidates are scoped to THIS session's conversation
+ * tree, authorship recorded in a DIFFERENT session's transcript is never a
+ * candidate here — cross-session authorship does not satisfy the check.
  */
 export function specWasSurfacedInAnyTranscript(
   transcriptPath: string,
@@ -138,7 +212,8 @@ export function specWasSurfacedInAnyTranscript(
   targetId: string
 ): boolean {
   for (const candidate of resolveTranscriptCandidates(transcriptPath, agentId)) {
-    if (specWasSurfaced(parseTranscript(candidate), targetId)) return true;
+    const lines = parseTranscript(candidate);
+    if (specWasSurfaced(lines, targetId) || specWasAuthored(lines, targetId)) return true;
   }
   return false;
 }
@@ -153,8 +228,9 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
         ? `one-call-dispatching ${id}`
         : `advancing ${id} to READY`;
   return [
-    `You are ${action}, but this session has never read ${id}'s spec`,
-    `(no tasks_spec_get / tasks_get includeSpec for it anywhere in the session's conversation`,
+    `You are ${action}, but this session has never read or authored ${id}'s spec`,
+    `(no tasks_spec_get / tasks_get includeSpec, and no same-transcript tasks_create-with-spec /`,
+    `tasks_spec_patch / tasks_spec_search_replace, for it anywhere in the session's conversation`,
     `tree — parent and dispatched-agent transcripts). This is`,
     `the "task-hijack" bind/advance seam (mt#2511 / mt#2191): advancing or binding a task you`,
     `never engaged risks shipping unrelated work under its number and auto-completing it.`,

@@ -390,6 +390,111 @@ export function findToolUseInputs(
 }
 
 /**
+ * Concatenate the text content of a `tool_result` block's `content` field.
+ * `content` is either a plain string or an array of `{ type: "text", text }`
+ * blocks (the shape observed in real Claude Code transcripts — see
+ * {@link findCreatedResourceIds}). Non-text blocks are ignored; a malformed
+ * or absent content contributes "".
+ */
+function extractToolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const block of content) {
+      if (block && typeof block === "object") {
+        const b = block as Record<string, unknown>;
+        if (b["type"] === "text" && typeof b["text"] === "string") parts.push(b["text"] as string);
+      }
+    }
+    return parts.join("");
+  }
+  return "";
+}
+
+/** JSON-parse `text` and read `idField` off the parsed object as a non-empty string, or undefined. */
+function extractIdField(text: string | undefined, idField: string): string | undefined {
+  if (!text) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object") {
+      const val = (parsed as Record<string, unknown>)[idField];
+      if (typeof val === "string" && val.length > 0) return val;
+    }
+  } catch {
+    // not JSON (e.g. an error-path plain-text result) — no id extractable
+  }
+  return undefined;
+}
+
+/**
+ * Extract every `tool_use` block for `toolName`, each paired with the id its
+ * OWN JSON result reports under `idField` — for tools that MINT a new
+ * resource id server-side rather than taking one as input (e.g.
+ * `mcp__minsky__tasks_create`, which never receives a `taskId`: the backend
+ * assigns one and returns it in the result). Contrast {@link findToolUseInputs},
+ * which only reads the CALL's input and cannot see a server-assigned id.
+ *
+ * Correlation: Claude Code stamps every `tool_use` block with an `id`
+ * (`toolu_...`); the matching outcome is a LATER user-role line whose
+ * `message.content` array contains a `{ type: "tool_result", tool_use_id,
+ * content }` block carrying that same id. `content` is JSON-parsed (via
+ * {@link extractToolResultText} + {@link extractIdField}) and `idField` read
+ * off the parsed object. A `tool_use` with no correlated result in `lines`,
+ * or whose result isn't parseable JSON / lacks the field (including the
+ * error-path case — a thrown command has no `taskId` in its result),
+ * contributes `createdId: undefined` rather than throwing.
+ *
+ * Handles both transcript shapes for tool_use, mirroring
+ * {@link findToolUseInputs}: a top-level `type === "tool_use"` line, or an
+ * assistant line whose `message.content` array contains a `tool_use` block.
+ */
+export function findCreatedResourceIds(
+  lines: TranscriptLine[],
+  toolName: string,
+  idField: string
+): Array<{ input: Record<string, unknown>; createdId: string | undefined }> {
+  // Pass 1: tool_use_id -> concatenated result text, from every tool_result
+  // block anywhere in the transcript (not scoped to toolName — a tool_result
+  // only carries its correlating id, not the originating tool's name).
+  const resultTextById = new Map<string, string>();
+  for (const line of lines) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const useId = block["tool_use_id"];
+      if (typeof useId !== "string") continue;
+      const text = extractToolResultText(block["content"]);
+      if (text) resultTextById.set(useId, (resultTextById.get(useId) ?? "") + text);
+    }
+  }
+
+  // Pass 2: tool_use blocks for toolName, resolving each against pass 1's map.
+  const results: Array<{ input: Record<string, unknown>; createdId: string | undefined }> = [];
+  const pushResult = (id: unknown, rawInput: unknown): void => {
+    const input =
+      rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {};
+    const resultText = typeof id === "string" ? resultTextById.get(id) : undefined;
+    results.push({ input, createdId: extractIdField(resultText, idField) });
+  };
+  for (const line of lines) {
+    if (line.type === "tool_use") {
+      const n = line.name ?? line.tool_name;
+      if (n === toolName) pushResult((line as Record<string, unknown>)["id"], line.input);
+    }
+    const content = line.message?.content;
+    if (Array.isArray(content)) {
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (block && block["type"] === "tool_use" && block["name"] === toolName) {
+          pushResult(block["id"], block["input"]);
+        }
+      }
+    }
+  }
+  return results;
+}
+
+/**
  * Extract the text of the most-recent REAL user prompt (the current prompt
  * that fired the hook). Skips trailing `tool_result` user-role lines so it
  * never returns tool-result content as if it were the user's message.
