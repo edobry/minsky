@@ -14,8 +14,9 @@ rollout pattern as `causal-premise-detector.ts` and
 `retrospective-trigger-scanner.ts` (mt#2263 detector ladder / ADR-024:
 calibrate before injecting).
 
-**Hook file:** `.claude/hooks/silent-stretch-detector.ts` (source:
-`.minsky/hooks/silent-stretch-detector.ts`)
+**Hook file:** `.minsky/hooks/silent-stretch-detector.ts` — this is the AUTHORITATIVE source;
+compiled to `.claude/hooks/silent-stretch-detector.ts` per the mt#2304 hooks-compile pipeline
+(see `hook-files.mdc`'s Recompile rule — `.claude/hooks/*` is generated, never hand-edited).
 
 ## Why this exists
 
@@ -101,9 +102,12 @@ also works, since this guard is `GUARD_REGISTRY`-registered.
 **Env-var registration:** `MINSKY_SKIP_SILENT_STRETCH` is registered in
 `HOOK_ONLY_ENV_VARS` at
 `packages/domain/src/configuration/sources/environment.ts` per the
-`custom/no-unregistered-minsky-env-var` ESLint rule (mt#1788). The override
-env-var name's source of truth lives in the hook file as the exported
-constant `OVERRIDE_ENV_VAR`.
+`eslint-rules/no-unregistered-minsky-env-var.js` lint rule (mt#1788) — the
+name the code comment above `HOOK_ONLY_ENV_VARS` itself uses ("Exported so
+the lint rule `eslint-rules/no-unregistered-minsky-env-var.js` (mt#1788)
+can grep this file for the canonical allowlist"). The override env-var
+name's source of truth lives in the hook file as the exported constant
+`OVERRIDE_ENV_VAR`.
 
 ## Fail-open posture
 
