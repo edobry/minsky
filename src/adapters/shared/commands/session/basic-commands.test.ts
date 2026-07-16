@@ -73,8 +73,31 @@ describe("createSessionListCommand - project-scope resolution (mt#2697)", () => 
   });
 
   it("never attempts project-scope resolution when a task filter is supplied", async () => {
+    // mt#2284 note: session.list's attachment-annotation step ALSO calls
+    // getPersistenceProvider().getDatabaseConnection() (an orthogonal,
+    // unrelated read to build the presence-claim repo for the attached/
+    // detached indicator, which queries presenceClaimsTable). That makes the
+    // shared getDatabaseConnection mock an unreliable proxy for "was
+    // project-scope resolution attempted" — this fake `db.select()` instead
+    // records which TABLE each query targeted (mock.module() is banned in
+    // this repo; DI via the table-identity check below stays within that
+    // constraint) and asserts projectsTable specifically was never queried,
+    // regardless of what other orthogonal reads may have occurred.
+    const { projectsTable } = await import("@minsky/domain/storage/schemas/projects-schema");
+    const queriedTables: unknown[] = [];
+    const chain = {
+      from: (table: unknown) => {
+        queriedTables.push(table);
+        return chain;
+      },
+      where: () => chain,
+      limit: () => Promise.resolve([]),
+      orderBy: () => Promise.resolve([]),
+    };
+    const select = mock(() => chain);
+    const getDatabaseConnection = mock(async () => ({ select }) as never);
+
     const sessionDB = new FakeSessionProvider({ initialSessions: [buildUnstampedSession()] });
-    const getDatabaseConnection = mock(async () => ({}) as never);
     const sqlProvider = {
       getDatabaseConnection,
     } as unknown as SqlCapablePersistenceProvider;
@@ -86,7 +109,7 @@ describe("createSessionListCommand - project-scope resolution (mt#2697)", () => 
     // Structural guarantee, not a happenstance pass: scope resolution is
     // never reached for a task-filtered query, so it cannot diverge from
     // session.start's unscoped "actively in use" check.
-    expect(getDatabaseConnection).not.toHaveBeenCalled();
+    expect(queriedTables).not.toContain(projectsTable);
   });
 
   it("still applies default project scope for an unfiltered (no task) query", async () => {
