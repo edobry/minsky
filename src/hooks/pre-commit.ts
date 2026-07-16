@@ -1515,6 +1515,7 @@ export class PreCommitHook {
    * - agents.md: if AGENTS.md exists and starts with the generation header
    * - claude.md: if CLAUDE.md exists and starts with the generation header
    * - cursor-rules: if .cursor/rules/ directory exists with .mdc files
+   * - claude-rules: if .claude/rules/ directory exists with .md files (mt#2868)
    */
   private async runRulesCompileCheck(): Promise<HookResult> {
     log.cli("📋 Checking rules compile outputs are up-to-date...");
@@ -1554,6 +1555,17 @@ export class PreCommitHook {
       const entries = await fsp.readdir(`${this.projectRoot}/.cursor/rules`);
       if (entries.some((e) => e.endsWith(".mdc"))) {
         targetsToCheck.push("cursor-rules");
+      }
+    } catch {
+      // Directory doesn't exist — skip
+    }
+
+    // Check claude-rules (mt#2868; if .claude/rules/ has any .md file)
+    try {
+      const fsp = await import("fs/promises");
+      const entries = await fsp.readdir(`${this.projectRoot}/.claude/rules`);
+      if (entries.some((e) => e.endsWith(".md"))) {
+        targetsToCheck.push("claude-rules");
       }
     } catch {
       // Directory doesn't exist — skip

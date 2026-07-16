@@ -93,7 +93,27 @@ describe("probeLegacyCompileTargets (mt#2803)", () => {
     expect(targets).toEqual([]);
   });
 
-  it("detects all three targets together, in agents.md/claude.md/cursor-rules order", async () => {
+  it("detects claude-rules when .claude/rules/ has at least one .md file (mt#2868)", async () => {
+    const workspacePath = await withScratchDir();
+    await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
+    await writeFile(
+      join(workspacePath, ".claude", "rules", "some-rule.md"),
+      `---\npaths: ['**/*.ts']\n---\n${GENERATED_BANNER}\n\ncontent\n`,
+      "utf-8"
+    );
+    const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
+    expect(targets).toEqual(["claude-rules"]);
+  });
+
+  it("does not detect claude-rules when .claude/rules/ exists but has no .md files", async () => {
+    const workspacePath = await withScratchDir();
+    await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
+    await writeFile(join(workspacePath, ".claude", "rules", "README.txt"), "not a rule", "utf-8");
+    const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
+    expect(targets).toEqual([]);
+  });
+
+  it("detects all four targets together, in agents.md/claude.md/cursor-rules/claude-rules order", async () => {
     const workspacePath = await withScratchDir();
     await writeFile(join(workspacePath, "AGENTS.md"), `${GENERATED_BANNER}\ncontent\n`, "utf-8");
     await writeFile(join(workspacePath, "CLAUDE.md"), `${GENERATED_BANNER}\ncontent\n`, "utf-8");
@@ -103,8 +123,14 @@ describe("probeLegacyCompileTargets (mt#2803)", () => {
       "---\nname: Some Rule\n---\ncontent\n",
       "utf-8"
     );
+    await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
+    await writeFile(
+      join(workspacePath, ".claude", "rules", "some-rule.md"),
+      `---\npaths: ['**/*.ts']\n---\n${GENERATED_BANNER}\n\ncontent\n`,
+      "utf-8"
+    );
     const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
-    expect(targets).toEqual(["agents.md", "claude.md", "cursor-rules"]);
+    expect(targets).toEqual(["agents.md", "claude.md", "cursor-rules", "claude-rules"]);
   });
 });
 
@@ -186,5 +212,39 @@ describe("compileRules — bare-invocation default-target resolution (mt#2803)",
     const claudeContent = await readFile(join(workspacePath, "CLAUDE.md"), "utf-8");
     expect(agentsContent).toBe(staleBody);
     expect(claudeContent).toBe(staleBody);
+  });
+
+  it("--check flags an orphaned claude-rules .md file as stale (mt#2868)", async () => {
+    // No rule corpus exists in this scratch dir, so buildClaudeRulesContent
+    // resolves to zero expected files — a pre-existing generated .md file
+    // is therefore an orphan (the source rule lost eligibility or its
+    // selection config disabled it since the file was written).
+    const workspacePath = await withScratchDir();
+    await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
+    await writeFile(
+      join(workspacePath, ".claude", "rules", "orphaned-rule.md"),
+      `---\npaths: ['**/*.ts']\n---\n${GENERATED_BANNER}\n\nstale content\n`,
+      "utf-8"
+    );
+
+    const result = await compileRules({ workspacePath, check: true, target: "claude-rules" });
+
+    expect(result.check).toBe(true);
+    expect(result.stale).toBe(true);
+  });
+
+  it("--check does not flag a hand-authored (bannerless) .md file in .claude/rules/ as stale", async () => {
+    const workspacePath = await withScratchDir();
+    await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
+    await writeFile(
+      join(workspacePath, ".claude", "rules", "hand-authored.md"),
+      "---\npaths: ['**/*.ts']\n---\n# Hand-authored, not generated\n",
+      "utf-8"
+    );
+
+    const result = await compileRules({ workspacePath, check: true, target: "claude-rules" });
+
+    expect(result.check).toBe(true);
+    expect(result.stale).toBe(false);
   });
 });
