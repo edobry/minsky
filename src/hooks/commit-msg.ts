@@ -11,10 +11,15 @@ import { log } from "@minsky/shared/logger";
 
 // Import actual validation logic instead of duplicating it
 import { isDuplicateContent } from "@minsky/domain/session/pr-validation";
-import {
-  CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
-  CONVENTIONAL_COMMIT_TYPES_DISPLAY,
-} from "@minsky/domain/git/conventional-commit-types";
+// mt#2821: the format/placeholder check below is the SAME function
+// `commitImpl` (packages/domain/src/git/git-core-operations.ts) now runs
+// BEFORE shelling out to `git commit`, so a malformed message fails in
+// milliseconds for any Minsky-issued commit without ever reaching this hook
+// (and therefore without paying for the pre-commit suite that always runs
+// first in git's fixed hook order). This hook remains the enforcement
+// backstop for commits made outside Minsky's own commit path. See
+// packages/domain/src/git/commit-message-format.ts for the full finding.
+import { validateCommitMessageFormat } from "@minsky/domain/git/commit-message-format";
 
 export interface CommitMsgResult {
   success: boolean;
@@ -26,35 +31,6 @@ export interface CommitMsgDeps {
   readFileSync?: (path: string, encoding: BufferEncoding) => string;
   execSync?: (command: string, options?: { encoding: string }) => string;
 }
-
-const FORBIDDEN_MESSAGES = [
-  "minimal commit",
-  "amended commit",
-  "test commit",
-  "placeholder commit",
-  "temp commit",
-  "temporary commit",
-  "wip",
-  "work in progress",
-  "fix",
-  "update",
-  "change",
-];
-
-/**
- * Conventional-commit subject pattern: `type(scope): description`.
- *
- * The description must be non-empty and stay within a sane upper bound; we use
- * 100 characters (rounding up from Conventional Commits' 72-char body wrap and
- * GitHub's 72-char title soft limit) so descriptive `partial:`-prefixed
- * checkpoints from the operating envelope (mt#1524) aren't silently rejected.
- * Length-only enforcement lives here; semantic checks (forbidden placeholders,
- * title-duplication) are separate validators.
- */
-const CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN = 100;
-const CONVENTIONAL_COMMIT_PATTERN = new RegExp(
-  `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\(.+\\))?: .{1,${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN}}$`
-);
 
 /**
  * Unified commit message validation hook
@@ -149,16 +125,11 @@ export class CommitMsgHook {
       return { valid: false, error: "Commit message cannot be empty" };
     }
 
-    // Check for forbidden placeholder messages
-    const normalizedMessage = title.toLowerCase();
-    if (FORBIDDEN_MESSAGES.includes(normalizedMessage)) {
-      return {
-        valid: false,
-        error: `Forbidden placeholder message: "${title}". Please use a descriptive conventional commit message.`,
-      };
-    }
-
-    // Handle merge commits with branch-specific rules
+    // Handle merge commits with branch-specific rules. This case stays
+    // hook-local because it requires a git branch lookup
+    // (validateCommitMessageFormat is a pure function and does not shell
+    // out); merge commits also don't flow through commitImpl in practice
+    // (PR merges use the GitHub API, not a local `git commit`).
     if (this.isMergeCommit(fullMessage)) {
       const currentBranch = this.getCurrentBranch();
 
@@ -174,21 +145,11 @@ export class CommitMsgHook {
       return { valid: true };
     }
 
-    // Check conventional commit format for regular commits
-    if (!CONVENTIONAL_COMMIT_PATTERN.test(title)) {
-      return {
-        valid: false,
-        error: `Invalid commit message format. Please use conventional commits format: "type(scope): description"
-The description must be 1–${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN} characters and the type must be one of: ${CONVENTIONAL_COMMIT_TYPES_DISPLAY}.
-Examples:
-  feat(auth): add user authentication
-  fix(#123): resolve login validation issue
-  merge(#276): integrate main branch changes
-  docs: update README with new features`,
-      };
-    }
-
-    return { valid: true };
+    // Forbidden-placeholder + conventional-commit-format checks: delegate to
+    // the SAME validator `commitImpl` runs before shelling out to
+    // `git commit` (mt#2821), so the two enforcement points can never drift
+    // apart. See packages/domain/src/git/commit-message-format.ts.
+    return validateCommitMessageFormat(fullMessage);
   }
 
   /**
