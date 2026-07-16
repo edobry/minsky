@@ -1,4 +1,16 @@
+/* eslint-disable custom/no-real-fs-in-tests -- the "default recordGuardErrorFn
+   (real recordGuardError) never throws" test below exercises the REAL
+   on-disk guard-health write path (mt#2875 fix). Isolation now uses a real
+   mkdtemp scratch directory rather than an assumed-unwritable literal path
+   ("/nonexistent/...") — the prior trick relied on OS permission denial, not
+   a guaranteed-safe scratch dir, and is the mt#2875 root-cause candidate for
+   the fixture rows (guardName "throws", message "boom", sessionId "sess-1")
+   found in the operator's live ~/.local/state/minsky/guard-health-log.jsonl. */
+
 import { describe, test, expect } from "bun:test";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   checkOverride,
   buildOverrideAuditLine,
@@ -754,10 +766,16 @@ describe("runDispatcher", () => {
     // runs to completion end-to-end when a guard throws — i.e. the real
     // production capture path never disables the dispatcher, matching the
     // mt#2812 acceptance test ("Tracker DB/log unavailable -> guards still
-    // run normally"). Points MINSKY_STATE_DIR at a throwaway path so this
-    // test never touches the developer's real guard-health log.
+    // run normally"). Points MINSKY_STATE_DIR at a real mkdtemp scratch
+    // directory (mt#2875 fix) — NOT an assumed-unwritable literal path — so
+    // the real write path lands somewhere hermetically isolated and cleaned
+    // up afterward, rather than depending on the OS rejecting a write to a
+    // hardcoded "/nonexistent/..." path (that reliance is the mt#2875
+    // root-cause candidate for the "throws"/"boom"/"sess-1" fixture rows
+    // found in the operator's live guard-health-log.jsonl on 2026-07-16).
+    const scratchDir = mkdtempSync(join(tmpdir(), "mt2875-dispatcher-default-recording-test-"));
     const prevStateDir = process.env.MINSKY_STATE_DIR;
-    process.env.MINSKY_STATE_DIR = "/nonexistent/mt2812-dispatcher-default-recording-test";
+    process.env.MINSKY_STATE_DIR = scratchDir;
     try {
       const written: HookOutput[] = [];
       let secondGuardCalled = false;
@@ -801,9 +819,18 @@ describe("runDispatcher", () => {
       });
       expect(secondGuardCalled).toBe(true);
       expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+
+      // Confirm the real write actually landed in the scratch dir (proves
+      // MINSKY_STATE_DIR scoping isolates the write, rather than the prior
+      // test merely hoping the write silently failed).
+      const scratchLogPath = join(scratchDir, "guard-health-log.jsonl");
+      const scratchContent = readFileSync(scratchLogPath, "utf-8");
+      expect(scratchContent).toContain('"guardName":"throws"');
+      expect(scratchContent).toContain('"message":"boom"');
     } finally {
       if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
       else process.env.MINSKY_STATE_DIR = prevStateDir;
+      rmSync(scratchDir, { recursive: true, force: true });
     }
   });
 
