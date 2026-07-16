@@ -27,13 +27,38 @@ export const defaultCommandExecutor: CommandExecutor = async (argv) => {
       stderr: result.stderr?.toString() ?? "",
     };
   } catch (err) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: err instanceof Error ? err.message : String(err),
-    };
+    return classifySpawnFailure(err, argv);
   }
 };
+
+/**
+ * Classify a thrown spawn-time failure (binary not found, exec permission
+ * denied, etc.) as distinct from a process that started and exited non-zero.
+ * `Bun.spawnSync` throws synchronously for this class of failure (rather than
+ * returning a non-zero exit code), which previously got flattened into a
+ * generic `exitCode: 1` with the raw exception message as stderr -- adapters
+ * that pattern-match specific stderr text (notably AppleScript permission
+ * detection) could then misattribute a missing binary to an in-app error (R1
+ * review finding, mt#2285).
+ *
+ * Pure and exported so it can be unit tested with a synthetic Error object
+ * (mimicking Bun's ENOENT shape) without ever invoking `Bun.spawnSync` for
+ * real -- consistent with the sandbox constraint that no test in this module
+ * touches the real executor.
+ */
+export function classifySpawnFailure(err: unknown, argv: string[]): CommandExecResult {
+  const bin = argv[0] ?? "<unknown command>";
+  const message = err instanceof Error ? err.message : String(err);
+  const code = err instanceof Error ? (err as NodeJS.ErrnoException).code : undefined;
+  const isNotFound = code === "ENOENT" || /no such file or directory|not found/i.test(message);
+
+  return {
+    exitCode: 1,
+    stdout: "",
+    stderr: isNotFound ? `command not found: ${bin}` : message,
+    spawnError: true,
+  };
+}
 
 /**
  * Classify whether a failed AppleScript (`osascript`) invocation failed

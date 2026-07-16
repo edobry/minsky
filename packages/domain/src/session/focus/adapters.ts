@@ -7,7 +7,24 @@
  * for the hard sandbox constraint this seam exists to satisfy.
  */
 import { isAppleScriptPermissionError, appleScriptPermissionMessage } from "./executor";
-import type { CommandExecutor, FocusAdapter, FocusOutcome } from "./types";
+import type { CommandExecResult, CommandExecutor, FocusAdapter, FocusOutcome } from "./types";
+
+/**
+ * Format an external-command failure for display, distinguishing a
+ * spawn-time failure (binary missing/not on PATH -- `result.spawnError`) from
+ * a process that started and exited non-zero (R1 review finding, mt#2285:
+ * these two failure classes were previously conflated, so a missing `wezterm`
+ * binary read as an in-app wezterm error).
+ */
+function formatExecError(result: CommandExecResult, toolName: string): string {
+  if (result.spawnError) {
+    return (
+      `${toolName} could not be started (${result.stderr.trim() || "unknown error"}) -- ` +
+      `ensure ${toolName} is installed and on PATH`
+    );
+  }
+  return result.stderr.trim() || `unknown ${toolName} error`;
+}
 
 // ---------------------------------------------------------------------------
 // tmux -- best tier: programmatic, no GUI permissions.
@@ -28,31 +45,43 @@ export const tmuxFocusAdapter: FocusAdapter = {
         adapter: "tmux",
         message:
           `Could not select the tmux window for pane ${pane}: ` +
-          `${selectWindow.stderr.trim() || "unknown tmux error"}. ` +
-          `Run \`tmux select-window -t ${pane}\` manually.`,
+          `${formatExecError(selectWindow, "tmux")}. Run \`tmux select-window -t ${pane}\` manually.`,
       };
     }
 
     // switch-client re-displays the pane on the client running this command;
     // it can legitimately fail if this process isn't itself an attached
-    // client (e.g. invoked from a non-tmux shell). The window is still
-    // active in its session either way, so treat that as a degraded success.
+    // client (e.g. invoked from a non-tmux shell).
     const switchClient = await executor(["tmux", "switch-client", "-t", pane]);
-    if (switchClient.exitCode !== 0) {
+    if (switchClient.exitCode === 0) {
       return {
-        kind: "degraded-app-raised",
+        kind: "focused",
         adapter: "tmux",
-        message:
-          `Selected the window for pane ${pane} in its tmux session, but could not ` +
-          `switch a client display to it: ${switchClient.stderr.trim() || "unknown tmux error"}. ` +
-          `Run \`tmux attach -t ${pane}\` in a terminal to view it.`,
+        message: `Selected and switched the attached tmux client to pane ${pane}.`,
       };
     }
 
+    // The pane's window is now active in ITS session, but nothing was
+    // actually displayed for the operator -- this is NOT the same as
+    // degraded-app-raised (which does bring a real window to front), so it
+    // gets its own kind (R1 review finding, mt#2285).
+    //
+    // `tmux attach -t <pane>` is not a valid remediation: `attach` requires a
+    // SESSION target, not a pane id. Resolve the pane's owning session name
+    // so the suggested command is actually runnable.
+    const sessionLookup = await executor(["tmux", "display-message", "-p", "-t", pane, "#S"]);
+    const sessionName = sessionLookup.exitCode === 0 ? sessionLookup.stdout.trim() : undefined;
+    const attachHint = sessionName
+      ? `Run \`tmux attach -t ${sessionName}\` to view it.`
+      : `Run \`tmux list-panes -a\` to find which session owns pane ${pane}, then ` +
+        "`tmux attach -t <that session>`.";
+
     return {
-      kind: "focused",
+      kind: "degraded-selected-only",
       adapter: "tmux",
-      message: `Selected and switched the attached tmux client to pane ${pane}.`,
+      message:
+        `Selected the window for pane ${pane} in its tmux session, but could not switch a ` +
+        `client display to it: ${formatExecError(switchClient, "tmux")}. ${attachHint}`,
     };
   },
 };
@@ -78,8 +107,7 @@ export const weztermFocusAdapter: FocusAdapter = {
       kind: "error",
       adapter: "WezTerm",
       message:
-        `Could not activate WezTerm pane ${paneId}: ` +
-        `${result.stderr.trim() || "unknown wezterm error"}. ` +
+        `Could not activate WezTerm pane ${paneId}: ${formatExecError(result, "wezterm")}. ` +
         `Run \`wezterm cli activate-pane --pane-id ${paneId}\` manually.`,
     };
   },
@@ -102,14 +130,19 @@ export const kittyFocusAdapter: FocusAdapter = {
         message: `Focused kitty window ${windowId}.`,
       };
     }
+    // Only suggest the remote-control-disabled fix when the binary actually
+    // ran and failed -- a missing kitty binary isn't a remote-control config
+    // problem, and formatExecError already names that case.
+    const remoteControlHint = result.spawnError
+      ? ""
+      : " kitty remote control must be enabled (allow_remote_control in kitty.conf) for " +
+        "this to work.";
     return {
       kind: "error",
       adapter: "kitty",
       message:
-        `Could not focus kitty window ${windowId}: ` +
-        `${result.stderr.trim() || "unknown kitty error"}. kitty remote control must be ` +
-        `enabled (allow_remote_control in kitty.conf) for this to work. Run ` +
-        `\`kitty @ focus-window --match id:${windowId}\` manually.`,
+        `Could not focus kitty window ${windowId}: ${formatExecError(result, "kitty")}.` +
+        `${remoteControlHint} Run \`kitty @ focus-window --match id:${windowId}\` manually.`,
     };
   },
 };
@@ -118,8 +151,30 @@ export const kittyFocusAdapter: FocusAdapter = {
 // iTerm2 -- AppleScript, needs macOS Automation permission.
 // ---------------------------------------------------------------------------
 
+/**
+ * Escape a value for embedding in an AppleScript double-quoted string
+ * literal. Handles backslash and quote (the base case), then CR/LF/TAB
+ * (which would otherwise break out of the string literal onto a new source
+ * line), then strips any other remaining raw control bytes (NUL, BEL, ESC,
+ * etc.) that AppleScript's parser cannot represent inside a string literal at
+ * all. Order matters: CR/LF/TAB are turned into two-character escape
+ * sequences BEFORE the final control-character strip, so that strip only
+ * touches bytes we haven't already handled (R1 review finding, mt#2285: the
+ * prior version only escaped backslash/quote, so an embedded newline in
+ * TERM_SESSION_ID or tty -- both ultimately environment/filesystem-derived,
+ * effectively untrusted -- would corrupt the generated script).
+ */
 function escapeForAppleScriptString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return (
+    value
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\r/g, "\\r")
+      .replace(/\n/g, "\\n")
+      .replace(/\t/g, "\\t")
+      // eslint-disable-next-line no-control-regex -- deliberately strips any remaining raw control bytes (NUL, BEL, ESC, DEL) left after CR/LF/TAB were escaped above
+      .replace(/[\x00-\x1f\x7f]/g, "")
+  );
 }
 
 function buildITerm2ActivateScript(sessionId: string): string {
@@ -173,9 +228,7 @@ export const iterm2FocusAdapter: FocusAdapter = {
     return {
       kind: "error",
       adapter: "iTerm2",
-      message:
-        `Could not raise the iTerm2 tab for session ${sessionId}: ` +
-        `${result.stderr.trim() || "unknown AppleScript error"}.`,
+      message: `Could not raise the iTerm2 tab for session ${sessionId}: ${formatExecError(result, "osascript")}.`,
     };
   },
 };
@@ -229,9 +282,7 @@ export const terminalAppFocusAdapter: FocusAdapter = {
     return {
       kind: "error",
       adapter: "Terminal.app",
-      message:
-        `Could not raise the Terminal.app tab for tty ${tty}: ` +
-        `${result.stderr.trim() || "unknown AppleScript error"}.`,
+      message: `Could not raise the Terminal.app tab for tty ${tty}: ${formatExecError(result, "osascript")}.`,
     };
   },
 };
@@ -275,7 +326,7 @@ export const wmRaiseFocusAdapter: FocusAdapter = {
       kind: "error",
       adapter: "wm-raise",
       message:
-        `Could not raise ${appName}: ${result.stderr.trim() || "unknown error"}. ` +
+        `Could not raise ${appName}: ${formatExecError(result, "open")}. ` +
         "Bring it to the foreground manually.",
     };
   },

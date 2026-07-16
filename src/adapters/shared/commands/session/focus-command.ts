@@ -91,20 +91,29 @@ async function executeSessionFocus(
   }
 
   let repo: Awaited<ReturnType<typeof buildPresenceClaimRepository>> = null;
+  let repoResolutionError: string | undefined;
   try {
     const db = await sqlProvider.getDatabaseConnection();
     if (db) repo = buildPresenceClaimRepository(db);
   } catch (err) {
-    log.debug("[session.focus] Failed to resolve presence-claim repository", {
-      error: err instanceof Error ? err.message : String(err),
+    repoResolutionError = err instanceof Error ? err.message : String(err);
+    // This blocks the command entirely (no attachments can be read without a
+    // repository), so it's a warn, not a debug -- and the user-facing message
+    // below carries a concrete next step rather than a bare failure (R1
+    // review finding, mt#2285).
+    log.warn("[session.focus] Failed to resolve presence-claim repository", {
+      error: repoResolutionError,
     });
   }
 
   if (!repo) {
+    const cause = repoResolutionError
+      ? `Cause: ${repoResolutionError}. Check that database migrations have been applied and DATABASE_URL/persistence config is correct for this workspace.`
+      : "The database connection resolved to no connection object.";
     return {
       success: false,
       sessionId,
-      message: "Could not build presence-claim repository -- cannot resolve stored attachments.",
+      message: `Could not build the presence-claim repository -- cannot resolve stored attachments. ${cause}`,
     };
   }
 
@@ -161,7 +170,11 @@ async function executeSessionFocus(
   const result = await focusAttachment(target, executor ? { executor } : {});
 
   return {
-    success: result.kind === "focused" || result.kind === "degraded-app-raised",
+    // Any "focused" or "degraded-*" outcome represents real progress (a tab/pane
+    // was actually selected, or an app window was raised, or tmux state was
+    // mutated even if nothing displayed) as opposed to permission-denied/error/
+    // no-signal, which are all non-actions from the operator's perspective.
+    success: result.kind === "focused" || result.kind.startsWith("degraded"),
     sessionId,
     message: result.message,
     outcomeKind: result.kind,

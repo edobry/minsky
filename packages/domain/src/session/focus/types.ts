@@ -23,6 +23,15 @@ export interface CommandExecResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /**
+   * True when the executor could not even START the process (binary missing,
+   * ENOENT, permission-to-exec denied, etc.), as distinct from the process
+   * starting and exiting non-zero. Adapters use this to give a "not
+   * installed / not on PATH" remediation instead of misattributing a
+   * spawn-time failure to the target application's own error text (R1
+   * review finding, mt#2285).
+   */
+  spawnError?: boolean;
 }
 
 /**
@@ -47,6 +56,11 @@ export interface FocusAdapterContext {
 export type FocusOutcomeKind =
   | "focused" // the adapter successfully raised the specific tab/pane
   | "degraded-app-raised" // could not target a specific tab/pane; raised the app window instead
+  | "degraded-selected-only" // mutated server-side state (e.g. tmux's active window) but
+  // could not actually display anything for the operator -- distinct from
+  // degraded-app-raised, which DOES bring a visible window to front (R1
+  // review finding, mt#2285: the prior tmux degraded path reused
+  // degraded-app-raised even though nothing was raised on screen)
   | "permission-denied" // an OS-level Automation/Accessibility permission blocked the action
   | "error"; // the adapter attempted the action and it failed for another reason
 
