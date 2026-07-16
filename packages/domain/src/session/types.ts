@@ -3,6 +3,7 @@ import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
 import type { ProjectScope } from "../project/scope";
+import type { InterfaceBinding } from "../interface-binding/types";
 
 /**
  * Generic options for querying/listing session records at the storage layer.
@@ -44,6 +45,42 @@ export enum SessionStatus {
  * live rows and matched by getSessionByTaskId / listSessions({ taskId }) via
  * validateQualifiedTaskId (mt#2329 PR #1625 R1; the prior "plain 283" note was
  * stale). Use formatTaskIdForDisplay() from task-id-utils.ts for display.
+ *
+ * ### Design Decision: `interfaceBinding` lives on `SessionRecord`, not a
+ * sibling `InterfaceBinding` table (mt#1628)
+ *
+ * mt#1628's spec asked this task to decide between a `SessionRecord` field
+ * and a separate `InterfaceBinding` table, and document the tradeoffs.
+ * Decision: a field on `SessionRecord` (this field), persisted as a JSON
+ * text column — the same pattern already used for `prState`/`pullRequest`
+ * (see `../storage/schemas/session-schema.ts`).
+ *
+ * Why NOT a new table:
+ * - v0's surface-kind union is a hardcoded 2-value enum (`iterm-tab` |
+ *   `unbound`; see `../interface-binding/types.ts`) — a session has at most
+ *   ONE current binding, not a many-valued relation. A join table earns its
+ *   cost when the cardinality or query shape needs it; neither applies yet.
+ * - Generalizing to the full polymorphic surface-kind design (vscode-window,
+ *   claude-desktop, autonomous-loop, ci-runner, ...) is explicitly out of
+ *   scope for this task (mt#1506 owns that ADR) — building a normalized
+ *   table now would be speculative infrastructure for a shape that hasn't
+ *   been designed yet.
+ * - Matches the existing embedded-JSON-on-`sessions` convention already
+ *   used for `prState`/`pullRequest`, keeping this addition low-risk (an
+ *   additive nullable column, no new join, no new migration-ordering
+ *   concern).
+ *
+ * Related-but-distinct prior art considered and NOT reused for this field:
+ * `presence_claims` (mt#2284/mt#2562) already stores a `terminalContext` env
+ * bag (including `TERM_PROGRAM`/`TERM_SESSION_ID`) per session-grain
+ * attachment row, self-registered by each session's own process. This
+ * task's correlator (`../interface-binding/iterm-correlator.ts`) READS that
+ * data as its candidate signal — see the module doc there — but does not
+ * write bindings onto `presence_claims` rows, because those rows are keyed
+ * by `(subjectKind, subjectId, actorId)` and owned by the self-registering
+ * actor's write path; the correlator is a distinct third-party observer
+ * process. `SessionRecord.interfaceBinding` is the session's own
+ * "confirmed observation," independent of which actor(s) are attached.
  */
 export interface SessionRecord {
   sessionId: string;
@@ -77,6 +114,17 @@ export interface SessionRecord {
 
   /** Project uuid this session belongs to (nullable; set on insert from resolved scope). */
   projectId?: string;
+
+  /**
+   * Local-Minsky-only operator-interface binding (mt#1628 — iTerm-tab
+   * binding v0). Undefined means "never observed" (hosted Minsky, non-macOS
+   * local Minsky, or the correlator hasn't run yet for this session) — the
+   * read path (`../interface-binding/read.ts`'s `resolveInterfaceBinding`)
+   * defaults an undefined value to an explicit `{ kind: "unbound" }` for
+   * MCP/CLI consumers, so storage stays sparse while the read contract
+   * stays total. See the Design Decision note above this interface.
+   */
+  interfaceBinding?: InterfaceBinding;
 
   // Legacy / compatibility fields
   /** @deprecated Use `sessionId` instead */
