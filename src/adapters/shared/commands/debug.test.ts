@@ -617,19 +617,24 @@ describe("debug.systemInfo guardHealth surface (mt#2812)", () => {
   test("3 consecutive guard errors -> guardHealth.escalation is critical and names the guard", async () => {
     const logPath = makeTempLogPath("critical");
     cleanupPaths.push(logPath);
+    // mt#2814: timestamps must be RECENT relative to real wall-clock "now" —
+    // GuardHealthTracker.getSummary() (the production path debug.systemInfo
+    // exercises here) ages a guard's consecutiveStreak out to 0 once its
+    // last event is more than STREAK_RESET_GAP_MS (24h) stale, since this
+    // call is made with no injected `now` (matching production behavior:
+    // debug.ts calls getInstance().getSummary() with zero args). A FIXED
+    // past ISO string (e.g. "2026-07-14T11:00:00.000Z") eventually falls
+    // outside that 24h window purely from real time elapsing, breaking this
+    // test with no code change — exactly what happened when this test's
+    // original fixed dates aged past 24h. Compute offsets from `Date.now()`
+    // instead so the fixture is always "3 recent consecutive failures"
+    // regardless of when the suite actually runs.
+    const now = Date.now();
+    const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
     const lines = [
-      guardEvent({
-        guardName: GUARD_HEALTH_TEST_GUARD_NAME,
-        timestamp: "2026-07-14T09:00:00.000Z",
-      }),
-      guardEvent({
-        guardName: GUARD_HEALTH_TEST_GUARD_NAME,
-        timestamp: "2026-07-14T10:00:00.000Z",
-      }),
-      guardEvent({
-        guardName: GUARD_HEALTH_TEST_GUARD_NAME,
-        timestamp: "2026-07-14T11:00:00.000Z",
-      }),
+      guardEvent({ guardName: GUARD_HEALTH_TEST_GUARD_NAME, timestamp: hoursAgo(3) }),
+      guardEvent({ guardName: GUARD_HEALTH_TEST_GUARD_NAME, timestamp: hoursAgo(2) }),
+      guardEvent({ guardName: GUARD_HEALTH_TEST_GUARD_NAME, timestamp: hoursAgo(1) }),
     ]
       .map((e) => JSON.stringify(e))
       .join("\n");
@@ -641,6 +646,35 @@ describe("debug.systemInfo guardHealth surface (mt#2812)", () => {
     expect(guardHealth).toBeDefined();
     expect(guardHealth.escalation).toBe("critical");
     expect(guardHealth.criticalGuards).toEqual([GUARD_HEALTH_TEST_GUARD_NAME]);
+  });
+
+  // mt#2814: the age-out contract, end-to-end through the SAME production
+  // surface (debug.systemInfo -> GuardHealthTracker.getSummary() with no
+  // injected `now`) the test above exercises for the "recent" case. A guard
+  // whose 3 consecutive failures are all >24h stale must NOT escalate.
+  test("3 consecutive guard errors older than 24h -> guardHealth.escalation ages out to none", async () => {
+    const logPath = makeTempLogPath("stale");
+    cleanupPaths.push(logPath);
+    const now = Date.now();
+    const staleGuardName = "stale-test-guard";
+    const hoursAgo = (h: number) => new Date(now - h * 60 * 60 * 1000).toISOString();
+    const lines = [
+      guardEvent({ guardName: staleGuardName, timestamp: hoursAgo(27) }),
+      guardEvent({ guardName: staleGuardName, timestamp: hoursAgo(26) }),
+      guardEvent({ guardName: staleGuardName, timestamp: hoursAgo(25) }), // last event still >24h ago
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n");
+    fs.writeFileSync(logPath, `${lines}\n`);
+
+    GuardHealthTracker.resetForTest(logPath);
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect(guardHealth).toBeDefined();
+    expect(guardHealth.escalation).toBe("none");
+    expect(guardHealth.criticalGuards).toEqual([]);
+    const byGuard = guardHealth.byGuard as Record<string, { consecutiveStreak: number }>;
+    expect(byGuard[staleGuardName]?.consecutiveStreak).toBe(0);
   });
 
   test("no guard-health log -> zero-filled aggregates and escalation none", async () => {
