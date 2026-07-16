@@ -19,6 +19,10 @@ import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./o
 import { withTimeout, TimeoutError } from "./with-timeout";
 import { log } from "./logger";
 import { createHash } from "node:crypto";
+import {
+  evaluateConcludeReviewCall,
+  DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
+} from "./conclude-review-guard";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -143,6 +147,18 @@ export interface ReviewOutput {
    */
   toolCalls: ReviewToolCall[];
   timing?: TimingData;
+  /**
+   * mt#2828: outcome of the conclude_review forcing-function guard for this
+   * review. Present only on the OpenAI tool-use path (undefined on the
+   * no-tools path and for other providers, which never call conclude_review
+   * as a tool). `rejectionCount` is how many incoherent
+   * `conclude_review(REQUEST_CHANGES)` calls (zero BLOCKING findings) were
+   * rejected back to the model this review; `boundExhausted` is true when an
+   * incoherent call was ultimately let through after exhausting the bound
+   * (see conclude-review-guard.ts), meaning the mt#2685 recovery pass had to
+   * run as backstop.
+   */
+  concludeReviewGuard?: { rejectionCount: number; boundExhausted: boolean };
 }
 
 /**
@@ -770,6 +786,18 @@ export async function callOpenAIWithClient(
   const accumulatedToolCalls: ReviewToolCall[] = [];
 
   /**
+   * mt#2828 conclude_review forcing-function state: how many times this
+   * review has rejected an incoherent `conclude_review(REQUEST_CHANGES)`
+   * call (zero BLOCKING findings recorded), and whether the bound
+   * ({@link DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS}) was exhausted (i.e. an
+   * incoherent call was ultimately let through for the mt#2685 recovery pass
+   * to handle). Surfaced on `ReviewOutput.concludeReviewGuard` so
+   * `review-recovery-logging.ts` can emit the counted, budgeted signal.
+   */
+  let concludeReviewRejectionCount = 0;
+  let concludeReviewGuardBoundExhausted = false;
+
+  /**
    * Text content from the round in which the model exited the tool-use loop
    * (i.e., the round on which `rawToolCalls.length === 0`). Used as the
    * `text` field in the final ReviewOutput.
@@ -909,6 +937,46 @@ export async function callOpenAIWithClient(
         // the loop continues normally.
         try {
           const parsed = parseToolCall(fnName, toolCall.function.arguments);
+
+          // mt#2828: service-layer forcing function. A conclude_review(event=
+          // REQUEST_CHANGES) call with zero BLOCKING submit_finding calls
+          // recorded so far is incoherent — reject it back to the model
+          // (bounded retries) instead of silently accumulating it and relying
+          // on the mt#2685 recovery pass to patch it after the fact. See
+          // conclude-review-guard.ts for the full rationale.
+          if (parsed.name === "conclude_review") {
+            const evaluation = evaluateConcludeReviewCall({
+              args: parsed.args,
+              accumulatedToolCalls,
+              rejectionCountSoFar: concludeReviewRejectionCount,
+            });
+
+            if (evaluation.decision === "reject") {
+              concludeReviewRejectionCount = evaluation.rejectionCount;
+              log.info("reviewer.conclude_review_rejected_zero_findings", {
+                event: "reviewer.conclude_review_rejected_zero_findings",
+                provider: "openai",
+                round,
+                rejectionCount: concludeReviewRejectionCount,
+                maxRejections: DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
+              });
+              resultContent = JSON.stringify({ ok: false, error: evaluation.correctiveMessage });
+              messages.push({ role: "tool", tool_call_id: toolCall.id, content: resultContent });
+              continue;
+            }
+
+            if (evaluation.boundExhausted) {
+              concludeReviewGuardBoundExhausted = true;
+              log.info("reviewer.conclude_review_zero_findings_bound_exhausted", {
+                event: "reviewer.conclude_review_zero_findings_bound_exhausted",
+                provider: "openai",
+                round,
+                rejectionCount: concludeReviewRejectionCount,
+                maxRejections: DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
+              });
+            }
+          }
+
           accumulatedToolCalls.push(parsed);
           const count = accumulatedToolCalls.length;
           log.info("reviewer.output_tool_call", {
@@ -1111,6 +1179,12 @@ export async function callOpenAIWithClient(
       roundLatenciesMs,
       timeoutCount,
       retryOutcomes,
+    },
+    // mt#2828: conclude_review forcing-function outcome for this review, for
+    // the counted/budgeted signal emitted by review-recovery-logging.ts.
+    concludeReviewGuard: {
+      rejectionCount: concludeReviewRejectionCount,
+      boundExhausted: concludeReviewGuardBoundExhausted,
     },
   };
 }
