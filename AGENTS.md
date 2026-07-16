@@ -1838,8 +1838,8 @@ produced in full — they land in the task record, or after the plain-language l
   discipline in `humility.mdc §Escalation packaging`.
 - **Tier 1 — turn-end report.** The BLUF contract below. This is the tier this rule governs.
 - **Tier 2 — digest.** Cross-session rollup ("what happened across the fleet today"). Deferred to
-  the cockpit under the ambient-cockpit RFC's push discipline (RFC Phase 3) — not implemented by
-  this rule; see `## Scope` below.
+  RFC Phase 3 — owned by `mt#2869` (cross-session digest on the cockpit, depends on mt#2713) —
+  not implemented by this rule; see `## Scope` below.
 - **Tier 3 — archive.** Everything queryable: tasks, PRs, transcripts, memory. The "nothing lost"
   guarantee this contract depends on already exists.
 
@@ -1953,11 +1953,13 @@ ship:
 - **A register/altitude-selection layer** (which of receipts / standard / executive applies to a
   given conversation). That is `mt#2867` (RFC Phase 2) — this rule defines the *shapes* a report can
   take, not *which* shape a given conversation should default to.
-- **A Tier-2 digest mechanism.** Deferred to the cockpit under the ambient-cockpit RFC's push
-  discipline (RFC Phase 3), with a pull-only-widget fallback if the algedonic filter stalls.
+- **A Tier-2 digest mechanism.** Deferred to RFC Phase 3 — owned by `mt#2869` (cross-session
+  digest on the cockpit, depends on mt#2713), under the ambient-cockpit RFC's push discipline,
+  with a pull-only-widget fallback if the algedonic filter stalls.
 - **A calibration-first enforcement detector** (e.g., a wall-of-text or shape-violation detector).
-  Per the ADR-024 detector ladder, the rule is the cheapest-sufficient rung; a detector graduates
-  only on calibration evidence, tracked for RFC Phase 3.
+  Deferred to RFC Phase 3 — owned by `mt#2870` (wall-of-text detector, calibration-first, depends
+  on mt#2713). Per the ADR-024 detector ladder, the rule is the cheapest-sufficient rung; the
+  detector graduates only on calibration evidence.
 
 ## Cross-references
 
@@ -1978,8 +1980,10 @@ ship:
 - `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md` — the attention-allocation
   frame this contract extends from asks to reports.
 - `mt#2713` — this task (Phase 1 implementation). `mt#2824` — the heartbeat-owning dependency
-  (shipped). `mt#2867` — the register-selection follow-on (Phase 2, out of scope here). `mt#2258` —
-  the principal-attention-scarcity umbrella.
+  (shipped). `mt#2867` — the register-selection follow-on (Phase 2, out of scope here). `mt#2869` —
+  the Tier-2 digest owner (RFC Phase 3, depends on mt#2713). `mt#2870` — the calibration-first
+  enforcement-detector owner (RFC Phase 3, depends on mt#2713). `mt#2258` — the
+  principal-attention-scarcity umbrella.
 
 # Cockpit Deeplinks in Terminal Output
 
