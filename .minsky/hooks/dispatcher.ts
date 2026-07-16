@@ -45,6 +45,8 @@ import {
 import type { GuardGrant } from "./guard-grant-store";
 import { recordGuardError } from "./guard-health";
 import type { RecordGuardHealthInput } from "./guard-health";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
+import type { FireLogDecision, OverrideClassification, RecordFireLogInput } from "./fire-log";
 
 // ---------------------------------------------------------------------------
 // D3 — unified override mechanism
@@ -206,6 +208,44 @@ export function checkOverride(
   }
 
   return raw ? { overridden: false, raw } : { overridden: false };
+}
+
+/**
+ * mt#2597 R1 fix (reviewer finding: "dispatcher override classification —
+ * mixed env/grant scenarios") — map a `checkOverride()` result to the
+ * fire-log's override fields, attributing deterministically to whichever
+ * channel ACTUALLY decided rather than re-deriving `checkOverride()`'s own
+ * precedence logic.
+ *
+ * `checkOverride()` guarantees `grantReason` is populated IF AND ONLY IF the
+ * grant-file channel is what produced `overridden: true` for this call — the
+ * env-var channel always returns early (see that function's doc comment)
+ * BEFORE the grant branch ever runs. So `grantReason !== undefined` is a
+ * sufficient discriminator even when `raw` is ALSO set (e.g.
+ * `MINSKY_HOOK_OVERRIDE` configured for a different guard/token than the one
+ * being evaluated right now) — "both channels present in the environment" is
+ * not the same as "both channels decided." This function trusts that
+ * invariant instead of re-implementing it.
+ *
+ * Grant-file overrides classify as `authorized_exception` directly — NOT via
+ * `classifyOverride(undefined)`'s generic `contested` fallback — because a
+ * grant is itself TTL-bound and reason-mandatory by construction
+ * (`guard-grant-store.ts`), the same property that makes the env-var channel
+ * an "authorized exception" in the first place.
+ */
+export function buildOverrideFireLogFields(override: OverrideResult): {
+  overrideSource: "env" | "grant";
+  overrideEnvVar?: string;
+  overrideClassification: OverrideClassification;
+} {
+  if (override.grantReason !== undefined) {
+    return { overrideSource: "grant", overrideClassification: "authorized_exception" };
+  }
+  return {
+    overrideSource: "env",
+    overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
+    overrideClassification: classifyOverride(HOOK_OVERRIDE_ENV_VAR),
+  };
 }
 
 /**
@@ -372,6 +412,17 @@ export interface RunDispatcherOptions {
    * path for every guard registered in `GUARD_REGISTRY`.
    */
   recordGuardErrorFn?: (input: RecordGuardHealthInput & { error: unknown }) => void;
+  /**
+   * Injectable for tests — defaults to the real `recordFireLogEntry` from
+   * `./fire-log` (mt#2597, evaluation-loop Phase 1). Called once per matched
+   * guard for EVERY outcome — override-suppressed, thrown, denied,
+   * additionalContext-only, or silently allowed — the single integration
+   * point that instruments all guards registered in `GUARD_REGISTRY` without
+   * any per-guard changes.
+   */
+  recordFireLogFn?: (input: RecordFireLogInput) => void;
+  /** Injectable clock for fire-log duration measurement — defaults to `Date.now`. */
+  nowMsFn?: () => number;
 }
 
 /**
@@ -392,6 +443,14 @@ export interface RunDispatcherOptions {
  *      `HookOutput`, written only if at least one guard contributed content
  *      — a matched-but-silent guard produces no stdout, matching today's
  *      "write nothing on allow" convention.
+ *   5. mt#2597 (evaluation-loop Phase 1): every matched guard's outcome is
+ *      fire-logged exactly once — override-suppressed, thrown, denied,
+ *      additionalContext-only, or silently allowed all produce a record.
+ *      This is the "success half" of the enforcement corpus's observability
+ *      (guard-health.ts / mt#2812 already covers the failure/crash half);
+ *      recording happens AFTER the guard's outcome is known but BEFORE any
+ *      early-continue, so a "matched but produced nothing" silent-allow is
+ *      captured too, per the RFC's fire-log schema.
  */
 export async function runDispatcher(
   event: LifecycleEvent,
@@ -407,6 +466,8 @@ export async function runDispatcher(
     options.resolveDispatchContextFn ??
     ((evt, input, opts) => resolveDispatchContext(evt, input, opts));
   const recordError = options.recordGuardErrorFn ?? recordGuardError;
+  const recordFireLog = options.recordFireLogFn ?? recordFireLogEntry;
+  const nowMs = options.nowMsFn ?? Date.now;
 
   const input = await readInputFn();
   const matched = getGuardsForEvent(registrations, event, input.tool_name);
@@ -418,11 +479,29 @@ export async function runDispatcher(
   const contextFragments: string[] = [];
   let sessionTitle: string | undefined;
   for (const reg of matched) {
+    const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
     if (override.overridden) {
       stdoutWrite(
         buildOverrideAuditLine(event, reg.name, input.session_id, undefined, override.grantReason)
       );
+      // mt#2597 R1 fix: attribute the fire-log record to whichever channel
+      // actually decided (env vs grant-file) and classify grant-channel
+      // overrides as authorized_exception — see buildOverrideFireLogFields's
+      // doc comment for the full rationale.
+      const { overrideSource, overrideEnvVar, overrideClassification } =
+        buildOverrideFireLogFields(override);
+      recordFireLog({
+        guardName: reg.name,
+        event,
+        decision: "allow",
+        durationMs: nowMs() - evalStartMs,
+        overrideEnvVar,
+        overrideSource,
+        overrideClassification,
+        toolName: input.tool_name,
+        sessionId: input.session_id,
+      });
       continue;
     }
 
@@ -445,8 +524,37 @@ export async function runDispatcher(
         toolName: input.tool_name,
         sessionId: input.session_id,
       });
+      // mt#2597: a thrown guard fails OPEN (the operation proceeds as if
+      // allowed) — record that outcome on the fire-log's "success half" too,
+      // so override-rate/attention-cost aggregation over this guard isn't
+      // silently missing every crashed evaluation. guard-health.ts already
+      // owns the FAILURE-half record above; this is the complementary
+      // decision-outcome record.
+      recordFireLog({
+        guardName: reg.name,
+        event,
+        decision: "allow",
+        durationMs: nowMs() - evalStartMs,
+        toolName: input.tool_name,
+        sessionId: input.session_id,
+      });
       continue;
     }
+
+    const decision: FireLogDecision = outcome?.deny
+      ? "deny"
+      : outcome?.additionalContext
+        ? "warn"
+        : "allow";
+    recordFireLog({
+      guardName: reg.name,
+      event,
+      decision,
+      durationMs: nowMs() - evalStartMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
+
     if (!outcome) continue;
 
     for (const line of outcome.auditLines ?? []) stdoutWrite(line);

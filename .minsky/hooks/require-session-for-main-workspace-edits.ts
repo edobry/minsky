@@ -23,6 +23,10 @@
 import { readFileSync } from "fs";
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
+const GUARD_NAME = "require-session-for-main-workspace-edits";
 
 // ---------------------------------------------------------------------------
 // Policy (exported for tests)
@@ -119,6 +123,7 @@ export function checkFilePathDenial(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
   const filePath = input.tool_input.file_path as string | undefined;
   const decision = checkFilePathDenial(input.tool_name, filePath);
@@ -132,6 +137,19 @@ if (import.meta.main) {
       },
     });
   }
+
+  // mt#2597 (evaluation-loop Phase 1): fire-log every evaluation, including
+  // the common "not a file-editing tool" / "session workspace" silent-allow
+  // paths — this guard has no documented override env-var, so no override
+  // fields are populated.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PreToolUse",
+    decision: decision.denied ? "deny" : "allow",
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
 
   process.exit(0);
 }
