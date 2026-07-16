@@ -43,6 +43,7 @@ import type { RepositoryBackend, ReviewListEntry } from "../../repository/index"
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import type { TokenProvider, TokenRole } from "../../auth/token-provider";
 import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
+import { DEFAULT_CHECK_RUN_NAME } from "./pr-check-run-submit-subcommand";
 
 export interface SessionPrWaitForReviewDependencies {
   sessionDB: SessionProviderInterface;
@@ -290,6 +291,31 @@ export interface AnnotatedReview extends ReviewListEntry {
   rejectionReason: string;
 }
 
+/**
+ * The reviewer findings check-run's state, as observed by the mt#2777 SC#1
+ * final authoritative check performed immediately before a timeout is
+ * reported. Distinguishes "no check run posted yet" (`status: "absent"`)
+ * from a check run that exists but hasn't completed (`"queued"` /
+ * `"in_progress"`) or has (`"completed"`, with a `conclusion`) — the
+ * originating incident (mt#2751's near-bypass) saw the check flip from
+ * absent to `failure` mid-churn while two 600s `listReviews`-only waits
+ * reported bare silence.
+ */
+export interface ReviewerCheckRunState {
+  /** Check-run name matched — the configured findings check name (default `minsky-reviewer/findings`). */
+  name: string;
+  /**
+   * Run lifecycle state, mirroring `CheckRunResult.status`
+   * (`"completed"` | `"queued"` | `"in_progress"`), plus `"absent"` when no
+   * check run with the matched name exists yet on the PR's current HEAD.
+   */
+  status: string;
+  /** Terminal conclusion when `status === "completed"`, else `null`. */
+  conclusion: string | null;
+  /** Link to the check-run detail page, when available. */
+  url: string | null;
+}
+
 export interface SessionPrWaitForReviewTimeout {
   matched: false;
   elapsedMs: number;
@@ -305,6 +331,10 @@ export interface SessionPrWaitForReviewTimeout {
    * caller's `since` excluded, or a PENDING draft that hasn't been submitted.
    * Replaces the previous diagnostic gap where `{matched: false, elapsedMs,
    * pollCount}` carried zero signal about which filter criterion fired.
+   *
+   * As of mt#2777 SC#1, this reflects the FINAL authoritative re-read (see
+   * `finalCheckPerformed`) when that re-read succeeded — not necessarily the
+   * main poll loop's last iteration.
    */
   lastSeenReviews: AnnotatedReview[];
   /**
@@ -324,6 +354,29 @@ export interface SessionPrWaitForReviewTimeout {
    * agents quickly see whether the `since`-default did what they expected.
    */
   sinceUsed: string;
+  /**
+   * mt#2777 SC#1: whether the one-time final authoritative reviews-list
+   * re-read (performed immediately before reporting this timeout) actually
+   * completed. `false` only when the re-read itself failed (backend I/O
+   * error, or exceeded its own short deadline) — distinguishes "we
+   * re-checked and it's genuinely still not there" from "we could not
+   * re-check." When `true`, `lastSeenReviews` and `sinceUsed` reflect the
+   * fresh read, not a poll-loop-stale one.
+   */
+  finalCheckPerformed: boolean;
+  /**
+   * mt#2777 SC#1: the `minsky-reviewer/findings` check-run's state on the
+   * PR's current HEAD, fetched as part of the final authoritative check.
+   * `null` when the backend does not implement `ci.getChecksForPR` (a
+   * non-GitHub backend) or the fetch itself failed — this signal is
+   * best-effort and its absence must never be read as "no check run
+   * exists" (that positive claim is `status: "absent"` instead). A caller
+   * seeing `status: "in_progress"` or a `failure` conclusion here — while
+   * `matched` is still `false` — should treat the reviewer as actively
+   * working or already having posted findings via the check-run surface,
+   * NOT as silent.
+   */
+  reviewerCheckRunState: ReviewerCheckRunState | null;
 }
 
 export type SessionPrWaitForReviewResult =
@@ -450,6 +503,93 @@ async function defaultGetTokenProvider(): Promise<TokenProvider> {
   const cfg = getConfiguration();
   const userToken = cfg.github?.token ?? "";
   return createTokenProvider(cfg.github ?? {}, userToken);
+}
+
+/**
+ * Bound the mt#2777 SC#1 final-authoritative-check I/O (a `getHeadSha`
+ * refresh + a fresh `listReviews` re-read + a `ci.getChecksForPR` fetch) so
+ * a stalled call at the very end of a wait cannot hang past a short, fixed
+ * budget. This is independent of — and deliberately much smaller than — the
+ * caller's own configured `timeoutSeconds`, since the final check runs
+ * AFTER that budget has already elapsed.
+ *
+ * This is a TOTAL budget for the whole final-check sequence, not a per-call
+ * cap (PR #1958 R1 BLOCKING finding: applying this value to each of the
+ * three sequential calls independently let the aggregate stack to 20-30s+
+ * past the caller's timeout). `finalizeTimeout()` computes ONE deadline
+ * timestamp from this constant and threads the shrinking remaining budget
+ * (`Math.max(0, deadline - now())`) through each subsequent call — the same
+ * pattern the main poll loop already uses for `ioDeadlineMs`.
+ */
+export const FINAL_CHECK_DEADLINE_MS = 10_000;
+
+/**
+ * Resolve the reviewer findings check-run name the same way
+ * `pr-check-run-submit-subcommand.ts`'s (unexported) `resolveCheckRunName`
+ * does — explicit config override (`reviewer.checkRunName`, ← the
+ * `MINSKY_REVIEWER_CHECK_RUN_NAME` env var, mt#2392) wins, else the Minsky
+ * default. Duplicated here as a small self-contained lookup rather than
+ * exporting a new surface from a sibling file this task doesn't otherwise
+ * touch; both resolve to the same `DEFAULT_CHECK_RUN_NAME` constant so the
+ * default stays a single source of truth.
+ */
+async function resolveReviewerCheckRunName(): Promise<string> {
+  try {
+    const { getConfiguration } = await import("../../configuration/index");
+    const cfg = getConfiguration() as { reviewer?: { checkRunName?: string } };
+    const configured = cfg.reviewer?.checkRunName?.trim();
+    if (configured) return configured;
+  } catch {
+    // Config unavailable (e.g. test contexts) — fall through to the default.
+  }
+  return DEFAULT_CHECK_RUN_NAME;
+}
+
+/**
+ * Fetch the reviewer findings check-run's state on the PR's current HEAD,
+ * for the mt#2777 SC#1 final authoritative check. Best-effort: returns
+ * `null` — never throws — when the backend doesn't implement
+ * `ci.getChecksForPR` (a non-GitHub backend, or a test stub that only wires
+ * up `review`) or the fetch fails/times out. A `null` here must be read as
+ * "this signal is unavailable," not as "no check run exists" — the positive
+ * absence claim is `{ status: "absent" }`.
+ *
+ * `deadlineMs` (PR #1958 R1): the caller's REMAINING budget for this call,
+ * not a fresh `FINAL_CHECK_DEADLINE_MS` each time — `finalizeTimeout()`
+ * passes what's left of the shared final-check deadline after the
+ * `getHeadSha`/`listReviews` steps have already run. Defaults to the full
+ * `FINAL_CHECK_DEADLINE_MS` for standalone callers (e.g. these unit tests)
+ * that aren't part of a larger budgeted sequence.
+ *
+ * Exported for unit tests.
+ */
+export async function fetchReviewerCheckRunState(
+  backend: RepositoryBackend,
+  prNumber: number,
+  deadlineMs: number = FINAL_CHECK_DEADLINE_MS
+): Promise<ReviewerCheckRunState | null> {
+  const getChecksForPR = backend.ci?.getChecksForPR;
+  if (!getChecksForPR) return null;
+  try {
+    const checkRunName = await resolveReviewerCheckRunName();
+    const checksResult = await withDeadline(getChecksForPR(prNumber), deadlineMs);
+    const match = checksResult.checks.find((check) => check.name === checkRunName);
+    if (!match) {
+      return { name: checkRunName, status: "absent", conclusion: null, url: null };
+    }
+    return {
+      name: checkRunName,
+      status: match.status,
+      conclusion: match.conclusion,
+      url: match.url,
+    };
+  } catch (checkRunError) {
+    log.debug(
+      `session_pr_wait_for_review: PR #${prNumber} final check-run-state fetch failed ` +
+        `(mt#2777 SC#1, best-effort). ${getErrorMessage(checkRunError)}`
+    );
+    return null;
+  }
 }
 
 /**
@@ -648,6 +788,10 @@ export async function sessionPrWaitForReview(
           `session_pr_wait_for_review requires a backend implementing ReviewOperations.listReviews.`
       );
     }
+    // Capture a narrowed, non-optional reference now that the guard above
+    // has confirmed it's present — avoids a `!` non-null assertion at each
+    // later call site (the poll loop and the mt#2777 SC#1 final check).
+    const listReviews = backend.review.listReviews;
 
     // Resolve the `since` threshold (mt#2043):
     //   - explicit `params.since` wins; backend lookup is skipped.
@@ -700,13 +844,94 @@ export async function sessionPrWaitForReview(
     // surface them with per-entry rejection reasons (mt#2043).
     let lastReviews: ReviewListEntry[] = [];
 
-    const buildTimeoutResult = (): SessionPrWaitForReviewTimeout => ({
+    const buildTimeoutResult = (
+      overrides: Partial<
+        Pick<SessionPrWaitForReviewTimeout, "finalCheckPerformed" | "reviewerCheckRunState">
+      > = {}
+    ): SessionPrWaitForReviewTimeout => ({
       matched: false,
       elapsedMs: now() - start,
       pollCount,
       lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer, headSha),
       sinceUsed: sinceIso,
+      finalCheckPerformed: false,
+      reviewerCheckRunState: null,
+      ...overrides,
     });
+
+    /**
+     * mt#2777 SC#1: perform ONE final authoritative check immediately before
+     * reporting a timeout — a fresh `listReviews` re-read (bypassing the
+     * poll loop's own deadline gate, since a review landing in the gap
+     * between the loop's last poll and its deadline check is exactly the
+     * false-silence class this closes) plus the `minsky-reviewer/findings`
+     * check-run state on the PR's current HEAD. A churn-delayed review that
+     * posted just outside the polling window is reported as `matched: true`
+     * here instead of bare silence; when it's still genuinely absent, the
+     * check-run state lets the caller distinguish "confirmed silent" from
+     * "reviewer is still actively working" (originating incident: mt#2751's
+     * near-bypass, where the findings check flipped absent → `failure`
+     * mid-churn while two 600s waits reported nothing).
+     *
+     * Best-effort: any failure in the re-read (backend I/O error, exceeded
+     * budget) degrades to the ordinary timeout payload with
+     * `finalCheckPerformed: false` rather than throwing — a failed
+     * diagnostic read must never turn an otherwise-legitimate timeout into
+     * a thrown error.
+     *
+     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` is a TOTAL budget
+     * for the whole sequence below, not a per-call cap — a single
+     * `finalCheckDeadline` timestamp is computed once, and each of the
+     * three sequential calls (`getHeadSha`, `listReviews`,
+     * `fetchReviewerCheckRunState`) is bounded to whatever remains of it
+     * (`Math.max(0, finalCheckDeadline - now())`), mirroring the main poll
+     * loop's own `ioDeadlineMs` pattern. Without this, three independent
+     * 10s per-call caps could stack to 20-30s+ past the caller's configured
+     * timeout.
+     */
+    const finalizeTimeout = async (): Promise<SessionPrWaitForReviewResult> => {
+      let finalCheckPerformed = false;
+      const finalCheckDeadline = now() + FINAL_CHECK_DEADLINE_MS;
+      try {
+        if (getHeadSha) {
+          headSha = await withDeadline(
+            getHeadSha(prNumber),
+            Math.max(0, finalCheckDeadline - now())
+          );
+        }
+        const freshReviews = await withDeadline(
+          listReviews(prNumber),
+          Math.max(0, finalCheckDeadline - now())
+        );
+        lastReviews = freshReviews;
+        finalCheckPerformed = true;
+
+        const finalMatch = findMatchingReview(freshReviews, since, resolvedReviewer, headSha);
+        if (finalMatch) {
+          return {
+            matched: true,
+            // mt#2656: trimmed by default; params.fullBody: true restores the
+            // full ReviewListEntry (raw body, provenance comment, tables).
+            review: params.fullBody ? finalMatch : trimReview(finalMatch),
+            elapsedMs: now() - start,
+            pollCount,
+          };
+        }
+      } catch (finalError) {
+        log.debug(
+          `session_pr_wait_for_review: PR #${prNumber} final authoritative reviews-list ` +
+            `re-read failed (mt#2777 SC#1, best-effort); reporting timeout from the last ` +
+            `successful poll instead. ${getErrorMessage(finalError)}`
+        );
+      }
+
+      const reviewerCheckRunState = await fetchReviewerCheckRunState(
+        backend,
+        prNumber,
+        Math.max(0, finalCheckDeadline - now())
+      );
+      return buildTimeoutResult({ finalCheckPerformed, reviewerCheckRunState });
+    };
 
     while (true) {
       // After the first poll, the sleep may have brought us exactly to (or
@@ -715,7 +940,7 @@ export async function sessionPrWaitForReview(
       // `pollCount > 0` guard guarantees at least one poll even on zero
       // or sub-interval budgets — the contract is "one check minimum."
       if (pollCount > 0 && now() >= deadline) {
-        return buildTimeoutResult();
+        return await finalizeTimeout();
       }
 
       pollCount += 1;
@@ -739,7 +964,7 @@ export async function sessionPrWaitForReview(
           headSha = await withDeadline(getHeadSha(prNumber), ioDeadlineMs);
         }
 
-        const reviews = await withDeadline(backend.review.listReviews(prNumber), ioDeadlineMs);
+        const reviews = await withDeadline(listReviews(prNumber), ioDeadlineMs);
         lastReviews = reviews;
         const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
         if (match) {
@@ -759,14 +984,14 @@ export async function sessionPrWaitForReview(
               `wait's overall deadline (a stalled fetch with no bound of its own); ` +
               `returning REVIEW_TIMEOUT instead of hanging further`
           );
-          return buildTimeoutResult();
+          return await finalizeTimeout();
         }
         throw ioError;
       }
 
       const remaining = deadline - now();
       if (remaining <= 0) {
-        return buildTimeoutResult();
+        return await finalizeTimeout();
       }
 
       const sleepMs = Math.min(intervalMs, remaining);

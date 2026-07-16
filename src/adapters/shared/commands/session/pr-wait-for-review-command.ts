@@ -83,13 +83,37 @@ export function formatMatchMessage(result: SessionPrWaitForReviewMatch): string 
  * Includes the mt#2043 diagnostic payload (sinceUsed + up to MAX_SHOWN
  * lastSeenReviews entries with rejectionReason) so text-mode callers can
  * diagnose the miss class without re-running with --json.
+ *
+ * mt#2777 SC#1: also surfaces the final-authoritative-check outcome —
+ * whether a fresh re-read ran (`finalCheckPerformed`) and the
+ * `minsky-reviewer/findings` check-run state (`reviewerCheckRunState`) —
+ * so a caller reading the timeout message (not just the JSON payload) sees
+ * whether this is a confirmed-fresh silence or the reviewer is still
+ * actively working / has already posted findings via the check-run surface.
  */
 export function formatTimeoutMessage(result: SessionPrWaitForReviewTimeout): string {
-  const { elapsedMs, pollCount, sinceUsed, lastSeenReviews } = result;
+  const {
+    elapsedMs,
+    pollCount,
+    sinceUsed,
+    lastSeenReviews,
+    finalCheckPerformed,
+    reviewerCheckRunState,
+  } = result;
   const header =
     `⏳ No matching review after ${Math.round(elapsedMs / 1000)}s ` +
     `(${pollCount} poll(s)). Timeout reached without a match.`;
   const lines: string[] = [header, `  Threshold (since): ${sinceUsed}`];
+  lines.push(
+    finalCheckPerformed
+      ? "  Final authoritative check: re-read reviews list immediately before timing out — still no match."
+      : "  Final authoritative check: re-read attempt failed; the above reflects the last successful poll."
+  );
+  if (reviewerCheckRunState) {
+    const { name, status, conclusion } = reviewerCheckRunState;
+    const conclusionSuffix = conclusion ? ` (${conclusion})` : "";
+    lines.push(`  Reviewer check-run "${name}": ${status}${conclusionSuffix}`);
+  }
   if (lastSeenReviews.length === 0) {
     lines.push("  No reviews on the PR at the final poll.");
     return lines.join("\n");

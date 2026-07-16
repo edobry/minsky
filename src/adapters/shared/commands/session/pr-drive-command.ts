@@ -76,10 +76,25 @@ export function formatDriveMessage(result: SessionPrDriveResult): string {
       ].join("\n");
     }
     case "REVIEW_TIMEOUT": {
-      return (
+      const lines = [
         `⏳ No matching review after ${Math.round(result.elapsedMs / 1000)}s ` +
-        `(${result.pollCount} poll(s)). Threshold (since): ${result.sinceUsed}`
+          `(${result.pollCount} poll(s)). Threshold (since): ${result.sinceUsed}`,
+      ];
+      // mt#2777 SC#1 (PR #1958 R1 adoption-sweep fix): surface the same
+      // final-authoritative-check outcome the wait-for-review text renderer
+      // shows (pr-wait-for-review-command.ts's formatTimeoutMessage) — a
+      // caller driving convergence via session.pr.drive should see this too.
+      lines.push(
+        result.finalCheckPerformed
+          ? "  Final authoritative check: re-read reviews list immediately before timing out — still no match."
+          : "  Final authoritative check: re-read attempt failed; the above reflects the last successful poll."
       );
+      if (result.reviewerCheckRunState) {
+        const { name, status, conclusion } = result.reviewerCheckRunState;
+        const conclusionSuffix = conclusion ? ` (${conclusion})` : "";
+        lines.push(`  Reviewer check-run "${name}": ${status}${conclusionSuffix}`);
+      }
+      return lines.join("\n");
     }
     default: {
       // Exhaustiveness guard — a new state added to the union without a
