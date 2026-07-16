@@ -124,6 +124,20 @@ describe("splitInjectedContent — mixed turns (injected span collapses, prose d
     expect((segments[1] as { span: { content: string } }).span.content).toBe("second");
   });
 
+  test("whitespace-only gaps between reminder blocks are dropped — behaviorally identical to today (PR #1968 R1)", () => {
+    // A whitespace-only prose segment renders as NOTHING regardless: the
+    // ConversationView consumer trims prose segments before pushing, and
+    // <Prose> itself returns null for whitespace-only input. Dropping the
+    // gap here is therefore not a rendering change; this test pins the
+    // contract so a future consumer that stops trimming re-evaluates it.
+    const input =
+      "<system-reminder>first</system-reminder>\n\n  \n<system-reminder>second</system-reminder>";
+    const segments = splitInjectedContent(input);
+
+    expect(segments).toHaveLength(2);
+    expect(segments.every((s) => s.type === "injected")).toBe(true);
+  });
+
   test("two skills concatenated in one turn split into two separate skill-body blocks", () => {
     const skillA =
       "<command-message>cockpit-design</command-message>\n<command-name>cockpit-design</command-name>\n<skill-format>true</skill-format>Base directory for this skill: /a/.claude/skills/cockpit-design\n\nBody A content here.\n\n";
