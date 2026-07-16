@@ -36,6 +36,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { ConversationView } from "./ConversationView";
 import { ContextBlockView } from "./ContextBlockView";
+import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 
 // ---------------------------------------------------------------------------
@@ -102,6 +103,17 @@ export interface ConversationOverviewPayload {
     startedAt: string | null;
     endedAt: string | null;
     turnCount: number;
+    /** Regex-extracted `mt#NNNN` task refs found in the transcript (mt#1329 metadata-extractor). */
+    relatedTaskIds: string[];
+    /** Regex-extracted PR numbers (as strings) found in the transcript (mt#1329 metadata-extractor). */
+    relatedPrNumbers: string[];
+    /**
+     * Last-seen JSONL entry timestamp (`lastIngestedJsonlTimestamp`) — the
+     * duration fallback for an in-progress conversation with no `endedAt` yet
+     * (mt#2792). Null when the conversation has never been incrementally
+     * re-ingested (e.g. ingested once, at completion — `endedAt` covers that case).
+     */
+    lastActivityAt: string | null;
   };
   workspace: WorkspaceOverviewFields | null;
 }
@@ -194,7 +206,7 @@ function formatTimestamp(iso: string | null): string {
   return t.toLocaleString();
 }
 
-function MetaItem({ label, children }: { label: string; children: React.ReactNode }) {
+export function MetaItem({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground uppercase tracking-wide">{label}</dt>
@@ -325,12 +337,15 @@ function ConversationMetaBody({ meta }: { meta: ConversationOverviewPayload["con
 
 function OverviewTab({
   keySpace,
+  id,
   workspaceData,
   workspaceQuery,
   conversationData,
   conversationQuery,
 }: {
   keySpace: RunKeySpace;
+  /** Conversation-keyed arrivals only — the harness agentSessionId (mt#2792 enrichment panel). */
+  id: string;
   workspaceData: WorkspaceDetailPayload | undefined;
   workspaceQuery: { isPending: boolean; isError: boolean; error: Error | null };
   conversationData: ConversationOverviewPayload | undefined;
@@ -343,12 +358,26 @@ function OverviewTab({
     return <WorkspaceOverviewBody fields={workspaceData} />;
   }
 
-  // Conversation-keyed: reverse-join resolved workspace, or conversation metadata fallback.
+  // Conversation-keyed: reverse-join resolved workspace, or conversation metadata fallback —
+  // either way, the mt#2792 enrichment panel (related task/PR, duration, tool activity,
+  // last-message snippet) renders below the existing body.
   if (conversationQuery.isPending) return <LoadingState message="Loading overview…" />;
   if (conversationQuery.isError) return <ErrorState error={conversationQuery.error ?? undefined} />;
   if (!conversationData) return <p className="text-sm text-muted-foreground">No overview data.</p>;
-  if (conversationData.workspace) return <WorkspaceOverviewBody fields={conversationData.workspace} />;
-  return <ConversationMetaBody meta={conversationData.conversationMeta} />;
+  return (
+    <div className="flex flex-col gap-4">
+      {conversationData.workspace ? (
+        <WorkspaceOverviewBody fields={conversationData.workspace} />
+      ) : (
+        <ConversationMetaBody meta={conversationData.conversationMeta} />
+      )}
+      <ConversationOverviewPanel
+        agentSessionId={id as ConversationId}
+        conversationMeta={conversationData.conversationMeta}
+        workspace={conversationData.workspace}
+      />
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +479,7 @@ export function RunDetail({ id, keySpace, onConversationNotFound }: RunDetailPro
       {tab === "overview" && (
         <OverviewTab
           keySpace={keySpace}
+          id={id}
           workspaceData={workspaceQuery.data}
           workspaceQuery={workspaceQuery}
           conversationData={conversationOverviewQuery.data}

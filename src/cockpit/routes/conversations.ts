@@ -247,6 +247,13 @@ export function mountConversationRoutes(
           cwd: agentTranscriptsTable.cwd,
           startedAt: agentTranscriptsTable.startedAt,
           endedAt: agentTranscriptsTable.endedAt,
+          // mt#2792 Overview enrichment — regex-extracted refs (mt#1329
+          // metadata-extractor) and the incremental-ingest high-water-mark
+          // (used as the duration fallback for a conversation with no
+          // endedAt yet, i.e. one still in progress).
+          relatedTaskIds: agentTranscriptsTable.relatedTaskIds,
+          relatedPrNumbers: agentTranscriptsTable.relatedPrNumbers,
+          lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
         })
         .from(agentTranscriptsTable)
         .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
@@ -323,6 +330,12 @@ export function mountConversationRoutes(
             transcript.startedAt instanceof Date ? transcript.startedAt.toISOString() : null,
           endedAt: transcript.endedAt instanceof Date ? transcript.endedAt.toISOString() : null,
           turnCount,
+          relatedTaskIds: transcript.relatedTaskIds ?? [],
+          relatedPrNumbers: transcript.relatedPrNumbers ?? [],
+          lastActivityAt:
+            transcript.lastIngestedJsonlTimestamp instanceof Date
+              ? transcript.lastIngestedJsonlTimestamp.toISOString()
+              : null,
         },
         workspace,
       });
