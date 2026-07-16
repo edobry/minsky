@@ -6,6 +6,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import {
   resolveSessionContext,
   resolveSessionId,
+  resolveSessionIdForCommand,
   validateSessionContext,
 } from "./session-context-resolver";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
@@ -169,5 +170,128 @@ describe("validateSessionContext", () => {
     });
 
     expect(isValid).toBe(false);
+  });
+});
+
+/**
+ * mt#2816: session_* param-alias parity. This resolver backs the `task`
+ * convenience-resolution param session_commit and session.edit-file gained
+ * (matching session_start/session_exec semantics), and adds ambiguity
+ * detection those legacy `getSessionByTaskId`-based lookups never had.
+ */
+describe("resolveSessionIdForCommand", () => {
+  const EXPLICIT_SESSION_ID = "explicit-session-id";
+
+  test("explicit sessionId is returned as-is, no lookup performed", async () => {
+    // No sessions registered at all — if this resolver tried to validate
+    // existence or look anything up, it would fail. Regression: unchanged
+    // behavior for existing sessionId-based callers.
+    const sessionProvider = new FakeSessionProvider();
+
+    const resolved = await resolveSessionIdForCommand({
+      sessionId: EXPLICIT_SESSION_ID,
+      sessionProvider,
+    });
+
+    expect(resolved).toBe(EXPLICIT_SESSION_ID);
+  });
+
+  test("sessionId wins over task when both are supplied", async () => {
+    const sessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
+          sessionId: "session-for-task",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "mt#2816",
+        },
+      ],
+    });
+
+    const resolved = await resolveSessionIdForCommand({
+      sessionId: EXPLICIT_SESSION_ID,
+      task: "mt#2816",
+      sessionProvider,
+    });
+
+    expect(resolved).toBe(EXPLICIT_SESSION_ID);
+  });
+
+  test("resolves task to its single active session", async () => {
+    const sessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
+          sessionId: "the-one-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "mt#2739",
+        },
+      ],
+    });
+
+    const resolved = await resolveSessionIdForCommand({
+      task: "mt#2739",
+      sessionProvider,
+    });
+
+    expect(resolved).toBe("the-one-session");
+  });
+
+  test("throws ResourceNotFoundError when no session exists for the task", async () => {
+    const sessionProvider = new FakeSessionProvider();
+
+    await expect(
+      resolveSessionIdForCommand({
+        task: "mt#9999",
+        sessionProvider,
+      })
+    ).rejects.toThrow(ResourceNotFoundError);
+  });
+
+  test("ambiguity: throws a structured error naming every candidate session", async () => {
+    const sessionProvider = new FakeSessionProvider({
+      initialSessions: [
+        {
+          sessionId: "session-alpha",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          createdAt: "2024-01-01T00:00:00Z",
+          taskId: "mt#2816",
+        },
+        {
+          sessionId: "session-beta",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          createdAt: "2024-01-02T00:00:00Z",
+          taskId: "mt#2816",
+        },
+      ],
+    });
+
+    let caught: unknown;
+    try {
+      await resolveSessionIdForCommand({ task: "mt#2816", sessionProvider });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ValidationError);
+    const err = caught as ValidationError;
+    // Naming both candidates in the message (human-readable) ...
+    expect(err.message).toContain("session-alpha");
+    expect(err.message).toContain("session-beta");
+    // ... and as structured data (machine-readable).
+    const errors = err.errors as { candidateSessionIds?: string[] } | undefined;
+    expect(errors?.candidateSessionIds).toEqual(["session-alpha", "session-beta"]);
+  });
+
+  test("returns undefined when neither sessionId nor task is provided", async () => {
+    const sessionProvider = new FakeSessionProvider();
+
+    const resolved = await resolveSessionIdForCommand({ sessionProvider });
+
+    expect(resolved).toBeUndefined();
   });
 });

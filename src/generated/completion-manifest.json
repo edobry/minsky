@@ -2124,6 +2124,56 @@
           ]
         },
         {
+          "name": "focus",
+          "description": "Raise the terminal where a session's agent is running to the foreground, using the live attachment recorded by `session ps` (mt#2284). Supports tmux, iTerm2, Terminal.app, WezTerm, and kitty, with a window-raise degraded fallback for other emulators. Never silently no-ops: every outcome (focused, degraded, permission denied, no attachment) is reported with an actionable message.",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--attachment"],
+              "description": "Attachment id to focus when the session has more than one live attachment. Omit when there is only one; a bare invocation against a multi-attachment session lists the candidate ids to choose from.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "goto",
+          "description": "Raise the terminal where a session's agent is running to the foreground, using the live attachment recorded by `session ps` (mt#2284). Supports tmux, iTerm2, Terminal.app, WezTerm, and kitty, with a window-raise degraded fallback for other emulators. Never silently no-ops: every outcome (focused, degraded, permission denied, no attachment) is reported with an actionable message. (alias of `session focus`)",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
+              "flags": ["--attachment"],
+              "description": "Attachment id to focus when the session has more than one live attachment. Omit when there is only one; a bare invocation against a multi-attachment session lists the candidate ids to choose from.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
           "name": "delete",
           "description": "Delete a session",
           "options": [
@@ -2277,6 +2327,11 @@
             {
               "flags": ["--session-id"],
               "description": "Session identifier (ID or task ID)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task identifier",
               "takesValue": true
             },
             {
@@ -3313,6 +3368,11 @@
               "takesValue": true
             },
             {
+              "flags": ["--task"],
+              "description": "Task ID",
+              "takesValue": true
+            },
+            {
               "flags": ["--path"],
               "description": "Path to the file within the session workspace",
               "takesValue": true
@@ -3623,7 +3683,7 @@
           "options": [
             {
               "flags": ["--target"],
-              "description": "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+              "description": "Target file type to compile to (e.g., agents.md, claude.md, cursor-rules). When omitted (bare invocation), compiles every target whose output already exists on disk with the generated banner — a partial regen is never silently reported as success (mt#2803). Falls back to agents.md when none exist yet (fresh repo / init flows).",
               "takesValue": true
             },
             {
@@ -6306,7 +6366,7 @@
       "options": [
         {
           "flags": ["--target"],
-          "description": "Compile target to run (e.g. \"claude-skills\"). Defaults to \"claude-skills\".",
+          "description": "Compile target to run (e.g. \"claude-skills\"). When omitted (bare invocation), compiles every target whose .minsky/ source dir exists (mt#2803) — a partial regen is never silently reported as success. Falls back to \"claude-skills\" when no source dir exists yet (fresh repo).",
           "takesValue": true
         },
         {

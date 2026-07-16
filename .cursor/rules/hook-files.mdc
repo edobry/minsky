@@ -44,9 +44,9 @@ to at least the SUM of its guards' pre-migration timeouts, never one guard's bud
 **Recompile rule (mt#2304 — load-bearing).** Source lives in `.minsky/hooks/`; `.claude/hooks/*` is
 GENERATED. After editing `.minsky/hooks/*.ts`, run `bun run minsky compile --target claude-hooks` and
 commit sources + generated output together (pre-commit blocks otherwise). This RULE file is itself a
-compiled source — after editing it, run `rules compile --target claude.md` /
-`--target agents.md` / `--target cursor-rules` and grep the change into `CLAUDE.md` (bare
-invocation hits only one target; mt#2803 fixes this).
+compiled source — after editing it, run `rules compile` (bare invocation regenerates every
+existing target — AGENTS.md, CLAUDE.md, .cursor/rules — in one pass, mt#2803) and grep the
+change into `CLAUDE.md` to check.
 
 The framework has no override; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all`
 overrides migrated guards.
