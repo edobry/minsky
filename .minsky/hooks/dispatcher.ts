@@ -46,7 +46,7 @@ import type { GuardGrant } from "./guard-grant-store";
 import { recordGuardError } from "./guard-health";
 import type { RecordGuardHealthInput } from "./guard-health";
 import { recordFireLogEntry, classifyOverride } from "./fire-log";
-import type { FireLogDecision, RecordFireLogInput } from "./fire-log";
+import type { FireLogDecision, OverrideClassification, RecordFireLogInput } from "./fire-log";
 
 // ---------------------------------------------------------------------------
 // D3 — unified override mechanism
@@ -208,6 +208,44 @@ export function checkOverride(
   }
 
   return raw ? { overridden: false, raw } : { overridden: false };
+}
+
+/**
+ * mt#2597 R1 fix (reviewer finding: "dispatcher override classification —
+ * mixed env/grant scenarios") — map a `checkOverride()` result to the
+ * fire-log's override fields, attributing deterministically to whichever
+ * channel ACTUALLY decided rather than re-deriving `checkOverride()`'s own
+ * precedence logic.
+ *
+ * `checkOverride()` guarantees `grantReason` is populated IF AND ONLY IF the
+ * grant-file channel is what produced `overridden: true` for this call — the
+ * env-var channel always returns early (see that function's doc comment)
+ * BEFORE the grant branch ever runs. So `grantReason !== undefined` is a
+ * sufficient discriminator even when `raw` is ALSO set (e.g.
+ * `MINSKY_HOOK_OVERRIDE` configured for a different guard/token than the one
+ * being evaluated right now) — "both channels present in the environment" is
+ * not the same as "both channels decided." This function trusts that
+ * invariant instead of re-implementing it.
+ *
+ * Grant-file overrides classify as `authorized_exception` directly — NOT via
+ * `classifyOverride(undefined)`'s generic `contested` fallback — because a
+ * grant is itself TTL-bound and reason-mandatory by construction
+ * (`guard-grant-store.ts`), the same property that makes the env-var channel
+ * an "authorized exception" in the first place.
+ */
+export function buildOverrideFireLogFields(override: OverrideResult): {
+  overrideSource: "env" | "grant";
+  overrideEnvVar?: string;
+  overrideClassification: OverrideClassification;
+} {
+  if (override.grantReason !== undefined) {
+    return { overrideSource: "grant", overrideClassification: "authorized_exception" };
+  }
+  return {
+    overrideSource: "env",
+    overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
+    overrideClassification: classifyOverride(HOOK_OVERRIDE_ENV_VAR),
+  };
 }
 
 /**
@@ -447,20 +485,20 @@ export async function runDispatcher(
       stdoutWrite(
         buildOverrideAuditLine(event, reg.name, input.session_id, undefined, override.grantReason)
       );
-      // mt#2597: classify the override per the RFC's three-way split.
-      // `override.raw` present (env-var channel, D3) -> the SINGLE unified
-      // `MINSKY_HOOK_OVERRIDE` var is the "env-var used". A grant-file match
-      // (Phase-7 adjunct, mt#2658) with NO raw env-var involved is "bypassed
-      // at another layer" (classifyOverride(undefined) -> "contested"),
-      // regardless of whether `raw` happens to be set for a DIFFERENT guard.
-      const overrideEnvVar = override.grantReason !== undefined ? undefined : HOOK_OVERRIDE_ENV_VAR;
+      // mt#2597 R1 fix: attribute the fire-log record to whichever channel
+      // actually decided (env vs grant-file) and classify grant-channel
+      // overrides as authorized_exception — see buildOverrideFireLogFields's
+      // doc comment for the full rationale.
+      const { overrideSource, overrideEnvVar, overrideClassification } =
+        buildOverrideFireLogFields(override);
       recordFireLog({
         guardName: reg.name,
         event,
         decision: "allow",
         durationMs: nowMs() - evalStartMs,
         overrideEnvVar,
-        overrideClassification: classifyOverride(overrideEnvVar),
+        overrideSource,
+        overrideClassification,
         toolName: input.tool_name,
         sessionId: input.session_id,
       });

@@ -40,6 +40,7 @@ import {
   recordPreCommitFireLogEntry,
   classifyOverride as classifyPreCommitOverride,
 } from "./pre-commit-fire-log";
+import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
@@ -75,48 +76,54 @@ export interface ESLintSummary {
   results: ESLintResult[];
 }
 
-export interface HookResult {
-  success: boolean;
-  message: string;
-  exitCode: number;
+// ---------------------------------------------------------------------------
+// mt#2597 R1 fix — the fire-log instrumentation wrapper, extracted to a
+// standalone exported function so its override-attribution logic is
+// unit-testable without instantiating (or running the real heavy steps of)
+// `PreCommitHook`. `PreCommitHook.instrumented()` below is a thin delegate.
+// ---------------------------------------------------------------------------
+
+export interface RunInstrumentedStepDeps {
+  /** Injectable for tests — defaults to the real `recordPreCommitFireLogEntry`. */
+  recordFireLog?: (input: RecordPreCommitFireLogInput) => void;
+  /** Injectable clock for duration measurement — defaults to `Date.now`. */
+  now?: () => number;
 }
 
-export class PreCommitHook {
-  constructor(private projectRoot: string = process.cwd()) {}
-
-  /**
-   * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — instruments a
-   * single pre-commit step without touching the step method's own body.
-   * Records exactly one fire-log entry per step invocation: decision=allow
-   * on success, decision=deny on failure.
-   *
-   * Override-classification caveat: unlike the guard-dispatcher's
-   * `checkOverride` (which observes the decision BEFORE the guard runs, so
-   * it always knows definitively whether an override applied), a pre-commit
-   * step's override env-var (e.g. `MINSKY_SKIP_NUL_CHECK`) is read INSIDE
-   * the step's own body — this wrapper has no visibility into whether a
-   * violation was actually found and suppressed. The best available proxy
-   * without invasively changing each step's internals: classify as
-   * "overridden" only when the associated override env-var is truthy AND
-   * the step's result was a pass. This can occasionally over-attribute (the
-   * override was set but the step would have passed anyway) — acceptable
-   * for Phase 1's "emit-only, no scoring/judgment" posture; a later phase
-   * can thread an explicit "was the override actually consulted" signal
-   * out of each step if the approximation proves too noisy.
-   */
-  private async instrumented(
-    guardName: string,
-    fn: () => Promise<HookResult>,
-    overrideEnvVar?: string
-  ): Promise<HookResult> {
-    const startMs = Date.now();
-    const result = await fn();
-    const durationMs = Date.now() - startMs;
-    const overridden =
-      result.success &&
-      overrideEnvVar !== undefined &&
-      isOverrideTruthy(process.env[overrideEnvVar]);
-    recordPreCommitFireLogEntry({
+/**
+ * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — instruments a single
+ * pre-commit step without touching the step method's own body. Records
+ * exactly one fire-log entry per step invocation: decision=allow on success,
+ * decision=deny on failure.
+ *
+ * Override attribution (R1 fix): a pre-commit step's override env-var (e.g.
+ * `MINSKY_SKIP_NUL_CHECK`) is read INSIDE the step's own body — this wrapper
+ * has no independent visibility into whether a violation was actually found
+ * and suppressed. The ORIGINAL Phase-1 landing approximated this by checking
+ * `result.success && isOverrideTruthy(process.env[overrideEnvVar])` — but that
+ * conflates "the env-var happens to be set in the environment" with "this
+ * step's own decision was actually overridden": a var left set from an
+ * earlier step, a different step's test run, or a developer's unrelated
+ * export would misattribute a NORMAL pass as an override. The fix: each
+ * step's own function body now sets `result.overridden = true` on the
+ * SPECIFIC branch where it actually consulted its var and took the skip
+ * path (mirroring the guard-dispatcher's `checkOverride`, which observes the
+ * decision BEFORE the guard runs and so always knows definitively). This
+ * wrapper reads that flag — not `process.env` — as the sole override signal.
+ */
+export function runInstrumentedStep(
+  guardName: string,
+  fn: () => Promise<HookResult>,
+  overrideEnvVar?: string,
+  deps: RunInstrumentedStepDeps = {}
+): Promise<HookResult> {
+  const recordFireLog = deps.recordFireLog ?? recordPreCommitFireLogEntry;
+  const now = deps.now ?? Date.now;
+  const startMs = now();
+  return fn().then((result) => {
+    const durationMs = now() - startMs;
+    const overridden = result.overridden === true && overrideEnvVar !== undefined;
+    recordFireLog({
       guardName,
       decision: result.success ? "allow" : "deny",
       durationMs,
@@ -128,6 +135,47 @@ export class PreCommitHook {
         : {}),
     });
     return result;
+  });
+}
+
+export interface HookResult {
+  success: boolean;
+  message: string;
+  exitCode: number;
+  /**
+   * mt#2597 R1 fix (reviewer finding: "pre-commit over-attribution on
+   * presence vs. actual suppression") — set to `true` by a step's OWN
+   * function body when IT actually consulted its paired override env-var
+   * and took the skip path (e.g. `runNulByteCheck`'s
+   * `isOverrideTruthy(process.env[NUL_BYTE_CHECK_OVERRIDE_ENV])` branch).
+   * `instrumented()`/`runInstrumentedStep` reads THIS flag — not a blanket
+   * `process.env` scan — to decide whether to attach override fields to the
+   * fire-log record. Omitted (or `false`) means "ran its normal path," even
+   * if the step's paired override env-var happens to be truthy in the
+   * environment for an unrelated reason (a leftover export, a var set for a
+   * DIFFERENT step, a developer testing something else) — that env-var
+   * presence must never be conflated with "this step's decision was
+   * actually overridden."
+   */
+  overridden?: boolean;
+}
+
+export class PreCommitHook {
+  constructor(private projectRoot: string = process.cwd()) {}
+
+  /**
+   * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — thin per-instance
+   * delegate to the standalone `runInstrumentedStep` (see that function's
+   * doc comment above for the override-attribution rationale, including the
+   * R1 fix that replaced the original presence-based env-var scan with the
+   * step's own `result.overridden` signal).
+   */
+  private async instrumented(
+    guardName: string,
+    fn: () => Promise<HookResult>,
+    overrideEnvVar?: string
+  ): Promise<HookResult> {
+    return runInstrumentedStep(guardName, fn, overrideEnvVar);
   }
 
   /**
@@ -814,7 +862,12 @@ export class PreCommitHook {
         `[pre-commit:nul-byte-check] override ${NUL_BYTE_CHECK_OVERRIDE_ENV}=${process.env[NUL_BYTE_CHECK_OVERRIDE_ENV]} ` +
           `at ${ts} — NUL-byte check skipped`
       );
-      return { success: true, message: "NUL-byte check skipped via override", exitCode: 0 };
+      return {
+        success: true,
+        message: "NUL-byte check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
     }
 
     try {
@@ -1019,6 +1072,7 @@ export class PreCommitHook {
         success: true,
         message: "Migration journal check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1102,6 +1156,7 @@ export class PreCommitHook {
         success: true,
         message: "Immutable-migration check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1255,6 +1310,7 @@ export class PreCommitHook {
         success: true,
         message: "Deploy-domain check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1681,6 +1737,12 @@ export class PreCommitHook {
       return { success: true, message: "No compile targets to check", exitCode: 0 };
     }
 
+    // mt#2597 R1 fix: tracks whether THIS invocation actually consulted
+    // SIZE_BUDGET_CHECK_OVERRIDE_ENV and took the skip branch below — the
+    // final success return reports `overridden: true` only when this flag
+    // was set, never from a blanket env-var presence check.
+    let overrodeSizeBudget = false;
+
     for (const target of targetsToCheck) {
       try {
         // mt#1829: `target` is from the locally-built `targetsToCheck` array
@@ -1709,6 +1771,7 @@ export class PreCommitHook {
               `active at ${ts} — size budget failure for target "${target}" skipped ` +
               `(env value not echoed)`
           );
+          overrodeSizeBudget = true;
           continue;
         }
 
@@ -1720,7 +1783,12 @@ export class PreCommitHook {
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
-    return { success: true, message: "Rules compile check passed", exitCode: 0 };
+    return {
+      success: true,
+      message: "Rules compile check passed",
+      exitCode: 0,
+      ...(overrodeSizeBudget ? { overridden: true } : {}),
+    };
   }
 
   /**

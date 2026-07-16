@@ -53,10 +53,16 @@ export type FireLogDecision = "allow" | "warn" | "deny";
  *   given the mt#1788 ESLint enforcement, but this is the honest fallback
  *   rather than silently mis-classifying it as authorized).
  * - `contested` — the guard's decision was overridden WITHOUT going through
- *   the documented env-var mechanism at all — e.g. the dispatcher's
- *   grant-file channel (`guard-grant-store.ts`, mt#2658), a TTL-bound
- *   mid-session grant that bypasses `MINSKY_HOOK_OVERRIDE` entirely. The RFC
- *   names this class "bypassed at another layer."
+ *   the documented env-var mechanism at all, AND without a TTL-bound,
+ *   reason-mandatory grant either. As of the R1 fix below, the dispatcher's
+ *   grant-file channel (`guard-grant-store.ts`, mt#2658) is classified
+ *   `authorized_exception` directly at the call site — NOT via this
+ *   function's `envVarName === undefined` fallback — because a grant is
+ *   itself TTL-bound and reason-mandatory by construction (see
+ *   `dispatcher.ts`'s `buildOverrideFireLogFields`). `contested` remains
+ *   reserved for a hypothetical override channel that is neither the env
+ *   var nor a grant — the RFC's "bypassed at another layer" framing, now
+ *   scoped to that residual case rather than the grant channel.
  */
 export type OverrideClassification = "authorized_exception" | "unclassified" | "contested";
 
@@ -71,6 +77,17 @@ export interface FireLogEntry {
   /** The env-var name that produced the override, when the outcome was overridden. */
   overrideEnvVar?: string;
   overrideClassification?: OverrideClassification;
+  /**
+   * mt#2597 R1 fix — which `checkOverride()` channel actually decided the
+   * override: the `MINSKY_HOOK_OVERRIDE` env var, or a grant-file match
+   * (`guard-grant-store.ts`, mt#2658). Present whenever `overrideClassification`
+   * is present. See `dispatcher.ts`'s `buildOverrideFireLogFields` for the
+   * deterministic-attribution logic — the discriminator mirrors
+   * `checkOverride()`'s own precedence (env decides first; the grant channel
+   * is only ever consulted, and only ever populates `grantReason`, when the
+   * env var did NOT already decide for this guard).
+   */
+  overrideSource?: "env" | "grant";
   /** Tool context — the tool this guard was invoked for (PreToolUse/PostToolUse only). */
   toolName?: string;
   sessionId?: string;
@@ -157,6 +174,8 @@ export interface RecordFireLogInput {
   durationMs: number;
   overrideEnvVar?: string;
   overrideClassification?: OverrideClassification;
+  /** mt#2597 R1 fix — see {@link FireLogEntry.overrideSource}. */
+  overrideSource?: "env" | "grant";
   toolName?: string;
   sessionId?: string;
 }
@@ -188,6 +207,7 @@ export function recordFireLogEntry(
       ...(input.overrideClassification !== undefined
         ? { overrideClassification: input.overrideClassification }
         : {}),
+      ...(input.overrideSource !== undefined ? { overrideSource: input.overrideSource } : {}),
       ...(input.toolName ? { toolName: input.toolName } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     };

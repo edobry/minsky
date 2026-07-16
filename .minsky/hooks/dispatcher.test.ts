@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   checkOverride,
   buildOverrideAuditLine,
+  buildOverrideFireLogFields,
   calibrationLogPath,
   logCalibrationRecord,
   resolveDispatchContext,
@@ -71,6 +72,10 @@ const PILOT_GUARD_NAME = "check-guessed-session-path";
 /** Shared grant-reason fixture (Phase-7 adjunct, mt#2658) — extracted to satisfy
  * custom/no-magic-string-duplication. */
 const GRANT_REASON = "concurrent decomposition — distinct sibling";
+
+/** mt#2597 R1 — extracted to satisfy custom/no-magic-string-duplication across
+ * the `buildOverrideFireLogFields` test cases below. */
+const AUTHORIZED_EXCEPTION = "authorized_exception";
 
 describe("checkOverride", () => {
   test("no env var set -> not overridden", () => {
@@ -1082,18 +1087,53 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
     expect(spy.records[0]?.decision).toBe("allow");
     expect(spy.records[0]?.overrideEnvVar).toBe(HOOK_OVERRIDE_ENV_VAR);
     expect(spy.records[0]?.overrideClassification).toBe("authorized_exception");
+    expect(spy.records[0]?.overrideSource).toBe("env");
   });
 
   // NOTE: a grant-file-channel override (mt#2658 Phase-7 adjunct — `checkOverride`
-  // consulting the grant store instead of the `MINSKY_HOOK_OVERRIDE` env var)
-  // would fire-log as `overrideEnvVar: undefined` / `overrideClassification:
-  // "contested"` — but `runDispatcher`'s own `checkOverride(reg.name, process.env,
-  // { knownGuardNames, stderrWrite })` call never passes a `scope`, so that
-  // channel is NOT reachable through the dispatcher's public options surface
-  // today (grant-file consultation is a per-guard concern, not a dispatcher-loop
-  // one). The mapping itself (`grantReason present -> overrideEnvVar undefined ->
-  // classifyOverride(undefined) === "contested"`) is unit-tested directly in
+  // consulting the grant store instead of the `MINSKY_HOOK_OVERRIDE` env var) is
+  // NOT reachable through a full `runDispatcher()` call today — that call site
+  // never passes a `scope` to `checkOverride` (grant-file consultation is a
+  // per-guard concern, e.g. `parallel-work-guard.ts`, not a dispatcher-loop one).
+  // The env->grant attribution logic itself (`buildOverrideFireLogFields`,
+  // covering grant-only/env-only/both-channels-present) is unit-tested directly
+  // below, and `classifyOverride`'s own three-way split is covered in
   // fire-log.test.ts's `classifyOverride` suite.
+  describe("buildOverrideFireLogFields (mt#2597 R1 — env/grant attribution)", () => {
+    test("grant-only override (no raw env-var involved at all) -> source=grant, classification=authorized_exception, no overrideEnvVar", () => {
+      const fields = buildOverrideFireLogFields({ overridden: true, grantReason: GRANT_REASON });
+      expect(fields).toEqual({
+        overrideSource: "grant",
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+
+    test("env-only override (no grant involved) -> source=env, overrideEnvVar=MINSKY_HOOK_OVERRIDE, classification=authorized_exception", () => {
+      const fields = buildOverrideFireLogFields({ overridden: true, raw: "pilot" });
+      expect(fields).toEqual({
+        overrideSource: "env",
+        overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+
+    test("both raw and grantReason present (env var set for a DIFFERENT guard/token, this guard's override came from a grant) -> attributes to grant, mirroring checkOverride's own precedence rather than re-deriving it", () => {
+      // checkOverride() only ever returns BOTH `raw` and `grantReason` together
+      // when the grant channel is what decided — the env channel returns early
+      // (before the grant branch runs) whenever IT decides. So "both present"
+      // here means "grant decided while an unrelated env token happened to be
+      // set," not "env decided."
+      const fields = buildOverrideFireLogFields({
+        overridden: true,
+        raw: "some-other-guard",
+        grantReason: GRANT_REASON,
+      });
+      expect(fields).toEqual({
+        overrideSource: "grant",
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+  });
 
   test("multiple matched guards each produce exactly one fire-log record, in registry order", async () => {
     const spy = makeFireLogSpy();
