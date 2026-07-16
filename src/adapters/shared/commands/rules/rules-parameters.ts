@@ -180,11 +180,14 @@ export const rulesUpdateCommandParams = composeParams(
 
 export const rulesCompileCommandParams = {
   target: {
-    schema: z.string(),
+    schema: z.string().optional(),
     description:
-      "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+      "Target file type to compile to (e.g., agents.md, claude.md, cursor-rules). " +
+      "When omitted (bare invocation), compiles every target whose output already " +
+      "exists on disk with the generated banner — a partial regen is never silently " +
+      "reported as success (mt#2803). Falls back to agents.md when none exist yet " +
+      "(fresh repo / init flows).",
     required: false,
-    defaultValue: "agents.md",
   },
   output: {
     schema: z.string().optional(),

@@ -18,10 +18,13 @@ import { runMinskyCompile } from "@minsky/domain/compile/compile";
 
 const compileCommandParams = {
   target: {
-    schema: z.string(),
-    description: 'Compile target to run (e.g. "claude-skills"). Defaults to "claude-skills".',
+    schema: z.string().optional(),
+    description:
+      'Compile target to run (e.g. "claude-skills"). When omitted (bare invocation), ' +
+      "compiles every target whose .minsky/ source dir exists — a partial regen is " +
+      'never silently reported as success (mt#2803). Falls back to "claude-skills" ' +
+      "when no source dir exists yet (fresh repo).",
     required: false,
-    defaultValue: "claude-skills",
   },
   output: {
     schema: z.string().optional(),
@@ -61,9 +64,37 @@ export function registerCompileCommands(targetRegistry: {
           check: params.check,
         });
 
-        // --check mode: throw when stale so CI/hooks detect it.
+        // mt#2803: bare invocation compiled multiple targets — render one
+        // line per target so a partial regen is visible, and aggregate
+        // --check failures across ALL probed targets rather than stopping
+        // at the first.
+        if (result.targets && result.targets.length > 0) {
+          const staleTargets: string[] = [];
+          for (const targetResult of result.targets) {
+            log.cli(
+              `[compile] Target "${targetResult.target}": ` +
+                `${targetResult.filesWritten.length} file(s) written`
+            );
+            if (result.check && targetResult.stale) {
+              const staleFile = targetResult.staleFile ?? "(unknown file)";
+              log.cli(`[compile --check] Target "${targetResult.target}" is STALE`);
+              log.cli(`  Stale file: ${staleFile}`);
+              log.cli(`  Run "minsky compile --target ${targetResult.target}" to regenerate.`);
+              staleTargets.push(targetResult.target);
+            }
+          }
+          if (staleTargets.length > 0) {
+            throw new Error(
+              `compile --check: ${staleTargets.length} target(s) stale: ${staleTargets.join(", ")}`
+            );
+          }
+          return result;
+        }
+
+        // Single-target path (explicit --target, or a bare invocation that
+        // probed to exactly one applicable target) — unchanged behavior.
         if (result.check && result.stale) {
-          const target = params.target ?? "claude-skills";
+          const target = params.target ?? result.target ?? "claude-skills";
           const staleFile = result.staleFile ?? "(unknown file)";
           log.cli(`[compile --check] Target "${target}" is STALE`);
           log.cli(`  Stale file: ${staleFile}`);

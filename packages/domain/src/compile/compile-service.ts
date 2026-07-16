@@ -29,7 +29,25 @@ export interface MinskyCompileServiceResult extends MinskyCompileResult {
   stale?: boolean;
   staleFile?: string;
   check?: boolean;
+  /**
+   * Populated when a bare (no explicit `--target`) invocation of
+   * `runMinskyCompile` probed and compiled MULTIPLE applicable targets
+   * (mt#2803). Each entry mirrors this result shape, scoped to one target.
+   * When present, the top-level fields above carry a cross-target aggregate
+   * (`filesWritten` etc. concatenated, `target` a joined id list) — consumers
+   * that want per-target detail should iterate `targets` instead. Absent for
+   * explicit `--target` invocations and for bare invocations that probe to
+   * exactly one applicable target.
+   */
+  targets?: MinskyCompileTargetOutcome[];
 }
+
+/**
+ * Per-target outcome inside a multi-target `MinskyCompileServiceResult.targets`
+ * array (mt#2803). Mirrors `MinskyCompileServiceResult` minus `targets`
+ * itself, which does not nest.
+ */
+export type MinskyCompileTargetOutcome = Omit<MinskyCompileServiceResult, "targets">;
 
 @injectable()
 export class MinskyCompileService {

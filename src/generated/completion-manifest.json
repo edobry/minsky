@@ -3623,7 +3623,7 @@
           "options": [
             {
               "flags": ["--target"],
-              "description": "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+              "description": "Target file type to compile to (e.g., agents.md, claude.md, cursor-rules). When omitted (bare invocation), compiles every target whose output already exists on disk with the generated banner — a partial regen is never silently reported as success (mt#2803). Falls back to agents.md when none exist yet (fresh repo / init flows).",
               "takesValue": true
             },
             {
@@ -6306,7 +6306,7 @@
       "options": [
         {
           "flags": ["--target"],
-          "description": "Compile target to run (e.g. \"claude-skills\"). Defaults to \"claude-skills\".",
+          "description": "Compile target to run (e.g. \"claude-skills\"). When omitted (bare invocation), compiles every target whose .minsky/ source dir exists (mt#2803) — a partial regen is never silently reported as success. Falls back to \"claude-skills\" when no source dir exists yet (fresh repo).",
           "takesValue": true
         },
         {
