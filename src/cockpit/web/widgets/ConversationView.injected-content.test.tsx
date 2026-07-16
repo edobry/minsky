@@ -48,6 +48,25 @@ function userTextBlock(index: number, text: string): SessionContextSnapshotBlock
   };
 }
 
+/**
+ * A user turn whose message content array carries MULTIPLE separate text
+ * parts (mt#2791) — reproduces the real harness split verified against a
+ * live transcript: a skill invocation's command-wrapper/skill-format
+ * preamble arrives as one content-array text part, and the "Base directory
+ * for this skill:" line + full body as the NEXT part, in the SAME message.
+ */
+function userMultiPartTextBlock(index: number, parts: string[]): SessionContextSnapshotBlock {
+  return {
+    id: `block-${index}`,
+    type: "user-prompt",
+    source: "observed",
+    content: { role: "user", content: parts.map((text) => ({ type: "text", text })) },
+    timestamp: ts(index),
+    turnIndex: index,
+    rawJsonlType: "user",
+  };
+}
+
 function assistantTextBlock(index: number, text: string): SessionContextSnapshotBlock {
   return {
     id: `block-${index}`,
@@ -112,6 +131,34 @@ describe("ConversationView — injected-content collapsing (mt#2791)", () => {
 
     fireEvent.click(screen.getByText("skill body: plan-task"));
     expect(screen.getByText(new RegExp(body))).toBeDefined();
+  });
+
+  test("real-harness split: a skill invocation arriving as TWO content-array text parts merges into ONE 'skill body:' block, no leaked <skill-format> tag (regression for live-verification bug)", () => {
+    // Reproduces the exact structure captured from a live transcript
+    // (agent-a812eb3483b89ec09): part 1 ends right after `</skill-format>`
+    // with NO "Base directory..." in it; part 2 starts with "Base directory
+    // for this skill:" and carries the full body — two SEPARATE entries in
+    // the message's content array, not one concatenated string.
+    const part1 =
+      "<command-message>implement-task</command-message>\n<command-name>implement-task</command-name>\n<skill-format>true</skill-format>";
+    const part2 =
+      "Base directory for this skill: /Users/edobry/Projects/minsky/.claude/skills/implement-task\n\n# Implement Task\n\nStep-by-step implementation lifecycle.";
+    const { container } = renderCV(snapshotWithBlocks([userMultiPartTextBlock(0, [part1, part2])]));
+
+    // Exactly ONE injected block for the whole invocation, correctly
+    // labeled "skill body:" (not split into a separate "command:" block).
+    const toggles = container.querySelectorAll('button[aria-expanded]');
+    expect(toggles).toHaveLength(1);
+    expect(screen.getByText("skill body: implement-task")).toBeDefined();
+    expect(screen.queryByText(/^command: implement-task$/)).toBeNull();
+
+    // No raw wrapper tag leaks into the DOM as literal text at any point.
+    expect(container.textContent).not.toContain("<command-message>");
+    expect(container.textContent).not.toContain("<skill-format>");
+    expect(container.textContent).not.toContain("</skill-format>");
+
+    fireEvent.click(screen.getByText("skill body: implement-task"));
+    expect(screen.getByText(/Step-by-step implementation lifecycle/)).toBeDefined();
   });
 
   test("fixture: <system-reminder> block renders a collapsed muted block", () => {
