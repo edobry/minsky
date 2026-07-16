@@ -94,12 +94,16 @@ export function mountAgentRoutes(app: express.Express): void {
    * independently — only a missing session record is a 404.
    */
   app.get("/api/agents/:id", async (req, res) => {
-    const rawId = req.params.id;
-    if (!rawId) {
+    // Express already URI-decodes route params once — a second
+    // decodeURIComponent() here would corrupt any sessionId containing a
+    // literal `%` and can throw on a malformed escape sequence (mt#2286 R1
+    // review finding; fixed here as the class-not-instance sibling of the
+    // same bug in ./agent-focus.ts).
+    const sessionId = req.params.id;
+    if (!sessionId) {
       res.status(400).json({ error: "Session ID required" });
       return;
     }
-    const sessionId = decodeURIComponent(rawId);
 
     try {
       const provider = await getServerSessionProvider();
@@ -197,12 +201,13 @@ export function mountAgentRoutes(app: express.Express): void {
    * @see mt#2232 — Rung-1 observe→drive ladder
    */
   app.get("/api/agents/:id/live-tail", async (req, res) => {
-    const rawId = req.params.id;
-    if (!rawId) {
+    // See the /api/agents/:id handler above — Express already decodes route
+    // params once; do not decode again (mt#2286 R1 review finding).
+    const workspaceSessionId = req.params.id;
+    if (!workspaceSessionId) {
       res.status(400).json({ error: "Session ID required" });
       return;
     }
-    const workspaceSessionId = decodeURIComponent(rawId);
 
     try {
       // 1. Resolve workspace session → workdir (same pattern as /api/agents/:id)

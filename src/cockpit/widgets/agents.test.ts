@@ -14,6 +14,7 @@ import type {
   SessionListOptions,
 } from "@minsky/domain/session/types";
 import { SessionStatus } from "@minsky/domain/session/types";
+import type { SessionAttachment } from "@minsky/domain/session/index";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -541,5 +542,132 @@ describe("spliceDrivenSessions", () => {
     const agents = (data.payload as { agents: AgentRow[] }).agents;
     expect(agents.length).toBe(1);
     expect(agents[0]?.driven).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attachState wiring (mt#2286) — the 5th `getLiveAttachments` factory param.
+// ---------------------------------------------------------------------------
+
+function makeAttachment(overrides: Partial<SessionAttachment> = {}): SessionAttachment {
+  return {
+    id: overrides.id ?? "att-1",
+    sessionId: overrides.sessionId ?? S1,
+    actorId: overrides.actorId ?? "actor-1",
+    terminalContext: overrides.terminalContext,
+    registeredAt: overrides.registeredAt ?? NOW.toISOString(),
+  };
+}
+
+describe("createAgentsWidget — attachState wiring", () => {
+  test("attachState is null for every row when no getLiveAttachments factory is supplied", async () => {
+    const widget = createAgentsWidget(async () =>
+      makeSessionProvider([makeActiveSession({ sessionId: S1 })])
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBeNull();
+  });
+
+  test("attachState is 'attached-external' when the row's live attachment carries terminalContext", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => [makeAttachment({ sessionId: S1, terminalContext: { TMUX_PANE: "%3" } })]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBe("attached-external");
+  });
+
+  test("attachState is 'in-cockpit' when the row's live attachment has no terminalContext", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => [makeAttachment({ sessionId: S1, terminalContext: {} })]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBe("in-cockpit");
+  });
+
+  test("attachState is 'detached' when no live attachment matches the row's sessionId", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => [makeAttachment({ sessionId: "some-other-session" })]
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents[0]?.attachState).toBe("detached");
+  });
+
+  test("a throwing getLiveAttachments degrades to attachState: null, not a widget error", async () => {
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        throw new Error("presence service unavailable");
+      }
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(agents.length).toBe(1);
+    expect(agents[0]?.attachState).toBeNull();
+  });
+
+  test("batches one attachment lookup across multiple rows and maps each independently", async () => {
+    const calls: number[] = [];
+    const widget = createAgentsWidget(
+      async () =>
+        makeSessionProvider([
+          makeActiveSession({ sessionId: S1 }),
+          makeActiveSession({ sessionId: S2 }),
+          makeActiveSession({ sessionId: S3 }),
+        ]),
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        calls.push(1);
+        return [
+          makeAttachment({
+            id: "a1",
+            sessionId: S1,
+            terminalContext: { TERM_PROGRAM: "iTerm.app" },
+          }),
+          makeAttachment({ id: "a2", sessionId: S2, terminalContext: {} }),
+          // S3 has no attachment at all -> detached
+        ];
+      }
+    );
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+    const agents = (data.payload as { agents: AgentRow[] }).agents;
+    expect(calls.length).toBe(1); // one batch call, not one per row
+
+    const bySessionId = new Map(agents.map((a) => [a.sessionId, a]));
+    expect(bySessionId.get(S1)?.attachState).toBe("attached-external");
+    expect(bySessionId.get(S2)?.attachState).toBe("in-cockpit");
+    expect(bySessionId.get(S3)?.attachState).toBe("detached");
   });
 });
