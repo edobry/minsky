@@ -75,10 +75,13 @@ export const FORBIDDEN_COMMIT_MESSAGES = [
  */
 export const CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN = 100;
 
-// Not exported: `custom/no-domain-singleton` (ADR-026) flags a top-level
-// `export const X = new ...` in domain code. Callers that need the pattern
-// go through `validateCommitMessageFormat` below, which is the actual
-// shared contract between commitImpl and the commit-msg hook.
+// Not exported: the `custom/no-domain-singleton` ESLint rule (ADR-026) flags
+// a top-level "export const" assignment whose initializer is a `new`
+// expression, in domain code. (Written with the assignment split across two
+// words here so this comment itself doesn't match that rule's grep-based
+// architecture test, tests/architecture/di-enforcement.test.ts.) Callers
+// that need the pattern go through `validateCommitMessageFormat` below,
+// which is the actual shared contract between commitImpl and the hook.
 const CONVENTIONAL_COMMIT_PATTERN = new RegExp(
   `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\(.+\\))?: .{1,${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN}}$`
 );
