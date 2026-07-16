@@ -62,10 +62,14 @@ export class CommitMsgHook {
       // Load and parse commit message
       const commitMessage = this.readFileSync(this.commitMsgFile, "utf-8" as BufferEncoding).trim();
 
-      if (!commitMessage) {
-        log.cli("✅ Empty commit message, validation skipped");
-        return { success: true, message: "Empty commit message", errors: [] };
-      }
+      // mt#2821 PR #1976 R1: an empty (or whitespace-only) message is no
+      // longer skipped as a pass-through success — it falls through to the
+      // normal validation path below, where validateCommitFormat's
+      // `!title` check (and the shared validateCommitMessageFormat's own
+      // empty check, for parity with commitImpl's fast-fail path) rejects
+      // it. `git commit --allow-empty-message` is a real escape hatch this
+      // hook exists to catch; silently treating it as "validation skipped"
+      // defeated that purpose.
 
       const { title, body } = this.parseCommitMessage(commitMessage);
 

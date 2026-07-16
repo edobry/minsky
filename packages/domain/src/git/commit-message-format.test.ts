@@ -82,9 +82,14 @@ describe("validateCommitMessageFormat", () => {
     expect(result.valid).toBe(true);
   });
 
-  test("treats an empty/whitespace-only message as valid (not this validator's concern)", () => {
-    expect(validateCommitMessageFormat("").valid).toBe(true);
-    expect(validateCommitMessageFormat("   \n  ").valid).toBe(true);
+  test("rejects an empty or whitespace-only message (mt#2821 PR #1976 R1 — no skip-as-success escape hatch)", () => {
+    const empty = validateCommitMessageFormat("");
+    expect(empty.valid).toBe(false);
+    expect(empty.error).toContain("cannot be empty");
+
+    const whitespaceOnly = validateCommitMessageFormat("   \n  ");
+    expect(whitespaceOnly.valid).toBe(false);
+    expect(whitespaceOnly.error).toContain("cannot be empty");
   });
 
   test("does not reject a message that merely starts with 'Merge ' (branch-specific rule lives in the hook)", () => {

@@ -96,15 +96,19 @@ const CONVENTIONAL_COMMIT_PATTERN = new RegExp(
  * `{ valid: true }` for anything that looks like a merge commit so it never
  * produces a false rejection there.
  *
- * An empty message is intentionally treated as valid (not this validator's
- * concern) — git itself refuses to create a commit with an empty message,
- * and the hook's own empty-message branch is a pass-through skip, not a
- * failure; mirroring that here avoids a confusing double error.
+ * An empty (or whitespace-only) message is REJECTED, not skipped (mt#2821
+ * PR #1976 R1). `git commit` normally refuses an empty message on its own,
+ * but `git commit --allow-empty-message` is a real, if rare, escape hatch —
+ * and the whole point of a commit-msg validator is to be the backstop for
+ * exactly that kind of deliberate bypass. No Minsky-issued commit path
+ * relies on an empty message (the webhook-wake `--allow-empty` flow in
+ * `commitImpl` is about EMPTY FILE CHANGES, a different git flag, and always
+ * supplies a real message), so rejecting here has no legitimate-flow cost.
  */
 export function validateCommitMessageFormat(fullMessage: string): CommitMessageFormatResult {
   const trimmed = fullMessage.trim();
   if (!trimmed) {
-    return { valid: true };
+    return { valid: false, error: "Commit message cannot be empty" };
   }
 
   const title = trimmed.split("\n")[0]?.trim() ?? "";

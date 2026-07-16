@@ -66,12 +66,15 @@ describe("CommitMsgHook", () => {
       expect(result.message).toBe("All validations passed");
     });
 
-    it("should handle empty commit messages gracefully", async () => {
+    it("rejects an empty commit message instead of skipping validation (mt#2821 PR #1976 R1)", async () => {
+      // Previously this short-circuited to a pass-through success — an
+      // escape hatch for `git commit --allow-empty-message`. The whole
+      // point of a commit-msg validator is to be the backstop for exactly
+      // that kind of deliberate bypass.
       const result = await testCommit("");
 
-      expect(result.success).toBe(true);
-      expect(result.message).toBe("Empty commit message");
-      expect(result.errors).toEqual([]);
+      expect(result.success).toBe(false);
+      expect(result.errors[0]).toContain("cannot be empty");
     });
 
     it("should parse commit messages correctly", async () => {
@@ -243,11 +246,11 @@ describe("CommitMsgHook", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should handle commit messages with only whitespace", async () => {
+    it("rejects a whitespace-only commit message (mt#2821 PR #1976 R1)", async () => {
       const result = await testCommit("   \n\n  \t  ");
 
-      expect(result.success).toBe(true);
-      expect(result.message).toBe("Empty commit message");
+      expect(result.success).toBe(false);
+      expect(result.errors[0]).toContain("cannot be empty");
     });
 
     it("should handle very long commit messages", async () => {

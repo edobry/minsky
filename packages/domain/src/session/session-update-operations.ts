@@ -22,6 +22,8 @@ import {
 import {
   installDependencies as defaultInstallDependencies,
   installNestedDependencies as defaultInstallNestedDependencies,
+  detectPackageManager as defaultDetectPackageManager,
+  getInstallCommand,
 } from "../utils/package-manager";
 
 export interface UpdateSessionDependencies {
@@ -38,11 +40,22 @@ export interface UpdateSessionDependencies {
 export interface DependencyInstallDeps {
   installDependencies: typeof defaultInstallDependencies;
   installNestedDependencies: typeof defaultInstallNestedDependencies;
+  /**
+   * mt#2821 PR #1976 R1: `installDependencies` auto-detects the package
+   * manager (bun/npm/yarn/pnpm) from lockfiles — it is NOT always bun. This
+   * is injected (and called up front) so the user-facing log messages name
+   * the ACTUAL detected manager's install command, and so the same
+   * detection result is passed explicitly into `installDependencies`
+   * (avoiding any chance of the logged command drifting from the one that
+   * actually ran).
+   */
+  detectPackageManager: typeof defaultDetectPackageManager;
 }
 
 const defaultDependencyInstallDeps: DependencyInstallDeps = {
   installDependencies: defaultInstallDependencies,
   installNestedDependencies: defaultInstallNestedDependencies,
+  detectPackageManager: defaultDetectPackageManager,
 };
 
 export interface DependencyRefreshResult {
@@ -50,7 +63,7 @@ export interface DependencyRefreshResult {
   checked: boolean;
   /** Whether a dependency-manifest file (bun.lock or any package.json) changed in the range. */
   changed: boolean;
-  /** Whether `bun install` (root) completed successfully. */
+  /** Whether the root dependency install (whichever package manager was detected) completed successfully. */
   installed: boolean;
   /** Present when the root install was attempted and failed. */
   installError?: string;
@@ -141,23 +154,36 @@ export async function refreshDependenciesIfLockfileChanged(
     return { checked: true, changed: false, installed: false };
   }
 
+  // Detect the ACTUAL package manager once, up front, and pass it explicitly
+  // into installDependencies below — this is both what drives the
+  // user-facing message (so it never claims `bun install` ran when the
+  // project actually uses npm/yarn/pnpm) and what the install call itself
+  // uses, so logged and executed commands can never diverge.
+  const detectedManager = installDeps.detectPackageManager(workdir);
+  const installCommandLabel = detectedManager
+    ? `\`${getInstallCommand(detectedManager)}\``
+    : "the project's dependency-install command";
+
   log.cli(
-    "📦 Dependency lockfile/manifest changed in the pulled range — running `bun install` " +
+    `📦 Dependency lockfile/manifest changed in the pulled range — running ${installCommandLabel} ` +
       "to keep node_modules in sync..."
   );
 
-  const { success, error } = await installDeps.installDependencies(workdir, { quiet: false });
+  const { success, error } = await installDeps.installDependencies(workdir, {
+    quiet: false,
+    packageManager: detectedManager,
+  });
   if (!success) {
     log.cli(
-      "⚠️  `bun install` failed after a dependency-lockfile change was pulled in. " +
+      `⚠️  ${installCommandLabel} failed after a dependency-lockfile change was pulled in. ` +
         "node_modules may be stale — module resolution can fail on the next session_exec " +
-        `call. Run \`bun install\` manually in the session workspace before continuing.\n` +
+        `call. Run ${installCommandLabel} manually in the session workspace before continuing.\n` +
         `   Error: ${error}`
     );
     return { checked: true, changed: true, installed: false, installError: error };
   }
 
-  log.cli("✅ Dependencies refreshed (`bun install` completed).");
+  log.cli(`✅ Dependencies refreshed (${installCommandLabel} completed).`);
 
   const nestedSummary = await installDeps.installNestedDependencies(workdir, { quiet: false });
   const nestedFailedPaths = nestedSummary.results.filter((r) => !r.success).map((r) => r.path);

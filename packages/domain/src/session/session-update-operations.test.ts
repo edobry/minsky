@@ -8,12 +8,13 @@
  * install" gap (conversation c01f89af) without requiring a live git repo or
  * a real package-manager install.
  */
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, test, mock, spyOn } from "bun:test";
 import {
   refreshDependenciesIfLockfileChanged,
   type DependencyInstallDeps,
 } from "./session-update-operations";
 import type { GitServiceInterface } from "../git";
+import { log } from "@minsky/shared/logger";
 
 const WORKDIR = "/tmp/session-workdir";
 const PRE_SHA = "aaaaaaa1111111111111111111111111111111";
@@ -49,7 +50,12 @@ function makeInstallDeps(opts: {
   installSuccess?: boolean;
   installError?: string;
   nestedResults?: Array<{ path: string; success: boolean; error?: string }>;
-}): { deps: DependencyInstallDeps; installDependencies: ReturnType<typeof mock> } {
+  detectedManager?: "bun" | "npm" | "yarn" | "pnpm" | undefined;
+}): {
+  deps: DependencyInstallDeps;
+  installDependencies: ReturnType<typeof mock>;
+  detectPackageManager: ReturnType<typeof mock>;
+} {
   const installDependencies = mock(async (_repoPath: string, _options?: unknown) => {
     if (opts.installSuccess === false) {
       return { success: false, error: opts.installError ?? "install failed" };
@@ -67,9 +73,16 @@ function makeInstallDeps(opts: {
     };
   });
 
+  const detectPackageManager = mock((_repoPath: string) => opts.detectedManager ?? "bun");
+
   return {
-    deps: { installDependencies, installNestedDependencies } as unknown as DependencyInstallDeps,
+    deps: {
+      installDependencies,
+      installNestedDependencies,
+      detectPackageManager,
+    } as unknown as DependencyInstallDeps,
     installDependencies,
+    detectPackageManager,
   };
 }
 
@@ -117,7 +130,85 @@ describe("refreshDependenciesIfLockfileChanged", () => {
     expect(result.changed).toBe(true);
     expect(result.installed).toBe(true);
     expect(installDependencies).toHaveBeenCalledTimes(1);
-    expect(installDependencies).toHaveBeenCalledWith(WORKDIR, { quiet: false });
+    expect(installDependencies).toHaveBeenCalledWith(WORKDIR, {
+      quiet: false,
+      packageManager: "bun",
+    });
+  });
+
+  describe("package-manager-agnostic messaging (mt#2821 PR #1976 R1)", () => {
+    test("detects the package manager once and threads it into installDependencies (npm project)", async () => {
+      const gitService = makeGitService({ diffFiles: ["bun.lock"] });
+      const { deps, installDependencies, detectPackageManager } = makeInstallDeps({
+        detectedManager: "npm",
+      });
+
+      await refreshDependenciesIfLockfileChanged(WORKDIR, gitService, PRE_SHA, deps);
+
+      expect(detectPackageManager).toHaveBeenCalledWith(WORKDIR);
+      expect(installDependencies).toHaveBeenCalledWith(WORKDIR, {
+        quiet: false,
+        packageManager: "npm",
+      });
+    });
+
+    test("logs the DETECTED manager's install command, not a hardcoded 'bun install' (npm project)", async () => {
+      const cliSpy = spyOn(log, "cli").mockImplementation(() => {});
+      try {
+        const gitService = makeGitService({ diffFiles: ["bun.lock"] });
+        const { deps } = makeInstallDeps({ detectedManager: "npm" });
+
+        await refreshDependenciesIfLockfileChanged(WORKDIR, gitService, PRE_SHA, deps);
+
+        const loggedText = cliSpy.mock.calls.map((call) => String(call[0])).join("\n");
+        expect(loggedText).toContain("npm install");
+        expect(loggedText).not.toContain("bun install");
+      } finally {
+        cliSpy.mockRestore();
+      }
+    });
+
+    test("logs a generic label when no package manager could be detected", async () => {
+      const cliSpy = spyOn(log, "cli").mockImplementation(() => {});
+      try {
+        const gitService = makeGitService({ diffFiles: ["bun.lock"] });
+        const { deps: baseDeps } = makeInstallDeps({});
+        const undetected = mock(() => undefined);
+        const deps: DependencyInstallDeps = {
+          ...baseDeps,
+          detectPackageManager:
+            undetected as unknown as DependencyInstallDeps["detectPackageManager"],
+        };
+
+        await refreshDependenciesIfLockfileChanged(WORKDIR, gitService, PRE_SHA, deps);
+
+        const loggedText = cliSpy.mock.calls.map((call) => String(call[0])).join("\n");
+        expect(loggedText).not.toContain("bun install");
+        expect(loggedText.toLowerCase()).toContain("install");
+      } finally {
+        cliSpy.mockRestore();
+      }
+    });
+
+    test("the install-failure notice also names the detected manager (npm project)", async () => {
+      const cliSpy = spyOn(log, "cli").mockImplementation(() => {});
+      try {
+        const gitService = makeGitService({ diffFiles: ["bun.lock"] });
+        const { deps } = makeInstallDeps({
+          detectedManager: "npm",
+          installSuccess: false,
+          installError: "network error",
+        });
+
+        await refreshDependenciesIfLockfileChanged(WORKDIR, gitService, PRE_SHA, deps);
+
+        const loggedText = cliSpy.mock.calls.map((call) => String(call[0])).join("\n");
+        expect(loggedText).toContain("npm install");
+        expect(loggedText).not.toContain("bun install");
+      } finally {
+        cliSpy.mockRestore();
+      }
+    });
   });
 
   test("a nested package.json change (not just root) also triggers install", async () => {
@@ -168,6 +259,9 @@ describe("refreshDependenciesIfLockfileChanged", () => {
         failingInstallDependencies as unknown as DependencyInstallDeps["installDependencies"],
       installNestedDependencies:
         installNestedDependencies as unknown as DependencyInstallDeps["installNestedDependencies"],
+      detectPackageManager: mock(
+        () => "bun"
+      ) as unknown as DependencyInstallDeps["detectPackageManager"],
     };
 
     await refreshDependenciesIfLockfileChanged(WORKDIR, gitService, PRE_SHA, deps);
