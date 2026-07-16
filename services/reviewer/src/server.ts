@@ -34,6 +34,7 @@ import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-sta
 import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
+import { recoverPendingReviews, loadBootRecoveryConfig } from "./boot-recovery";
 import { bootDomainContainer, type DomainServices } from "./domain-container";
 import {
   recordWebhookReceipt,
@@ -105,6 +106,19 @@ const RESOLVE_COMMAND_RE = /^\s*\/resolve\s*$/;
 
 /** Author associations that are allowed to trigger /review. */
 const ALLOWED_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
+
+/**
+ * Default SIGTERM drain window (mt#2799 Layer 1).
+ *
+ * Deliberately kept BELOW the Railway `drainingSeconds` configured in
+ * services/reviewer/railway.json's `deploy` block (and the redundant
+ * `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` service variable in infra/index.ts —
+ * see that file's comment for why both exist) so the process voluntarily
+ * exits before Railway's SIGKILL fires. 280s leaves a 20s margin below the
+ * 300s Railway setting; both cover a typical review's ~60-90s latency with
+ * ample headroom. Configurable via REVIEWER_DRAIN_TIMEOUT_MS.
+ */
+const DEFAULT_DRAIN_TIMEOUT_MS = 280_000;
 
 /**
  * Type guard: payload is a closed+merged PR event.
@@ -179,6 +193,17 @@ export function createApp(
 
   /** Module-scope set of in-flight review promises within this app instance. */
   const inflight: Set<Promise<unknown>> = new Set();
+
+  /**
+   * Set true once gracefulShutdown has been invoked (mt#2799 Layer 1 drain
+   * gate). Gates the /webhook route: new work is rejected with 503 while
+   * draining, so GitHub's automatic redelivery (or Railway's overlap
+   * routing to the newly-active deployment) picks it up instead of racing
+   * a process that is about to exit. In-flight reviews already tracked in
+   * `inflight` are unaffected — they continue to completion (bounded by the
+   * drain window in gracefulShutdown below).
+   */
+  let draining = false;
 
   async function updateStatusCommentSafe(
     owner: string,
@@ -1203,6 +1228,15 @@ export function createApp(
       }
 
       if (request.method === "POST" && url.pathname === "/webhook") {
+        // mt#2799 Layer 1: reject new work once draining has started. Return
+        // 503 (not a hard connection close) so GitHub's delivery-retry logic
+        // treats this as a transient failure and redelivers — the newly
+        // active deployment (up during Railway's overlap window) picks it up.
+        if (draining) {
+          log.info("webhook_rejected_draining", { event: "webhook_rejected_draining" });
+          return new Response("service draining", { status: 503 });
+        }
+
         const signature = request.headers.get("x-hub-signature-256");
         // R2 BLOCKING fix: previously fell back to the literal "unknown".
         // Combined with DO NOTHING upsert semantics, that collapsed every
@@ -1244,8 +1278,16 @@ export function createApp(
           signature_present: Boolean(signature),
         });
 
-        // Persist webhook receipt for forensic investigation (mt#1372).
-        // Fire-and-forget: recordWebhookReceipt swallows errors internally.
+        // Persist webhook receipt for forensic investigation (mt#1372) AND,
+        // as of mt#2799, as the durable row boot-time recovery reads to
+        // resume a review interrupted by a redeploy. AWAITED (not
+        // fire-and-forget) so the row is guaranteed to exist BEFORE the 200
+        // ACK returns below (mt#2799 SC#3) — a process killed in the window
+        // between "GitHub got its 200" and "the async insert lands" would
+        // otherwise lose the row boot recovery depends on.
+        // recordWebhookReceipt swallows its own errors internally (never
+        // throws), so awaiting it cannot turn a persistence failure into a
+        // webhook-handling failure.
         //
         // R1 BLOCKING #3 fix: persist EVERY webhook the reviewer receives,
         // not just those with x-github-event header. Webhooks with missing
@@ -1253,7 +1295,7 @@ export function createApp(
         // (misconfigured senders, GitHub API changes, malicious probes).
         // Use "unknown" sentinel when eventName is null.
         if (db !== undefined) {
-          void recordWebhookReceipt(
+          await recordWebhookReceipt(
             db,
             deliveryId,
             eventName ?? "unknown",
@@ -1325,27 +1367,46 @@ export function createApp(
   });
 
   /**
-   * Graceful shutdown for this server instance.
+   * Graceful shutdown for this server instance (mt#2799 Layer 1 drain).
    *
-   * 1. Logs drain start with current inflight count.
-   * 2. Stops accepting new connections.
-   * 3. Waits for all in-flight reviews to settle (max 25s).
-   * 4. Logs drain complete and sets exitCode = 0.
+   * 1. Sets `draining = true` (synchronously, before any await) so the
+   *    /webhook route starts rejecting new work with 503 immediately.
+   * 2. Logs drain start with current inflight count.
+   * 3. Waits for all in-flight reviews to settle, bounded by
+   *    REVIEWER_DRAIN_TIMEOUT_MS (default 280s — see DEFAULT_DRAIN_TIMEOUT_MS).
+   * 4. Stops accepting connections (the HTTP server itself) now that the
+   *    drain window has elapsed or all work settled — kept open THROUGH the
+   *    drain window (unlike the pre-mt#2799 behavior of stopping it
+   *    immediately) so /health stays reachable while this deployment winds
+   *    down during Railway's overlap window.
+   * 5. Logs drain complete — including the remaining inflight count and
+   *    whether the drain window was exhausted — and sets exitCode = 0.
    */
   async function gracefulShutdown(): Promise<void> {
+    draining = true;
+
     log.info("shutdown_drain_start", {
       event: "shutdown_drain_start",
       inflightCount: inflight.size,
     });
 
-    server.stop(true);
+    const drainTimeoutMs = parsePositiveIntEnv(
+      "REVIEWER_DRAIN_TIMEOUT_MS",
+      DEFAULT_DRAIN_TIMEOUT_MS
+    );
 
-    const drain = Promise.allSettled(Array.from(inflight));
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 25_000));
-    await Promise.race([drain, timeout]);
+    const drain = Promise.allSettled(Array.from(inflight)).then(() => "drained" as const);
+    const timeout = new Promise<"timed_out">((resolve) =>
+      setTimeout(() => resolve("timed_out"), drainTimeoutMs)
+    );
+    const outcome = await Promise.race([drain, timeout]);
+
+    server.stop(true);
 
     log.info("shutdown_drain_complete", {
       event: "shutdown_drain_complete",
+      remainingInflightCount: inflight.size,
+      timedOut: outcome === "timed_out",
     });
 
     process.exitCode = 0;
@@ -1435,10 +1496,34 @@ if (import.meta.main) {
     domainServicesEnabled: Boolean(domainServices),
   });
 
+  // Boot-time recovery (mt#2799 Layer 2): re-dispatch any pull_request
+  // review interrupted by the PREVIOUS process's restart before it reached
+  // a terminal outcome. Called here — after migrations and the
+  // bootDomainContainer() attempt have both resolved, and the HTTP server
+  // is already listening — so recovered reviews get the same domain
+  // services (task-spec fetch, tier resolution) a live webhook would.
+  // Dispatch is synchronous with respect to this call (the reviews
+  // themselves run detached), satisfying mt#2799 AT#3's "dispatches within
+  // 30s of boot." See boot-recovery.ts for the full design.
+  void recoverPendingReviews(db, config, loadBootRecoveryConfig(), runReview, {
+    ...(domainServices
+      ? {
+          taskService: domainServices.taskService,
+          persistenceProvider: domainServices.persistenceProvider,
+        }
+      : {}),
+  }).catch((err: unknown) => {
+    log.error("boot_recovery.unhandled_error", {
+      event: "boot_recovery.unhandled_error",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
   // Register graceful shutdown handlers for SIGTERM, SIGINT, SIGHUP.
   // On signal: emit shutdown_signal log line (mt#1966 SC#3) so future
   // restart-cause investigations can see WHICH signal triggered the shutdown,
-  // then stop accepting new connections, drain in-flight reviews (max 25s), then exit.
+  // then stop accepting new connections, drain in-flight reviews (bounded by
+  // REVIEWER_DRAIN_TIMEOUT_MS, default 280s — mt#2799), then exit.
   //
   // The shutdown_signal log line was the load-bearing observability gap during
   // mt#1963 — the 2026-05-20 restart window showed no signal in retained logs,
