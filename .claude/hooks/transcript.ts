@@ -44,6 +44,15 @@ export interface TranscriptLine {
   name?: string;
   tool_name?: string;
   input?: Record<string, unknown>;
+  /**
+   * ISO-8601 wall-clock timestamp Claude Code stamps on every transcript
+   * line (user/assistant/tool_result alike). Optional here because not
+   * every caller-constructed synthetic TranscriptLine in tests sets it, but
+   * real on-disk transcripts always carry it. Added for mt#2824 (silent-
+   * stretch detector) — the first consumer that needs wall-clock gap
+   * measurement rather than just line-order/content.
+   */
+  timestamp?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,34 +164,79 @@ function isUserRole(line: TranscriptLine): boolean {
 }
 
 /**
+ * Claude Code-synthesized markers recorded with `role: "user"` and a single
+ * `{ type: "text" }` content block that are NOT actual human input — they
+ * mark a harness-internal event (the user cancelled an in-flight tool call).
+ * Excluded from {@link isRealUserPrompt} so they don't spuriously reset a
+ * turn boundary at the exact instant of interruption.
+ *
+ * Discovered (mt#2824) while replaying the two originating silent-stretch
+ * incident transcripts: in both, this exact marker landed ~20ms before the
+ * operator's actual complaint message. Naively treating it as a real prompt
+ * boundary collapsed the measured "turn" down to those 20ms — hiding the
+ * real ~24/28-minute silent stretch that precedes it, which is exactly the
+ * signal the silent-stretch detector needs to see. Confirmed exhaustive
+ * (only two literal variants found) via a corpus scan across ~300 local
+ * transcript files.
+ */
+const SYNTHETIC_INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
+  "[Request interrupted by user for tool use]",
+  "[Request interrupted by user]",
+]);
+
+/**
+ * True iff `trimmedText` is exactly one of {@link SYNTHETIC_INTERRUPT_MARKERS}.
+ * Shared by BOTH content shapes `isRealUserPrompt` checks (string content and
+ * array-of-text-blocks content) — PR #1963 R2 finding: the original fix only
+ * covered the array-content-block shape (the shape actually observed in the
+ * two originating transcripts) and asserted, without defensive justification,
+ * that the string shape "needs no exclusion check" because the marker hadn't
+ * been OBSERVED there. That the array shape's exact form was itself a
+ * surprise (Claude Code's transcript format is not a schema this repo
+ * controls or can assume is stable) means "not yet observed in one shape" is
+ * not evidence the OTHER shape is safe — both shapes get the same check.
+ */
+function isSyntheticInterruptText(trimmedText: string): boolean {
+  return SYNTHETIC_INTERRUPT_MARKERS.has(trimmedText);
+}
+
+function isRealTextBlock(block: unknown): boolean {
+  if (!block || typeof block !== "object") return false;
+  const b = block as Record<string, unknown>;
+  if (b["type"] !== "text") return false;
+  const text = typeof b["text"] === "string" ? b["text"].trim() : undefined;
+  if (text !== undefined && isSyntheticInterruptText(text)) return false;
+  return true;
+}
+
+/**
  * True iff `line` is a REAL user prompt (text from the human), as opposed to a
- * `tool_result` line that Claude Code also records with user role.
+ * `tool_result` line that Claude Code also records with user role, or a
+ * {@link SYNTHETIC_INTERRUPT_MARKERS} harness-internal marker.
  *
  * A real prompt carries text content:
- *   - `message.content` is a STRING (always — even empty/whitespace; a
- *     string-content user line is never a `tool_result`, which is always an
- *     array, so it is a genuine human boundary), OR
+ *   - `message.content` is a STRING that is not itself (once trimmed) a
+ *     synthetic interrupt marker — even empty/whitespace otherwise still
+ *     counts as real (a string-content user line is never a `tool_result`,
+ *     which is always an array, so an ordinary string is a genuine human
+ *     boundary — review NON-BLOCKING, mt#2255), OR
  *   - `message.content` is an array containing at least one `{ type: "text" }`
- *     block.
+ *     block whose text is not a synthetic interrupt marker.
  *
  * A tool_result line is a user-role content array whose blocks are all
- * `tool_result` (no `text` block) — it returns false here.
+ * `tool_result` (no `text` block) — it returns false here. A
+ * synthetic-interrupt-marker-only line is likewise excluded, in EITHER
+ * content shape (PR #1963 R2 — both shapes must be covered, not just the
+ * array-content-block shape actually observed in the wild).
  */
 export function isRealUserPrompt(line: TranscriptLine): boolean {
   if (!isUserRole(line)) return false;
   const content = line.message?.content;
-  // String content is always a real prompt: tool_result lines are always
-  // content ARRAYS, so a string-content user line is unambiguously human input
-  // (an empty/whitespace prompt still resets the turn boundary, matching the
-  // prior user-role-split behavior — review NON-BLOCKING, mt#2255).
-  if (typeof content === "string") return true;
+  if (typeof content === "string") {
+    return !isSyntheticInterruptText(content.trim());
+  }
   if (Array.isArray(content)) {
-    return content.some(
-      (block) =>
-        !!block &&
-        typeof block === "object" &&
-        (block as Record<string, unknown>)["type"] === "text"
-    );
+    return content.some(isRealTextBlock);
   }
   return false;
 }
@@ -190,6 +244,27 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
 // ---------------------------------------------------------------------------
 // Turn extraction
 // ---------------------------------------------------------------------------
+
+/**
+ * Return the transcript-line index of every REAL user prompt, in order.
+ *
+ * Factored out of {@link extractLastAssistantTurn} (mt#2824) so callers that
+ * need the boundary LINES themselves — not just the turn slice between them
+ * — can locate them without re-implementing the real-prompt scan. The
+ * silent-stretch detector is the first such consumer: it needs the previous
+ * and current prompts' `timestamp` fields to measure wall-clock silence,
+ * which `extractLastAssistantTurn`'s turn-slice return value (exclusive of
+ * both boundary lines) does not expose.
+ */
+export function findRealPromptIndices(lines: TranscriptLine[]): number[] {
+  const promptIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (isRealUserPrompt(line)) promptIndices.push(i);
+  }
+  return promptIndices;
+}
 
 /**
  * Extract the just-completed logical turn: every line between the
@@ -205,12 +280,7 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
  * session, or no prior assistant turn).
  */
 export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  const promptIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (isRealUserPrompt(line)) promptIndices.push(i);
-  }
+  const promptIndices = findRealPromptIndices(lines);
 
   if (promptIndices.length < 2) return [];
 
