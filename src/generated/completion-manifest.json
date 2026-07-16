@@ -507,6 +507,10 @@
               "flags": ["--branch"],
               "description": "Branch to pull (default: main)",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -523,6 +527,10 @@
               "flags": ["--session"],
               "description": "Session identifier",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -549,6 +557,10 @@
               "flags": ["--paths"],
               "description": "Optional list of paths to stash selectively",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -570,6 +582,10 @@
               "flags": ["--ref"],
               "description": "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent.",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -624,6 +640,10 @@
               "flags": ["--session"],
               "description": "Session identifier",
               "takesValue": true
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -651,6 +671,10 @@
               "description": "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
               "takesValue": true,
               "values": ["true"]
+            },
+            {
+              "flags": ["--repair-lock"],
+              "description": "When true, a blocked `.git/index.lock` is auto-repaired (removed ONLY when provably stale: no live owning process AND age above the staleness threshold) and the operation retried once. When false/omitted, a lock-blocked error is enriched with diagnostics (age, owning-process liveness) instead of the raw git fatal — use `git.repair_lock` to inspect or repair independently."
             }
           ]
         },
@@ -695,6 +719,65 @@
             {
               "flags": ["--limit"],
               "description": "Cap the number of files returned, sorted by total churn (insertions + deletions) descending",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "repair_lock",
+          "description": "Inspect (and, with confirm: true, repair) a .git/index.lock. Reports age, size, and owning-process liveness. Only removes the lock when provably stale (no live process AND age above the staleness threshold) — a lock held by a live process is reported busy and never removed.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--confirm"],
+              "description": "Set to true to attempt removal. The lock is ONLY removed when provably stale (no live owning process AND age above the staleness threshold); otherwise the call throws describing why (busy, or ambiguous — present but not yet stale-eligible). Omit to just inspect the lock's diagnostic without mutating anything.",
+              "takesValue": true,
+              "values": ["true"]
+            }
+          ]
+        },
+        {
+          "name": "repair_refs",
+          "description": "Identify a corrupt/stale remote-tracking ref (e.g. `fatal: bad object refs/remotes/origin/...`). Without `ref`, scans all refs under refPrefix (read-only). With `ref` + confirm: true, deletes the confirmed-bad ref (`git update-ref -d`) and re-fetches — refuses to delete a ref that turns out to be healthy.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--ref"],
+              "description": "Specific ref to check/repair (e.g. refs/remotes/origin/task/mt-2304). Omit to scan all refs under refPrefix (read-only scan, no repair possible without a specific ref).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--ref-prefix"],
+              "description": "Ref prefix to scan when `ref` is omitted (default refs/remotes/origin).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--confirm"],
+              "description": "Set to true, together with `ref`, to delete the confirmed-bad ref and re-fetch. Refuses (throws) if the ref turns out to be healthy — never deletes a ref that isn't actually corrupt.",
+              "takesValue": true,
+              "values": ["true"]
+            },
+            {
+              "flags": ["--remote"],
+              "description": "Remote to re-fetch from after deleting the bad ref (default origin).",
               "takesValue": true
             }
           ]
