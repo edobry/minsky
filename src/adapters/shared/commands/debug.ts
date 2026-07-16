@@ -11,6 +11,7 @@ import { sharedCommandRegistry, CommandCategory, defineCommand } from "../comman
 import { log } from "@minsky/shared/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
+import { GuardHealthTracker } from "../../../mcp/guard-health-tracker";
 import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
 import { getSourceFreshness } from "../../../mcp/source-freshness";
 
@@ -227,6 +228,36 @@ export function registerDebugCommands(): void {
             ...dispatchCadence,
             escalation: dispatchEscalation,
           },
+          /**
+           * Guard-health cadence (mt#2812).
+           *
+           * Reads the guard-health JSONL log
+           * (~/.local/state/minsky/guard-health-log.jsonl), written by
+           * .minsky/hooks/dispatcher.ts's guard-loop catch block (automatic,
+           * for every ADR-028-migrated guard) and by standalone hooks that
+           * call the shared recordGuardError/recordGuardCheckSkip helper
+           * (.minsky/hooks/guard-health.ts) directly.
+           *
+           * `byGuard[name]` — per-guard error counts (24h/7d), consecutive-
+           * failure streak, and that guard's own escalation tier.
+           * `criticalGuards` / `attentionGuards` — guard names currently at
+           * each tier (disjoint sets).
+           *
+           * `escalation` field values (thresholds grounded in the mt#2812
+           * spec's explicit calibration + decision-defaults.mdc's 24h
+           * burst-detection window):
+           *   "none"      = no guard has 2+ consecutive errors/check-skips
+           *   "attention" = at least one guard has 2+ consecutive failures
+           *   "critical"  = at least one guard has 3+ consecutive failures —
+           *                 "a gate that errors on 3+ consecutive fires is
+           *                 already pathological per this week's data"
+           *
+           * When escalation is "critical", the guard-health-escalation-
+           * detector UserPromptSubmit guard (.minsky/hooks/
+           * guard-health-escalation-detector.ts) also injects an operator/
+           * agent-facing warning naming the dead gate(s) every turn.
+           */
+          guardHealth: GuardHealthTracker.getInstance().getSummary(),
           /**
            * Asks count-by-state (mt#2265).
            *
