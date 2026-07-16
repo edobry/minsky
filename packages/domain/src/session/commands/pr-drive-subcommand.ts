@@ -38,6 +38,7 @@ import type { ChecksResult } from "../../repository/index";
 import {
   sessionPrWaitForReview,
   type AnnotatedReview,
+  type ReviewerCheckRunState,
   type SessionPrWaitForReviewDependencies,
   type TrimmedReview,
 } from "./pr-wait-for-review-subcommand";
@@ -142,12 +143,23 @@ export interface SessionPrDriveChecksBlocked extends SessionPrDriveResultBase {
   checks: SessionPrDriveChecksPayload;
 }
 
-/** No matching review appeared within the review-wait timeout. */
+/**
+ * No matching review appeared within the review-wait timeout.
+ *
+ * `finalCheckPerformed` / `reviewerCheckRunState` (mt#2777 SC#1, PR #1958 R1
+ * adoption-sweep fix): propagated straight through from
+ * `SessionPrWaitForReviewTimeout` — see that type's doc comments for the
+ * full contract. Without this, a caller driving convergence via
+ * `session.pr.drive` would silently lose the final-authoritative-check
+ * signal that `session.pr.wait-for-review` callers already get.
+ */
 export interface SessionPrDriveReviewTimeout extends SessionPrDriveResultBase {
   state: "REVIEW_TIMEOUT";
   pollCount: number;
   sinceUsed: string;
   lastSeenReviews: AnnotatedReview[];
+  finalCheckPerformed: boolean;
+  reviewerCheckRunState: ReviewerCheckRunState | null;
 }
 
 export type SessionPrDriveResult =
@@ -193,6 +205,8 @@ export async function sessionPrDrive(
         pollCount: waitResult.pollCount,
         sinceUsed: waitResult.sinceUsed,
         lastSeenReviews: waitResult.lastSeenReviews,
+        finalCheckPerformed: waitResult.finalCheckPerformed,
+        reviewerCheckRunState: waitResult.reviewerCheckRunState,
       };
     }
 

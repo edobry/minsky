@@ -506,14 +506,22 @@ async function defaultGetTokenProvider(): Promise<TokenProvider> {
 }
 
 /**
- * Bound the mt#2777 SC#1 final-authoritative-check I/O (a fresh
- * `listReviews` re-read + a `ci.getChecksForPR` fetch) so a stalled call at
- * the very end of a wait cannot hang past a short, fixed budget. This is
- * independent of — and deliberately much smaller than — the caller's own
- * configured `timeoutSeconds`, since the final check runs AFTER that budget
- * has already elapsed.
+ * Bound the mt#2777 SC#1 final-authoritative-check I/O (a `getHeadSha`
+ * refresh + a fresh `listReviews` re-read + a `ci.getChecksForPR` fetch) so
+ * a stalled call at the very end of a wait cannot hang past a short, fixed
+ * budget. This is independent of — and deliberately much smaller than — the
+ * caller's own configured `timeoutSeconds`, since the final check runs
+ * AFTER that budget has already elapsed.
+ *
+ * This is a TOTAL budget for the whole final-check sequence, not a per-call
+ * cap (PR #1958 R1 BLOCKING finding: applying this value to each of the
+ * three sequential calls independently let the aggregate stack to 20-30s+
+ * past the caller's timeout). `finalizeTimeout()` computes ONE deadline
+ * timestamp from this constant and threads the shrinking remaining budget
+ * (`Math.max(0, deadline - now())`) through each subsequent call — the same
+ * pattern the main poll loop already uses for `ioDeadlineMs`.
  */
-const FINAL_CHECK_DEADLINE_MS = 10_000;
+export const FINAL_CHECK_DEADLINE_MS = 10_000;
 
 /**
  * Resolve the reviewer findings check-run name the same way
@@ -546,17 +554,25 @@ async function resolveReviewerCheckRunName(): Promise<string> {
  * "this signal is unavailable," not as "no check run exists" — the positive
  * absence claim is `{ status: "absent" }`.
  *
+ * `deadlineMs` (PR #1958 R1): the caller's REMAINING budget for this call,
+ * not a fresh `FINAL_CHECK_DEADLINE_MS` each time — `finalizeTimeout()`
+ * passes what's left of the shared final-check deadline after the
+ * `getHeadSha`/`listReviews` steps have already run. Defaults to the full
+ * `FINAL_CHECK_DEADLINE_MS` for standalone callers (e.g. these unit tests)
+ * that aren't part of a larger budgeted sequence.
+ *
  * Exported for unit tests.
  */
 export async function fetchReviewerCheckRunState(
   backend: RepositoryBackend,
-  prNumber: number
+  prNumber: number,
+  deadlineMs: number = FINAL_CHECK_DEADLINE_MS
 ): Promise<ReviewerCheckRunState | null> {
   const getChecksForPR = backend.ci?.getChecksForPR;
   if (!getChecksForPR) return null;
   try {
     const checkRunName = await resolveReviewerCheckRunName();
-    const checksResult = await withDeadline(getChecksForPR(prNumber), FINAL_CHECK_DEADLINE_MS);
+    const checksResult = await withDeadline(getChecksForPR(prNumber), deadlineMs);
     const match = checksResult.checks.find((check) => check.name === checkRunName);
     if (!match) {
       return { name: checkRunName, status: "absent", conclusion: null, url: null };
@@ -858,18 +874,35 @@ export async function sessionPrWaitForReview(
      * mid-churn while two 600s waits reported nothing).
      *
      * Best-effort: any failure in the re-read (backend I/O error, exceeded
-     * `FINAL_CHECK_DEADLINE_MS`) degrades to the ordinary timeout payload
-     * with `finalCheckPerformed: false` rather than throwing — a failed
+     * budget) degrades to the ordinary timeout payload with
+     * `finalCheckPerformed: false` rather than throwing — a failed
      * diagnostic read must never turn an otherwise-legitimate timeout into
      * a thrown error.
+     *
+     * Budget (PR #1958 R1 fix): `FINAL_CHECK_DEADLINE_MS` is a TOTAL budget
+     * for the whole sequence below, not a per-call cap — a single
+     * `finalCheckDeadline` timestamp is computed once, and each of the
+     * three sequential calls (`getHeadSha`, `listReviews`,
+     * `fetchReviewerCheckRunState`) is bounded to whatever remains of it
+     * (`Math.max(0, finalCheckDeadline - now())`), mirroring the main poll
+     * loop's own `ioDeadlineMs` pattern. Without this, three independent
+     * 10s per-call caps could stack to 20-30s+ past the caller's configured
+     * timeout.
      */
     const finalizeTimeout = async (): Promise<SessionPrWaitForReviewResult> => {
       let finalCheckPerformed = false;
+      const finalCheckDeadline = now() + FINAL_CHECK_DEADLINE_MS;
       try {
         if (getHeadSha) {
-          headSha = await withDeadline(getHeadSha(prNumber), FINAL_CHECK_DEADLINE_MS);
+          headSha = await withDeadline(
+            getHeadSha(prNumber),
+            Math.max(0, finalCheckDeadline - now())
+          );
         }
-        const freshReviews = await withDeadline(listReviews(prNumber), FINAL_CHECK_DEADLINE_MS);
+        const freshReviews = await withDeadline(
+          listReviews(prNumber),
+          Math.max(0, finalCheckDeadline - now())
+        );
         lastReviews = freshReviews;
         finalCheckPerformed = true;
 
@@ -892,7 +925,11 @@ export async function sessionPrWaitForReview(
         );
       }
 
-      const reviewerCheckRunState = await fetchReviewerCheckRunState(backend, prNumber);
+      const reviewerCheckRunState = await fetchReviewerCheckRunState(
+        backend,
+        prNumber,
+        Math.max(0, finalCheckDeadline - now())
+      );
       return buildTimeoutResult({ finalCheckPerformed, reviewerCheckRunState });
     };
 

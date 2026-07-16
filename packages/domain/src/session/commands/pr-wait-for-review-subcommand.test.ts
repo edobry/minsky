@@ -1765,4 +1765,42 @@ describe("fetchReviewerCheckRunState (mt#2777 SC#1)", () => {
       url: "https://github.com/edobry/minsky/runs/1",
     });
   });
+
+  // PR #1958 R1 BLOCKING fix: `deadlineMs` is the caller's REMAINING budget
+  // (threaded from finalizeTimeout's shared deadline), not always a fresh
+  // FINAL_CHECK_DEADLINE_MS. A small explicit deadline must be honored —
+  // degrading to null (best-effort) once it's exceeded — rather than the
+  // call silently getting the full default budget regardless of what was
+  // passed. Uses a genuine (small) real timer per the documented pattern in
+  // utils/deadline.ts, not the fake clock (withDeadline is real-time-only).
+  test("honors an explicit deadlineMs budget smaller than the default (PR #1958 R1)", async () => {
+    const backend = {
+      review: {},
+      ci: {
+        getChecksForPR: () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  allPassed: true,
+                  summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+                  checks: [
+                    {
+                      name: FINDINGS_CHECK_NAME,
+                      status: "completed",
+                      conclusion: "success",
+                      url: null,
+                    },
+                  ],
+                }),
+              200
+            );
+          }),
+      },
+    } as unknown as RepositoryBackend;
+    // 20ms budget, but the call takes 200ms — must degrade to null, not wait
+    // for the full call or fall back to the 10s default.
+    const state = await fetchReviewerCheckRunState(backend, 1, 20);
+    expect(state).toBeNull();
+  });
 });
