@@ -100,12 +100,14 @@ export async function executeSessionPrEdit(
 
     let finalTitle: string | undefined = params.title;
     if (params.title) {
-      const { assertValidPrTitle } = await import(
-        "@minsky/domain/session/validation/title-validation"
-      );
-      assertValidPrTitle(params.title);
-
       if (params.type) {
+        // Description-only --title + --type: composeConventionalTitle is the
+        // SAME shared validator+composer session_pr_create uses (mt#2821) —
+        // it validates the description-only portion (length/format) and
+        // composes the final title. Do not duplicate the check here; that is
+        // exactly what caused create/edit to diverge (edit re-validated a
+        // description-only title with different length accounting than
+        // create).
         try {
           const { resolveSessionContextWithFeedback } = await import(
             "@minsky/domain/session/session-context-resolver"
@@ -126,7 +128,14 @@ export async function executeSessionPrEdit(
             title: params.title,
             taskId: taskId ? formatTaskIdForDisplay(taskId) : undefined,
           });
-        } catch {
+        } catch (err) {
+          // Only retry without a resolved taskId on session-resolution
+          // failures. A ValidationError from composeConventionalTitle (bad
+          // title format/length) is deterministic regardless of taskId and
+          // must propagate directly so the caller sees the real reason.
+          if (err instanceof ValidationError) {
+            throw err;
+          }
           finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
         }
       } else {
@@ -140,13 +149,24 @@ export async function executeSessionPrEdit(
         const conventionalRe = new RegExp(
           `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\([^)]*\\))?: `
         );
-        if (!conventionalRe.test(params.title)) {
+        const match = params.title.match(conventionalRe);
+        if (!match) {
           throw new ValidationError(
             "Invalid title. Provide either:\n" +
               `  • --type <${CONVENTIONAL_COMMIT_TYPES_DISPLAY.replaceAll(", ", "|")}> with a description-only --title\n` +
               "  • or a full conventional commit title like 'feat(scope): short description'"
           );
         }
+        // Validate the description portion (after the "type(scope): "
+        // prefix the user typed themselves) with the SAME validator
+        // composeConventionalTitle uses above — so a full title supplied
+        // directly is held to the same description-length budget as the
+        // --type + description-only path, instead of counting the prefix
+        // against the budget.
+        const { assertValidPrTitle } = await import(
+          "@minsky/domain/session/validation/title-validation"
+        );
+        assertValidPrTitle(params.title.slice(match[0].length));
       }
     }
 

@@ -95,6 +95,42 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
     });
   });
 
+  // mt#2821: PR-title create/edit validation parity. Before the fix,
+  // session_pr_create performed NO length validation on the description-only
+  // --title (composeConventionalTitle had no length check), so an
+  // over-budget title was silently accepted at create time and only rejected
+  // later by session_pr_edit's separate 80-char validator (conversation
+  // bdf8f782: "too long (87 > 80)"). Both commands now route through the
+  // same composeConventionalTitle validator, so create rejects up front.
+  describe("description-length parity (mt#2821)", () => {
+    it("rejects a description-only title over the 80-char budget with the same validator session_pr_edit uses", async () => {
+      const taskId = "md#2821";
+
+      const mockSessionProvider = {
+        getSession: mock(async () => null),
+        getSessionByTaskId: mock(async () => null),
+        listSessions: mock(async () => []),
+      };
+
+      const deps = {
+        sessionProvider: mockSessionProvider as unknown as SessionProviderInterface,
+      } as unknown as SessionCommandDependencies;
+
+      await expect(
+        executeSessionPrCreate(
+          deps,
+          {
+            task: taskId,
+            type: "feat",
+            title: "a".repeat(87),
+            body: "test body",
+          } as SessionPrCreateParams,
+          mockContext
+        )
+      ).rejects.toThrow(/too long|87|80/i);
+    });
+  });
+
   describe("Current Implementation Analysis", () => {
     it("should show how checkIfPrCanBeRefreshed currently fails with task parameter", async () => {
       const params = {
