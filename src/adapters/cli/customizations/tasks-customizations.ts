@@ -109,6 +109,18 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        // mt#2811 investigated adding a positional `taskId` argument here (mirroring
+        // tasks.get/tasks.spec.get) to fix `minsky tasks children <id>` erroring "too many
+        // arguments" — but the parameter mapper's `asArgument: true` EXCLUDES a param from the
+        // flag-options list entirely (createOptionsFromMappings in parameter-mapper.ts), so
+        // promoting `taskId` to positional would have DROPPED the pre-existing, working
+        // `--task-id` flag — a breaking CLI-surface change outside this task's scope (PR #1953
+        // review 4708851338 R2 BLOCKING). Reverted: `taskId`/`task` remain plain flag-only
+        // options here, unchanged from before mt#2811, restoring `--task-id` and keeping
+        // `--task`. No positional-argument support for these two commands — the actual bug
+        // (the parallel-work guard's own CLI invocation) is fixed independently by
+        // `buildTasksChildrenArgv` in `.minsky/hooks/parallel-work-guard.ts`, which calls
+        // `--task` explicitly and never relied on positional-argument registration existing.
         "tasks.status.set": {
           parameters: {
             taskId: {
