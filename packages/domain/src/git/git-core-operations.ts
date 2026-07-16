@@ -1,9 +1,11 @@
 import { MinskyError } from "../errors/index";
 import { getErrorMessage } from "../errors/index";
+import { ValidationError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { NothingToCommitError } from "../errors/index";
 import { safeShellQuote } from "@minsky/shared/exec";
 import { classifyNothingToCommit, extractCommitHash } from "./git-with-deps";
+import { validateCommitMessageFormat } from "./commit-message-format";
 import type { GitStatus, StashResult, PullResult } from "./types";
 
 type ExecAsyncFn = (
@@ -83,6 +85,23 @@ export async function commitImpl(
   amend: boolean = false,
   allowEmpty: boolean = false
 ): Promise<string> {
+  // mt#2821: fail fast on a malformed commit MESSAGE before ever shelling
+  // out to `git commit`. git's hook lifecycle runs `pre-commit` (the
+  // expensive tests/lint/typecheck/rules-compile suite) BEFORE `commit-msg`
+  // for every commit — that order is fixed by git itself and cannot be
+  // reordered via husky config, and the message text isn't even available
+  // to `pre-commit` (verified empirically: no .git/COMMIT_EDITMSG, no env
+  // var carries it at that point). Running the SAME check `commit-msg` runs
+  // — here, in-process, first — means a format typo in a Minsky-issued
+  // commit is rejected in milliseconds instead of paying for the full
+  // pre-commit suite first. See ./commit-message-format.ts for the full
+  // finding; src/hooks/commit-msg.ts remains the backstop for commits made
+  // outside Minsky's own commit path.
+  const formatCheck = validateCommitMessageFormat(message);
+  if (!formatCheck.valid) {
+    throw new ValidationError(formatCheck.error ?? "Invalid commit message");
+  }
+
   const workdir = repoPath || process.cwd();
   const amendFlag = amend ? "--amend" : "";
   const allowEmptyFlag = allowEmpty ? "--allow-empty" : "";

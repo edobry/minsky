@@ -194,3 +194,24 @@ reviewer:
 
 > Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
 > not require any token (the reviewer bot advertises it in its status comment).
+
+## Deployment Configuration
+
+`deployment_status` / `deployment_wait-for-latest` / `deployment_logs` accept an optional
+`service` argument (matching `services/<name>/deploy.config.ts`). When a project declares
+more than one service and `service` is omitted, set a default so the tools don't need it on
+every call (mt#2821):
+
+```yaml
+deployment:
+  # Service name to use by default when a deployment tool is called without
+  # an explicit `service` and the project has multiple deploy.config.ts files.
+  defaultService: "minsky-mcp"
+```
+
+- `deployment.defaultService` — optional. Set via `minsky config set deployment.defaultService <name>`.
+- When unset AND the project has multiple services, the tools also try one more fallback before
+  erroring: if the process is itself running inside a Railway container, the platform-injected
+  `RAILWAY_SERVICE_ID` variable is matched against each candidate's declared `railway.serviceId`.
+- If neither resolves, the error lists every candidate service name — see
+  [Deployment Platforms](./deployment-platforms.md#service-resolution).

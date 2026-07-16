@@ -19,11 +19,187 @@ import {
   type SessionUpdateResult,
   type StashRestoreOutcome,
 } from "./session-stash-restore";
+import {
+  installDependencies as defaultInstallDependencies,
+  installNestedDependencies as defaultInstallNestedDependencies,
+  detectPackageManager as defaultDetectPackageManager,
+  getInstallCommand,
+} from "../utils/package-manager";
 
 export interface UpdateSessionDependencies {
   gitService: GitServiceInterface;
   sessionDB: SessionProviderInterface;
   getCurrentSession: (repoPath?: string) => Promise<string | undefined>;
+}
+
+/**
+ * Injectable install functions, so `refreshDependenciesIfLockfileChanged` can
+ * be unit-tested without shelling out to a real package manager. Defaults to
+ * the real `../utils/package-manager` implementations.
+ */
+export interface DependencyInstallDeps {
+  installDependencies: typeof defaultInstallDependencies;
+  installNestedDependencies: typeof defaultInstallNestedDependencies;
+  /**
+   * mt#2821 PR #1976 R1: `installDependencies` auto-detects the package
+   * manager (bun/npm/yarn/pnpm) from lockfiles — it is NOT always bun. This
+   * is injected (and called up front) so the user-facing log messages name
+   * the ACTUAL detected manager's install command, and so the same
+   * detection result is passed explicitly into `installDependencies`
+   * (avoiding any chance of the logged command drifting from the one that
+   * actually ran).
+   */
+  detectPackageManager: typeof defaultDetectPackageManager;
+}
+
+const defaultDependencyInstallDeps: DependencyInstallDeps = {
+  installDependencies: defaultInstallDependencies,
+  installNestedDependencies: defaultInstallNestedDependencies,
+  detectPackageManager: defaultDetectPackageManager,
+};
+
+export interface DependencyRefreshResult {
+  /** Whether the pre/post-update HEAD comparison could be performed at all. */
+  checked: boolean;
+  /** Whether a dependency-manifest file (bun.lock or any package.json) changed in the range. */
+  changed: boolean;
+  /** Whether the root dependency install (whichever package manager was detected) completed successfully. */
+  installed: boolean;
+  /** Present when the root install was attempted and failed. */
+  installError?: string;
+  /** Present when one or more nested-package installs failed after a successful root install. */
+  nestedFailedPaths?: string[];
+}
+
+/** True for `bun.lock` (root lockfile) or any `package.json` at any depth. */
+function isDependencyManifestPath(path: string): boolean {
+  return path === "bun.lock" || /(^|\/)package\.json$/.test(path);
+}
+
+/**
+ * Detect whether the commit range from `preUpdateSha` to the session's
+ * current HEAD changed a dependency-lockfile-affecting file (`bun.lock` or
+ * any `package.json`) and, if so, refresh `node_modules` via
+ * `installDependencies` / `installNestedDependencies` — the SAME mechanism
+ * `session_start` already runs (unattended) after a fresh clone (mt#1379).
+ *
+ * ## mt#2821 finding: why auto-run, not a blocking notice
+ *
+ * Observed failure: 3 parallel sessions failed identically post-rebase with
+ * `Cannot find module '@minsky/shared/logger'` until a manual `bun install`
+ * (conversation c01f89af) — a merge/rebase that pulls in a lockfile or
+ * package.json change leaves `node_modules` stale relative to the new
+ * dependency graph, and nothing surfaced that until the next command failed
+ * with a misleading module-resolution error.
+ *
+ * This function auto-runs the install rather than only emitting a notice,
+ * because the mutation is entirely local to the SESSION's own
+ * `node_modules` — not shared or production state — so the `--execute`
+ * dry-run-first discipline (`operational-safety-dry-run-first.mdc`) does
+ * not apply here: there is nothing to preview, and the operation is
+ * idempotent and side-effect-free outside the workspace. It is exactly the
+ * install `session_start` already performs unattended; running it again
+ * after `session_update` closes the same gap for the update path.
+ *
+ * If the install itself fails (network, disk, a broken postinstall
+ * script), this function does NOT throw — it returns the failure in the
+ * result so the caller can emit an explicit, actionable notice instead.
+ * That notice is the "blocking, actionable notice" half of the task's
+ * either/or: reserved for when auto-install could not complete, not used
+ * as a substitute for attempting it.
+ */
+export async function refreshDependenciesIfLockfileChanged(
+  workdir: string,
+  gitService: GitServiceInterface,
+  preUpdateSha: string | undefined,
+  installDeps: DependencyInstallDeps = defaultDependencyInstallDeps
+): Promise<DependencyRefreshResult> {
+  if (!preUpdateSha) {
+    return { checked: false, changed: false, installed: false };
+  }
+
+  let postUpdateSha: string;
+  try {
+    postUpdateSha = (await gitService.execInRepository(workdir, "git rev-parse HEAD")).trim();
+  } catch (error) {
+    log.debug("Failed to resolve post-update HEAD for dependency-refresh check", {
+      error: getErrorMessage(error),
+      workdir,
+    });
+    return { checked: false, changed: false, installed: false };
+  }
+
+  if (!postUpdateSha || postUpdateSha === preUpdateSha) {
+    return { checked: true, changed: false, installed: false };
+  }
+
+  let changedFiles: string[];
+  try {
+    const diffOutput = await gitService.execInRepository(
+      workdir,
+      `git diff --name-only ${preUpdateSha} ${postUpdateSha}`
+    );
+    changedFiles = diffOutput.trim().split("\n").filter(Boolean);
+  } catch (error) {
+    log.debug("Failed to diff pulled range for dependency-refresh check", {
+      error: getErrorMessage(error),
+      workdir,
+      preUpdateSha,
+      postUpdateSha,
+    });
+    return { checked: true, changed: false, installed: false };
+  }
+
+  if (!changedFiles.some(isDependencyManifestPath)) {
+    return { checked: true, changed: false, installed: false };
+  }
+
+  // Detect the ACTUAL package manager once, up front, and pass it explicitly
+  // into installDependencies below — this is both what drives the
+  // user-facing message (so it never claims `bun install` ran when the
+  // project actually uses npm/yarn/pnpm) and what the install call itself
+  // uses, so logged and executed commands can never diverge.
+  const detectedManager = installDeps.detectPackageManager(workdir);
+  const installCommandLabel = detectedManager
+    ? `\`${getInstallCommand(detectedManager)}\``
+    : "the project's dependency-install command";
+
+  log.cli(
+    `📦 Dependency lockfile/manifest changed in the pulled range — running ${installCommandLabel} ` +
+      "to keep node_modules in sync..."
+  );
+
+  const { success, error } = await installDeps.installDependencies(workdir, {
+    quiet: false,
+    packageManager: detectedManager,
+  });
+  if (!success) {
+    log.cli(
+      `⚠️  ${installCommandLabel} failed after a dependency-lockfile change was pulled in. ` +
+        "node_modules may be stale — module resolution can fail on the next session_exec " +
+        `call. Run ${installCommandLabel} manually in the session workspace before continuing.\n` +
+        `   Error: ${error}`
+    );
+    return { checked: true, changed: true, installed: false, installError: error };
+  }
+
+  log.cli(`✅ Dependencies refreshed (${installCommandLabel} completed).`);
+
+  const nestedSummary = await installDeps.installNestedDependencies(workdir, { quiet: false });
+  const nestedFailedPaths = nestedSummary.results.filter((r) => !r.success).map((r) => r.path);
+  if (nestedFailedPaths.length > 0) {
+    log.cli(
+      `⚠️  ${nestedFailedPaths.length} nested package install(s) failed after the dependency ` +
+        `refresh. Run install manually in: ${nestedFailedPaths.join(", ")}`
+    );
+  }
+
+  return {
+    checked: true,
+    changed: true,
+    installed: true,
+    nestedFailedPaths: nestedFailedPaths.length > 0 ? nestedFailedPaths : undefined,
+  };
 }
 
 /**
@@ -158,6 +334,20 @@ export async function updateSessionImpl(
     // Get current branch
     const currentBranch = await deps.gitService.getCurrentBranch(workdir);
     log.debug("Current branch", { currentBranch });
+
+    // mt#2821: capture the pre-update HEAD so refreshDependenciesIfLockfileChanged
+    // can later diff the pulled range for bun.lock/package.json changes and
+    // refresh node_modules if needed. Best-effort — a failure here just
+    // disables the stale-node_modules check for this run.
+    let preUpdateSha: string | undefined;
+    try {
+      preUpdateSha = (await deps.gitService.execInRepository(workdir, "git rev-parse HEAD")).trim();
+    } catch (shaError) {
+      log.debug("Failed to capture pre-update HEAD for dependency-refresh check", {
+        error: getErrorMessage(shaError),
+        workdir,
+      });
+    }
 
     // Tracks whether THIS call created a stash. The pop must be gated on this,
     // not on `!noStash` alone — otherwise the restore path runs even when nothing
@@ -416,6 +606,21 @@ export async function updateSessionImpl(
             error: getErrorMessage(mergeError),
           });
         }
+      }
+
+      // mt#2821: the merge/rebase above may have pulled in a bun.lock or
+      // package.json change. Detect that and refresh node_modules before
+      // returning, so the next session_exec call doesn't hit a stale
+      // dependency tree (see refreshDependenciesIfLockfileChanged's doc
+      // comment for the full finding + why this auto-runs rather than only
+      // warning). Best-effort: never fails session_update itself.
+      try {
+        await refreshDependenciesIfLockfileChanged(workdir, deps.gitService, preUpdateSha);
+      } catch (refreshError) {
+        log.debug("Dependency-refresh check failed unexpectedly", {
+          error: getErrorMessage(refreshError),
+          workdir,
+        });
       }
 
       // Push changes if needed
