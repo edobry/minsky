@@ -1270,6 +1270,9 @@ export function createApp(
         // Log webhook_received BEFORE the missing-headers check so that requests
         // with absent headers (signature_present: false) still produce a log line.
         // This is the primary diagnostic signal for bad-actor or misconfigured senders.
+        // NOTE: this is a log line only, never a durable DB write — logging every
+        // attempt (including unverified ones) for forensic visibility is fine;
+        // persisting them to a table boot-recovery reads is NOT (see below).
         log.info("webhook_received", {
           event: "webhook_received",
           delivery_id: deliveryId,
@@ -1277,6 +1280,51 @@ export function createApp(
           action,
           signature_present: Boolean(signature),
         });
+
+        // mt#2799 PR #1990 R1 fix: verify BEFORE persisting, and only persist
+        // events that pass verification (verify -> persist -> ACK). A row in
+        // reviewer_webhook_events is no longer forensics-only as of this PR —
+        // boot-recovery.ts treats ANY non-terminal row as a recovery candidate
+        // and re-dispatches it through runReview using owner/repo/pr/headSha
+        // taken directly from the persisted body. Persisting an unauthenticated
+        // or malformed payload would let an unauthenticated caller inject
+        // arbitrary target coordinates into that recovery path. So unlike the
+        // pre-mt#2799 mt#1372 design intent ("persist EVERY webhook, even
+        // malformed ones, for forensic investigation"), a request that fails
+        // EITHER the presence check or the signature check now gets rejected
+        // with NO durable write at all — the trade-off is reduced forensic
+        // coverage of rejected/malicious probes in exchange for boot-recovery
+        // never acting on unverified data. See boot-recovery.ts's header for
+        // the resulting invariant: every row that module reads is
+        // verified-by-construction.
+        if (!signature || !eventName) {
+          return new Response("missing signature or event headers", { status: 400 });
+        }
+
+        let verified: boolean;
+        try {
+          // Webhooks#verify performs ONLY the HMAC-SHA-256 check (no parsing,
+          // no dispatch) — this is the "verify" half of verifyAndReceive,
+          // called standalone so persistence can happen strictly between
+          // verification and dispatch.
+          verified = await webhooks.verify(body, signature);
+        } catch (err: unknown) {
+          verified = false;
+          log.warn("webhook_verify_threw", {
+            event: "webhook_verify_threw",
+            delivery_id: deliveryId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        if (!verified) {
+          log.error("webhook_signature_invalid", {
+            event: "webhook_signature_invalid",
+            delivery_id: deliveryId,
+            github_event: eventName,
+          });
+          return new Response("invalid signature", { status: 401 });
+        }
 
         // Persist webhook receipt for forensic investigation (mt#1372) AND,
         // as of mt#2799, as the durable row boot-time recovery reads to
@@ -1288,31 +1336,23 @@ export function createApp(
         // recordWebhookReceipt swallows its own errors internally (never
         // throws), so awaiting it cannot turn a persistence failure into a
         // webhook-handling failure.
-        //
-        // R1 BLOCKING #3 fix: persist EVERY webhook the reviewer receives,
-        // not just those with x-github-event header. Webhooks with missing
-        // or malformed headers are exactly the cases most worth investigating
-        // (misconfigured senders, GitHub API changes, malicious probes).
-        // Use "unknown" sentinel when eventName is null.
         if (db !== undefined) {
           await recordWebhookReceipt(
             db,
             deliveryId,
-            eventName ?? "unknown",
+            eventName,
             extractPersistedHeaders((name) => request.headers.get(name)),
             parsedBody ?? { raw: safeTruncate(body, 1000, "head") }
           );
         }
 
-        if (!signature || !eventName) {
-          return new Response("missing signature or event headers", { status: 400 });
-        }
-
         try {
-          // verifyAndReceive validates the signature and dispatches to the
-          // registered webhook handlers. The handlers call startDetachedReview
-          // which returns immediately (fire-and-forget). So this await only
-          // blocks for signature verification + event dispatch, not the review.
+          // verifyAndReceive re-verifies the signature (cheap — a single HMAC
+          // computation, already known-valid from the standalone verify()
+          // call above) and dispatches to the registered webhook handlers.
+          // The handlers call startDetachedReview which returns immediately
+          // (fire-and-forget). So this await only blocks for signature
+          // re-verification + event dispatch, not the review.
           await webhooks.verifyAndReceive({
             id: deliveryId,
             name: eventName,
@@ -1321,8 +1361,11 @@ export function createApp(
           });
           return new Response("ok", { status: 200 });
         } catch (error) {
-          // verifyAndReceive throws on signature-verification failure.
-          // Handler errors no longer propagate here since reviews are detached.
+          // Signature was already verified above, so in practice this catch
+          // only reaches dispatch errors. The isSignatureError branch is kept
+          // as defense in depth (e.g. a future divergence between the
+          // standalone verify() and verifyAndReceive()'s internal check)
+          // rather than assumed unreachable.
           const message = error instanceof Error ? error.message : String(error);
           const isSignatureError = /signature/i.test(message);
           log.error(isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error", {
@@ -1335,8 +1378,8 @@ export function createApp(
           });
 
           // Persist failure outcome and surface as operator-visible alert (mt#1372).
-          // Signature failures are expected from misconfigured senders — only non-signature
-          // errors (dispatch failures) surface as webhook_processing_failed alerts.
+          // A row now definitely exists at this point (persisted above, after
+          // verification succeeded), so this update always has a target row.
           if (db !== undefined) {
             void updateOutcome(
               db,

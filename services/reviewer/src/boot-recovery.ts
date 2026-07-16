@@ -21,6 +21,22 @@
  * `sweeper-<timestamp>` tagging — see review-worker.ts's `acquiredBy`
  * classification).
  *
+ * ## Invariant: every row this module reads is verified-by-construction
+ *
+ * (mt#2799 PR #1990 R1.) `reviewer_webhook_events` has NO column recording
+ * whether a delivery's HMAC signature was verified — so this module cannot
+ * defensively FILTER on that signal. Instead the invariant is enforced at the
+ * ONLY production write site: server.ts's `/webhook` handler now verifies the
+ * signature (`webhooks.verify(body, signature)`) BEFORE calling
+ * `recordWebhookReceipt` at all — a request with a missing or invalid
+ * signature is rejected (400/401) with NO durable write, full stop. So by the
+ * time a row exists in `reviewer_webhook_events`, it has ALREADY passed
+ * signature verification; there is no unverified-row case for this module to
+ * additionally filter out. If a second production write site to
+ * `reviewer_webhook_events` is ever added, it MUST preserve this same
+ * verify-before-persist ordering, or this module's safety argument breaks.
+ *
+
  * ## Why no new table / no new `outcome` enum value
  *
  * The bridge memory's preserved pattern names `reviewer_webhook_events` with
