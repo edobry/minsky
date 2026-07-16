@@ -203,5 +203,8 @@ aggregation, streaks, and escalation tiering; operator/agent-facing surfacing vi
   verdict-quality and full successful-fire logging respectively
 - mt#2875 — write-isolation follow-up: migrated the two tests exercising the real
   (unmocked) write/read path off an assumed-unwritable literal path onto real `mkdtemp`
-  scratch directories, added `.minsky/hooks/guard-health-write-isolation.test.ts`, and
-  purged the 4 fixture rows this gap wrote to the operator's live store
+  scratch directories and added `.minsky/hooks/guard-health-write-isolation.test.ts`.
+  The live-store purge is a separate operator-context step (this PR cannot reach
+  `~/.local/state/`): mt#2872 purged the original 4 fixture rows; the one additional row
+  leaked during this task's own pre-fix test run was purged from the main-agent context
+  2026-07-16T22:12Z, verified via `debug_systemInfo` (`guardHealth.escalation: "none"`)
