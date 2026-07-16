@@ -702,6 +702,111 @@ describe("runDispatcher", () => {
     expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
   });
 
+  // mt#2812: a thrown guard error is recorded for guard-health aggregation,
+  // IN ADDITION to the existing stderr line, and never disables the guard
+  // loop even if the recording itself misbehaves.
+  test("a guard that throws is recorded via recordGuardErrorFn with guard name, event, error, and tool context", async () => {
+    const recorded: Array<{
+      guardName: string;
+      event: string;
+      error: unknown;
+      toolName?: string;
+      sessionId?: string;
+    }> = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "throws",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              throw new Error("boom");
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () =>
+        Promise.resolve({ ...baseInput(), tool_name: "Bash", session_id: "sess-42" }),
+      writeOutputFn: () => {},
+      stderrWrite: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordGuardErrorFn: (input) => recorded.push(input),
+    });
+    expect(recorded.length).toBe(1);
+    expect(recorded[0]?.guardName).toBe("throws");
+    expect(recorded[0]?.event).toBe("PreToolUse");
+    expect(recorded[0]?.error).toBeInstanceOf(Error);
+    expect((recorded[0]?.error as Error).message).toBe("boom");
+    expect(recorded[0]?.toolName).toBe("Bash");
+    expect(recorded[0]?.sessionId).toBe("sess-42");
+  });
+
+  test("the default recordGuardErrorFn (real recordGuardError) never throws — guard loop is fail-safe by contract, no redundant dispatcher-side try/catch needed", async () => {
+    // recordGuardError's own internal swallow-all is covered directly in
+    // guard-health.test.ts ("NEVER throws even when the fs seam throws").
+    // This test confirms the DEFAULT wiring (no recordGuardErrorFn override)
+    // runs to completion end-to-end when a guard throws — i.e. the real
+    // production capture path never disables the dispatcher, matching the
+    // mt#2812 acceptance test ("Tracker DB/log unavailable -> guards still
+    // run normally"). Points MINSKY_STATE_DIR at a throwaway path so this
+    // test never touches the developer's real guard-health log.
+    const prevStateDir = process.env.MINSKY_STATE_DIR;
+    process.env.MINSKY_STATE_DIR = "/nonexistent/mt2812-dispatcher-default-recording-test";
+    try {
+      const written: HookOutput[] = [];
+      let secondGuardCalled = false;
+      const registrations: GuardRegistration[] = [
+        {
+          name: "throws",
+          event: "PreToolUse",
+          matcher: "Bash",
+          module: () =>
+            Promise.resolve({
+              run: () => {
+                throw new Error("boom");
+              },
+            }),
+          timeoutMs: 1000,
+          denyCapable: true,
+        },
+        {
+          name: "second",
+          event: "PreToolUse",
+          matcher: "Bash",
+          module: () =>
+            Promise.resolve({
+              run: () => {
+                secondGuardCalled = true;
+                return { additionalContext: "ok" };
+              },
+            }),
+          timeoutMs: 1000,
+          denyCapable: false,
+        },
+      ];
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations,
+        readInputFn: () => Promise.resolve(baseInput()),
+        writeOutputFn: (o) => written.push(o),
+        stderrWrite: () => {},
+        resolveDispatchContextFn: () => stubContext(),
+        // No recordGuardErrorFn override — exercises the real default.
+      });
+      expect(secondGuardCalled).toBe(true);
+      expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
+    } finally {
+      if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+      else process.env.MINSKY_STATE_DIR = prevStateDir;
+    }
+  });
+
   test("calibration outcome is logged via logCalibrationRecordFn when the registration declares calibrationLog", async () => {
     const logged: Array<{ name: string; record: Record<string, unknown> }> = [];
     const registrations: GuardRegistration[] = [

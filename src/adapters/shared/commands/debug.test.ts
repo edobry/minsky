@@ -20,14 +20,24 @@
  * @see mt#1738 — this test
  * @see src/adapters/shared/commands/debug.ts — implementation under test
  * @see src/mcp/subagent-dispatch-tracker.ts — tracker implementation
+ *
+ * The guardHealth suite (mt#2812, near the bottom of this file) uses real
+ * filesystem operations against temp files — it exercises GuardHealthTracker's
+ * actual on-disk read behavior end-to-end through debug.systemInfo, the same
+ * rationale disconnect-tracker.test.ts documents for its own real-fs suites.
  */
+/* eslint-disable custom/no-real-fs-in-tests */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
 import type { SubagentInvocationInput } from "../../../mcp/subagent-dispatch-tracker";
+import { GuardHealthTracker } from "../../../mcp/guard-health-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { registerDebugCommands } from "./debug";
@@ -566,5 +576,97 @@ describe("debug.systemInfo subagentDispatches surface (mt#1738)", () => {
     const result = await callSystemInfo();
     expect("mcpDisconnects" in result).toBe(true);
     expect("subagentDispatches" in result).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// debug.systemInfo guardHealth surface tests (mt#2812)
+// ---------------------------------------------------------------------------
+
+const GUARD_HEALTH_TEST_GUARD_NAME = "require-deploy-verification-before-merge";
+
+describe("debug.systemInfo guardHealth surface (mt#2812)", () => {
+  const cleanupPaths: string[] = [];
+
+  afterEach(() => {
+    while (cleanupPaths.length > 0) {
+      const p = cleanupPaths.pop();
+      if (p && fs.existsSync(p)) fs.rmSync(p, { force: true });
+    }
+    GuardHealthTracker.resetForTest();
+  });
+
+  function makeTempLogPath(name: string): string {
+    return path.join(os.tmpdir(), `mt2812-debug-guardhealth-test-${name}-${Date.now()}.jsonl`);
+  }
+
+  function guardEvent(overrides: {
+    guardName?: string;
+    timestamp: string;
+    kind?: "error" | "check-skip";
+  }): Record<string, unknown> {
+    return {
+      guardName: overrides.guardName ?? "test-guard",
+      event: "PreToolUse",
+      kind: overrides.kind ?? "error",
+      message: "boom",
+      timestamp: overrides.timestamp,
+    };
+  }
+
+  test("3 consecutive guard errors -> guardHealth.escalation is critical and names the guard", async () => {
+    const logPath = makeTempLogPath("critical");
+    cleanupPaths.push(logPath);
+    const lines = [
+      guardEvent({
+        guardName: GUARD_HEALTH_TEST_GUARD_NAME,
+        timestamp: "2026-07-14T09:00:00.000Z",
+      }),
+      guardEvent({
+        guardName: GUARD_HEALTH_TEST_GUARD_NAME,
+        timestamp: "2026-07-14T10:00:00.000Z",
+      }),
+      guardEvent({
+        guardName: GUARD_HEALTH_TEST_GUARD_NAME,
+        timestamp: "2026-07-14T11:00:00.000Z",
+      }),
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n");
+    fs.writeFileSync(logPath, `${lines}\n`);
+
+    GuardHealthTracker.resetForTest(logPath);
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect(guardHealth).toBeDefined();
+    expect(guardHealth.escalation).toBe("critical");
+    expect(guardHealth.criticalGuards).toEqual([GUARD_HEALTH_TEST_GUARD_NAME]);
+  });
+
+  test("no guard-health log -> zero-filled aggregates and escalation none", async () => {
+    const logPath = makeTempLogPath("missing");
+    // Deliberately never created.
+    GuardHealthTracker.resetForTest(logPath);
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect(guardHealth).toBeDefined();
+    expect(guardHealth.escalation).toBe("none");
+    expect(guardHealth.byGuard).toEqual({});
+  });
+
+  test("guardHealth result has all required fields", async () => {
+    const result = await callSystemInfo();
+    const guardHealth = result.guardHealth as Record<string, unknown>;
+    expect("byGuard" in guardHealth).toBe(true);
+    expect("criticalGuards" in guardHealth).toBe(true);
+    expect("attentionGuards" in guardHealth).toBe(true);
+    expect("escalation" in guardHealth).toBe(true);
+  });
+
+  test("guardHealth co-exists with mcpDisconnects and subagentDispatches in result", async () => {
+    const result = await callSystemInfo();
+    expect("mcpDisconnects" in result).toBe(true);
+    expect("subagentDispatches" in result).toBe(true);
+    expect("guardHealth" in result).toBe(true);
   });
 });
