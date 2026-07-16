@@ -38,7 +38,7 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
           return { success: true, ...result };
         }
 
-        const { pullRequest, reviews } = result;
+        const { pullRequest, reviews, reviewsFetchError } = result;
 
         const titleLine = formatPrTitleLine({
           status: pullRequest.status,
@@ -73,6 +73,12 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
 
         if (pullRequest.filesChanged) {
           output.push("", `Files Changed: ${pullRequest.filesChanged}`);
+        }
+
+        if (reviewsFetchError) {
+          // mt#2829 PR #1970 R1: never render this as "Reviews (0)" — that
+          // would be indistinguishable from a confirmed-zero-reviews PR.
+          output.push("", `Reviews: COULD NOT FETCH — ${reviewsFetchError}`);
         }
 
         if (reviews) {

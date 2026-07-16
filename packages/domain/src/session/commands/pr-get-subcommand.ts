@@ -4,7 +4,7 @@
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import type { PullRequestInfo } from "../session-db";
-import type { SessionProviderInterface } from "../types";
+import type { SessionProviderInterface, SessionRecord } from "../types";
 import {
   MinskyError,
   ResourceNotFoundError,
@@ -15,6 +15,7 @@ import { log } from "@minsky/shared/logger";
 import { first } from "@minsky/shared/array-safety";
 import { createTimeoutFetch } from "../../github/octokit-timeout";
 import { fetchPostedReviews, type PostedReview } from "./pr-get-reviews";
+import type { RepositoryBackend } from "../../repository/index";
 
 /**
  * Shape of the live PR data returned from GitHub Octokit pulls.get / pulls.list responses.
@@ -38,6 +39,18 @@ interface GitHubLivePr {
 
 export interface SessionPrGetDependencies {
   sessionDB: SessionProviderInterface;
+  /**
+   * Test seam for the `reviews: true` fetch path (mt#2829, PR #1970 R1
+   * regression coverage). Defaults to the production
+   * `createRepositoryBackendFromSession` (dynamically imported to match the
+   * rest of this file's lazy-import style). Overriding this lets tests
+   * exercise the reviews-fetch success/failure branching without mocking
+   * the module system.
+   */
+  createRepositoryBackend?: (
+    sessionRecord: SessionRecord,
+    sessionDB: SessionProviderInterface
+  ) => Promise<RepositoryBackend>;
 }
 
 /**
@@ -83,10 +96,32 @@ export async function sessionPrGet(
     commits?: number;
     backendType?: "github" | "gitlab" | "bitbucket";
   };
-  /** Present only when `params.reviews` was true (mt#2829). Empty array (not an error) when the PR has zero reviews. */
+  /**
+   * Present only when `params.reviews` was true AND the fetch succeeded
+   * (mt#2829). Empty array (not an error) when the PR genuinely has zero
+   * reviews — distinct from a fetch failure, which is surfaced via
+   * `reviewsFetchError` instead with `reviews` left `undefined`. Never both
+   * absent when `params.reviews` was true: exactly one of `reviews` /
+   * `reviewsFetchError` is set.
+   */
   reviews?: PostedReview[];
+  /**
+   * Present only when `params.reviews` was true AND the fetch failed (mt#2829,
+   * PR #1970 R1). A caller MUST NOT treat a missing `reviews` field the same
+   * as an empty `reviews: []` — the former means "could not determine,"
+   * the latter means "confirmed zero reviews on this PR." The PR's core
+   * metadata is still returned even when this is set (fetch failure is
+   * non-fatal to the overall call).
+   */
+  reviewsFetchError?: string;
 }> {
   const { sessionDB } = deps;
+  const createRepositoryBackend =
+    deps.createRepositoryBackend ??
+    (async (sessionRecord: SessionRecord, sessionDBArg: SessionProviderInterface) => {
+      const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
+      return createRepositoryBackendFromSession(sessionRecord, sessionDBArg);
+    });
 
   try {
     // Resolve session context using existing resolver
@@ -373,27 +408,34 @@ export async function sessionPrGet(
     }
 
     // mt#2829: in-band read of posted review prose, opt-in via `reviews: true`.
-    // Non-fatal on fetch failure — a broken reviews read should not block the
-    // caller from seeing the PR's core metadata (mirrors the review-threads
-    // fetch's non-fatal contract in pr-review-context-subcommand.ts).
+    // Non-fatal on fetch failure to the OVERALL call — the caller still gets
+    // the PR's core metadata — but a failure is surfaced distinctly via
+    // `reviewsFetchError`, NOT collapsed into `reviews: []`. Collapsing the
+    // two was PR #1970 R1's BLOCKING finding: an empty array on error looked
+    // identical to a confirmed-zero-reviews PR, so a caller diagnosing
+    // reviewer silence could not tell "no review posted" from "couldn't
+    // check." (The review-threads fetch in pr-review-context-subcommand.ts
+    // has a different, acceptable non-fatal contract because threads are a
+    // supplementary field there, not the thing the caller explicitly opted
+    // into via `reviews: true`.)
     let reviews: PostedReview[] | undefined;
+    let reviewsFetchError: string | undefined;
     if (params.reviews && pullRequest.number) {
       try {
-        const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
-        const repositoryBackend = await createRepositoryBackendFromSession(
-          sessionRecord,
-          sessionDB
-        );
+        const repositoryBackend = await createRepositoryBackend(sessionRecord, sessionDB);
         reviews = await fetchPostedReviews(repositoryBackend, pullRequest.number);
       } catch (reviewsError) {
-        log.debug(
-          `Could not fetch posted reviews for PR #${pullRequest.number}: ${getErrorMessage(reviewsError)}`
-        );
-        reviews = [];
+        const message = getErrorMessage(reviewsError);
+        log.debug(`Could not fetch posted reviews for PR #${pullRequest.number}: ${message}`);
+        reviewsFetchError = message;
       }
     }
 
-    return reviews !== undefined ? { pullRequest, reviews } : { pullRequest };
+    return {
+      pullRequest,
+      ...(reviews !== undefined ? { reviews } : {}),
+      ...(reviewsFetchError !== undefined ? { reviewsFetchError } : {}),
+    };
   } catch (error) {
     if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
       throw error;

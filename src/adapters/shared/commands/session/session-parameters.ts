@@ -720,8 +720,9 @@ export const sessionPrGetCommandParams = {
       "Include posted GitHub reviews: reviewer login, state, submitted_at, full body " +
       "text, and per-review inline comments (path, line, body), in submission order " +
       "(mt#2829). Bodies are included but capped if enormous (truncation stated " +
-      "explicitly); diffs are never included. Empty array (not an error) when the PR " +
-      "has zero reviews.",
+      "explicitly); diffs are never included. A confirmed-zero-reviews PR returns " +
+      "`reviews: []` (not an error); a fetch failure returns `reviewsFetchError` " +
+      "instead — the two are never conflated.",
     required: false,
     defaultValue: false,
   },
