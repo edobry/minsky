@@ -53,6 +53,27 @@ export interface IndexLockInfo {
   livenessDetermined: boolean;
   /** Which probe produced the liveness verdict. */
   livenessMethod: "lsof" | "ps" | "undetermined";
+  /**
+   * The staleness threshold (ms) used for THIS diagnosis — `LOCK_STALE_THRESHOLD_MS`
+   * unless overridden via `options.staleThresholdMs` (PR #1986 R1: surfaced
+   * for configurability rather than hardcoding the module default at every
+   * comparison site).
+   */
+  staleThresholdMs: number;
+  /**
+   * Raw mtime (ms since epoch) at detection time. Paired with `inode`/
+   * `device` as the file's identity snapshot — `repairIndexLock`'s
+   * pre-unlink TOCTOU guard (mt#2820 PR #1986 R1) re-stats the lock
+   * immediately before removal and aborts if ANY of these three differ,
+   * since that means the file at this path is no longer the one that was
+   * diagnosed as stale (e.g. a legitimate process removed the abandoned
+   * lock and acquired a fresh one at the same path in the interim).
+   */
+  mtimeMs: number;
+  /** Inode number at detection time — see `mtimeMs` doc for how this is used. */
+  inode: number;
+  /** Device id at detection time — paired with `inode` for a unique file identity. */
+  device: number;
 }
 
 export interface LockRepairResult {
@@ -87,27 +108,40 @@ async function resolveGitDir(repoPath: string, deps: LockDependencies): Promise<
 /**
  * Determine whether a live process currently holds the lock file open.
  *
- * Primary signal: `lsof -t -- <lockfile>` reports a PID with an open file
- * descriptor on the lock — this is the strongest possible signal, since git
- * keeps the lockfile open for the duration of the write it's protecting.
+ * Primary (and ONLY negative-determining) signal: `lsof -t -- <lockfile>`
+ * inspects the LOCK FILE'S OWN open file descriptors. This is authoritative
+ * for "not live": a process actively holding this exact lock necessarily has
+ * an open fd on it (git keeps the lockfile open for the duration of the
+ * write it's protecting), so a clean `lsof` run that finds zero holders is
+ * itself a confident, self-sufficient "not live" verdict.
  *
  * Secondary signal: any running `git` process whose command line references
- * this repo path — covers the narrow window between a process acquiring the
- * lock (via O_CREAT|O_EXCL, which happens first) and its first write.
+ * this repo path — intended to catch the narrow window between a process
+ * acquiring the lock (via O_CREAT|O_EXCL, which happens first) and its first
+ * write. This is POSITIVE-ONLY: a match adds an extra "live" signal (a false
+ * positive here just fails safe, toward not deleting), but the ABSENCE of a
+ * match is NEVER used to confirm "not live" on its own (mt#2820 PR #1986
+ * R1). Command-line substring matching is unreliable — a git process
+ * launched with a relative path, or already cwd'd into the repo with no
+ * `-C <path>` argument at all, produces a cmdline with NO textual reference
+ * to `repoPath`, making a real live process invisible to this probe. Only
+ * `lsof`'s direct fd inspection is trusted to declare "not live"; `ps`
+ * degrades gracefully to "no additional signal", never to "confirmed clear".
  *
- * Fail-safe: if BOTH probes error out (e.g. neither `lsof` nor `ps` is on
- * PATH, or both are denied), liveness is reported `undetermined` — callers
- * must treat this as "cannot safely repair", not as "confirmed not live".
+ * Fail-safe: if `lsof` itself doesn't run cleanly (missing, denied, or
+ * erroring) — regardless of what `ps` finds or doesn't find — liveness is
+ * reported `undetermined`. Callers must treat this as "cannot safely
+ * repair", not as "confirmed not live".
  */
 async function checkLockLiveness(
   lockPath: string,
   repoPath: string,
   deps: LockDependencies
 ): Promise<{ live: boolean; pid?: number; method: "lsof" | "ps" | "undetermined" }> {
-  let lsofRan = false;
+  let lsofRanCleanly = false;
   try {
     const { stdout } = await deps.execAsync(`lsof -t -- ${shellQuote(lockPath)}`);
-    lsofRan = true;
+    lsofRanCleanly = true;
     const pids = stdout
       .split("\n")
       .map((l) => l.trim())
@@ -117,10 +151,25 @@ async function checkLockLiveness(
     if (pids.length > 0) {
       return { live: true, pid: pids[0], method: "lsof" };
     }
-  } catch {
-    // lsof missing/denied/errored (including its normal "no match" non-zero
-    // exit on some platforms) — fall through to the `ps` secondary probe.
-    lsofRan = false;
+    // lsof ran cleanly, zero holders on THIS exact file — proceed to the ps
+    // probe purely for its additional positive-signal value (see doc above);
+    // its outcome cannot downgrade this clean-empty lsof result.
+  } catch (err) {
+    // lsof's OWN convention (verified empirically, macOS lsof 4.91) is to
+    // exit non-zero with EMPTY stdout AND stderr when it simply finds no
+    // matching open file descriptors — the same "no match" shape as `grep`.
+    // Node's `exec()` rejects on ANY non-zero exit regardless of this
+    // convention, so that clean "found nothing" case lands in this catch
+    // block indistinguishably from a REAL failure unless we look at what
+    // lsof actually emitted. A genuine failure always emits diagnostic text
+    // (confirmed: missing binary -> exit 127 + "command not found" on
+    // stderr; a malformed invocation or status error -> a message on
+    // stderr) — so empty stdout AND empty stderr is the reliable signal
+    // that this was a clean "zero holders" run, not a failure.
+    const execErr = err as { stdout?: unknown; stderr?: unknown };
+    const stdoutText = typeof execErr.stdout === "string" ? execErr.stdout : "";
+    const stderrText = typeof execErr.stderr === "string" ? execErr.stderr : "";
+    lsofRanCleanly = stdoutText.trim() === "" && stderrText.trim() === "";
   }
 
   try {
@@ -136,27 +185,34 @@ async function checkLockLiveness(
         return { live: true, pid: Number.parseInt(pidStr, 10), method: "ps" };
       }
     }
-    // ps ran cleanly and found no matching git process. Combined with a
-    // clean (even if inconclusive) lsof run above, this is a confident
-    // "not live" verdict.
-    return { live: false, method: "ps" };
   } catch {
-    // ps also failed. If lsof at least ran cleanly (even with zero PIDs),
-    // treat as a determined "not live" — lsof is the stronger of the two
-    // signals. Otherwise neither probe answered: undetermined.
-    return lsofRan ? { live: false, method: "lsof" } : { live: false, method: "undetermined" };
+    // ps failing changes nothing here — it was never trusted to establish a
+    // negative verdict on its own; fall through to the lsof-gated verdict.
   }
+
+  // Final verdict: "not live" is determined ONLY when lsof itself ran
+  // cleanly and found no holder on this exact file. ps's clean-but-no-match
+  // outcome is corroborating context, never the basis for the verdict —
+  // per the unreliability of cmdline substring matching documented above.
+  return lsofRanCleanly ? { live: false, method: "lsof" } : { live: false, method: "undetermined" };
 }
 
 /**
  * Detect a present `.git/index.lock` and report its age, size, and
  * owning-process liveness. Returns `null` when no lock is present.
+ *
+ * `staleThresholdMs` overrides `LOCK_STALE_THRESHOLD_MS` for this diagnosis
+ * (PR #1986 R1) — an operator running Minsky against a repo/host where
+ * legitimate operations routinely take longer (or shorter) than the 10-minute
+ * default may need a different bound; the default remains the
+ * incident-grounded value documented on `LOCK_STALE_THRESHOLD_MS`.
  */
 export async function detectIndexLock(
-  options: { repoPath?: string },
+  options: { repoPath?: string; staleThresholdMs?: number },
   deps: LockDependencies
 ): Promise<IndexLockInfo | null> {
   const repoPath = options.repoPath ?? validateProcess(process).cwd();
+  const staleThresholdMs = options.staleThresholdMs ?? LOCK_STALE_THRESHOLD_MS;
   const gitDir = await resolveGitDir(repoPath, deps);
   const lockPath = join(gitDir, "index.lock");
 
@@ -179,6 +235,10 @@ export async function detectIndexLock(
     livenessDetermined: liveness.method !== "undetermined",
     holderPid: liveness.pid,
     livenessMethod: liveness.method,
+    staleThresholdMs,
+    mtimeMs: stats.mtimeMs,
+    inode: stats.ino,
+    device: stats.dev,
   };
 }
 
@@ -197,8 +257,8 @@ export function formatLockDiagnostic(info: IndexLockInfo): string {
       info.holderPid ? ` (PID ${info.holderPid})` : ""
     }. Busy, not stale.`;
   }
-  const thresholdMinutes = (LOCK_STALE_THRESHOLD_MS / 60_000).toFixed(0);
-  const stale = info.ageMs >= LOCK_STALE_THRESHOLD_MS;
+  const thresholdMinutes = (info.staleThresholdMs / 60_000).toFixed(0);
+  const stale = info.ageMs >= info.staleThresholdMs;
   return `${info.lockPath} is ${ageMinutes}m old, ${size} — no owning process detected ${
     stale
       ? `and age exceeds the ${thresholdMinutes}m staleness threshold: eligible for repair.`
@@ -215,7 +275,7 @@ export function formatLockDiagnostic(info: IndexLockInfo): string {
  * `{removed: false}` result while assuming removal happened.
  */
 export async function repairIndexLock(
-  options: { repoPath?: string; confirm: boolean },
+  options: { repoPath?: string; confirm: boolean; staleThresholdMs?: number },
   deps: LockDependencies
 ): Promise<LockRepairResult> {
   if (!options.confirm) {
@@ -228,7 +288,10 @@ export async function repairIndexLock(
   }
 
   const repoPath = options.repoPath ?? validateProcess(process).cwd();
-  const info = await detectIndexLock({ repoPath }, deps);
+  const info = await detectIndexLock(
+    { repoPath, staleThresholdMs: options.staleThresholdMs },
+    deps
+  );
 
   if (!info) {
     return { lockPath: "", removed: false, reason: "no-lock-present" };
@@ -251,13 +314,67 @@ export async function repairIndexLock(
     );
   }
 
-  if (info.ageMs < LOCK_STALE_THRESHOLD_MS) {
+  if (info.ageMs < info.staleThresholdMs) {
     const ageMinutes = (info.ageMs / 60_000).toFixed(1);
-    const thresholdMinutes = (LOCK_STALE_THRESHOLD_MS / 60_000).toFixed(0);
+    const thresholdMinutes = (info.staleThresholdMs / 60_000).toFixed(0);
     throw new Error(
       `${info.lockPath} has no detected owning process but is only ${ageMinutes}m old ` +
         `(threshold: ${thresholdMinutes}m) — ambiguous, refusing to remove. If this lock is ` +
         `genuinely abandoned, retry once it has aged past the threshold, or verify manually.`
+    );
+  }
+
+  // TOCTOU guard (mt#2820 PR #1986 R1): everything above is a SNAPSHOT taken
+  // at `info`'s detection time. Between then and the unlink below, a
+  // legitimate process could have removed the abandoned lock and acquired a
+  // fresh one at the same path (e.g. the original owner finally exited
+  // cleanly and a new operation started immediately after), or a process
+  // could now hold the still-same lock open. Re-verify BOTH the file's
+  // identity (has it been replaced?) and its liveness (is it held now?)
+  // immediately before removal, and abort on ANY change rather than trusting
+  // the earlier snapshot.
+  let finalStats: Awaited<ReturnType<typeof stat>>;
+  try {
+    finalStats = await stat(info.lockPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+      // The lock disappeared on its own between detection and repair (e.g.
+      // the owning process finished and cleaned up, or a concurrent repair
+      // attempt already removed it) — nothing left to do, not an error.
+      return { lockPath: info.lockPath, removed: false, reason: "no-lock-present" };
+    }
+    throw err;
+  }
+
+  if (finalStats.ino !== info.inode || finalStats.dev !== info.device) {
+    throw new Error(
+      `${info.lockPath} was replaced between detection and repair (inode changed from ` +
+        `${info.inode} to ${finalStats.ino}) — a different process may have legitimately ` +
+        `acquired a new lock at this path since diagnosis. Aborting removal; re-diagnose ` +
+        `before retrying.`
+    );
+  }
+
+  if (finalStats.mtimeMs !== info.mtimeMs) {
+    throw new Error(
+      `${info.lockPath} was modified between detection and repair (mtime changed from ` +
+        `${info.mtimeMs} to ${finalStats.mtimeMs}) — a process may be actively writing to it. ` +
+        `Aborting removal; re-diagnose before retrying.`
+    );
+  }
+
+  const finalLiveness = await checkLockLiveness(info.lockPath, repoPath, deps);
+  if (finalLiveness.method === "undetermined") {
+    throw new Error(
+      `Cannot re-confirm ${info.lockPath}'s liveness immediately before removal (neither ` +
+        `\`lsof\` nor \`ps\` gave a conclusive answer on the final check) — aborting for safety.`
+    );
+  }
+  if (finalLiveness.live) {
+    throw new Error(
+      `${info.lockPath} is now held by a live process${
+        finalLiveness.pid ? ` (PID ${finalLiveness.pid})` : ""
+      } — acquired between detection and repair. Aborting removal.`
     );
   }
 
@@ -276,6 +393,8 @@ export interface LockAwareExecOptions {
   repoPath?: string;
   /** When true, auto-repair a stale index.lock (confirm-gated internally) and retry once. */
   repairLock?: boolean;
+  /** Overrides `LOCK_STALE_THRESHOLD_MS` for this call — see `detectIndexLock`. */
+  staleThresholdMs?: number;
 }
 
 /**
@@ -307,11 +426,21 @@ export async function runGitCommandWithLockHandling(
     if (options.repairLock) {
       // repairIndexLock throws its own descriptive error when the lock is
       // busy or ambiguous — let that propagate unchanged.
-      await repairIndexLock({ repoPath: options.repoPath, confirm: true }, deps);
+      await repairIndexLock(
+        {
+          repoPath: options.repoPath,
+          confirm: true,
+          staleThresholdMs: options.staleThresholdMs,
+        },
+        deps
+      );
       return await deps.execAsync(command);
     }
 
-    const info = await detectIndexLock({ repoPath: options.repoPath }, deps);
+    const info = await detectIndexLock(
+      { repoPath: options.repoPath, staleThresholdMs: options.staleThresholdMs },
+      deps
+    );
     throw new Error(
       `Git operation blocked by index.lock.\n` +
         `${info ? formatLockDiagnostic(info) : "(lock disappeared between failure and diagnosis)"}\n\n` +

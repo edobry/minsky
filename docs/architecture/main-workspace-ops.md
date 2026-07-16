@@ -200,7 +200,31 @@ incident data — the originating lock was zero-byte and ~22 hours old when
 discovered; every git\_\* main-workspace op this repairs is a short local
 operation that never legitimately holds the lock anywhere near that long).
 A lock held by a live process is reported busy and never removed, regardless
-of the `confirm` param.
+of the `confirm` param. The 10-minute default can be overridden per-call via
+`staleThresholdMs` (ms) on `git_repair_lock`, for environments whose
+legitimate git\_\* operations routinely run longer or shorter than the
+incident-grounded default.
+
+**Liveness determination (PR #1986 R1).** Only `lsof -t -- <lockfile>` —
+which inspects the lock file's own open file descriptors directly — is
+trusted to declare "not live"; a clean run finding zero holders is
+self-sufficient. The secondary `ps`-based probe (scanning for a running
+`git` process whose command line references the repo path) is
+**positive-only**: a match adds an extra "live" signal, but the absence of a
+match is never used to confirm "not live," since command-line substring
+matching is unreliable (a process invoked with a relative path, or already
+`cd`'d into the repo with no `-C <path>` argument, has no textual reference
+to the repo path at all). If `lsof` itself can't run cleanly (missing,
+denied, erroring), liveness is `undetermined` regardless of what `ps` finds
+— repair refuses rather than trusting the weaker signal alone.
+
+**Pre-unlink TOCTOU guard (PR #1986 R1).** Between diagnosis and removal, a
+legitimate process could have replaced the lock (finished, cleaned up, and a
+new operation acquired a fresh lock at the same path) or newly acquired the
+still-same lock. `git_repair_lock`'s repair path re-stats the lock
+immediately before unlinking — comparing inode, device, and mtime against
+the diagnosis snapshot — and re-runs the liveness check one more time,
+aborting on ANY change rather than trusting the earlier snapshot.
 
 ```
 1. Diagnose (read-only):

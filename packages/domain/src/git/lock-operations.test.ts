@@ -200,6 +200,138 @@ describe("detectIndexLock / repairIndexLock — lock held by a LIVE process", ()
   }, 15000);
 });
 
+describe("checkLockLiveness hardening (PR #1986 R1)", () => {
+  test(
+    "ambiguous cmdline: a live git process whose cmdline lacks the repo path verbatim " +
+      "is NOT enough to confirm 'not live' — undetermined, refuses to remove",
+    async () => {
+      await writeFile(lockPath, "");
+      const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
+      await utimes(lockPath, staleTime, staleTime);
+
+      try {
+        // Simulate: lsof is unavailable (genuinely fails — non-empty stderr,
+        // unlike its own clean "no match" convention), AND ps finds a real
+        // git process running for THIS repo but invoked without `-C
+        // <repoPath>` (e.g. already cwd'd into the repo) — so its cmdline
+        // has no textual reference to repoPath. Before PR #1986 R1, ps's
+        // failure to match would have produced a confident (and WRONG)
+        // "not live" verdict, purely because the repo path wasn't a
+        // substring of the process's cmdline.
+        const deps = {
+          execAsync: async (command: string) => {
+            if (command.startsWith("git -C") && command.includes("rev-parse")) {
+              return realExec(command);
+            }
+            if (command.startsWith("lsof")) {
+              throw Object.assign(new Error("Command failed"), {
+                stdout: "",
+                stderr: "lsof: permission denied inspecting process table\n",
+              });
+            }
+            if (command.startsWith("ps -A")) {
+              // A real git process for this exact repo, but its cmdline has
+              // NO substring match for repoPath (relative-path invocation).
+              return { stdout: "54321 git status\n", stderr: "" };
+            }
+            throw new Error(`unexpected command in test mock: ${command}`);
+          },
+        };
+
+        const info = await detectIndexLock({ repoPath }, deps);
+        if (!info) throw new Error("expected index.lock to be detected");
+        expect(info.livenessDetermined).toBe(false);
+        expect(info.livenessMethod).toBe("undetermined");
+        // The conservative default — callers must NOT trust this as "safe
+        // to delete" precisely because livenessDetermined is false.
+        expect(info.liveProcess).toBe(false);
+
+        const diagnostic = formatLockDiagnostic(info);
+        expect(diagnostic).toContain("could not be");
+
+        await expect(repairIndexLock({ repoPath, confirm: true }, deps)).rejects.toThrow(
+          /Cannot determine whether .* is held by a live process/
+        );
+        expect(existsSync(lockPath)).toBe(true);
+      } finally {
+        await rm(lockPath, { force: true });
+      }
+    }
+  );
+});
+
+describe("repairIndexLock TOCTOU guard (PR #1986 R1)", () => {
+  test("lock replaced between detection and removal is aborted, not removed", async () => {
+    await writeFile(lockPath, "");
+    const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
+    await utimes(lockPath, staleTime, staleTime);
+
+    let callCount = 0;
+    let swapped = false;
+    const deps = {
+      execAsync: async (command: string) => {
+        callCount++;
+        const result = await realExec(command);
+        // Right after the INITIAL detection's last call (its `ps` probe —
+        // call #3: rev-parse=1, lsof=2, ps=3) completes, simulate a
+        // legitimate process replacing the lock in the window between our
+        // detection and our unlink: remove the diagnosed (stale) lock and
+        // create a NEW one at the same path. A real `rm` + `writeFile`
+        // always allocates a fresh inode, modeling a genuine independent
+        // acquisition rather than the same file being untouched.
+        if (!swapped && command.startsWith("ps -A") && callCount === 3) {
+          swapped = true;
+          await rm(lockPath, { force: true });
+          await writeFile(lockPath, "");
+          // Keep the same (stale-looking) mtime so the guard's catch is
+          // attributable to the IDENTITY (inode) check specifically, not
+          // merely a coincidental mtime discrepancy.
+          await utimes(lockPath, staleTime, staleTime);
+        }
+        return result;
+      },
+    };
+
+    try {
+      await expect(repairIndexLock({ repoPath, confirm: true }, deps)).rejects.toThrow(
+        /replaced between detection and repair/
+      );
+      // The NEW ("legitimately re-acquired") lock must survive untouched.
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      await rm(lockPath, { force: true });
+    }
+  });
+
+  test("lock removed by its own owner between detection and removal is a no-op, not an error", async () => {
+    await writeFile(lockPath, "");
+    const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
+    await utimes(lockPath, staleTime, staleTime);
+
+    let callCount = 0;
+    let removed = false;
+    const deps = {
+      execAsync: async (command: string) => {
+        callCount++;
+        const result = await realExec(command);
+        if (!removed && command.startsWith("ps -A") && callCount === 3) {
+          removed = true;
+          await rm(lockPath, { force: true });
+        }
+        return result;
+      },
+    };
+
+    try {
+      const result = await repairIndexLock({ repoPath, confirm: true }, deps);
+      expect(result.removed).toBe(false);
+      expect(result.reason).toBe("no-lock-present");
+    } finally {
+      await rm(lockPath, { force: true });
+    }
+  });
+});
+
 describe("runGitCommandWithLockHandling", () => {
   test("passes through non-lock errors unchanged", async () => {
     const deps = {

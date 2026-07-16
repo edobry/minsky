@@ -29,7 +29,7 @@ import {
 import { restoreImpl, type RestoreResult } from "./restore-operations";
 import { resetImpl, type ResetResult } from "./reset-operations";
 import { gitStatsImpl, type GitStatsResult } from "./stats-operations";
-import { detectIndexLock, repairIndexLock, LOCK_STALE_THRESHOLD_MS } from "./lock-operations";
+import { detectIndexLock, repairIndexLock } from "./lock-operations";
 import {
   checkRef,
   scanForBadRefs,
@@ -392,14 +392,23 @@ export interface GitLockRepairFromParamsResult {
 export async function repairGitLockFromParams(params: {
   repo?: string;
   confirm?: boolean;
+  /**
+   * Override `LOCK_STALE_THRESHOLD_MS` for this call (PR #1986 R1). Useful
+   * when an operator's environment routinely runs git_* ops longer than the
+   * 10-minute incident-grounded default (or wants a tighter bound).
+   */
+  staleThresholdMs?: number;
 }): Promise<GitLockRepairFromParamsResult> {
-  const info = await detectIndexLock({ repoPath: params.repo }, defaultExecDeps);
+  const info = await detectIndexLock(
+    { repoPath: params.repo, staleThresholdMs: params.staleThresholdMs },
+    defaultExecDeps
+  );
   if (!info) {
     return { present: false, removed: false, message: "No index.lock present." };
   }
 
   const staleEligible =
-    info.livenessDetermined && !info.liveProcess && info.ageMs >= LOCK_STALE_THRESHOLD_MS;
+    info.livenessDetermined && !info.liveProcess && info.ageMs >= info.staleThresholdMs;
 
   const base = {
     present: true,
@@ -425,7 +434,10 @@ export async function repairGitLockFromParams(params: {
     };
   }
 
-  const result = await repairIndexLock({ repoPath: params.repo, confirm: true }, defaultExecDeps);
+  const result = await repairIndexLock(
+    { repoPath: params.repo, confirm: true, staleThresholdMs: params.staleThresholdMs },
+    defaultExecDeps
+  );
   return {
     ...base,
     removed: result.removed,

@@ -742,6 +742,11 @@
               "description": "Set to true to attempt removal. The lock is ONLY removed when provably stale (no live owning process AND age above the staleness threshold); otherwise the call throws describing why (busy, or ambiguous — present but not yet stale-eligible). Omit to just inspect the lock's diagnostic without mutating anything.",
               "takesValue": true,
               "values": ["true"]
+            },
+            {
+              "flags": ["--stale-threshold-ms"],
+              "description": "Override the default 10-minute staleness threshold (LOCK_STALE_THRESHOLD_MS) for this call. Use when an environment's legitimate git_* operations routinely run longer or shorter than the incident-grounded default.",
+              "takesValue": true
             }
           ]
         },

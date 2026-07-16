@@ -617,6 +617,14 @@ const repairLockCommandParams = composeParams(
         "inspect the lock's diagnostic without mutating anything.",
       required: false,
     },
+    staleThresholdMs: {
+      schema: z.number().int().positive(),
+      description:
+        "Override the default 10-minute staleness threshold (LOCK_STALE_THRESHOLD_MS) for " +
+        "this call. Use when an environment's legitimate git_* operations routinely run longer " +
+        "or shorter than the incident-grounded default.",
+      required: false,
+    },
   }
 ) satisfies CommandParameterMap;
 
@@ -1436,7 +1444,11 @@ export function registerGitCommands(container?: AppContainerInterface): void {
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
-      const result = await repairGitLockFromParams({ repo, confirm: params.confirm });
+      const result = await repairGitLockFromParams({
+        repo,
+        confirm: params.confirm,
+        staleThresholdMs: params.staleThresholdMs,
+      });
 
       return {
         success: true,
