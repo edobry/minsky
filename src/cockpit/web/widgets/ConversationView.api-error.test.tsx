@@ -47,6 +47,18 @@ function assistantTextBlock(index: number, text: string): SessionContextSnapshot
   };
 }
 
+function userTextBlock(index: number, text: string): SessionContextSnapshotBlock {
+  return {
+    id: `block-${index}`,
+    type: "user-prompt",
+    source: "observed",
+    content: { role: "user", content: text },
+    timestamp: ts(index),
+    turnIndex: index,
+    rawJsonlType: "user",
+  };
+}
+
 function snapshotWithBlocks(blocks: SessionContextSnapshotBlock[]): SessionContextSnapshot {
   return {
     agentSessionId: "agent-api-error-test",
@@ -67,6 +79,14 @@ describe("ConversationView — API-error text styling (mt#2793)", () => {
     expect(alert).not.toBeNull();
     expect(alert?.textContent).toContain("API Error: Connection closed mid-response.");
     expect(container.querySelector(".text-destructive")).not.toBeNull();
+  });
+
+  test("a USER turn starting with 'API Error:' stays unstyled — assistant-only scoping (PR #1973 R1)", () => {
+    const { container } = renderCV(
+      snapshotWithBlocks([userTextBlock(0, "API Error: what does this message mean?")])
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("API Error: what does this message mean?");
   });
 
   test("prose that merely mentions 'API Error' mid-sentence stays unstyled", () => {

@@ -609,10 +609,13 @@ function isApiErrorText(text: string): boolean {
 
 function ElementView({
   element,
+  role,
   entityIndex,
   expandSignal,
 }: {
   element: PreparedElement;
+  /** Turn role — scopes assistant-only treatments (e.g. API-error styling). */
+  role: ConversationRole;
   /** Known-entity id-set for linkification of bare refs and minsky:// URIs. */
   entityIndex: EntityIndex;
   expandSignal: ExpandSignal;
@@ -625,7 +628,9 @@ function ElementView({
       // A harness-emitted "API Error: …" turn gets destructive-toned treatment
       // (semantic `destructive` token only, per src/cockpit/CLAUDE.md §status
       // colors) so a terminal failure is visible without reading every turn.
-      if (isApiErrorText(element.text)) {
+      // Scoped to ASSISTANT turns (PR #1973 R1): the harness emits these as
+      // assistant output; a user asking about an "API Error:" is ordinary prose.
+      if (role === "assistant" && isApiErrorText(element.text)) {
         return (
           <div role="alert" className="rounded border border-destructive/40 bg-destructive/5 px-2 py-1">
             <Prose entityIndex={entityIndex} className="text-destructive">
@@ -692,7 +697,13 @@ function TurnView({
   const rendered = turn.elements
     .map((element, i) => {
       const node = (
-        <ElementView key={i} element={element} entityIndex={entityIndex} expandSignal={expandSignal} />
+        <ElementView
+          key={i}
+          element={element}
+          role={turn.role}
+          entityIndex={entityIndex}
+          expandSignal={expandSignal}
+        />
       );
       return node;
     })
