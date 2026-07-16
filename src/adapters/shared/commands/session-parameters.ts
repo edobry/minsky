@@ -218,6 +218,11 @@ export const sessionInspectCommandParams = {
 export const sessionCommitCommandParams = composeParams(
   {
     sessionId: SessionParameters.sessionId,
+    // mt#2816: convenience-resolution alias — same semantics as
+    // session_start/session_exec (`task` resolves to the session bound to
+    // that task via resolveSessionIdForCommand). sessionId still wins when
+    // both are supplied.
+    task: CommonParameters.task,
     json: CommonParameters.json,
   },
   {
