@@ -124,10 +124,20 @@ async function main() {
   // Enumerate PRs touched within the window. Sort by updated desc; stop once
   // we've seen a full page entirely before windowStart (buffer: 1 extra page
   // past the boundary to tolerate out-of-order updates).
+  //
+  // Soundness note: a review submission always bumps the PR's `updated_at`
+  // (GitHub treats it as a PR-timeline event), so `updated_at >= windowStart`
+  // is a safe superset filter for "has a review in the window" — it can
+  // over-include (a PR updated by something else) but not silently
+  // under-include a PR whose only in-window activity was a review. The one
+  // real gap is the hard page cap below: if a candidate lives past page
+  // `maxPages`, it's dropped and the result under-counts. Warn explicitly
+  // when that happens instead of silently truncating.
   const candidatePrNumbers: number[] = [];
   let page = 1;
   let sawPastBoundary = false;
   const maxPages = 20; // hard cap: 2000 PRs, generous for a 3-week window
+  let pageCapHit = false;
   while (page <= maxPages) {
     const { data: prs } = await octokit.rest.pulls.list({
       owner: OWNER,
@@ -152,8 +162,20 @@ async function main() {
     if (!anyInWindow) {
       if (sawPastBoundary) break;
       sawPastBoundary = true;
+    } else if (page === maxPages) {
+      // The last allowed page STILL had in-window PRs — the window extends
+      // past the cap, so enumeration was truncated.
+      pageCapHit = true;
     }
     page++;
+  }
+
+  if (pageCapHit) {
+    console.warn(
+      `WARNING: hit the ${maxPages}-page enumeration cap (${maxPages * 100} PRs) while PRs updated ` +
+        `in the window were still present on the last page. The candidate set below is TRUNCATED — ` +
+        `totals are a floor, not an exact count. Narrow the window (--days) or raise maxPages to fix.`
+    );
   }
 
   console.log(`Candidate PRs touched in window: ${candidatePrNumbers.length}`);
