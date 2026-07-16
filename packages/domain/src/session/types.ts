@@ -182,6 +182,10 @@ export interface Session {
   taskId?: string;
   /** Computed liveness status derived from lastActivityAt and session status */
   liveness?: SessionLiveness;
+  /** Timestamp of last recorded session activity (mt#951). */
+  lastActivityAt?: string;
+  /** Local-Minsky-only operator-interface binding (mt#1628). See SessionRecord.interfaceBinding. */
+  interfaceBinding?: InterfaceBinding;
   backendType?: "github" | "gitlab" | "bitbucket";
   github?: {
     owner?: string;

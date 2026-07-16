@@ -15,4 +15,4 @@ export {
   type RunItermCorrelationPassDeps,
   type RunItermCorrelationPassResult,
 } from "./iterm-correlator";
-export { resolveInterfaceBinding } from "./read";
+export { resolveInterfaceBinding, type InterfaceBindingSource } from "./read";
