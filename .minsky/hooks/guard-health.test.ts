@@ -310,6 +310,55 @@ describe("computeGuardHealthSummary", () => {
     expect(summary.escalation).toBe("critical");
   });
 
+  // mt#2814: without a recency check, a streak computed purely from
+  // gaps-between-past-events never resets once the log stops receiving new
+  // events for a guard, so a stale historical streak pins its escalation
+  // tier forever (observed on mt#2812's own acceptance-test fixture guard
+  // name "throws" — a name that only ever fires during test runs).
+  test("a streak whose LAST event is older than STREAK_RESET_GAP_MS ages out to 0 (mt#2814)", () => {
+    const now = new Date("2026-07-16T12:00:00.000Z");
+    // 3 consecutive failures, all clustered together, but the whole cluster
+    // is more than 24h in the past relative to `now` — no NEW event since.
+    const staleCluster = new Date(now.getTime() - STREAK_RESET_GAP_MS - 60 * 60 * 1000); // 25h ago
+    const summary = computeGuardHealthSummary(
+      [
+        makeEvent({
+          guardName: "throws",
+          timestamp: new Date(staleCluster.getTime()).toISOString(),
+        }),
+        makeEvent({
+          guardName: "throws",
+          timestamp: new Date(staleCluster.getTime() + 60 * 1000).toISOString(),
+        }),
+        makeEvent({
+          guardName: "throws",
+          timestamp: new Date(staleCluster.getTime() + 120 * 1000).toISOString(),
+        }),
+      ],
+      now
+    );
+    expect(summary.byGuard["throws"]?.consecutiveStreak).toBe(0);
+    expect(summary.byGuard["throws"]?.escalation).toBe("none");
+    expect(summary.escalation).toBe("none");
+    expect(summary.criticalGuards).toEqual([]);
+  });
+
+  test("a streak whose last event is EXACTLY at the STREAK_RESET_GAP_MS boundary does not age out", () => {
+    const now = new Date("2026-07-16T12:00:00.000Z");
+    const lastEventTs = new Date(now.getTime() - STREAK_RESET_GAP_MS).toISOString();
+    const summary = computeGuardHealthSummary(
+      [
+        makeEvent({ guardName: "boundary-guard", timestamp: lastEventTs }),
+        makeEvent({ guardName: "boundary-guard", timestamp: lastEventTs }),
+        makeEvent({ guardName: "boundary-guard", timestamp: lastEventTs }),
+      ],
+      now
+    );
+    // Exactly at the boundary (not strictly greater than) — still counts.
+    expect(summary.byGuard["boundary-guard"]?.consecutiveStreak).toBe(3);
+    expect(summary.byGuard["boundary-guard"]?.escalation).toBe("critical");
+  });
+
   test("failureCount24h / failureCount7d window correctly", () => {
     const now = new Date("2026-07-14T12:00:00.000Z");
     const summary = computeGuardHealthSummary(

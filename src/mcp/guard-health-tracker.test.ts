@@ -27,6 +27,7 @@ import {
   computeGuardHealthSummary,
   ATTENTION_STREAK_THRESHOLD,
   CRITICAL_STREAK_THRESHOLD,
+  STREAK_RESET_GAP_MS,
   type GuardHealthEvent,
 } from "./guard-health-tracker";
 
@@ -95,6 +96,31 @@ describe("computeGuardHealthSummary", () => {
     expect(summary.byGuard["test-guard"]?.escalation).toBe("critical");
     expect(summary.criticalGuards).toEqual(["test-guard"]);
     expect(summary.escalation).toBe("critical");
+  });
+
+  // mt#2814: a test-fixture guard name (e.g. mt#2812's own acceptance-test
+  // events, guardName "throws") whose log entries stop updating must not pin
+  // CRITICAL forever — the streak ages out once its last event is stale.
+  test("a streak whose last event is older than STREAK_RESET_GAP_MS ages out to 0 (mt#2814)", () => {
+    const now = new Date("2026-07-16T12:00:00.000Z");
+    const staleCluster = now.getTime() - STREAK_RESET_GAP_MS - 60 * 60 * 1000; // 25h ago
+    const summary = computeGuardHealthSummary(
+      [
+        makeEvent({ guardName: "throws", timestamp: new Date(staleCluster).toISOString() }),
+        makeEvent({
+          guardName: "throws",
+          timestamp: new Date(staleCluster + 60_000).toISOString(),
+        }),
+        makeEvent({
+          guardName: "throws",
+          timestamp: new Date(staleCluster + 120_000).toISOString(),
+        }),
+      ],
+      now
+    );
+    expect(summary.byGuard["throws"]?.consecutiveStreak).toBe(0);
+    expect(summary.byGuard["throws"]?.escalation).toBe("none");
+    expect(summary.criticalGuards).toEqual([]);
   });
 });
 
