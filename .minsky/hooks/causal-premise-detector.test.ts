@@ -240,6 +240,39 @@ The migration would fail since the permission flag is not set.`;
       expect(result.matched).toBe(false);
       expect(result.hadSameTurnVerification).toBe(true);
     });
+
+    // R1 review finding: no test asserted the mechanism-proximity gate still
+    // applies to the new inductive/correlational category — i.e. the phrase
+    // shape alone is not sufficient; a mechanism term must co-occur within
+    // 500 chars, exactly like RETRODICTIVE_PATTERNS/FORWARD_PATTERNS.
+    test("does NOT flag A/B phrasing with no mechanism term in proximity", () => {
+      const text = `Three attempts in a row failed, while the fourth succeeded. The one remaining difference was the time of day I ran them.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(false);
+      expect(result.hadSameTurnVerification).toBe(false);
+    });
+
+    // R1 review finding: claimed the `working director(y|ies)` mechanism
+    // pattern "matches plural 'directories' but not possessive/singular
+    // variants used in tests/docs". Verified against the actual regex
+    // (`bun -e` against the compiled MECHANISM_PATTERNS export) before
+    // responding — per check-premise, the cheapest falsifier is running the
+    // regex, not re-reading it — and the possessive/singular form already
+    // matches (`\bworking\s+director(?:y|ies)\b` covers "directory" via the
+    // `y` alternative same as "directories" via `ies`; `\b` does not require
+    // the preceding token to be non-possessive). This is a VERIFIED FALSE
+    // POSITIVE, not a regex bug — encoded here as an explicit assertion
+    // (rather than only the incidental coverage in the turn-133 replay
+    // above) so the claim cannot recur ambiguously.
+    test("mechanism proximity matches the possessive singular 'daemon's working directory' form", () => {
+      const text = `The one remaining difference is the tray daemon's working directory.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+    });
   });
 });
 
