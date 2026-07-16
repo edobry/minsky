@@ -173,6 +173,32 @@ function JsonNode({
   return <span className="text-muted-foreground">{String(value)}</span>;
 }
 
+// Cap on the number of object keys named in a collapsed-node preview (mt#2793).
+// Above the cap the remaining keys collapse to a trailing ellipsis.
+const KEY_PREVIEW_CAP = 4;
+
+/** Object-key preview for a collapsed node: `id, title, status, …`. */
+function keyPreview(entries: Array<[string, unknown]>): string {
+  const keys = entries.map(([k]) => k);
+  const shown = keys.slice(0, KEY_PREVIEW_CAP);
+  return keys.length > KEY_PREVIEW_CAP ? `${shown.join(", ")}, …` : shown.join(", ");
+}
+
+/** One array element's shape, for the collapsed-array preview. */
+function elementKind(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "[…]";
+  if (typeof v === "object") return "{…}";
+  return typeof v; // "string" | "number" | "boolean" | "undefined"
+}
+
+/** Array preview for a collapsed node: `3 × {…}` (length + element kind; "mixed" when heterogeneous). */
+function arrayPreview(arr: unknown[]): string {
+  const kinds = new Set(arr.map(elementKind));
+  const kind = kinds.size === 1 ? [...kinds][0] : "mixed";
+  return `${arr.length} × ${kind}`;
+}
+
 function CollapsibleNode({
   value,
   entityIndex,
@@ -199,6 +225,10 @@ function CollapsibleNode({
     );
   }
 
+  // Collapsed-state preview (mt#2793): a hint of contents instead of a bare
+  // key count, so tree scanning is possible without expanding every node.
+  const collapsedPreview = isArray ? arrayPreview(value as unknown[]) : keyPreview(entries);
+
   return (
     <div>
       <button
@@ -207,7 +237,7 @@ function CollapsibleNode({
         className="text-muted-foreground hover:text-foreground"
       >
         <span aria-hidden>{open ? "▾" : "▸"}</span> {openCh}
-        {open ? "" : ` … ${entries.length} ${closeCh}`}
+        {open ? "" : ` ${collapsedPreview} ${closeCh}`}
       </button>
       {open && (
         <div className="ml-1 border-l border-border/30 pl-3">

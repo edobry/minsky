@@ -49,6 +49,54 @@ describe("JsonView — Tier 1 (structure)", () => {
   });
 });
 
+describe("JsonView — collapsed-node key previews (mt#2793)", () => {
+  test("collapsed object shows up to 4 key names + ellipsis", () => {
+    const { container, getAllByRole } = renderTree(
+      <JsonView data={{ a: 1, b: 2, c: 3, d: 4, e: 5 }} />
+    );
+    fireEvent.click(getAllByRole("button")[0]); // collapse the root node
+    expect(container.textContent).toContain("a, b, c, d, …");
+    // The 5th key is elided, not just truncated silently.
+    expect(container.textContent).not.toContain("a, b, c, d, e");
+  });
+
+  test("collapsed object with <=4 keys shows all keys, no ellipsis", () => {
+    const { container, getAllByRole } = renderTree(<JsonView data={{ a: 1, b: 2 }} />);
+    fireEvent.click(getAllByRole("button")[0]);
+    expect(container.textContent).toContain("a, b");
+    expect(container.textContent).not.toContain("…");
+  });
+
+  test("collapsed array shows length and element kind (primitives)", () => {
+    const { container, getAllByRole } = renderTree(<JsonView data={[1, 2, 3]} />);
+    fireEvent.click(getAllByRole("button")[0]);
+    expect(container.textContent).toContain("3 × number");
+  });
+
+  test("collapsed array of objects shows the {…} element kind", () => {
+    const { container, getAllByRole } = renderTree(
+      <JsonView data={[{ x: 1 }, { y: 2 }, { z: 3 }]} />
+    );
+    fireEvent.click(getAllByRole("button")[0]);
+    expect(container.textContent).toContain("3 × {…}");
+  });
+
+  test("collapsed array with heterogeneous elements shows 'mixed'", () => {
+    const { container, getAllByRole } = renderTree(<JsonView data={[1, "two", { x: 3 }]} />);
+    fireEvent.click(getAllByRole("button")[0]);
+    expect(container.textContent).toContain("3 × mixed");
+  });
+
+  test("expanded nodes are unaffected — full keys and values still render", () => {
+    // Root is at depth 0 (< 2), so it starts open by default: no collapse
+    // needed to observe unchanged expanded behavior.
+    const { container } = renderTree(<JsonView data={{ a: 1, b: 2, c: 3, d: 4, e: 5 }} />);
+    expect(container.textContent).toContain("a");
+    expect(container.textContent).toContain("e");
+    expect(container.textContent).toContain("5");
+  });
+});
+
 describe("JsonView — Tier 2 (entity-enriched leaves)", () => {
   test("a known entity ref in a string value becomes an in-SPA link", () => {
     const { container } = renderTree(

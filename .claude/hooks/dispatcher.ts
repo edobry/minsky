@@ -47,6 +47,8 @@ import {
   findValidGuardGrant,
 } from "./guard-grant-store";
 import type { GuardGrant } from "./guard-grant-store";
+import { recordGuardError } from "./guard-health";
+import type { RecordGuardHealthInput } from "./guard-health";
 
 // ---------------------------------------------------------------------------
 // D3 — unified override mechanism
@@ -366,6 +368,14 @@ export interface RunDispatcherOptions {
     input: Pick<ToolHookInput, "transcript_path" | "agent_id">,
     opts: { hookFilename: string }
   ) => DispatchContext;
+  /**
+   * Injectable for tests — defaults to the real `recordGuardError` from
+   * `./guard-health` (mt#2812). Called from the guard-loop catch block
+   * whenever a matched guard's `mod.run()` throws, IN ADDITION to the
+   * existing stderr line — the automatic, zero-per-guard-changes capture
+   * path for every guard registered in `GUARD_REGISTRY`.
+   */
+  recordGuardErrorFn?: (input: RecordGuardHealthInput & { error: unknown }) => void;
 }
 
 /**
@@ -400,6 +410,7 @@ export async function runDispatcher(
   const resolveContext =
     options.resolveDispatchContextFn ??
     ((evt, input, opts) => resolveDispatchContext(evt, input, opts));
+  const recordError = options.recordGuardErrorFn ?? recordGuardError;
 
   const input = await readInputFn();
   const matched = getGuardsForEvent(registrations, event, input.tool_name);
@@ -427,6 +438,17 @@ export async function runDispatcher(
       stderrWrite(
         `[dispatcher:${event}] guard=${reg.name} threw: ${err instanceof Error ? err.message : String(err)}\n`
       );
+      // mt#2812: capture the crash for guard-health aggregation, in addition
+      // to the stderr line above. Best-effort — recordGuardError never
+      // throws, so a broken guard-health log can never disable a guard or
+      // block the dispatcher loop.
+      recordError({
+        guardName: reg.name,
+        event,
+        error: err,
+        toolName: input.tool_name,
+        sessionId: input.session_id,
+      });
       continue;
     }
     if (!outcome) continue;
