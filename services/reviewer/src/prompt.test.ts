@@ -961,6 +961,49 @@ describe("buildReviewPrompt — reviewThreads injection (mt#1345)", () => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe("buildReviewPrompt — authorCommitsSinceLastReview injection (mt#2836)", () => {
+  const COMMITS_HEADING = "## Commits Since Last Review";
+  const baseInput: ReviewPromptInput = {
+    prNumber: 42,
+    prTitle: "My PR",
+    prBody: "Some description.",
+    taskSpec: null,
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/mt-2836",
+    baseBranch: "main",
+  };
+
+  test("omits the section when authorCommitsSinceLastReview is undefined", () => {
+    const prompt = buildReviewPrompt(baseInput);
+    expect(prompt).not.toContain(COMMITS_HEADING);
+  });
+
+  test("omits the section when authorCommitsSinceLastReview is an empty string", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, authorCommitsSinceLastReview: "" });
+    expect(prompt).not.toContain(COMMITS_HEADING);
+  });
+
+  test("injects the section when authorCommitsSinceLastReview is present", () => {
+    const markdown =
+      "## Commits Since Last Review (1)\n\n- `abcd1234`: fix(mt#2789): add PG17 psql transcript";
+    const prompt = buildReviewPrompt({ ...baseInput, authorCommitsSinceLastReview: markdown });
+    expect(prompt).toContain(COMMITS_HEADING);
+    expect(prompt).toContain("PG17 psql transcript");
+  });
+
+  test("the section appears before the Diff section", () => {
+    const markdown = "## Commits Since Last Review (1)\n\n- `abcd1234`: fix: something";
+    const prompt = buildReviewPrompt({ ...baseInput, authorCommitsSinceLastReview: markdown });
+    const commitsIdx = prompt.indexOf(COMMITS_HEADING);
+    const diffIdx = prompt.indexOf("## Diff");
+    expect(commitsIdx).toBeGreaterThan(0);
+    expect(commitsIdx).toBeLessThan(diffIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mt#2058: Critic Constitution disciplines extension
 // ---------------------------------------------------------------------------
 
