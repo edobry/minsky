@@ -22,6 +22,7 @@ import {
   Terminal,
   AppWindow,
   Unlink,
+  Anchor,
   X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
@@ -74,6 +75,15 @@ export interface AgentRow {
   driven: { sessionId: string; status: string } | null;
   /** Attachment-state indicator (mt#2286) — see the RowAttachState doc comment above. */
   attachState: RowAttachState | null;
+  /**
+   * Local-Minsky-only iTerm-tab binding (mt#1628). Distinct question from
+   * `attachState`: attachState says "is *something* self-registered as
+   * live"; this says "specifically, is a currently-open iTerm2 tab bound to
+   * this session." `null` for non-workspace rows (driven/conversation
+   * rows); `{ kind: "unbound" }` for a workspace row that has never been
+   * observed as bound (the server-side default, not "no data").
+   */
+  interfaceBinding: { kind: string; surfaceId?: string; lastObservedAt: string } | null;
 }
 
 interface AgentsPayload {
@@ -557,6 +567,26 @@ function AttachStateIndicator({ state }: { state: AgentRow["attachState"] }) {
 }
 
 /**
+ * Lightweight iTerm-tab-binding indicator (mt#1628 v0). Distinct from
+ * `AttachStateIndicator` above — see the field doc comment on
+ * `AgentRow.interfaceBinding`. Renders only for the confirmed-bound case
+ * (`kind: "iterm-tab"`); an `unbound` session shows no icon at all, matching
+ * this row's already-established "absence communicates the negative state"
+ * convention (see `AttachStateIndicator`'s `detached` case, which DOES
+ * render, but dimmed — this is deliberately even lighter-weight per the
+ * task spec's "lightweight cockpit hook" framing for v0).
+ */
+function InterfaceBindingIndicator({ binding }: { binding: AgentRow["interfaceBinding"] }) {
+  if (binding == null || binding.kind !== "iterm-tab") return null;
+  const label = "Bound to a live iTerm2 tab";
+  return (
+    <span title={label} aria-label={label} className="flex-shrink-0 text-muted-foreground">
+      <Anchor className="h-3 w-3" />
+    </span>
+  );
+}
+
+/**
  * The explicit "go to" row action (mt#2286). Rendered as a SIBLING of the
  * row's main Link/button, not nested inside it — the row already nests a
  * DrivenChip <Link> inside the outer row <Link> (pre-existing), and adding a
@@ -727,6 +757,10 @@ function AgentRowItem({
           dot and the live-tail pulse; null (hidden) for every kind other
           than dispatched-agent. */}
       <AttachStateIndicator state={agent.attachState} />
+
+      {/* iTerm-tab binding indicator (mt#1628 v0) — local-Minsky-only;
+          hidden (renders null) for unbound/non-workspace rows. */}
+      <InterfaceBindingIndicator binding={agent.interfaceBinding} />
 
       {/* Primary label: task title when available, branch/sessionId as fallback.
           The taskId secondary line gives the operator the canonical reference. */}
