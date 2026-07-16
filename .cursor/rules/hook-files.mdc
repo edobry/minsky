@@ -26,7 +26,10 @@ doc); narration lives in the linked doc.
 A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
 entrypoints) so multiple guards share ONE spawned Bun process per event; only
 `GUARD_REGISTRY`-listed guards run through it. Migrated: `check-guessed-session-path` (Phase 1, mt#2650);
-the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc). `policy-coverage-detector` is NOT in this family: it is registered on
+the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc) plus
+`guard-health-escalation-detector` (mt#2812, a new guard registered directly, not part of the
+Phase 2 legacy-settings.json migration — 16 guards total in this family as of mt#2812).
+`policy-coverage-detector` is NOT in this family: it is registered on
 `PreToolUse` (both phases' specs named it — recorded spec discrepancy). Every other guard
 below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md`, ADR-028.
 
@@ -272,3 +275,30 @@ valid, unexpired capability grant (ADR-028 D5 default-deny). Grant before dispat
 `MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on GENUINE grant-store read errors — a missing
 store or no-match is default-deny working.
 Doc: `subagent-merge-capability-guard.md`.
+
+## Guard-Health Tracker + Escalation Detector
+
+Not a permission gate — makes guard-LAYER FAILURES visible instead of silent. Two capture
+paths (mt#2812): (a) `.minsky/hooks/dispatcher.ts`'s guard-loop `catch` block calls
+`recordGuardError()` automatically for every ADR-028-migrated guard (both `PreToolUse` and
+`UserPromptSubmit` families) — zero per-guard changes; (b) `recordGuardCheckSkip()`, exported
+from the same shared module, for a standalone hook's own catch block to call. Both append to
+an append-only JSONL log (`~/.local/state/minsky/guard-health-log.jsonl`), same architectural
+shape as the MCP disconnect tracker (mt#1645/1682) and subagent dispatch tracker (mt#1735-1738).
+`debug_systemInfo.guardHealth` (read side: `src/mcp/guard-health-tracker.ts`, a duplicate
+read+aggregate implementation — `.minsky/hooks/` is outside the root tsconfig's `include` and
+is intentionally dependency-free, so the reader cannot import the writer's module) reports
+per-guard error counts (24h/7d), consecutive-failure streaks, and an escalation tier
+(`none | attention | critical`; critical = 3+ consecutive failures, per this task's observed-
+cadence calibration). A minimal cockpit widget (`guard-health`, mirrors `embeddings-health.ts`)
+surfaces the same aggregate. When any guard is `critical`, the ADR-028-registered
+`guard-health-escalation-detector` UserPromptSubmit guard injects a warning naming the dead
+gate(s) every turn (no de-dup — mirrors `inject-current-time`'s "fresh info every turn"
+posture). Hooks: `guard-health.ts` (shared record/read/aggregate module),
+`guard-health-escalation-detector.ts`. No override (informational only). Fail: fail-safe —
+every recording/reading call swallows its own errors; a broken/missing log never blocks a
+guard or the dispatcher loop. Does NOT cover: a guard returning a wrong verdict without
+erroring (owner: the evaluation-loop RFC, mt#2589/mt#2597); out-of-process deaths like
+`process.exit()` killing the dispatcher mid-loop (owner: mt#2835's `guard-entrypoint-gate.test.ts`
++ `dispatch-userpromptsubmit.e2e.test.ts`).
+Doc: `guard-health-tracker.md`.
