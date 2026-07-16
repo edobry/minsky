@@ -48,6 +48,7 @@ import {
 } from "./management-commands";
 import { createSessionCleanupCommand } from "./cleanup-command";
 import { createSessionPsCommand, createSessionAttachedCommand } from "./ps-command";
+import { createSessionFocusCommand, createSessionGotoCommand } from "./focus-command";
 import {
   createSessionCommitCommand,
   createSessionInspectCommand,
@@ -94,6 +95,8 @@ const COMMANDS: AnyCommandDefinition[] = [
   createSessionExecCommand(dummyGetDeps),
   createSessionPsCommand(dummyGetDeps, dummyGetPersistenceProvider),
   createSessionAttachedCommand(dummyGetDeps, dummyGetPersistenceProvider),
+  createSessionFocusCommand(dummyGetDeps, dummyGetPersistenceProvider),
+  createSessionGotoCommand(dummyGetDeps, dummyGetPersistenceProvider),
 
   createSessionDeleteCommand(dummyGetDeps),
   createSessionUpdateCommand(dummyGetDeps),
