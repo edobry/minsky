@@ -310,15 +310,23 @@ export function applyRecoveryAndCompose(
   // diff-scope-bounded (Step 3c) so it sees already-downgraded tool calls
   // (prevents double-audit of the same finding). Fires only when
   // refutationRecoveryEnabled=true; a no-op (empty downgrades) when there
-  // are fewer than two prior review bodies or no commit messages in context
-  // — both are the pass's own internal gates, but checking priorReviewBodies
-  // here too avoids the (cheap, but pointless) parse work on R1.
+  // are fewer than two prior review bodies or no commit messages in context.
+  //
+  // Gate: priorReviewBodiesForRefutation.length >= 2, not > 0 (R1 review
+  // finding, tightened here). MIN_REASSERTION_COUNT_FOR_DOWNGRADE in
+  // refutation-recovery.ts is 2 — a finding can be matched against at most
+  // one prior round per review body, so with fewer than 2 prior bodies the
+  // pass can NEVER reach the reassertion threshold and always returns zero
+  // downgrades. The `> 0` gate was already correct (no false downgrades were
+  // possible), just imprecise — it ran the parse-and-match work on R2 (one
+  // prior review) for a result that was always going to be empty. `>= 2`
+  // documents the actual precondition and skips that pointless work.
   let refutationDowngrades: ReadonlyArray<RefutationDowngradeAuditEntry> = [];
   const refutationRecoveryEnabled = opts.refutationRecoveryEnabled ?? false;
   if (refutationRecoveryEnabled) {
     const priorReviewBodiesForRefutation = opts.priorReviewBodiesForRefutation ?? [];
     const commitMessagesForRefutation = opts.commitMessagesForRefutation ?? [];
-    if (priorReviewBodiesForRefutation.length > 0) {
+    if (priorReviewBodiesForRefutation.length >= 2) {
       const refutationResult = applyRefutationRecovery(
         toolCallsForComposition,
         priorReviewBodiesForRefutation,
@@ -338,6 +346,30 @@ export function applyRecoveryAndCompose(
         // downgrades hadn't yet been applied, and would not have seen this
         // crossing. Without this, a REQUEST_CHANGES conclude_review call
         // could survive composition with zero BLOCKING findings backing it.
+        //
+        // R1-review adjudication (mt#2836, 2026-07-16): this reconciliation
+        // deliberately only DEMOTES REQUEST_CHANGES -> COMMENT; it never
+        // PROMOTES to APPROVE. This is not a gap unique to this step — it is
+        // the exact same behavior as Step 3's mt#1496 crossed-zero
+        // reconciliation above (compare `shouldReconcile`'s target of
+        // `event: "COMMENT"`), which has never promoted to APPROVE either,
+        // across every recovery pass in this pipeline (monotonicity,
+        // composition-convergence, diff-scope-bounded). Promoting to APPROVE
+        // from a structural post-hoc pass would assert the model's own
+        // intent (which we don't have — the model called REQUEST_CHANGES
+        // with a summary that may describe the finding's rationale, not "I
+        // would otherwise approve") rather than just neutralizing a
+        // now-unsupported blocking verdict; COMMENT is the correct
+        // conservative target, matching the codebase-wide convention.
+        //
+        // "Risking silent COMMENT verdicts" is also not applicable here: the
+        // merge gate (`.claude/hooks/require-review-before-merge.ts:831`)
+        // denies ONLY on `conclusion.event === "REQUEST_CHANGES"` — a
+        // structurally valid COMMENT review with zero BLOCKING findings
+        // already passes it (`deny: false`), so COMMENT does not silently
+        // block convergence. Verified empirically against a live PR
+        // (#1978) predating this change, which merged on a COMMENT
+        // conclusion via this same gate path.
         if (
           postRecoveryBlockingCount === 0 &&
           toolCallsForComposition.some(

@@ -93,8 +93,14 @@ describe("refutation-aware re-assertion recovery wiring (mt#2836)", () => {
     // (mt#1496), not refutationRecoveryEnabled — the refutation-recovery
     // step in applyRecoveryAndCompose runs its OWN crossed-zero check so a
     // REQUEST_CHANGES conclude_review call doesn't survive composition with
-    // zero BLOCKING findings backing it.
-    expect(result.composed.event).not.toBe("REQUEST_CHANGES");
+    // zero BLOCKING findings backing it. Pinned to COMMENT (not just
+    // "not REQUEST_CHANGES") per the R1-review adjudication (mt#2836):
+    // demote-only is the deliberate, codebase-wide convention (mirrors
+    // Step 3's mt#1496 reconciliation, which also never promotes to
+    // APPROVE) — see the reconciliation site's comment in recovery-compose.ts
+    // for the full rationale, including why this does not "risk a silent
+    // COMMENT verdict" (the merge gate only denies on REQUEST_CHANGES).
+    expect(result.composed.event).toBe("COMMENT");
     expect(result.reconcileApplied).toBe(true);
   });
 
