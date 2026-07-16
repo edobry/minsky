@@ -87,10 +87,12 @@ export function isEligibleForClaudeRules(rule: Rule): boolean {
  * literal character rather than the start of a character class (design
  * decision 4). Only `[` is escaped — `]` is left alone per the verified
  * vendor-doc behavior (an unescaped `[` is what silently fails to match; a
- * lone `]` outside a class has no special meaning to escape).
+ * lone `]` outside a class has no special meaning to escape). An ALREADY
+ * escaped `\[` in the source glob is preserved as-is (no double-escape) so
+ * authors who pre-escape don't get a broken `\\[` pattern.
  */
 export function sanitizeGlobForClaudeRules(glob: string): string {
-  return glob.replace(/\[/g, "\\[");
+  return glob.replace(/(?<!\\)\[/g, "\\[");
 }
 
 /** YAML single-quote a string: only `'` needs escaping (as `''`); backslash

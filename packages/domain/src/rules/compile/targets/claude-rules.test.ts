@@ -104,6 +104,11 @@ describe("claude-rules target", () => {
       expect(sanitizeGlobForClaudeRules("[a][b].ts")).toBe("\\[a]\\[b].ts");
     });
 
+    it("does not double-escape an already-escaped bracket", () => {
+      expect(sanitizeGlobForClaudeRules("photos \\[2024/**")).toBe("photos \\[2024/**");
+      expect(sanitizeGlobForClaudeRules("a\\[b][c].ts")).toBe("a\\[b]\\[c].ts");
+    });
+
     it("leaves a bracket-free glob unchanged", () => {
       expect(sanitizeGlobForClaudeRules("**/*.test.ts")).toBe("**/*.test.ts");
     });

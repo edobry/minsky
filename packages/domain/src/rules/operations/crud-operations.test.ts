@@ -105,6 +105,18 @@ describe("probeLegacyCompileTargets (mt#2803)", () => {
     expect(targets).toEqual(["claude-rules"]);
   });
 
+  it("does not detect claude-rules when .claude/rules/ holds only hand-authored (banner-less) files", async () => {
+    const workspacePath = await withScratchDir();
+    await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
+    await writeFile(
+      join(workspacePath, ".claude", "rules", "my-own-rule.md"),
+      "---\npaths: ['src/**']\n---\n\nHand-written guidance, no generation banner.\n",
+      "utf-8"
+    );
+    const targets = await probeLegacyCompileTargets(workspacePath, realFs as RuleServiceFs);
+    expect(targets).toEqual([]);
+  });
+
   it("does not detect claude-rules when .claude/rules/ exists but has no .md files", async () => {
     const workspacePath = await withScratchDir();
     await mkdir(join(workspacePath, ".claude", "rules"), { recursive: true });
