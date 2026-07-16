@@ -1926,7 +1926,8 @@ umbrella closure. The principal's response: *"This is a lot for me to read and p
 really is more of an engineering manager… very attention-limited… also, I don't want to lose track
 of everything that's going on — we need to strike the right balance."*
 
-**After (the shape the principal accepted, in this contract's three-part form):**
+**After (the shape the principal accepted, in this contract's three-part form; task/PR ids below
+are illustrative, not the actual originating references):**
 
 > **What happened:** Two PRs merged ([PR #1](minsky://changeset/1), [PR #2](minsky://changeset/2));
 > umbrella [mt#100](minsky://task/mt%23100) closed as a result.
