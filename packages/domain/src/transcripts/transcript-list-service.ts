@@ -7,13 +7,16 @@
  * content label — WITHOUT any disk access (the query surface here is 100%
  * Postgres).
  *
- * Layering note: this service returns raw label-precedence INPUTS
+ * Design note: this service returns raw label-precedence INPUTS
  * (`linkedTaskId`, `firstUserTurnCandidates`, subagent-descriptor fields) but
- * does NOT compute the final label string. The pure label-precedence function
- * (`computeConversationLabel`, mt#2770) lives in `src/cockpit/conversation-label.ts`
- * — an app-layer module this domain package must not depend on. Callers
- * (the `transcripts.list` command) import that pure function directly and
- * compose the final label from the fields this service returns.
+ * does NOT compute the final label string. `computeConversationLabel`
+ * (mt#2770) lives alongside it in `packages/domain/src/transcripts/conversation-label.ts`
+ * (mt#2818 lifted it there from `src/cockpit/`, so cockpit and this service's
+ * caller share ONE precedence decision). The split is kept even though both
+ * modules are now in the same layer: this service resolves DB rows, the
+ * label module is a pure function over plain data — composing the label is
+ * the caller's (`transcripts.list` command's) job, needing no DB access of
+ * its own once given the resolved inputs.
  *
  * @see mt#2818 — this file
  * @see mt#2770 — conversation labeling precedence (label INPUTS mirrored here)
@@ -36,15 +39,10 @@ import type { WorkspaceId } from "../ids";
 import { applyListCap, type ListTruncationMetadata } from "../utils/list-pagination";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
-
-/**
- * Bound on how many of a conversation's earliest user turns are collected as
- * tier-2 label candidates. Mirrors `MAX_USER_TURN_CANDIDATES` in
- * `src/cockpit/conversation-label.ts` (mt#2784) — kept as an independent
- * constant here since domain must not import that app-layer module; if one
- * changes, check the other.
- */
-const FIRST_USER_TURN_CANDIDATE_LIMIT = 5;
+// mt#2818: reuse the same bound `pickSubstantiveUserText` (mt#2784) scans by
+// — both modules live in this package now, so there is no reason to keep an
+// independently-drifting duplicate of this constant.
+import { MAX_USER_TURN_CANDIDATES as FIRST_USER_TURN_CANDIDATE_LIMIT } from "./conversation-label";
 
 export interface TranscriptListRow {
   agentSessionId: string;
@@ -99,6 +97,27 @@ export class TranscriptListService {
    * List conversations ordered by recency (agent_transcripts.started_at DESC),
    * enriched with turn stats and mt#2770 label-precedence inputs. Zero disk
    * access — every field here is sourced from Postgres.
+   *
+   * **Not project/workspace-scoped — verified as the transcripts subsystem's
+   * existing convention, not an oversight (mt#2818 R1).** ADR-021's
+   * project-scoping model (`docs/architecture/adr-021-project-scoping-resolution-model.md`
+   * "User-facing behavior" table) enumerates exactly five scoped operations —
+   * `tasks.list`, `session.list`, `memory.list`, `memory.search`,
+   * `asks.list` — and does not include any `transcripts_*` tool.
+   * `transcripts.search` / `search-text` / `get` / `similar` /
+   * `spawns-extract` are ALL unscoped today (grepped: none of them reference
+   * `projectDir`, `projectScope`, or `allProjects`). `agent_transcripts` does
+   * carry a `projectDir` column, but every existing reader of it
+   * (`src/cockpit/routes/agents.ts`, `routes/conversations.ts`,
+   * `live-tail-poller.ts`) uses it only as a JSONL-file-locate optimization,
+   * never as a query filter. `transcripts.list` matches that established
+   * subsystem convention rather than inventing new scoping unilaterally —
+   * a harness conversation is not reliably attributable to one Minsky
+   * project (it may span checkouts or be a non-project chat), which is a
+   * plausible reason ADR-021 left this subsystem out; if project-scoped
+   * transcript enumeration becomes a real need, extend ADR-021's table (and
+   * all five transcripts_* readers together, not just this one) rather than
+   * scoping `transcripts.list` alone and leaving its siblings inconsistent.
    */
   async listConversations(opts: TranscriptListOptions = {}): Promise<TranscriptListResult> {
     try {
@@ -115,6 +134,9 @@ export class TranscriptListService {
           lastIngestedJsonlTimestamp: agentTranscriptsTable.lastIngestedJsonlTimestamp,
         })
         .from(agentTranscriptsTable)
+        // Unscoped by project/workspace — see the docblock above for the
+        // verified basis (ADR-021's scoped-operations table does not include
+        // any transcripts_* tool; matches all 5 sibling readers).
         .orderBy(desc(agentTranscriptsTable.startedAt));
 
       // mt#2817: loud cap — `total` reflects every conversation in the store
@@ -310,6 +332,13 @@ export class TranscriptListService {
  * `firstTurnAt`/`lastTurnAt` silently read as non-Date values downstream
  * (e.g. `list-command.ts`'s `toIso()`'s `instanceof Date` check would fail
  * and drop the value to `null` even though real data was returned).
+ *
+ * mt#2818 R1 nit: grepped for an existing aggregate-date coercion helper
+ * elsewhere in the codebase before adding this — none found (`coerceDate`,
+ * `toDate`, `parseDate`, `asDate` all came up empty). Kept local rather than
+ * pre-emptively generalizing into a shared util for a single call site; if a
+ * second raw-SQL aggregate call site needing this shows up, promote it to
+ * `packages/domain/src/utils/` then.
  */
 function coerceDate(value: unknown): Date | null {
   if (value instanceof Date) return value;
@@ -336,8 +365,11 @@ type TranscriptListBaseFields =
  * Resolve the best `minsky_session_links` row per `agentSessionId` — highest
  * `confidence` wins; ties break on the most recently `detectedAt`. Mirrors
  * `pickBestLinks` in `src/cockpit/widgets/context-inspector.ts` (mt#2770) —
- * duplicated here rather than imported since that module lives in the
- * cockpit app layer and this is a domain service.
+ * that copy is a private (non-exported) helper local to the widget's own
+ * DB-fetch function, so it isn't importable regardless of layer; duplicated
+ * here rather than exporting-and-importing across two independently evolving
+ * enrichment call sites (context-inspector's fetch shape differs from this
+ * service's).
  */
 function pickBestLinks(
   links: {

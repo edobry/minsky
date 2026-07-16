@@ -36,7 +36,8 @@
  * @see mt#2818 — this file
  * @see mt#2770 — conversation labeling precedence (label composed here from
  *   `TranscriptListService`'s raw inputs via the pure functions in
- *   `src/cockpit/conversation-label.ts`)
+ *   `packages/domain/src/transcripts/conversation-label.ts`, lifted there
+ *   from `src/cockpit/conversation-label.ts` by mt#2818)
  * @see mt#2817 — loud list-truncation convention
  * @see mt#2580 — blob-drop direction: this command reads `agent_transcripts`
  *   scalar columns + `agent_transcript_turns`, never `agent_transcripts.transcript`
@@ -53,14 +54,15 @@ import type { TranscriptListRow } from "@minsky/domain/transcripts/transcript-li
 // mt#2818 reuses the mt#2770 pure label-precedence functions directly rather
 // than re-deriving the same decision in a second place (both call sites must
 // agree on precedence, and duplicating the logic is how the two drift).
-// These are pure (no I/O) — the cross-layer import is app-layer-to-app-layer
-// (adapters -> cockpit), not domain depending on an app layer.
+// Imported from the domain layer (not `src/cockpit/`) — the module was
+// lifted there specifically so the command layer never depends on the
+// cockpit app layer.
 import {
   computeConversationLabel,
   composeSubagentDescriptor,
   deriveFallbackLabel,
   pickSubstantiveUserText,
-} from "../../../../cockpit/conversation-label";
+} from "@minsky/domain/transcripts/conversation-label";
 
 // ── Output shape ─────────────────────────────────────────────────────────────
 
@@ -97,7 +99,13 @@ export interface TranscriptListCoverage {
   note: string;
 }
 
-export interface TranscriptListResponse {
+/**
+ * mt#2818 R1: extends `ListTruncationMetadata` directly (`{returned, total,
+ * truncated}`) rather than spreading it into a loosely-typed return via an
+ * `as`-cast — matches how `tasks.list` declares its mt#2817 shape in
+ * `src/adapters/shared/commands/tasks/crud-commands.ts`.
+ */
+export interface TranscriptListResponse extends ListTruncationMetadata {
   conversations: TranscriptListEntry[];
   coverage: TranscriptListCoverage;
 }
@@ -131,8 +139,7 @@ export function registerTranscriptListCommand(
     parameters: {
       limit: {
         schema: z.number().int().positive(),
-        description:
-          "Maximum number of conversations to return (default: DEFAULT_LIST_CAP, currently 500)",
+        description: "Maximum number of conversations to return (default: 500)",
         required: false,
       },
       checkDiskCoverage: {
@@ -186,7 +193,7 @@ export function registerTranscriptListCommand(
       const { conversations: rows, truncation } = await svc.listConversations({ limit });
 
       // ── Resolve task titles for tier-1/tier-3 label inputs (best-effort) ──
-      const taskTitles = await resolveTaskTitles(rows, context);
+      const { titles: taskTitles, degradedNoTaskService } = await resolveTaskTitles(rows, context);
 
       const conversations: TranscriptListEntry[] = rows.map((row) => buildEntry(row, taskTitles));
 
@@ -195,15 +202,26 @@ export function registerTranscriptListCommand(
         ? await buildDiskCoverage(rows.map((r) => r.agentSessionId))
         : { diskCoverageChecked: false, note: DEFAULT_NOTE };
 
+      // mt#2818 R1 nit: surface the taskService-absent degradation explicitly
+      // rather than letting it silently lower some rows' labels to a later
+      // tier with no signal in the payload.
+      if (degradedNoTaskService) {
+        coverage.note +=
+          " No taskService was bound in the DI container — task-title-derived " +
+          "label tiers (bound-task and subagent-dispatch titles) were skipped " +
+          "for rows that had a resolvable task id; those rows fell through to " +
+          "a lower-precedence label tier instead.";
+      }
+
       log.debug("transcripts.list complete", {
         returned: truncation.returned,
         total: truncation.total,
         truncated: truncation.truncated,
         diskCoverageChecked: coverage.diskCoverageChecked,
+        degradedNoTaskService,
       });
 
-      return { conversations, coverage, ...truncation } as TranscriptListResponse &
-        ListTruncationMetadata;
+      return { conversations, coverage, ...truncation };
     },
   });
 
@@ -257,34 +275,54 @@ function toIso(d: Date | null): string | null {
   return d instanceof Date ? d.toISOString() : null;
 }
 
+/** Result of {@link resolveTaskTitles} — see its docblock for `degraded`'s meaning. */
+interface TaskTitleResolution {
+  titles: Map<string, string>;
+  /**
+   * True when candidate ids existed (tier-1 `linkedTaskId` and/or tier-3
+   * `subagentInvocationTaskId` resolved on at least one row) but titles could
+   * NOT be resolved because no `taskService` was bound in the DI container.
+   * mt#2818 R1 nit: surfaced explicitly in the response's `coverage.note`
+   * (see `execute()`) rather than silently degrading labels to a lower tier
+   * with no signal — a caller comparing this list against a UI that DOES
+   * have task titles could otherwise misread the gap as a data problem.
+   */
+  degradedNoTaskService: boolean;
+}
+
 /**
  * Batch-resolve display-form task ids (tier-1 linkedTaskId, tier-3
  * subagentInvocationTaskId) to titles via the DI container's taskService,
  * when one is bound. Never throws — an unresolved title just means those
  * label tiers fall through to the next tier (mirrors mt#2770's
- * `NULL_TASK_PROVIDER` degrade-gracefully behavior in the cockpit widget).
+ * `NULL_TASK_PROVIDER` degrade-gracefully behavior in the cockpit widget) —
+ * but the fact that this happened is reported via `degradedNoTaskService`
+ * rather than only being silently absorbed.
  */
 async function resolveTaskTitles(
   rows: TranscriptListRow[],
   context: { container?: AppContainerInterface }
-): Promise<Map<string, string>> {
+): Promise<TaskTitleResolution> {
   const ids = new Set<string>();
   for (const row of rows) {
     if (row.linkedTaskId) ids.add(row.linkedTaskId);
     if (row.subagentInvocationTaskId) ids.add(row.subagentInvocationTaskId);
   }
-  if (ids.size === 0) return new Map();
+  if (ids.size === 0) return { titles: new Map(), degradedNoTaskService: false };
+
+  if (!context.container?.has("taskService")) {
+    return { titles: new Map(), degradedNoTaskService: true };
+  }
 
   try {
-    if (!context.container?.has("taskService")) return new Map();
     const taskService = context.container.get(
       "taskService"
     ) as import("@minsky/domain/tasks/taskService").TaskServiceInterface;
     const tasks = await taskService.getTasks(Array.from(ids));
-    return new Map(tasks.map((t) => [t.id, t.title]));
+    return { titles: new Map(tasks.map((t) => [t.id, t.title])), degradedNoTaskService: false };
   } catch (err) {
     log.warn(`transcripts.list: task title resolution failed: ${getErrorMessage(err)}`);
-    return new Map();
+    return { titles: new Map(), degradedNoTaskService: false };
   }
 }
 

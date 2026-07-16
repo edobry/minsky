@@ -5632,7 +5632,7 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Maximum number of conversations to return (default: DEFAULT_LIST_CAP, currently 500)",
+              "description": "Maximum number of conversations to return (default: 500)",
               "takesValue": true
             },
             {

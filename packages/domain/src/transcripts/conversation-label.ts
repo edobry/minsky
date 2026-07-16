@@ -24,6 +24,14 @@
  * this is what makes the empty-`minsky_session_links` case (sparse until
  * mt#2441/mt#2756 land) fall through cleanly to tier 2/3/4 with no special
  * casing required at the call site.
+ *
+ * mt#2818 lifted this module from `src/cockpit/conversation-label.ts` into
+ * the domain layer so BOTH the cockpit app (mt#2770's list/detail labels)
+ * and the shared-command layer (`transcripts_list`) share ONE precedence
+ * decision instead of the command layer depending on cockpit's app layer.
+ * The old `src/cockpit/conversation-label.ts` copy was deleted; cockpit
+ * consumers (`widgets/context-inspector.ts`, `widgets/run-merge.ts`) now
+ * import directly from this module.
  */
 import { toDisplaySnippet } from "./text-snippet";
 

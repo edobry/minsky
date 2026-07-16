@@ -31,8 +31,9 @@
  * The remaining noise class is harness-injected TEXT markup embedded inside a
  * `text` block — slash-command wrappers (`<command-message>`), hook output
  * (`<local-command-stdout>`), and injected `<system-reminder>` blocks. This
- * projection reuses `stripHarnessMarkup` (mt#2784, `src/cockpit/text-snippet.ts`)
- * to detect and strip those specific tags:
+ * projection reuses `stripHarnessMarkup` (mt#2784, lifted to
+ * `packages/domain/src/transcripts/text-snippet.ts` by mt#2818) to detect
+ * and strip those specific tags:
  *
  *   - A turn's text that is ENTIRELY markup (nothing left after stripping) is
  *     EXCLUDED from the projected output.
@@ -71,8 +72,11 @@ import {
 } from "./conversation-id-param";
 // mt#2818: reuse the mt#2784 harness-markup heuristic rather than re-deriving
 // it — both call sites (this projection and mt#2770's label snippets) must
-// agree on what counts as injected markup.
-import { stripHarnessMarkup } from "../../../../cockpit/text-snippet";
+// agree on what counts as injected markup. Imported from the domain layer
+// (not `src/cockpit/`) so the command layer never depends on the cockpit app
+// layer — the module was lifted there specifically so both sides could share
+// it without that dependency direction.
+import { stripHarnessMarkup } from "@minsky/domain/transcripts/text-snippet";
 
 // ── Text projection types ────────────────────────────────────────────────────
 

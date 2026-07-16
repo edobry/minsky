@@ -46,7 +46,8 @@
  * a nested/collapsed subagent. Documented simplification given the mt#2767
  * scope; revisit if operators report confusing nesting.
  *
- * Labeling reuses `../conversation-label` (mt#2770) — the same precedence
+ * Labeling reuses `@minsky/domain/transcripts/conversation-label` (mt#2770,
+ * lifted to the domain layer by mt#2818) — the same precedence
  * tiers the context-inspector widget uses — but only tiers 2-4 apply here:
  * tier 1 (linked task title) is always null by construction (rows reaching
  * this module's label path are, by definition, unlinked to any workspace).
@@ -69,12 +70,14 @@ import { agentSpawnsTable } from "@minsky/domain/storage/schemas/agent-spawns-sc
 import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
 import type { WorkspaceId } from "@minsky/domain/ids";
 import { pickBestConversationLink } from "../session-detail";
+// mt#2818: lifted to the domain layer so both cockpit and the transcripts_list
+// shared command import the SAME mt#2770 precedence decision.
 import {
   computeConversationLabel,
   composeSubagentDescriptor,
   deriveFallbackLabel,
   pickSubstantiveUserText,
-} from "../conversation-label";
+} from "@minsky/domain/transcripts/conversation-label";
 
 /** Max standalone conversations considered per merge pass (mirrors context-inspector's window). */
 export const MAX_CONVERSATION_WINDOW = 50;
