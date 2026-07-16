@@ -714,6 +714,17 @@ export const sessionPrGetCommandParams = {
     required: false,
     defaultValue: false,
   },
+  reviews: {
+    schema: z.boolean(),
+    description:
+      "Include posted GitHub reviews: reviewer login, state, submitted_at, full body " +
+      "text, and per-review inline comments (path, line, body), in submission order " +
+      "(mt#2829). Bodies are included but capped if enormous (truncation stated " +
+      "explicitly); diffs are never included. Empty array (not an error) when the PR " +
+      "has zero reviews.",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**

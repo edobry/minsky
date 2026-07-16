@@ -29,6 +29,7 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
             since: params.since as string | undefined,
             until: params.until as string | undefined,
             content: params.content as boolean | undefined,
+            reviews: params.reviews as boolean | undefined,
           },
           { sessionDB: deps.sessionProvider }
         );
@@ -37,7 +38,7 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
           return { success: true, ...result };
         }
 
-        const { pullRequest } = result;
+        const { pullRequest, reviews } = result;
 
         const titleLine = formatPrTitleLine({
           status: pullRequest.status,
@@ -72,6 +73,30 @@ export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefi
 
         if (pullRequest.filesChanged) {
           output.push("", `Files Changed: ${pullRequest.filesChanged}`);
+        }
+
+        if (reviews) {
+          output.push("", `Reviews (${reviews.length}):`);
+          if (reviews.length === 0) {
+            output.push("  (none posted)");
+          }
+          for (const review of reviews) {
+            output.push(
+              "",
+              `  [${review.state}] ${review.reviewerLogin ?? "(unknown)"} — ${review.submittedAt ?? "unknown time"}`
+            );
+            if (review.htmlUrl) {
+              output.push(`  ${review.htmlUrl}`);
+            }
+            if (review.body) {
+              output.push(...review.body.split("\n").map((line) => `    ${line}`));
+            }
+            for (const comment of review.comments) {
+              output.push(
+                `    - ${comment.path}:${comment.line ?? comment.originalLine ?? "?"} — ${comment.body}`
+              );
+            }
+          }
         }
 
         return { success: true, message: output.join("\n") };

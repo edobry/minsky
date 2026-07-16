@@ -14,6 +14,7 @@ import {
 import { log } from "@minsky/shared/logger";
 import { first } from "@minsky/shared/array-safety";
 import { createTimeoutFetch } from "../../github/octokit-timeout";
+import { fetchPostedReviews, type PostedReview } from "./pr-get-reviews";
 
 /**
  * Shape of the live PR data returned from GitHub Octokit pulls.get / pulls.list responses.
@@ -54,6 +55,14 @@ export async function sessionPrGet(
     since?: string;
     until?: string;
     content?: boolean;
+    /**
+     * When true, include posted GitHub reviews on this PR — reviewer login,
+     * state, submitted_at, full body text, and per-review inline comments
+     * (path, line, body), in submission order (mt#2829). Defaults to false;
+     * omitted from the result when not requested (no shape change for
+     * existing callers).
+     */
+    reviews?: boolean;
   },
   deps: SessionPrGetDependencies
 ): Promise<{
@@ -74,6 +83,8 @@ export async function sessionPrGet(
     commits?: number;
     backendType?: "github" | "gitlab" | "bitbucket";
   };
+  /** Present only when `params.reviews` was true (mt#2829). Empty array (not an error) when the PR has zero reviews. */
+  reviews?: PostedReview[];
 }> {
   const { sessionDB } = deps;
 
@@ -361,7 +372,28 @@ export async function sessionPrGet(
       }
     }
 
-    return { pullRequest };
+    // mt#2829: in-band read of posted review prose, opt-in via `reviews: true`.
+    // Non-fatal on fetch failure — a broken reviews read should not block the
+    // caller from seeing the PR's core metadata (mirrors the review-threads
+    // fetch's non-fatal contract in pr-review-context-subcommand.ts).
+    let reviews: PostedReview[] | undefined;
+    if (params.reviews && pullRequest.number) {
+      try {
+        const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
+        const repositoryBackend = await createRepositoryBackendFromSession(
+          sessionRecord,
+          sessionDB
+        );
+        reviews = await fetchPostedReviews(repositoryBackend, pullRequest.number);
+      } catch (reviewsError) {
+        log.debug(
+          `Could not fetch posted reviews for PR #${pullRequest.number}: ${getErrorMessage(reviewsError)}`
+        );
+        reviews = [];
+      }
+    }
+
+    return reviews !== undefined ? { pullRequest, reviews } : { pullRequest };
   } catch (error) {
     if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
       throw error;
