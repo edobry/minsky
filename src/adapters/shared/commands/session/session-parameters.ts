@@ -211,6 +211,23 @@ export const sessionPsCommandParams = {
 };
 
 /**
+ * Session focus (alias: session goto) command parameters (mt#2285).
+ */
+export const sessionFocusCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  attachment: {
+    schema: z.string(),
+    description:
+      "Attachment id to focus when the session has more than one live attachment. " +
+      "Omit when there is only one; a bare invocation against a multi-attachment " +
+      "session lists the candidate ids to choose from.",
+    required: false,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
  * Session search command parameters
  */
 export const sessionSearchCommandParams = {
