@@ -203,6 +203,44 @@ The migration would fail since the permission flag is not set.`;
       expect(result.hadSameTurnVerification).toBe(false);
     });
   });
+
+  describe("R12 replay: mt#2765 A/B-confound misdiagnosis (mt#2832 gap-closure)", () => {
+    // Reconstructed from the incident conversation (3c8cd612, turn 133) and
+    // memory b0b294ab R12: the live diagnostic claim that attributed the
+    // reviewer-widget hang to tray-vs-shell spawn context, when the real
+    // confound was which port had live browser-tab traffic. This is the
+    // exact class the causal-premise detector was built to catch (mt#2216)
+    // but originally missed — no "because"/"due to" phrasing, and the
+    // mechanism term ("working directory") was outside MECHANISM_PATTERNS.
+    test("flags the live turn-133 phrasing: 'N in a row, while... the one remaining difference'", () => {
+      const text = `Still hangs — three tray-spawned instances in a row, while shell-spawned works. Checking the one remaining structural difference: the tray daemon's working directory.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.matchedPhrases.length).toBeGreaterThan(0);
+      expect(result.hadSameTurnVerification).toBe(false);
+    });
+
+    test("flags the spec-encoded generalization: 'tray-spawned daemons hang, shell-spawned work'", () => {
+      const text = `Root cause: the widget hangs in the tray-spawned daemon but works in the shell-spawned one — every time the daemon is tray-spawned it hangs, while shell-spawned daemons never do. The one remaining difference between the two is the process environment the daemon inherits from its spawner.`;
+
+      const result = detectCausalPremise(text, []);
+
+      expect(result.matched).toBe(true);
+      expect(result.hadSameTurnVerification).toBe(false);
+    });
+
+    test("does NOT flag the same A/B language when backed by a same-turn tool call", () => {
+      const text = `Still hangs — three tray-spawned instances in a row, while shell-spawned works. Checking the one remaining structural difference: the tray daemon's working directory.`;
+      const toolUseNames = ["Bash"];
+
+      const result = detectCausalPremise(text, toolUseNames);
+
+      expect(result.matched).toBe(false);
+      expect(result.hadSameTurnVerification).toBe(true);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
