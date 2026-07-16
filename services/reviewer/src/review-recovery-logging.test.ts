@@ -23,6 +23,7 @@ function baseRecoveryResult(
     reconcileApplied: false,
     convergenceDowngrades: [],
     diffScopeBoundedDowngrades: [],
+    refutationDowngrades: [],
     emptyFindingsRecovery: { toolCalls: [], applied: false },
     ...overrides,
   };
