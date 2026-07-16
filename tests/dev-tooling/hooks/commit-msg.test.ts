@@ -257,7 +257,9 @@ describe("CommitMsgHook", () => {
       const longTitle = `feat: ${"x".repeat(100)}`;
       const result = await testCommit(longTitle);
 
-      // The regex pattern allows up to 50 characters AFTER the colon, so this actually passes
+      // CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN allows up to 100 characters AFTER
+      // the colon (packages/domain/src/git/commit-message-format.ts), so this
+      // exactly-100-char description passes.
       expect(result.success).toBe(true);
     });
 
