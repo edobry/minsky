@@ -176,6 +176,7 @@ For shorter conversations (1-2 PRs, no retrospectives), compress to:
 - **Tight is better than complete.** A 200-line handoff is unread. A 60-line handoff is consulted. Default to compression; expand only when the cluster is genuinely complex.
 - **Cite durable artifacts by path.** "memory entry `feedback_X`" not "the memory we updated." "CLAUDE.md `Recovery layer spec discipline` section" not "the new rule."
 - **Recommendation, not menu.** "Start with `/implement-task mt#1310`" is actionable. "Here are the open tasks" is a tasks-list copy.
+- **Handoff is a distinct artifact from a normal turn-end report.** A short conversation (1-2 PRs, no retrospectives) that doesn't meet this skill's auto-trigger thresholds should still close with a Tier-1 turn-end report per `communication-contract.mdc` (BLUF: what happened / what you need to know / what's next) — not a compressed handoff. Invoke this skill's full structure only when the auto-trigger signals above actually fire.
 
 ## Citing uuid-keyed records (mt#2696)
 
