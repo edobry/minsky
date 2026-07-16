@@ -38,3 +38,32 @@ export {
 } from "./attachment-lsof";
 export type { SessionPsEntry } from "./session-ps";
 export { buildSessionPsReport } from "./session-ps";
+
+// Export session focus-adapter domain layer (mt#2285)
+export type {
+  CommandExecResult,
+  CommandExecutor,
+  FocusAdapter,
+  FocusAdapterContext,
+  FocusOutcome,
+  FocusOutcomeKind,
+  FocusAttachmentOptions,
+  FocusAttemptResult,
+  FocusAttemptResultKind,
+  FocusableAttachment,
+} from "./focus/index";
+export {
+  defaultCommandExecutor,
+  isAppleScriptPermissionError,
+  appleScriptPermissionMessage,
+  tmuxFocusAdapter,
+  weztermFocusAdapter,
+  kittyFocusAdapter,
+  iterm2FocusAdapter,
+  terminalAppFocusAdapter,
+  wmRaiseFocusAdapter,
+  resolveAppNameForTermProgram,
+  FOCUS_ADAPTER_REGISTRY,
+  resolveFocusAdapter,
+  focusAttachment,
+} from "./focus/index";
