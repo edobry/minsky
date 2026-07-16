@@ -491,6 +491,15 @@ Rules that bound the shape:
   `user-preferences.mdc §Plain-language first`, which this rule's Tier-1 shape specializes for the
   turn-end report specifically).
 
+**When to expand beyond the compressed lead.** Two triggers, and only two: **the principal asks**
+(directly, or via a standing per-conversation override — register selection is out of this rule's
+scope, see `## Scope`), or **an exception warrants it** — a severity event, a judgment call whose
+stakes are high enough that a one-line mention isn't enough context to contest it, or a finding the
+principal would plausibly want to probe further. Even when expanding, prefer widening the pointer
+(link to the specific section of the task record, PR, or transcript that has the detail) over
+re-narrating that detail inline — expansion is "give a more precise pointer and more context around
+the judgment call," not "paste the substrate into chat."
+
 ## Judgment calls are load-bearing (RFC Position 3)
 
 **Summaries carry judgment calls, not receipts.** The "what you need to know" line must surface the
