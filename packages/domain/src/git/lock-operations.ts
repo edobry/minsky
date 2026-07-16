@@ -130,7 +130,8 @@ async function checkLockLiveness(
       if (!trimmed) continue;
       const match = /^(\d+)\s+(.*)$/.exec(trimmed);
       if (!match) continue;
-      const [, pidStr, command] = match;
+      const pidStr = match[1] ?? "";
+      const command = match[2] ?? "";
       if (command.includes("git") && command.includes(repoPath)) {
         return { live: true, pid: Number.parseInt(pidStr, 10), method: "ps" };
       }

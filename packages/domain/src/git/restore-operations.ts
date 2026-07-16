@@ -1,16 +1,12 @@
 import { validateProcess } from "../schemas/runtime";
+import { runGitCommandWithLockHandling, type LockDependencies } from "./lock-operations";
 
 // POSIX shell single-quote escape
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
-export interface RestoreDependencies {
-  execAsync: (
-    command: string,
-    options?: Record<string, unknown>
-  ) => Promise<{ stdout: string; stderr: string }>;
-}
+export type RestoreDependencies = LockDependencies;
 
 // ---------------------------------------------------------------------------
 // git_restore
@@ -22,6 +18,13 @@ export interface RestoreOptions {
    * Paths to restore (discard unstaged changes). At least one required.
    */
   paths: string[];
+  /**
+   * When true, a blocked `.git/index.lock` is auto-repaired (confirm-gated
+   * internally: only removed when provably stale) and the restore retried
+   * once. When false/omitted, a lock-blocked error is enriched with
+   * diagnostics (age, owning-process liveness) instead of the raw git fatal.
+   */
+  repairLock?: boolean;
 }
 
 export interface RestoreResult {
@@ -51,7 +54,10 @@ export async function restoreImpl(
   const qWorkdir = shellQuote(workdir);
 
   const quotedPaths = options.paths.map(shellQuote).join(" ");
-  await deps.execAsync(`git -C ${qWorkdir} restore -- ${quotedPaths}`);
+  await runGitCommandWithLockHandling(`git -C ${qWorkdir} restore -- ${quotedPaths}`, deps, {
+    repoPath: workdir,
+    repairLock: options.repairLock,
+  });
 
   return { workdir, restored: options.paths };
 }

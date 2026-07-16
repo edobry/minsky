@@ -1,10 +1,18 @@
 import { validateProcess } from "../schemas/runtime";
+import { runGitCommandWithLockHandling, type LockDependencies } from "./lock-operations";
 
 /**
  * Options for status operations.
  */
 export interface StatusOptions {
   repoPath?: string;
+  /**
+   * When true, a blocked `.git/index.lock` is auto-repaired (confirm-gated
+   * internally: only removed when provably stale) and status retried once.
+   * When false/omitted, a lock-blocked error is enriched with diagnostics
+   * (age, owning-process liveness) instead of the raw git fatal.
+   */
+  repairLock?: boolean;
 }
 
 /**
@@ -24,12 +32,7 @@ export interface StatusResult {
 /**
  * Dependencies for status operations
  */
-export interface StatusDependencies {
-  execAsync: (
-    command: string,
-    options?: Record<string, unknown>
-  ) => Promise<{ stdout: string; stderr: string }>;
-}
+export type StatusDependencies = LockDependencies;
 
 // POSIX shell single-quote escape
 function shellQuote(s: string): string {
@@ -208,7 +211,11 @@ export async function statusImpl(
   const workdir = options.repoPath ?? validateProcess(process).cwd();
   const qWorkdir = shellQuote(workdir);
 
-  const { stdout } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain=v2 --branch -z`);
+  const { stdout } = await runGitCommandWithLockHandling(
+    `git -C ${qWorkdir} status --porcelain=v2 --branch -z`,
+    deps,
+    { repoPath: workdir, repairLock: options.repairLock }
+  );
 
   const parsed = parsePorcelainV2(stdout);
 
