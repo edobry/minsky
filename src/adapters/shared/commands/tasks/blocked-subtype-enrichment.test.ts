@@ -215,9 +215,17 @@ describe("TasksListCommand — BLOCKED subtype enrichment", () => {
       makeGetAskRepo(fakeRepo)
     );
 
-    const result = await cmd.execute({ json: true } as any, JSON_CTX);
-    expect(Array.isArray(result)).toBe(true);
-    const arr = result as Array<Record<string, unknown>>;
+    const result = (await cmd.execute({ json: true } as any, JSON_CTX)) as {
+      tasks: Array<Record<string, unknown>>;
+      returned: number;
+      total: number;
+      truncated: boolean;
+    };
+    // mt#2817: JSON output is now {tasks, returned, total, truncated}, not a bare array.
+    expect(Array.isArray(result.tasks)).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.total).toBe(2);
+    const arr = result.tasks;
     const blocked = arr.find((t) => t.id === BLOCKED_TASK_ID);
     expect(blocked?.blockingAsk).toBeDefined();
     expect((blocked?.blockingAsk as any)?.kind).toBe(KIND_DIRECTION_DECIDE);
@@ -237,8 +245,10 @@ describe("TasksListCommand — BLOCKED subtype enrichment", () => {
       makeGetAskRepo(fakeRepo)
     );
 
-    const result = await cmd.execute({ json: true } as any, JSON_CTX);
-    const arr = result as Array<Record<string, unknown>>;
+    const result = (await cmd.execute({ json: true } as any, JSON_CTX)) as {
+      tasks: Array<Record<string, unknown>>;
+    };
+    const arr = result.tasks;
     const task = arr.find((t) => t.id === NO_ASK_TASK_ID);
     expect(task?.blockingAsk).toBeUndefined();
   });

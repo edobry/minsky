@@ -340,6 +340,11 @@ Use \`mcp__minsky__session_pr_create\` to create the pull request:
 - "I'll wait for you to merge."
 - Ending the turn at \`session_pr_create\` return without invoking the next mechanism.
 
+These are forbidden as turn-CLOSERS, not as report content — a turn that legitimately reports
+progress mid-convergence (e.g., after a fix-and-push round) should still follow the Tier-1
+turn-report contract in \`communication-contract.mdc\` (what happened / what you need to know /
+what's next), just without stopping there.
+
 **Default mechanism: \`session_pr_wait-for-review\` with \`reviewer: "minsky-reviewer[bot]"\`.**
 
 First wait (no \`since\` — picks up the first review on the PR):

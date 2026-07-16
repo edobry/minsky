@@ -5113,6 +5113,20 @@
             {
               "flags": ["--all-projects"],
               "description": "Return memories from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Only include memories created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include memories created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--summary"],
+              "description": "When true, return compact rows (id, name, type, description, tags, createdAt, updatedAt) with no content body"
             }
           ]
         },

@@ -242,8 +242,13 @@ const asksListParams = {
 
 interface AsksListResult {
   asks: Ask[];
+  /** True count of everything matching the filters, before the `limit` slice. */
   total: number;
   limit: number;
+  /** Number of asks actually returned in `asks` (mt#2817). */
+  returned: number;
+  /** `returned < total` — true when this payload does NOT contain every match (mt#2817). */
+  truncated: boolean;
 }
 
 async function gatherAsks(
@@ -988,10 +993,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           : await resolveCurrentProjectScope(container, "asks.list");
 
         const asks = await gatherAsks(repo, state, kind, projectScope);
+        const returnedAsks = asks.slice(0, limit);
         return {
-          asks: asks.slice(0, limit),
+          asks: returnedAsks,
           total: asks.length,
           limit,
+          returned: returnedAsks.length,
+          truncated: returnedAsks.length < asks.length,
         };
       },
     })
