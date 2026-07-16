@@ -148,7 +148,27 @@ export interface CompileRulesResult {
   topContributors?: RuleContribution[];
   /** Total chars of included rules' emitted content (remainder = target scaffolding). */
   ruleContentChars?: number;
+  /**
+   * Populated when a bare (no explicit `--target`) invocation probed and
+   * compiled MULTIPLE applicable targets (mt#2803). Each entry mirrors this
+   * result shape, scoped to one target. When present, the top-level fields
+   * above carry the cross-target aggregate (`filesWritten` etc. concatenated,
+   * `success`/`stale` reduced via AND/OR) — consumers that want per-target
+   * detail (e.g. size-budget status, which is not aggregable) should iterate
+   * `targets` instead. Absent for explicit `--target` invocations and for
+   * bare invocations that probe to exactly one applicable target.
+   */
+  targets?: CompileRulesTargetResult[];
 }
+
+/**
+ * Per-target outcome inside a multi-target `CompileRulesResult.targets`
+ * array (mt#2803). Mirrors `CompileRulesResult` (minus `targets` itself,
+ * which does not nest) plus the `target` id it was compiled for.
+ */
+export type CompileRulesTargetResult = Omit<CompileRulesResult, "targets"> & {
+  target: string;
+};
 
 // ─── Get Rule ────────────────────────────────────────────────────────────────
 
