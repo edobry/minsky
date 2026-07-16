@@ -164,18 +164,50 @@ function isUserRole(line: TranscriptLine): boolean {
 }
 
 /**
+ * Claude Code-synthesized markers recorded with `role: "user"` and a single
+ * `{ type: "text" }` content block that are NOT actual human input — they
+ * mark a harness-internal event (the user cancelled an in-flight tool call).
+ * Excluded from {@link isRealUserPrompt} so they don't spuriously reset a
+ * turn boundary at the exact instant of interruption.
+ *
+ * Discovered (mt#2824) while replaying the two originating silent-stretch
+ * incident transcripts: in both, this exact marker landed ~20ms before the
+ * operator's actual complaint message. Naively treating it as a real prompt
+ * boundary collapsed the measured "turn" down to those 20ms — hiding the
+ * real ~24/28-minute silent stretch that precedes it, which is exactly the
+ * signal the silent-stretch detector needs to see. Confirmed exhaustive
+ * (only two literal variants found) via a corpus scan across ~300 local
+ * transcript files.
+ */
+const SYNTHETIC_INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
+  "[Request interrupted by user for tool use]",
+  "[Request interrupted by user]",
+]);
+
+function isRealTextBlock(block: unknown): boolean {
+  if (!block || typeof block !== "object") return false;
+  const b = block as Record<string, unknown>;
+  if (b["type"] !== "text") return false;
+  const text = typeof b["text"] === "string" ? b["text"].trim() : undefined;
+  if (text !== undefined && SYNTHETIC_INTERRUPT_MARKERS.has(text)) return false;
+  return true;
+}
+
+/**
  * True iff `line` is a REAL user prompt (text from the human), as opposed to a
- * `tool_result` line that Claude Code also records with user role.
+ * `tool_result` line that Claude Code also records with user role, or a
+ * {@link SYNTHETIC_INTERRUPT_MARKERS} harness-internal marker.
  *
  * A real prompt carries text content:
  *   - `message.content` is a STRING (always — even empty/whitespace; a
  *     string-content user line is never a `tool_result`, which is always an
  *     array, so it is a genuine human boundary), OR
  *   - `message.content` is an array containing at least one `{ type: "text" }`
- *     block.
+ *     block whose text is not a synthetic interrupt marker.
  *
  * A tool_result line is a user-role content array whose blocks are all
- * `tool_result` (no `text` block) — it returns false here.
+ * `tool_result` (no `text` block) — it returns false here. A
+ * synthetic-interrupt-marker-only line is likewise excluded.
  */
 export function isRealUserPrompt(line: TranscriptLine): boolean {
   if (!isUserRole(line)) return false;
@@ -183,15 +215,13 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
   // String content is always a real prompt: tool_result lines are always
   // content ARRAYS, so a string-content user line is unambiguously human input
   // (an empty/whitespace prompt still resets the turn boundary, matching the
-  // prior user-role-split behavior — review NON-BLOCKING, mt#2255).
+  // prior user-role-split behavior — review NON-BLOCKING, mt#2255). The
+  // synthetic interrupt markers are only ever observed in array content-block
+  // form (confirmed by corpus scan, mt#2824), so the string branch needs no
+  // exclusion check.
   if (typeof content === "string") return true;
   if (Array.isArray(content)) {
-    return content.some(
-      (block) =>
-        !!block &&
-        typeof block === "object" &&
-        (block as Record<string, unknown>)["type"] === "text"
-    );
+    return content.some(isRealTextBlock);
   }
   return false;
 }

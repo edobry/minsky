@@ -38,6 +38,28 @@ const assistantToolUse = (name: string): TranscriptLine => ({
   message: { role: "assistant", content: [{ type: "tool_use", name, input: {} }] },
 });
 
+/**
+ * Claude Code's harness-synthesized "the user cancelled this tool call"
+ * marker — recorded with `role: "user"` and a single `{ type: "text" }`
+ * block, matching the REAL shape observed in the two mt#2824 originating
+ * incident transcripts (a9c1a09b, ac4f5675).
+ */
+const interruptMarker = (variant: "tool use" | "bare" = "tool use"): TranscriptLine => ({
+  type: "user",
+  message: {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text:
+          variant === "tool use"
+            ? "[Request interrupted by user for tool use]"
+            : "[Request interrupted by user]",
+      },
+    ],
+  },
+});
+
 // ---------------------------------------------------------------------------
 // isRealUserPrompt — the text-content discriminator
 // ---------------------------------------------------------------------------
@@ -63,6 +85,19 @@ describe("isRealUserPrompt", () => {
 
   test("assistant line is NOT a user prompt", () => {
     expect(isRealUserPrompt(assistantText("hi"))).toBe(false);
+  });
+
+  // mt#2824: discovered while replaying the two originating silent-stretch
+  // incident transcripts — this exact harness marker landed ~20ms before the
+  // operator's real interrupt message in BOTH, and was originally
+  // misclassified as a real prompt boundary, collapsing the measured turn
+  // down to those 20ms and hiding the actual ~24/28-minute silent stretch.
+  test("'[Request interrupted by user for tool use]' marker is NOT a real prompt", () => {
+    expect(isRealUserPrompt(interruptMarker("tool use"))).toBe(false);
+  });
+
+  test("'[Request interrupted by user]' marker is NOT a real prompt", () => {
+    expect(isRealUserPrompt(interruptMarker("bare"))).toBe(false);
   });
 });
 
@@ -128,6 +163,31 @@ describe("extractLastAssistantTurn — multi-round turn (tool_result split)", ()
     const turn = extractLastAssistantTurn(lines);
     expect(extractAssistantText(turn)).toContain("work");
     expect(extractAssistantText(turn)).toContain("more work");
+  });
+
+  // mt#2824: a synthetic "[Request interrupted...]" marker must NOT act as a
+  // turn boundary — the turn must span across it up to the NEXT real human
+  // prompt, so a silent-stretch measurement over the turn sees the full
+  // silence window rather than just the few milliseconds after the marker.
+  test("synthetic interrupt marker does not split the turn early", () => {
+    const lines: TranscriptLine[] = [
+      userPrompt("first prompt"),
+      assistantText("step one"),
+      assistantToolUse("Bash"),
+      toolResult("a"),
+      interruptMarker("tool use"),
+      userPrompt("why so quiet? did the harness break?"), // real interrupt, current prompt
+    ];
+
+    const turn = extractLastAssistantTurn(lines);
+
+    // The turn spans from AFTER "first prompt" through the interrupt marker
+    // (inclusive of it, since it's not a boundary) up to (exclusive of) the
+    // real interrupt prompt — 4 lines: step-one text, tool_use, tool_result,
+    // interrupt marker.
+    expect(turn.length).toBe(4);
+    expect(extractAssistantText(turn)).toContain("step one");
+    expect(extractToolUseNames(turn)).toContain("Bash");
   });
 
   test("returns [] with fewer than 2 real prompts (tool_results do not count)", () => {
