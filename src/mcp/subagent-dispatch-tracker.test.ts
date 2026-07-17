@@ -80,6 +80,8 @@ interface FakeRow {
   prUrl: string | null;
   lastCommitHash: string | null;
   handoffWritten: boolean | null;
+  resumedFromInvocationId: string | null;
+  attemptNumber: number;
 }
 
 let nextId = 1;
@@ -113,6 +115,8 @@ function inputToRow(input: SubagentInvocationInput): FakeRow {
     prUrl: input.prUrl ?? null,
     lastCommitHash: input.lastCommitHash ?? null,
     handoffWritten: input.handoffWritten ?? null,
+    resumedFromInvocationId: input.resumedFromInvocationId ?? null,
+    attemptNumber: input.attemptNumber ?? 1,
   };
 }
 
@@ -456,6 +460,12 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
             onConflictDoUpdate(_opts: unknown): Promise<void> {
               return Promise.resolve();
             },
+            // mt#2831: recordDispatchRecoveryAttempt calls `.returning({ id: ... })`
+            // after `.values(...)`. The fake ignores the requested field shape and
+            // always returns the row's real id — sufficient for the tests that use it.
+            returning(_fields?: unknown): Promise<Array<{ id: string }>> {
+              return Promise.resolve([{ id: row.id }]);
+            },
             then(resolve: (v: void) => void, _reject: (e: unknown) => void): Promise<void> {
               return Promise.resolve().then(resolve);
             },
@@ -516,6 +526,23 @@ function makeInput(overrides: Partial<SubagentInvocationInput> = {}): SubagentIn
     startedAt: BASE_DATE,
     ...overrides,
   };
+}
+
+/**
+ * mt#2831: `recordSubagentInvocation` returns void, but several retry-linkage tests need the
+ * freshly-inserted row's id (to pass as `resumedFromInvocationId` to a follow-up
+ * `recordDispatchRecoveryAttempt` call). Records the input, then reads back the row via
+ * `getLatestInvocationForTask` — safe in these tests because each caller uses a distinct
+ * `taskId`/`startedAt` per call so "most recent" is unambiguous.
+ */
+async function recordAndGetId(
+  tracker: SubagentDispatchTracker,
+  input: SubagentInvocationInput
+): Promise<string> {
+  await tracker.recordSubagentInvocation(input);
+  const row = await tracker.getLatestInvocationForTask(input.taskId);
+  if (!row) throw new Error(`recordAndGetId: no row found for taskId ${input.taskId}`);
+  return row.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,6 +1145,118 @@ describe("SubagentDispatchTracker", () => {
     test("DAILY_RATE_LIMITED_THRESHOLD is exported and positive", () => {
       expect(typeof DAILY_RATE_LIMITED_THRESHOLD).toBe("number");
       expect(DAILY_RATE_LIMITED_THRESHOLD).toBeGreaterThan(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Dispatch-recovery retry linkage (mt#2831)
+  // -------------------------------------------------------------------------
+
+  describe("dispatch-recovery retry linkage (mt#2831)", () => {
+    test("getLatestInvocationForTask returns null for a task with no rows", async () => {
+      const result = await tracker.getLatestInvocationForTask("mt#9999");
+      expect(result).toBeNull();
+    });
+
+    test("getLatestInvocationForTask returns the most recently started row", async () => {
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(2), outcome: OUTCOME_CRASHED })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(1), outcome: OUTCOME_COMMITTED_NO_PR })
+      );
+      const result = await tracker.getLatestInvocationForTask("mt#2831");
+      expect(result?.outcome).toBe(OUTCOME_COMMITTED_NO_PR);
+    });
+
+    test("getInvocationChainForTask returns every row for the task, none for others", async () => {
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(3) })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(2) })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#0001", startedAt: hoursAgo(1) })
+      );
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      expect(chain).toHaveLength(2);
+      expect(chain.every((row) => row.taskId === "mt#2831")).toBe(true);
+    });
+
+    test("recordDispatchRecoveryAttempt INSERTs a NEW row rather than upserting over the original", async () => {
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: "shared-session",
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(1),
+        })
+      );
+
+      const resumedId = await tracker.recordDispatchRecoveryAttempt({
+        taskId: "mt#2831",
+        subagentSessionId: "shared-session",
+        agentType: "implementer",
+        outcome: OUTCOME_COMMITTED_NO_PR,
+        startedAt: BASE_DATE,
+        resumedFromInvocationId: originalId,
+        attemptNumber: 2,
+      });
+
+      expect(resumedId).not.toBeNull();
+      expect(resumedId).not.toBe(originalId);
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      expect(chain).toHaveLength(2);
+      const resumedRow = chain.find((row) => row.id === resumedId);
+      expect(resumedRow?.attemptNumber).toBe(2);
+      expect((resumedRow as unknown as FakeRow).resumedFromInvocationId).toBe(originalId);
+
+      // The original row is untouched — a plain insert, not an upsert clobber.
+      const originalRow = chain.find((row) => row.id === originalId);
+      expect(originalRow?.outcome).toBe(OUTCOME_CRASHED);
+    });
+
+    test("recordSubagentInvocation upsert targets the MOST RECENT row when a subagentSessionId has multiple rows", async () => {
+      const SHARED_SESSION_ID = "shared-session-2";
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(2),
+        })
+      );
+      const resumedId = await tracker.recordDispatchRecoveryAttempt({
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: "implementer",
+        outcome: OUTCOME_CRASHED,
+        startedAt: hoursAgo(1),
+        resumedFromInvocationId: originalId,
+        attemptNumber: 2,
+      });
+
+      // A later upsert (e.g. the SubagentStop hook classifying the resumed attempt)
+      // must land on the RESUMED row, not the original — this is the ordering fix
+      // (orderBy startedAt DESC before limit(1) in the upsert's SELECT).
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          startedAt: BASE_DATE,
+        })
+      );
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      const original = chain.find((row) => row.id === originalId);
+      const resumed = chain.find((row) => row.id === resumedId);
+      expect(original?.outcome).toBe(OUTCOME_CRASHED);
+      expect(resumed?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
     });
   });
 });
