@@ -400,6 +400,67 @@ export interface LockAwareExecOptions {
   repairLock?: boolean;
   /** Overrides `LOCK_STALE_THRESHOLD_MS` for this call — see `detectIndexLock`. */
   staleThresholdMs?: number;
+  /**
+   * Override the retry-backoff schedule (ms) applied to index.lock
+   * contention before falling back to repair/busy-error handling (mt#2886).
+   * Injectable for tests — defaults to `LOCK_RETRY_BACKOFF_MS`. Each entry
+   * is one retry attempt's pre-delay; the array length is the retry count
+   * (in addition to the initial failing attempt).
+   */
+  retryBackoffMs?: number[];
+  /**
+   * Injectable sleep function for tests (mt#2886) — defaults to a real
+   * `setTimeout`-based delay. Tests pass a zero/near-zero-delay stub to
+   * exercise the retry LOGIC (attempt counts, give-up behavior) without
+   * incurring real wall-clock time.
+   */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Bounded retry-backoff schedule (ms) applied to a Minsky-internal git_*
+ * write-class op when it hits `.git/index.lock` contention, BEFORE falling
+ * back to the existing stale-repair (`repairLock: true`) or actionable
+ * "busy" error path (mt#2886).
+ *
+ * Rationale (mt#2886 plan decision, gate (l)): `.git/index.lock`'s own
+ * existence IS the mutex — every git process, Minsky-internal or external,
+ * already honors it via git's own `O_CREAT|O_EXCL` acquire protocol. A
+ * second lock (an OS `flock`, or a lease file under
+ * `~/.local/state/minsky/`) would only coordinate Minsky-internal processes
+ * while leaving the actually-contended resource (the repo's index) guarded
+ * by a mechanism external git processes ignore — a second lock to leak, not
+ * a gap closed. A SHORT retry absorbs the residual cross-process race
+ * window mt#2886's spec documents (a dying MCP server process's
+ * untracked/fire-and-forget git subprocess still winding down while a
+ * freshly spawned sibling process's new git_* call targets the same repo —
+ * narrowed but not closed by mt#2830's idle-gap-sequenced staleness exits)
+ * without materially slowing genuine EXTERNAL contention, which still
+ * surfaces via the SAME actionable busy error once this budget is
+ * exhausted (non-regression: ~2s total, not immediate, but still fail-fast
+ * on any human timescale).
+ *
+ * 3 retry attempts summing to ~2s: an order of magnitude above typical git
+ * index-write hold times (single-digit ms to low tens of ms for the local,
+ * single-command ops this family wraps — confirmed empirically by the
+ * mt#2886 repro harness, see `scripts/repro-mt2886-lock-race.ts`) and
+ * comfortably inside "still feels instant" for a caller, while staying far
+ * below the `LOCK_STALE_THRESHOLD_MS` (10 min) that governs the SEPARATE
+ * stale-lock REPAIR decision — this retry is about absorbing a transient
+ * race, not about judging staleness.
+ */
+export const LOCK_RETRY_BACKOFF_MS: readonly number[] = [300, 700, 1000];
+
+/** Default sleep — a real timer. Overridden via `LockAwareExecOptions.sleep` in tests. */
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Extract `stderr` from an exec-style rejection, tolerating non-Error shapes. */
+function extractStderr(err: unknown): string {
+  return err !== null && typeof err === "object" && "stderr" in err
+    ? String((err as { stderr: unknown }).stderr ?? "")
+    : "";
 }
 
 /**
@@ -410,6 +471,14 @@ export interface LockAwareExecOptions {
  * Mirrors the pattern established by `pullImpl`'s conflict-file enrichment
  * (`./pull-operations.ts`): classify the specific stderr shape and throw a
  * structured, actionable error rather than relaying the raw git fatal.
+ *
+ * mt#2886: before falling through to repair/busy-error handling, a blocked
+ * command is retried a few times per `LOCK_RETRY_BACKOFF_MS` (or
+ * `options.retryBackoffMs`) — treating the lock's own existence as the
+ * mutex a Minsky-internal sibling process is momentarily holding. Only
+ * once that budget is exhausted does the ORIGINAL (unchanged) behavior
+ * apply: `repairLock: true` attempts a confirm-gated stale-repair-and-retry;
+ * otherwise the enriched actionable busy error is thrown.
  */
 export async function runGitCommandWithLockHandling(
   command: string,
@@ -419,15 +488,31 @@ export async function runGitCommandWithLockHandling(
   try {
     return await deps.execAsync(command);
   } catch (err: unknown) {
-    const stderr =
-      err !== null && typeof err === "object" && "stderr" in err
-        ? String((err as { stderr: unknown }).stderr ?? "")
-        : "";
+    const stderr = extractStderr(err);
 
     if (!isIndexLockError(stderr)) {
       throw err;
     }
 
+    // Short bounded retry-backoff (mt#2886) — see LOCK_RETRY_BACKOFF_MS doc.
+    const backoff = options.retryBackoffMs ?? LOCK_RETRY_BACKOFF_MS;
+    const sleep = options.sleep ?? defaultSleep;
+    for (const delayMs of backoff) {
+      await sleep(delayMs);
+      try {
+        return await deps.execAsync(command);
+      } catch (retryErr: unknown) {
+        const retryStderr = extractStderr(retryErr);
+        if (!isIndexLockError(retryStderr)) {
+          throw retryErr;
+        }
+        // Still lock-blocked — continue to the next backoff step (or fall
+        // through below once the schedule is exhausted).
+      }
+    }
+
+    // Retry budget exhausted — the lock outlived the transient-race window.
+    // Fall through to the existing (unchanged) repair/busy-error handling.
     if (options.repairLock) {
       // repairIndexLock throws its own descriptive error when the lock is
       // busy or ambiguous — let that propagate unchanged.

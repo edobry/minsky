@@ -353,17 +353,62 @@ describe("runGitCommandWithLockHandling", () => {
     );
   });
 
-  test("without repairLock: enriches a lock-blocked error with diagnostic + how-to-repair", async () => {
-    await writeFile(lockPath, "");
-    const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
-    await utimes(lockPath, staleTime, staleTime);
+  test(
+    "without repairLock: persistent lock contention exhausts the retry budget, then " +
+      "enriches the error with diagnostic + how-to-repair (mt#2886 non-regression)",
+    async () => {
+      await writeFile(lockPath, "");
+      const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
+      await utimes(lockPath, staleTime, staleTime);
 
-    try {
-      let call = 0;
+      try {
+        // Mock keeps failing the `status` command for as long as the lock
+        // is physically present on disk — genuine, non-transient (i.e.
+        // EXTERNAL-style) contention that no amount of retrying resolves.
+        const deps = {
+          execAsync: async (command: string) => {
+            if (
+              command.startsWith("git -C") &&
+              command.includes("status") &&
+              existsSync(lockPath)
+            ) {
+              throw Object.assign(new Error("blocked"), {
+                stderr: `fatal: Unable to create '${lockPath}': File exists.`,
+              });
+            }
+            return realExec(command);
+          },
+        };
+
+        // Zero-delay backoff (injectable clock) — the test proves the
+        // RETRY-THEN-GIVE-UP shape, not real wall-clock timing (that's
+        // covered separately by the mt#2886 repro harness).
+        await expect(
+          runGitCommandWithLockHandling(`git -C ${JSON.stringify(repoPath)} status`, deps, {
+            repoPath,
+            retryBackoffMs: [0, 0, 0],
+            sleep: async () => {},
+          })
+        ).rejects.toThrow(/repairLock: true/);
+        // The lock is still physically present — no repair was attempted.
+        expect(existsSync(lockPath)).toBe(true);
+      } finally {
+        await rm(lockPath, { force: true });
+      }
+    }
+  );
+
+  test(
+    "with repairLock: true — retries are exhausted against a persistent lock, then " +
+      "removes it (stale) and retries the original command",
+    async () => {
+      await writeFile(lockPath, "");
+      const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
+      await utimes(lockPath, staleTime, staleTime);
+
       const deps = {
         execAsync: async (command: string) => {
-          call++;
-          if (command.startsWith("git -C") && command.includes("status") && call === 1) {
+          if (command.startsWith("git -C") && command.includes("status") && existsSync(lockPath)) {
             throw Object.assign(new Error("blocked"), {
               stderr: `fatal: Unable to create '${lockPath}': File exists.`,
             });
@@ -372,43 +417,117 @@ describe("runGitCommandWithLockHandling", () => {
         },
       };
 
-      await expect(
-        runGitCommandWithLockHandling(`git -C ${JSON.stringify(repoPath)} status`, deps, {
-          repoPath,
-        })
-      ).rejects.toThrow(/repairLock: true/);
-    } finally {
-      await rm(lockPath, { force: true });
+      const result = await runGitCommandWithLockHandling(
+        `git -C ${JSON.stringify(repoPath)} status --porcelain`,
+        deps,
+        { repoPath, repairLock: true, retryBackoffMs: [0, 0, 0], sleep: async () => {} }
+      );
+      expect(result).toBeDefined();
+      expect(existsSync(lockPath)).toBe(false);
     }
+  );
+});
+
+/** Shared fixture stderr for the pure-mock retry-backoff tests below. */
+const SCRATCH_LOCK_STDERR = "fatal: Unable to create '/scratch/.git/index.lock': File exists.";
+
+describe("runGitCommandWithLockHandling — retry-backoff (mt#2886)", () => {
+  test("LOCK_RETRY_BACKOFF_MS sums to ~2s (the documented non-regression budget)", async () => {
+    const { LOCK_RETRY_BACKOFF_MS } = await import("./lock-operations");
+    const total = LOCK_RETRY_BACKOFF_MS.reduce((sum, ms) => sum + ms, 0);
+    expect(total).toBe(2000);
   });
 
-  test("with repairLock: true — removes a stale lock and retries the original command", async () => {
-    await writeFile(lockPath, "");
-    const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
-    await utimes(lockPath, staleTime, staleTime);
-
+  test("transient contention: lock clears within the retry budget — succeeds without ever surfacing an error or needing repairLock", async () => {
     let call = 0;
+    const sleeps: number[] = [];
     const deps = {
-      execAsync: async (command: string) => {
+      execAsync: async () => {
         call++;
-        if (call === 1) {
+        if (call <= 2) {
           throw Object.assign(new Error("blocked"), {
-            stderr: `fatal: Unable to create '${lockPath}': File exists.`,
+            stderr: SCRATCH_LOCK_STDERR,
           });
         }
-        return realExec(command);
+        return { stdout: "clean\n", stderr: "" };
       },
     };
 
-    const result = await runGitCommandWithLockHandling(
-      `git -C ${JSON.stringify(repoPath)} status --porcelain`,
-      deps,
-      { repoPath, repairLock: true }
-    );
-    expect(result).toBeDefined();
-    expect(existsSync(lockPath)).toBe(false);
-    // call 1 = the blocked attempt, call 2+ = repair's own internal
-    // detectIndexLock exec (rev-parse), call N = the retried command.
-    expect(call).toBeGreaterThan(1);
+    const result = await runGitCommandWithLockHandling("git status", deps, {
+      repoPath: "/scratch",
+      retryBackoffMs: [10, 10, 10],
+      sleep: async (ms: number) => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(result.stdout).toBe("clean\n");
+    // 1 initial failure + 1 failing retry + 1 succeeding retry = 3 calls total.
+    expect(call).toBe(3);
+    // Only 2 sleeps were needed — the 3rd backoff entry was never reached.
+    expect(sleeps).toEqual([10, 10]);
+  });
+
+  test("persistent contention beyond the retry budget: falls through to the actionable busy error (non-regression) after exhausting the FULL configured backoff", async () => {
+    let call = 0;
+    const sleeps: number[] = [];
+    const deps = {
+      execAsync: async (command: string) => {
+        if (command.includes("rev-parse")) {
+          // Diagnostic call inside the fallthrough busy-error path — let it
+          // "succeed" with a fake git-dir so the enrichment message forms.
+          return { stdout: "/scratch/.git\n", stderr: "" };
+        }
+        call++;
+        throw Object.assign(new Error("blocked"), {
+          stderr: SCRATCH_LOCK_STDERR,
+        });
+      },
+    };
+
+    await expect(
+      runGitCommandWithLockHandling("git status", deps, {
+        repoPath: "/scratch",
+        retryBackoffMs: [10, 20, 30],
+        sleep: async (ms: number) => {
+          sleeps.push(ms);
+        },
+      })
+    ).rejects.toThrow(/repairLock: true/);
+
+    // Initial attempt + 3 retries, all lock-blocked.
+    expect(call).toBe(4);
+    // The FULL configured backoff was exhausted before giving up — this is
+    // the mechanical proof that genuine (unresolvable) contention still
+    // surfaces, just bounded by the configured retry budget rather than
+    // instantly (see LOCK_RETRY_BACKOFF_MS doc: ~2s with the real default).
+    expect(sleeps).toEqual([10, 20, 30]);
+  });
+
+  test("a non-lock error surfacing mid-retry is NOT retried further — propagates immediately", async () => {
+    let call = 0;
+    const deps = {
+      execAsync: async () => {
+        call++;
+        if (call === 1) {
+          throw Object.assign(new Error("blocked"), {
+            stderr: SCRATCH_LOCK_STDERR,
+          });
+        }
+        // Second call (first retry) hits a DIFFERENT, non-lock failure —
+        // must propagate immediately rather than being swallowed by the
+        // remaining retry budget.
+        throw Object.assign(new Error("disk full"), { stderr: "fatal: could not write index" });
+      },
+    };
+
+    await expect(
+      runGitCommandWithLockHandling("git status", deps, {
+        repoPath: "/scratch",
+        retryBackoffMs: [0, 0, 0],
+        sleep: async () => {},
+      })
+    ).rejects.toThrow(/disk full|could not write index/);
+    expect(call).toBe(2);
   });
 });
