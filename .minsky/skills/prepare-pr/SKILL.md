@@ -17,6 +17,22 @@ Optional: task ID (e.g., `/prepare-pr mt#123`). If omitted, uses the current ses
 
 ## Process
 
+### 0. Load the PR toolset bundle (mt#2822, when invoked standalone)
+
+When this skill is entered directly (not chain-walked from `/implement-task`, which already
+loaded the lifecycle bundle in its own Step 0b), load the tools this skill needs in one
+`ToolSearch` call instead of discovering them one at a time across steps 1-6:
+
+```
+ToolSearch(query: "select:mcp__minsky__tasks_spec_get,mcp__minsky__session_commit,mcp__minsky__session_pr_create", max_results: 10)
+```
+
+All three tools here (`tasks_spec_get`, `session_commit`, `session_pr_create`) are also named in
+`/implement-task`'s Step 0b bundle (`.minsky/skills/implement-task/skill.ts`) — if that step
+already ran this conversation, skip this step rather than re-requesting the same tools. This is
+a cross-skill coupling: if the implement-task bundle's tool list changes, re-check that it still
+covers these three names (or drops this skip-condition and always loads its own bundle).
+
 ### 1. Verify implementation completeness
 
 Before creating a PR:

@@ -16,6 +16,29 @@ The argument is a task ID (e.g., \`/merge-coordination mt#328\`) or a GitHub PR 
 
 ## Process
 
+### 0. Load the merge toolset bundle (mt#2822)
+
+Check first whether \`/implement-task\`'s Step 0b bundle already ran this conversation — its
+18-tool bundle already covers \`tasks_spec_get\`, \`session_pr_wait-for-review\`,
+\`session_pr_checks\`, \`forge_check_runs_list\`, \`session_pr_get\`, \`session_pr_merge\`, and
+\`session_commit\`. Re-requesting an already-loaded tool via \`ToolSearch\` is harmless (the
+harness dedupes), but the two call shapes below keep each entry point requesting only what it
+actually still needs, so this step's own baseline-count evidence isn't diluted by counting
+redundant re-selects as if they were new discovery:
+
+**Chain-walked from \`/implement-task\` this conversation** — only 2 tools are genuinely new:
+
+\`\`\`
+ToolSearch(query: "select:mcp__minsky__session_pr_review_context,mcp__minsky__reviewer_retrigger", max_results: 10)
+\`\`\`
+
+**Invoked standalone** (this skill entered directly, no prior \`/implement-task\` bundle this
+conversation) — load the full merge-coordination subset in one call:
+
+\`\`\`
+ToolSearch(query: "select:mcp__minsky__session_pr_review_context,mcp__minsky__tasks_spec_get,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__forge_check_runs_list,mcp__minsky__session_pr_get,mcp__minsky__session_pr_merge,mcp__minsky__session_commit,mcp__minsky__reviewer_retrigger", max_results: 15)
+\`\`\`
+
 ### 1. Gather context
 
 Use \`mcp__minsky__session_pr_review_context\` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the raw diff, the task spec, and existing review threads with resolved/outdated state.
