@@ -50,6 +50,18 @@ detector log like the other five (it is a per-tool-call coverage-decision
 audit trail); its diversity signal is measured over distinct `reason` values
 instead of distinct phrases.
 
+**Registry extension (mt#2866):** a 7th entry, `silent-stretch`
+(`.minsky/silent-stretch-calibration.jsonl`), wires in the mt#2824
+heartbeat-cadence detector's calibration log — mt#2824 shipped the detector
+but consciously descoped registry wiring as out of scope. Like
+`policy-coverage`, this is not a matched-phrase log (no `matches`/`claims`
+field); its diversity signal is measured over distinct `session_id`
+(conversation) values — "how many different conversations hit the cadence
+threshold" rather than "how many different phrasings." A future log with the
+same per-tool-call-volume shape as `policy-coverage` (e.g. mt#2870's planned
+wall-of-text detector) follows the same registry-entry + kind-variant +
+parsing-branch pattern established by these two additions.
+
 **Re-warning suppression:** mirrors `skill-staleness-detector.ts`'s
 `lastReported` pattern via a small persisted state file
 (`.minsky/calibration-review-cadence-last-warned.json`, keyed by log path →
