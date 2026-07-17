@@ -791,6 +791,35 @@ dry-run's 136 proposed changes against an approved "~15" was not treated as a
 stop signal. Cost: 5 wrong demotions hand-reverted, a 116-task remediation
 cycle, and an operator authorization round-trip (ask `f63a49d2`).
 
+## Sanctioned primitives for bulk task mutation and set-diff (mt#2819)
+
+The two rules above are POLICED discipline; these tools are the sanctioned
+path that enforces them structurally. Prefer them over hand-rolled scripts,
+raw SQL, or `jq`/`comm` text pipelines:
+
+- **`tasks_bulk-edit`** (CLI: `minsky tasks bulk-edit`) — bulk kind/tag edits
+  over an explicit id list. The default call is a dry-run returning the full
+  per-record change set plus a **token** (sha256 over the canonical change
+  set, persisted in the `task.bulk_edit.dry_run` audit event). Execute
+  requires that token and ABORTS when any target's state drifted since the
+  dry-run — the scope-match check above enforced in code: a diverged change
+  set structurally invalidates the approval. Re-execution of a consumed token
+  is an idempotent no-op (`task.bulk_edit.executed` event). Raw-SQL bulk
+  updates remain explicitly unsanctioned — this primitive exists so they are
+  never necessary.
+- **`refs_status`** (CLI: `minsky refs status`) — id-set cross-reference:
+  mixed refs (task ids, PR numbers, ask uuids) resolve to their current
+  status in ONE call, not-found explicit per ref. Use this for "which of
+  these are still active" set-diffs instead of `jq`/`comm` pipelines (the
+  2026-07-13/14 sweeps' hand-rolled versions contained real bugs:
+  numeric-vs-lexical `comm` sort, a jq context-binding error).
+
+The >10-record task-wrapper requirement above still applies to the operation
+as a whole — `tasks_bulk-edit` makes the execution safe; it does not replace
+the planning gates. mt#2823's approved-Ask bridge binds its grants to the
+same dry-run token, so an operator-approved bulk mutation authorizes exactly
+the approved change set and nothing else.
+
 ## Examples
 
 // AVOID: applying by default
@@ -810,6 +839,8 @@ minsky persistence migrate --execute
 
 ## Cross-References
 - See `persistence.migrate` behavior and other commands using `--execute` semantics.
+- `tasks_bulk-edit` / `refs_status` (mt#2819) — the sanctioned bulk-mutation + set-diff primitives.
+- mt#2823 — approved-Ask ↔ harness-permission bridge (grants bind to the dry-run token).
 
 # Principal Context
 
