@@ -14,12 +14,20 @@
  * Status color palette duplicated from TaskGraph.tsx — centralization is a
  * separate refactor concern per mt#1146 review feedback.
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import {
+  streamHealth,
+  STREAM_HEALTH_RANK,
+  type StreamHealth,
+  type StreamHealthState,
+} from "../lib/workstream-health";
+import { fetchAsks, formatRelative, type AsksListResponse } from "./AskDetail";
+import { useQuery } from "@tanstack/react-query";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server WorkstreamCard / WorkstreamsPayload shapes.
@@ -51,6 +59,8 @@ interface WorkstreamCard {
   activeChildCount: number;
   doneChildCount: number;
   blockedChildCount: number;
+  /** Newest task updatedAt in the stream, ISO string or null (mt#2885). */
+  lastActivityAt: string | null;
 }
 
 /** Semantic slice names (mt#2385) — keep in sync with workstreams.ts */
@@ -76,7 +86,7 @@ interface Props {
 // Sort / filter config
 // ---------------------------------------------------------------------------
 
-type WorkstreamSortKey = "activeChildCount" | "parentId" | "age";
+type WorkstreamSortKey = "attention" | "activeChildCount" | "parentId" | "age";
 
 interface WorkstreamFilters {
   status: "all" | "active" | "done" | "blocked";
@@ -204,6 +214,18 @@ function WorkstreamsControlBar({
     <div className="flex flex-wrap items-center gap-2 py-2 mb-3 border-b border-border">
       {/* Sort controls */}
       <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+      <button
+        onClick={() => onSort("attention")}
+        className={`text-xs px-2 py-1 rounded border transition-colors ${
+          sortKey === "attention"
+            ? "border-primary bg-primary/10 text-foreground"
+            : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+        }`}
+        aria-pressed={sortKey === "attention"}
+      >
+        Attention
+        <SortIndicator active={sortKey === "attention"} dir={sortDir} />
+      </button>
       <button
         onClick={() => onSort("activeChildCount")}
         className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -348,9 +370,10 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
 interface WorkstreamCardProps {
   card: WorkstreamCard;
   defaultOpen: boolean;
+  health: StreamHealth;
 }
 
-function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
+function WorkstreamCardItem({ card, defaultOpen, health }: WorkstreamCardProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   // Rollup altitude returns cards without child rows — header-only card,
   // no expand affordance (mt#2385).
@@ -373,12 +396,26 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
             </CardTitle>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Supervision signals (mt#2885): health chip + needs-me rollups +
+                last motion — readable without expansion. */}
+            <StreamHealthChip health={health} />
+            {health.openAskCount > 0 && (
+              <span className="rounded bg-warn-amber/25 px-1.5 py-0.5 text-xs tabular-nums text-foreground whitespace-nowrap">
+                {health.openAskCount} ask{health.openAskCount === 1 ? "" : "s"}
+              </span>
+            )}
             {/* Counts pill */}
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {card.activeChildCount} active
+              {health.inReviewCount > 0 && ` · ${health.inReviewCount} in review`}
               {card.doneChildCount > 0 && ` · ${card.doneChildCount} done`}
               {card.blockedChildCount > 0 && ` · ${card.blockedChildCount} blocked`}
             </span>
+            {card.lastActivityAt && (
+              <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                {formatRelative(card.lastActivityAt)}
+              </span>
+            )}
             {/* Expand/collapse button */}
             {hasChildren && (
               <button
@@ -465,6 +502,33 @@ function workstreamSortFn(
 }
 
 // ---------------------------------------------------------------------------
+// Stream health chip (mt#2885) — the supervision signal: is this stream
+// moving, stuck, awaiting review, or blocked on the operator?
+// ---------------------------------------------------------------------------
+
+const HEALTH_CHIP: Record<StreamHealthState, { label: string; className: string }> = {
+  "blocked-on-you": { label: "blocked on you", className: "bg-warn-amber/40 text-foreground" },
+  stalled: { label: "stalled", className: "bg-warn-red/30 text-foreground" },
+  "awaiting-review": { label: "in review", className: "bg-primary/15 text-foreground" },
+  moving: { label: "moving", className: "bg-muted text-muted-foreground" },
+};
+
+function StreamHealthChip({ health }: { health: StreamHealth }) {
+  const chip = HEALTH_CHIP[health.state];
+  const label =
+    health.state === "stalled" && health.daysSinceActivity != null
+      ? `stalled ${health.daysSinceActivity}d`
+      : chip.label;
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-xs font-medium tabular-nums flex-shrink-0 ${chip.className}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Chrome-agnostic body — no widget-level Card/CardHeader/CardTitle
 // (WorkstreamCardItem's inner Cards are child item chrome, not widget chrome)
 // ---------------------------------------------------------------------------
@@ -487,7 +551,52 @@ function WorkstreamsBody({ data }: WorkstreamsBodyProps) {
 // Inner component so hooks run after the early-return guard
 function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
   const filterFn = useCallback(workstreamFilterFn, []);
-  const sortFn = useCallback(workstreamSortFn, []);
+
+  // Needs-me join (mt#2885, same pattern as the fleet table mt#2884): open
+  // asks bound by parentTaskId to the stream's parent or any child mark the
+  // stream blocked-on-you. Shared ["asks"] query cache.
+  const asksQuery = useQuery<AsksListResponse, Error>({
+    queryKey: ["asks"],
+    queryFn: fetchAsks,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+  });
+  const askTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of asksQuery.data?.asks ?? []) {
+      if (a.parentTaskId) ids.add(a.parentTaskId);
+    }
+    return ids;
+  }, [asksQuery.data]);
+
+  const healthByStream = useMemo(() => {
+    const m = new Map<string, StreamHealth>();
+    for (const card of workstreams) {
+      m.set(card.parentId, streamHealth(card, askTaskIds));
+    }
+    return m;
+  }, [workstreams, askTaskIds]);
+
+  // Attention sort: health rank first (blocked-on-you → stalled → in-review →
+  // moving), newest motion within a rank. Other keys delegate to the
+  // existing comparator.
+  const sortFn = useCallback(
+    (a: WorkstreamCard, b: WorkstreamCard, key: WorkstreamSortKey, dir: SortDir): number => {
+      if (key === "attention") {
+        const ha = healthByStream.get(a.parentId);
+        const hb = healthByStream.get(b.parentId);
+        const rankDiff =
+          STREAM_HEALTH_RANK[ha?.state ?? "moving"] - STREAM_HEALTH_RANK[hb?.state ?? "moving"];
+        if (rankDiff !== 0) return dir === "asc" ? rankDiff : -rankDiff;
+        const ta = a.lastActivityAt ?? "";
+        const tb = b.lastActivityAt ?? "";
+        const cmp = ta.localeCompare(tb);
+        return dir === "asc" ? -cmp : cmp; // newest motion first within a rank
+      }
+      return workstreamSortFn(a, b, key, dir);
+    },
+    [healthByStream]
+  );
 
   const {
     pageItems,
@@ -509,8 +618,8 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
   } = useListControls<WorkstreamCard, WorkstreamSortKey, WorkstreamFilters>({
     items: workstreams,
     defaultPageSize: 10,
-    defaultSortKey: "activeChildCount",
-    defaultSortDir: "desc",
+    defaultSortKey: "attention",
+    defaultSortDir: "asc",
     defaultFilters: DEFAULT_FILTERS,
     filterFn,
     sortFn,
@@ -565,7 +674,7 @@ function WorkstreamsInner({ workstreams }: { workstreams: WorkstreamCard[] }) {
       ) : (
         <div>
           {pageItems.map((card) => (
-            <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} />
+            <WorkstreamCardItem key={card.parentId} card={card} defaultOpen={defaultOpen} health={healthByStream.get(card.parentId)!} />
           ))}
           <PaginationBar
             page={page}
