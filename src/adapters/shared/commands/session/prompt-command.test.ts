@@ -53,9 +53,15 @@ function buildGetDeps(sessionDB: FakeSessionProvider): () => Promise<SessionComm
 
 /**
  * Minimal fake DB — only supports what `recordSubagentInvocation`'s INSERT
- * path needs: a SELECT that always resolves empty (so the upsert always
- * takes the INSERT branch, since the store starts empty) and an INSERT that
- * captures the inserted row via `onInsert`. No groupBy/orderBy/update
+ * path needs: a SELECT that always resolves empty (so both the mt#2831
+ * strong-binding id lookup and the heuristic subagentSessionId lookup find
+ * no existing row, and the upsert always takes the INSERT branch, since the
+ * store starts empty) and an INSERT that captures the inserted row via
+ * `onInsert` and supports `.returning()` (mt#2831 — `recordSubagentInvocation`
+ * now reads back the inserted row's id). `.orderBy()` is a pass-through
+ * no-op (mt#2831 R1: the heuristic upsert path now orders by startedAt) —
+ * this fake ignores ordering/filtering entirely since the store is always
+ * empty, so it's a no-op chain link, not a real sort. No groupBy/update
  * support — this test only exercises one dispatch-time write, not the
  * cadence-aggregation surface (covered by subagent-dispatch-tracker.test.ts).
  */
@@ -65,6 +71,9 @@ function makeMinimalFakeDb(onInsert: (input: SubagentInvocationInput) => void): 
       return selectChain;
     },
     where() {
+      return selectChain;
+    },
+    orderBy() {
       return selectChain;
     },
     limit() {
@@ -83,7 +92,11 @@ function makeMinimalFakeDb(onInsert: (input: SubagentInvocationInput) => void): 
       return {
         values(input: SubagentInvocationInput) {
           onInsert(input);
-          return Promise.resolve();
+          return {
+            returning(_fields?: unknown): Promise<Array<{ id: string }>> {
+              return Promise.resolve([{ id: "fake-inserted-id" }]);
+            },
+          };
         },
       };
     },
