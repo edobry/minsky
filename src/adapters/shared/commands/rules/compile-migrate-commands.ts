@@ -25,8 +25,15 @@ import { formatTopContributors } from "@minsky/domain/rules/compile/size-budget"
  * or size-budget exceeded) so callers can aggregate failures across ALL
  * probed targets instead of throwing on the first one found. Returns
  * undefined when the target passed (or when not in --check mode).
+ *
+ * Exported for unit testing (mt#2874 R1 — this function previously had ZERO
+ * direct unit tests despite four distinct branches; see
+ * `compile-migrate-commands.test.ts`).
  */
-function reportSingleTargetCompile(target: string, result: CompileRulesResult): string | undefined {
+export function reportSingleTargetCompile(
+  target: string,
+  result: CompileRulesResult
+): string | undefined {
   // Report output size on every compile (mt#2802 success criterion #1).
   if (result.sizeChars !== undefined) {
     log.cli(`[rules compile] Target "${target}" output size: ${result.sizeChars} chars`);

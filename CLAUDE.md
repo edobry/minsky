@@ -331,7 +331,7 @@ Doc: `deploy-verification-merge-gate.md`.
 ## Growth-Justification Merge Gate
 
 PreToolUse on `session_pr_merge`: when the diff touches `.minsky/rules/**` AND CLAUDE.md grows
->2,000 chars (head vs merge-base; reductions never trigger), denies without a `Size-budget
+>2,000 bytes (head vs merge-base; reductions never trigger), denies without a `Size-budget
 justification:` marker (mt#2648 form) — states the measured delta + the rule-admission ladder
 (`key-architecture.mdc`). Hook: `require-growth-justification-before-merge.ts`. Override:
 `MINSKY_SKIP_SIZE_JUSTIFICATION=1` (audited, value not echoed). Fail: open on unreadable diff/PR.
@@ -991,7 +991,7 @@ label each section per the sense it shows, not blend the words.
   (reference-shaped) → `alwaysApply: true` LAST, reserved for genuinely per-turn discipline
   (mt#1876: "would removal cause an agent to skip a check it runs every turn?"). Mechanically
   gated at merge time by the growth-justification gate (`hook-files.mdc`) when a
-  `.minsky/rules/**` PR grows `CLAUDE.md` past 2,000 chars.
+  `.minsky/rules/**` PR grows `CLAUDE.md` past 2,000 bytes.
 
 ## Operational reference rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
 

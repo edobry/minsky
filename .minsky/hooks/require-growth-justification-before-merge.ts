@@ -8,7 +8,7 @@
 // warn/fail on whichever agent happens to merge at that threshold — not on
 // the author whose PR actually caused the growth. Pricing growth at the
 // SOURCE (the PR that adds it) fixes the incentive mismatch: a PR that grows
-// always-loaded context by more than a couple thousand chars must justify
+// always-loaded context by more than a couple thousand bytes must justify
 // why the content needs to be always-loaded, and which cheaper channels
 // (path-scoped `.claude/rules`, a skill, memory, docs) were rejected first.
 //
@@ -19,6 +19,20 @@
 //
 // Escape hatch: MINSKY_SKIP_SIZE_JUSTIFICATION=1 — operator override,
 // audit-logged (registered in HOOK_ONLY_ENV_VARS).
+//
+// Unit note (R1 fix): this gate measures BYTES, not chars. The size comes
+// from GitHub's contents API `.size` field — the same server-side byte count
+// `wc -c` reports — NOT from `content.length` (JS string length / UTF-16
+// code units), which is what the sibling mt#2802 size-budget module
+// (`packages/domain/src/rules/compile/size-budget.ts`) measures and rightly
+// calls "chars". The two units diverge for any multi-byte UTF-8 character
+// (em dashes, arrows, checkmarks — all over this repo's rule prose): each is
+// ONE UTF-16 code unit but 3 BYTES. Every identifier/message below says
+// "bytes" precisely because that's what's actually being compared — do not
+// rename back to "chars" to match the size-budget module; the two gates
+// genuinely measure different units for different reasons (this one avoids
+// decoding base64 content just to count chars; size-budget.ts already has
+// the decoded string in hand from the compile step).
 //
 // @see mt#2874 — this hook
 // @see mt#2802 — the aggregate size-budget check this gate complements (the
@@ -59,16 +73,16 @@ export function isOverrideSet(): boolean {
 export const RULES_DIR_PREFIX = ".minsky/rules/";
 
 /**
- * Growth threshold (chars) above which a rules-touching PR must carry a
- * `Size-budget justification:` marker. Calibrated per the mt#2874 spec's
- * §Thresholds grounding: ~the smallest deliberate rule addition observed
- * (mt#2801 added ~3.3K; incidental same-day growths ran 2.7-3K) — a
- * one-line factual edit stays comfortably under it. Reductions (delta <= 0)
- * never trigger regardless of magnitude. Exposed as a named export (not
- * inlined) so the value is tunable from one place and directly assertable
- * in tests.
+ * Growth threshold (BYTES — see the module-header unit note) above which a
+ * rules-touching PR must carry a `Size-budget justification:` marker.
+ * Calibrated per the mt#2874 spec's §Thresholds grounding: ~the smallest
+ * deliberate rule addition observed (mt#2801 added ~3.3K; incidental
+ * same-day growths ran 2.7-3K) — a one-line factual edit stays comfortably
+ * under it. Reductions (delta <= 0) never trigger regardless of magnitude.
+ * Exposed as a named export (not inlined) so the value is tunable from one
+ * place and directly assertable in tests.
  */
-export const GROWTH_THRESHOLD_CHARS = 2000;
+export const GROWTH_THRESHOLD_BYTES = 2000;
 
 /** The file whose growth this gate prices. */
 export const TARGET_FILE = "CLAUDE.md";
@@ -162,10 +176,10 @@ export interface GrowthJustificationCheckResult {
   /** Rules-directory files found in the PR diff (empty when the gate is silent). */
   rulesFiles: string[];
   /**
-   * `headSizeChars - baseSizeChars` for the target file. `null` only when
+   * `headSizeBytes - baseSizeBytes` for the target file. `null` only when
    * the gate never reached the size comparison (no rules files touched).
    */
-  deltaChars: number | null;
+  deltaBytes: number | null;
   /** Whether the justification marker was found (only meaningful when growth exceeded the threshold). */
   justificationFound: boolean;
   /** Any non-fatal warnings to surface. */
@@ -174,12 +188,12 @@ export interface GrowthJustificationCheckResult {
 
 /**
  * Evaluate the growth-justification check given the PR's changed files, its
- * body, and the target file's measured size at head and at the PR's
- * merge-base. Pure core of the hook — injectable for unit tests (no `gh`
- * calls happen in here; the top-level entrypoint below resolves the two
- * sizes and passes them in).
+ * body, and the target file's measured size (BYTES — see module-header unit
+ * note) at head and at the PR's merge-base. Pure core of the hook —
+ * injectable for unit tests (no `gh` calls happen in here; the top-level
+ * entrypoint below resolves the two sizes and passes them in).
  *
- * `thresholdChars` defaults to {@link GROWTH_THRESHOLD_CHARS} (the production
+ * `thresholdBytes` defaults to {@link GROWTH_THRESHOLD_BYTES} (the production
  * value) but is overridable — this is the seam live-verification uses to
  * exercise the deny path against a REAL PR's real (but sub-2000) growth with
  * a deliberately lowered test threshold, per §7a's "low test threshold via
@@ -188,9 +202,9 @@ export interface GrowthJustificationCheckResult {
 export function checkGrowthJustification(
   files: PrFile[],
   prBody: string,
-  headSizeChars: number,
-  baseSizeChars: number,
-  thresholdChars: number = GROWTH_THRESHOLD_CHARS
+  headSizeBytes: number,
+  baseSizeBytes: number,
+  thresholdBytes: number = GROWTH_THRESHOLD_BYTES
 ): GrowthJustificationCheckResult {
   const warnings: string[] = [];
   const rulesFiles = findRulesDirFiles(files);
@@ -200,24 +214,24 @@ export function checkGrowthJustification(
     return {
       blocked: false,
       rulesFiles: [],
-      deltaChars: null,
+      deltaBytes: null,
       justificationFound: false,
       warnings,
     };
   }
 
-  const deltaChars = headSizeChars - baseSizeChars;
+  const deltaBytes = headSizeBytes - baseSizeBytes;
 
   // Reductions (delta <= 0) and sub-threshold growth never trigger — a plain
   // "<=" comparison, not "<", so a delta exactly AT the threshold does not
   // yet trigger (parity with the acceptance test's "growth 1.5K -> allowed"
   // case and the general "exceeds" framing in the spec: the gate fires once
   // growth is STRICTLY greater than the threshold).
-  if (deltaChars <= thresholdChars) {
+  if (deltaBytes <= thresholdBytes) {
     return {
       blocked: false,
       rulesFiles,
-      deltaChars,
+      deltaBytes,
       justificationFound: false,
       warnings,
     };
@@ -227,18 +241,18 @@ export function checkGrowthJustification(
     return {
       blocked: false,
       rulesFiles,
-      deltaChars,
+      deltaBytes,
       justificationFound: true,
       warnings,
     };
   }
 
-  const reason = buildDenyMessage(deltaChars, rulesFiles, thresholdChars);
+  const reason = buildDenyMessage(deltaBytes, rulesFiles, thresholdBytes);
   return {
     blocked: true,
     reason,
     rulesFiles,
-    deltaChars,
+    deltaBytes,
     justificationFound: false,
     warnings,
   };
@@ -251,14 +265,14 @@ export function checkGrowthJustification(
  * body for the cross-check), and names the marker form.
  */
 function buildDenyMessage(
-  deltaChars: number,
+  deltaBytes: number,
   rulesFiles: string[],
-  thresholdChars: number = GROWTH_THRESHOLD_CHARS
+  thresholdBytes: number = GROWTH_THRESHOLD_BYTES
 ): string {
   const fileList = rulesFiles.map((f) => `  - ${f}`).join("\n");
   return (
     `Merge blocked: this PR touches .minsky/rules/** and grows ${TARGET_FILE} by ` +
-    `${deltaChars} chars (threshold: ${thresholdChars} chars) with no ` +
+    `${deltaBytes} bytes (threshold: ${thresholdBytes} bytes) with no ` +
     `\`Size-budget justification:\` marker in the PR body.\n\n` +
     `Rule-admission ladder — new guidance content defaults DOWN:\n` +
     `  1. path-scoped \`.claude/rules\` — file-shaped guidance\n` +
@@ -285,9 +299,25 @@ function buildDenyMessage(
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
-  // Operator override: skip with an audit line on stdout (non-JSON — Claude
-  // Code's hook-output parser logs it as "Ignoring non-JSON line"), matching
-  // the sibling override-audit convention. Never echoes the env value.
+  // Operator override: skip with an audit line on stdout. This is the
+  // ESTABLISHED convention across this hook family, verified by direct
+  // inspection (not assumed) — `grep -rn "override active" .minsky/hooks/*.ts`
+  // shows 14+ hooks writing their override-audit line to `process.stdout`,
+  // including the DIRECTLY comparable sibling
+  // `require-deploy-verification-before-merge.ts` (same event, same
+  // `session_pr_merge` matcher, same "operator override on a merge gate"
+  // shape), which writes via `process.stdout.write` and says so explicitly
+  // ("matching the sibling override-audit convention"). The one exception in
+  // the family is `block-subagent-bypass-merge.ts` (`console.error`/stderr),
+  // which is a DIFFERENT shape — a hard, no-fail-open, main-agent-only
+  // bypass audit trail, not a "gate skipped, audit and move on" line. stdout
+  // is correct here; Claude Code's hook-output parser tolerates a non-JSON
+  // stdout line by logging "Ignoring non-JSON line" and proceeding (verified
+  // empirically by every sibling hook using this exact pattern in
+  // production). Unlike most siblings, this line does NOT echo the env
+  // value — MINSKY_SKIP_SIZE_JUSTIFICATION is a boolean flag, not a secret,
+  // but omitting the value keeps the audit line stable regardless of which
+  // truthy spelling ("1"/"true"/"yes") was used.
   if (isOverrideSet()) {
     process.stdout.write(
       `[growth-justification] override active: ${OVERRIDE_ENV_VAR} set at ` +
@@ -357,10 +387,10 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const headSizeChars = fetchFileSizeAtRef(repo, TARGET_FILE, headSha, { cwd: input.cwd });
-  const baseSizeChars = fetchFileSizeAtRef(repo, TARGET_FILE, mergeBaseSha, { cwd: input.cwd });
+  const headSizeBytes = fetchFileSizeAtRef(repo, TARGET_FILE, headSha, { cwd: input.cwd });
+  const baseSizeBytes = fetchFileSizeAtRef(repo, TARGET_FILE, mergeBaseSha, { cwd: input.cwd });
 
-  if (headSizeChars === null || baseSizeChars === null) {
+  if (headSizeBytes === null || baseSizeBytes === null) {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -372,7 +402,7 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const result = checkGrowthJustification(prFiles, prBody, headSizeChars, baseSizeChars);
+  const result = checkGrowthJustification(prFiles, prBody, headSizeBytes, baseSizeBytes);
   const allWarnings = [...topLevelWarnings, ...result.warnings];
 
   if (result.blocked) {

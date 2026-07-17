@@ -38,7 +38,7 @@ DOWN the ladder; `alwaysApply: true` is the LAST rung, not the default:
 
 Every rule addition that reaches step 2 below and sets `alwaysApply: true` is implicitly
 asserting it passed this check. A PR that grows the compiled `CLAUDE.md` by more than a
-couple thousand chars via `.minsky/rules/**` is mechanically gated on this same ladder
+couple thousand bytes via `.minsky/rules/**` is mechanically gated on this same ladder
 at merge time (`require-growth-justification-before-merge.ts`, mt#2874) — front-loading
 the check here avoids that round-trip.
 

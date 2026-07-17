@@ -654,6 +654,25 @@ export function fetchMergeBaseSha(
  * not a fetch failure. Returns `null` on any OTHER failure (network, auth,
  * rate-limit, parse) — callers should fail-open with a warning on `null`
  * specifically, not on `0`.
+ *
+ * 404 detection (R1 fix — tightened from a loose `/not found/i` substring
+ * match): `gh api` reports every non-2xx response as `gh: <message> (HTTP
+ * <code>)` on stderr. Matching on the literal `(HTTP 404)` suffix — verified
+ * empirically against three real cases (missing file: `gh: Not Found (HTTP
+ * 404)`; missing repo: same message, GitHub's contents endpoint doesn't
+ * distinguish; invalid ref: `gh: No commit found for the ref ... (HTTP
+ * 404)`) — is precise about the STATUS CODE, unlike the prior pattern, which
+ * could also match unrelated errors that happen to contain the substring
+ * "not found" anywhere in their text (a different tool's stderr noise, a
+ * DNS message, etc.). Residual ambiguity: this endpoint's 404 does not let
+ * us distinguish "file absent" from "repo/ref invalid" — both messages
+ * shown above satisfy the same regex. This is safe for THIS hook's actual
+ * call sites: `require-growth-justification-before-merge.ts` only ever
+ * passes a `headSha` from a resolved `PrMeta` or a `mergeBaseSha` already
+ * validated by `fetchMergeBaseSha`'s own compare-API call — both are
+ * real, existing commits in the SAME repo, so "ref invalid" / "repo
+ * invalid" are not realistic failure modes here; the only realistic 404 is
+ * genuine file-absence-at-a-valid-commit.
  */
 export function fetchFileSizeAtRef(
   repo: string,
@@ -667,10 +686,8 @@ export function fetchFileSizeAtRef(
     timeout,
   });
   if (result.exitCode !== 0) {
-    // `gh api` surfaces a 404 (file absent at this ref) as a non-zero exit
-    // with "Not Found" in stderr — treat that specific case as absence (0),
-    // any other failure as a genuine fetch error (null).
-    if (/not found/i.test(result.stderr)) return 0;
+    // Match gh's actual HTTP-status suffix, not a loose "not found" substring.
+    if (/\(HTTP 404\)/.test(result.stderr)) return 0;
     return null;
   }
   const size = parseInt(result.stdout.trim(), 10);

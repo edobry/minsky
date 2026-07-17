@@ -2,7 +2,7 @@
 // Unit tests for the growth-justification merge gate (mt#2874).
 //
 // Covers: rules-dir file matching, the mt#2648 marker-acceptance forms
-// (both shapes), delta computation at the 2,000-char boundary, the
+// (both shapes), delta computation at the 2,000-byte boundary, the
 // reduction-never-triggers rule, and the fail-open/silent paths.
 
 import { describe, test, expect, afterAll } from "bun:test";
@@ -12,7 +12,7 @@ import {
   hasSizeBudgetJustification,
   checkGrowthJustification,
   isOverrideSet,
-  GROWTH_THRESHOLD_CHARS,
+  GROWTH_THRESHOLD_BYTES,
   OVERRIDE_ENV_VAR,
   RULES_DIR_PREFIX,
 } from "./require-growth-justification-before-merge";
@@ -144,6 +144,23 @@ describe("hasSizeBudgetJustification", () => {
     expect(hasSizeBudgetJustification(body)).toBe(false);
   });
 
+  test("rejects a heading whose inline content is trailing spaces only (R1 gap fix)", () => {
+    // The heading line itself has ONLY whitespace after the colon, and the
+    // following line is blank too — this must fall through exactly like the
+    // "no following content" case above (trim() reduces the captured group
+    // to an empty string, so `inlineContent.length > 0` must be false and
+    // the scan must continue to the next real section rather than
+    // false-accepting whitespace as justification content).
+    const body = "## Size-budget justification:   \n\n## Next Section\n\nOther content.";
+    expect(hasSizeBudgetJustification(body)).toBe(false);
+  });
+
+  test("accepts real content on a later line even when the heading line has trailing spaces only", () => {
+    const body =
+      "## Size-budget justification:   \nThis fires every turn, no cheaper channel fits.";
+    expect(hasSizeBudgetJustification(body)).toBe(true);
+  });
+
   test("ignores a marker inside an HTML comment", () => {
     const body = "<!-- Size-budget justification: hidden -->\n\nActual body text.";
     expect(hasSizeBudgetJustification(body)).toBe(false);
@@ -177,19 +194,19 @@ describe("checkGrowthJustification", () => {
     const result = checkGrowthJustification(NON_RULES_FILES, "", 200_000, 100_000);
     expect(result.blocked).toBe(false);
     expect(result.rulesFiles).toEqual([]);
-    expect(result.deltaChars).toBeNull();
+    expect(result.deltaBytes).toBeNull();
   });
 
-  test("computes delta as headSizeChars - baseSizeChars", () => {
+  test("computes delta as headSizeBytes - baseSizeBytes", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 114_500, 111_000);
-    expect(result.deltaChars).toBe(3500);
+    expect(result.deltaBytes).toBe(3500);
   });
 
   test("blocks growth strictly above the threshold with no marker", () => {
     const result = checkGrowthJustification(RULES_FILES, "no marker here", 103_000, 100_000);
-    expect(result.deltaChars).toBe(3000);
+    expect(result.deltaBytes).toBe(3000);
     expect(result.blocked).toBe(true);
-    expect(result.reason).toContain("3000 chars");
+    expect(result.reason).toContain("3000 bytes");
     expect(result.reason).toContain("Size-budget justification:");
     expect(result.reason).toContain("Rule-admission ladder");
     expect(result.reason).toContain(OVERRIDE_ENV_VAR);
@@ -204,42 +221,42 @@ describe("checkGrowthJustification", () => {
 
   test("allows growth of 1.5K (under the 2K threshold) without a marker", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 101_500, 100_000);
-    expect(result.deltaChars).toBe(1500);
+    expect(result.deltaBytes).toBe(1500);
     expect(result.blocked).toBe(false);
   });
 
   test("boundary: growth exactly AT the threshold (2000) does not trigger", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 102_000, 100_000);
-    expect(result.deltaChars).toBe(GROWTH_THRESHOLD_CHARS);
+    expect(result.deltaBytes).toBe(GROWTH_THRESHOLD_BYTES);
     expect(result.blocked).toBe(false);
   });
 
-  test("boundary: growth one char ABOVE the threshold (2001) triggers without a marker", () => {
+  test("boundary: growth one byte ABOVE the threshold (2001) triggers without a marker", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 102_001, 100_000);
-    expect(result.deltaChars).toBe(GROWTH_THRESHOLD_CHARS + 1);
+    expect(result.deltaBytes).toBe(GROWTH_THRESHOLD_BYTES + 1);
     expect(result.blocked).toBe(true);
   });
 
-  test("thresholdChars override (mt#2874 §7a live-verification seam): a real sub-2000 delta blocks under a lowered test threshold", () => {
-    // Mirrors the live-verification exercise: growth of 1936 chars (a REAL
+  test("thresholdBytes override (mt#2874 §7a live-verification seam): a real sub-2000 delta blocks under a lowered test threshold", () => {
+    // Mirrors the live-verification exercise: growth of 1936 bytes (a REAL
     // historical delta, PR #1935/mt#2801) is under the production 2000
     // threshold but exceeds a deliberately lowered test threshold.
     const result = checkGrowthJustification(RULES_FILES, "", 101_936, 100_000, 1000);
-    expect(result.deltaChars).toBe(1936);
+    expect(result.deltaBytes).toBe(1936);
     expect(result.blocked).toBe(true);
-    expect(result.reason).toContain("1936 chars");
-    expect(result.reason).toContain("threshold: 1000 chars");
+    expect(result.reason).toContain("1936 bytes");
+    expect(result.reason).toContain("threshold: 1000 bytes");
   });
 
-  test("thresholdChars override does not affect the reduction-never-triggers rule", () => {
+  test("thresholdBytes override does not affect the reduction-never-triggers rule", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 99_000, 100_000, 1);
-    expect(result.deltaChars).toBe(-1000);
+    expect(result.deltaBytes).toBe(-1000);
     expect(result.blocked).toBe(false);
   });
 
   test("a reduction never triggers, even a large one, regardless of marker absence", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 90_000, 140_000);
-    expect(result.deltaChars).toBe(-50_000);
+    expect(result.deltaBytes).toBe(-50_000);
     expect(result.blocked).toBe(false);
   });
 

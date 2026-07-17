@@ -15,7 +15,7 @@ mt#2802 shipped an aggregate size-budget check (`rules compile --check`) that re
 warn/fail threshold (currently 115K warn / 140K fail). That check makes regrowth
 _visible_, but it puts the _cost_ of hitting the ceiling on whichever agent happens to be
 the one who merges the PR that tips the corpus over — not on the author whose PR actually
-added the content. A PR that adds 3,000 chars of always-loaded rule text to `hook-files.mdc`
+added the content. A PR that adds 3,000 bytes of always-loaded rule text to `hook-files.mdc`
 looks the same as a one-line typo fix to every gate EXCEPT the aggregate check, and that
 check doesn't fire until the corpus is already near its ceiling — sometimes weeks after
 the growth landed (see mt#2801/mt#2873/mt#2874's own originating incident: `hook-files.mdc`
@@ -31,11 +31,20 @@ Both conditions must hold:
 
 1. The PR's diff touches at least one file under `.minsky/rules/**` (added, modified,
    removed, or renamed into/out of the directory).
-2. The compiled `CLAUDE.md`'s size grows by MORE than `GROWTH_THRESHOLD_CHARS` (2,000
-   chars) between the PR's merge-base and its head.
+2. The compiled `CLAUDE.md`'s size grows by MORE than `GROWTH_THRESHOLD_BYTES` (2,000
+   bytes) between the PR's merge-base and its head.
 
-**Reductions never trigger.** `deltaChars = headSizeChars - baseSizeChars`; the gate only
-evaluates the marker requirement when `deltaChars > GROWTH_THRESHOLD_CHARS`. A PR that
+**Unit note (R1 fix — was previously mislabeled "chars"):** this gate measures BYTES —
+GitHub's contents API `.size` field, the same server-side byte count `wc -c` reports — NOT
+`content.length` (JS string length / UTF-16 code units), which is what the SIBLING mt#2802
+aggregate size-budget module (`size-budget.ts`) measures and correctly calls "chars." The
+two units diverge for any multi-byte UTF-8 character (em dashes, arrows — common in this
+repo's rule prose): one UTF-16 code unit but 3 bytes each. Every identifier in this hook
+(`GROWTH_THRESHOLD_BYTES`, `deltaBytes`, `headSizeBytes`/`baseSizeBytes`) and every deny
+message says "bytes" precisely because that's what's actually being compared.
+
+**Reductions never trigger.** `deltaBytes = headSizeBytes - baseSizeBytes`; the gate only
+evaluates the marker requirement when `deltaBytes > GROWTH_THRESHOLD_BYTES`. A PR that
 trims `CLAUDE.md` — even a large trim — is always silently allowed, regardless of whether
 it also touches `.minsky/rules/**`. This is deliberate: penalizing a trim would create a
 perverse incentive against exactly the corrective work this gate exists to encourage.
@@ -67,8 +76,22 @@ touch the rules directory at all).
 
 A `CLAUDE.md` that doesn't exist at one of the two refs (e.g. a merge-base predating the
 file, which is not expected in this repo but is handled defensively) resolves to size `0`
-at that ref rather than a fetch failure — a `404 Not Found` from the contents API is
-distinguished from a genuine transport error and treated as "absent, size 0."
+at that ref rather than a fetch failure — a `404` from the contents API (matched on gh's
+literal `(HTTP 404)` status suffix, not a loose "not found" substring — see
+`fetchFileSizeAtRef`'s doc comment for the empirically-verified gh error formats and the
+residual repo-vs-file ambiguity, which is safe for this hook's actual call sites since both
+refs it passes are always pre-validated real commits) is distinguished from a genuine
+transport error and treated as "absent, size 0."
+
+## Timeout
+
+Registered at `timeout: 90` in `.claude/settings.json` (bumped from the sibling
+Execution-Evidence/Deploy-Verification gates' 60s during review — R1 fix). This gate makes
+MORE sequential `gh` calls than those two siblings: `fetchPrContext` (up to 2 meta-resolution
+attempts + a files fetch, ~35s worst-case sum) PLUS `fetchMergeBaseSha` (10s) PLUS TWO
+`fetchFileSizeAtRef` calls (10s each) = ~65s theoretical worst-case sum of per-call
+timeouts. The siblings run at 60s against their own ~35s worst case (25s of slack); 90s
+gives this gate the same 25s of absolute slack over its own 65s worst case.
 
 ## Marker acceptance (mt#2648)
 

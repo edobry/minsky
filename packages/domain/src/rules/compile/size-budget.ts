@@ -156,6 +156,20 @@ export function computeRuleContributions(rules: Rule[], includedIds: string[]): 
  * (the same scoping the mt#2874 spec's ladder discipline targets: content
  * that isn't `alwaysApply` already sits on a cheaper channel). Ranked by
  * size descending, matching `topContributors`' ordering convention.
+ *
+ * Edge case (R1 clarification): for the `claude.md` target specifically,
+ * this `alwaysApply` filter is DEFENSIVE, not load-bearing in practice —
+ * `buildClaudeMdContent` (`targets/claude-md.ts`) already restricts its
+ * `rulesIncluded` output to `alwaysApply: true` rules by construction ("By
+ * default, only includes ALWAYS_APPLY rules" per that file's own module
+ * doc), so a glob-scoped or agent-requested rule never appears in the
+ * `includedIds` this function receives from the `claude.md` call site at
+ * all — it doesn't compile into `claude.md`, so there is nothing for this
+ * filter to need to exclude there. The `alwaysApply === true` check earns
+ * its keep as a CORRECTNESS GUARANTEE for this function's general
+ * reusability: any FUTURE caller (a different target, a test fixture that
+ * passes a broader `includedIds` set) is still protected from
+ * misclassifying a non-always-on rule as a per-rule-ceiling violation.
  */
 export function findPerRuleCeilingViolations(
   rules: Rule[],
