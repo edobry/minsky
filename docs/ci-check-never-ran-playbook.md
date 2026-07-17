@@ -14,7 +14,7 @@ pushes (`118e7fc0f`, `7541fd041`) produced zero Actions runs after the prior pus
 
 ## 1. Discriminate before you recover
 
-**Zero check_runs is ambiguous.** Before assuming "GitHub missed the webhook," rule out the
+**Zero `check_runs` is ambiguous.** Before assuming "GitHub missed the webhook," rule out the
 cheaper, more common causes first — each needs a _different_ fix, and the wrong fix wastes cycles
 or actively harms the PR (an empty-commit nudge or a rebase both invalidate a standing reviewer
 APPROVE, so don't fire one speculatively).
@@ -26,7 +26,7 @@ APPROVE, so don't fire one speculatively).
 2. **Check `mergeable_state` before concluding "webhook miss."** `dirty` (real conflict) or
    `behind`/`unknown` means GitHub cannot form the PR's merge ref and therefore never dispatches
    `pull_request`-triggered workflows at all — this looks identical to a webhook miss (zero
-   check_runs) but the fix is completely different (`session_update` to bring the branch current,
+   `check_runs`) but the fix is completely different (`session_update` to bring the branch current,
    not any of the nudges below). Empty-commit nudges do **nothing** for this case and each one
    burns a reviewer-approval cycle for no benefit. See memory `6262934f` (the discriminator) and
    `mt#2312` (the structural gate fix that added this distinction to the merge-gate hook itself).
@@ -45,7 +45,7 @@ around.
   workflow file's `on:` block directly. For this repo's `ci.yml` and `bundle-boot-smoke.yml`,
   neither has a `paths:` filter and neither has a `concurrency:` group, so a path-filter miss or a
   same-group cancellation are ruled out as explanations here (a genuine `cancel-in-progress`
-  cancellation would also still leave a `cancelled` check_run record — it would NOT produce zero
+  cancellation would also still leave a `cancelled` `check_run` record — it would NOT produce zero
   records, which is a useful tell: **zero runs is a different symptom from a cancelled run**).
 - **A genuine GitHub-side incident.** Check https://www.githubstatus.com/ — but query the actual
   incident **history/API**, not just the current homepage banner (the banner only reflects status
@@ -106,7 +106,7 @@ dirty/behind, not still-queued, not a real failure).
    event class. Note: a **SHA-scoped** custom gate that reads check-runs by commit SHA regardless
    of triggering event (e.g. this repo's `bundle-boot-smoke` PreToolUse evaluator, which queries
    `commits/<sha>/check-runs` with no event-type filter) may accept a `workflow_dispatch`-produced
-   check_run even though native branch protection would not — this is plausible from the gate's
+   `check_run` even though native branch protection would not — this is plausible from the gate's
    own read-path but has not been empirically verified; treat it as worth trying, not as guaranteed.
 
 5. **Close and reopen the PR.** The heaviest-weight option: forces a fresh `opened` event and
@@ -147,8 +147,8 @@ are **not** a first resort:
 
 ## Related-but-distinct family
 
-This playbook covers **GitHub Actions never dispatching a workflow run** (zero check*runs
-created). It does \_not* cover:
+This playbook covers **GitHub Actions never dispatching a workflow run** (zero `check_runs`
+created). It does NOT cover:
 
 - **Reviewer-bot webhook misses** (the review never posts) — see
   `.minsky/skills/merge-coordination/skill.ts` §7a; same event-delivery-miss shape, different
@@ -185,9 +185,9 @@ instance):** `session_commit`'s push path (`packages/domain/src/session/session-
 `tokenProvider.getToken("implementer")`, gated on `tokenProvider?.isServiceAccountConfigured()`. On
 any failure to obtain the token, it logs a `log.warn` and **silently falls back to system-keychain
 credentials** for the push. Per this repo's own `push-operations.ts` (`mt#1477` fix, lines
-105–108): pushing with the App token "triggers `pull_request` workflows (unlike GITHUB*TOKEN or
-system-keychain credentials)" — i.e., the keychain-credential fallback path is \_documented in this
-codebase* as unreliable for triggering downstream workflow dispatch. Since the two earlier pushes
+105–108): pushing with the App token "triggers `pull_request` workflows (unlike `GITHUB_TOKEN` or
+system-keychain credentials)" — i.e., the keychain-credential fallback path is documented in this
+codebase as unreliable for triggering downstream workflow dispatch. Since the two earlier pushes
 on the same branch (`76a18097` at 00:17Z, `5ba8c32e8` at 00:25Z) _did_ get full CI while these two
 later ones did not, the failure is intermittent per-push rather than a standing misconfiguration —
 consistent with the prior finding on this exact class (memory `8bd30dc2` / task `mt#1469`: "the
