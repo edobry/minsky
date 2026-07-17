@@ -9,7 +9,9 @@ what each surface is for and how to read it.
 
 A single whole-system view: all of Minsky on one board, laid out on the VSM
 five-organ skeleton in a process-engineering (P&ID) visual language. Reached via
-the **Plant Board** tile on the cockpit home grid, or directly at `/plant`.
+the **Plant** entry in the cockpit rail, or directly at `/plant`. (The home
+page is the triage radiator since mt#2881 — needs-you band, fleet strip,
+substrate line — not a widget grid; navigation lives in the rail, mt#2398.)
 
 Its purpose is comprehension and observability-in-the-felt-sense: see the system's
 structure, watch it breathe, and build an intuitive model of its rhythms over time

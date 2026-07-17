@@ -97,6 +97,11 @@ describe("isSubsystemAnomalous", () => {
   test("loading (no data yet) is not an anomaly", () => {
     expect(isSubsystemAnomalous("mcp-server-status", undefined)).toBe(false);
   });
+
+  test("malformed ok-payload is treated like loading, not an alarm (PR #2021 R1)", () => {
+    expect(isSubsystemAnomalous("mcp-server-status", ok(null))).toBe(false);
+    expect(isSubsystemAnomalous("embeddings-health", ok("garbage"))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

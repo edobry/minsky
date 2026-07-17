@@ -150,7 +150,11 @@ export function isSubsystemAnomalous(id: SubstrateId, data: WidgetData | undefin
   if (!data) return false; // loading — not yet an anomaly
   if (data.state === "degraded") return true;
   const payload = data.payload as Record<string, unknown>;
-  if (payload == null || typeof payload !== "object") return true;
+  // A malformed/absent payload on an "ok" response is treated like loading,
+  // not like an alarm (PR #2021 R1): the widget-level degraded state and the
+  // field-guarded per-subsystem checks below carry the real signal; alarming
+  // on shape alone would false-positive during version skew.
+  if (payload == null || typeof payload !== "object") return false;
 
   switch (id) {
     case "mcp-server-status": {
