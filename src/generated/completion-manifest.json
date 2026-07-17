@@ -2054,27 +2054,6 @@
               ]
             }
           ]
-        },
-        {
-          "name": "refs",
-          "description": "refs commands",
-          "subcommands": [
-            {
-              "name": "status",
-              "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask uuids) to their current status in one call, with not-found explicit per ref",
-              "options": [
-                {
-                  "flags": ["--repo"],
-                  "description": "Repository path",
-                  "takesValue": true
-                },
-                {
-                  "flags": ["--json"],
-                  "description": "Output in JSON format"
-                }
-              ]
-            }
-          ]
         }
       ]
     },
@@ -6103,6 +6082,27 @@
               "flags": ["--related-session-id"],
               "description": "Related Minsky session ID",
               "takesValue": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "refs",
+      "description": "REFS commands",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask uuids) to their current status in one call, with not-found explicit per ref",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
             }
           ]
         }

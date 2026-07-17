@@ -211,7 +211,7 @@ export function registerRefsCommands(container?: AppContainerInterface): void {
     description:
       "Cross-reference mixed entity refs (task ids, PR numbers, ask uuids) to their current " +
       "status in one call, with not-found explicit per ref",
-    category: CommandCategory.TASKS,
+    category: CommandCategory.REFS,
     parameters: refsStatusParams,
     execute: async (params, ctx?: CommandExecutionContext) => {
       const rawRefs = params.refs;
