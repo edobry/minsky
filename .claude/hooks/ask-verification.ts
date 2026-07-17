@@ -100,6 +100,11 @@ export function evaluateAskRows(rows: AskRow[], askId: string): AskVerificationR
 }
 
 function fetchState(state: string, exec: ExecFn): AskRow[] | { error: string } {
+  // Deliberately NO `--json` flag: `tools asks list`'s param map defines no
+  // json param, so `--json` fails with "unknown option" (commander exits
+  // non-zero). The command prints JSON natively — its execute returns the
+  // result object and the CLI layer serializes it. Verified live 2026-07-17
+  // (PR #2015 live-verification transcript parses this exact call's output).
   const result = exec(
     [
       "minsky",
