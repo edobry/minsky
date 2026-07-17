@@ -325,3 +325,106 @@ describe("__proxy_restart_server response — operator nudge (mt#2031)", () => {
     }
   });
 });
+
+describe("unknown-cause instrumentation (mt#2830)", () => {
+  test("classifyExitForDisconnectLog: SIGKILL classifies as signal_sigkill, not unknown (acceptance test)", async () => {
+    const { classifyExitForDisconnectLog } = await import("./proxy");
+    expect(classifyExitForDisconnectLog(null, "SIGKILL")).toBe("signal_sigkill");
+  });
+
+  test("classifyExitForDisconnectLog: reuses existing taxonomy causes for SIGTERM/SIGINT/SIGHUP", async () => {
+    const { classifyExitForDisconnectLog } = await import("./proxy");
+    expect(classifyExitForDisconnectLog(null, "SIGTERM")).toBe("signal_sigterm");
+    expect(classifyExitForDisconnectLog(null, "SIGINT")).toBe("signal_sigint");
+    expect(classifyExitForDisconnectLog(null, "SIGHUP")).toBe("signal_sighup");
+  });
+
+  test("classifyExitForDisconnectLog: an unrecognized signal falls back to the legacy generic bucket, not unknown", async () => {
+    const { classifyExitForDisconnectLog } = await import("./proxy");
+    expect(classifyExitForDisconnectLog(null, "SIGSEGV")).toBe("signal");
+  });
+
+  test("classifyExitForDisconnectLog: non-zero exit with no signal is a proxy-observed crash", async () => {
+    const { classifyExitForDisconnectLog } = await import("./proxy");
+    expect(classifyExitForDisconnectLog(1, null)).toBe("proxy_observed_crash");
+  });
+
+  test("classifyExitForDisconnectLog: clean exit (code 0, no signal) maps to server_close", async () => {
+    const { classifyExitForDisconnectLog } = await import("./proxy");
+    expect(classifyExitForDisconnectLog(0, null)).toBe("server_close");
+  });
+
+  test("onChildClose: SIGKILL records a proxy-observed disconnect event with exit diagnostics, not clean_exit", async () => {
+    const { MinskyStdioProxy, PROXY_DISCONNECT_SERVER_NAME } = await import("./proxy");
+    const { DisconnectTracker } = await import("../disconnect-tracker");
+
+    // In-memory-only tracker (empty persistPath) so this test does no file I/O.
+    DisconnectTracker.resetForTest(PROXY_DISCONNECT_SERVER_NAME, "");
+
+    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
+
+    // Seed diagnostic state as spawnChild() would have (mt#2830).
+    (proxy as unknown as { stderrTail: string }).stderrTail = "FATAL: out of memory\n";
+    (proxy as unknown as { lastTransportEvent: string }).lastTransportEvent =
+      '{"jsonrpc":"2.0","id":7,"method":"tools/call"}';
+    // Stub the respawn call — onChildClose's non-shutdown path schedules a
+    // real spawnChild() 200ms later via setTimeout; a no-op stub keeps this
+    // test hermetic. Deliberately NOT setting isShuttingDown=true: that
+    // branch calls the REAL process.exit(0) (no test-interceptable `exit`
+    // indirection exists on this class, unlike server.ts), which would kill
+    // the whole test process.
+    (proxy as unknown as { spawnChild: () => Promise<void> }).spawnChild = async () => {};
+
+    (
+      proxy as unknown as { onChildClose: (c: number | null, s: NodeJS.Signals | null) => void }
+    ).onChildClose(null, "SIGKILL");
+
+    const events = DisconnectTracker.getInstance(PROXY_DISCONNECT_SERVER_NAME).getEvents();
+    const recorded = events.find((e) => e.kind === "disconnect");
+    if (!recorded) throw new Error("Expected onChildClose to record a disconnect event");
+
+    expect(recorded.serverName).toBe(PROXY_DISCONNECT_SERVER_NAME);
+    expect(recorded.cause).toBe("signal_sigkill");
+    expect(recorded.cause).not.toBe("unknown");
+    expect(recorded.exitCode).toBe(null);
+    expect(recorded.signal).toBe("SIGKILL");
+    expect(recorded.stderrTail).toBe("FATAL: out of memory\n");
+    expect(recorded.lastTransportEvent).toBe('{"jsonrpc":"2.0","id":7,"method":"tools/call"}');
+    // The proxy has no tool-call-count visibility — processRoleOverride keeps
+    // this escalation-eligible instead of defaulting to "helper".
+    expect(recorded.processRole).toBe("main_session");
+
+    // mt#2830 R1 fix (finding 5): onChildClose scheduled a real setTimeout
+    // (RESPAWN_DELAY_MS=200ms) that calls the stubbed no-op spawnChild above.
+    // Let it fire HERE, inside the test, instead of leaving a dangling timer
+    // that outlives the test — the flakiness window the review flagged.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  });
+
+  test("onChildClose: a routine clean exit (code 0, no signal) does NOT record a proxy-side event", async () => {
+    const { MinskyStdioProxy, PROXY_DISCONNECT_SERVER_NAME } = await import("./proxy");
+    const { DisconnectTracker } = await import("../disconnect-tracker");
+
+    DisconnectTracker.resetForTest(PROXY_DISCONNECT_SERVER_NAME, "");
+
+    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
+    // See the note in the previous test — stub spawnChild rather than using
+    // isShuttingDown, which would hit a real process.exit(0).
+    (proxy as unknown as { spawnChild: () => Promise<void> }).spawnChild = async () => {};
+
+    (
+      proxy as unknown as { onChildClose: (c: number | null, s: NodeJS.Signals | null) => void }
+    ).onChildClose(0, null);
+
+    const events = DisconnectTracker.getInstance(PROXY_DISCONNECT_SERVER_NAME).getEvents();
+    const recorded = events.find((e) => e.kind === "disconnect");
+    // Clean staleness_exit-shaped exits are already recorded by the INNER
+    // server under its own serverName; the proxy deliberately stays silent
+    // here to avoid duplicating that signal under a second bucket.
+    expect(recorded).toBeUndefined();
+
+    // mt#2830 R1 fix (finding 5): flush the scheduled respawn timer here too
+    // — see the note in the previous test.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  });
+});

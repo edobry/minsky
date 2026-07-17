@@ -66,6 +66,7 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `smoke-session-crud.ts`                  | `DrizzleSessionRepository` CRUD path (mt#2329)                                                |
 | `smoke-setup-db.ts`                      | `minsky setup db` onboarding against a live Postgres (mt#2429)                                |
 | `smoke-skill-staleness-hook.ts`          | skill-staleness-detector hook entrypoint (mt#1622)                                            |
+| `smoke-staleness-drain.ts`               | staleness-exit drain window admits new requests but not into the exit gap (mt#2830)           |
 | `smoke-tab-watcher.sh`                   | tab-watcher daemon foreground run + snapshot assertion                                        |
 | `smoke-task-id-reuse.ts`                 | task-ID-reuse / orphaned-spec fix (mt#2205)                                                   |
 | `smoke-task-kinds.ts`                    | task kind system (mt#1812)                                                                    |
