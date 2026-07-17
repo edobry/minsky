@@ -356,7 +356,17 @@ export async function runReview(
   // Fail-open contract (SC #6): if the DB is unavailable, proceed without the
   // marker guarantee rather than blocking the review.
   // ---------------------------------------------------------------------------
-  const acquiredBy = deliveryId.startsWith("sweeper-") ? "sweeper" : "webhook";
+  // mt#2799: boot-time recovery dispatches through this same runReview path,
+  // tagged with a "recovered-" delivery-id prefix (mirroring the sweeper's
+  // "sweeper-" prefix) so the marker row's acquired_by column distinguishes
+  // recovered-after-restart reviews from the primary webhook and sweeper
+  // paths in forensic queries — no new dedup mechanism, just a distinct
+  // label on the SAME acquireMarker() concurrency primitive.
+  const acquiredBy = deliveryId.startsWith("sweeper-")
+    ? "sweeper"
+    : deliveryId.startsWith("recovered-")
+      ? "recovered"
+      : "webhook";
   let markerId: string | null = null;
 
   if (deps.db !== undefined) {
