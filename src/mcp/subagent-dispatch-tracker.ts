@@ -44,6 +44,7 @@ import {
   subagentInvocationsTable,
   type SubagentInvocationInsert,
   type SubagentInvocationOutcome,
+  type SubagentInvocationRecord,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { log } from "@minsky/shared/logger";
@@ -233,6 +234,14 @@ export class SubagentDispatchTracker {
     try {
       if (input.subagentSessionId != null) {
         // Upsert path: check for an existing row by subagentSessionId.
+        //
+        // mt#2831: a subagentSessionId is no longer guaranteed unique across rows —
+        // the dispatch-recovery command deliberately INSERTs a NEW row for a resumed
+        // attempt sharing the SAME subagentSessionId (the resume reuses the existing
+        // Minsky session workspace; see recordDispatchRecoveryAttempt below). Order by
+        // startedAt DESC so this upsert always targets the MOST RECENT attempt in the
+        // retry chain — the one whose lifecycle is actually still open — rather than an
+        // arbitrary row picked by unspecified DB order.
         const existing = await this.db
           .select({
             id: subagentInvocationsTable.id,
@@ -240,6 +249,7 @@ export class SubagentDispatchTracker {
           })
           .from(subagentInvocationsTable)
           .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId))
+          .orderBy(desc(subagentInvocationsTable.startedAt))
           .limit(1);
 
         const [firstExisting] = existing;
@@ -393,6 +403,64 @@ export class SubagentDispatchTracker {
         error: getErrorMessage(err),
       });
       return "none";
+    }
+  }
+
+  /**
+   * Return the most recent `subagent_invocations` row for a task (mt#2831), ordered by
+   * `startedAt` DESC — the row the dispatch-recovery command needs to decide whether a
+   * given task's dispatch is still in flight, and if so, what attempt number it is on.
+   *
+   * Returns null when the task has no invocation rows or on DB error (fail-safe, matching
+   * the tracker's other read methods).
+   */
+  async getLatestInvocationForTask(taskId: string): Promise<SubagentInvocationRecord | null> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(subagentInvocationsTable)
+        .where(eq(subagentInvocationsTable.taskId, taskId))
+        .orderBy(desc(subagentInvocationsTable.startedAt))
+        .limit(1);
+      return row ?? null;
+    } catch (err) {
+      log.warn("subagent_dispatch_tracker: getLatestInvocationForTask failed", {
+        taskId,
+        error: getErrorMessage(err),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Insert a NEW row for a dispatch-recovery auto-resume attempt (mt#2831). Deliberately a
+   * plain INSERT rather than `recordSubagentInvocation`'s upsert — a resumed attempt reuses
+   * the SAME Minsky session workspace (and therefore the same `subagentSessionId`) as the
+   * attempt it resumes, so upserting on `subagentSessionId` would overwrite the original
+   * row's history instead of creating a distinct, linked row. This is the write side of the
+   * `resumedFromInvocationId` / `attemptNumber` retry-linkage columns.
+   *
+   * Returns the new row's id, or null on DB error (fail-safe — the caller still returns the
+   * continuation prompt to the orchestrator even if this bookkeeping write fails; the
+   * recovery action itself must not be blocked by a telemetry-write failure).
+   */
+  async recordDispatchRecoveryAttempt(
+    input: SubagentInvocationInput & { resumedFromInvocationId: string; attemptNumber: number }
+  ): Promise<string | null> {
+    try {
+      const [row] = await this.db
+        .insert(subagentInvocationsTable)
+        .values(input)
+        .returning({ id: subagentInvocationsTable.id });
+      return row?.id ?? null;
+    } catch (err) {
+      log.warn("subagent_dispatch_tracker: recordDispatchRecoveryAttempt failed", {
+        taskId: input.taskId,
+        resumedFromInvocationId: input.resumedFromInvocationId,
+        attemptNumber: input.attemptNumber,
+        error: getErrorMessage(err),
+      });
+      return null;
     }
   }
 
