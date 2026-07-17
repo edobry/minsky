@@ -121,39 +121,46 @@ describe("deriveSlugFromGitRemote", () => {
     expect(deriveSlugFromGitRemote("/repo", deps)).toBeNull();
   });
 
-  // mt#2893: the git-availability probe. In a git-less container (e.g. the
-  // reviewer service), shelling out to `git remote get-url origin` directly
-  // makes the invoking shell itself print `/bin/sh: 1: git: not found` to
-  // stderr — text a try/catch around the JS-level error cannot suppress.
-  // `deriveSlugFromGitRemote` now probes with `command -v git` (a shell
-  // builtin that only searches PATH and never execs the target) before
-  // attempting the real invocation, so a missing `git` binary never reaches
-  // a "not found" shell error in the first place.
-  test("probes git availability first — skips the real invocation when the probe fails", () => {
-    const calls: string[] = [];
+  // mt#2893: in a git-less container (e.g. the reviewer service), shelling
+  // out to `git remote get-url origin` directly makes the invoking shell
+  // itself print a "not found"-style line to stderr — text a try/catch
+  // around the JS-level exec error cannot suppress. `deriveSlugFromGitRemote`
+  // now passes `stdio: ["ignore", "pipe", "ignore"]` so the child's stderr
+  // (fd 2) is opened to the null device instead of inherited, discarding
+  // that text at the OS level while stdout stays piped for the success
+  // path. This works identically on POSIX shells and Windows `cmd.exe`
+  // (no shell-builtin dependency, unlike an earlier `command -v git`
+  // pre-probe that would have false-negatived on Windows).
+  test("suppresses child stderr via stdio so a missing git binary can't leak a shell error", () => {
+    let capturedOpts: { cwd?: string; encoding?: string; stdio?: string[] } | undefined;
     const deps = makeDeps({
-      execSync: (cmd) => {
-        calls.push(cmd);
+      execSync: (_cmd, opts) => {
+        capturedOpts = opts as typeof capturedOpts;
         throw new Error("/bin/sh: 1: git: not found");
       },
     });
     expect(deriveSlugFromGitRemote("/repo", deps)).toBeNull();
-    // Only the availability probe ran — the real `git remote get-url origin`
-    // invocation (which would fail the same way) was never attempted.
-    expect(calls).toEqual(["command -v git"]);
+    expect(capturedOpts).toEqual({
+      cwd: "/repo",
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   });
 
-  test("invokes the real remote lookup only after a successful availability probe", () => {
-    const calls: string[] = [];
+  test("passes the same cwd/encoding/stdio options through on the success path", () => {
+    let capturedOpts: { cwd?: string; encoding?: string; stdio?: string[] } | undefined;
     const deps = makeDeps({
-      execSync: (cmd) => {
-        calls.push(cmd);
-        if (cmd === "command -v git") return "/usr/bin/git";
+      execSync: (_cmd, opts) => {
+        capturedOpts = opts as typeof capturedOpts;
         return GITHUB_SSH_URL;
       },
     });
-    expect(deriveSlugFromGitRemote("/repo", deps)).toBe("edobry/minsky");
-    expect(calls).toEqual(["command -v git", "git remote get-url origin"]);
+    expect(deriveSlugFromGitRemote("/some/repo", deps)).toBe("edobry/minsky");
+    expect(capturedOpts).toEqual({
+      cwd: "/some/repo",
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   });
 });
 
