@@ -613,6 +613,70 @@ export function fetchReviewsRaw(
   return exec(["gh", "api", `repos/${repo}/pulls/${prNumber}/reviews`], { cwd, timeout });
 }
 
+/**
+ * Resolve the merge-base commit SHA between a PR's base branch and its head
+ * SHA, via GitHub's compare API (`GET /compare/{base}...{head}`). ONE `gh`
+ * call. Used by the mt#2874 growth-justification gate to isolate what THIS
+ * PR's diff contributed to a committed target file (e.g. `CLAUDE.md`) —
+ * comparing head against the PR's OWN base branch head (rather than the
+ * merge-base) would also count unrelated growth from sibling PRs that landed
+ * on `main` after this PR branched.
+ *
+ * Returns `null` on any failure (network, missing branch/ref, empty/
+ * malformed output) — callers should fail-open with a warning.
+ */
+export function fetchMergeBaseSha(
+  repo: string,
+  base: string,
+  head: string,
+  opts: FetchOpts = {}
+): string | null {
+  const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
+  const result = exec(
+    ["gh", "api", `repos/${repo}/compare/${base}...${head}`, "--jq", ".merge_base_commit.sha"],
+    { cwd, timeout }
+  );
+  if (result.exitCode !== 0) return null;
+  const sha = result.stdout.trim();
+  return sha.length > 0 ? sha : null;
+}
+
+/**
+ * Fetch a file's size in BYTES at a given git ref, via GitHub's contents API
+ * (`GET /contents/{path}?ref={ref}`). ONE `gh` call. Uses the response's
+ * `.size` field directly (already byte-counted server-side, matching `wc
+ * -c`) rather than decoding the base64 `content` field just to measure its
+ * length.
+ *
+ * Returns `0` when the file does not exist at that ref — a legitimately-
+ * absent file (e.g. a PR that newly adds `CLAUDE.md`, or a merge-base that
+ * predates the file) contributes zero growth from that side of the diff,
+ * not a fetch failure. Returns `null` on any OTHER failure (network, auth,
+ * rate-limit, parse) — callers should fail-open with a warning on `null`
+ * specifically, not on `0`.
+ */
+export function fetchFileSizeAtRef(
+  repo: string,
+  path: string,
+  ref: string,
+  opts: FetchOpts = {}
+): number | null {
+  const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
+  const result = exec(["gh", "api", `repos/${repo}/contents/${path}?ref=${ref}`, "--jq", ".size"], {
+    cwd,
+    timeout,
+  });
+  if (result.exitCode !== 0) {
+    // `gh api` surfaces a 404 (file absent at this ref) as a non-zero exit
+    // with "Not Found" in stderr — treat that specific case as absence (0),
+    // any other failure as a genuine fetch error (null).
+    if (/not found/i.test(result.stderr)) return 0;
+    return null;
+  }
+  const size = parseInt(result.stdout.trim(), 10);
+  return Number.isFinite(size) ? size : null;
+}
+
 /** Fetch a PR's body only, by number. ONE call. */
 export function fetchPrBody(
   repo: string,

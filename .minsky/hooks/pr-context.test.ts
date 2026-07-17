@@ -24,6 +24,8 @@ import {
   resolvePrBodyFromTask,
   fetchPrContext,
   formatContextFailureWarnings,
+  fetchMergeBaseSha,
+  fetchFileSizeAtRef,
   type ExecFn,
   type PrContextFailure,
 } from "./pr-context";
@@ -350,6 +352,68 @@ describe("resolvePrBodyFromTask", () => {
     const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "network down" });
     const result = resolvePrBodyFromTask(REPO, TASK, { cwd: CWD, exec });
     expect(result && "ok" in result && result.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchMergeBaseSha / fetchFileSizeAtRef (mt#2874 — growth-justification gate)
+// ---------------------------------------------------------------------------
+
+describe("fetchMergeBaseSha", () => {
+  it("returns the merge-base SHA on success", () => {
+    const exec = makeExecFn([
+      { match: "compare/main...abc123", exitCode: 0, stdout: "deadbeef\n" },
+    ]);
+    const result = fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(result).toBe("deadbeef");
+  });
+
+  it("returns null on a non-zero exit", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "not found" });
+    const result = fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when stdout is empty", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "", stderr: "" });
+    const result = fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("issues ONE gh call", () => {
+    const { exec, count } = withCallCounter(
+      makeExecFn([{ match: "compare", exitCode: 0, stdout: "deadbeef" }])
+    );
+    fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(count()).toBe(1);
+  });
+});
+
+describe("fetchFileSizeAtRef", () => {
+  it("returns the file size (bytes) on success", () => {
+    const exec = makeExecFn([
+      { match: "contents/CLAUDE.md?ref=abc123", exitCode: 0, stdout: "114500\n" },
+    ]);
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBe(114500);
+  });
+
+  it("returns 0 when the file does not exist at the ref (404 Not Found)", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBe(0);
+  });
+
+  it("returns null on a genuine transport failure (not a 404)", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "connection reset" });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the size output is unparseable", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "not-a-number", stderr: "" });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
   });
 });
 
