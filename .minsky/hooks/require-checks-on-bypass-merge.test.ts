@@ -573,3 +573,93 @@ describe("findGhApiPutMergeSegment integration (mt#1951)", () => {
     expect(findGhApiPutMergeSegment("gh api repos/edobry/minsky/pulls/1234/reviews")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#2888: "cannot read" (transport-unreadable) vs "read and failed" (real
+// red/pending CI) — only the former consults the D8 grant store and gets
+// the distinct denial text. Absorbed mt#2887/mt#2892 acceptance tests:
+// (1) stub gh 503 + forge fallback green -> permit with audit line
+//     (covered at the fetchCheckRunsRaw layer in pr-context.test.ts; here
+//     we cover the DENIAL/GRANT decision once the read has genuinely failed)
+// (2) both fail -> transport-failure denial naming recovery
+// (3) green path unchanged (covered by the pre-existing "green CI allow"
+//     describe block above, untouched by this change)
+// ---------------------------------------------------------------------------
+
+describe("dispatchBypassCheck — cannot-read vs read-and-failed distinction (mt#2888)", () => {
+  const baseInput = {
+    toolName: "Bash" as const,
+    command: CANONICAL_BYPASS,
+    overrideEnvValue: undefined,
+    agentId: undefined,
+    prInfoLookup: () => okPrInfo(),
+  };
+  const unreadableCheckRuns = failExec("gh: Service Unavailable (HTTP 503)");
+
+  it("both checkRunsFetch AND branchProtectionFetch failing (unreadable), no D8 grant -> DENIES naming the transport-unreadability + grant-issuance recovery, NOT a bypass nudge", () => {
+    const result = dispatchBypassCheck({
+      ...baseInput,
+      branchProtectionFetch: () => unreadableCheckRuns,
+      checkRunsFetch: () => unreadableCheckRuns,
+      checkGrantOverride: () => ({ overridden: false }),
+    });
+    expect(result.kind).toBe("deny");
+    if (result.kind === "deny") {
+      expect(result.reason).toContain("could NOT BE READ");
+      expect(result.reason).toContain("NOT a confirmed red build");
+      expect(result.reason).toContain("Do not treat this as a signal to bypass");
+      expect(result.reason).toContain("grant-guard-override.ts");
+      expect(result.reason).toContain(CANONICAL_SAFE_IDENTIFIER);
+    }
+  });
+
+  it("unreadable check-runs + a VALID D8 grant -> permits with an audit line naming the grant", () => {
+    const result = dispatchBypassCheck({
+      ...baseInput,
+      branchProtectionFetch: () => protectionWithChecks("build"),
+      checkRunsFetch: () => unreadableCheckRuns,
+      checkGrantOverride: (scope) => {
+        expect(scope).toBe(CANONICAL_SAFE_IDENTIFIER);
+        return { overridden: true, reason: "verified green via GitHub UI, gh degraded" };
+      },
+    });
+    expect(result.kind).toBe("override");
+    if (result.kind === "override") {
+      expect(result.auditLine).toContain("mt#2658 D8 grant");
+      expect(result.auditLine).toContain("verified green via GitHub UI, gh degraded");
+      expect(result.auditLine).toContain(CANONICAL_SAFE_IDENTIFIER);
+    }
+  });
+
+  it("unreadable check-runs + NO D8 grant configured (undefined checkGrantOverride) falls back to the real grant-store reader without throwing", () => {
+    // No checkGrantOverride injected at all -> defaultCheckGrantOverride runs
+    // for real (reads the actual grant-store file, which won't have a
+    // matching grant in a test environment) -> denies, doesn't crash.
+    const result = dispatchBypassCheck({
+      ...baseInput,
+      branchProtectionFetch: () => protectionWithChecks("build"),
+      checkRunsFetch: () => unreadableCheckRuns,
+    });
+    expect(result.kind).toBe("deny");
+  });
+
+  it("a genuinely red required check (readable, real failure) is UNAFFECTED — no grant consultation, original denial text", () => {
+    let grantCheckCalled = false;
+    const result = dispatchBypassCheck({
+      ...baseInput,
+      branchProtectionFetch: () => protectionWithChecks("build"),
+      checkRunsFetch: () => runsWithConclusion("build", "failure"),
+      checkGrantOverride: () => {
+        grantCheckCalled = true;
+        return { overridden: true, reason: "should never be consulted" };
+      },
+    });
+    expect(grantCheckCalled).toBe(false);
+    expect(result.kind).toBe("deny");
+    if (result.kind === "deny") {
+      expect(result.reason).not.toContain("could NOT BE READ");
+      expect(result.reason).not.toContain("mt#2658 D8 grant");
+      expect(result.reason).toContain("failure");
+    }
+  });
+});

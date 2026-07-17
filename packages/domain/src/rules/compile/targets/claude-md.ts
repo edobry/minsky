@@ -13,7 +13,11 @@ import * as fs from "fs/promises";
 import { classifyRuleType, RuleType } from "../../rule-classifier";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
-import { evaluateSizeBudget, type SizeBudget } from "../size-budget";
+import {
+  evaluateSizeBudget,
+  DEFAULT_PER_RULE_CEILING_CHARS,
+  type SizeBudget,
+} from "../size-budget";
 
 /** The canonical rule ID for the memory-usage directive. */
 const MEMORY_USAGE_RULE_ID = "memory-usage";
@@ -121,6 +125,8 @@ export const claudeMdTarget: CompileTarget = {
       includedIds: rulesIncluded,
       defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
       override: options.sizeBudget,
+      // mt#2874: per-rule 15K ceiling — claude.md only, per the spec's scope.
+      perRuleCeiling: DEFAULT_PER_RULE_CEILING_CHARS,
     });
 
     await fs.writeFile(outputPath, content, "utf-8");
@@ -135,6 +141,7 @@ export const claudeMdTarget: CompileTarget = {
       sizeBudgetStatus: sizeEvaluation.status,
       topContributors: sizeEvaluation.topContributors,
       ruleContentChars: sizeEvaluation.ruleContentChars,
+      perRuleViolations: sizeEvaluation.perRuleViolations,
     };
   },
 };

@@ -390,6 +390,46 @@ export const tasksEditParams = {
   ...outputFormatParams,
 } satisfies CommandParameterMap;
 
+/**
+ * Bulk edit parameters (mt#2819). Deliberately narrower than tasksEditParams:
+ * bulk mode supports kind reclassification + tag add/remove only — no
+ * title/spec (per-task content, not meaningfully bulk-able) and no status
+ * (owned by the status machine and its guards).
+ */
+export const tasksBulkEditParams = {
+  ids: {
+    schema: z.union([z.string(), z.array(z.string())]),
+    description:
+      "Explicit task ids to edit (array, or comma-separated string). Backend-qualified ids " +
+      "(e.g. mt#123, md#456), same format as taskId elsewhere; bare numbers are not accepted.",
+    required: true,
+  },
+  kind: TaskParameters.kind,
+  addTag: {
+    schema: z.string().optional(),
+    description: "Tag to add to every target task",
+    required: false,
+  },
+  removeTag: {
+    schema: z.string().optional(),
+    description: "Tag to remove from every target task",
+    required: false,
+  },
+  execute: {
+    schema: z.boolean().default(false),
+    description:
+      "Apply the approved change set (default is dry-run preview; requires the dry-run token)",
+    required: false,
+  },
+  token: {
+    schema: z.string().optional(),
+    description: "Dry-run token binding the approved change set (required with execute)",
+    required: false,
+  },
+  ...taskContextParams,
+  ...outputFormatParams,
+} satisfies CommandParameterMap;
+
 // mt#2795: the former `tasksMigrateParams` export (md#429 importer era) was a
 // dead map — zero consumers anywhere in src/ (tasks.migrate-backend declares
 // its own map in migrate-backend-command.ts). Removed by the

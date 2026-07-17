@@ -68,6 +68,10 @@ import {
   resolveTranscriptCandidates,
   type TranscriptLine,
 } from "./transcript";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "check-task-spec-read";
 
 // ---------------------------------------------------------------------------
 // Public API / constants
@@ -269,7 +273,37 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
 // Entry point (fail-open: any error allows the call)
 // ---------------------------------------------------------------------------
 
-if (import.meta.main) {
+/**
+ * Entrypoint body, wrapped in an `async function` (mt#2889 PR #2012 CI fix,
+ * mt#2900) rather than left as a bare top-level `if (import.meta.main) {
+ * ... }` block — matching the established convention every OTHER guard with
+ * multi-step narrowing uses. A bare top-level block is not a function body,
+ * so `return` is invalid there; CI's `tsconfig.hooks.json` typecheck (tsgo,
+ * a native-preview compiler) also does not narrow `transcriptPath` from its
+ * nullable type after a bare (non-`return`ed) call to a locally-defined
+ * `never`-returning closure the way it does after an explicit `return` —
+ * wrapping in a real function makes `return recordAndExit(...)` both valid
+ * AND the correctly-narrowing form.
+ */
+async function main(): Promise<void> {
+  const startMs = Date.now();
+  let sessionId: string | undefined;
+  let toolNameForLog: string | undefined;
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // exactly once per invocation regardless of which early-return fires
+  // (not-guarded / non-READY / no-transcript / spec-surfaced / denied).
+  const recordAndExit = (decision: "allow" | "deny"): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: toolNameForLog,
+      sessionId,
+    });
+    process.exit(0);
+  };
+
   try {
     const overrideVal = process.env[OVERRIDE_ENV_VAR];
     const isOverride =
@@ -278,24 +312,32 @@ if (import.meta.main) {
       overrideVal?.toLowerCase() === "yes";
 
     const input = await readInput<ToolHookInput>();
+    sessionId = input.session_id;
+    toolNameForLog = input.tool_name;
 
     if (isOverride) {
       process.stdout.write(
         `[check-task-spec-read] OVERRIDE: ack=${overrideVal} tool=${input.tool_name} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`
       );
-      process.exit(0);
+      return recordAndExit("allow");
     }
 
     const toolName = input.tool_name;
     const toolInput = input.tool_input ?? {};
     const targetId = resolveTargetTaskId(toolName, toolInput);
-    if (!targetId) process.exit(0); // not guarded / non-READY transition / no resolvable id
+    // not guarded / non-READY transition / no resolvable id
+    if (!targetId) return recordAndExit("allow");
 
     const transcriptPath = input.transcript_path;
-    if (!transcriptPath) process.exit(0); // can't verify without a transcript — fail-open
+    // can't verify without a transcript — fail-open. `return` (not a bare
+    // call) narrows `transcriptPath` from `string | undefined` to `string`
+    // for `specWasSurfacedInAnyTranscript` below — CI's tsconfig.hooks.json
+    // typecheck (tsgo, mt#2900) doesn't perform this narrowing off a bare
+    // (non-`return`ed) never-returning expression statement.
+    if (!transcriptPath) return recordAndExit("allow");
 
     if (specWasSurfacedInAnyTranscript(transcriptPath, input.agent_id, targetId)) {
-      process.exit(0);
+      return recordAndExit("allow");
     }
 
     const rawTaskId =
@@ -310,11 +352,26 @@ if (import.meta.main) {
       },
     };
     process.stdout.write(`${JSON.stringify(output)}\n`);
-    process.exit(0);
+    return recordAndExit("deny");
   } catch (err) {
     process.stderr.write(
       `[check-task-spec-read] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    process.exit(0);
+    // mt#2889 PR #2012 R1 NON-BLOCKING #6: this catch's fire-log record can
+    // carry toolName/sessionId ONLY when `readInput()` (line ~302) already
+    // succeeded before a LATER step threw — but no such later step exists in
+    // this guard's body: sessionId/toolNameForLog are assigned on the very
+    // next two lines after a successful readInput() call, with no
+    // throwable operation in between. So the only way this catch block
+    // fires is `readInput()` itself throwing (malformed stdin / JSON parse
+    // failure) — there is no partial `input` object to extract context
+    // from in that case; the error message on stderr above is the only
+    // available diagnostic. Skipping the "populate what exists" advice
+    // here deliberately, since there is genuinely nothing to populate.
+    return recordAndExit("allow");
   }
+}
+
+if (import.meta.main) {
+  await main();
 }

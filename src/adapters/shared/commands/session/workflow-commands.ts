@@ -23,7 +23,6 @@ import type {
 } from "@minsky/domain/persistence/types";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
-import { SessionConflictError } from "@minsky/domain/errors/index";
 import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -696,21 +695,21 @@ export function buildSessionMergeDeps(
   };
 }
 
-/**
- * Return true when an error from a PR merge operation indicates a git conflict.
- */
-function isMergeConflictError(err: unknown): boolean {
-  if (err instanceof SessionConflictError) return true;
-  const msg =
-    err instanceof Error ? err.message : typeof err === "string" ? err : String(err ?? "");
-  return (
-    msg.includes("CONFLICT") ||
-    msg.includes("conflict") ||
-    msg.includes("merge conflict") ||
-    msg.includes("Cannot merge") ||
-    msg.includes("mergeable")
-  );
-}
+// mt#2888: the classifier + excerpt-folding helper moved to
+// merge-error-classification.ts (extended to non-merge GitHub-read command
+// surfaces) — re-exported here unchanged so existing imports from
+// "./workflow-commands" (e.g. workflow-commands-merge-error-
+// classification.test.ts) keep working without modification.
+import {
+  MERGE_ERROR_SUMMARY_EXCERPT_LIMIT,
+  classifyMergeError,
+  withOriginalMessage,
+  mergeErrorMessage,
+  type MergeErrorClass,
+} from "./merge-error-classification";
+
+export { MERGE_ERROR_SUMMARY_EXCERPT_LIMIT, classifyMergeError, withOriginalMessage };
+export type { MergeErrorClass };
 
 export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
@@ -765,15 +764,45 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
           return { success: true, result, printed: true };
         } catch (err) {
-          if (isMergeConflictError(err)) {
-            const msg = err instanceof Error ? err.message : String(err);
+          const errorClass = classifyMergeError(err);
+          if (errorClass.kind === "other") {
+            throw err;
+          }
+
+          const originalMessage = mergeErrorMessage(err);
+
+          if (errorClass.kind === "conflict") {
             throw mcpStructuredError({
               code: McpErrorCode.CONFLICT,
-              summary: "Merge conflict prevented PR from merging",
-              details: { originalMessage: msg },
+              summary: withOriginalMessage(
+                "Merge conflict prevented PR from merging",
+                originalMessage
+              ),
+              details: { originalMessage },
             });
           }
-          throw err;
+
+          if (errorClass.kind === "rate-limit") {
+            throw mcpStructuredError({
+              code: McpErrorCode.RATE_LIMITED,
+              summary: withOriginalMessage(
+                "GitHub API rate limit exceeded — wait a few minutes before retrying the merge",
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+
+          // errorClass.kind === "degraded"
+          const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+          throw mcpStructuredError({
+            code: McpErrorCode.SERVICE_DEGRADED,
+            summary: withOriginalMessage(
+              `GitHub API degraded/unavailable${statusSuffix}`,
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
         }
       }
     ),

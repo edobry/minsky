@@ -143,6 +143,50 @@ that exited silently on `deriveRepoFromGit` failure — it now emits the same
 gates already used, so a genuine repo-derivation failure is never invisible
 regardless of which gate hits it.
 
+## Forge-CLI fallback on gh transport-class failure (mt#2888)
+
+The 2026-07-16 GitHub-degradation incident (subsumed mt#2887/mt#2892) showed
+`gh api` 503-ing repeatedly for ~90 minutes across three independent
+actors while the SERVER's Octokit-backed forge client (used by
+`forge_check_runs_list`, credited to `@octokit/plugin-retry`) kept working
+throughout the same window — confirmed against githubstatus.com's "Degraded
+REST API Availability" declaration. No merge-gate could complete a
+`session_pr_merge` or bypass-merge attempt during the outage, and the
+gate's own override (`MINSKY_SKIP_REQUIRED_CHECKS=1`) is a launch-time env
+var an agent mid-session cannot self-serve.
+
+`fetchCheckRunsRaw` (the function backing every gate's check-runs read —
+see above) now retries via the `minsky forge check_runs_list <sha>` CLI
+(same App-token client the server already holds — no new credential, no
+localhost HTTP channel) whenever the primary `gh api` call fails with a
+TRANSPORT-class signal:
+
+- `isGhTransportClassFailure`: a timeout, an HTTP 5xx suffix in `gh`'s
+  stderr, or `gh`'s own JSON-decode failure when GitHub serves an HTML
+  error page instead of JSON (`invalid character '<' looking for beginning
+of value` — the exact live-repro text from the 2026-07-16 incident).
+  Deliberately does NOT match a genuine 404/401/422 — those get NO
+  fallback, since a different transport can't fix a real API error.
+- On a transport-class failure, the forge CLI's `{checks: [...]}` JSON
+  output is synthesized into GitHub's raw Checks-API shape
+  (`{total_count, check_runs[]}`) so every existing parser
+  (`parseCheckRunsResponse`, `parseAllCheckRunsResponse`,
+  `parseBundleBootSmokeResponse`) keeps working UNCHANGED against the
+  fallback path.
+- The returned result carries `viaFallback: true` when the fallback fired,
+  letting callers emit an audit line (both `require-review-before-merge.ts`
+  and `require-checks-on-bypass-merge.ts` do) without changing their
+  parse/decision logic.
+- If the forge-CLI fallback ALSO fails, the ORIGINAL `gh` result is
+  returned unchanged — the caller's existing "transport/parse failure"
+  denial fires exactly as before, with `require-checks-on-bypass-merge.ts`
+  additionally offering the D8 grant-store escape valve (see
+  `required-checks-bypass-merge-gate.md`) for the verified-green-but-
+  unreadable case.
+- Green path is unaffected: `isGhTransportClassFailure` returns `false` on
+  success, so a healthy `gh api` call issues exactly one subprocess, same
+  as before mt#2888.
+
 **Cross-references:**
 
 - mt#2617 — this module's tracking task; mt#2607 finding F3 — originating
@@ -151,6 +195,8 @@ regardless of which gate hits it.
   into mt#2617's scope
 - mt#2810 — the git-binary-resolution + crash-safe-spawn fix (this section);
   mt#2806 — parent gap-analysis task
+- mt#2888 — the forge-CLI fallback (this section); mt#2887/mt#2892 —
+  subsumed sibling incident filings whose acceptance tests this absorbs
 - `.claude/hooks/pr-context.ts` (source `.minsky/hooks/pr-context.ts`) —
   implementation; `.minsky/hooks/pr-context.test.ts` — tests
 - `.claude/hooks/types.ts` (source `.minsky/hooks/types.ts`) —
@@ -158,3 +204,5 @@ regardless of which gate hits it.
   `.minsky/hooks/types.test.ts` — unit tests;
   `.minsky/hooks/merge-gates-git-path-regression.test.ts` — real-subprocess
   regression test spawning all four gate entrypoints under a broken PATH
+- `required-checks-bypass-merge-gate.md` — the D8 escape valve consuming
+  this module's `viaFallback` signal

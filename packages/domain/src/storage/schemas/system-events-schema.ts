@@ -61,6 +61,11 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "deploy.live",
   "deploy.fail",
   "ask.policy_closed",
+  // mt#2819 (bulk-mutation primitives) — the dry-run event doubles as the
+  // durable token record the execute path validates against; the executed
+  // event is the one-shot consumption marker. Append-only by design.
+  "task.bulk_edit.dry_run",
+  "task.bulk_edit.executed",
 ] as const;
 
 /**
@@ -124,6 +129,15 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       that previously lived only in a `log.debug` nobody consumed — the
  *       c26eca0a incident (a disposition Ask silently policy-closed with an
  *       irrelevant citation) was indistinguishable from a missing record.
+ *
+ * Payload shapes for the mt#2819 bulk-mutation event types (emitted by the
+ * `tasks.bulk-edit` command; the dry-run row IS the token store the execute
+ * path validates against — see `src/adapters/shared/commands/tasks/bulk-edit-command.ts`):
+ *
+ *   - `task.bulk_edit.dry_run`  → `{ token: string; count: number; ids: string[];
+ *       edits: Record<string, string>; changeSet: Array<{ taskId, field, before, after }> }`
+ *   - `task.bulk_edit.executed` → `{ token: string; count: number;
+ *       outcomes: Array<{ taskId, field, outcome }> }`
  */
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -171,6 +185,8 @@ export const eventCategory = {
   "deploy.live": "informational",
   "deploy.fail": "informational",
   "ask.policy_closed": "informational",
+  "task.bulk_edit.dry_run": "informational",
+  "task.bulk_edit.executed": "informational",
 } satisfies Record<SystemEventType, EventCategory>;
 
 /** Return all event types belonging to a given category (for `WHERE IN` filters). */

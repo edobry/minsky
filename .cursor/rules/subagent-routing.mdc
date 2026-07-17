@@ -17,8 +17,28 @@ When spawning subagents, use the appropriate model and type:
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
-**Continuation (no mid-flight correction):** A dispatched subagent runs to completion and reports back — it cannot be messaged or course-corrected mid-flight. `SendMessage` (referenced in the Agent/Workflow tool descriptions and the dispatch-result hint) is NOT invocable by default: it is gated behind the experimental `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` flag ([anthropics/claude-code#35240](https://github.com/anthropics/claude-code/issues/35240) / [#42737](https://github.com/anthropics/claude-code/issues/42737), closed "not planned"). So bake full context into every dispatch up front, and prefer kill + re-dispatch (a fresh agent with the corrected context) over waiting to nudge a running one. (mt#2512; whether to adopt Agent Teams or build a Minsky-native equivalent is tracked in mt#2521.)
+**Continuation.** `SendMessage` IS invocable (deferred-tool list, loadable via `ToolSearch`) and
+reliably resumes a **COMPLETED** subagent from its transcript with full context intact — validated
+`mt#2578` (PR #1776) and repeatedly since (memory `6038c0a1`). For review-fix rounds and follow-up
+iterations on a subagent's own work, prefer `SendMessage`-resume of the same agent over a fresh
+dispatch: no context rebuild, no prompt regeneration — bake the findings plus an explicit stop
+condition into the message. **Messaging a still-RUNNING subagent mid-flight remains untested** —
+treat "cannot be messaged, kill + re-dispatch" as scoped to that untested case only, not to
+resume-after-completion; prefer kill + re-dispatch there until it's validated. (mt#2512; whether to
+adopt Agent Teams or build a Minsky-native equivalent for genuine mid-flight steering is tracked in
+mt#2521.)
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
+
+**Reporting register (mt#2867).** Dispatch prompts set the subagent's reporting register
+explicitly — see `communication-contract.mdc §Altitude register` for the full mechanics
+(receipts / standard / executive, default-derivation table, override, severity triggers). The
+carve-out that matters here: an escalation-to-Opus dispatch (the bullet above) reports at
+**receipts regardless of model tier** — escalation is a low-trust situation, and the stronger
+model must not invert the register just because it happens to run Opus. `mcp__minsky__session_generate_prompt`'s
+Operating-Envelope template does not yet emit register text into generated dispatch prompts (the
+`PromptType` enum has no escalation-context field to key it on — a nontrivial addition, tracked as
+a follow-up candidate rather than done here); until it does, name the register explicitly in the
+`instructions` param whenever dispatching a struggling-context escalation.

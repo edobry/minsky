@@ -13,7 +13,9 @@ import {
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
+  startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
+import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
 import {
   markDbDegraded,
   startDbRetryBackoff,
@@ -148,6 +150,14 @@ export function createStartCommand(): Command {
       DEFAULT_HOST
     )
     .action(async (options) => {
+      // mt#2894: install rotating daemon file logging + force-enable the
+      // structured warn/error channel as the FIRST thing this handler does —
+      // before any sweeper or other module's first log.*() call, so the
+      // shared logger singleton (lazily initialized on first use) picks up
+      // ENABLE_AGENT_LOGS. See src/cockpit/daemon-file-log.ts's docblock for
+      // why this was previously a silent gap.
+      installDaemonFileLogging();
+
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
@@ -337,6 +347,13 @@ export function createStartCommand(): Command {
       // cockpit process was deployed from has completed, emitting a
       // best-effort deploy.smoke system event once per distinct commit.
       const stopDeploySmokeSweeper = startDeploySmokeSweeper();
+      // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
+      // self-rescheduling setTimeout chain (deliberately not setInterval —
+      // see sweepers.ts's docblock) that force-restarts any of the six
+      // sweeps above whose interval has stopped attempting ticks entirely.
+      // Covers the class per-tick isolation structurally cannot: a dropped
+      // or wedged setInterval handle, not a hung/throwing tick.
+      const stopSweepMetaWatchdog = startSweepMetaWatchdog();
 
       let shuttingDown = false;
       const cleanupSync = () => {
@@ -349,6 +366,7 @@ export function createStartCommand(): Command {
         stopTranscriptSweep();
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
+        stopSweepMetaWatchdog();
         removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {

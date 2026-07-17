@@ -25,6 +25,14 @@ function budgetExceededMarker(target: string): string {
   return `[rules compile --check] Target "${target}" EXCEEDS SIZE BUDGET`;
 }
 
+/** Build the exact per-rule-ceiling marker line the CLI emits for a target (mt#2874). */
+function perRuleCeilingExceededMarker(target: string): string {
+  return `[rules compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`;
+}
+
+/** Human-readable phrase classifyCompileCheckError emits for the aggregate budget-exceeded class. */
+const EXCEEDS_SIZE_BUDGET_PHRASE = "exceeds its size budget";
+
 /**
  * Build a mock exec error matching the shape Node.js `promisify(exec)` throws
  * when the subprocess exits non-zero.
@@ -328,7 +336,7 @@ describe("classifyCompileCheckError — mt#2802 size-budget-exceeded classificat
     // Must name the override env var (mt#2802 criterion #4).
     expect(allOutput).toContain("MINSKY_SKIP_SIZE_BUDGET=1");
 
-    expect(result.message).toContain("exceeds its size budget");
+    expect(result.message).toContain(EXCEEDS_SIZE_BUDGET_PHRASE);
     expect(result.message).toContain("claude.md");
   });
 
@@ -365,5 +373,75 @@ describe("classifyCompileCheckError — mt#2802 size-budget-exceeded classificat
 
     const result = classifyCompileCheckError(error, "agents.md");
     expect(result.errorKind).toBe("budget-exceeded");
+  });
+});
+
+// ─── mt#2874: per-rule-ceiling-exceeded classification ──────────────────────
+
+describe("classifyCompileCheckError — mt#2874 per-rule-ceiling-exceeded classification", () => {
+  test("HAS RULE(S) EXCEEDING PER-RULE CEILING marker classifies as budget-exceeded", () => {
+    const error = makeExecError({
+      stdout: [
+        '[rules compile] Target "claude.md" output size: 110000 chars',
+        perRuleCeilingExceededMarker("claude.md"),
+        '  Rule "hook-files": 15868 chars',
+      ].join("\n"),
+      stderr: "",
+    });
+
+    const result = classifyCompileCheckError(error, "claude.md");
+    const allOutput = result.logLines.join("\n");
+
+    // Reuses the SAME errorKind (and therefore the same MINSKY_SKIP_SIZE_BUDGET
+    // override) as the aggregate budget check — one audited escape hatch, not two.
+    expect(result.errorKind).toBe("budget-exceeded");
+    expect(allOutput).toContain("exceeding the per-rule ceiling");
+    expect(allOutput).not.toContain("is stale");
+    expect(allOutput).not.toContain(NOT_STALENESS_MARKER);
+
+    // The offending rule must be named (mt#2874 acceptance: "naming the rule").
+    expect(allOutput).toContain('hook-files": 15868 chars');
+    expect(allOutput).toContain("MINSKY_SKIP_SIZE_BUDGET=1");
+
+    expect(result.message).toContain("exceeding the per-rule ceiling");
+    expect(result.message).toContain("claude.md");
+  });
+
+  test("marker for a DIFFERENT target does not classify as per-rule-ceiling-exceeded", () => {
+    const error = makeExecError({
+      stdout: perRuleCeilingExceededMarker("claude.md"),
+      stderr: "",
+    });
+
+    const result = classifyCompileCheckError(error, "agents.md");
+    expect(result.errorKind).toBe("other");
+    expect(result.logLines.join("\n")).toContain(NOT_STALENESS_MARKER);
+  });
+
+  test("STALE takes precedence over the per-rule-ceiling marker when both are present", () => {
+    const error = makeExecError({
+      stdout: [staleMarker("claude.md"), perRuleCeilingExceededMarker("claude.md")].join("\n"),
+      stderr: "",
+    });
+
+    const result = classifyCompileCheckError(error, "claude.md");
+    expect(result.errorKind).toBe("stale");
+  });
+
+  test("the aggregate EXCEEDS SIZE BUDGET marker takes precedence when both markers are present", () => {
+    // Mirrors the compile-migrate-commands.ts precedence: the aggregate check
+    // runs first and returns early, so the per-rule marker is only reachable
+    // when the aggregate check passed. Should not happen in production output,
+    // but the classifier's precedence must still be deterministic.
+    const error = makeExecError({
+      stdout: [budgetExceededMarker("claude.md"), perRuleCeilingExceededMarker("claude.md")].join(
+        "\n"
+      ),
+      stderr: "",
+    });
+
+    const result = classifyCompileCheckError(error, "claude.md");
+    expect(result.errorKind).toBe("budget-exceeded");
+    expect(result.logLines.join("\n")).toContain(EXCEEDS_SIZE_BUDGET_PHRASE);
   });
 });

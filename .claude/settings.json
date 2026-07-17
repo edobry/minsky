@@ -34,6 +34,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-growth-justification-before-merge.ts",
+            "timeout": 90,
+            "statusMessage": "Checking for size-budget justification on rules-touching PRs that grow CLAUDE.md..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
             "timeout": 15,
             "statusMessage": "Checking for coupled out-of-band steps in PR body..."
@@ -84,6 +90,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
             "timeout": 15,
             "statusMessage": "Checking for coupled out-of-band steps in PR body..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#2823 approved-Ask permission bridge. Deliberately STANDALONE (not GUARD_REGISTRY/dispatcher): it emits permissionDecision ALLOW, which the dispatcher's deny-aggregation contract does not carry — mirrors parallel-work-guard's standalone precedent. Harness deny-precedence means any sibling hook's deny still outranks this hook's allow.",
+        "matcher": "Bash|mcp__minsky__session_exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ask-permission-bridge.ts",
+            "timeout": 60,
+            "statusMessage": "Checking approved-Ask action grants..."
           }
         ]
       },

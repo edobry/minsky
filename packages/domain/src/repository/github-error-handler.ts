@@ -6,6 +6,50 @@
  */
 
 import { MinskyError, getErrorMessage } from "../errors/index";
+import { getLastGithubRateLimitSnapshot } from "./github-rate-limit-state";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
+
+// ── HTML-body sanitization (mt#2888) ─────────────────────────────────────
+//
+// GitHub occasionally serves a 5xx (or other) response as an HTML error
+// page (the "Unicorn" page — ~5KB of markup with base64-inlined images)
+// instead of JSON. `@octokit/request`'s fetch wrapper folds a non-JSON
+// string response body DIRECTLY into the thrown `RequestError`'s `.message`
+// (see `toErrorMessage`/`getResponseData` in
+// `@octokit/request/dist-src/fetch-wrapper.js`: `if (typeof data ===
+// "string") return data;`) — so without this guard, the raw markup flows
+// straight through `classifyOctokitError` into every `handleOctokitError`
+// branch that echoes `info.message` (the 5xx branch's `Error:
+// ${info.message}` line in particular), burning agent context and burying
+// the actual signal. Originating incident: mt#2888, 2026-07-16 — `gh api`'s
+// own JSON-decode failure surfaced this class independently (`invalid
+// character '<' looking for beginning of value`); the Octokit path exhibits
+// the SAME underlying GitHub behavior, but Octokit's fetch layer swallows
+// the parse failure and keeps the raw body as the message instead of
+// erroring, so it needs this dedicated sanitization pass.
+const HTML_BODY_PATTERN = /<(!doctype\s+html|html[\s>]|head[\s>]|body[\s>])/i;
+
+/**
+ * True when `text` looks like an HTML document body rather than a GitHub
+ * API JSON/plain-text error message. Only inspects a bounded prefix — an
+ * HTML document's doctype/opening tags always appear at the very start.
+ */
+export function looksLikeHtmlBody(text: string): boolean {
+  if (!text) return false;
+  return HTML_BODY_PATTERN.test(safeTruncate(text, 500, "head"));
+}
+
+/**
+ * Replace an HTML-body message with a short, safe placeholder naming the
+ * byte length — never echoes the markup itself. Callers that need the HTTP
+ * status for classification already have it via `OctokitErrorInfo.status`,
+ * independent of this sanitization (status is extracted separately from
+ * `error.status` / `error.response.status`, not parsed out of the message).
+ */
+export function sanitizeOctokitMessage(message: string): string {
+  if (!looksLikeHtmlBody(message)) return message;
+  return `<non-JSON HTML error page from GitHub, ${message.length} chars — see HTTP status for classification>`;
+}
 
 // ── Structured error info extracted from an Octokit error ──────────────
 
@@ -43,10 +87,12 @@ interface OctokitErrorShape {
 
 export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   const anyErr = error as OctokitErrorShape; // Octokit errors have dynamic shape not covered by standard types
-  const message: string = error instanceof Error ? error.message : String(error);
+  const rawMessage: string = error instanceof Error ? error.message : String(error);
+  const message: string = sanitizeOctokitMessage(rawMessage);
   const status: number | undefined = anyErr?.status ?? anyErr?.response?.status;
   const ghData = anyErr?.response?.data;
-  const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
+  const rawGhMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
+  const ghMessage: string = sanitizeOctokitMessage(rawGhMessage);
   const ghErrors: Record<string, unknown>[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
   const ghErrorsText: string = `${ghMessage || ""} ${ghErrors
     .map((e) => [e?.["message"], e?.["code"], e?.["field"]].filter(Boolean).join(" "))
@@ -114,6 +160,29 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
+  // ── Rate limiting (checked BEFORE 403: GitHub's primary rate limits are
+  // HTTP 403 with a "rate limit" message, and the 403 branch below matches
+  // any 403 — ordering is load-bearing; PR #2005 R-final finding, mt#2890) ──
+  if (
+    info.status === 429 ||
+    info.messageLower.includes("429") ||
+    info.messageLower.includes("rate limit")
+  ) {
+    // mt#2888: fold the last-observed `x-ratelimit-reset` into the message
+    // when available, so the reset time survives into
+    // `withOriginalMessage`'s one-line excerpt at the adapter layer instead
+    // of a bare "wait a few minutes" with no concrete time.
+    const snapshot = getLastGithubRateLimitSnapshot();
+    const resetSuffix = snapshot ? ` (resets ${snapshot.reset})` : "";
+    throw new MinskyError(
+      `GitHub Rate Limit Exceeded${resetSuffix}\n\n` +
+        `You've hit GitHub's API rate limit.\n\n` +
+        `To fix this:\n` +
+        `  - Wait a few minutes before trying again\n` +
+        `  - Use a GitHub token for higher rate limits`
+    );
+  }
+
   // ── Permission denied (403 / forbidden) ─────────────────────────
   if (
     (info.status === 403 ||
@@ -151,18 +220,23 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
-  // ── Rate limiting (429) ─────────────────────────────────────────
-  if (
-    info.status === 429 ||
-    info.messageLower.includes("429") ||
-    info.messageLower.includes("rate limit")
-  ) {
+  // ── Server-side degradation (5xx) ────────────────────────────────
+  //
+  // mt#2890: distinct from the generic fallback below so the status code
+  // survives into the message text — the fallback's `getErrorMessage(error)`
+  // typically does NOT include the numeric status, which downstream
+  // classifiers (workflow-commands.ts's merge-error classifier) rely on to
+  // tell a real GitHub-side outage apart from a merge conflict or a rate
+  // limit.
+  if (info.status !== undefined && info.status >= 500 && info.status < 600) {
     throw new MinskyError(
-      `GitHub Rate Limit Exceeded\n\n` +
-        `You've hit GitHub's API rate limit.\n\n` +
+      `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
+        `GitHub's API returned a server error for this request. This is not a problem with ` +
+        `your PR or credentials — GitHub's service is temporarily degraded.\n\n` +
         `To fix this:\n` +
-        `  - Wait a few minutes before trying again\n` +
-        `  - Use a GitHub token for higher rate limits`
+        `  - Check GitHub status: https://www.githubstatus.com/\n` +
+        `  - Retry the operation in a few minutes\n\n` +
+        `Error: ${info.message}`
     );
   }
 

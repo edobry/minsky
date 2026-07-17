@@ -156,6 +156,12 @@ export interface CompileRulesResult {
   /** Total chars of included rules' emitted content (remainder = target scaffolding). */
   ruleContentChars?: number;
   /**
+   * `alwaysApply: true` rules whose own compiled contribution exceeds the
+   * per-rule ceiling (mt#2874). Only populated for targets that opt into
+   * the check (currently `claude.md`).
+   */
+  perRuleViolations?: RuleContribution[];
+  /**
    * Populated when a bare (no explicit `--target`) invocation probed and
    * compiled MULTIPLE applicable targets (mt#2803). Each entry mirrors this
    * result shape, scoped to one target. When present, the top-level fields

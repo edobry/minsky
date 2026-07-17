@@ -407,6 +407,13 @@
       "when": 1784239973517,
       "tag": "0057_session_interface_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1784280854927,
+      "tag": "0058_bulk-edit-event-types",
+      "breakpoints": true
     }
   ]
 }

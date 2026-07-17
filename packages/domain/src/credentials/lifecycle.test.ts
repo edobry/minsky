@@ -54,6 +54,24 @@ function setFetchSequence(results: readonly FetchResult[]): { calls: number } {
   return counter;
 }
 
+/**
+ * A hermetic provider list for `listCredentials()` calls in this file
+ * (mt#2729). Maps the REAL registry (so the id set stays authoritative — no
+ * hardcoded provider list to drift) but replaces telegram's `isConfigured`
+ * with a fast stub. Without this, `listCredentials()` calls telegram's real
+ * `isConfiguredInPulumi()`, which shells out via `Bun.spawnSync(["pulumi",
+ * ...])` with no timeout — a real, un-mockable-via-fetch-stub subprocess call
+ * that hangs to the 15s bun-test ceiling in CI (no `pulumi` on PATH /
+ * network-blocked). Dependency injection, not `mock.module()` (banned —
+ * `eslint-rules/no-global-module-mocks.js`).
+ */
+async function hermeticProviders() {
+  const { listCredentialProviders } = await import("./providers");
+  return listCredentialProviders().map((p) =>
+    p.id === "telegram" ? { ...p, isConfigured: async () => false } : p
+  );
+}
+
 beforeEach(async () => {
   tempHome = await mkdtemp(join(tmpdir(), "minsky-cred-test-"));
   originalHome = process.env["HOME"];
@@ -159,7 +177,7 @@ describe("listCredentials", () => {
     ]);
     await addCredential("supabase", "sbp_test");
 
-    const listing = await listCredentials();
+    const listing = await listCredentials(await hermeticProviders());
     const ids = listing.map((c) => c.provider).sort();
     // Derive from the registry so this cannot go stale when providers are
     // added (it had drifted: hardcoded 3 ids while the registry held 5 —
@@ -191,7 +209,7 @@ describe("listCredentials", () => {
     const tokenValue = "sbp_super_secret_dont_leak_me";
     await addCredential("supabase", tokenValue);
 
-    const listing = await listCredentials();
+    const listing = await listCredentials(await hermeticProviders());
     const json = JSON.stringify(listing);
     expect(json.includes(tokenValue)).toBe(false);
   });
@@ -205,12 +223,12 @@ describe("removeCredential", () => {
     ]);
     await addCredential("supabase", "sbp_test");
 
-    const before = await listCredentials();
+    const before = await listCredentials(await hermeticProviders());
     expect(before.find((c) => c.provider === "supabase")?.configured).toBe(true);
 
     await removeCredential("supabase");
 
-    const after = await listCredentials();
+    const after = await listCredentials(await hermeticProviders());
     expect(after.find((c) => c.provider === "supabase")?.configured).toBe(false);
     expect(after.find((c) => c.provider === "supabase")?.lastValidatedAt).toBeUndefined();
   });
