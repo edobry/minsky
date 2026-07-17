@@ -1292,8 +1292,8 @@ Doc: `retrospective-trigger-scanner.md`.
   fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
   override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
   Doc: `prod-state-injection-hook.md`.
-- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery
-  `session.status probe:true` + `/orchestrate`. `inject-dispatch-watchdog.ts`; override
+- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery:
+  `tasks.dispatch-recover` → `/orchestrate`. `inject-dispatch-watchdog.ts`; override
   `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
   Doc: `dispatch-watchdog-injection-hook.md`.
 

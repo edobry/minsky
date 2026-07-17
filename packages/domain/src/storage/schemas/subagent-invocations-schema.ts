@@ -149,6 +149,45 @@ export const subagentInvocationsTable = pgTable(
 
     /** Whether the subagent wrote a handoff.md file before exiting. */
     handoffWritten: boolean("handoff_written"),
+
+    // -------------------------------------------------------------------------
+    // Dispatch-recovery retry linkage (mt#2831)
+    // -------------------------------------------------------------------------
+
+    /**
+     * The invocation this row RESUMES, when this row was produced by the
+     * `tasks.dispatch-recover` command's auto-resume path. Null for an
+     * original dispatch (attempt 1). No FK constraint (self-reference on a
+     * table with no unique constraint on the natural retry-chain key) —
+     * treated as an informational pointer, same posture as
+     * `subagentSessionId`'s non-unique index.
+     *
+     * @see mt#2831 — dispatch auto-recovery (this column's origin)
+     */
+    resumedFromInvocationId: uuid("resumed_from_invocation_id"),
+
+    /**
+     * 1-indexed attempt number within a retry chain. 1 = the original
+     * dispatch. 2 = the one auto-resume `tasks.dispatch-recover` is allowed
+     * to produce. The recover command refuses to produce attempt 3 — the
+     * 2-attempt bound is enforced by reading this column, not by an
+     * agent-side loop counter.
+     *
+     * `NOT NULL DEFAULT 1` at the DB level (mt#2831 R1 NB #5) is the
+     * AUTHORITATIVE source of "missing means 1" — migration
+     * `0059_flippant_red_skull.sql` backfills every pre-existing row to 1 via
+     * standard Postgres `ALTER TABLE ADD COLUMN ... DEFAULT` semantics, so no
+     * row in a migrated database can ever read back `null`/`undefined` here.
+     * Application-layer `?? 1` fallbacks in callers (e.g.
+     * `dispatch-recover-command.ts`'s `latest.attemptNumber ?? 1`) are
+     * therefore defensive belt-and-suspenders — guarding a non-Drizzle raw
+     * read or a hand-built test fixture, not a real production gap — and are
+     * intentionally kept rather than removed. See
+     * `subagent-dispatch-tracker.test.ts`'s "defaults to 1 when omitted from
+     * a hand-built row (no NOT NULL DEFAULT enforcement outside Postgres)"
+     * test for the fake-store-level equivalent of the DB backfill guarantee.
+     */
+    attemptNumber: integer("attempt_number").notNull().default(1),
   },
   (table) => [
     // Primary lookup: all invocations for a given task
@@ -162,6 +201,9 @@ export const subagentInvocationsTable = pgTable(
 
     // Outcome-class aggregation and filtering
     index("idx_subagent_invocations_outcome").on(table.outcome),
+
+    // Retry-chain lookups (mt#2831): find the resumed row for a given original
+    index("idx_subagent_invocations_resumed_from").on(table.resumedFromInvocationId),
   ]
 );
 

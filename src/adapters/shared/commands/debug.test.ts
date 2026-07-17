@@ -39,7 +39,10 @@ import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker"
 import type { SubagentInvocationInput } from "../../../mcp/subagent-dispatch-tracker";
 import { GuardHealthTracker } from "../../../mcp/guard-health-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
-import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import {
+  SUBAGENT_INVOCATION_OUTCOME_VALUES,
+  subagentInvocationsTable,
+} from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { registerDebugCommands } from "./debug";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -125,6 +128,7 @@ const COLUMN_TO_FIELD: Record<string, keyof FakeRow> = {
   id: "id",
   outcome: "outcome",
   started_at: "startedAt",
+  ended_at: "endedAt",
   parent_session_id: "parentSessionId",
   subagent_session_id: "subagentSessionId",
   agent_type: "agentType",
@@ -179,6 +183,15 @@ function parseWhere(clause: string, params: unknown[]): (row: FakeRow) => boolea
     const field = COLUMN_TO_FIELD[colName];
     if (!field) throw new Error(`parseWhere: unknown column in IS NOT NULL clause: ${colName}`);
     return (row) => row[field] != null;
+  }
+  // mt#2831: isNull(endedAt) — the tracker's heuristic upsert target selector.
+  const isNullMatch = clause.match(/"[^"]+"\."([^"]+)" is null/i);
+  if (isNullMatch) {
+    const colName = isNullMatch[1];
+    if (!colName) throw new Error(`parseWhere: malformed IS NULL clause: ${clause}`);
+    const field = COLUMN_TO_FIELD[colName];
+    if (!field) throw new Error(`parseWhere: unknown column in IS NULL clause: ${colName}`);
+    return (row) => row[field] == null;
   }
   const cmpMatch = clause.match(/"[^"]+"\."([^"]+)"\s*(=|>=|<=|>|<)\s*\$(\d+)/);
   if (cmpMatch) {
@@ -261,7 +274,9 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
     selectedFields: Record<string, unknown>;
     wherePred: ((row: FakeRow) => boolean) | null;
     groupByFn: ((row: FakeRow) => string) | null;
-    orderByDescStartedAt: boolean;
+    // mt#2831: distinguish ASC (bare column) from DESC (desc()-wrapped) — see the
+    // matching comment in subagent-dispatch-tracker.test.ts's fake DB.
+    orderDirection: "asc" | "desc" | null;
     limitVal: number | null;
     countField: string | null;
   };
@@ -279,8 +294,8 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         ctx.groupByFn = buildGroupByFn(ctx.selectedFields);
         return chain;
       },
-      orderBy(_col: unknown) {
-        ctx.orderByDescStartedAt = true;
+      orderBy(col: unknown) {
+        ctx.orderDirection = col === subagentInvocationsTable.startedAt ? "asc" : "desc";
         return chain;
       },
       limit(n: number) {
@@ -332,8 +347,10 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
       }
       return result;
     }
-    if (ctx.orderByDescStartedAt) {
+    if (ctx.orderDirection === "desc") {
       rs = [...rs].sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+    } else if (ctx.orderDirection === "asc") {
+      rs = [...rs].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     }
     if (ctx.limitVal !== null) rs = rs.slice(0, ctx.limitVal);
     if (ctx.countField) return [{ [ctx.countField]: rs.length }];
@@ -347,7 +364,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         selectedFields: fields,
         wherePred: null,
         groupByFn: null,
-        orderByDescStartedAt: false,
+        orderDirection: null,
         limitVal: null,
         countField,
       };
@@ -359,6 +376,11 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
           const row = inputToRow(input);
           store.set(row.id, row);
           return {
+            // mt#2831: recordSubagentInvocation now calls `.returning({ id: ... })`
+            // after `.values(...)` on the INSERT path.
+            returning(_fields?: unknown): Promise<Array<{ id: string }>> {
+              return Promise.resolve([{ id: row.id }]);
+            },
             then(resolve: (v: void) => void, _reject: (e: unknown) => void): Promise<void> {
               return Promise.resolve().then(resolve);
             },

@@ -37,13 +37,14 @@
  * @see mt#1005 — parent epic: Persist subagent execution history
  */
 
-import { and, count, desc, gte, sql, eq, isNotNull } from "drizzle-orm";
+import { and, count, desc, gte, sql, eq, isNotNull, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import {
   subagentInvocationsTable,
   type SubagentInvocationInsert,
   type SubagentInvocationOutcome,
+  type SubagentInvocationRecord,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { log } from "@minsky/shared/logger";
@@ -203,26 +204,44 @@ export class SubagentDispatchTracker {
   ) {}
 
   /**
-   * Insert a new invocation row, or update an existing one identified by
-   * `subagentSessionId`.
+   * Insert a new invocation row, or update an existing one.
    *
-   * Upsert semantics:
-   *   - When `input.subagentSessionId` is set: look for an existing row with
-   *     that value. If found, UPDATE all mutable fields. If not found, INSERT.
-   *   - When `input.subagentSessionId` is null/undefined: always INSERT a new row.
-   *     The table has no unique constraint on `subagent_session_id` (it is a
-   *     non-unique index), so null-keyed rows cannot be de-duplicated at the DB
-   *     constraint layer — callers must manage their own deduplication.
+   * Upsert semantics (mt#2831 R1 BLOCKING #1 — deterministic attribution):
+   *   - **Strong binding** — when `input.id` is set AND a row with that id exists,
+   *     UPDATE that EXACT row. This is the preferred path: a caller that knows the
+   *     specific invocation it means (e.g. the SubagentStop hook reading the
+   *     current-invocation marker file — see `readCurrentInvocationMarker`,
+   *     `packages/domain/src/session/current-invocation-marker.ts`) can never
+   *     misattribute an update to the wrong row in a retry chain, regardless of
+   *     timing (a LATE Stop event for an OLDER attempt cannot land on a NEWER
+   *     attempt's row, or vice versa).
+   *   - **Heuristic upsert** — when `input.id` is absent (or doesn't match any row —
+   *     e.g. a stale/missing marker), fall back to `input.subagentSessionId`. A
+   *     subagentSessionId is no longer guaranteed unique across rows once a dispatch
+   *     has been auto-resumed (`recordDispatchRecoveryAttempt` INSERTs a new row
+   *     sharing the SAME subagentSessionId as the attempt it resumes — the resume
+   *     reuses the existing Minsky session workspace). The target is selected in two
+   *     passes: first, the most recent row with `endedAt IS NULL` (an OPEN row — a
+   *     Stop-time update should land on whichever attempt is STILL RUNNING); if no
+   *     row is open, fall back to the most recent row overall (a replayed/duplicate
+   *     Stop event for an already-fully-closed chain). This narrows, but does not
+   *     eliminate, the misattribution window the strong-binding path closes — see
+   *     `subagent-dispatch-tracker.test.ts`'s "deterministic attribution" describe
+   *     block for the specific late-Stop-event scenario this two-pass selection does
+   *     and does not handle.
+   *   - When neither `input.id` nor `input.subagentSessionId` resolves to an existing
+   *     row: always INSERT a new row.
    *
-   * All fields present in `input` are written. Fields absent from `input`
-   * (optional schema columns) are left as their DB defaults (NULL).
+   * All fields present in `input` are written on INSERT. On UPDATE, `id` and
+   * `startedAt` are never overwritten (see `buildUpdateFields`).
    *
    * Errors are swallowed and logged — this matches the fail-safe contract of
    * `DisconnectTracker`'s I/O layer.
    *
    * @param input  The invocation record to persist.
+   * @returns The persisted row's id, or null on error / total failure to persist.
    */
-  async recordSubagentInvocation(input: SubagentInvocationInput): Promise<void> {
+  async recordSubagentInvocation(input: SubagentInvocationInput): Promise<string | null> {
     // mt#2653 R1: events must carry the PERSISTED agentType, not necessarily
     // `input.agentType` — when the UPDATE path omits the sentinel (see below),
     // the row keeps its EXISTING (dispatch-time) value, which can differ from
@@ -230,66 +249,46 @@ export class SubagentDispatchTracker {
     // INSERT paths, where "persisted" and "input" are the same value by
     // construction; reassigned below on the UPDATE path.
     let resolvedAgentType: string = input.agentType;
+    let persistedId: string | null = null;
     try {
-      if (input.subagentSessionId != null) {
-        // Upsert path: check for an existing row by subagentSessionId.
-        const existing = await this.db
+      let targetRow: { id: string; agentType: string } | undefined;
+
+      // Strong binding: an exact id the caller supplied. Only trust it if the row
+      // genuinely exists — a stale/missing marker must fall through to the
+      // heuristic path below, not silently no-op.
+      if (input.id != null) {
+        const byId = await this.db
           .select({
             id: subagentInvocationsTable.id,
             agentType: subagentInvocationsTable.agentType,
           })
           .from(subagentInvocationsTable)
-          .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId))
+          .where(eq(subagentInvocationsTable.id, input.id))
           .limit(1);
+        targetRow = byId[0];
+      }
 
-        const [firstExisting] = existing;
-        if (firstExisting) {
-          // UPDATE the existing row by primary key (NOT by subagentSessionId).
-          // The schema intentionally has no UNIQUE constraint on subagent_session_id;
-          // if two rows ever share it (concurrent writes, replayed events), updating
-          // by subagentSessionId would mutate both. Target the specific row id we
-          // just selected.
-          //
-          // Also preserve `startedAt`: an upsert that lands later in the dispatch
-          // lifecycle (SubagentStop classifying the outcome) must not overwrite
-          // the dispatch-time timestamp, which `lastDispatch` and `byHourLast24h`
-          // depend on for chronology.
-          const { id: _id, startedAt: _startedAt, agentType, ...restFields } = input;
+      if (!targetRow && input.subagentSessionId != null) {
+        targetRow = await this._selectHeuristicUpsertTarget(input.subagentSessionId);
+      }
 
-          // mt#2653: also preserve `agentType` when the caller only has the
-          // `UNKNOWN_AGENT_TYPE` sentinel. The SubagentStop hook writes this
-          // sentinel unconditionally (it has no way to recover the real
-          // dispatch-time agentType from the workspace alone), but the
-          // dispatch-time INSERT already wrote the real value
-          // (`promptResult.agentType`) — an unconditional `.set({ agentType })`
-          // on UPDATE would clobber it with "unknown" on every SubagentStop.
-          // Omitting the field here leaves the existing column value
-          // untouched; a caller that genuinely has a real (non-sentinel)
-          // agentType still updates it normally.
-          const updateFields: Partial<SubagentInvocationInput> =
-            agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
-
-          // The value that will actually be PERSISTED after this UPDATE: the
-          // existing row's agentType when the sentinel is omitted, otherwise
-          // the new value being written. Events below must use this, not the
-          // raw `input.agentType`, or they'd report "unknown" even though the
-          // DB row (and thus every future read of it) preserves the real
-          // dispatch-time value — the exact DB-vs-telemetry divergence this
-          // fixes (mt#2653 R1).
-          resolvedAgentType =
-            agentType === UNKNOWN_AGENT_TYPE ? firstExisting.agentType : agentType;
-
-          await this.db
-            .update(subagentInvocationsTable)
-            .set(updateFields)
-            .where(eq(subagentInvocationsTable.id, firstExisting.id));
-        } else {
-          // INSERT new row.
-          await this.db.insert(subagentInvocationsTable).values(input);
-        }
+      if (targetRow) {
+        // UPDATE the resolved row by primary key (never by subagentSessionId —
+        // see class docstring on why subagentSessionId alone is not a safe target).
+        const { updateFields, resolvedAgentType: ra } = this._buildUpdateFields(input, targetRow);
+        resolvedAgentType = ra;
+        await this.db
+          .update(subagentInvocationsTable)
+          .set(updateFields)
+          .where(eq(subagentInvocationsTable.id, targetRow.id));
+        persistedId = targetRow.id;
       } else {
-        // No session key — always INSERT a new row.
-        await this.db.insert(subagentInvocationsTable).values(input);
+        // INSERT new row.
+        const [inserted] = await this.db
+          .insert(subagentInvocationsTable)
+          .values(input)
+          .returning({ id: subagentInvocationsTable.id });
+        persistedId = inserted?.id ?? null;
       }
 
       // Emit subagent.failed event for failure outcomes (mt#2095).
@@ -333,6 +332,8 @@ export class SubagentDispatchTracker {
           relatedSessionId: input.parentSessionId ?? undefined,
         });
       }
+
+      return persistedId;
     } catch (err) {
       log.warn("subagent_dispatch_tracker: failed to record invocation", {
         taskId: input.taskId,
@@ -340,7 +341,77 @@ export class SubagentDispatchTracker {
         outcome: input.outcome,
         error: getErrorMessage(err),
       });
+      return null;
     }
+  }
+
+  /**
+   * Select the UPDATE target for the heuristic (subagentSessionId-keyed) upsert path
+   * (mt#2831 R1 BLOCKING #1). Two-pass: prefer the most recent OPEN row
+   * (`endedAt IS NULL`) — a Stop-time update should land on whichever attempt in a
+   * retry chain is STILL RUNNING — falling back to the most recent row overall when
+   * none is open (a replayed/duplicate Stop event for an already-fully-closed chain).
+   *
+   * This is a real narrowing of the misattribution window `recordSubagentInvocation`'s
+   * class docstring describes, but not a full close — see that docstring and the
+   * "deterministic attribution" test block for the residual scenario (a late Stop
+   * event for an attempt that is ALSO still open, arriving after a newer attempt was
+   * inserted and is ALSO still open — both candidates satisfy `endedAt IS NULL`, and
+   * without the strong `id` binding this heuristic still picks the more recent one).
+   * The strong-binding `id` path is what actually eliminates that residual case.
+   */
+  private async _selectHeuristicUpsertTarget(
+    subagentSessionId: string
+  ): Promise<{ id: string; agentType: string } | undefined> {
+    const open = await this.db
+      .select({
+        id: subagentInvocationsTable.id,
+        agentType: subagentInvocationsTable.agentType,
+      })
+      .from(subagentInvocationsTable)
+      .where(
+        and(
+          eq(subagentInvocationsTable.subagentSessionId, subagentSessionId),
+          isNull(subagentInvocationsTable.endedAt)
+        )
+      )
+      .orderBy(desc(subagentInvocationsTable.startedAt))
+      .limit(1);
+    if (open[0]) return open[0];
+
+    const any = await this.db
+      .select({
+        id: subagentInvocationsTable.id,
+        agentType: subagentInvocationsTable.agentType,
+      })
+      .from(subagentInvocationsTable)
+      .where(eq(subagentInvocationsTable.subagentSessionId, subagentSessionId))
+      .orderBy(desc(subagentInvocationsTable.startedAt))
+      .limit(1);
+    return any[0];
+  }
+
+  /**
+   * Build the UPDATE field set + resolved agentType for an upsert UPDATE, given the
+   * already-resolved target row. Shared by both the strong-binding (`id`) and
+   * heuristic (`subagentSessionId`) paths in `recordSubagentInvocation` (mt#2831 R1).
+   *
+   * Never overwrites `id` or `startedAt` (the dispatch-time timestamp `lastDispatch`
+   * / `byHourLast24h` depend on for chronology). Preserves the target's existing
+   * `agentType` when the caller only has the `UNKNOWN_AGENT_TYPE` sentinel (mt#2653 —
+   * the SubagentStop hook has no way to recover the real dispatch-time agentType from
+   * the workspace alone, so it sends the sentinel unconditionally; an unconditional
+   * `.set({ agentType })` would clobber the real dispatch-time value on every Stop).
+   */
+  private _buildUpdateFields(
+    input: SubagentInvocationInput,
+    target: { id: string; agentType: string }
+  ): { updateFields: Partial<SubagentInvocationInput>; resolvedAgentType: string } {
+    const { id: _id, startedAt: _startedAt, agentType, ...restFields } = input;
+    const updateFields: Partial<SubagentInvocationInput> =
+      agentType === UNKNOWN_AGENT_TYPE ? restFields : { ...restFields, agentType };
+    const resolvedAgentType = agentType === UNKNOWN_AGENT_TYPE ? target.agentType : agentType;
+    return { updateFields, resolvedAgentType };
   }
 
   /**
@@ -393,6 +464,103 @@ export class SubagentDispatchTracker {
         error: getErrorMessage(err),
       });
       return "none";
+    }
+  }
+
+  /**
+   * Return the most recent `subagent_invocations` row for a task (mt#2831), ordered by
+   * `startedAt` DESC — the row the dispatch-recovery command needs to decide whether a
+   * given task's dispatch is still in flight, and if so, what attempt number it is on.
+   *
+   * Returns null when the task has no invocation rows or on DB error (fail-safe, matching
+   * the tracker's other read methods).
+   */
+  async getLatestInvocationForTask(taskId: string): Promise<SubagentInvocationRecord | null> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(subagentInvocationsTable)
+        .where(eq(subagentInvocationsTable.taskId, taskId))
+        .orderBy(desc(subagentInvocationsTable.startedAt))
+        .limit(1);
+      return row ?? null;
+    } catch (err) {
+      log.warn("subagent_dispatch_tracker: getLatestInvocationForTask failed", {
+        taskId,
+        error: getErrorMessage(err),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Return every `subagent_invocations` row for a task (mt#2831), the full retry chain
+   * (original + any auto-resumed attempts).
+   *
+   * ORDERING CONTRACT (mt#2831 R1 NB #4 — load-bearing, do not change without updating
+   * every consumer below): rows are returned OLDEST -> NEWEST, ordered by `startedAt`
+   * ASCENDING. `attemptNumber` increases monotonically with array index (chain[0] is
+   * always attempt 1 — the original dispatch; chain[chain.length - 1] is always the
+   * MOST RECENT attempt). Consumers rely on this:
+   *   - `tasks.dispatch-recover`'s escalation-package builder
+   *     (`src/adapters/shared/commands/tasks/dispatch-recover-command.ts`) maps the
+   *     array directly into the `attempts` list it returns to the caller, presenting
+   *     the chain in chronological (original-first) order without re-sorting.
+   *   - Tests pin this order explicitly — see
+   *     "getInvocationChainForTask returns rows oldest -> newest (ordering contract)"
+   *     in `subagent-dispatch-tracker.test.ts`.
+   * If this method's ordering ever needs to change (e.g. to DESC for a new consumer),
+   * that consumer must NOT assume the existing ASC contract — add a `direction`
+   * parameter rather than flipping the default silently.
+   *
+   * Returns an empty array on DB error (fail-safe) rather than null, since callers treat
+   * this as a list to render, not a single optional record.
+   */
+  async getInvocationChainForTask(taskId: string): Promise<SubagentInvocationRecord[]> {
+    try {
+      return await this.db
+        .select()
+        .from(subagentInvocationsTable)
+        .where(eq(subagentInvocationsTable.taskId, taskId))
+        .orderBy(subagentInvocationsTable.startedAt);
+    } catch (err) {
+      log.warn("subagent_dispatch_tracker: getInvocationChainForTask failed", {
+        taskId,
+        error: getErrorMessage(err),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Insert a NEW row for a dispatch-recovery auto-resume attempt (mt#2831). Deliberately a
+   * plain INSERT rather than `recordSubagentInvocation`'s upsert — a resumed attempt reuses
+   * the SAME Minsky session workspace (and therefore the same `subagentSessionId`) as the
+   * attempt it resumes, so upserting on `subagentSessionId` would overwrite the original
+   * row's history instead of creating a distinct, linked row. This is the write side of the
+   * `resumedFromInvocationId` / `attemptNumber` retry-linkage columns.
+   *
+   * Returns the new row's id, or null on DB error (fail-safe — the caller still returns the
+   * continuation prompt to the orchestrator even if this bookkeeping write fails; the
+   * recovery action itself must not be blocked by a telemetry-write failure).
+   */
+  async recordDispatchRecoveryAttempt(
+    input: SubagentInvocationInput & { resumedFromInvocationId: string; attemptNumber: number }
+  ): Promise<string | null> {
+    try {
+      const [row] = await this.db
+        .insert(subagentInvocationsTable)
+        .values(input)
+        .returning({ id: subagentInvocationsTable.id });
+      return row?.id ?? null;
+    } catch (err) {
+      log.warn("subagent_dispatch_tracker: recordDispatchRecoveryAttempt failed", {
+        taskId: input.taskId,
+        resumedFromInvocationId: input.resumedFromInvocationId,
+        attemptNumber: input.attemptNumber,
+        error: getErrorMessage(err),
+      });
+      return null;
     }
   }
 

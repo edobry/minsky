@@ -1991,6 +1991,10 @@
           ]
         },
         {
+          "name": "dispatch-recover",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\"). Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\")."
+        },
+        {
           "name": "orchestrate",
           "description": "Find unblocked subtasks of a parent task, ready for dispatch via tasks_dispatch",
           "options": [

@@ -125,12 +125,12 @@ describe("formatDispatchWatchdogState", () => {
     expect(out).toMatch(/session-1/);
   });
 
-  test("points at the probe (session.status probe=true) and the resume protocol", () => {
+  test("points at tasks.dispatch-recover (mt#2831) and the /orchestrate resume protocol", () => {
     const out = formatDispatchWatchdogState(cacheAt([flag()]));
-    expect(out).toMatch(/session\.status/);
-    expect(out).toMatch(/probe=true/);
+    expect(out).toMatch(/tasks\.dispatch-recover/);
+    expect(out).toMatch(/continuationPrompt/);
     expect(out).toMatch(/orchestrate/);
-    expect(out).toMatch(/SendMessage-resume/);
+    expect(out).toMatch(/escalate/);
   });
 
   test("a missing subagentSessionId renders a readable placeholder, not 'null'", () => {
