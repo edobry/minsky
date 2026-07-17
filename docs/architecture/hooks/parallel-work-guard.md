@@ -179,3 +179,66 @@ umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a con
 agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
 ~80 minutes before the `tasks_create` calls. See family memory `fe68f2a7`; the Tier-2 floor
 complement is `/plan-task` gate (g) parent-children enumeration (mt#1434).
+
+### Standalone-duplicate probe (mt#2813)
+
+The duplicate-child matcher above needs a `parent`/`parentTaskId` to enumerate a sibling pool —
+a **standalone** (non-subtask) `tasks_create` call has no such pool, and was structurally
+outside every parallel-work check until mt#2813. Evidence this was a real gap: mt#2734 was
+filed standalone on 2026-07-10 and turned out to be a full duplicate of mt#2351+mt#2407, caught
+only by a manual `/plan-task` gate-(g) pass three days later. Fresh evidence (2026-07-16):
+mt#2887 and mt#2888 were filed 4 minutes apart by two independent agents describing the SAME
+incident (a `gh api` 503 breaking `session_pr_merge`'s check-runs query) under completely
+different titles — zero cross-detection until a human closed mt#2887 as subsumed.
+
+**How it works:**
+
+1. On a `tasks_create` (or new-task-mode `tasks_dispatch`) call with **no** `parent`/
+   `parentTaskId`, build a similarity-search query from `title + "\n\n" + spec` — the exact
+   join `TaskSimilarityService.extractTaskContent` uses to build the embedding INDEX
+   (`packages/domain/src/tasks/task-similarity-service.ts`), so the query embedding lands in
+   the same representation space the corpus was indexed with. Falls back to title-only when no
+   `spec` was supplied.
+2. Run `minsky tasks search <query> --json --all --limit 10` (the `tasks.search` CLI command)
+   and parse the results. `--all` disables the command's own default DONE/CLOSED exclusion so
+   the guard can apply the SAME `TERMINAL_TASK_STATUSES` discipline as the duplicate-child
+   matcher itself.
+3. Exclude TERMINAL-status (DONE/CLOSED/COMPLETED) hits, keep only results at or under
+   `STANDALONE_DUP_MAX_DISTANCE = 0.65` (an embedding DISTANCE — lower is closer), sort
+   closest-first, cap at `STANDALONE_DUP_CANDIDATE_CAP = 5`.
+4. Any surviving candidates emit a **non-blocking WARN** naming each candidate's id, status,
+   and distance — this check NEVER blocks (`base rates differ from the sibling case` per the
+   mt#2813 spec; the duplicate-child matcher's block/warn split doesn't apply here since there
+   is no equivalent "concurrent decomposition in flight" signal for a standalone create).
+
+**Calibration (mt#2813 PR body has the full replay-corpus table).** Live-probed against the two
+evidence pairs above plus 20 recent legitimately-distinct standalone creations:
+
+- mt#2734 (title+spec) → mt#2351 at distance 0.478
+- mt#2887 (title+spec, at-creation content) → mt#2892 at 0.579, mt#2888 at 0.632 (both ACTIVE
+  at replay time) — the hard case: the two titles use completely different vocabulary/framing
+  for the same underlying incident, so a **title-only** query does NOT separate this pair from
+  calibration noise (title-only distances for both entries land in the same 0.94-0.99 band as
+  several legitimately-distinct false-positive-corpus entries); only the richer title+spec
+  query — matching the actual embedding-index content — gives clean separation.
+- 20-task false-positive corpus: 17/20 landed above the 0.65 threshold; the 3 that landed under
+  it are genuinely topically-adjacent sibling work (a "flaky CI test" pair, a "reviewer-service
+  reliability churn" pair, an "execution-evidence gate" pair) — not spurious noise, though this
+  puts the empirical false-warn rate slightly above the spec's "~1 in 20" target. Accepted given
+  the check is advisory-only.
+
+**Fail-open posture:** a missing `title` is a no-op; a `tasks.search` CLI failure (non-zero
+exit or unparseable JSON) is a loud "GUARD DEGRADED" skip (stderr) that also records to the
+hook-health tracker (mt#2812, `recordGuardCheckSkip`); a response that reports
+`degraded: true` (the search backend fell back to lexical matching) is treated the same as a
+hard failure, since the threshold above is calibrated for embeddings distances only and would
+misapply to a different scoring scale; any unexpected exception is caught, logged to stderr,
+recorded to the hook-health tracker (`recordGuardError`), and fails OPEN (permit).
+
+**No override mechanism.** This check is advisory-only and never blocks, so there is nothing to
+bypass — unlike the duplicate-child matcher's `MINSKY_FORCE_DUPLICATE_OK`/grant-file channel.
+
+**Out of scope (mt#2813 spec):** blocking semantics (advisory only in v1); the duplicate-child
+matcher's parent-title token discounting (unchanged, and not applicable — a standalone create
+has no parent title to discount against); `/plan-task` gate (g), which remains the deeper,
+human-reviewed check for both the parent-gated and standalone cases.
