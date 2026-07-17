@@ -266,27 +266,34 @@ describe("repairIndexLock TOCTOU guard (PR #1986 R1)", () => {
     const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
     await utimes(lockPath, staleTime, staleTime);
 
-    let callCount = 0;
     let swapped = false;
     const deps = {
       execAsync: async (command: string) => {
-        callCount++;
         const result = await realExec(command);
-        // Right after the INITIAL detection's last call (its `ps` probe —
-        // call #3: rev-parse=1, lsof=2, ps=3) completes, simulate a
-        // legitimate process replacing the lock in the window between our
-        // detection and our unlink: remove the diagnosed (stale) lock and
-        // create a NEW one at the same path. A real `rm` + `writeFile`
-        // always allocates a fresh inode, modeling a genuine independent
-        // acquisition rather than the same file being untouched.
-        if (!swapped && command.startsWith("ps -A") && callCount === 3) {
+        // Trigger on the FIRST `ps` probe seen — NOT a hardcoded call-count
+        // (mt#2820 PR #1986 R2: a fixed count is an internal-implementation-
+        // detail assumption that isn't portable across environments/
+        // platforms where the exact lsof/ps call sequence can legitimately
+        // differ — e.g. lsof behaving differently, or an extra probe firing).
+        // `ps` always runs at least once inside the INITIAL detection (see
+        // checkLockLiveness), so the first sighting is guaranteed to land
+        // before repairIndexLock reaches its post-detection guard checks —
+        // exactly the "replaced mid-repair" window this test simulates.
+        if (!swapped && command.startsWith("ps -A")) {
           swapped = true;
+          // Simulate a legitimate process replacing the lock in the window
+          // between our detection and our unlink: remove the diagnosed
+          // (stale) lock and create a NEW one at the same path — DIFFERENT
+          // content (non-empty, distinct size) and a FRESH (non-stale)
+          // mtime, so the replacement is unambiguously distinguishable on
+          // EVERY discriminator the guard checks (inode/device identity —
+          // primary; mtime and size — secondary), not solely on inode. This
+          // removes any dependency on a specific filesystem's inode-reuse
+          // timing (e.g. some tmpfs configurations reuse a just-freed inode
+          // number faster than others) — the guard must catch the swap via
+          // AT LEAST one signal on any POSIX filesystem.
           await rm(lockPath, { force: true });
-          await writeFile(lockPath, "");
-          // Keep the same (stale-looking) mtime so the guard's catch is
-          // attributable to the IDENTITY (inode) check specifically, not
-          // merely a coincidental mtime discrepancy.
-          await utimes(lockPath, staleTime, staleTime);
+          await writeFile(lockPath, "a fresh, legitimately-acquired lock\n");
         }
         return result;
       },
@@ -294,7 +301,7 @@ describe("repairIndexLock TOCTOU guard (PR #1986 R1)", () => {
 
     try {
       await expect(repairIndexLock({ repoPath, confirm: true }, deps)).rejects.toThrow(
-        /replaced between detection and repair/
+        /replaced between detection and repair|modified between detection and repair/
       );
       // The NEW ("legitimately re-acquired") lock must survive untouched.
       expect(existsSync(lockPath)).toBe(true);
@@ -308,13 +315,13 @@ describe("repairIndexLock TOCTOU guard (PR #1986 R1)", () => {
     const staleTime = new Date(Date.now() - (LOCK_STALE_THRESHOLD_MS + 60_000));
     await utimes(lockPath, staleTime, staleTime);
 
-    let callCount = 0;
+    // Trigger on the first `ps` probe seen (mt#2820 PR #1986 R2) — see the
+    // sibling test above for why a hardcoded call-count is not portable.
     let removed = false;
     const deps = {
       execAsync: async (command: string) => {
-        callCount++;
         const result = await realExec(command);
-        if (!removed && command.startsWith("ps -A") && callCount === 3) {
+        if (!removed && command.startsWith("ps -A")) {
           removed = true;
           await rm(lockPath, { force: true });
         }

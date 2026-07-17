@@ -355,11 +355,16 @@ export async function repairIndexLock(
     );
   }
 
-  if (finalStats.mtimeMs !== info.mtimeMs) {
+  // Secondary signal, checked after the primary inode/device identity check
+  // above: even a same-inode file (an in-place rewrite, or a filesystem —
+  // e.g. some tmpfs configurations — that reuses a just-freed inode number
+  // faster than this window) can still show a changed mtime or size if a
+  // process wrote to it. Either differing is grounds to abort.
+  if (finalStats.mtimeMs !== info.mtimeMs || finalStats.size !== info.sizeBytes) {
     throw new Error(
-      `${info.lockPath} was modified between detection and repair (mtime changed from ` +
-        `${info.mtimeMs} to ${finalStats.mtimeMs}) — a process may be actively writing to it. ` +
-        `Aborting removal; re-diagnose before retrying.`
+      `${info.lockPath} was modified between detection and repair (mtime ${info.mtimeMs} -> ` +
+        `${finalStats.mtimeMs}, size ${info.sizeBytes} -> ${finalStats.size}) — a process may be ` +
+        `actively writing to it. Aborting removal; re-diagnose before retrying.`
     );
   }
 
