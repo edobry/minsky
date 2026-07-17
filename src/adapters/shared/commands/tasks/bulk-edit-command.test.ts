@@ -12,16 +12,18 @@ interface FakeBackendCalls {
   updateTags: Array<[string, string[]]>;
 }
 
-function makeFakeService(tasks: Task[], calls: FakeBackendCalls) {
+function makeFakeService(tasks: Task[], calls: FakeBackendCalls, failOn: Set<string> = new Set()) {
   const byId = new Map(tasks.map((t) => [t.id, t]));
   const backend = {
     name: "fake",
     setTaskKind: async (id: string, kind: string) => {
+      if (failOn.has(id)) throw new Error(`backend write failed for ${id}`);
       calls.setKind.push([id, kind]);
       const task = byId.get(id);
       if (task) task.kind = kind;
     },
     updateTags: async (id: string, tags: string[]) => {
+      if (failOn.has(id)) throw new Error(`backend write failed for ${id}`);
       calls.updateTags.push([id, tags]);
       const task = byId.get(id);
       if (task) task.tags = tags;
@@ -51,18 +53,20 @@ class FakeEventStore implements BulkEditEventStore {
   async findDryRunPayload(token: string): Promise<Record<string, unknown> | null> {
     return this.dryRuns.find((p) => p.token === token) ?? null;
   }
-  async findExecutedAt(token: string): Promise<string | null> {
-    return this.executed.some((p) => p.token === token) ? "2026-07-17T00:00:00.000Z" : null;
+  async findExecuted(token: string): Promise<{ executedAt: string; partial: boolean } | null> {
+    const match = [...this.executed].reverse().find((p) => p.token === token);
+    if (!match) return null;
+    return { executedAt: "2026-07-17T00:00:00.000Z", partial: match.partial === true };
   }
 }
 
 const makeTask = (id: string, kind = "implementation", tags: string[] = []): Task =>
   ({ id, title: `Task ${id}`, status: "TODO", kind, tags }) as Task;
 
-function setup(tasks: Task[]) {
+function setup(tasks: Task[], failOn: Set<string> = new Set()) {
   const calls: FakeBackendCalls = { setKind: [], updateTags: [] };
   const store = new FakeEventStore();
-  const service = makeFakeService(tasks, calls);
+  const service = makeFakeService(tasks, calls, failOn);
   const command = createTasksBulkEditCommand(undefined, () => service, store);
   return { command, store, calls };
 }
@@ -221,5 +225,46 @@ describe("tasks.bulk-edit execute", () => {
     expect(result.applied).toBe(1);
     expect(result.skippedAlreadyApplied).toBe(1);
     expect(calls.updateTags).toEqual([["mt#2", ["done"]]]);
+  });
+
+  test("a partial failure does NOT consume the token — retry resumes the remaining records", async () => {
+    const tasks = [makeTask("mt#1"), makeTask("mt#2")];
+    const failOn = new Set(["mt#2"]);
+    const { command, store, calls } = setup(tasks, failOn);
+
+    const dryRun = await run(command, { ids: ["mt#1", "mt#2"], kind: "umbrella" });
+
+    // First execute: mt#1 applies, mt#2 fails — throws naming the resume path,
+    // and the executed event is recorded partial (an audit record, not consumption).
+    await expect(
+      run(command, { ids: ["mt#1", "mt#2"], kind: "umbrella", execute: true, token: dryRun.token })
+    ).rejects.toThrow(/remains redeemable/);
+    expect(store.executed).toHaveLength(1);
+    expect(store.executed[0]?.partial).toBe(true);
+    expect(calls.setKind).toEqual([["mt#1", "umbrella"]]);
+
+    // Backend recovers; same-token retry is NOT short-circuited and applies mt#2.
+    failOn.clear();
+    const retry = await run(command, {
+      ids: ["mt#1", "mt#2"],
+      kind: "umbrella",
+      execute: true,
+      token: dryRun.token,
+    });
+    expect(retry.executed).toBe(true);
+    expect(retry.applied).toBe(1);
+    expect(retry.skippedAlreadyApplied).toBe(1);
+    expect(store.executed).toHaveLength(2);
+    expect(store.executed[1]?.partial).toBe(false);
+
+    // Third execute: now fully consumed — idempotent no-op.
+    const third = await run(command, {
+      ids: ["mt#1", "mt#2"],
+      kind: "umbrella",
+      execute: true,
+      token: dryRun.token,
+    });
+    expect(third.idempotent).toBe(true);
+    expect(calls.setKind).toHaveLength(2);
   });
 });

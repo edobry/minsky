@@ -46,12 +46,17 @@ const MAX_BULK_TARGETS = 500;
 export interface BulkEditEventStore {
   /** Persist the dry-run record. MUST report failure — the token is unredeemable without it. */
   recordDryRun(payload: Record<string, unknown>): Promise<boolean>;
-  /** Persist the execution record (one-shot consumption marker). */
+  /** Persist the execution record (one-shot consumption marker when not partial). */
   recordExecuted(payload: Record<string, unknown>): Promise<boolean>;
   /** Load the dry-run payload for a token, or null when unknown. */
   findDryRunPayload(token: string): Promise<Record<string, unknown> | null>;
-  /** Return the execution timestamp for a token, or null when never executed. */
-  findExecutedAt(token: string): Promise<string | null>;
+  /**
+   * Return the most recent execution record for a token, or null when never
+   * executed. `partial: true` marks a failed/incomplete apply — it is an
+   * audit record, NOT a consumption marker (PR #2009 R2: a same-token retry
+   * after a partial failure must resume, not silently no-op).
+   */
+  findExecuted(token: string): Promise<{ executedAt: string; partial: boolean } | null>;
 }
 
 class DrizzleBulkEditEventStore implements BulkEditEventStore {
@@ -83,11 +88,12 @@ class DrizzleBulkEditEventStore implements BulkEditEventStore {
     return event ? event.payload : null;
   }
 
-  async findExecutedAt(token: string): Promise<string | null> {
+  async findExecuted(token: string): Promise<{ executedAt: string; partial: boolean } | null> {
     const db = await this.db();
     if (!db) return null;
     const event = await findEventByToken(db, "task.bulk_edit.executed", token);
-    return event ? event.createdAt : null;
+    if (!event) return null;
+    return { executedAt: event.createdAt, partial: event.payload.partial === true };
   }
 }
 
@@ -243,16 +249,18 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
       );
     }
 
-    // One-shot consumption: a matching executed event makes this a no-op.
-    const executedAt = await this.eventStore.findExecutedAt(token);
-    if (executedAt) {
+    // One-shot consumption: a matching NON-PARTIAL executed event makes this
+    // a no-op. A partial record (failed apply) does NOT consume the token —
+    // the retry resumes the remaining records under the same drift checks.
+    const executed = await this.eventStore.findExecuted(token);
+    if (executed && !executed.partial) {
       return this.formatResult(
         {
           success: true,
           executed: false,
           idempotent: true,
           token,
-          message: `Token already executed at ${executedAt} — nothing to do (idempotent no-op).`,
+          message: `Token already executed at ${executed.executedAt} — nothing to do (idempotent no-op).`,
         },
         params.json
       );
@@ -327,20 +335,25 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
     const failed = outcomes.filter((o) => o.outcome === "failed");
     const appliedNow = outcomes.filter((o) => o.outcome === "applied").length;
 
+    const allOutcomes = [
+      ...outcomes,
+      // Records that were already in the desired state at execute time.
+      ...approved
+        .filter((r) => !pending.includes(r))
+        .map((r) => ({
+          taskId: r.taskId,
+          field: r.field,
+          outcome: "skipped-already-applied" as const,
+        })),
+    ];
+
+    // The executed event is the one-shot consumption marker ONLY on full
+    // success; a failed apply records partial:true (audit trail, resumable).
     await this.eventStore.recordExecuted({
       token,
       count: approved.length,
-      outcomes: [
-        ...outcomes,
-        // Records that were already in the desired state at execute time.
-        ...approved
-          .filter((r) => !pending.includes(r))
-          .map((r) => ({
-            taskId: r.taskId,
-            field: r.field,
-            outcome: "skipped-already-applied" as const,
-          })),
-      ],
+      partial: failed.length > 0,
+      outcomes: allOutcomes,
     });
 
     if (failed.length > 0) {
@@ -348,7 +361,8 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
         `Execute stopped after a failure: ${appliedNow} applied, ${failed.length} failed, ` +
           `${outcomes.filter((o) => o.outcome === "not-attempted").length} not attempted.\n` +
           `First failure: ${failed[0]?.taskId} ${failed[0]?.field}: ${failed[0]?.error}\n` +
-          "Re-run the dry-run to assess current state before retrying."
+          `The token remains redeemable: re-run execute with the same token to resume the ` +
+          `remaining records (already-applied records are skipped; drift checks still apply).`
       );
     }
 

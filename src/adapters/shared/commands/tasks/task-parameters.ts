@@ -399,7 +399,9 @@ export const tasksEditParams = {
 export const tasksBulkEditParams = {
   ids: {
     schema: z.union([z.string(), z.array(z.string())]),
-    description: "Explicit task ids to edit (array, or comma-separated string)",
+    description:
+      "Explicit task ids to edit (array, or comma-separated string). Backend-qualified ids " +
+      "(e.g. mt#123, md#456), same format as taskId elsewhere; bare numbers are not accepted.",
     required: true,
   },
   kind: TaskParameters.kind,
