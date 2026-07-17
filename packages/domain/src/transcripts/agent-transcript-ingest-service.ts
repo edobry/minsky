@@ -169,11 +169,17 @@ export class AgentTranscriptIngestService {
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
-    // mt#2763: emit the counted signal for this call before anything else —
-    // independent of whether the stream produced any retained lines, so an
-    // operator can see redaction activity even on a call whose lines were
-    // all filtered by the HWM gate or an unrecognized type. Best-effort; see
-    // credential-scrub-log.ts's own error-swallowing posture.
+    // mt#2763: emit the counted signal before the "no new lines" idempotent
+    // return below, so a redaction is logged even in the edge case where the
+    // ONLY retained line that scrubbed was an attachment/system line whose
+    // (already-scrubbed) content buildAttachmentRow then rejected as
+    // malformed (returns null) — the redaction still happened even though
+    // nothing ended up persisted for that line. NOTE: this call cannot fire
+    // for lines the HWM gate filtered out, or for unrecognized line types —
+    // both `continue` / fall through BEFORE scrubValueDeep is ever called
+    // (see the loop above), so allRedactions only ever contains hits from
+    // lines that passed the HWM gate and matched a retained type. Best-effort
+    // logging; see credential-scrub-log.ts's own error-swallowing posture.
     if (allRedactions.length > 0) {
       recordCredentialScrub(agentSessionId, allRedactions, realCredentialScrubLogDeps);
     }
