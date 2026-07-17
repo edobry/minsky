@@ -820,7 +820,17 @@ export function attemptCleanTreeAutoMerge(
     };
   }
 
-  const mergeResult = deps.runMerge(repoDir, mainRef, FETCH_TIMEOUT_MS);
+  // PR #2000 R1 BLOCKING #1/#2: this is a purely LOCAL git operation against
+  // already-fetched refs (the entrypoint's refreshRemoteRefs already ran
+  // before checkBranchFreshness) — it belongs to the same local-probe budget
+  // class as every other execWithPath call in this file (GIT_TIMEOUT_MS),
+  // NOT the network-bound FETCH_TIMEOUT_MS class (~55% of the overall
+  // budget, sized for a real network round-trip to origin). Using
+  // FETCH_TIMEOUT_MS here would let a single local merge attempt consume
+  // more than half the hook's total budget, inconsistent with the
+  // `GIT_TIMEOUT_MS * 2` reservation the budget-guard above already made
+  // for exactly this call plus the isWorkingTreeClean probe.
+  const mergeResult = deps.runMerge(repoDir, mainRef, GIT_TIMEOUT_MS);
   if (mergeResult.exitCode === 0) {
     return { attempted: true, merged: true, mergedCommitCount: aheadCount };
   }

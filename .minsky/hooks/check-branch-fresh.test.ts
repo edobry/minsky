@@ -1740,163 +1740,184 @@ async function setGitIdentityReal(repoPath: string): Promise<void> {
   await gitReal(repoPath, "config", "user.name", '"mt2815 test"');
 }
 
-describe("attemptCleanTreeAutoMerge — real git (mt#2815 acceptance)", () => {
-  let tmpBase: string;
+// PR #2000 R1 non-blocking: guard-rail on external binary availability so an
+// environment without `git` on PATH skips this describe block with a clear
+// signal instead of every test inside it failing opaquely. Computed
+// synchronously at module scope (not inside beforeAll) so `describe.skipIf`
+// can consume it before any test registration happens.
+const GIT_BINARY_AVAILABLE = (() => {
+  try {
+    return Bun.spawnSync(["git", "--version"]).exitCode === 0;
+  } catch {
+    return false;
+  }
+})();
 
-  beforeAll(async () => {
-    tmpBase = await mkdtemp(join(osTmpdir(), "minsky-mt2815-"));
-  });
+describe.skipIf(!GIT_BINARY_AVAILABLE)(
+  "attemptCleanTreeAutoMerge — real git (mt#2815 acceptance)",
+  () => {
+    let tmpBase: string;
 
-  afterAll(async () => {
-    if (tmpBase) {
-      await rm(tmpBase, { recursive: true, force: true });
-    }
-  });
+    beforeAll(async () => {
+      tmpBase = await mkdtemp(join(osTmpdir(), "minsky-mt2815-"));
+    });
 
-  test("clean-behind-by-3-commits: auto-merge applies with zero conflicts, no manual round-trip needed", async () => {
-    const scenarioDir = join(tmpBase, "clean-scenario");
-    const originPath = join(scenarioDir, "origin.git");
-    const seedPath = join(scenarioDir, "seed");
-    const sessionPath = join(scenarioDir, "session");
-
-    await mkdir(originPath, { recursive: true });
-    await execAsyncReal(`git init --bare -b main ${JSON.stringify(originPath)}`);
-
-    // Seed clone: initial commit on main, then branch off for the "session".
-    await mkdir(seedPath, { recursive: true });
-    await execAsyncReal(`git clone ${JSON.stringify(originPath)} ${JSON.stringify(seedPath)}`);
-    await setGitIdentityReal(seedPath);
-    await writeFile(join(seedPath, "README.md"), "initial\n");
-    await gitReal(seedPath, "add", "README.md");
-    await gitReal(seedPath, "commit", "-m", '"chore: initial"');
-    await gitReal(seedPath, "push", "origin", "HEAD:main");
-
-    // Session branch: one commit of the agent's own work, pushed to origin.
-    await gitReal(seedPath, "checkout", "-b", "task/mt-9999");
-    await writeFile(join(seedPath, "session-work.txt"), "agent work\n");
-    await gitReal(seedPath, "add", "session-work.txt");
-    await gitReal(seedPath, "commit", "-m", '"feat: session work"');
-    await gitReal(seedPath, "push", "origin", "task/mt-9999");
-
-    // Sibling PRs advance main by 3 commits on DISJOINT files (the empirical
-    // shape from the mt#2815 investigation evidence).
-    await gitReal(seedPath, "checkout", "main");
-    for (const n of [1, 2, 3]) {
-      await writeFile(join(seedPath, `sibling-${n}.txt`), `sibling change ${n}\n`);
-      await gitReal(seedPath, "add", `sibling-${n}.txt`);
-      await gitReal(seedPath, "commit", "-m", `"feat: sibling PR ${n}"`);
-    }
-    await gitReal(seedPath, "push", "origin", "main");
-
-    // The actual session workspace: fresh clone checked out on task/mt-9999,
-    // simulating the state check-branch-fresh operates on.
-    await mkdir(sessionPath, { recursive: true });
-    await execAsyncReal(
-      `git clone --branch task/mt-9999 ${JSON.stringify(originPath)} ${JSON.stringify(sessionPath)}`
-    );
-    await setGitIdentityReal(sessionPath);
-    // Refresh remote-tracking refs, mirroring what the hook entrypoint does
-    // via refreshRemoteRefs before calling checkBranchFreshness.
-    await gitReal(sessionPath, "fetch", "origin", "--prune", "--no-tags", "--quiet");
-
-    const hookStart = Date.now();
-    const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
-    expect(freshness.blocked).toBe(true);
-    expect(freshness.aheadCount).toBe(3);
-    expect(freshness.mainRef).toBe("origin/main");
-    expect(freshness.branchRef).toBe("origin/task/mt-9999");
-
-    const mergeOutcome = attemptCleanTreeAutoMerge(
-      sessionPath,
-      freshness.branchRef,
-      freshness.mainRef,
-      freshness.aheadCount,
-      hookStart
-      // default (real) deps — this is the point of the integration test
-    );
-
-    expect(mergeOutcome).toEqual({ attempted: true, merged: true, mergedCommitCount: 3 });
-
-    // Verify the merge actually landed: sibling files present, working tree
-    // clean, no dangling merge state.
-    for (const n of [1, 2, 3]) {
-      const files = await gitReal(sessionPath, "ls-files");
-      expect(files).toContain(`sibling-${n}.txt`);
-    }
-    const status = await gitReal(sessionPath, "status", "--porcelain");
-    expect(status).toBe("");
-    expect(detectMergeInProgress(sessionPath)).toBeNull();
-  }, 30000);
-
-  test("conflicting upstream change: auto-merge aborts and leaves the branch exactly as the pre-mt#2815 block path would (protective property)", async () => {
-    const scenarioDir = join(tmpBase, "conflict-scenario");
-    const originPath = join(scenarioDir, "origin.git");
-    const seedPath = join(scenarioDir, "seed");
-    const sessionPath = join(scenarioDir, "session");
-
-    await mkdir(originPath, { recursive: true });
-    await execAsyncReal(`git init --bare -b main ${JSON.stringify(originPath)}`);
-
-    await mkdir(seedPath, { recursive: true });
-    await execAsyncReal(`git clone ${JSON.stringify(originPath)} ${JSON.stringify(seedPath)}`);
-    await setGitIdentityReal(seedPath);
-    await writeFile(join(seedPath, "shared.txt"), "line one\nline two\n");
-    await gitReal(seedPath, "add", "shared.txt");
-    await gitReal(seedPath, "commit", "-m", '"chore: initial shared file"');
-    await gitReal(seedPath, "push", "origin", "HEAD:main");
-
-    // Session branch modifies line one.
-    await gitReal(seedPath, "checkout", "-b", "task/mt-8888");
-    await writeFile(join(seedPath, "shared.txt"), "session change\nline two\n");
-    await gitReal(seedPath, "add", "shared.txt");
-    await gitReal(seedPath, "commit", "-m", '"feat: session edits line one"');
-    await gitReal(seedPath, "push", "origin", "task/mt-8888");
-
-    // main ALSO modifies line one, differently — guaranteed conflict.
-    await gitReal(seedPath, "checkout", "main");
-    await writeFile(join(seedPath, "shared.txt"), "main change\nline two\n");
-    await gitReal(seedPath, "add", "shared.txt");
-    await gitReal(seedPath, "commit", "-m", '"feat: main edits line one differently"');
-    await gitReal(seedPath, "push", "origin", "main");
-
-    await mkdir(sessionPath, { recursive: true });
-    await execAsyncReal(
-      `git clone --branch task/mt-8888 ${JSON.stringify(originPath)} ${JSON.stringify(sessionPath)}`
-    );
-    await setGitIdentityReal(sessionPath);
-    await gitReal(sessionPath, "fetch", "origin", "--prune", "--no-tags", "--quiet");
-
-    const hookStart = Date.now();
-    const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
-    expect(freshness.blocked).toBe(true);
-    expect(freshness.aheadCount).toBe(1);
-
-    const mergeOutcome = attemptCleanTreeAutoMerge(
-      sessionPath,
-      freshness.branchRef,
-      freshness.mainRef,
-      freshness.aheadCount,
-      hookStart
-    );
-
-    expect(mergeOutcome.attempted).toBe(true);
-    if (mergeOutcome.attempted) {
-      expect(mergeOutcome.merged).toBe(false);
-      if (!mergeOutcome.merged) {
-        expect(mergeOutcome.conflictedFiles).toContain("shared.txt");
+    afterAll(async () => {
+      if (tmpBase) {
+        await rm(tmpBase, { recursive: true, force: true });
       }
-    }
+    });
 
-    // Protective property: the merge attempt must be fully aborted. No
-    // MERGE_HEAD left behind (which would otherwise be silently picked up
-    // as an operator-driven mid-merge by the NEXT hook invocation), and the
-    // working tree is back to the session's own pre-merge content.
-    expect(detectMergeInProgress(sessionPath)).toBeNull();
-    const status = await gitReal(sessionPath, "status", "--porcelain");
-    expect(status).toBe("");
-    const content = await gitReal(sessionPath, "show", "HEAD:shared.txt");
-    expect(content).toContain("session change");
-    expect(content).not.toContain("main change");
-  }, 30000);
-});
+    test("clean-behind-by-3-commits: auto-merge applies with zero conflicts, no manual round-trip needed", async () => {
+      const scenarioDir = join(tmpBase, "clean-scenario");
+      const originPath = join(scenarioDir, "origin.git");
+      const seedPath = join(scenarioDir, "seed");
+      const sessionPath = join(scenarioDir, "session");
+
+      await mkdir(originPath, { recursive: true });
+      // No `-b main` (git >= 2.28 only) — portability. The seed clone's
+      // `git push origin HEAD:main` below creates the `main` ref explicitly
+      // regardless of the bare repo's own default-branch symbolic ref, so
+      // the flag was never load-bearing for this fixture's correctness.
+      await execAsyncReal(`git init --bare ${JSON.stringify(originPath)}`);
+
+      // Seed clone: initial commit on main, then branch off for the "session".
+      await mkdir(seedPath, { recursive: true });
+      await execAsyncReal(`git clone ${JSON.stringify(originPath)} ${JSON.stringify(seedPath)}`);
+      await setGitIdentityReal(seedPath);
+      await writeFile(join(seedPath, "README.md"), "initial\n");
+      await gitReal(seedPath, "add", "README.md");
+      await gitReal(seedPath, "commit", "-m", '"chore: initial"');
+      await gitReal(seedPath, "push", "origin", "HEAD:main");
+
+      // Session branch: one commit of the agent's own work, pushed to origin.
+      await gitReal(seedPath, "checkout", "-b", "task/mt-9999");
+      await writeFile(join(seedPath, "session-work.txt"), "agent work\n");
+      await gitReal(seedPath, "add", "session-work.txt");
+      await gitReal(seedPath, "commit", "-m", '"feat: session work"');
+      await gitReal(seedPath, "push", "origin", "task/mt-9999");
+
+      // Sibling PRs advance main by 3 commits on DISJOINT files (the empirical
+      // shape from the mt#2815 investigation evidence).
+      await gitReal(seedPath, "checkout", "main");
+      for (const n of [1, 2, 3]) {
+        await writeFile(join(seedPath, `sibling-${n}.txt`), `sibling change ${n}\n`);
+        await gitReal(seedPath, "add", `sibling-${n}.txt`);
+        await gitReal(seedPath, "commit", "-m", `"feat: sibling PR ${n}"`);
+      }
+      await gitReal(seedPath, "push", "origin", "main");
+
+      // The actual session workspace: fresh clone checked out on task/mt-9999,
+      // simulating the state check-branch-fresh operates on.
+      await mkdir(sessionPath, { recursive: true });
+      await execAsyncReal(
+        `git clone --branch task/mt-9999 ${JSON.stringify(originPath)} ${JSON.stringify(sessionPath)}`
+      );
+      await setGitIdentityReal(sessionPath);
+      // Refresh remote-tracking refs, mirroring what the hook entrypoint does
+      // via refreshRemoteRefs before calling checkBranchFreshness.
+      await gitReal(sessionPath, "fetch", "origin", "--prune", "--no-tags", "--quiet");
+
+      const hookStart = Date.now();
+      const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
+      expect(freshness.blocked).toBe(true);
+      expect(freshness.aheadCount).toBe(3);
+      expect(freshness.mainRef).toBe("origin/main");
+      expect(freshness.branchRef).toBe("origin/task/mt-9999");
+
+      const mergeOutcome = attemptCleanTreeAutoMerge(
+        sessionPath,
+        freshness.branchRef,
+        freshness.mainRef,
+        freshness.aheadCount,
+        hookStart
+        // default (real) deps — this is the point of the integration test
+      );
+
+      expect(mergeOutcome).toEqual({ attempted: true, merged: true, mergedCommitCount: 3 });
+
+      // Verify the merge actually landed: sibling files present, working tree
+      // clean, no dangling merge state.
+      for (const n of [1, 2, 3]) {
+        const files = await gitReal(sessionPath, "ls-files");
+        expect(files).toContain(`sibling-${n}.txt`);
+      }
+      const status = await gitReal(sessionPath, "status", "--porcelain");
+      expect(status).toBe("");
+      expect(detectMergeInProgress(sessionPath)).toBeNull();
+    }, 30000);
+
+    test("conflicting upstream change: auto-merge aborts and leaves the branch exactly as the pre-mt#2815 block path would (protective property)", async () => {
+      const scenarioDir = join(tmpBase, "conflict-scenario");
+      const originPath = join(scenarioDir, "origin.git");
+      const seedPath = join(scenarioDir, "seed");
+      const sessionPath = join(scenarioDir, "session");
+
+      await mkdir(originPath, { recursive: true });
+      // Same portability note as the clean-scenario fixture above.
+      await execAsyncReal(`git init --bare ${JSON.stringify(originPath)}`);
+
+      await mkdir(seedPath, { recursive: true });
+      await execAsyncReal(`git clone ${JSON.stringify(originPath)} ${JSON.stringify(seedPath)}`);
+      await setGitIdentityReal(seedPath);
+      await writeFile(join(seedPath, "shared.txt"), "line one\nline two\n");
+      await gitReal(seedPath, "add", "shared.txt");
+      await gitReal(seedPath, "commit", "-m", '"chore: initial shared file"');
+      await gitReal(seedPath, "push", "origin", "HEAD:main");
+
+      // Session branch modifies line one.
+      await gitReal(seedPath, "checkout", "-b", "task/mt-8888");
+      await writeFile(join(seedPath, "shared.txt"), "session change\nline two\n");
+      await gitReal(seedPath, "add", "shared.txt");
+      await gitReal(seedPath, "commit", "-m", '"feat: session edits line one"');
+      await gitReal(seedPath, "push", "origin", "task/mt-8888");
+
+      // main ALSO modifies line one, differently — guaranteed conflict.
+      await gitReal(seedPath, "checkout", "main");
+      await writeFile(join(seedPath, "shared.txt"), "main change\nline two\n");
+      await gitReal(seedPath, "add", "shared.txt");
+      await gitReal(seedPath, "commit", "-m", '"feat: main edits line one differently"');
+      await gitReal(seedPath, "push", "origin", "main");
+
+      await mkdir(sessionPath, { recursive: true });
+      await execAsyncReal(
+        `git clone --branch task/mt-8888 ${JSON.stringify(originPath)} ${JSON.stringify(sessionPath)}`
+      );
+      await setGitIdentityReal(sessionPath);
+      await gitReal(sessionPath, "fetch", "origin", "--prune", "--no-tags", "--quiet");
+
+      const hookStart = Date.now();
+      const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
+      expect(freshness.blocked).toBe(true);
+      expect(freshness.aheadCount).toBe(1);
+
+      const mergeOutcome = attemptCleanTreeAutoMerge(
+        sessionPath,
+        freshness.branchRef,
+        freshness.mainRef,
+        freshness.aheadCount,
+        hookStart
+      );
+
+      expect(mergeOutcome.attempted).toBe(true);
+      if (mergeOutcome.attempted) {
+        expect(mergeOutcome.merged).toBe(false);
+        if (!mergeOutcome.merged) {
+          expect(mergeOutcome.conflictedFiles).toContain("shared.txt");
+        }
+      }
+
+      // Protective property: the merge attempt must be fully aborted. No
+      // MERGE_HEAD left behind (which would otherwise be silently picked up
+      // as an operator-driven mid-merge by the NEXT hook invocation), and the
+      // working tree is back to the session's own pre-merge content.
+      expect(detectMergeInProgress(sessionPath)).toBeNull();
+      const status = await gitReal(sessionPath, "status", "--porcelain");
+      expect(status).toBe("");
+      const content = await gitReal(sessionPath, "show", "HEAD:shared.txt");
+      expect(content).toContain("session change");
+      expect(content).not.toContain("main change");
+    }, 30000);
+  }
+);
 /* eslint-enable custom/no-real-fs-in-tests */
