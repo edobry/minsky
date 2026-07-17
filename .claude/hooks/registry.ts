@@ -230,6 +230,40 @@ export interface GuardRegistration {
     /** Number of distinct remediation options the guard's message presents (e.g. "override X, or do Y, or do Z" = 3). */
     optionCount: number;
   };
+  /**
+   * Canary declaration (mt#2889, evaluation-loop Phase 1 completion) — the
+   * RFC's load-bearing broken-vs-dormant disambiguator. A guard with a
+   * declared canary can be run through a SYNTHETIC input known to trigger a
+   * specific outcome; a guard that stops firing on its own canary is BROKEN,
+   * not merely dormant (low real-world trigger frequency). Without this,
+   * mt#2057's dead retrospective-trigger hook (9 days silent) and mt#2835's
+   * dead UserPromptSubmit dispatcher (7 days silent, killed by a sibling
+   * guard's ungated `main()`) were both indistinguishable from "nobody
+   * happened to trip this guard yet" until an operator noticed by hand.
+   *
+   * `input` is a `ClaudeHookInput`/`ToolHookInput` FRAGMENT — only the fields
+   * this specific guard's `run()` actually reads need to be populated (the
+   * canary runner, `scripts/run-guard-canaries.ts`, merges it onto a minimal
+   * base input). `transcriptLines` is populated directly (bypassing a real
+   * `transcript_path` file read) for `needsTranscript` guards — synthetic
+   * `TranscriptLine[]` content, reusing phrases already present in the
+   * guard's own source or `.test.ts` fixtures per this task's instruction
+   * ("existing unit-test fixtures qualify as canary inputs — reuse them, do
+   * not invent new ones").
+   *
+   * `expects` names which `GuardOutcome` field the canary input should
+   * populate on a HEALTHY guard: `"deny"` (outcome.deny set), `"warn"`
+   * (outcome.additionalContext set — the RFC's fire-log `"warn"` decision),
+   * `"calibration"` (outcome.calibration set — a calibration-first detector
+   * like `causal-premise-detector` with `INJECTION_ENABLED=false`), or
+   * `"sessionTitle"` (outcome.sessionTitle set — `auto-session-title`'s
+   * scalar-output shape).
+   */
+  canary?: {
+    input: Partial<ClaudeHookInput> & Record<string, unknown>;
+    transcriptLines?: TranscriptLine[];
+    expects: "deny" | "warn" | "calibration" | "sessionTitle";
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +336,20 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // (excluding the dynamic per-missing-path list) — ~398 chars; one
     // remediation option (the MINSKY_SKIP_SESSION_PATH_CHECK override).
     attentionCost: { denialMessageSizeChars: 398, optionCount: 1 },
+    // mt#2889: a Bash command referencing an absolute sessions/<id>/ path
+    // that has never existed on disk — findMissingInToolInput's exists()
+    // check (real fs.existsSync, no synthetic override needed) always
+    // returns false for this fixed sentinel path.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command:
+            "cd /Users/edobry/.local/state/minsky/sessions/00000000-canary-nonexistent-0000/ && ls",
+        },
+      },
+      expects: "deny",
+    },
   },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
