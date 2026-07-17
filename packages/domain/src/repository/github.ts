@@ -730,11 +730,28 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
   get ci(): CIStatusOperations {
     return {
+      // mt#2888: both methods now route failures through handleOctokitError,
+      // matching every other Octokit call site in this file. Before this
+      // fix, these two were the outliers that let a raw Octokit error (which
+      // can carry GitHub's raw HTML "Unicorn" error-page body verbatim in
+      // `.message` -- see github-error-handler.ts's HTML-sanitization
+      // comment) propagate straight through session.pr.checks /
+      // forge.check_runs_list into the tool's error output.
       getChecksForRef: async (headSha: string): Promise<ChecksResult> => {
         const gh = this.requireGitHubContext();
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
-        return getCheckRunsForRef(gh, headSha, octokit);
+        try {
+          return await getCheckRunsForRef(gh, headSha, octokit);
+        } catch (error) {
+          handleOctokitError(error, {
+            operation: "fetch check runs",
+            owner: gh.owner,
+            repo: gh.repo,
+          });
+          // handleOctokitError always throws; this satisfies TypeScript
+          throw error;
+        }
       },
 
       getChecksForPR: async (prNumber: number): Promise<ChecksResult> => {
@@ -742,13 +759,24 @@ Repository: https://github.com/${this.owner}/${this.repo}
         const token = await this.tokenProvider.getServiceToken();
         const octokit = createOctokit(token);
 
-        const { data: pr } = await octokit.rest.pulls.get({
-          owner: gh.owner,
-          repo: gh.repo,
-          pull_number: prNumber,
-        });
+        try {
+          const { data: pr } = await octokit.rest.pulls.get({
+            owner: gh.owner,
+            repo: gh.repo,
+            pull_number: prNumber,
+          });
 
-        return getCheckRunsForRef(gh, pr.head.sha, octokit);
+          return await getCheckRunsForRef(gh, pr.head.sha, octokit);
+        } catch (error) {
+          handleOctokitError(error, {
+            operation: "fetch check runs",
+            owner: gh.owner,
+            repo: gh.repo,
+            prNumber,
+          });
+          // handleOctokitError always throws; this satisfies TypeScript
+          throw error;
+        }
       },
     };
   }
