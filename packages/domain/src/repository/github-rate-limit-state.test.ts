@@ -1,7 +1,7 @@
 /**
  * Tests for the process-wide GitHub rate-limit snapshot store (mt#2888).
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   recordRateLimitHeaders,
   getLastGithubRateLimitSnapshot,
@@ -14,6 +14,15 @@ const RESET_HEADER = "x-ratelimit-reset";
 const RESOURCE_HEADER = "x-ratelimit-resource";
 
 describe("recordRateLimitHeaders / getLastGithubRateLimitSnapshot", () => {
+  // beforeEach: the snapshot store is process-wide module state; under
+  // bunfig randomize:true another test file (e.g. github-error-handler.test)
+  // may have recorded headers before this file runs, so the null-state test
+  // must start from an explicit reset, not module-load freshness (the
+  // CI-only ordering failure on PR #2018 R3). afterEach keeps this file
+  // from leaking state onward.
+  beforeEach(() => {
+    resetGithubRateLimitStateForTests();
+  });
   afterEach(() => {
     resetGithubRateLimitStateForTests();
   });
