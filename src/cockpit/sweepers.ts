@@ -54,6 +54,108 @@ export function unrefSweeperTimer(id: ReturnType<typeof setInterval>): void {
 /** Default per-tick abandonment timeout when a caller doesn't supply one. */
 export const DEFAULT_TICK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
+// ---------------------------------------------------------------------------
+// Sweep-liveness registry (mt#2894)
+//
+// mt#2625's per-tick timeout + watchdog force-release protects against a
+// HUNG or THROWING tick killing the loop — but neither can protect against
+// the underlying `setInterval` handle itself being dropped/cleared (a wedged
+// or lost JS timer). mt#2891's incident evidence (absorbed into mt#2894) shows
+// BOTH the prod-state sweep and the dispatch-watchdog sweep stopped attempting
+// ticks within ~5 minutes of each other while the daemon process stayed alive —
+// pointing at the SHARED scheduling layer, not per-sweep tick logic. This
+// registry makes that class of failure OBSERVABLE (via the `/api/sweeps` route,
+// see routes/sweeps.ts) and the meta-watchdog below makes it SELF-HEALING.
+// ---------------------------------------------------------------------------
+
+/** Reason a sweep's interval was force-restarted — surfaced for observability. */
+export type SweepRestartReason = "bounded-reinit" | "meta-watchdog";
+
+/** Per-sweep liveness snapshot exposed via `GET /api/sweeps`. */
+export interface SweepLivenessSnapshot {
+  /** Human-readable sweep name (matches {@link IntervalSweeperOptions.name}). */
+  name: string;
+  /** Configured cadence in milliseconds. */
+  intervalMs: number;
+  /** ISO timestamp of the last time the interval callback fired (fired, not necessarily succeeded), or null if no tick has fired yet. */
+  lastAttemptAt: string | null;
+  /** ISO timestamp of the last tick that completed without timing out or throwing, or null. */
+  lastSuccessAt: string | null;
+  /** ISO timestamp of the last tick that timed out or threw unexpectedly, or null. */
+  lastErrorAt: string | null;
+  /** Consecutive failed ticks (timeout or unexpected throw) since the last success. */
+  consecutiveFailures: number;
+  /** Count of bounded re-inits this sweep triggered on itself (SC "N consecutive tick failures"). */
+  reinits: number;
+  /** Count of force-restarts the meta-watchdog triggered (dropped/wedged timer class). */
+  metaRestarts: number;
+}
+
+interface SweepLivenessEntry {
+  name: string;
+  intervalMs: number;
+  lastAttemptAtMs: number | null;
+  lastSuccessAtMs: number | null;
+  lastErrorAtMs: number | null;
+  consecutiveFailures: number;
+  reinits: number;
+  metaRestarts: number;
+  /** Force-restart this sweep's interval. Called by the sweep itself (bounded re-init) or the meta-watchdog. */
+  restart: (reason: SweepRestartReason) => void;
+  /**
+   * TEST-ONLY hook: clear the underlying `setInterval` handle WITHOUT
+   * deregistering the sweep or calling its public `stop()` — reproduces the
+   * "timer silently dropped while the process stays alive" failure class the
+   * meta-watchdog exists to recover from, without needing to kill anything.
+   */
+  clearUnderlyingTimer: () => void;
+}
+
+/** Process-lifetime registry of every sweep created via {@link createIntervalSweeper}. */
+const sweepLivenessRegistry = new Map<string, SweepLivenessEntry>();
+
+/** Bounded re-init threshold: N consecutive tick failures triggers a self re-init. */
+export const REINIT_FAILURE_THRESHOLD = 3;
+
+/** Default meta-watchdog cadence — how often it scans the registry for stalled sweeps. */
+export const DEFAULT_META_WATCHDOG_INTERVAL_MS = 60 * 1000; // 1 minute
+
+/** A sweep is considered stalled once it hasn't ATTEMPTED a tick in this many multiples of its own cadence. */
+export const META_WATCHDOG_STALL_MULTIPLIER = 2;
+
+/**
+ * Snapshot the current sweep-liveness registry for the `/api/sweeps` route
+ * (see `./routes/sweeps.ts`). Read-only; ISO timestamps for JSON transport.
+ */
+export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
+  return Array.from(sweepLivenessRegistry.values()).map((e) => ({
+    name: e.name,
+    intervalMs: e.intervalMs,
+    lastAttemptAt: e.lastAttemptAtMs === null ? null : new Date(e.lastAttemptAtMs).toISOString(),
+    lastSuccessAt: e.lastSuccessAtMs === null ? null : new Date(e.lastSuccessAtMs).toISOString(),
+    lastErrorAt: e.lastErrorAtMs === null ? null : new Date(e.lastErrorAtMs).toISOString(),
+    consecutiveFailures: e.consecutiveFailures,
+    reinits: e.reinits,
+    metaRestarts: e.metaRestarts,
+  }));
+}
+
+/**
+ * TEST-ONLY: simulate the underlying `setInterval` handle being silently
+ * dropped/cleared without deregistering the sweep — the exact failure class
+ * mt#2891's incident evidence points at (both sweeps stopped ATTEMPTING
+ * ticks while the daemon stayed alive). Used by the meta-watchdog regression
+ * test in sweepers.test.ts. No-op if `name` isn't currently registered.
+ */
+export function _simulateDroppedTimerForTest(name: string): void {
+  sweepLivenessRegistry.get(name)?.clearUnderlyingTimer();
+}
+
+/** TEST-ONLY: clear the registry. Call between test files that assert on registry contents. */
+export function _resetSweepLivenessRegistryForTest(): void {
+  sweepLivenessRegistry.clear();
+}
+
 /** Options accepted by {@link createIntervalSweeper}. */
 export interface IntervalSweeperOptions {
   /** Human-readable name used in log messages (e.g. "ask advancement"). */
@@ -103,8 +205,37 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
 
   let running = false;
   let runningSinceMs: number | null = null;
+  let id: ReturnType<typeof setInterval> | null = null;
+
+  // Sweep-liveness registry entry (mt#2894) — registered synchronously so
+  // it's visible on `/api/sweeps` even before the boot tick's promise settles.
+  // `restart`/`clearUnderlyingTimer` are wired below once `restartInterval`/
+  // `startInterval` exist; the placeholders here are never reachable in
+  // practice (nothing calls them until after the real wiring below runs).
+  const entry: SweepLivenessEntry = {
+    name,
+    intervalMs,
+    lastAttemptAtMs: null,
+    lastSuccessAtMs: null,
+    lastErrorAtMs: null,
+    consecutiveFailures: 0,
+    reinits: 0,
+    metaRestarts: 0,
+    restart: () => {},
+    clearUnderlyingTimer: () => {
+      if (id !== null) clearInterval(id);
+    },
+  };
+  sweepLivenessRegistry.set(name, entry);
 
   const runTick = async (): Promise<void> => {
+    // Liveness (mt#2894): record every time the interval callback FIRES,
+    // regardless of overlap-skip/timeout/success below — this is what lets
+    // the meta-watchdog distinguish "timer still alive, tick logic stuck" (an
+    // existing case per-tick isolation already handles) from "timer itself
+    // stopped firing" (the class this task's meta-watchdog adds recovery for).
+    entry.lastAttemptAtMs = Date.now();
+
     // Watchdog (mt#2625): if a PRIOR tick has been "running" longer than
     // tickTimeoutMs, the per-tick timeout below should already have released
     // it. This is the fail-safe for the (unexpected) case where it somehow
@@ -137,6 +268,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       timeoutHandle = setTimeout(() => resolve("timed-out"), tickTimeoutMs);
     });
 
+    let failed = false;
     try {
       const outcome = await Promise.race([tick().then(() => "completed" as const), timedOut]);
       if (outcome === "timed-out") {
@@ -146,6 +278,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
             tickTimeoutMs,
           }
         );
+        failed = true;
       }
     } catch (err) {
       // Last-resort safety net — the tick callback is expected to apply its
@@ -153,17 +286,143 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       // escaping it.
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`cockpit: ${name} sweep tick threw unexpectedly`, { message });
+      failed = true;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
       running = false;
       runningSinceMs = null;
     }
+
+    // Liveness bookkeeping + bounded re-init (mt#2894 SC "(c)"). A tick only
+    // reaches here via the timeout or unexpected-throw paths above (the tick
+    // callback's OWN fail-open try/catch means a domain failure it already
+    // handled internally still resolves "completed" here — intentional; this
+    // registry tracks the SCHEDULING layer's health, not each sweep's domain
+    // outcome, which the per-sweep trackers (TranscriptSweepTracker etc.)
+    // already cover).
+    if (failed) {
+      entry.lastErrorAtMs = Date.now();
+      entry.consecutiveFailures++;
+      if (entry.consecutiveFailures >= REINIT_FAILURE_THRESHOLD) {
+        log.warn(
+          `cockpit: ${name} sweep — ${entry.consecutiveFailures} consecutive tick failures; attempting bounded re-init`,
+          { consecutiveFailures: entry.consecutiveFailures }
+        );
+        entry.consecutiveFailures = 0;
+        restartInterval("bounded-reinit");
+      }
+    } else {
+      entry.lastSuccessAtMs = Date.now();
+      entry.consecutiveFailures = 0;
+    }
   };
 
+  const startInterval = (): void => {
+    id = setInterval(() => void runTick(), intervalMs);
+    unrefSweeperTimer(id);
+  };
+
+  /**
+   * Force-restart this sweep's interval (mt#2894). Used both for the bounded
+   * re-init above (self-triggered, persistent tick failures) and by the
+   * meta-watchdog (externally triggered, dropped/wedged timer — the class
+   * per-tick isolation structurally cannot cover since the interval callback
+   * never fires again to isolate anything). Clears any existing handle first
+   * so this is safe to call even if the timer already stopped firing.
+   */
+  const restartInterval = (reason: SweepRestartReason): void => {
+    if (id !== null) {
+      clearInterval(id);
+      id = null;
+    }
+    if (reason === "meta-watchdog") {
+      entry.metaRestarts++;
+    } else {
+      entry.reinits++;
+    }
+    startInterval();
+  };
+  entry.restart = restartInterval;
+
   void runTick();
-  const id = setInterval(() => void runTick(), intervalMs);
-  unrefSweeperTimer(id);
-  return () => clearInterval(id);
+  startInterval();
+
+  return () => {
+    if (id !== null) clearInterval(id);
+    sweepLivenessRegistry.delete(name);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sweep meta-watchdog ("sweep of sweeps") — mt#2894
+// ---------------------------------------------------------------------------
+
+/**
+ * Start the meta-watchdog: a periodic scan of the sweep-liveness registry
+ * that force-restarts any registered sweep whose interval has stopped
+ * ATTEMPTING ticks (`lastAttemptAt` stale by more than
+ * {@link META_WATCHDOG_STALL_MULTIPLIER} times its own cadence).
+ *
+ * Deliberately scheduled on a self-rescheduling `setTimeout` CHAIN — a
+ * DIFFERENT timer primitive than every sweep's `setInterval` — rather than
+ * its own `setInterval`. The failure class this recovers from (mt#2891's
+ * incident evidence: two independent sweeps stopped attempting ticks within
+ * ~5 minutes of each other while the daemon stayed alive) implicates the
+ * shared interval-scheduling layer; sharing that same primitive for the
+ * watchdog itself would risk it dying alongside the thing it's meant to
+ * detect. A `setTimeout` chain re-arms itself only after each check
+ * completes, so it can never overlap itself the way a `setInterval` could
+ * under a slow tick.
+ *
+ * Per the Plan decision's Covers/Does NOT cover enumeration: this does NOT
+ * protect against the meta-watchdog's OWN `setTimeout` chain dying (total
+ * timer death) — that residual is covered honestly, not silently, by the
+ * `/api/sweeps` liveness surface plus the existing consumer-side staleness
+ * banners (inject-prod-state.ts / inject-dispatch-watchdog.ts), with
+ * recovery falling to tray/operator supervision (mt#2786).
+ *
+ * @returns stop function (clears the pending timeout, if any).
+ */
+export function startSweepMetaWatchdog(
+  intervalMs: number = DEFAULT_META_WATCHDOG_INTERVAL_MS
+): () => void {
+  let stopped = false;
+  let handle: ReturnType<typeof setTimeout> | undefined;
+
+  const scheduleNext = (): void => {
+    if (stopped) return;
+    handle = setTimeout(runCheck, intervalMs);
+    unrefSweeperTimer(handle);
+  };
+
+  const runCheck = (): void => {
+    if (stopped) return;
+    const now = Date.now();
+    for (const entry of sweepLivenessRegistry.values()) {
+      // No tick has fired yet (e.g. the sweep just registered and its boot
+      // tick's microtask hasn't run) — nothing to evaluate yet.
+      if (entry.lastAttemptAtMs === null) continue;
+      const threshold = entry.intervalMs * META_WATCHDOG_STALL_MULTIPLIER;
+      const staleMs = now - entry.lastAttemptAtMs;
+      if (staleMs > threshold) {
+        log.warn(
+          `cockpit: meta-watchdog — sweep "${entry.name}" has not attempted a tick in ${staleMs}ms ` +
+            `(> ${threshold}ms, ${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms cadence); ` +
+            "force-restarting",
+          { name: entry.name, staleMs, threshold, intervalMs: entry.intervalMs }
+        );
+        entry.restart("meta-watchdog");
+      }
+    }
+    scheduleNext();
+  };
+
+  scheduleNext();
+
+  return () => {
+    stopped = true;
+    if (handle) clearTimeout(handle);
+  };
 }
 
 // ---------------------------------------------------------------------------
