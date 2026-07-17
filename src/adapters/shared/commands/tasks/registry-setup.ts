@@ -121,6 +121,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
+  const { createTasksSpecFreshnessCommand } = require("./spec-freshness-command");
   const {
     createTasksListCommand,
     createTasksGetCommand,
@@ -159,6 +160,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
     createTasksStatusSetCommand(getPersistenceProvider, getTaskService, getTaskGraphService),
     createTasksSpecCommand(getPersistenceProvider, getTaskService),
+    createTasksSpecFreshnessCommand(getPersistenceProvider, getTaskService),
     createTasksListCommand(
       getPersistenceProvider,
       getTaskGraphService,

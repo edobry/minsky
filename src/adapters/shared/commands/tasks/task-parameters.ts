@@ -320,6 +320,15 @@ export const tasksSpecParams = {
 } satisfies CommandParameterMap;
 
 /**
+ * Parameters for tasks spec freshness command (mt#2826)
+ */
+export const tasksSpecFreshnessParams = {
+  ...taskIdParam,
+  ...taskContextParams,
+  ...outputFormatParams,
+} satisfies CommandParameterMap;
+
+/**
  * Parameters for tasks list command
  */
 export const tasksListParams = {

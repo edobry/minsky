@@ -1067,6 +1067,36 @@
                   "description": "Output in JSON format"
                 }
               ]
+            },
+            {
+              "name": "freshness",
+              "description": "Check whether task/PR refs cited in a task's spec changed state after the spec was last edited",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Backend type (available: github, minsky)",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
             }
           ]
         },

@@ -138,6 +138,33 @@ Call \`memory_search\` with the task ID and domain area:
 - **Verify spec freshness**: Specs may be stale from prior conversations. Check file:line references against the current codebase before starting.
 - Never proceed based on title/database info alone — the full spec is required
 
+**Ref-drift freshness recheck (mt#2826).** Specs cite other tasks (\`mt#N\`) and PRs (\`PR #N\` /
+\`#N\`) whose state can change between spec authoring and implementation entry — in a fast-moving
+parallel-agent graph this window is often hours, sometimes overnight (evidence: conversation
+eceb6092, mt#2752's spec authored before mt#2766/2767/2768, mt#2441, and mt#2756 all shipped).
+Immediately after fetching the spec, call \`mcp__minsky__tasks_spec_freshness\` with the task ID:
+
+- **\`hasDrift: false\`** → proceed silently. No ritual output — this is the common case and must
+  not interrupt the flow.
+- **\`hasDrift: true\`** → the tool returns a \`drift\` array, one entry per changed ref (\`ref\`,
+  \`kind\`, \`currentStatus\`, \`refUpdatedAt\`, \`daysSinceSpecEdit\`). Render it as a table to the user
+  and require an explicit disposition, recorded in the transcript, before writing any code:
+  - **Amend** — the drift changes what the spec should say (a cited dependency shipped, a blocker
+    cleared, a stated assumption no longer holds). Call \`mcp__minsky__tasks_spec_patch\` to update
+    the spec with the change and its basis; the amendment itself is the disposition record.
+  - **Proceed-acknowledged** — the drift doesn't change the plan (e.g. a cited task finished exactly
+    as expected, or the change is immaterial to this task's scope). State the one-line
+    acknowledgment in the transcript (e.g. "mt#2812 went DONE 2026-07-16 as expected — no spec
+    change needed") and continue.
+  - Rendering the drift table and then silently continuing past it — neither amending nor stating
+    an acknowledgment — is a process violation of this step.
+
+This is a mechanical, status-timestamp-only check (v1, per the mt#2826 spec's Scope) — it detects
+"something about this ref changed since the spec was written," not "the spec's specific claim
+about this ref is now false" (semantic staleness is explicitly out of scope for v1; see
+\`/plan-task\` gate battery for the authoring-side freshness disciplines this complements, and
+mt#2534 for the sibling artifact-content premise-recheck).
+
 ### 3. Start a session (READY → IN-PROGRESS)
 
 **This step owns the READY → IN-PROGRESS transition.**
