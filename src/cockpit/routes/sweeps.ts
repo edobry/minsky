@@ -19,6 +19,19 @@
  * conflict surface minimal against the in-flight server.ts redesign
  * (mt#2881, IN-PROGRESS at the time this route was added).
  *
+ * **Auth / caching posture** (mirrors `/api/health` and `/api/widgets` in
+ * `./health.ts`): GET-only, so `server.ts`'s `mutationAuthMiddleware` does
+ * not apply — it gates non-GET/HEAD/OPTIONS requests only, relying on the
+ * loopback bind + Host-header allowlist for the local read surface (see
+ * `../auth.ts`, `../server.ts`'s security-hardening comment block). No
+ * response caching — the handler reads the live in-process registry
+ * (`getSweepLivenessSnapshot`) on every call, which is cheap (no I/O, no DB)
+ * so there is nothing to cache. Redaction: the payload carries only names,
+ * cadences, counts, and ISO timestamps — no raw error-message strings, no
+ * absolute filesystem paths — matching the same unauthenticated-endpoint
+ * redaction policy as `transcriptWatcher`/`transcriptSweep` on `/api/health`
+ * (see `../transcript-sweep-tracker.ts`'s doc comment).
+ *
  * @see ../sweepers.ts — createIntervalSweeper + getSweepLivenessSnapshot +
  *   startSweepMetaWatchdog (the self-heal half of mt#2894)
  */

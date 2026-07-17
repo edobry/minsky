@@ -312,6 +312,101 @@ describe("sweep-liveness registry (mt#2894)", () => {
       false
     );
   });
+
+  // ── PR #2019 R1 BLOCKING #1: stop() must be authoritative ────────────────
+
+  test("stop() prevents a late in-flight bounded re-init from resurrecting the sweep", async () => {
+    let attemptCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-stop-vs-reinit",
+      intervalMs: 15,
+      tickTimeoutMs: 10,
+      tick: async () => {
+        attemptCount++;
+        // Every attempt hangs forever — each individually times out via the
+        // factory's own per-tick timeout (mt#2625), incrementing
+        // consecutiveFailures on schedule without this test needing to
+        // orchestrate exact promise resolution timing.
+        await new Promise<void>(() => {});
+      },
+    });
+
+    try {
+      // Let 2 failures accumulate — one short of REINIT_FAILURE_THRESHOLD
+      // (3) — so the NEXT tick's timeout would normally cross the
+      // threshold and trigger a bounded re-init.
+      await waitFor(() => {
+        const entry = getSweepLivenessSnapshot().find((e) => e.name === "test-stop-vs-reinit");
+        return (entry?.consecutiveFailures ?? 0) >= 2;
+      }, 3000);
+
+      // Stop right now — the 3rd (threshold-crossing) attempt is either
+      // already in flight or about to start; its eventual timeout must not
+      // resurrect the sweep via restartInterval("bounded-reinit").
+      stop();
+
+      // Wait past when the 3rd attempt's timeout (10ms) — and thus the
+      // buggy re-init, if the fix regressed — would have fired, then
+      // confirm attemptCount has stopped growing across a further window.
+      await new Promise((r) => setTimeout(r, 60));
+      const countAfterFirstWait = attemptCount;
+      await new Promise((r) => setTimeout(r, 60));
+      expect(attemptCount).toBe(countAfterFirstWait);
+
+      expect(getSweepLivenessSnapshot().some((e) => e.name === "test-stop-vs-reinit")).toBe(false);
+    } finally {
+      stop(); // must be a safe no-op when already stopped
+    }
+  });
+
+  // ── PR #2019 R1 BLOCKING #2: duplicate active registration ────────────────
+
+  test("throws when registering a duplicate ACTIVE sweep name", () => {
+    const stop = createIntervalSweeper({
+      name: "test-duplicate-name",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    try {
+      expect(() =>
+        createIntervalSweeper({
+          name: "test-duplicate-name",
+          intervalMs: 60_000,
+          tickTimeoutMs: 5_000,
+          tick: async () => {},
+        })
+      ).toThrow(/duplicate active sweep registration/);
+    } finally {
+      stop();
+    }
+  });
+
+  test("re-registering the same name after a clean stop() does not throw", async () => {
+    const stopFirst = createIntervalSweeper({
+      name: "test-reuse-after-stop",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    stopFirst();
+
+    let calls = 0;
+    const stopSecond = createIntervalSweeper({
+      name: "test-reuse-after-stop",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        calls++;
+      },
+    });
+    try {
+      await waitFor(() => calls >= 1);
+      expect(calls).toBe(1);
+    } finally {
+      stopSecond();
+    }
+  });
 });
 
 // ── mt#2894: meta-watchdog ("sweep of sweeps") ─────────────────────────────
@@ -382,6 +477,38 @@ describe("sweep meta-watchdog (mt#2894)", () => {
     } finally {
       stopWatchdog();
       stop();
+    }
+  });
+
+  // ── PR #2019 R1 BLOCKING #1: meta-watchdog must respect stop() too ────────
+
+  test("does not restart a sweep that was cleanly stopped, even once it looks stale", async () => {
+    let callCount = 0;
+    const stop = createIntervalSweeper({
+      name: "test-meta-watchdog-stopped",
+      intervalMs: 15,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        callCount++;
+      },
+    });
+    await waitFor(() => callCount >= 1);
+    stop();
+    const countAtStop = callCount;
+
+    // Short meta-cadence so several scans happen well within the wait below,
+    // each of which would see this sweep's (now-frozen) lastAttemptAt as
+    // stale past the 2x-cadence (30ms) threshold — the exact condition that
+    // triggers a restart for a sweep that ISN'T stopped.
+    const stopWatchdog = startSweepMetaWatchdog(10);
+    try {
+      await new Promise((r) => setTimeout(r, 100));
+      expect(callCount).toBe(countAtStop); // never restarted
+      expect(getSweepLivenessSnapshot().some((e) => e.name === "test-meta-watchdog-stopped")).toBe(
+        false
+      );
+    } finally {
+      stopWatchdog();
     }
   });
 });

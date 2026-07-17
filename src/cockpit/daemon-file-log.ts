@@ -47,15 +47,22 @@
  *      fix the spec named.
  *
  * Call `installDaemonFileLogging()` ONCE, as early as possible in the
- * `cockpit start` command's action handler — before any sweeper starts and
- * before any other `log.*` call — so the logger singleton picks up
- * `ENABLE_AGENT_LOGS` before it lazily initializes (see
- * `packages/shared/src/logger.ts`'s `getDefaultLogger()`).
+ * `cockpit start` command's action handler — before any sweeper starts.
+ * "As early as possible" is a defense-in-depth ordering preference, not a
+ * correctness requirement: this function also calls
+ * `reinitializeDefaultLoggerFromEnv()` (mt#2894 PR #2019 R1 BLOCKING #3)
+ * after setting `ENABLE_AGENT_LOGS`, which forces the shared logger
+ * singleton to rebuild from the now-current env on its NEXT use — so a
+ * `log.*` call that already happened earlier in the process (before this
+ * function ran, baking in the pre-fix disabled state into the singleton)
+ * does not permanently defeat the fix. Without that reinit call, setting
+ * the env var alone is silently ineffective once anything has already
+ * triggered the logger's lazy first-use.
  */
 import * as winston from "winston";
 import fs from "fs";
 import path from "path";
-import { log } from "@minsky/shared/logger";
+import { log, reinitializeDefaultLoggerFromEnv } from "@minsky/shared/logger";
 import { getStateDir } from "./lifecycle";
 
 /** Per-file size cap before winston rotates (built-in File transport `maxsize`). */
@@ -88,6 +95,12 @@ export function installDaemonFileLogging(): void {
   // mode (the CLI default) makes log.warn/info/debug complete no-ops, and
   // log.error routes through the unstructured, untimestamped programLogger.
   process.env.ENABLE_AGENT_LOGS = "true";
+  // mt#2894 PR #2019 R1 BLOCKING #3: the env var alone is NOT sufficient —
+  // `enableAgentLogs` is captured once into the logger singleton's closures
+  // at first use. Force a rebuild so THIS process's log calls (including
+  // ones already made earlier, whose effect was "dropped" under the old
+  // singleton) are honored going forward.
+  reinitializeDefaultLoggerFromEnv();
 
   const logDir = getDaemonLogDir();
   try {
@@ -113,13 +126,22 @@ export function installDaemonFileLogging(): void {
     format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
   });
 
-  // Attach to BOTH internal loggers (see packages/shared/src/logger.ts's
-  // `_internal` escape hatch, documented there as intended for "special
-  // cases like exit handlers"). `log.warn`/`log.error`/etc. route to
-  // agentLogger once ENABLE_AGENT_LOGS is set above; programLogger is
-  // attached too for completeness (log.cli*/systemDebug calls, if any).
+  // Attach to `agentLogger` ONLY (mt#2894 PR #2019 R1 NON-BLOCKING #4).
+  // With ENABLE_AGENT_LOGS=true (set above), `log.warn`/`log.info`/
+  // `log.debug`/`log.error` — the entire call surface `createIntervalSweeper`
+  // and the rest of the cockpit daemon use — route exclusively through
+  // `agentLogger` (see packages/shared/src/logger.ts's wrapper functions).
+  // `programLogger` is reached only via the separate `log.cli`/`cliWarn`/
+  // `cliError`/`cliDebug`/`systemDebug` helpers, which cockpit code does not
+  // call. Attaching the SAME transport instance to both loggers was
+  // considered and rejected: each logger independently registers its own
+  // `exceptions.handle()`/`rejections.handle()` in `createLogger()`, so an
+  // uncaught exception/rejection could reach BOTH loggers' handlers and be
+  // written twice to one file. Attaching once removes that risk entirely
+  // rather than deduplicating after the fact. See
+  // `src/cockpit/daemon-file-log.test.ts`'s "does not duplicate a line
+  // across agentLogger and programLogger" test for the regression check.
   log._internal.agentLogger.add(fileTransport);
-  log._internal.programLogger.add(fileTransport);
 }
 
 /** TEST-ONLY: reset the installed guard so tests can re-install against a fresh transport. */

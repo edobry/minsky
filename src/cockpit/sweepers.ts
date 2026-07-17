@@ -100,7 +100,20 @@ interface SweepLivenessEntry {
   consecutiveFailures: number;
   reinits: number;
   metaRestarts: number;
-  /** Force-restart this sweep's interval. Called by the sweep itself (bounded re-init) or the meta-watchdog. */
+  /**
+   * True once this sweep's `stop()` has been called (PR #2019 R1 BLOCKING
+   * #1). The entry is deliberately kept in {@link sweepLivenessRegistry}
+   * rather than deleted — `restartInterval` and the meta-watchdog both check
+   * this flag and refuse to act on a stopped sweep, so the entry stays the
+   * single, authoritative, always-inspectable record of "is anything running
+   * under this name" instead of a stopped sweep silently vanishing from the
+   * registry while a late-arriving async re-init resurrects an UNTRACKED
+   * interval. {@link getSweepLivenessSnapshot} filters stopped entries out
+   * of the public `/api/sweeps` payload, so callers still see stop() as
+   * deregistration — only the internal bookkeeping keeps the record alive.
+   */
+  stopped: boolean;
+  /** Force-restart this sweep's interval. Called by the sweep itself (bounded re-init) or the meta-watchdog. Refuses (no-op) once `stopped` is true. */
   restart: (reason: SweepRestartReason) => void;
   /**
    * TEST-ONLY hook: clear the underlying `setInterval` handle WITHOUT
@@ -128,16 +141,23 @@ export const META_WATCHDOG_STALL_MULTIPLIER = 2;
  * (see `./routes/sweeps.ts`). Read-only; ISO timestamps for JSON transport.
  */
 export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
-  return Array.from(sweepLivenessRegistry.values()).map((e) => ({
-    name: e.name,
-    intervalMs: e.intervalMs,
-    lastAttemptAt: e.lastAttemptAtMs === null ? null : new Date(e.lastAttemptAtMs).toISOString(),
-    lastSuccessAt: e.lastSuccessAtMs === null ? null : new Date(e.lastSuccessAtMs).toISOString(),
-    lastErrorAt: e.lastErrorAtMs === null ? null : new Date(e.lastErrorAtMs).toISOString(),
-    consecutiveFailures: e.consecutiveFailures,
-    reinits: e.reinits,
-    metaRestarts: e.metaRestarts,
-  }));
+  // A stopped sweep is excluded — /api/sweeps reports what's ACTUALLY
+  // running, matching what a caller who saw stop() take effect would
+  // expect. The entry itself is retained internally (see SweepLivenessEntry
+  // doc comment) so restartInterval/the meta-watchdog can still refuse to
+  // resurrect it even from a late-arriving async completion.
+  return Array.from(sweepLivenessRegistry.values())
+    .filter((e) => !e.stopped)
+    .map((e) => ({
+      name: e.name,
+      intervalMs: e.intervalMs,
+      lastAttemptAt: e.lastAttemptAtMs === null ? null : new Date(e.lastAttemptAtMs).toISOString(),
+      lastSuccessAt: e.lastSuccessAtMs === null ? null : new Date(e.lastSuccessAtMs).toISOString(),
+      lastErrorAt: e.lastErrorAtMs === null ? null : new Date(e.lastErrorAtMs).toISOString(),
+      consecutiveFailures: e.consecutiveFailures,
+      reinits: e.reinits,
+      metaRestarts: e.metaRestarts,
+    }));
 }
 
 /**
@@ -206,6 +226,31 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
   let running = false;
   let runningSinceMs: number | null = null;
   let id: ReturnType<typeof setInterval> | null = null;
+  // Authoritative "this sweep has been stopped" flag (PR #2019 R1 BLOCKING
+  // #1). Mirrored onto `entry.stopped` below, but also held here in the
+  // closure so `runTick`/`restartInterval` can check it even in the window
+  // where they're executing on a captured `entry` reference — belt-and-
+  // braces against any future refactor that stops mirroring the two.
+  let stopped = false;
+
+  // Duplicate-registration guard (PR #2019 R1 BLOCKING #2). Each concrete
+  // sweeper name is fixed and unique by convention (one literal string per
+  // `start*Sweeper` call site) — an ACTIVE duplicate is always a bug: the
+  // second `.set(name, entry)` would silently overwrite the registry's
+  // reference to the FIRST sweep, leaving its `setInterval` running with no
+  // `/api/sweeps` visibility and no meta-watchdog reach (untracked-running,
+  // the same failure shape BLOCKING #1 fixes for the stop() race). Re-
+  // registering the SAME name after a clean `stop()` is legitimate (e.g. a
+  // future restart-from-scratch call site) and is allowed — the stopped
+  // entry is simply replaced.
+  const existingActive = sweepLivenessRegistry.get(name);
+  if (existingActive && !existingActive.stopped) {
+    throw new Error(
+      `cockpit: duplicate active sweep registration for "${name}" — a sweep with this name is ` +
+        "already registered and running. createIntervalSweeper names must be unique among " +
+        "active sweeps (call the existing sweep's stop() first if this is an intentional restart)."
+    );
+  }
 
   // Sweep-liveness registry entry (mt#2894) — registered synchronously so
   // it's visible on `/api/sweeps` even before the boot tick's promise settles.
@@ -221,6 +266,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     consecutiveFailures: 0,
     reinits: 0,
     metaRestarts: 0,
+    stopped: false,
     restart: () => {},
     clearUnderlyingTimer: () => {
       if (id !== null) clearInterval(id);
@@ -229,6 +275,12 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
   sweepLivenessRegistry.set(name, entry);
 
   const runTick = async (): Promise<void> => {
+    // mt#2894 R1 BLOCKING #1: a tick already in flight when stop() fires
+    // must not touch the (retired) entry or trigger a re-init once it
+    // resumes. Checked again below, after the tick settles, for the same
+    // reason — stop() can land at any point during the await.
+    if (stopped) return;
+
     // Liveness (mt#2894): record every time the interval callback FIRES,
     // regardless of overlap-skip/timeout/success below — this is what lets
     // the meta-watchdog distinguish "timer still alive, tick logic stuck" (an
@@ -293,6 +345,11 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       runningSinceMs = null;
     }
 
+    // mt#2894 R1 BLOCKING #1: re-check after the await — stop() may have
+    // fired while the tick was in flight. A retired entry must not be
+    // bookkept further, and a trailing failure must never trigger a re-init.
+    if (stopped) return;
+
     // Liveness bookkeeping + bounded re-init (mt#2894 SC "(c)"). A tick only
     // reaches here via the timeout or unexpected-throw paths above (the tick
     // callback's OWN fail-open try/catch means a domain failure it already
@@ -329,8 +386,17 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
    * per-tick isolation structurally cannot cover since the interval callback
    * never fires again to isolate anything). Clears any existing handle first
    * so this is safe to call even if the timer already stopped firing.
+   *
+   * mt#2894 R1 BLOCKING #1: refuses (no-op) once `stopped` is true — this is
+   * what makes stop() authoritative against a LATE bounded-re-init trigger
+   * from a tick that was already in flight when stop() was called (the
+   * `stopped` check inside `runTick` prevents most such calls from ever
+   * reaching here, but this is the last line of defense for the restart
+   * mechanism itself, and it's what the meta-watchdog's restart call also
+   * goes through).
    */
   const restartInterval = (reason: SweepRestartReason): void => {
+    if (stopped) return;
     if (id !== null) {
       clearInterval(id);
       id = null;
@@ -348,8 +414,19 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
   startInterval();
 
   return () => {
-    if (id !== null) clearInterval(id);
-    sweepLivenessRegistry.delete(name);
+    // mt#2894 R1 BLOCKING #1: stop() is now authoritative. Setting `stopped`
+    // BEFORE clearing the interval closes the resurrection window — any
+    // tick already in flight (and any bounded-reinit/meta-watchdog restart
+    // attempt racing this call) sees `stopped === true` and refuses to act.
+    // The entry is retained in the registry (marked `stopped`, filtered out
+    // of the public snapshot) rather than deleted — see SweepLivenessEntry's
+    // doc comment for why keeping it is what makes the guard reliable.
+    stopped = true;
+    entry.stopped = true;
+    if (id !== null) {
+      clearInterval(id);
+      id = null;
+    }
   };
 }
 
@@ -399,6 +476,12 @@ export function startSweepMetaWatchdog(
     if (stopped) return;
     const now = Date.now();
     for (const entry of sweepLivenessRegistry.values()) {
+      // mt#2894 R1 BLOCKING #1: never restart a sweep that was cleanly
+      // stopped — its entry stays in the registry (see SweepLivenessEntry's
+      // doc comment) but is retired, not actionable. `entry.restart` itself
+      // also refuses once stopped; this explicit skip keeps the intent
+      // legible at the call site the finding named.
+      if (entry.stopped) continue;
       // No tick has fired yet (e.g. the sweep just registered and its boot
       // tick's microtask hasn't run) — nothing to evaluate yet.
       if (entry.lastAttemptAtMs === null) continue;
