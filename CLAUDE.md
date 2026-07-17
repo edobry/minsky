@@ -508,7 +508,8 @@ must be brief by default, exception-driven, with full detail addressable rather 
 nothing lost. Extends the `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
 attention-allocation frame from **asks** (decisions routed to the principal) to **reports** (status
 pushed at the principal). Source: [RFC: Communication altitude](https://www.notion.so/39e937f03cb481febdeae249014e356f)
-(Accepted 2026-07-15) — this rule is that RFC's Phase 1 channel contract. Origin: `mt#2713`.
+(Accepted 2026-07-15). This rule is that RFC's Phase 1 channel contract (origin: `mt#2713`) plus its
+Phase 2 altitude register (origin: `mt#2867`) — one rule file carries the whole channel discipline.
 
 ## The channel model
 
@@ -554,6 +555,92 @@ specializes `user-preferences.mdc §Plain-language first`).
 `## Scope`), or an exception warrants it (severity, a high-stakes judgment call, or a finding
 worth probing) — widen the pointer, don't re-narrate inline.
 
+## Altitude register (RFC Phase 2)
+
+The Tier-1 contract above defines what a turn-end report *contains*; the **register** selects
+which of three shapes a conversation renders by default. Source: RFC `## The altitude register`
+(Notion `39e937f0-3cb4-81fe-bdea-e249014e356f`). Origin: `mt#2867`.
+
+| Register | Turn-report shape | Before/after acting |
+| --- | --- | --- |
+| **Receipts** | Narrated checkpoints; verification evidence inline for consequential actions; intent stated before significant moves ("I intend to…"). Trivial successful steps still compress — the register sets audit depth for what matters, not a verbosity floor on everything. | Report-before-action for consequential moves. |
+| **Standard** | The Tier-1 BLUF contract above, as written: what happened / what you need to know / what's next, each 1–3 sentences, pointers for everything else. | Mixed. |
+| **Executive** | Outcome + judgment calls + needed decisions only; routine success is one line; everything else by pointer. | Report-after-action ("I've done…"), with scheduled receipts-level sampling (below). |
+
+### Default derivation — model tier plus dispatch context
+
+The harness already reports which model is running; no new infrastructure is needed. In this
+repo's model vocabulary:
+
+| Model / context | Default register |
+| --- | --- |
+| Fable/Opus-class, principal-facing conversation | **Executive** |
+| Sonnet-class working session | **Standard** |
+| Haiku-class or unproven context | **Receipts** |
+
+**Escalation-dispatch carve-out (dominates model tier).** An agent dispatched *because* the
+orchestrator is struggling — the escalate-to-Opus pattern, `subagent-routing.mdc §Escalation to
+Opus` — reports at **receipts regardless of tier**. Escalation is a low-trust *situation*: the
+stronger model was chosen because the situation demands more scrutiny, so the register must not
+invert that by defaulting a struggling-context dispatch to executive merely because it happens to
+run Opus. Dispatch context outranks model tier — the dispatcher sets the register explicitly in
+the dispatch prompt (see `subagent-routing.mdc` for the consuming side of this contract).
+
+**Temporary-mechanism budget.** Model tier is *asserted* trust — fixed the moment a model is
+picked — not *accrued* trust (a track record). The accrued-trust successor is `mt#2838`.
+Escalation budget: **2 wrong-register incidents within 14 days** escalates `mt#2838`'s priority (a
+wrong-register incident = the principal manually re-registers a conversation because the default
+hid something needed or buried the signal in noise).
+
+### Override — two levels (v1)
+
+Exactly two levels, in precedence order:
+
+1. **Explicit principal instruction** — a one-line "walk me through everything" or "background
+   this" re-registers the conversation and **persists for the rest of the conversation**. The
+   per-message escape hatch ("show me the detail") always works without changing the standing
+   register.
+2. **Derived default** — the model-tier-plus-dispatch-context table above.
+
+The three-level stack (instruction > persisted setting > default) is **explicitly deferred** — it
+activates only once a persisted per-conversation/task register state ships (a session-record field
+or a cockpit control), which is itself deferred pending evidence that rule-tier alone is
+insufficient. Do not build that storage speculatively.
+
+**Task-record continuity.** Until persisted state ships, an override recorded in the task record
+or a handoff note is honored by later conversations on the same task — check the task record /
+handoff for a standing register override before defaulting. Skipping this check silently resets
+every new conversation to the default and forces the principal to repeat the instruction.
+
+### Severity pierces the register
+
+Enumerated triggers report at full detail from *any* register, regardless of the standing
+default — severity is **not agent self-assessed**:
+
+- Failed production deploy
+- Production incident signal
+- Destructive or hard-to-reverse action taken or refused
+- Security-relevant finding
+- Merge-gate override (bypass-merge, escape-valve activation)
+- Task blocked past its stall threshold
+
+Routine progress compresses at the standing register everywhere else. Reporting altitude is
+decoupled from action authority: raising or lowering the register never changes what an agent may
+do — merge gates, asks, and authorization boundaries are unaffected.
+
+### Executive scheduled sampling
+
+The executive register keeps active auditability even at maximum compression:
+
+- **Every 5th turn-end report** renders one register lower (i.e., at standard) instead of
+  executive.
+- **Every task-closeout report carries the verification-evidence pointer set** (deeplinks to the
+  gate report, test run, or live-verification output), regardless of sampling cadence.
+
+This exists because agent silence is self-assessed — unlike a dark cockpit's instrument-verified
+silence — so the executive register cannot rely purely on the agent's own judgment that nothing
+warrants reporting.
+
 ## Judgment calls are load-bearing (RFC Position 3)
 
 **Summaries carry judgment calls, not receipts** — contestable decisions the agent made on the
@@ -581,21 +668,26 @@ instead of a fourth heading.
 
 ## Scope
 
-This rule ships the Tier-1 turn-report contract and channel model; it deliberately does **not**
-ship: a **register/altitude-selection layer** (owned by `mt#2867`, Phase 2 — this rule defines
-report *shapes*, not which shape a conversation defaults to); a **Tier-2 digest** (RFC Phase 3,
-owned by `mt#2869`, depends on mt#2713, ambient-cockpit push discipline with a pull-only-widget
-fallback); a **calibration-first enforcement detector** (wall-of-text/shape-violation, Phase 3,
-owned by `mt#2870`, depends on mt#2713 — per the ADR-024 ladder this rule is the
-cheapest-sufficient rung; the detector graduates only on calibration evidence).
+This rule ships the Tier-1 turn-report contract, channel model, and (as of `mt#2867`, RFC Phase 2)
+the altitude register's default-derivation, override, continuity, and severity mechanics above. It
+deliberately does **not** ship: **persisted per-conversation/task register state** (a
+session-record field or a cockpit control — file only if rule-tier proves insufficient; see
+`## Altitude register §Override` above); **trust-accrual register input** (successor to the
+model-tier proxy, `mt#2838`); a **Tier-2 digest** (RFC Phase 3, owned by `mt#2869`, depends on
+mt#2713, ambient-cockpit push discipline with a pull-only-widget fallback); a **calibration-first
+enforcement detector** (wall-of-text/shape-violation, Phase 3, owned by `mt#2870`, depends on
+mt#2713 — per the ADR-024 ladder this rule is the cheapest-sufficient rung; the detector graduates
+only on calibration evidence).
 
 ## Cross-references
 
 `user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
 `cockpit-deeplinks.mdc` · `humility.mdc §Escalation packaging` · `decision-defaults.mdc` ·
-`mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md` · `mt#2713` (this task)
-· `mt#2867` (register-selection) · `mt#2869` (Tier-2 digest) · `mt#2870` (enforcement detector) ·
-`mt#2258` (umbrella).
+`subagent-routing.mdc §Escalation to Opus` (dispatch-context register carve-out; sets the register
+on the consuming side) · `mt#1034` / `docs/architecture/adr-008-attention-allocation-subsystem.md`
+· `mt#2713` (Tier-1 contract, this rule's origin) · `mt#2867` (this task — altitude register) ·
+`mt#2838` (trust-accrual successor to model tier) · `mt#2869` (Tier-2 digest) · `mt#2870`
+(enforcement detector) · `mt#2258` (umbrella).
 
 # Cockpit Deeplinks in Terminal Output
 
@@ -914,11 +1006,31 @@ When spawning subagents, use the appropriate model and type:
 
 **Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
 
-**Continuation (no mid-flight correction):** A dispatched subagent runs to completion and reports back — it cannot be messaged or course-corrected mid-flight. `SendMessage` (referenced in the Agent/Workflow tool descriptions and the dispatch-result hint) is NOT invocable by default: it is gated behind the experimental `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` flag ([anthropics/claude-code#35240](https://github.com/anthropics/claude-code/issues/35240) / [#42737](https://github.com/anthropics/claude-code/issues/42737), closed "not planned"). So bake full context into every dispatch up front, and prefer kill + re-dispatch (a fresh agent with the corrected context) over waiting to nudge a running one. (mt#2512; whether to adopt Agent Teams or build a Minsky-native equivalent is tracked in mt#2521.)
+**Continuation.** `SendMessage` IS invocable (deferred-tool list, loadable via `ToolSearch`) and
+reliably resumes a **COMPLETED** subagent from its transcript with full context intact — validated
+`mt#2578` (PR #1776) and repeatedly since (memory `6038c0a1`). For review-fix rounds and follow-up
+iterations on a subagent's own work, prefer `SendMessage`-resume of the same agent over a fresh
+dispatch: no context rebuild, no prompt regeneration — bake the findings plus an explicit stop
+condition into the message. **Messaging a still-RUNNING subagent mid-flight remains untested** —
+treat "cannot be messaged, kill + re-dispatch" as scoped to that untested case only, not to
+resume-after-completion; prefer kill + re-dispatch there until it's validated. (mt#2512; whether to
+adopt Agent Teams or build a Minsky-native equivalent for genuine mid-flight steering is tracked in
+mt#2521.)
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 
 **Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
+
+**Reporting register (mt#2867).** Dispatch prompts set the subagent's reporting register
+explicitly — see `communication-contract.mdc §Altitude register` for the full mechanics
+(receipts / standard / executive, default-derivation table, override, severity triggers). The
+carve-out that matters here: an escalation-to-Opus dispatch (the bullet above) reports at
+**receipts regardless of model tier** — escalation is a low-trust situation, and the stronger
+model must not invert the register just because it happens to run Opus. `mcp__minsky__session_generate_prompt`'s
+Operating-Envelope template does not yet emit register text into generated dispatch prompts (the
+`PromptType` enum has no escalation-context field to key it on — a nontrivial addition, tracked as
+a follow-up candidate rather than done here); until it does, name the register explicitly in the
+`instructions` param whenever dispatching a struggling-context escalation.
 
 # Terminology: workspace / conversation / transport session
 
