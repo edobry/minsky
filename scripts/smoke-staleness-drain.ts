@@ -57,6 +57,34 @@
  * Usage:
  *   bun scripts/smoke-staleness-drain.ts
  *
+ * When/how to run: this is a manual live-verification script per the
+ * `/implement-task` §7a "verification artifact" convention (mt#1399/mt#1403
+ * pattern) — shipped alongside mt#2830's structural change to the staleness-
+ * drain state machine, run on demand (locally, or pasted as PR execution
+ * evidence), not on every commit. Re-run it whenever `triggerStaleSignal` /
+ * `scheduleStaleExitAfterDrain` / the `tools/call` admission gate in
+ * `src/mcp/server.ts` changes, to confirm the live behavior still matches
+ * the unit-tested state machine.
+ *
+ * Env prereqs: none beyond what any Minsky dev checkout already has —
+ * `bun` and `git` on PATH. No database, no network, no secrets. The script
+ * creates and tears down its own scratch git repos and scratch
+ * `MINSKY_STATE_DIR`s under the OS tmpdir; it never touches the real
+ * `~/.local/state/minsky/mcp-disconnect-log.json` or this repo's own git
+ * history/HEAD.
+ *
+ * CI wiring: intentionally NOT wired into CI (see `scripts/README.md`'s
+ * "Manual live-verification" section — this script is listed there, not
+ * under "CI-wired verification"). Reason: it is a real-subprocess harness —
+ * it spawns actual `bun run src/cli.ts mcp start` (and, in Phase B, `mcp
+ * proxy`) child processes and drives them over real OS pipes with
+ * wall-clock waits (bounded, but seconds-scale, not milliseconds). That is
+ * appropriate for an on-demand / pre-merge check but not for a per-commit CI
+ * gate — the fast, deterministic, injectable-clock coverage of the same
+ * state machine already runs in CI via `src/mcp/server.test.ts`
+ * (`bun test`), which is what should gate merges. This script is the
+ * live-fidelity complement to that, not a replacement for it.
+ *
  * Exit codes:
  *   0 = all Phase A assertions passed (Phase B is informational only)
  *   1 = a Phase A assertion failed, or the harness itself errored

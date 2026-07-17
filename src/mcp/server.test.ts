@@ -1025,6 +1025,103 @@ describe("MCP Server", () => {
     await server.close();
   });
 
+  test("staleness drain: a request racing the exit decision (after exitCommitted, before process.exit) is rejected, not admitted-then-killed (mt#2830 R1)", async () => {
+    // Regression guard for the R1 review finding: `pendingStaleExit` alone
+    // admits new requests for the ENTIRE drain window, including the final
+    // flush-buffer gap between "idle observed" (the exit decision) and the
+    // actual process.exit(0). A request admitted into that gap would start
+    // executing and then be killed mid-execution when the process dies —
+    // worse than the original -32603 bug (a silent kill instead of an
+    // immediate, retriable rejection). `exitCommitted` closes this: once the
+    // exit decision is taken, new admissions are rejected exactly like
+    // `draining` for the remainder of the flush window.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
+    });
+
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
+
+    // Trigger staleness. After this resolves, inFlightRequests drops to 0 and
+    // the next 50ms poll tick will observe the idle gap and flip
+    // exitCommitted — see scheduleStaleExitAfterDrain.
+    const firstRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(firstRes)).toBe("quick-done");
+
+    // Poll for exitCommitted to flip true (bounded wait, avoids a flaky fixed
+    // sleep racing the internal 50ms poll interval). The exit itself must NOT
+    // have fired yet — this test is specifically about the gap BEFORE it.
+    const exitCommittedFlag = () => (server as unknown as { exitCommitted: boolean }).exitCommitted;
+    // Bounded polling deadline (no filesystem I/O anywhere in this test) —
+    // isolated behind a helper rather than inline `Date.now()` calls.
+    const now = (): number => Date.now();
+    const deadline = now() + 2000;
+    while (!exitCommittedFlag() && now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    expect(exitCommittedFlag()).toBe(true);
+    expect(exitCalls.length).toBe(0); // still inside the flush-buffer gap
+
+    // A request arriving in this gap must be REJECTED, not admitted and then
+    // killed when process.exit(0) fires moments later.
+    let rejected = false;
+    let rejectionMessage = "";
+    try {
+      await toolsCallHandler(
+        { method: "tools/call", params: { name: "quick", arguments: {} } },
+        {}
+      );
+    } catch (err) {
+      rejected = true;
+      rejectionMessage = err instanceof Error ? err.message : String(err);
+    }
+    expect(rejected).toBe(true);
+    expect(rejectionMessage).toContain("shutting down");
+
+    // The exit still fires on schedule.
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
+    await server.close();
+  });
+
   // ---------------------------------------------------------------------------
   // Admission control: concurrent-session cap (mt#1204)
   // ---------------------------------------------------------------------------

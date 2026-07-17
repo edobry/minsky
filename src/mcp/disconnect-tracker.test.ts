@@ -125,6 +125,93 @@ describe("DisconnectTracker", () => {
     });
   });
 
+  describe("recordDisconnect diagnostic-field sanitization (mt#2830 R1)", () => {
+    const CRASH_CAUSE = "proxy_observed_crash" as const;
+
+    test("stderrTail is hard-truncated to the max even when the caller passes a huge string", () => {
+      const huge = "x".repeat(50_000);
+      const event = tracker.recordDisconnect(CRASH_CAUSE, { stderrTail: huge });
+      if (!event.stderrTail) throw new Error("Expected event.stderrTail to be defined");
+      expect(event.stderrTail.length).toBeLessThanOrEqual(4000);
+    });
+
+    test("lastTransportEvent is hard-truncated to the max even when the caller passes a huge string", () => {
+      const huge = "y".repeat(50_000);
+      const event = tracker.recordDisconnect(CRASH_CAUSE, { lastTransportEvent: huge });
+      if (!event.lastTransportEvent) {
+        throw new Error("Expected event.lastTransportEvent to be defined");
+      }
+      expect(event.lastTransportEvent.length).toBeLessThanOrEqual(500);
+    });
+
+    test("errorMessage (pre-existing field, same risk class) is also hard-truncated", () => {
+      const huge = "z".repeat(50_000);
+      const event = tracker.recordDisconnect("transport_error", huge);
+      if (!event.error) throw new Error("Expected event.error to be defined");
+      expect(event.error.length).toBeLessThanOrEqual(2000);
+    });
+
+    test("credential-shaped content in stderrTail is redacted before persistence", () => {
+      // A GitHub personal-access-token shape (ghp_ + 36 alphanumeric chars) —
+      // one of the shapes credential-scrubber.ts matches.
+      const fakeToken = `ghp_${"a".repeat(36)}`;
+      const event = tracker.recordDisconnect(CRASH_CAUSE, {
+        stderrTail: `FATAL: auth failed with token ${fakeToken}\n`,
+      });
+      if (!event.stderrTail) throw new Error("Expected event.stderrTail to be defined");
+      expect(event.stderrTail).not.toContain(fakeToken);
+      expect(event.stderrTail).toContain("[REDACTED:github-token:");
+    });
+
+    test("credential-shaped content in lastTransportEvent is redacted before persistence", () => {
+      const fakeToken = `ghp_${"b".repeat(36)}`;
+      const event = tracker.recordDisconnect(CRASH_CAUSE, {
+        lastTransportEvent: `{"error":"token ${fakeToken} rejected"}`,
+      });
+      if (!event.lastTransportEvent) {
+        throw new Error("Expected event.lastTransportEvent to be defined");
+      }
+      expect(event.lastTransportEvent).not.toContain(fakeToken);
+    });
+
+    test("a malformed exitCode (wrong type / non-finite) is dropped rather than persisted", () => {
+      const event = tracker.recordDisconnect(CRASH_CAUSE, {
+        // @ts-expect-error — deliberately passing a malformed shape to verify runtime validation
+        exitCode: "not-a-number",
+      });
+      expect(event.exitCode).toBeUndefined();
+
+      const eventNaN = tracker.recordDisconnect(CRASH_CAUSE, { exitCode: Number.NaN });
+      expect(eventNaN.exitCode).toBeUndefined();
+    });
+
+    test("a valid exitCode (including 0 and null) is preserved", () => {
+      const eventZero = tracker.recordDisconnect(CRASH_CAUSE, { exitCode: 0 });
+      expect(eventZero.exitCode).toBe(0);
+
+      const eventNull = tracker.recordDisconnect("signal_sigkill", { exitCode: null });
+      expect(eventNull.exitCode).toBe(null);
+    });
+
+    test("a malformed signal (wrong type) is dropped; an overlong one is truncated", () => {
+      const event = tracker.recordDisconnect(CRASH_CAUSE, {
+        // @ts-expect-error — deliberately passing a malformed shape to verify runtime validation
+        signal: 12345,
+      });
+      expect(event.signal).toBeUndefined();
+
+      const overlong = "S".repeat(1000);
+      const eventLong = tracker.recordDisconnect("signal_sigkill", { signal: overlong });
+      if (!eventLong.signal) throw new Error("Expected eventLong.signal to be defined");
+      expect(eventLong.signal.length).toBeLessThanOrEqual(32);
+    });
+
+    test("a valid signal (e.g. SIGKILL) is preserved verbatim", () => {
+      const event = tracker.recordDisconnect("signal_sigkill", { signal: "SIGKILL" });
+      expect(event.signal).toBe("SIGKILL");
+    });
+  });
+
   describe("recordReconnect", () => {
     test(SHAPE_TEST_LABEL, () => {
       const event = tracker.recordReconnect();

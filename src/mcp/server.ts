@@ -426,6 +426,22 @@ export class MinskyMCPServer {
   // `inFlightRequests` for the first idle gap; `staleDrainCapMs` bounds how
   // long a continuously-busy server can postpone the exit.
   private pendingStaleExit = false;
+  // mt#2830 R1 fix: set the MOMENT the exit decision is taken (the poll
+  // observes `inFlightRequests.size === 0`, or the hard cap elapses) —
+  // synchronously, in the SAME tick as that observation, with no `await`
+  // in between. Closes a race the R1 review found: `pendingStaleExit` alone
+  // admits new requests for the ENTIRE drain window, including the final
+  // `FLUSH_BUFFER_MS` gap between "idle observed" and the actual
+  // `process.exit(0)` — a request admitted in that gap would start
+  // executing and then have the process die out from under it (worse than
+  // the pre-fix -32603: a silently killed in-flight call instead of an
+  // immediate, clear rejection the caller can retry). Once `exitCommitted`
+  // is true the `tools/call` handler's gate rejects new admissions exactly
+  // like `draining` does — the decision to exit is final at that point, so
+  // there is nothing left to gain by admitting more work, and the
+  // FLUSH_BUFFER_MS gap exists solely to let the transport flush already-
+  // sent bytes, not to accept new requests.
+  private exitCommitted = false;
 
   // mt#2701: max time to wait for in-flight tool calls to drain before a
   // staleness exit force-terminates. Overridable in tests. A wedged request
@@ -1008,11 +1024,18 @@ export class MinskyMCPServer {
     // Call tool
     server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/call", request, extra);
-      // Only true `drain()` (SIGTERM/SIGINT graceful shutdown) sets this —
-      // staleness-exit sets `pendingStaleExit` instead, deliberately NOT this
-      // flag, so a tool call arriving during a staleness drain window is
-      // served normally instead of being rejected here (mt#2830).
-      if (this.draining) {
+      // Only true `drain()` (SIGTERM/SIGINT graceful shutdown) sets `draining`
+      // — staleness-exit sets `pendingStaleExit` instead, deliberately NOT
+      // that flag, so a tool call arriving during the EARLY staleness drain
+      // window is served normally instead of being rejected here (mt#2830).
+      // `exitCommitted`, in contrast, IS checked here: once the exit decision
+      // is taken (the idle gap is observed, or the hard cap elapses) there is
+      // a short flush-buffer gap before process.exit(0) actually fires, and a
+      // request admitted into THAT gap would be killed mid-execution rather
+      // than cleanly rejected — worse than the original -32603 bug. See the
+      // `exitCommitted` field comment and `scheduleStaleExitAfterDrain` for
+      // where it is set (mt#2830 R1 fix).
+      if (this.draining || this.exitCommitted) {
         throw new Error("Server is shutting down");
       }
 
@@ -1783,6 +1806,19 @@ export class MinskyMCPServer {
    * is the backstop: if the server is never idle for that long, the exit
    * fires anyway so staleness cannot be starved indefinitely by continuous
    * traffic.
+   *
+   * mt#2830 R1 fix: the exit DECISION (idle gap observed, or hard cap
+   * elapsed) and marking `exitCommitted = true` happen in the same
+   * synchronous section — `poll()` calls `scheduleExit()` as a plain,
+   * unawaited function call, and `scheduleExit()`'s first statement is the
+   * flip. No request-handler code can run between the counter check and the
+   * flip (the event loop cannot interleave within a synchronous call chain),
+   * so a request cannot be admitted "in between" the decision and its
+   * enforcement. From that flip onward the `tools/call` handler's gate
+   * rejects new admissions (mt#2830 field comment on `exitCommitted`) for
+   * the remaining `FLUSH_BUFFER_MS` gap before `process.exit(0)` actually
+   * fires — closing the window where an admitted-then-orphaned request would
+   * be killed mid-execution instead of cleanly rejected.
    */
   private scheduleStaleExitAfterDrain(): void {
     const POLL_INTERVAL_MS = 50;
@@ -1790,6 +1826,9 @@ export class MinskyMCPServer {
     const start = Date.now();
 
     const scheduleExit = (wedgedRequests: number): void => {
+      // mt#2830 R1 fix: flip BEFORE any logging/async work below — this is
+      // the exit-commitment point. See this method's docstring.
+      this.exitCommitted = true;
       if (wedgedRequests > 0) {
         log.warn("MCP staleness drain cap reached — exiting with requests still in flight", {
           wedgedRequests,

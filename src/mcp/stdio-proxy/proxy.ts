@@ -233,6 +233,20 @@ export class MinskyStdioProxy {
    * each new spawn (`spawnChild()`); appended to as stderr chunks arrive;
    * truncated to `STDERR_TAIL_MAX_CHARS`. Read by `onChildClose` to attach
    * diagnostic context to a proxy-observed disconnect event.
+   *
+   * This buffer is RAW / unredacted — stderr can carry credential-shaped
+   * content (an API key in a stack trace, a DB URL with embedded
+   * credentials), so this value must never be logged, printed, or persisted
+   * directly. Two consumers, two different treatments (R1 review finding 2):
+   * the LIVE mirror below (`process.stderr.write`) reproduces the pre-mt#2830
+   * `stdio: "inherit"` pass-through exactly — no new surface, same bytes an
+   * operator would have seen before this change. The value passed to
+   * `recordDisconnect` (`onChildClose`) is a SEPARATE, NEW, persisted surface
+   * (the JSONL disconnect log) — `DisconnectTracker.recordDisconnect` /
+   * `sanitizeDiagnosticFields` in `disconnect-tracker.ts` is where the actual
+   * hard-truncation and credential-scrubbing (reusing the existing
+   * `credential-scrubber.ts`) happen, specifically BECAUSE it is a new
+   * durable surface this field's raw content must not leak into unredacted.
    */
   private stderrTail = "";
 

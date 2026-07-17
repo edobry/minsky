@@ -393,6 +393,12 @@ describe("unknown-cause instrumentation (mt#2830)", () => {
     // The proxy has no tool-call-count visibility — processRoleOverride keeps
     // this escalation-eligible instead of defaulting to "helper".
     expect(recorded.processRole).toBe("main_session");
+
+    // mt#2830 R1 fix (finding 5): onChildClose scheduled a real setTimeout
+    // (RESPAWN_DELAY_MS=200ms) that calls the stubbed no-op spawnChild above.
+    // Let it fire HERE, inside the test, instead of leaving a dangling timer
+    // that outlives the test — the flakiness window the review flagged.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
   });
 
   test("onChildClose: a routine clean exit (code 0, no signal) does NOT record a proxy-side event", async () => {
@@ -416,5 +422,9 @@ describe("unknown-cause instrumentation (mt#2830)", () => {
     // server under its own serverName; the proxy deliberately stays silent
     // here to avoid duplicating that signal under a second bucket.
     expect(recorded).toBeUndefined();
+
+    // mt#2830 R1 fix (finding 5): flush the scheduled respawn timer here too
+    // — see the note in the previous test.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
   });
 });

@@ -69,6 +69,7 @@ import path from "path";
 import os from "os";
 import { log } from "@minsky/shared/logger";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
+import { scrubText } from "@minsky/domain/transcripts/credential-scrubber";
 
 /**
  * The kind of event recorded.
@@ -292,6 +293,22 @@ const ESCALATION_THRESHOLD_24H = 3;
 const SHORT_LIVED_THRESHOLD_MS = 5000;
 
 /**
+ * Hard size bounds for the mt#2830 diagnostic fields (R1 review finding 3).
+ * Enforced HERE, at `recordDisconnect` — the point of persistence — rather
+ * than relying on callers (e.g. the stdio proxy) to have already truncated:
+ * a hostile or merely-huge payload passed by any current or future caller
+ * must not be able to bloat the persisted JSONL log. Callers that already
+ * truncate (the proxy does, for `stderrTail`/`lastTransportEvent`) get a
+ * harmless no-op re-truncation here — defense-in-depth, not a contradiction.
+ */
+const MAX_STDERR_TAIL_CHARS = 4000;
+const MAX_LAST_TRANSPORT_EVENT_CHARS = 500;
+/** POSIX signal names are short (e.g. "SIGRTMIN+15" is 11 chars); generous ceiling. */
+const MAX_SIGNAL_CHARS = 32;
+/** Same risk class as the new fields above; this field pre-dates mt#2830 but was never bounded. */
+const MAX_ERROR_MESSAGE_CHARS = 2000;
+
+/**
  * Fixed `sessionKey` used in stdio mode. A stdio MCP server process has
  * exactly one Server instance for its lifetime, so a constant key is correct.
  * mt#1705.
@@ -359,6 +376,78 @@ function isValidEvent(item: unknown): item is McpDisconnectEvent {
     typeof r.kind === "string" &&
     typeof r.cause === "string"
   );
+}
+
+/**
+ * Validate, hard-truncate, and credential-scrub the mt#2830 diagnostic
+ * fields before they are persisted (R1 review findings 2 and 3).
+ *
+ * Two distinct risks this closes:
+ * - **Unbounded size** — a hostile or merely-huge payload (any current or
+ *   future caller of `recordDisconnect`, not just the stdio proxy, which
+ *   already self-truncates before calling in) must not be able to bloat the
+ *   append-only JSONL log. Every string field is hard-capped here,
+ *   regardless of what the caller passed.
+ * - **Credential leakage** — `stderrTail` and `lastTransportEvent` carry
+ *   live subprocess/transport output verbatim, which can contain
+ *   credential-shaped content (the mt#2903-class discovery this review
+ *   cites). Reusing the already-vetted `scrubText` (mt#2763's
+ *   transcript-ingest scrubber) redacts any matching shape before the value
+ *   is written into a durable, potentially-shared log file. This does NOT
+ *   change the LIVE stderr mirror the proxy writes to its own stderr for
+ *   operator visibility (`src/mcp/stdio-proxy/proxy.ts`) — that mirror
+ *   matches the pre-mt#2830 pass-through behavior exactly (no new surface
+ *   there); only the NEW persisted copy is scrubbed.
+ *
+ * Malformed `exitCode`/`signal` (wrong type, non-finite number) are dropped
+ * (treated as absent) rather than persisted as garbage — a disconnect event
+ * with a missing diagnostic field is far preferable to one with a corrupt
+ * one that could confuse a downstream reader expecting `number | null` /
+ * `string | null`.
+ */
+function sanitizeDiagnosticFields(input: {
+  exitCode?: number | null;
+  signal?: string | null;
+  stderrTail?: string;
+  lastTransportEvent?: string;
+  errorMessage?: string;
+}): {
+  exitCode: number | null | undefined;
+  signal: string | null | undefined;
+  stderrTail: string | undefined;
+  lastTransportEvent: string | undefined;
+  errorMessage: string | undefined;
+} {
+  const exitCode =
+    input.exitCode === null
+      ? null
+      : typeof input.exitCode === "number" && Number.isFinite(input.exitCode)
+        ? input.exitCode
+        : undefined;
+
+  const signal =
+    input.signal === null
+      ? null
+      : typeof input.signal === "string" && input.signal.length > 0
+        ? input.signal.slice(0, MAX_SIGNAL_CHARS)
+        : undefined;
+
+  const stderrTail =
+    typeof input.stderrTail === "string" && input.stderrTail.length > 0
+      ? scrubText(input.stderrTail.slice(-MAX_STDERR_TAIL_CHARS)).text
+      : undefined;
+
+  const lastTransportEvent =
+    typeof input.lastTransportEvent === "string" && input.lastTransportEvent.length > 0
+      ? scrubText(input.lastTransportEvent.slice(0, MAX_LAST_TRANSPORT_EVENT_CHARS)).text
+      : undefined;
+
+  const errorMessage =
+    typeof input.errorMessage === "string" && input.errorMessage.length > 0
+      ? scrubText(input.errorMessage.slice(0, MAX_ERROR_MESSAGE_CHARS)).text
+      : undefined;
+
+  return { exitCode, signal, stderrTail, lastTransportEvent, errorMessage };
 }
 
 /**
@@ -580,6 +669,23 @@ export class DisconnectTracker {
       sessionKey = DEFAULT_SESSION_KEY;
       errorMessage = undefined;
     }
+
+    // mt#2830 R1 fix: validate, hard-truncate, and credential-scrub the
+    // diagnostic fields at THIS boundary — the point of persistence — not
+    // just trust that the caller (e.g. the stdio proxy) already did. See
+    // `sanitizeDiagnosticFields`'s docstring for the two risks this closes.
+    const sanitized = sanitizeDiagnosticFields({
+      exitCode,
+      signal,
+      stderrTail,
+      lastTransportEvent,
+      errorMessage,
+    });
+    exitCode = sanitized.exitCode;
+    signal = sanitized.signal;
+    stderrTail = sanitized.stderrTail;
+    lastTransportEvent = sanitized.lastTransportEvent;
+    errorMessage = sanitized.errorMessage;
 
     const uptimeMs = Date.now() - this.processStartTime;
     // mt#1705: classify process role from PER-SESSION tool-call count at
