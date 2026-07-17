@@ -149,6 +149,31 @@ export const subagentInvocationsTable = pgTable(
 
     /** Whether the subagent wrote a handoff.md file before exiting. */
     handoffWritten: boolean("handoff_written"),
+
+    // -------------------------------------------------------------------------
+    // Dispatch-recovery retry linkage (mt#2831)
+    // -------------------------------------------------------------------------
+
+    /**
+     * The invocation this row RESUMES, when this row was produced by the
+     * `tasks.dispatch-recover` command's auto-resume path. Null for an
+     * original dispatch (attempt 1). No FK constraint (self-reference on a
+     * table with no unique constraint on the natural retry-chain key) —
+     * treated as an informational pointer, same posture as
+     * `subagentSessionId`'s non-unique index.
+     *
+     * @see mt#2831 — dispatch auto-recovery (this column's origin)
+     */
+    resumedFromInvocationId: uuid("resumed_from_invocation_id"),
+
+    /**
+     * 1-indexed attempt number within a retry chain. 1 = the original
+     * dispatch. 2 = the one auto-resume `tasks.dispatch-recover` is allowed
+     * to produce. The recover command refuses to produce attempt 3 — the
+     * 2-attempt bound is enforced by reading this column, not by an
+     * agent-side loop counter.
+     */
+    attemptNumber: integer("attempt_number").notNull().default(1),
   },
   (table) => [
     // Primary lookup: all invocations for a given task
@@ -162,6 +187,9 @@ export const subagentInvocationsTable = pgTable(
 
     // Outcome-class aggregation and filtering
     index("idx_subagent_invocations_outcome").on(table.outcome),
+
+    // Retry-chain lookups (mt#2831): find the resumed row for a given original
+    index("idx_subagent_invocations_resumed_from").on(table.resumedFromInvocationId),
   ]
 );
 
