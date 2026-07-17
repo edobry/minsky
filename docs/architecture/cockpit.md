@@ -319,6 +319,91 @@ Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint
 disclosure constraint).
 
+## Sweep-liveness registry + meta-watchdog (mt#2894)
+
+Every periodic sweep in this file is built on the shared `createIntervalSweeper`
+factory (`src/cockpit/sweepers.ts`). mt#2625 hardened that factory against a
+single tick hanging or throwing (per-tick timeout, watchdog force-release,
+last-resort catch — see the factory's own docblock). mt#2894 closed a
+DIFFERENT failure class the per-tick hardening structurally cannot cover: the
+underlying `setInterval` handle itself getting silently dropped or wedged
+while the daemon process stays alive — evidenced by a 2026-07-16 incident
+where two independent sweeps (prod-state, dispatch-watchdog) stopped
+attempting ticks within ~5 minutes of each other with no per-tick error to
+explain it.
+
+**Liveness registry.** `createIntervalSweeper` now registers every sweep in
+an in-process registry tracking `lastAttemptAt` (every time the interval
+callback fires, whether or not the tick that follows succeeds),
+`lastSuccessAt`, `lastErrorAt`, and `consecutiveFailures`. Exposed via:
+
+```
+GET /api/sweeps
+```
+
+```jsonc
+{
+  "sweeps": [
+    {
+      "name": "prod-state refresh",
+      "intervalMs": 600000,
+      "lastAttemptAt": "2026-07-17T13:00:00.000Z",
+      "lastSuccessAt": "2026-07-17T13:00:00.050Z",
+      "lastErrorAt": null,
+      "consecutiveFailures": 0,
+      "reinits": 0,
+      "metaRestarts": 0,
+    },
+  ],
+}
+```
+
+This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
+(`transcriptSweep`, `dispatchWatchdogSweep`) — it reports the SCHEDULING
+layer's liveness uniformly across all six sweeps, including the three (ask
+advancement, topology, deploy.smoke) that have no domain-specific tracker of
+their own. `reinits` counts a sweep's own bounded self re-init (below);
+`metaRestarts` counts a meta-watchdog-triggered force-restart.
+
+**Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
+failures (timeout or unexpected throw — NOT a domain-level failure the
+tick's own fail-open try/catch already absorbed), the sweep logs loudly and
+force-restarts its own interval, resetting the failure streak.
+
+**Meta-watchdog ("sweep of sweeps").** `startSweepMetaWatchdog` (started
+alongside the six sweepers in `src/commands/cockpit/start-command.ts`) scans
+the liveness registry on its own cadence (default 60s) and force-restarts
+any sweep whose `lastAttemptAt` is stale by more than 2x its own cadence —
+recovering a dropped/wedged timer with no tick-level signal to react to.
+Deliberately scheduled on a self-rescheduling `setTimeout` CHAIN rather than
+its own `setInterval`, since the failure class it recovers from implicates
+the shared interval-scheduling layer; sharing that primitive for the
+watchdog itself would risk it dying alongside the thing it watches.
+
+**What this does NOT cover:** the daemon process dying (tray supervision,
+mt#2786, owns that) or the meta-watchdog's own `setTimeout` chain dying
+(total timer death) — that residual is detectable via `/api/sweeps`
+going stale plus the consumer-side staleness banners
+(`inject-prod-state.ts` / `inject-dispatch-watchdog.ts`), with recovery
+falling to tray/operator supervision. See mt#2894's spec for the full
+Covers/Does NOT cover enumeration.
+
+**Daemon rotating file log.** Investigating the 2026-07-16 incident found
+that `log.warn` — the exact call the factory above uses for every tick
+timeout/throw/watchdog event — was a silent no-op under the cockpit
+daemon's default logger mode (`@minsky/shared/logger`'s HUMAN mode without
+`ENABLE_AGENT_LOGS`), so none of this observability ever reached a log file
+even where the daemon's raw stdout/stderr WAS captured (the tray supervisor
+and launchd both redirect it, unbounded, to
+`~/.local/state/minsky/logs/cockpit-{stdout,stderr}.log`). `src/cockpit/
+daemon-file-log.ts`'s `installDaemonFileLogging()` (called first, before any
+sweeper starts, in the `cockpit start` action handler) fixes both gaps: it
+forces `ENABLE_AGENT_LOGS=true` for the daemon process and attaches a
+size-bounded, rotating (winston's built-in `maxsize`/`maxFiles`) JSON+
+timestamp File transport at `~/.local/state/minsky/logs/cockpit-daemon.log`,
+independent of which of the three daemon-launch paths (tray, launchd, or a
+bare manual start) is in use.
+
 ## Slow-clock topology sweeper (mt#2602)
 
 The cockpit daemon runs the **slow-clock topology sweeper**
