@@ -9,6 +9,7 @@
  *
  * Serves:
  *   GET /api/health           — health + version + uptime
+ *   GET /api/sweeps           — per-sweep liveness registry (mt#2894)
  *   GET /api/widgets          — metadata for every registered widget
  *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
  *                               404 only for ids absent from WIDGET_REGISTRY)
@@ -69,6 +70,7 @@ import { mountAskRoutes } from "./routes/asks";
 import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
+import { mountSweepRoutes } from "./routes/sweeps";
 import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
@@ -298,6 +300,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountCredentialRoutes(app, { credModuleOverride });
   mountContextInspectorRoutes(app);
   mountEmbeddingsRoutes(app);
+  mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
 
   // Rung 2A driven-session routes (mt#2750) — LOCAL DAEMON ONLY. Spawning a
   // genuine `claude` binary with the operator's own credentials has no
