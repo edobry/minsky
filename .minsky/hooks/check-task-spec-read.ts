@@ -339,6 +339,17 @@ if (import.meta.main) {
     process.stderr.write(
       `[check-task-spec-read] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
     );
+    // mt#2889 PR #2012 R1 NON-BLOCKING #6: this catch's fire-log record can
+    // carry toolName/sessionId ONLY when `readInput()` (line ~302) already
+    // succeeded before a LATER step threw — but no such later step exists in
+    // this guard's body: sessionId/toolNameForLog are assigned on the very
+    // next two lines after a successful readInput() call, with no
+    // throwable operation in between. So the only way this catch block
+    // fires is `readInput()` itself throwing (malformed stdin / JSON parse
+    // failure) — there is no partial `input` object to extract context
+    // from in that case; the error message on stderr above is the only
+    // available diagnostic. Skipping the "populate what exists" advice
+    // here deliberately, since there is genuinely nothing to populate.
     recordAndExit("allow");
   }
 }

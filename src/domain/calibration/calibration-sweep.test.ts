@@ -37,6 +37,7 @@ const SILENT_STRETCH_KIND = "silent-stretch";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
 const CAUSAL_GUARD_NAME = "causal-premise-detector";
+const RETRO_GUARD_NAME = "retrospective-trigger-scanner";
 const RECORD_PARSE_FAIL = "record failed to parse";
 const POLICY_COVERAGE_MISSING = "policy-coverage entry missing";
 
@@ -1120,6 +1121,94 @@ describe("calibrationRecordToFireLogEntry / decision mapping", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Round-trip completeness (mt#2889 PR #2012 R1 — BLOCKING #4)
+// ---------------------------------------------------------------------------
+//
+// Regression test for the exact gap R1 caught: CALIBRATION_LOG_REGISTRY grew
+// a 7th entry ("silent-stretch", mt#2866) via this PR's pre-merge rebase onto
+// main, landing AFTER CALIBRATION_NAME_TO_GUARD_NAME was first written — the
+// hand-maintained map fell out of sync with the registry it must exhaustively
+// cover, and the silent fallback-to-entry.name path masked it (no thrown
+// error, just a wrong-but-plausible-looking guardName). This test asserts
+// EVERY CALIBRATION_LOG_REGISTRY entry — present today AND any added in the
+// future — round-trips through calibrationRecordToFireLogEntry to its
+// canonical GUARD_REGISTRY name, not a silent fallback. Adding an 8th
+// registry entry without a matching case below fails this test immediately
+// (the "no fixture for this kind" branch), rather than only surfacing at
+// review time on the next PR that happens to touch this file.
+
+/** One minimal, valid raw JSONL line per CalibrationLogEntry.kind, plus the canonical GUARD_REGISTRY name that kind's registry entry must map to. */
+const KIND_FIXTURES: Readonly<
+  Record<CalibrationLogEntry["kind"], { line: () => string; expectedGuardName: string }>
+> = {
+  "causal-premise": { line: () => makeCausalRecord(), expectedGuardName: CAUSAL_GUARD_NAME },
+  "retrospective-trigger": {
+    line: () => makeRetroRecord(),
+    expectedGuardName: RETRO_GUARD_NAME,
+  },
+  "ask-routing-deferral": {
+    line: () => makeDeferralRecord(),
+    expectedGuardName: "ask-routing-deferral-detector",
+  },
+  "code-mechanism-assertion": {
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-06-01T12:00:00Z",
+        session_id: "test-session",
+        claims: [{ symbol: "executeCommand", predicate: "clamps" }],
+        hadSameTurnRead: false,
+      }),
+    expectedGuardName: "code-mechanism-assertion-detector",
+  },
+  "pre-narration": {
+    // Same matches-shape family as retrospective-trigger (see this file's
+    // CalibrationLogEntry.kind doc comment) — reuses makeRetroRecord's shape,
+    // parsed under the "pre-narration" kind.
+    line: () => makeRetroRecord(),
+    expectedGuardName: "pre-narration-detector",
+  },
+  "policy-coverage": {
+    line: () => makePolicyCoverageRecord("covered"),
+    expectedGuardName: "policy-coverage-detector",
+  },
+  "silent-stretch": {
+    line: () => makeSilentStretchRecord(),
+    expectedGuardName: "silent-stretch-detector",
+  },
+};
+
+describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
+  test("every CALIBRATION_LOG_REGISTRY entry maps to its canonical GUARD_REGISTRY name, not a silent fallback to entry.name", () => {
+    for (const entry of CALIBRATION_LOG_REGISTRY) {
+      const fixture = KIND_FIXTURES[entry.kind];
+      if (!fixture) {
+        throw new Error(
+          `No KIND_FIXTURES entry for CalibrationLogEntry.kind "${entry.kind}" ` +
+            `(registry entry name="${entry.name}") — add one so this completeness ` +
+            `test actually covers the new kind, per the R1 regression this test guards against.`
+        );
+      }
+      const record = parseCalibrationRecord(fixture.line(), entry.kind);
+      if (!record) {
+        throw new Error(`Fixture for kind "${entry.kind}" failed to parse — fix KIND_FIXTURES.`);
+      }
+      const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+      expect(fireLogEntry.guardName).toBe(fixture.expectedGuardName);
+      // The exact regression this test prevents: silently falling back to
+      // the raw registry name instead of the canonical guard name.
+      expect(fireLogEntry.guardName).not.toBe(entry.name);
+    }
+  });
+
+  test("CALIBRATION_LOG_REGISTRY has exactly 7 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(7);
+    for (const entry of CALIBRATION_LOG_REGISTRY) {
+      expect(KIND_FIXTURES[entry.kind]).toBeDefined();
+    }
+  });
+});
+
 describe("calibrationLogAsFireLogEntries", () => {
   test("maps every record in a log to a fire-log-schema entry, preserving order and count", () => {
     const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === "causal-premise");
@@ -1154,7 +1243,7 @@ describe("readAllCalibrationLogsAsFireLogEntries", () => {
       return acc;
     }, {});
     expect(byGuard[CAUSAL_GUARD_NAME]).toBe(2);
-    expect(byGuard["retrospective-trigger-scanner"]).toBe(1);
+    expect(byGuard[RETRO_GUARD_NAME]).toBe(1);
   });
 
   test("returns an empty array when every log is absent", async () => {

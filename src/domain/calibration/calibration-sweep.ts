@@ -765,6 +765,17 @@ export interface CalibrationAsFireLogEntry {
  * name today. `"policy-coverage"` maps to `"policy-coverage-detector"`, a
  * STANDALONE guard (not GUARD_REGISTRY-registered as of this landing) — see
  * `docs/architecture/evaluation-loop-fire-log.md`'s "Known gaps" section.
+ *
+ * MUST have one entry per `CALIBRATION_LOG_REGISTRY` entry's `name` — a
+ * missing entry silently falls back to `entry.name` in
+ * `calibrationRecordToFireLogEntry` (below), splitting that guard's fire
+ * history across two different id strings instead of failing loudly. The
+ * "every registry name has an explicit mapping" test in
+ * `calibration-sweep.test.ts` exists specifically to catch a repeat of this
+ * (mt#2889 PR #2012 R1: `CALIBRATION_LOG_REGISTRY` gained a 7th entry,
+ * `"silent-stretch"` (mt#2866), via this PR's pre-merge rebase onto main —
+ * landing AFTER this map was first written, so the map fell out of sync
+ * with the registry it must exhaustively cover).
  */
 const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "causal-premise": "causal-premise-detector",
@@ -773,6 +784,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "code-mechanism-assertion": "code-mechanism-assertion-detector",
   "pre-narration": "pre-narration-detector",
   "policy-coverage": "policy-coverage-detector",
+  "silent-stretch": "silent-stretch-detector",
 };
 
 /**

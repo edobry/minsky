@@ -32,6 +32,7 @@ import { GUARD_REGISTRY } from "./registry";
 import type { GuardRegistration, GuardOutcome, DispatchContext, GuardModule } from "./registry";
 import { deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
+import type { TranscriptLine } from "./transcript";
 
 // ---------------------------------------------------------------------------
 // Canary evaluation (pure — no I/O)
@@ -84,10 +85,26 @@ export interface CanaryResult {
   error?: string;
 }
 
-/** Build a minimal synthetic DispatchContext for a canary invocation. */
+/**
+ * Build a minimal synthetic DispatchContext for a canary invocation.
+ *
+ * `transcriptLines` is explicitly `TranscriptLine[] | undefined` (mt#2889 PR
+ * #2012 R1 BLOCKING #1) — every real caller passes `canary.transcriptLines`,
+ * an OPTIONAL field on the registry's canary declaration (most guards have no
+ * transcript fixture at all). `DispatchContext["transcriptLines"]` itself is
+ * non-optional (`TranscriptLine[]`, per registry.ts — the dispatcher always
+ * resolves a concrete array, empty or not, before invoking any guard), so
+ * typing this parameter as that non-optional field type — while every call
+ * site actually passes a possibly-`undefined` value — was a type hole the
+ * root tsconfig's typecheck can't catch (`.minsky/hooks/` is outside its
+ * `include` set, per SPEC.md's dependency-free-tree invariant); only a
+ * runtime crash on an unguarded `.length`/`.map` access downstream would have
+ * surfaced it. The `?? []` fallback below was already runtime-safe; the fix
+ * is making the signature honest about what it actually accepts.
+ */
 function buildCanaryContext(
   event: GuardRegistration["event"],
-  transcriptLines: DispatchContext["transcriptLines"]
+  transcriptLines: TranscriptLine[] | undefined
 ): DispatchContext {
   return {
     event,

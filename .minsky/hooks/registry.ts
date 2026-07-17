@@ -23,6 +23,31 @@
 import type { ClaudeHookInput } from "./types";
 import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// ---------------------------------------------------------------------------
+// Canary fixture helpers (mt#2889 PR #2012 R1 BLOCKING #2 — portable defaults)
+// ---------------------------------------------------------------------------
+
+/**
+ * Machine-independent absolute path matching `check-guessed-session-path.ts`'s
+ * `SESSION_DIR_RE` (`[^\s'"]*\/state\/minsky\/sessions\/([^/\s'"]+)`) — that
+ * regex only requires the literal substring `/state/minsky/sessions/<id>`
+ * ANYWHERE in the string, so prefixing it with `os.tmpdir()` (instead of a
+ * hardcoded developer home directory) satisfies the guard's detection while
+ * working identically on any machine/user. The id itself is a fixed sentinel
+ * UUID-shaped string that will never exist as a real session — `exists()`
+ * (real `fs.existsSync`) always returns false for it, so the canary
+ * deterministically triggers the guard's deny path.
+ */
+const CANARY_NONEXISTENT_SESSION_PATH = join(
+  tmpdir(),
+  "state",
+  "minsky",
+  "sessions",
+  "00000000-canary-nonexistent-0000"
+);
 
 // ---------------------------------------------------------------------------
 // Lifecycle events
@@ -358,8 +383,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       input: {
         tool_name: "Bash",
         tool_input: {
-          command:
-            "cd /Users/edobry/.local/state/minsky/sessions/00000000-canary-nonexistent-0000/ && ls",
+          command: `cd ${CANARY_NONEXISTENT_SESSION_PATH}/ && ls`,
         },
       },
       expects: "deny",
@@ -408,8 +432,37 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     denyCapable: false,
     attentionCost: { denialMessageSizeChars: 200, optionCount: 0 },
-    // mt#2889: cwd = this real repo checkout (read-only git probes; no state written).
-    canary: { input: { cwd: process.cwd() }, expects: "warn" },
+    canary: {
+      input: {}, // cwd populated dynamically by setup below
+      expects: "warn",
+      // mt#2889 PR #2012 R1 BLOCKING #3: the guard's run() requires `cwd` to
+      // resolve as a real git repo (buildGitStateSnapshot returns null, and
+      // the guard silently no-ops, otherwise) — relying on the canary
+      // RUNNER's own ambient process.cwd() being a git checkout was flaky
+      // (true only when invoked from within a repo; false in CI contexts or
+      // other invocation cwds). Init a disposable, hermetic throwaway repo in
+      // a fresh temp dir instead — a single commit is enough for
+      // `git symbolic-ref HEAD` / `git log` / `git status` to all resolve
+      // cleanly, giving a deterministic "clean, default-branch-undetectable"
+      // snapshot (no origin configured) regardless of where the canary
+      // runner itself is invoked from.
+      setup: async () => {
+        const { mkdtempSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const cwd = mkdtempSync(join(tmpdir(), "mt2889-git-state-canary-"));
+        const run = (args: string[]): void => {
+          Bun.spawnSync(["git", ...args], { cwd, stdout: "ignore", stderr: "ignore" });
+        };
+        run(["init", "--initial-branch=main"]);
+        run(["config", "user.email", "canary@example.invalid"]);
+        run(["config", "user.name", "mt2889 canary"]);
+        writeFileSync(join(cwd, "canary.txt"), "canary fixture\n");
+        run(["add", "canary.txt"]);
+        run(["commit", "-m", "canary fixture commit"]);
+        return { cwd };
+      },
+    },
   },
   {
     name: "inject-prod-state",

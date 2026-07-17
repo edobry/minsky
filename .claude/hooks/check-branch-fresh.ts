@@ -49,7 +49,7 @@ import {
   DEFAULT_HOST_CAP_SEC,
 } from "./types";
 import type { ToolHookInput, HostCapInfo } from "./types";
-import { recordFireLogEntry } from "./fire-log";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
 const GUARD_NAME = "check-branch-fresh";
@@ -927,7 +927,10 @@ if (import.meta.main) {
   // budget — documented as a known gap in the PR body.
   const recordAndExit = (
     decision: "allow" | "deny",
-    overrideFields?: { overrideEnvVar: string; overrideClassification: "authorized_exception" }
+    overrideFields?: {
+      overrideEnvVar: string;
+      overrideClassification: ReturnType<typeof classifyOverride>;
+    }
   ): never => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
@@ -953,9 +956,14 @@ if (import.meta.main) {
     process.stdout.write(
       `[check-branch-fresh] OVERRIDE active (MINSKY_SKIP_FRESHNESS=1) — tool=${input.tool_name} ts=${ts}\n`
     );
+    // mt#2889 PR #2012 R1 (class-not-instance fix, mirroring NON-BLOCKING #5's
+    // check-generated-file-edit.ts fix): classify via the shared
+    // classifyOverride() rather than a hardcoded literal, so a future
+    // deregistration of this var from KNOWN_OVERRIDE_ENV_VARS correctly
+    // downgrades the fire-log classification instead of silently lying.
     recordAndExit("allow", {
       overrideEnvVar: "MINSKY_SKIP_FRESHNESS",
-      overrideClassification: "authorized_exception",
+      overrideClassification: classifyOverride("MINSKY_SKIP_FRESHNESS"),
     });
   }
 

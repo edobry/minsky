@@ -33,7 +33,10 @@
 import { join, isAbsolute } from "node:path";
 import { readInput, writeOutput, readHostCap, deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
-import { recordFireLogEntry } from "./fire-log";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
+
+/** This guard's legacy override env var — registered in HOOK_ONLY_ENV_VARS (mirrored here via known-override-env-vars.ts), so classifyOverride() resolves it as authorized_exception. */
+const OVERRIDE_ENV_VAR = "MINSKY_FORCE_EDIT_GENERATED";
 
 /** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
 const GUARD_NAME = "check-generated-file-edit";
@@ -298,12 +301,22 @@ if (import.meta.main) {
   // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
   // including the common "not a guarded tool" / "path unresolvable" /
   // "file missing" / "no banner" silent-allow paths, exactly once per
-  // invocation regardless of which early-return fires. No documented
-  // override env-var beyond MINSKY_FORCE_EDIT_GENERATED, which is audited
-  // separately via emitOverrideAuditLog (a distinct stdout audit line, not
-  // a fire-log override field — this guard's override is a legacy per-guard
-  // var, not the dispatcher's unified MINSKY_HOOK_OVERRIDE channel).
-  const recordAndExit = (decision: "allow" | "deny"): never => {
+  // invocation regardless of which early-return fires. This guard's
+  // override is a legacy per-guard var (MINSKY_FORCE_EDIT_GENERATED), not
+  // the dispatcher's unified MINSKY_HOOK_OVERRIDE channel — mt#2889 PR #2012
+  // R1 NON-BLOCKING #5: classify it via the shared classifyOverride() the
+  // same way check-branch-fresh.ts's MINSKY_SKIP_FRESHNESS override is
+  // classified, so override-rate aggregation over this guard isn't silently
+  // missing every audited bypass (it was already surfaced on stdout via
+  // emitOverrideAuditLog — that's a human-readable audit LINE, not the
+  // structured fire-log field this override metric needs).
+  const recordAndExit = (
+    decision: "allow" | "deny",
+    overrideFields?: {
+      overrideEnvVar: string;
+      overrideClassification: ReturnType<typeof classifyOverride>;
+    }
+  ): never => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
       event: "PreToolUse",
@@ -311,6 +324,7 @@ if (import.meta.main) {
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
+      ...overrideFields,
     });
     process.exit(0);
   };
@@ -356,7 +370,10 @@ if (import.meta.main) {
   // marker and permit. Otherwise emit denial.
   if (isOverrideSet()) {
     emitOverrideAuditLog(input.tool_name, targetPath, scanResult.patternName);
-    recordAndExit("allow");
+    recordAndExit("allow", {
+      overrideEnvVar: OVERRIDE_ENV_VAR,
+      overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
+    });
   }
 
   const denialReason = formatDenialReason(
