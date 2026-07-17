@@ -158,7 +158,12 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
       expect(screen.getByText("Workstreams (full)")).toBeDefined();
     });
 
-    expect(requestedUrls).toEqual(["/api/widget/workstreams/data"]);
+    // Scoped to the WIDGET endpoint: the mt#2885 needs-me join legitimately
+    // fetches /api/asks alongside; this test's contract is that the full
+    // altitude hits the bare widget endpoint with no query string.
+    expect(requestedUrls.filter((u) => u.includes("/api/widget/workstreams"))).toEqual([
+      "/api/widget/workstreams/data",
+    ]);
   });
 
   test("parseAltitude falls back to full on unknown or absent values", () => {

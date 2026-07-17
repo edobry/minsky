@@ -281,9 +281,66 @@ visibility across separate MCP server processes. `git-params-facade.ts`'s
 was previously none), giving git's own SIGTERM-triggered lockfile cleanup a
 chance to fire on a hang rather than running unbounded. The residual
 cross-process race (two respawned MCP server processes both writing to the
-same repo's `index.lock` during a rapid respawn burst) is tracked separately
-in mt#2886, since closing it requires a cross-process coordination
-mechanism, not just detection/repair.
+same repo's `index.lock` during a rapid respawn burst) was tracked
+separately in mt#2886, which investigated and closed it — see below.
+
+### Cross-process mutual exclusion for the residual race (mt#2886)
+
+mt#2886 investigated whether the residual cross-process race — a dying MCP
+server process's untracked/fire-and-forget git subprocess still winding
+down, overlapping with a freshly spawned sibling process's new `git_*`
+call against the SAME repo — is actually reachable, and if so, closed it.
+
+**Investigation (CONFIRMED reachable).** A dual-mode repro harness
+(`scripts/repro-mt2886-lock-race.ts`) reproduced the class two ways against
+a scratch git repository (never the main workspace):
+
+1. **Natural race**: two independent OS processes running tight commit
+   loops against the same repo concurrently produced raw `index.lock: File
+exists` collisions even at modest iteration counts — confirming the
+   underlying mechanism (`.git/index.lock`'s `O_CREAT|O_EXCL` acquire) is a
+   real, observable race between any two independent processes, not merely
+   theoretical.
+2. **Controlled residual-window reproduction**: a process holding
+   `.git/index.lock` open for a short window (simulating a dying process's
+   still-winding-down subprocess) reliably caused an immediately-following
+   git write from a second process (simulating the freshly spawned
+   sibling's new call) to fail raw — deterministically demonstrating the
+   exact scenario this task's spec named.
+
+Note: mt#2830 (merged the same day as this task's plan decision,
+2026-07-17) added idle-gap-sequenced staleness exits, which NARROWS the
+naive respawn-churn overlap window mt#2886's spec evidence originally
+described. It does not CLOSE the cross-process gap — a fresh process's call
+can still race a winding-down process's untracked subprocess — so the
+harness models this residual window, not the pre-mt#2830 naive churn.
+
+**Mechanism shipped: bounded retry-backoff, not a second lock.**
+`runGitCommandWithLockHandling` (`packages/domain/src/git/lock-operations.ts`)
+now retries a lock-blocked command up to 3 times over a ~2s backoff
+schedule (`LOCK_RETRY_BACKOFF_MS`) BEFORE falling through to the existing
+(unchanged) `repairLock`/actionable-busy-error handling. This treats
+`.git/index.lock`'s own existence as the mutex — every git process,
+Minsky-internal or external, already honors it via git's own locking
+protocol — rather than introducing a second lock (an OS `flock`, or a
+lease file under `~/.local/state/minsky/`) that would only coordinate
+Minsky-internal processes while leaving the actually-contended resource
+guarded by a mechanism external git processes ignore.
+
+**Non-regression preserved.** A genuinely persistent lock hold (an actual
+external git process, or a wedged one) still surfaces the SAME actionable
+busy error as before — just bounded by the ~2s retry budget rather than
+firing instantly. The repro harness's Phase 4 confirms this: a 6-second
+external-style hold still produces the busy error, bounded at ~2-2.5s
+elapsed (not immediate, not indefinite, not silently swallowed).
+
+Both `retryBackoffMs` and the internal `sleep` function are injectable on
+`LockAwareExecOptions` for testability; production callers use the
+defaults. Scope: the same write-class `git_*` main-workspace-ops family as
+mt#2820 (status/restore/pull/stash+pop/reset) — `lock-operations.ts` coexists
+with (does not replace) the detect/repair tooling, which remains the
+correct response to a lock from ANY cause, not just this specific
+Minsky-internal race.
 
 ---
 
@@ -303,11 +360,20 @@ mechanism, not just detection/repair.
 - mt#2820 — git-state repair affordances (index.lock detection/repair, remote-ref
   repair, git-exec timeout hardening); evidence trail: conversations 4b019e33,
   3c8cd612 (lock), c01f89af (bad ref)
-- mt#2886 — filed follow-up: cross-process mutual exclusion for the residual
-  root-cause gap this task's investigation surfaced but did not close
+- mt#2886 — cross-process mutual exclusion for the residual root-cause gap
+  mt#2820's investigation surfaced but did not close: confirmed the race is
+  reachable and shipped a bounded retry-backoff (see the dedicated section
+  above)
+- mt#2830 — idle-gap-sequenced staleness exits (narrows, but does not close,
+  the respawn-churn overlap window mt#2886's harness models)
 - `packages/domain/src/git/lock-operations.ts` — `detectIndexLock`,
-  `repairIndexLock`, `runGitCommandWithLockHandling`
+  `repairIndexLock`, `runGitCommandWithLockHandling`, `LOCK_RETRY_BACKOFF_MS`
+- `packages/domain/src/git/lock-operations.test.ts` — retry-backoff unit
+  tests with injectable clock (transient-resolves, persistent-exhausts-budget,
+  non-lock-errors-not-retried)
 - `packages/domain/src/git/ref-repair-operations.ts` — `checkRef`,
   `scanForBadRefs`, `repairBadRef`
 - `scripts/smoke-git-repair.ts` — end-to-end smoke covering all three mt#2820
   acceptance tests through the full command-registry execute path
+- `scripts/repro-mt2886-lock-race.ts` — dual-mode cross-process race repro
+  harness (race-reachability + fixed-behavior, against a scratch repo)
