@@ -26,6 +26,8 @@ import {
   formatContextFailureWarnings,
   fetchMergeBaseSha,
   fetchFileSizeAtRef,
+  isGhTransportClassFailure,
+  fetchCheckRunsViaForgeCli,
   type ExecFn,
   type PrContextFailure,
 } from "./pr-context";
@@ -33,6 +35,8 @@ import {
 const REPO = "edobry/minsky";
 const TASK = "mt#2617";
 const CWD = "/tmp";
+const GH_503_STDERR = "gh: Service Unavailable (HTTP 503)";
+const GH_404_STDERR = "gh: Not Found (HTTP 404)";
 
 const PR_TITLE = "feat: consolidate PR fetch";
 const FILES_ENDPOINT_MATCH = "pulls/1234/files";
@@ -271,6 +275,163 @@ describe("fetchCheckRunsRaw", () => {
     JSON.parse(raw.stdout || "{}");
     expect(count()).toBe(1);
   });
+
+  it("green path unchanged: no fallback call, no viaFallback flag, when gh succeeds (mt#2888)", () => {
+    const { exec, count } = withCallCounter(() => ({
+      exitCode: 0,
+      stdout: '{"total_count":0,"check_runs":[]}',
+      stderr: "",
+    }));
+    const result = fetchCheckRunsRaw(REPO, "abc123", { cwd: CWD, exec });
+    expect(count()).toBe(1);
+    expect(result.viaFallback).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isGhTransportClassFailure (mt#2888)
+// ---------------------------------------------------------------------------
+
+describe("isGhTransportClassFailure", () => {
+  it("classifies a timeout as transport-class", () => {
+    expect(isGhTransportClassFailure({ exitCode: 1, stdout: "", stderr: "", timedOut: true })).toBe(
+      true
+    );
+  });
+
+  it("classifies a 5xx status suffix as transport-class", () => {
+    expect(isGhTransportClassFailure({ exitCode: 1, stdout: "", stderr: GH_503_STDERR })).toBe(
+      true
+    );
+  });
+
+  it("classifies gh's own JSON-decode failure on an HTML body as transport-class (recorded incident text)", () => {
+    expect(
+      isGhTransportClassFailure({
+        exitCode: 1,
+        stdout: "",
+        stderr: "invalid character '<' looking for beginning of value",
+      })
+    ).toBe(true);
+  });
+
+  it("does NOT classify a genuine 404 as transport-class", () => {
+    expect(isGhTransportClassFailure({ exitCode: 1, stdout: "", stderr: GH_404_STDERR })).toBe(
+      false
+    );
+  });
+
+  it("does NOT classify success as transport-class", () => {
+    expect(isGhTransportClassFailure({ exitCode: 0, stdout: "{}", stderr: "" })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchCheckRunsViaForgeCli (mt#2888)
+// ---------------------------------------------------------------------------
+
+describe("fetchCheckRunsViaForgeCli", () => {
+  const FORGE_CLI_RESULT = JSON.stringify({
+    success: true,
+    allPassed: true,
+    summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+    checks: [{ name: "build", status: "completed", conclusion: "success", url: null }],
+  });
+
+  it("invokes `minsky forge check_runs_list <sha>` (positional arg, no --sha flag)", () => {
+    let seenCmd: string[] = [];
+    const exec: ExecFn = (cmd) => {
+      seenCmd = cmd;
+      return { exitCode: 0, stdout: FORGE_CLI_RESULT, stderr: "" };
+    };
+    fetchCheckRunsViaForgeCli("abc123", { cwd: CWD, exec });
+    expect(seenCmd).toEqual(["minsky", "forge", "check_runs_list", "abc123"]);
+  });
+
+  it("synthesizes a gh-api-shaped {total_count, check_runs[]} result from the forge CLI's checks[]", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: FORGE_CLI_RESULT, stderr: "" });
+    const result = fetchCheckRunsViaForgeCli("abc123", { cwd: CWD, exec });
+    expect(result).not.toBeNull();
+    const parsed = JSON.parse(result?.stdout ?? "{}");
+    expect(parsed.total_count).toBe(1);
+    expect(parsed.check_runs[0]).toMatchObject({
+      name: "build",
+      status: "completed",
+      conclusion: "success",
+    });
+  });
+
+  it("returns null when the CLI itself fails", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "minsky: not found" });
+    expect(fetchCheckRunsViaForgeCli("abc123", { cwd: CWD, exec })).toBeNull();
+  });
+
+  it("returns null on unparseable CLI output", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "not json", stderr: "" });
+    expect(fetchCheckRunsViaForgeCli("abc123", { cwd: CWD, exec })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchCheckRunsRaw — forge-CLI fallback integration (mt#2888, absorbed
+// mt#2887/mt#2892 acceptance tests)
+// ---------------------------------------------------------------------------
+
+describe("fetchCheckRunsRaw — forge-CLI fallback on gh transport failure", () => {
+  const FORGE_CLI_GREEN = JSON.stringify({
+    success: true,
+    allPassed: true,
+    summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+    checks: [{ name: "build", status: "completed", conclusion: "success", url: null }],
+  });
+
+  it("stub gh 503 + forge fallback green -> returns the fallback result with viaFallback:true", () => {
+    const exec: ExecFn = (cmd) => {
+      if (cmd[0] === "gh") {
+        return { exitCode: 1, stdout: "", stderr: GH_503_STDERR };
+      }
+      if (cmd[0] === "minsky") {
+        return { exitCode: 0, stdout: FORGE_CLI_GREEN, stderr: "" };
+      }
+      throw new Error(`unexpected command: ${cmd.join(" ")}`);
+    };
+    const result = fetchCheckRunsRaw(REPO, "abc123", { cwd: CWD, exec });
+    expect(result.viaFallback).toBe(true);
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.check_runs[0].conclusion).toBe("success");
+  });
+
+  it("both gh AND forge fallback fail -> returns the ORIGINAL gh failure unchanged, no viaFallback", () => {
+    const exec: ExecFn = (cmd) => {
+      if (cmd[0] === "gh") {
+        return { exitCode: 1, stdout: "", stderr: GH_503_STDERR };
+      }
+      if (cmd[0] === "minsky") {
+        return { exitCode: 1, stdout: "", stderr: "minsky: forge backend unavailable" };
+      }
+      throw new Error(`unexpected command: ${cmd.join(" ")}`);
+    };
+    const result = fetchCheckRunsRaw(REPO, "abc123", { cwd: CWD, exec });
+    expect(result.viaFallback).toBeUndefined();
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Service Unavailable (HTTP 503)");
+  });
+
+  it("a genuine 404 (not transport-class) never triggers the fallback", () => {
+    let forgeCliCalled = false;
+    const exec: ExecFn = (cmd) => {
+      if (cmd[0] === "gh") {
+        return { exitCode: 1, stdout: "", stderr: GH_404_STDERR };
+      }
+      forgeCliCalled = true;
+      return { exitCode: 0, stdout: FORGE_CLI_GREEN, stderr: "" };
+    };
+    const result = fetchCheckRunsRaw(REPO, "abc123", { cwd: CWD, exec });
+    expect(forgeCliCalled).toBe(false);
+    expect(result.viaFallback).toBeUndefined();
+    expect(result.stderr).toContain("Not Found");
+  });
 });
 
 describe("fetchBranchProtectionRaw", () => {
@@ -399,7 +560,7 @@ describe("fetchFileSizeAtRef", () => {
   });
 
   it("returns 0 when the file does not exist at the ref (404 Not Found)", () => {
-    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" });
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: GH_404_STDERR });
     const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
     expect(result).toBe(0);
   });
