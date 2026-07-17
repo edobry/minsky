@@ -230,15 +230,26 @@ async function isConfiguredInPulumi(): Promise<boolean> {
   // the flaky 15s CI timeout in lifecycle.test.ts (this is the only
   // `isConfigured` implementation in the provider registry, and it's the
   // sole real subprocess call `listCredentials` transitively makes).
-  const proc = Bun.spawnSync(["pulumi", "-C", infraDir, "config"], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: pulumiEnv(),
-    timeout: 3000, // ms — well under bun test's 15s ceiling; a warm,
-    // authenticated local `pulumi config` run takes ~0.5s.
-  });
-  if (proc.exitCode !== 0) return false;
-  return proc.stdout.toString().includes(TELEGRAM_PULUMI_SECRET_KEY.replace(/^secrets:/, ""));
+  //
+  // try/catch (PR #2020 R1): Bun.spawnSync can THROW (missing binary,
+  // spawn failure, timeout-kill edge) rather than return a non-zero
+  // exitCode. `listCredentials`' own `.catch(() => false)` would absorb a
+  // rejection from this async function, but a local catch keeps the
+  // "unavailable == not configured" contract independent of any caller's
+  // error handling (this provider method is also callable directly).
+  try {
+    const proc = Bun.spawnSync(["pulumi", "-C", infraDir, "config"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: pulumiEnv(),
+      timeout: 3000, // ms — well under bun test's 15s ceiling; a warm,
+      // authenticated local `pulumi config` run takes ~0.5s.
+    });
+    if (proc.exitCode !== 0) return false;
+    return proc.stdout.toString().includes(TELEGRAM_PULUMI_SECRET_KEY.replace(/^secrets:/, ""));
+  } catch {
+    return false;
+  }
 }
 
 export const telegramProvider: CredentialProvider = {
