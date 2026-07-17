@@ -14,6 +14,7 @@ import { getTaskSpecContentFromParams } from "@minsky/domain/tasks";
 import { BaseTaskCommand } from "./base-task-command";
 import { tasksSpecFreshnessParams } from "./task-parameters";
 import { resolveChangesetRepoUrl } from "../changeset/changeset-commands";
+import { ResourceNotFoundError } from "@minsky/domain/errors/index";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
@@ -72,19 +73,26 @@ export class TasksSpecFreshnessCommand extends BaseTaskCommand<typeof tasksSpecF
           try {
             const refTask = await getTaskFromParams({ taskId: refTaskId }, deps);
             return refTask ? { status: refTask.status, updatedAt: refTask.updatedAt } : null;
-          } catch {
-            // Not found, unresolvable ID, or a backend error — treated as
-            // "can't check this ref", not a hard failure of the whole command.
-            return null;
+          } catch (err) {
+            // Only a genuine "no such task" is a legitimate null (recorded by
+            // checkSpecFreshness as skipped: "task not found"). Any OTHER error
+            // (DB connection loss, backend outage, malformed ID) must propagate
+            // so checkSpecFreshness's own catch records the REAL reason in
+            // `skipped` — swallowing it here would mask a backend outage as an
+            // indistinguishable "ref doesn't exist" (mt#2826 PR #1996 R1).
+            if (err instanceof ResourceNotFoundError) {
+              return null;
+            }
+            throw err;
           }
         },
         getChangesetInfo: async (prNumber: string) => {
-          try {
-            const changeset = await changesetService.get(prNumber);
-            return changeset ? { status: changeset.status, updatedAt: changeset.updatedAt } : null;
-          } catch {
-            return null;
-          }
+          // changesetService.get() returns null/undefined for "not found" —
+          // no try/catch needed for that case. A genuine error (network,
+          // rate-limit, auth) propagates naturally so checkSpecFreshness
+          // records the real reason instead of a misleading "not found".
+          const changeset = await changesetService.get(prNumber);
+          return changeset ? { status: changeset.status, updatedAt: changeset.updatedAt } : null;
         },
       }
     );
