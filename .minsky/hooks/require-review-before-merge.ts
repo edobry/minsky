@@ -17,6 +17,7 @@ import {
   fetchReviewsRaw,
   fetchCheckRunsRaw,
   fetchBranchProtectionRaw,
+  type CheckRunsFetchResult,
 } from "./pr-context";
 
 // ---------------------------------------------------------------------------
@@ -1063,13 +1064,23 @@ if (import.meta.main) {
   // neither depends on server-side filtering), and GitHub's `total_count` is
   // the true total regardless of page size — so a single per_page=100 fetch
   // satisfies all three without changing what gets parsed or denied.
-  let checkRunsResp: { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } = {
+  let checkRunsResp: CheckRunsFetchResult = {
     exitCode: 1,
     stdout: "",
     stderr: "not fetched",
   };
   if (headSha) {
     checkRunsResp = fetchCheckRunsRaw(repo, headSha, { cwd: input.cwd });
+    // mt#2888: audit line whenever the check-runs read came from the
+    // forge-CLI fallback rather than the primary `gh api` call — visible
+    // regardless of the eventual allow/deny outcome, so the transport
+    // degradation is on the record either way.
+    if (checkRunsResp.viaFallback) {
+      process.stdout.write(
+        `[require-review-before-merge] gh check-runs transport failure — used minsky forge check_runs_list fallback ` +
+          `(PR #${pr}, HEAD ${headSha.slice(0, 7)}, ${new Date().toISOString()})\n`
+      );
+    }
   }
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.

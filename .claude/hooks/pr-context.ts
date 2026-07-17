@@ -555,6 +555,106 @@ export function resolvePrRefByBranch(
 // this module only reduces HOW MANY calls are made).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// gh-transport-class-failure detection + forge-CLI fallback (mt#2888)
+// ---------------------------------------------------------------------------
+//
+// The 2026-07-16 GitHub-degradation incident (subsumed mt#2887/mt#2892)
+// showed the server's Octokit-backed forge client surviving a window where
+// every `gh api` call 503'd (confirmed by githubstatus.com's "Degraded REST
+// API Availability" declaration + a live repro: `gh api
+// repos/.../check-runs` -> `invalid character '<' looking for beginning of
+// value`, i.e. gh's JSON decoder choking on GitHub's HTML "Unicorn" error
+// page). The Octokit path's apparent immunity is credited to
+// `@octokit/plugin-retry`'s documented retry behavior (mt#2887 finding) —
+// this fallback EXTENDS that same documented resilience pattern to the
+// gh-CLI-dependent merge-gate surfaces rather than inventing a bespoke
+// retry policy of its own.
+
+/**
+ * True when a `gh api .../check-runs` `ExecResult` looks like a
+ * TRANSPORT-class failure (5xx, gateway/timeout, or gh's own JSON-decode
+ * failure when GitHub serves an HTML error page instead of JSON) rather
+ * than a genuine API error (404 PR/ref not found, 401 auth, 422, etc.) that
+ * a fallback path cannot fix either. Distinguishing the two matters: only a
+ * transport-class failure should trigger the forge-CLI fallback — a real
+ * 404/401 should surface as-is so the caller's existing diagnosis stays
+ * accurate.
+ */
+export function isGhTransportClassFailure(result: ExecResult): boolean {
+  if (result.timedOut) return true;
+  if (result.exitCode === 0) return false;
+  const text = `${result.stderr}\n${result.stdout}`;
+  if (/\(HTTP 5\d\d\)/.test(text)) return true;
+  if (/invalid character .* looking for beginning of value/i.test(text)) return true;
+  if (/bad gateway|gateway timeout|service unavailable|ECONNRESET|ETIMEDOUT|EOF\b/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Synthesize a `gh api .../check-runs` -shaped `ExecResult` (GitHub's raw
+ * Checks-API `{total_count, check_runs[]}` body) from the `minsky forge
+ * check_runs_list <sha>` CLI's JSON output — so every existing check-runs
+ * parser (`parseCheckRunsResponse`, `parseAllCheckRunsResponse`,
+ * `parseBundleBootSmokeResponse` in require-review-before-merge.ts) keeps
+ * working UNCHANGED against the fallback path. `started_at`/`completed_at`
+ * are not available from the forge CLI's `CheckRunResult` shape (name/
+ * status/conclusion/url only) and are omitted — every consumer treats them
+ * as optional/nullable already.
+ */
+function synthesizeCheckRunsExecResult(forgeStdout: string): ExecResult | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(forgeStdout);
+  } catch {
+    return null;
+  }
+  const obj = parsed as { checks?: unknown };
+  if (!Array.isArray(obj.checks)) return null;
+  const checkRuns = (obj.checks as Array<Record<string, unknown>>).map((c) => ({
+    name: typeof c.name === "string" ? c.name : "",
+    status: typeof c.status === "string" ? c.status : "unknown",
+    conclusion: typeof c.conclusion === "string" ? c.conclusion : null,
+    html_url: typeof c.url === "string" ? c.url : null,
+  }));
+  return {
+    exitCode: 0,
+    stdout: JSON.stringify({ total_count: checkRuns.length, check_runs: checkRuns }),
+    stderr: "",
+  };
+}
+
+/**
+ * Fetch check-runs via the `minsky forge check_runs_list <sha>` CLI —
+ * Octokit-backed, using the SAME App-token client the server's forge
+ * capability already holds (no new credential, no localhost HTTP channel;
+ * matches the hook-to-CLI server-data pattern established by the mt#2813
+ * standalone-duplicate probe and mt#2823's ask-verification). Deliberately
+ * NO `--json` flag: the command has no `json` param (mirrors `tools asks
+ * list`'s contract) and prints its result object as JSON natively.
+ *
+ * Returns `null` when the fallback itself fails (CLI not on PATH, non-zero
+ * exit, unparseable output) — the caller keeps the ORIGINAL `gh` failure as
+ * the reported error in that case, per this hook's deny-on-failure posture.
+ */
+export function fetchCheckRunsViaForgeCli(
+  headSha: string,
+  opts: FetchOpts = {}
+): ExecResult | null {
+  const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
+  const result = exec(["minsky", "forge", "check_runs_list", headSha], { cwd, timeout });
+  if (result.exitCode !== 0) return null;
+  return synthesizeCheckRunsExecResult(result.stdout);
+}
+
+/** `ExecResult` extended with a flag marking whether the forge-CLI fallback produced this result (mt#2888) — callers use it to emit an audit line, never to change parsing (the shape stays GitHub's raw check-runs format either way). */
+export interface CheckRunsFetchResult extends ExecResult {
+  /** True when this result came from the `minsky forge check_runs_list` fallback, not the primary `gh api` call. */
+  viaFallback?: boolean;
+}
+
 /**
  * Fetch ALL check_runs for a commit in ONE call (`per_page=100`). Returns
  * the RAW exec result — callers parse it with their own (already-tested)
@@ -577,13 +677,34 @@ export function resolvePrRefByBranch(
  * on a mismatch rather than silently evaluating a truncated set; that gate
  * already does this (its `allRuns.totalCount > allRuns.runs.length`
  * pagination guardrail, mt#1938/PR #1167 R1).
+ *
+ * **mt#2888 forge-CLI fallback:** when the primary `gh api` call fails with
+ * a transport-class signal (`isGhTransportClassFailure`), automatically
+ * retries via `fetchCheckRunsViaForgeCli` before giving up — transparent to
+ * every caller (require-review-before-merge.ts, require-checks-on-bypass-
+ * merge.ts), which keep parsing the SAME `{total_count, check_runs[]}`
+ * shape regardless of which path produced it. `viaFallback: true` on the
+ * returned result lets a caller emit an audit line without changing its
+ * parse/decision logic. If the fallback ALSO fails, the ORIGINAL `gh`
+ * result is returned unchanged (deny-on-failure posture preserved — the
+ * caller's existing "transport/parse failure" denial text still fires, and
+ * mt#2888's D8-grant-store escape valve becomes the caller's recovery path).
  */
-export function fetchCheckRunsRaw(repo: string, headSha: string, opts: FetchOpts = {}): ExecResult {
+export function fetchCheckRunsRaw(
+  repo: string,
+  headSha: string,
+  opts: FetchOpts = {}
+): CheckRunsFetchResult {
   const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
-  return exec(["gh", "api", `repos/${repo}/commits/${headSha}/check-runs?per_page=100`], {
+  const primary = exec(["gh", "api", `repos/${repo}/commits/${headSha}/check-runs?per_page=100`], {
     cwd,
     timeout,
   });
+  if (!isGhTransportClassFailure(primary)) return primary;
+
+  const fallback = fetchCheckRunsViaForgeCli(headSha, opts);
+  if (fallback) return { ...fallback, viaFallback: true };
+  return primary;
 }
 
 /**

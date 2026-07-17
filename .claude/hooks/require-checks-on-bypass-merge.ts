@@ -88,6 +88,25 @@ import {
   REQUIRED_CHECKS_OVERRIDE_ENV,
 } from "./require-review-before-merge";
 import { findGhApiPutMergeSegment } from "./block-subagent-bypass-merge";
+import { fetchCheckRunsRaw } from "./pr-context";
+import { checkOverride } from "./dispatcher";
+
+/**
+ * Guard name this hook registers for the mt#2658 D8 guard-grant store
+ * (scope-bound, reason-mandatory, TTL'd escape valve — see
+ * `guard-grant-store.ts`). Distinct from `forceBypass`/`bypassReason`
+ * (session_pr_merge's in-band bypass, which is about REVIEW state) — this
+ * guard name is specifically for the "verified-green-but-transport-
+ * unreadable" case: the operator/agent has independently confirmed (e.g.
+ * via the GitHub UI) that every required check is green, but BOTH the `gh`
+ * CLI AND the forge-CLI fallback failed to read check-run state, so this
+ * hook cannot confirm it itself. `MINSKY_SKIP_REQUIRED_CHECKS=1` (launch-
+ * time env var) remains available for operator-terminal use; the grant
+ * store is the reachable channel for an agent mid-session (mt#2658's
+ * originating motivation — an agent cannot set an env var the harness
+ * subprocess will see).
+ */
+export const REQUIRED_CHECKS_BYPASS_GUARD_NAME = "require-checks-on-bypass-merge";
 
 // ---------------------------------------------------------------------------
 // Merge-target extraction
@@ -223,6 +242,12 @@ export function fetchPrInfo(target: MergeTarget): PrInfoLookupResult {
 // The entry-point's decision logic is extracted here so it can be unit-tested
 // with mocked lookups. The real entry point wires in execSync-based fetchers.
 
+/** Result of a D8 grant-store lookup for the required-checks bypass guard (mt#2888). */
+export interface GrantOverrideCheckResult {
+  overridden: boolean;
+  reason?: string;
+}
+
 export interface BypassDispatchInput {
   toolName: string;
   command: string;
@@ -231,12 +256,35 @@ export interface BypassDispatchInput {
   prInfoLookup: (target: MergeTarget) => PrInfoLookupResult;
   branchProtectionFetch: (owner: string, repo: string, branch: string) => ExecSyncResult;
   checkRunsFetch: (owner: string, repo: string, headSha: string) => ExecSyncResult;
+  /**
+   * mt#2888: D8 guard-grant-store lookup, scoped to `owner/repo#prNumber`.
+   * Consulted ONLY on the "cannot read" (transport-unreadable) denial class
+   * — never on a genuinely-red/pending CI state. Injectable for tests;
+   * defaults to a real grant-store read via `checkOverride` (dispatcher.ts).
+   */
+  checkGrantOverride?: (scope: string) => GrantOverrideCheckResult;
 }
 
 export type BypassDispatchOutput =
   | { kind: "skip" }
   | { kind: "override"; auditLine: string }
   | { kind: "deny"; reason: string };
+
+/**
+ * Real D8 grant-store lookup — the default `checkGrantOverride`
+ * implementation. Reuses `checkOverride` from `dispatcher.ts` (the same
+ * D8-consulting function `parallel-work-guard.ts`'s duplicate-child matcher
+ * uses), scoped to `REQUIRED_CHECKS_BYPASS_GUARD_NAME`. `checkOverride`
+ * ALSO consults the unified `MINSKY_HOOK_OVERRIDE` env var — harmless here
+ * (this hook is not `GUARD_REGISTRY`-migrated, so `MINSKY_HOOK_OVERRIDE`
+ * naming this guard is an intentional secondary escape hatch, not a
+ * conflict with the legacy `MINSKY_SKIP_REQUIRED_CHECKS` var handled
+ * separately above).
+ */
+function defaultCheckGrantOverride(scope: string): GrantOverrideCheckResult {
+  const result = checkOverride(REQUIRED_CHECKS_BYPASS_GUARD_NAME, process.env, { scope });
+  return { overridden: result.overridden, reason: result.grantReason };
+}
 
 const DENIAL_PREFIX = "Bypass-merge denied:";
 const DENIAL_SUFFIX =
@@ -329,6 +377,44 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
     headSha
   );
   if (gateResult.deny && gateResult.reason) {
+    // mt#2888: distinguish "cannot read" (transport/parse failure on the
+    // branch-protection or check-runs fetch itself — CI status is UNKNOWN,
+    // not confirmed red) from "read and failed" (the fetch succeeded and a
+    // required check genuinely isn't green). Only the FORMER gets the D8
+    // grant-store escape valve and the distinct denial text below — the
+    // latter's existing `evaluateRequiredChecksStatus` reason (fix the CI or
+    // wait) is unchanged and does NOT get a bypass nudge.
+    const cannotRead = !protectionParseResult.ok || !allRunsParseResult.ok;
+    if (cannotRead) {
+      const scope = `${target.owner}/${target.repo}#${target.prNumber}`;
+      const grantCheck = input.checkGrantOverride
+        ? input.checkGrantOverride(scope)
+        : defaultCheckGrantOverride(scope);
+      if (grantCheck.overridden) {
+        return {
+          kind: "override",
+          auditLine:
+            `[require-checks-on-bypass-merge] required-checks gate skipped via mt#2658 D8 grant ` +
+            `(guard: ${REQUIRED_CHECKS_BYPASS_GUARD_NAME}, target: ${scope}, ` +
+            `reason: ${grantCheck.reason ?? "(unknown)"}, ${new Date().toISOString()})\n`,
+        };
+      }
+      return {
+        kind: "deny",
+        reason: buildDenial(
+          `CI status for PR #${target.prNumber} HEAD ${headSha.slice(0, 7)} could NOT BE READ ` +
+            `(both the gh CLI and the forge-CLI fallback failed) — this is transport unreadability, ` +
+            `NOT a confirmed red build. Do not treat this as a signal to bypass. ` +
+            `${gateResult.reason} ` +
+            `Recovery: (a) retry once GitHub API access is confirmed healthy ` +
+            `(check https://www.githubstatus.com/), or (b) if you have independently verified via ` +
+            `another channel (e.g. the GitHub UI) that every required check is green, issue a scoped, ` +
+            `reason-mandatory grant: bun scripts/grant-guard-override.ts --guard ` +
+            `${REQUIRED_CHECKS_BYPASS_GUARD_NAME} --scope ${scope} --reason '<evidence>', then retry. ` +
+            `${REQUIRED_CHECKS_OVERRIDE_ENV}=1 remains available for operator-terminal use.`
+        ),
+      };
+    }
     return {
       kind: "deny",
       reason: buildDenial(gateResult.reason),
@@ -344,6 +430,11 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
+  // mt#2888: track whether the check-runs read used the forge-CLI fallback
+  // (gh transport-class failure) — the audit line fires below regardless of
+  // the eventual allow/deny/override outcome.
+  let checkRunsViaFallback = false;
+
   const result = dispatchBypassCheck({
     toolName: input.tool_name,
     command: (input.tool_input.command as string | undefined) ?? "",
@@ -354,11 +445,19 @@ if (import.meta.main) {
       execSync(["gh", "api", `repos/${owner}/${repo}/branches/${branch}/protection`], {
         timeout: 10000,
       }),
-    checkRunsFetch: (owner, repo, headSha) =>
-      execSync(["gh", "api", `repos/${owner}/${repo}/commits/${headSha}/check-runs?per_page=100`], {
-        timeout: 10000,
-      }),
+    checkRunsFetch: (owner, repo, headSha) => {
+      const fetched = fetchCheckRunsRaw(`${owner}/${repo}`, headSha, {});
+      if (fetched.viaFallback) checkRunsViaFallback = true;
+      return fetched;
+    },
   });
+
+  if (checkRunsViaFallback) {
+    process.stdout.write(
+      `[require-checks-on-bypass-merge] gh check-runs transport failure — used minsky forge check_runs_list fallback ` +
+        `(${new Date().toISOString()})\n`
+    );
+  }
 
   if (result.kind === "skip") {
     process.exit(0);
