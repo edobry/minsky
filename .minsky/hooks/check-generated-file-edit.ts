@@ -294,7 +294,20 @@ const GUARDED_TOOLS = new Set([
   "Write",
 ]);
 
-if (import.meta.main) {
+/**
+ * Entrypoint body, wrapped in an `async function` (mt#2889 PR #2012 CI fix,
+ * mt#2900) rather than left as a bare top-level `if (import.meta.main) {
+ * ... }` block — matching the established convention every OTHER guard with
+ * multi-step narrowing uses (e.g. `causal-premise-detector.ts`'s `main()`).
+ * A bare top-level block is not a function body, so `return` is invalid
+ * there; CI's `tsconfig.hooks.json` typecheck (tsgo, a native-preview
+ * compiler) also does not narrow `targetPath`/`scanResult` from their
+ * nullable types after a bare (non-`return`ed) call to a locally-defined
+ * `never`-returning closure the way it does after an explicit `return` —
+ * wrapping in a real function makes `return recordAndExit(...)` both valid
+ * AND the correctly-narrowing form.
+ */
+async function main(): Promise<void> {
   const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
 
@@ -331,7 +344,7 @@ if (import.meta.main) {
 
   // Only act on the guarded tools
   if (!GUARDED_TOOLS.has(input.tool_name)) {
-    recordAndExit("allow");
+    return recordAndExit("allow");
   }
 
   // Read host cap from settings.json and apply derived budgets. Deferred from
@@ -345,8 +358,8 @@ if (import.meta.main) {
   // Extract target file path from tool input
   const targetPath = extractTargetPath(input.tool_name, input.tool_input, input.cwd);
   if (!targetPath) {
-    // Can't extract path — fail-open (shape mismatch or unsupported tool variant)
-    recordAndExit("allow");
+    // Can't extract path — fail-open (shape mismatch or unsupported tool variant).
+    return recordAndExit("allow");
   }
 
   // Scan the file's first 5 lines for generation-banner markers FIRST so that
@@ -358,19 +371,19 @@ if (import.meta.main) {
 
   if (scanResult.skipReason) {
     // File missing or unreadable — fail-open
-    recordAndExit("allow");
+    return recordAndExit("allow");
   }
 
   if (!scanResult.found) {
     // No banner marker — permit
-    recordAndExit("allow");
+    return recordAndExit("allow");
   }
 
   // Banner found. Check for override; if set, audit-log with the matched
   // marker and permit. Otherwise emit denial.
   if (isOverrideSet()) {
     emitOverrideAuditLog(input.tool_name, targetPath, scanResult.patternName);
-    recordAndExit("allow", {
+    return recordAndExit("allow", {
       overrideEnvVar: OVERRIDE_ENV_VAR,
       overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
     });
@@ -391,5 +404,9 @@ if (import.meta.main) {
       permissionDecisionReason: denialReason,
     },
   });
-  recordAndExit("deny");
+  return recordAndExit("deny");
+}
+
+if (import.meta.main) {
+  await main();
 }

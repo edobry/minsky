@@ -812,7 +812,8 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       transcriptLines: [
         {
           type: "user",
-          message: { role: "user", content: "start", timestamp: "2026-01-01T00:00:00Z" },
+          message: { role: "user", content: "start" },
+          timestamp: "2026-01-01T00:00:00Z",
         },
         // TOOL_CALL_THRESHOLD=15 consecutive tool_use-only assistant lines,
         // zero assistant TEXT in between — crosses the tool-count cadence

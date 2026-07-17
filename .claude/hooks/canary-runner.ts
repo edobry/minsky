@@ -33,7 +33,7 @@
 // @see scripts/run-guard-canaries.ts — CLI entrypoint consuming this module
 
 import { GUARD_REGISTRY } from "./registry";
-import type { GuardRegistration, GuardOutcome, DispatchContext, GuardModule } from "./registry";
+import type { GuardRegistration, GuardRunResult, DispatchContext, GuardModule } from "./registry";
 import { deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
@@ -48,9 +48,19 @@ export type CanaryExpectation = NonNullable<GuardRegistration["canary"]>["expect
  * True iff `outcome` satisfies `expects`. Pure function — the sole seam
  * exercised directly by the sabotage-detection unit tests (see
  * `canary-runner.test.ts`), independent of any guard module or fs access.
+ *
+ * `outcome` is typed `GuardRunResult` (mt#2889 PR #2012 CI fix — the local
+ * typecheck gap named in `buildCanaryContext`'s doc comment applies here
+ * too: `.minsky/hooks/` is outside the root tsconfig, so only the SEPARATE
+ * `tsconfig.hooks.json` CI check catches this class of hole). A guard's
+ * `run()` returns `GuardOutcome | null | undefined | void` per registry.ts's
+ * `GuardModule` contract — the real call site (`runGuardCanary` below) hands
+ * this function that exact union, and `void` is not structurally the same
+ * as `undefined` to a strict checker even though a `void`-returning function
+ * always evaluates to `undefined` at runtime.
  */
 export function evaluateCanaryOutcome(
-  outcome: GuardOutcome | null | undefined,
+  outcome: GuardRunResult,
   expects: CanaryExpectation
 ): boolean {
   if (!outcome) return false;

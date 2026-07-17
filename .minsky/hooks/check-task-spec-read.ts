@@ -273,7 +273,19 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
 // Entry point (fail-open: any error allows the call)
 // ---------------------------------------------------------------------------
 
-if (import.meta.main) {
+/**
+ * Entrypoint body, wrapped in an `async function` (mt#2889 PR #2012 CI fix,
+ * mt#2900) rather than left as a bare top-level `if (import.meta.main) {
+ * ... }` block — matching the established convention every OTHER guard with
+ * multi-step narrowing uses. A bare top-level block is not a function body,
+ * so `return` is invalid there; CI's `tsconfig.hooks.json` typecheck (tsgo,
+ * a native-preview compiler) also does not narrow `transcriptPath` from its
+ * nullable type after a bare (non-`return`ed) call to a locally-defined
+ * `never`-returning closure the way it does after an explicit `return` —
+ * wrapping in a real function makes `return recordAndExit(...)` both valid
+ * AND the correctly-narrowing form.
+ */
+async function main(): Promise<void> {
   const startMs = Date.now();
   let sessionId: string | undefined;
   let toolNameForLog: string | undefined;
@@ -307,19 +319,25 @@ if (import.meta.main) {
       process.stdout.write(
         `[check-task-spec-read] OVERRIDE: ack=${overrideVal} tool=${input.tool_name} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`
       );
-      recordAndExit("allow");
+      return recordAndExit("allow");
     }
 
     const toolName = input.tool_name;
     const toolInput = input.tool_input ?? {};
     const targetId = resolveTargetTaskId(toolName, toolInput);
-    if (!targetId) recordAndExit("allow"); // not guarded / non-READY transition / no resolvable id
+    // not guarded / non-READY transition / no resolvable id
+    if (!targetId) return recordAndExit("allow");
 
     const transcriptPath = input.transcript_path;
-    if (!transcriptPath) recordAndExit("allow"); // can't verify without a transcript — fail-open
+    // can't verify without a transcript — fail-open. `return` (not a bare
+    // call) narrows `transcriptPath` from `string | undefined` to `string`
+    // for `specWasSurfacedInAnyTranscript` below — CI's tsconfig.hooks.json
+    // typecheck (tsgo, mt#2900) doesn't perform this narrowing off a bare
+    // (non-`return`ed) never-returning expression statement.
+    if (!transcriptPath) return recordAndExit("allow");
 
     if (specWasSurfacedInAnyTranscript(transcriptPath, input.agent_id, targetId)) {
-      recordAndExit("allow");
+      return recordAndExit("allow");
     }
 
     const rawTaskId =
@@ -334,7 +352,7 @@ if (import.meta.main) {
       },
     };
     process.stdout.write(`${JSON.stringify(output)}\n`);
-    recordAndExit("deny");
+    return recordAndExit("deny");
   } catch (err) {
     process.stderr.write(
       `[check-task-spec-read] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
@@ -350,6 +368,10 @@ if (import.meta.main) {
     // from in that case; the error message on stderr above is the only
     // available diagnostic. Skipping the "populate what exists" advice
     // here deliberately, since there is genuinely nothing to populate.
-    recordAndExit("allow");
+    return recordAndExit("allow");
   }
+}
+
+if (import.meta.main) {
+  await main();
 }
