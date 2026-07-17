@@ -1010,9 +1010,73 @@ specific to iteration:
    "does nothing" or reports one bizarre error, suspect word-splitting / the iteration
    construct (point 2) before blaming permissions, auth, or the sandbox.
 
+## Secret handling in shell commands
+
+Bash/`session_exec` output is persisted to disk (the harness JSONL transcript) AND ingested
+into the transcripts DB (`mcp__minsky__transcripts_ingest`, the SessionEnd hook). **Anything a
+command prints becomes durable, searchable, stored credential material** — there is no
+"just this once" scratch output. When checking whether a secret (token/key/PAT/password) is
+set, or inspecting its shape, NEVER place the raw secret-bearing variable in an **output
+position** (`echo`, `printf`, `cat`, a here-string, command substitution that gets echoed, etc.).
+
+### The `${SECRET:-default}` footgun
+
+`${VAR:-alt}` and `${VAR:+alt}` look like a matched pair but are NOT symmetric for this
+purpose:
+
+- `${VAR:+alt}` — **alternate**-if-set: expands to the literal `alt` when `VAR` is set, empty
+  otherwise. Safe, as long as `alt` doesn't itself re-embed `$VAR`.
+- `${VAR:-alt}` — **value**-if-set, alt only if UNSET: expands to `alt` only when `VAR` is
+  *unset*; when `VAR` IS set (the common case you're actually checking), it expands to the
+  **full secret value**, not a placeholder.
+
+Mixing the two on the same variable in one interpolation is how a real leak happened
+(2026-07-13, mt#2738 Pulumi Cloud migration incident): a presence-check meant to print
+"present" printed the entire Pulumi access token instead —
+
+```bash
+# LOOKS like a safe presence check. It is NOT.
+echo "pulumi token present: ${K:+yes (len ${#K}, prefix ${K:0:4})}${K:-NO}"
+#                                                                  ^^^^^^^^ prints the FULL
+#                                                                  token when $K is set
+```
+
+The `${K:+...}` half was safe; the trailing `${K:-NO}` silently expanded to the live token
+because `:-` only substitutes when the variable is *unset*, and here it was set.
+
+### Safe forms
+
+```bash
+# presence — never interpolates the value
+[ -n "$K" ] && echo "present" || echo "absent"
+
+# length — ${#K} is a length (an integer), never the value
+echo "len=${#K}"
+
+# both together, safely
+[ -n "$K" ] && echo "present (len=${#K})" || echo "absent"
+```
+
+### Rule: never interpolate a secret variable in an output position
+
+- NEVER: `echo "$SECRET"`, `echo "${SECRET}"`, `echo "${SECRET:-default}"`,
+  `printf ... "$SECRET"`, `cat <<< "$SECRET"`, or any construct where the secret's VALUE
+  (not its presence or length) can appear in stdout/stderr.
+- A prefix preview (`${K:0:4}`) is still a partial value leak — avoid it in shared/persisted
+  transcripts unless the task specifically requires identifying a credential and the operator
+  has accepted that tradeoff; presence + length is sufficient for the common "did this get
+  set correctly" check.
+- This applies equally to `session_exec` — its output is captured into the same persisted
+  transcript as Bash.
+
+Defense-in-depth for this failure class (a tool-output credential scrubber that redacts
+credential-shaped strings from tool output before it reaches the durable transcript store) is
+tracked separately — see `packages/domain/src/transcripts/credential-scrubber.ts`. This rule
+is the compose-time discipline; the scrubber is the safety net for when discipline slips.
+
 ## Rationale
 
-Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
+Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions. The secret-handling subsection prevents a distinct failure class — a shell interpolation footgun that leaks credential VALUES into the persisted, ingested transcript (mt#2763; originating incident 2026-07-13, mt#2738).
 
 ## General
 
