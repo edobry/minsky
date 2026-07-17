@@ -704,7 +704,7 @@ export function buildSessionMergeDeps(
  * wire — so the excerpt has to live in `summary` itself for operators to
  * see the true failure.
  */
-const MERGE_ERROR_SUMMARY_EXCERPT_LIMIT = 200;
+export const MERGE_ERROR_SUMMARY_EXCERPT_LIMIT = 200;
 
 /**
  * Phrases that specifically indicate a REAL, resolved merge conflict —
@@ -769,8 +769,11 @@ export function classifyMergeError(err: unknown): MergeErrorClass {
  * headline so operators see the true failure instead of just a generic
  * label (mt#2890 — see MERGE_ERROR_SUMMARY_EXCERPT_LIMIT doc above for why
  * this can't just live in `details`).
+ *
+ * Exported for direct unit testing — see workflow-commands-merge-error-
+ * classification.test.ts.
  */
-function withOriginalMessage(headline: string, originalMessage: string): string {
+export function withOriginalMessage(headline: string, originalMessage: string): string {
   const flattened = originalMessage.replace(/\s+/g, " ").trim();
   if (!flattened || headline.includes(flattened)) return headline;
   const excerpt = safeTruncate(flattened, MERGE_ERROR_SUMMARY_EXCERPT_LIMIT);
