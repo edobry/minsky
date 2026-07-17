@@ -358,6 +358,34 @@ export function _resetDefaultLoggerForTests(): void {
   defaultLogger = null;
 }
 
+/**
+ * Force the shared default logger singleton to be rebuilt on next use,
+ * picking up any `process.env` changes (e.g. `ENABLE_AGENT_LOGS`,
+ * `MINSKY_LOG_MODE`, `LOGLEVEL`) made since it was first created.
+ *
+ * Unlike {@link _resetDefaultLoggerForTests} (test-only), this IS a
+ * legitimate production entrypoint — for a caller that intentionally
+ * mutates a logger-relevant env var at runtime and needs the change to
+ * take effect immediately, rather than silently having no effect until
+ * some later, unrelated first-use of `log` happens to occur after the
+ * mutation (which may never happen, if something already called `log.*`
+ * earlier in the process).
+ *
+ * Without this, `enableAgentLogs` (and the HUMAN/STRUCTURED mode choice)
+ * is captured ONCE into each wrapper function's closure inside
+ * {@link createLogger} at first use and never re-read from `process.env`
+ * again. Originating case (mt#2894 PR #2019 R1 BLOCKING #3):
+ * `src/cockpit/daemon-file-log.ts`'s `installDaemonFileLogging()` set
+ * `ENABLE_AGENT_LOGS=true` but never called this, so `log.warn`/`log.info`/
+ * `log.debug` calls that happened to be the process's first `log.*` use —
+ * anywhere in the CLI bootstrap, before `cockpit start`'s action handler
+ * even ran — silently kept dropping, because the singleton had already
+ * baked in the pre-change (disabled) value.
+ */
+export function reinitializeDefaultLoggerFromEnv(): void {
+  defaultLogger = null;
+}
+
 export const isStructuredMode = () => getDefaultLogger().isStructuredMode();
 export const isHumanMode = () => getDefaultLogger().isHumanMode();
 
