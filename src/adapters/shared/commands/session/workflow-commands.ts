@@ -697,19 +697,87 @@ export function buildSessionMergeDeps(
 }
 
 /**
- * Return true when an error from a PR merge operation indicates a git conflict.
+ * Cap (chars) on the flattened original-error excerpt folded into a
+ * structured merge error's `summary` (mt#2890). `buildWireMessage` in
+ * mcp-structured-errors.ts only reads `details.tail` / `subprocessOutput` —
+ * an arbitrary `details.originalMessage` field is NEVER rendered on the
+ * wire — so the excerpt has to live in `summary` itself for operators to
+ * see the true failure.
  */
-function isMergeConflictError(err: unknown): boolean {
-  if (err instanceof SessionConflictError) return true;
-  const msg =
-    err instanceof Error ? err.message : typeof err === "string" ? err : String(err ?? "");
-  return (
-    msg.includes("CONFLICT") ||
-    msg.includes("conflict") ||
-    msg.includes("merge conflict") ||
-    msg.includes("Cannot merge") ||
-    msg.includes("mergeable")
-  );
+export const MERGE_ERROR_SUMMARY_EXCERPT_LIMIT = 200;
+
+/**
+ * Phrases that specifically indicate a REAL, resolved merge conflict —
+ * either Minsky's own `mergeable === false` pre-check (github-pr-
+ * operations.ts) or GitHub's 405/422 "cannot be merged" diagnosis.
+ * Deliberately excludes the bare word "mergeable": mt#2890's
+ * unknown-mergeability error ("merge readiness could not be determined...")
+ * must NOT be classified as a conflict, and a bare "mergeable" substring
+ * match previously caught it.
+ */
+const MERGE_CONFLICT_PHRASES = [
+  "merge conflict",
+  "cannot merge",
+  "cannot be merged automatically",
+  "pull request cannot be merged",
+];
+
+/** Discriminated classification of a session.pr.merge failure (mt#2890). */
+export type MergeErrorClass =
+  | { kind: "conflict" }
+  | { kind: "rate-limit" }
+  | { kind: "degraded"; status?: string }
+  | { kind: "other" };
+
+function mergeErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : typeof err === "string" ? err : String(err ?? "");
+}
+
+/**
+ * Classify a session.pr.merge failure into conflict / rate-limit /
+ * degraded(5xx) / other. Narrowed replacement for the prior
+ * `isMergeConflictError`, whose bare "mergeable" / "conflict" substring
+ * checks mislabeled GitHub's *unknown* mergeability state (surfaced by
+ * `pollForMergeableStatus`'s poll-exhausted error) as a false merge
+ * conflict — sending operators down the wrong remediation path (rebase)
+ * during a rate-limited/degraded GitHub window (mt#2890 root cause).
+ *
+ * Exported for direct unit testing — see workflow-commands-merge-error-
+ * classification.test.ts.
+ */
+export function classifyMergeError(err: unknown): MergeErrorClass {
+  if (err instanceof SessionConflictError) return { kind: "conflict" };
+
+  const rawMessage = mergeErrorMessage(err);
+  const msgLower = rawMessage.toLowerCase();
+
+  if (MERGE_CONFLICT_PHRASES.some((phrase) => msgLower.includes(phrase))) {
+    return { kind: "conflict" };
+  }
+  if (msgLower.includes("rate limit")) {
+    return { kind: "rate-limit" };
+  }
+  const degradedMatch = rawMessage.match(/\(HTTP (5\d\d)\)/);
+  if (degradedMatch) {
+    return { kind: "degraded", status: degradedMatch[1] };
+  }
+  return { kind: "other" };
+}
+
+/**
+ * Fold the original error message (flattened to one line, truncated) onto a
+ * headline so operators see the true failure instead of just a generic
+ * label (mt#2890 — see MERGE_ERROR_SUMMARY_EXCERPT_LIMIT doc above for why
+ * this can't just live in `details`).
+ *
+ * Exported for direct unit testing — see workflow-commands-merge-error-
+ * classification.test.ts.
+ */
+export function withOriginalMessage(headline: string, originalMessage: string): string {
+  const flattened = originalMessage.replace(/\s+/g, " ").trim();
+  if (!flattened || headline.includes(flattened)) return headline;
+  const excerpt = safeTruncate(flattened, MERGE_ERROR_SUMMARY_EXCERPT_LIMIT);
+  return `${headline}: ${excerpt}`;
 }
 
 export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -765,15 +833,45 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
           return { success: true, result, printed: true };
         } catch (err) {
-          if (isMergeConflictError(err)) {
-            const msg = err instanceof Error ? err.message : String(err);
+          const errorClass = classifyMergeError(err);
+          if (errorClass.kind === "other") {
+            throw err;
+          }
+
+          const originalMessage = mergeErrorMessage(err);
+
+          if (errorClass.kind === "conflict") {
             throw mcpStructuredError({
               code: McpErrorCode.CONFLICT,
-              summary: "Merge conflict prevented PR from merging",
-              details: { originalMessage: msg },
+              summary: withOriginalMessage(
+                "Merge conflict prevented PR from merging",
+                originalMessage
+              ),
+              details: { originalMessage },
             });
           }
-          throw err;
+
+          if (errorClass.kind === "rate-limit") {
+            throw mcpStructuredError({
+              code: McpErrorCode.RATE_LIMITED,
+              summary: withOriginalMessage(
+                "GitHub API rate limit exceeded — wait a few minutes before retrying the merge",
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+
+          // errorClass.kind === "degraded"
+          const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+          throw mcpStructuredError({
+            code: McpErrorCode.SERVICE_DEGRADED,
+            summary: withOriginalMessage(
+              `GitHub API degraded/unavailable${statusSuffix}`,
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
         }
       }
     ),
