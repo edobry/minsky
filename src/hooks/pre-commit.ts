@@ -2036,6 +2036,33 @@ export function classifyCompileCheckError(
     };
   }
 
+  // mt#2874: per-rule-ceiling-exceeded classification. Reuses the SAME
+  // "budget-exceeded" errorKind (and therefore the same MINSKY_SKIP_SIZE_BUDGET
+  // override) as the aggregate budget check above — one audited escape hatch,
+  // not two, per the mt#2874 spec.
+  const perRuleCeilingLineRe = new RegExp(
+    `\\[${cmd} --check\\] Target "${escapedTarget}" HAS RULE\\(S\\) EXCEEDING PER-RULE CEILING`,
+    "m"
+  );
+  const isPerRuleCeilingExceeded = perRuleCeilingLineRe.test(stdout);
+
+  if (isPerRuleCeilingExceeded) {
+    const detail = stdout.trim();
+    const indentedDetail = detail
+      .split("\n")
+      .map((line) => `   ${line}`)
+      .join("\n");
+    return {
+      logLines: [
+        `❌ Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling.`,
+        indentedDetail,
+        `💡 Trim the rule(s) listed above, or set MINSKY_SKIP_SIZE_BUDGET=1 to override this commit (audit-logged).`,
+      ],
+      message: `Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling`,
+      errorKind: "budget-exceeded",
+    };
+  }
+
   // Compile command errored. Surface the actual error so the operator knows
   // what to fix — re-running the compile command will NOT help.
   const rawDetail = stderr.trim() || stdout.trim();

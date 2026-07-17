@@ -15,7 +15,7 @@ import { claudeMdTarget } from "./targets/claude-md";
 import { cursorRulesTarget } from "./targets/cursor-rules";
 import { claudeRulesTarget } from "./targets/claude-rules";
 import { resolveActiveRules } from "../rule-selection";
-import { evaluateSizeBudget } from "./size-budget";
+import { evaluateSizeBudget, DEFAULT_PER_RULE_CEILING_CHARS } from "./size-budget";
 
 @injectable()
 export class CompileService {
@@ -144,6 +144,8 @@ async function compileDryRun(
       includedIds: rulesIncluded,
       defaultBudget: DEFAULT_CLAUDE_MD_SIZE_BUDGET,
       override: options.sizeBudget,
+      // mt#2874: per-rule 15K ceiling — claude.md only, per the spec's scope.
+      perRuleCeiling: DEFAULT_PER_RULE_CEILING_CHARS,
     });
     return {
       target: target.id,
@@ -156,6 +158,7 @@ async function compileDryRun(
       sizeBudgetStatus: sizeEvaluation.status,
       topContributors: sizeEvaluation.topContributors,
       ruleContentChars: sizeEvaluation.ruleContentChars,
+      perRuleViolations: sizeEvaluation.perRuleViolations,
     };
   }
 

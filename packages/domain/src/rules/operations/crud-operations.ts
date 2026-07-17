@@ -362,6 +362,7 @@ async function compileSingleTarget(
       sizeBudgetStatus: dryResult.sizeBudgetStatus,
       topContributors: dryResult.topContributors,
       ruleContentChars: dryResult.ruleContentChars,
+      perRuleViolations: dryResult.perRuleViolations,
     };
   }
 
@@ -387,6 +388,7 @@ async function compileSingleTarget(
       sizeBudgetStatus: result.sizeBudgetStatus,
       topContributors: result.topContributors,
       ruleContentChars: result.ruleContentChars,
+      perRuleViolations: result.perRuleViolations,
     };
   }
 
@@ -402,6 +404,7 @@ async function compileSingleTarget(
     sizeBudgetStatus: result.sizeBudgetStatus,
     topContributors: result.topContributors,
     ruleContentChars: result.ruleContentChars,
+    perRuleViolations: result.perRuleViolations,
   };
 }
 

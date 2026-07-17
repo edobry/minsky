@@ -46,10 +46,32 @@ export interface SizeBudgetEvaluation {
    * section preamble). Lets messages attribute overage honestly.
    */
   ruleContentChars: number;
+  /**
+   * `alwaysApply: true` rules (mt#2874) whose OWN compiled contribution
+   * exceeds the per-rule ceiling, ranked by size descending. Empty when no
+   * `perRuleCeiling` was supplied to `evaluateSizeBudget` (the default) —
+   * this is an OPT-IN sibling check, not a replacement for the aggregate
+   * `status` above: a target can pass the aggregate budget while still
+   * having one oversized always-on rule (or vice versa).
+   */
+  perRuleViolations: RuleContribution[];
 }
 
 /** Number of top contributors to report in a budget message (mt#2802 spec). */
 export const TOP_CONTRIBUTOR_COUNT = 5;
+
+/**
+ * Default per-rule ceiling (chars) for a single `alwaysApply: true` rule's
+ * compiled contribution (mt#2874). Makes mt#1877's per-rule 15KB budget
+ * (previously spec-memory only) mechanical: `rules compile --check` fails
+ * and NAMES the rule when any always-on rule's own trimmed content exceeds
+ * this many chars, independent of whether the target's AGGREGATE budget
+ * (`SizeBudget` above) also fails. A rule "exceeds" the ceiling only when
+ * its size is STRICTLY GREATER than this value — exactly at the ceiling is
+ * not yet an overage (mirrors the sibling growth-justification gate's
+ * `> GROWTH_THRESHOLD_CHARS` boundary, mt#2874).
+ */
+export const DEFAULT_PER_RULE_CEILING_CHARS = 15_000;
 
 /**
  * Resolve the effective budget for a compile, merging a target's default
@@ -126,8 +148,36 @@ export function computeRuleContributions(rules: Rule[], includedIds: string[]): 
 }
 
 /**
+ * Find `alwaysApply: true` rules among `includedIds` whose compiled
+ * contribution STRICTLY EXCEEDS `ceilingChars` (mt#2874). Only rules with
+ * `alwaysApply === true` are considered — a large glob-scoped or
+ * agent-requested rule contributes to the AGGREGATE budget but was never
+ * the always-loaded-context hazard this per-rule ceiling exists to catch
+ * (the same scoping the mt#2874 spec's ladder discipline targets: content
+ * that isn't `alwaysApply` already sits on a cheaper channel). Ranked by
+ * size descending, matching `topContributors`' ordering convention.
+ */
+export function findPerRuleCeilingViolations(
+  rules: Rule[],
+  includedIds: string[],
+  ceilingChars: number = DEFAULT_PER_RULE_CEILING_CHARS
+): RuleContribution[] {
+  const alwaysApplyIds = new Set(rules.filter((r) => r.alwaysApply === true).map((r) => r.id));
+  const contributions = computeRuleContributions(
+    rules,
+    includedIds.filter((id) => alwaysApplyIds.has(id))
+  );
+  return contributions.filter((c) => c.size > ceilingChars).sort((a, b) => b.size - a.size);
+}
+
+/**
  * Full evaluation: resolve the effective budget, classify the compiled
- * size, and rank the top contributors for a fail/warn message.
+ * size, rank the top contributors for a fail/warn message, and — when
+ * `perRuleCeiling` is supplied — find any `alwaysApply: true` rule whose
+ * own contribution exceeds it (mt#2874). Omitting `perRuleCeiling` skips
+ * that computation entirely (empty `perRuleViolations`), so callers that
+ * don't want the per-rule check (e.g. targets other than `claude.md`) pay
+ * no extra cost.
  */
 export function evaluateSizeBudget(params: {
   sizeChars: number;
@@ -135,6 +185,8 @@ export function evaluateSizeBudget(params: {
   includedIds: string[];
   defaultBudget: SizeBudget;
   override?: Partial<SizeBudget>;
+  /** Opt-in per-rule ceiling (chars). See `findPerRuleCeilingViolations`. */
+  perRuleCeiling?: number;
 }): SizeBudgetEvaluation {
   const budget = resolveSizeBudget(params.defaultBudget, params.override);
   const status = evaluateSizeBudgetStatus(params.sizeChars, budget);
@@ -145,6 +197,10 @@ export function evaluateSizeBudget(params: {
     status,
     topContributors: topContributors(contributions),
     ruleContentChars: contributions.reduce((sum, c) => sum + c.size, 0),
+    perRuleViolations:
+      params.perRuleCeiling !== undefined
+        ? findPerRuleCeilingViolations(params.rules, params.includedIds, params.perRuleCeiling)
+        : [],
   };
 }
 
