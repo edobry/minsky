@@ -32,3 +32,12 @@ export {
 
 // Export read-only interfaces for ADR-004 validate() phase
 export type { ReadonlyTaskService } from "./readonly-interfaces";
+
+// Spec-freshness recheck (mt#2826) — pure detection core
+export { checkSpecFreshness } from "./spec-freshness";
+export type {
+  SpecFreshnessDeps,
+  SpecFreshnessDriftEntry,
+  SpecFreshnessRefLookup,
+  SpecFreshnessResult,
+} from "./spec-freshness";
