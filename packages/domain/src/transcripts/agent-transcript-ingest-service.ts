@@ -7,10 +7,27 @@
  * `last_ingested_jsonl_timestamp` high-water-mark are ingested.  Re-running
  * over an unchanged JSONL is a no-op.
  *
+ * ## Credential scrubbing (mt#2763)
+ *
+ * Every raw line is passed through `scrubValueDeep` (see
+ * `./credential-scrubber.ts`) BEFORE it reaches either durable-copy
+ * destination this service writes to — `agent_transcripts.transcript` JSONB
+ * and `agent_transcript_attachments.content`. This is the chosen enforcement
+ * point: investigation (documented in `credential-scrubber.ts`'s header)
+ * found that a Claude Code PostToolUse hook cannot rewrite/redact a tool
+ * result before it is stored or displayed, so the scrub cannot happen at the
+ * hook layer — it has to happen here, at ingest, the first point a raw line
+ * is about to become a DB-backed durable copy. Per-turn extraction
+ * (`turn-writer.ts`) re-reads the already-scrubbed stored transcript, so one
+ * interception point covers every DB-backed read path. This does NOT scrub
+ * the harness's own on-disk JSONL copy or the live model context — see
+ * `credential-scrubber.ts`'s "What this does NOT cover" section.
+ *
  * @see mt#1313 §Ingestion semantics
  * @see mt#1351 — this file
  * @see mt#1350 — TranscriptSource interface + ClaudeCodeTranscriptSource
  * @see mt#1324 — agent_transcripts schema
+ * @see mt#2763 — credential scrubbing at this layer
  */
 
 import { eq, sql } from "drizzle-orm";
@@ -24,6 +41,8 @@ import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcr
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
+import { scrubValueDeep, type RedactionHit } from "./credential-scrubber";
+import { recordCredentialScrub, realCredentialScrubLogDeps } from "./credential-scrub-log";
 
 export class AgentTranscriptIngestService {
   constructor(
@@ -102,6 +121,10 @@ export class AgentTranscriptIngestService {
     const newAttachmentRows: AttachmentRow[] = [];
     let latestTs: Date | null = null;
     let lineIndex = -1;
+    // mt#2763: credential-shaped strings redacted out of raw lines this
+    // call, aggregated across the whole stream and logged once below (the
+    // counted signal — see credential-scrub-log.ts).
+    const allRedactions: RedactionHit[] = [];
 
     try {
       for await (const line of this.source.readSession(agentSessionId)) {
@@ -118,9 +141,18 @@ export class AgentTranscriptIngestService {
 
         const lineType = typeof line.type === "string" ? line.type : "";
         if (lineType === "user" || lineType === "assistant") {
-          newLines.push(line);
+          // mt#2763: scrub BEFORE the line is retained — this is the
+          // durable-copy write path (agent_transcripts.transcript JSONB).
+          const { value: scrubbedLine, redactions } = scrubValueDeep(line);
+          if (redactions.length > 0) allRedactions.push(...redactions);
+          newLines.push(scrubbedLine);
         } else if (lineType === "attachment" || lineType === "system") {
-          const row = buildAttachmentRow(agentSessionId, lineIndex, line, tsDate);
+          // mt#2763: scrub BEFORE buildAttachmentRow captures `content: line`
+          // verbatim (attachment-row-builder.ts) — the other durable-copy
+          // write path (agent_transcript_attachments.content).
+          const { value: scrubbedLine, redactions } = scrubValueDeep(line);
+          if (redactions.length > 0) allRedactions.push(...redactions);
+          const row = buildAttachmentRow(agentSessionId, lineIndex, scrubbedLine, tsDate);
           if (row !== null) newAttachmentRows.push(row);
         }
 
@@ -135,6 +167,15 @@ export class AgentTranscriptIngestService {
       // Return 0 — don't partially-commit a broken read.
       // Surface the error so the sweep can count it (mt#1444).
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
+    }
+
+    // mt#2763: emit the counted signal for this call before anything else —
+    // independent of whether the stream produced any retained lines, so an
+    // operator can see redaction activity even on a call whose lines were
+    // all filtered by the HWM gate or an unrecognized type. Best-effort; see
+    // credential-scrub-log.ts's own error-swallowing posture.
+    if (allRedactions.length > 0) {
+      recordCredentialScrub(agentSessionId, allRedactions, realCredentialScrubLogDeps);
     }
 
     if (newLines.length === 0 && newAttachmentRows.length === 0) {
