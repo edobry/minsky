@@ -227,109 +227,95 @@ narration lives in the linked doc.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
-A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
-entrypoints) letting multiple guards share ONE spawned Bun process per event — 17 migrated so far
-(`GUARD_REGISTRY`-listed; mt#2650/2652/2687/2812/2824). `policy-coverage-detector` stays on
-`PreToolUse` (spec discrepancy); every other guard below is a standalone `settings.json` entry.
-
-**Load-bearing.** A dispatcher's `timeout` is the HOST CAP; guards run SEQUENTIALLY — size a
-family's entry to the SUM of pre-migration timeouts. Source: `.minsky/hooks/`; `.claude/hooks/*`
-is GENERATED (mt#2304) — recompile via `bun run minsky compile --target claude-hooks` and commit
-both together. This rule is itself compiled — `rules compile`, then grep the change into
-`CLAUDE.md`.
-
-No override for the framework; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all` covers migrated
-guards. Doc: `guard-dispatcher-framework.md`.
+Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
+entrypoints): multiple guards share ONE Bun process per event — 17 migrated
+(`GUARD_REGISTRY`; mt#2650/2652/2687/2812/2824); every other guard below is a standalone
+`settings.json` entry. **Load-bearing:** a dispatcher's `timeout` is the HOST CAP and guards run
+SEQUENTIALLY — size the entry to the SUM of pre-migration timeouts. Source `.minsky/hooks/`;
+`.claude/hooks/*` is GENERATED (mt#2304) — `bun run minsky compile --target claude-hooks`, commit
+both. This rule is itself compiled (`rules compile`, then grep the change into `CLAUDE.md`).
+No framework override; `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` covers migrated guards.
+Doc: `guard-dispatcher-framework.md`.
 
 ## Parallel-Work Guard
 
 PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
 on open-PR file overlap (advisory for recently-merged); blocks subtask creation on duplicate-child
-titles vs an ACTIVE sibling (terminal siblings WARN, mt#2683). A parent-less `tasks_create` runs
-the standalone-duplicate probe instead (mt#2813): embeddings similarity search vs active tasks,
-WARN-only under a calibrated distance. Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate
-(g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time) + a grant file (mt#2658); the standalone probe has
-none (advisory-only). Fail: closed (open-PR) / open (both duplicate checks warn+permit on
-unreadable data / search-backend failure).
+titles vs an ACTIVE sibling (terminal siblings WARN, mt#2683); parent-less `tasks_create` gets the
+WARN-only embeddings similarity probe instead (mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor:
+`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time) + grant file (mt#2658); probe has none. Fail: closed
+(open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
 
 ## Bypass-Merge Guard
 
 PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge` — prefer
-`session_pr_merge`'s audited `forceBypass`. Subagent invocations always blocked, no override.
-Hook: `block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent only).
-Fail: default-deny, no fail-open path. Doc: `bypass-merge-guard.md`.
+`session_pr_merge`'s audited `forceBypass`. Subagents always blocked, no override. Hook:
+`block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent only). Fail:
+default-deny. Doc: `bypass-merge-guard.md`.
 
 ## Out-of-Band Merge Guard
 
 PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR body documents a
-coupled out-of-band step never confirmed (markdown-aware scan). Hook:
-`block-out-of-band-merge.ts`. Override: `MINSKY_ACK_OOB_MERGE=1`. Fail: open — `gh` failure allows
-with a warning. Doc: `out-of-band-merge-guard.md`.
+coupled out-of-band step never confirmed. Hook: `block-out-of-band-merge.ts`. Override:
+`MINSKY_ACK_OOB_MERGE=1`. Fail: open (`gh` failure warns).
+Doc: `out-of-band-merge-guard.md`.
 
 ## Skill/Agent/Rule Staleness Detector
 
-UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**` changed
-since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
-`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: informational, silent on error.
+UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**`
+changed since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
+`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: silent-informational.
 Doc: `skill-staleness-detector.md`.
 
 ## Generated File Edit Guard
 
 PreToolUse on file-edit tools (`Edit`/`Write`/`session_edit_file`/`session_write_file`/
-`session_search_replace`): blocks edits to a file whose first 5 lines carry a generation banner.
-Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`. Fail: open on
-no-match/missing-file/read-error.
-Doc: `generated-file-edit-guard.md`.
+`session_search_replace`): blocks edits to files whose first 5 lines carry a generation banner.
+Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`. Fail: open
+(no-match/missing-file/read-error all permit). Doc: `generated-file-edit-guard.md`.
 
 ## Branch Freshness Guard
 
 PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main`
-has commits the branch lacks. On a CLEAN tree, tries an inline `git merge --no-edit` first
-(mt#2815) — a clean merge proceeds (audit line, no manual round-trip); a conflict aborts the
-merge and denies as before. On block: `session_update` to rebase, review overlap, retry.
-Hook: `check-branch-fresh.ts`. Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4
-routine paths + merge-in-progress (audit line); fetch failures warn.
-Doc: `branch-freshness-guard.md`.
+has commits the branch lacks; on a clean tree tries an inline `git merge --no-edit` first
+(mt#2815 — clean merge proceeds with audit line; conflict aborts + denies). On block:
+`session_update`, review overlap, retry. Hook: `check-branch-fresh.ts`. Override:
+`MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine paths + merge-in-progress; fetch
+failures warn. Doc: `branch-freshness-guard.md`.
 
 ## Bundle-Boot Smoke Gate
 
 Merge-gate extension: denies `session_pr_merge` unless `bundle-boot-smoke` CI concluded `success`
-on HEAD (catches dev-vs-bundled-boot divergence). Override:
-`MINSKY_SKIP_BUNDLE_SMOKE=1` (only after manually verifying local boot). Fail: deny-by-default
-(4 denial classes).
-Doc: `bundle-boot-smoke-gate.md`.
+on HEAD. Override: `MINSKY_SKIP_BUNDLE_SMOKE=1` (only after verifying local boot). Fail:
+deny-by-default. Doc: `bundle-boot-smoke-gate.md`.
 
 ## Single Shared PR-Data Fetch Layer
 
-Not a guard: `.claude/hooks/pr-context.ts` (mt#2617), the ONE place the 4 `session_pr_merge`
-gates fetch PR data from `gh`. No trigger/override (library). mt#2888: `fetchCheckRunsRaw`
-retries via `minsky forge check_runs_list` (Octokit-backed, same App token) on a `gh`
-transport-class failure (5xx/timeout/HTML-body JSON-decode error) — never on a genuine
-404/401/422. Doc: `pr-data-fetch-layer.md`.
+Not a guard: `.claude/hooks/pr-context.ts` (mt#2617) — the ONE place the 4 `session_pr_merge`
+gates fetch PR data from `gh`. mt#2888: `fetchCheckRunsRaw` retries via `minsky forge
+check_runs_list` (Octokit) on `gh` transport-class failures only (5xx/timeout/HTML-body decode),
+never genuine 404/401/422. Doc: `pr-data-fetch-layer.md`.
 
 ## Required-Checks Bypass-Merge D8 Escape Valve
 
-PreToolUse on `Bash`/`session_exec`: layer 2 of the required-checks defense (mt#1951; layer 1
-is `require-review-before-merge.ts`, mt#1938) — denies a `gh api PUT .../merge` bypass unless
-every branch-protection-required check concluded `success` on HEAD. mt#2888: distinguishes
-"cannot read" (a fetch itself failed — CI status UNKNOWN) from "read and failed" (fetch
-succeeded, a check is genuinely red/pending); only the former consults the mt#2658 D8
-guard-grant store (guard `require-checks-on-bypass-merge`, scope `owner/repo#PR`) and gets
-denial text naming the grant-issuance recovery instead of a bypass nudge. Hook:
-`require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1` (launch-time)
-or a D8 grant (`scripts/grant-guard-override.ts`, mid-session-reachable). Fail: deny-on-failure
-(unresolvable PR/target denies). Doc: `required-checks-bypass-merge-gate.md`.
+PreToolUse on `Bash`/`session_exec` (layer 2 of mt#1951; layer 1: `require-review-before-merge.ts`):
+denies a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD.
+mt#2888: only "cannot read" (fetch failed — status UNKNOWN) consults the mt#2658 D8 grant store
+(guard `require-checks-on-bypass-merge`, scope `owner/repo#PR`); "read and failed" never does.
+Hook: `require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1`
+(launch-time) or a D8 grant (`scripts/grant-guard-override.ts`). Fail: deny-on-failure.
+Doc: `required-checks-bypass-merge-gate.md`.
 
 ## Execution-Evidence Merge Gate
 
-PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** (mt#1459) or new
+PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** (mt#1459) or
 **operational scripts** (`scripts/*.ts`, mt#2776) without an `Execution evidence:` block;
 dual-mode scripts need EACH branch exercised (dry-run + bounded `--execute`, mt#2760/mt#2774).
-Marker forms: mt#2648 (below). Hook: `require-execution-evidence-before-merge.ts`. Override:
-`[unverified-tests]` title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh`
-failure. Siblings: `/prepare-pr` §1b, `/implement-task` §7a.
+Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]` title tag +
+follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/prepare-pr` §1b,
+`/implement-task` §7a.
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
@@ -339,10 +325,9 @@ lacking a `Deploy verification:` commitment; paired PostToolUse injects a
 `deployment_wait-for-latest` reminder. Hooks: `deploy-surface-detector.ts` +
 `require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escapes:
 `[no-deploy-impact]` title; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-Marker acceptance (mt#2648, shared by every `session_pr_merge` gate below): label+colon, or a
-heading (any level, colon optional), case-insensitive. Fail: open (unresolvable repo/PR/
-non-surface PR); PostToolUse always exits 0.
-Doc: `deploy-verification-merge-gate.md`.
+Marker forms (mt#2648, shared by all `session_pr_merge` gates): label+colon, or any-level heading
+(colon optional), case-insensitive. Fail: open (unresolvable repo/PR/non-surface); PostToolUse
+always exits 0. Doc: `deploy-verification-merge-gate.md`.
 
 ## Growth-Justification Merge Gate
 
@@ -353,42 +338,30 @@ justification:` marker (mt#2648 form) — states the measured delta + the rule-a
 `MINSKY_SKIP_SIZE_JUSTIFICATION=1` (audited, value not echoed). Fail: open on unreadable diff/PR.
 Doc: `growth-justification-merge-gate.md`.
 
-## NUL-Byte Pre-Commit Guard
+## Pre-Commit Steps (`src/hooks/pre-commit.ts`)
 
-Pre-commit step (`runNulByteCheck()` in `src/hooks/pre-commit.ts`): blocks staged text with
-literal NUL bytes (allowlist: binary extensions + `tests/fixtures/`). Override:
-`MINSKY_SKIP_NUL_CHECK=1`. Fail: blocks any hit outside the allowlist.
-Doc: `nul-byte-precommit-guard.md`.
-
-## Workspace-COPY Pre-Commit Guard
-
-Pre-commit step: REGENERATES (mt#2621) the workspace `package.json` COPY block in every protected
-Dockerfile from the root `workspaces` glob, auto-restaging. No override — only ever auto-fixes
-forward. Fail: blocks only if a protected Dockerfile lacks the generated-block markers.
-Doc: `workspace-copy-precommit-guard.md`.
-
-## Deploy-Domain Ownership Guard
-
-Pre-commit step: blocks a domain **asserted** as a deploy target (`infra/index.ts`,
-`services/*/{deploy,astro}.config.ts`, README "Deployed at") unless allowlisted in
-`infra/controlled-domains.json` (assertions, not mere mentions). Override:
-`MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`. Fail: blocks any unallowlisted domain.
-Doc: `deploy-domain-ownership-guard.md`.
+- **NUL-byte** — blocks staged text with literal NUL bytes (allowlist: binary extensions +
+  `tests/fixtures/`); override `MINSKY_SKIP_NUL_CHECK=1`. Doc: `nul-byte-precommit-guard.md`.
+- **Workspace-COPY** — REGENERATES (mt#2621) the workspace `package.json` COPY block in protected
+  Dockerfiles from the root `workspaces` glob, auto-restaging; no override (auto-fixes forward);
+  blocks only if markers are missing. Doc: `workspace-copy-precommit-guard.md`.
+- **Deploy-domain ownership** — blocks a domain **asserted** as a deploy target (`infra/index.ts`,
+  `services/*/{deploy,astro}.config.ts`, README "Deployed at") unless allowlisted in
+  `infra/controlled-domains.json`; override `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`.
+  Doc: `deploy-domain-ownership-guard.md`.
 
 ## Drive-PR-To-Convergence Reminder
 
-PostToolUse on successful `session_pr_create`: injects a mandatory convergence reminder naming
-`session_pr_wait-for-review` as next action, forbidding deferral phrases. Hook:
-`drive-pr-to-convergence.ts`. No override. Fail: always exits 0.
-Doc: `drive-pr-to-convergence-reminder.md`.
+PostToolUse on successful `session_pr_create`: injects a convergence reminder naming
+`session_pr_wait-for-review` as next action. Hook: `drive-pr-to-convergence.ts`. No override.
+Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
 
 ## Substrate-Bypass Detector
 
 UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
-prose without `/retrospective`, and DB-substrate-bypass phrasing in the prior turn. Hook:
-`substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`. Fail: open on transcript
-error; silent on first turn.
-Doc: `substrate-bypass-detector.md`.
+prose without `/retrospective`, and DB-substrate-bypass phrasing. Hook:
+`substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`. Fail: open on
+transcript error; silent on first turn. Doc: `substrate-bypass-detector.md`.
 
 ## Retrospective-Trigger Scanner
 
@@ -398,34 +371,21 @@ signals; reminds to invoke `/retrospective` (suppressed if already invoked). Hoo
 Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`. Fail: open on transcript error.
 Doc: `retrospective-trigger-scanner.md`.
 
-## Current-Time Injection Hook
+## Injection Hooks (UserPromptSubmit, per-turn context)
 
-UserPromptSubmit: injects date/day/local/UTC time every turn. Hook:
-`inject-current-time.ts` (always fires, <1ms). Override: `MINSKY_SKIP_TIME_INJECTION=1`.
-Doc: `current-time-injection-hook.md`.
-
-## Git-State Injection Hook
-
-UserPromptSubmit: injects branch, working-tree status, ahead/behind, 5 recent commits (one line
-when clean+in-sync); no per-turn `git fetch`. Hook: `inject-git-state.ts`. Override:
-`MINSKY_SKIP_GIT_STATE_INJECTION=1`. Fail: silent bail on non-repo/detached-HEAD/timeout.
-Doc: `git-state-injection-hook.md`.
-
-## Prod-State Injection Hook
-
-UserPromptSubmit: injects a prod migration-ledger snapshot (cockpit-sweep producer, local-cache
-consumer). Shapes: fresh/stale/unknown (do NOT assert from memory when unknown). Hook:
-`inject-prod-state.ts`. Override: `MINSKY_SKIP_PROD_STATE_INJECTION=1`. Fail: never crashes;
-emits UNKNOWN/STALE notes.
-Doc: `prod-state-injection-hook.md`.
-
-## Dispatch-Watchdog Injection Hook
-
-UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (cockpit-sweep
-producer, local-cache consumer). Recovery: `session.status probe:true` + `/orchestrate`.
-Hook: `inject-dispatch-watchdog.ts`. Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`.
-Fail: silent on empty/missing cache.
-Doc: `dispatch-watchdog-injection-hook.md`.
+- **Current time** — date/day/local/UTC every turn. `inject-current-time.ts`; override
+  `MINSKY_SKIP_TIME_INJECTION=1`. Doc: `current-time-injection-hook.md`.
+- **Git state** — branch, tree status, ahead/behind, 5 recent commits; no per-turn fetch.
+  `inject-git-state.ts`; override `MINSKY_SKIP_GIT_STATE_INJECTION=1`; silent bail on
+  non-repo/detached/timeout. Doc: `git-state-injection-hook.md`.
+- **Prod state** — migration-ledger snapshot (cockpit-sweep producer, local-cache consumer);
+  fresh/stale/unknown shapes (never assert from memory when unknown). `inject-prod-state.ts`;
+  override `MINSKY_SKIP_PROD_STATE_INJECTION=1`; never crashes.
+  Doc: `prod-state-injection-hook.md`.
+- **Dispatch watchdog** — warns when an in-flight subagent dispatch is silent ≥30m; recovery
+  `session.status probe:true` + `/orchestrate`. `inject-dispatch-watchdog.ts`; override
+  `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
+  Doc: `dispatch-watchdog-injection-hook.md`.
 
 ## Immutable-Migration Pre-Commit Guard
 
@@ -457,65 +417,49 @@ Doc: `bind-advance-spec-read-guard.md`.
 Fail: always exits 0.
 Doc: `session-end-transcript-ingest-hook.md`.
 
-## Causal-Premise Detector (calibration)
+## Calibration Detectors (UserPromptSubmit, log-only + cadence)
 
-UserPromptSubmit (calibration-only): logs volunteered causal/mechanism claims lacking same-turn
-verification. Hook: `causal-premise-detector.ts`. Log: `.minsky/causal-premise-calibration.jsonl`.
-Companion: `/check-premise`. Override: `MINSKY_ACK_CAUSAL_PREMISE=1`. Fail: open on transcript
-error.
-Doc: `causal-premise-detector.md`.
+- **Causal-premise** — logs volunteered causal claims lacking same-turn verification.
+  `causal-premise-detector.ts`; log `.minsky/causal-premise-calibration.jsonl`; companion
+  `/check-premise`; override `MINSKY_ACK_CAUSAL_PREMISE=1`. Doc: `causal-premise-detector.md`.
+- **Ask-routing deferral** — logs decision deferrals routed via chat prose instead of the Ask
+  substrate (suppressed once the turn calls `asks_create`). `ask-routing-deferral-detector.ts`;
+  log `.minsky/ask-routing-deferral-calibration.jsonl`; override
+  `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Doc: `ask-routing-deferral-detector.md`.
+- **Calibration-review cadence** — warns when a calibration log crosses its review threshold
+  (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
+  open (mt#2659). `calibration-review-cadence-detector.ts`; override
+  `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Doc: `calibration-review-cadence-detector.md`.
 
-## Ask-Routing Deferral Detector (calibration)
-
-UserPromptSubmit (calibration-only): logs decision deferrals routed via chat prose instead of the
-Ask substrate (suppressed once the turn calls `asks_create`). Hook:
-`ask-routing-deferral-detector.ts`. Log: `.minsky/ask-routing-deferral-calibration.jsonl`.
-Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript error.
-Doc: `ask-routing-deferral-detector.md`.
-
-## Calibration-Review Cadence Detector
-
-UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10
-fires, ≥3 phrases) or goes stale; on fire, run `/calibration-review` unless a disposition Ask is
-already open (mt#2659). Hook: `calibration-review-cadence-detector.ts`. Override:
-`MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
-Doc: `calibration-review-cadence-detector.md`.
+All three: fail open on transcript/read error.
 
 ## Subagent Merge Capability Guard
 
-PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without a
-valid, unexpired capability grant (ADR-028 D5 default-deny). Grant:
-`bun scripts/grant-subagent-merge.ts --task mt#<id> --ttl-minutes 30`. Hooks:
-`block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`. Override:
-`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors — a missing
-store/no-match is default-deny working.
-Doc: `subagent-merge-capability-guard.md`.
+PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without an
+unexpired capability grant (ADR-028 D5): `bun scripts/grant-subagent-merge.ts --task mt#<id>
+--ttl-minutes 30`. Hooks: `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`.
+Override: `MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors
+(missing store/no-match is default-deny working). Doc: `subagent-merge-capability-guard.md`.
 
 ## Ask-Permission Bridge
 
-PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — NOT dispatcher-migrated; the
-dispatcher's deny-aggregation contract doesn't carry `allow`): when the pending command matches a
-live one-shot ask-grant AND the referenced `authorization.approve` Ask re-verifies server-side as
-operator-approved (kind + `responder === "operator"` + approving value), emits the harness
-`permissionDecision: allow` with an audit reason + `hook.fired {decision:"overridden"}` event —
-an operator-approved Ask authorizes the action without a second manual approval (mt#2823).
-Issuance (verifies before writing; refuses overbroad patterns; TTL default 15m, one-shot):
-`bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
-`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override (additive
-allow-path; no-grant is the default flow). Fail: silent defer on no-grant / store-error /
-verification-unavailable — never allows on unverifiable state; DENY only on
-grant-present-but-ask-unverified (fabrication signal). Residual risk: responder attribution
-unauthenticated until mt#2898. Deny-precedence: any sibling hook's deny outranks this allow.
-Doc: `ask-permission-bridge.md`.
+PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — not dispatcher-migrated): when
+the pending command matches a live one-shot ask-grant AND the referenced `authorization.approve`
+Ask re-verifies server-side as operator-approved, emits `permissionDecision: allow` with an audit
+reason + `hook.fired` event (mt#2823). Issuance (verifies first; refuses overbroad patterns; TTL
+15m, one-shot): `bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
+`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
+silent defer on no-grant / store-error / verification-unavailable; DENY only on
+grant-present-but-ask-unverified. Sibling denies outrank this allow; responder attribution
+unauthenticated until mt#2898. Doc: `ask-permission-bridge.md`.
 
 ## Guard-Health Tracker + Escalation Detector
 
-Not a permission gate — surfaces guard-layer failures instead of silence (mt#2812).
-`dispatcher.ts`'s `catch` calls `recordGuardError()`/`recordGuardCheckSkip()`, appending to
-`~/.local/state/minsky/guard-health-log.jsonl`; `debug_systemInfo.guardHealth` reports
-counts/streaks/tier (critical = 3+ consecutive); the escalation guard (+ cockpit widget) warns
-every turn while any guard is critical. Hooks: `guard-health.ts` +
-`guard-health-escalation-detector.ts`. No override; fail-safe (swallows own errors).
+Not a permission gate — surfaces guard-layer failures (mt#2812). `dispatcher.ts`'s `catch` calls
+`recordGuardError()`/`recordGuardCheckSkip()` → `~/.local/state/minsky/guard-health-log.jsonl`;
+`debug_systemInfo.guardHealth` reports counts/streaks/tier (critical = 3+ consecutive); the
+escalation guard (+ cockpit widget) warns every turn while any guard is critical. Hooks:
+`guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
 Doc: `guard-health-tracker.md`.
 
 ## Silent-Stretch Detector (calibration)
