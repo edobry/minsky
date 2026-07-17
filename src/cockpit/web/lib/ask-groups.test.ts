@@ -9,6 +9,9 @@ import { describe, expect, test } from "bun:test";
 import { groupAsks, askSubject, inlineActionsFor, isStanding, STANDING_AGE_MS } from "./ask-groups";
 import type { AskItem } from "../widgets/AskDetail";
 
+const AUTH_KIND = "authorization.approve" as const;
+const DECIDE_KIND = "direction.decide" as const;
+
 const NOW = new Date("2026-07-17T12:00:00Z").getTime();
 
 function ask(overrides: Partial<AskItem> & Pick<AskItem, "id" | "kind" | "createdAt">): AskItem {
@@ -43,7 +46,7 @@ describe("groupAsks", () => {
   const fiveAuth = Array.from({ length: 5 }, (_, i) =>
     ask({
       id: `auth-${i}`,
-      kind: "authorization.approve",
+      kind: AUTH_KIND,
       parentTaskId: "gh#1761",
       createdAt: new Date(NOW - (30 - i) * 24 * 60 * 60 * 1000).toISOString(),
     })
@@ -51,13 +54,13 @@ describe("groupAsks", () => {
   const twoDecide = [
     ask({
       id: "dec-0",
-      kind: "direction.decide",
+      kind: DECIDE_KIND,
       parentTaskId: "mt#2505",
       createdAt: "2026-06-17T00:00:00Z",
     }),
     ask({
       id: "dec-1",
-      kind: "direction.decide",
+      kind: DECIDE_KIND,
       parentTaskId: "mt#2505",
       createdAt: "2026-06-19T00:00:00Z",
     }),
@@ -92,7 +95,7 @@ describe("groupAsks", () => {
   test("same kind, different subjects do NOT merge", () => {
     const other = ask({
       id: "auth-other",
-      kind: "authorization.approve",
+      kind: AUTH_KIND,
       parentTaskId: "mt#999",
       createdAt: "2026-07-17T11:00:00Z",
     });
@@ -111,6 +114,7 @@ describe("groupAsks", () => {
 describe("inlineActionsFor", () => {
   test("explicit options render as lettered resolve actions + Defer", () => {
     const actions = inlineActionsFor({
+      kind: DECIDE_KIND,
       options: [
         { label: "Ship it", value: "ship" },
         { label: "Hold", value: "hold" },
@@ -122,10 +126,16 @@ describe("inlineActionsFor", () => {
     expect(actions[2]).toMatchObject({ action: "defer" });
   });
 
-  test("optionless asks get Approve(A)/Deny(B)/Defer — matching the resolve payload contract", () => {
-    const actions = inlineActionsFor({ options: undefined });
+  test("optionless authorization asks get Approve(A)/Deny(B)/Defer — matching the resolve payload contract", () => {
+    const actions = inlineActionsFor({ kind: AUTH_KIND, options: undefined });
     expect(actions.map((a) => a.label)).toEqual(["Approve", "Deny", "Defer"]);
     expect(actions[0]?.optionLetter).toBe("A");
+    expect(actions[1]?.optionLetter).toBe("B");
+  });
+
+  test("optionless quality.review asks label B as Request changes — AskDetail contract (PR #2027 R1)", () => {
+    const actions = inlineActionsFor({ kind: "quality.review", options: undefined });
+    expect(actions.map((a) => a.label)).toEqual(["Approve", "Request changes", "Defer"]);
     expect(actions[1]?.optionLetter).toBe("B");
   });
 });

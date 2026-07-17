@@ -349,26 +349,32 @@ export function AsksPage() {
   const standingTotal = asks.filter((a) => isStanding(a)).length;
   const overBudget = standingTotal > STANDING_ASK_BUDGET;
 
-  // Filter ASKS first, then bundle into decision groups; sort + paginate the
-  // GROUPS (a bundle is the unit the operator works).
+  // useListControls supplies filter state + Clear only. Pagination is
+  // deliberately unused (PR #2027 R1): grouping must consume the FULL
+  // filtered set — paginating asks before bundling drops items and can split
+  // a unit-of-work across pages. The queue is small by design (the standing
+  // budget keeps it so); if it ever needs paging, page over GROUPS.
   const controls = useListControls<AskItem, "age", Filters>({
     items: asks,
-    defaultPageSize: 200, // grouping happens below; page over groups instead
+    defaultPageSize: 25, // unused — see filteredAsks below
     defaultSortKey: "age",
     defaultSortDir: "asc",
     defaultFilters: { kind: "all", requestor: "all", cohort: "all" },
     prefix: "asks",
-    filterFn: (item, filters) => {
-      if (filters.kind !== "all" && item.kind !== filters.kind) return false;
-      if (filters.requestor !== "all" && item.requestor !== filters.requestor) return false;
-      if (filters.cohort !== "all" && (item.windowKey ?? "(none)") !== filters.cohort) return false;
-      return true;
-    },
+    filterFn: () => true, // unused — see filteredAsks below
     sortFn: () => 0,
   });
 
+  const { filters } = controls;
+  const filteredAsks = asks.filter((item) => {
+    if (filters.kind !== "all" && item.kind !== filters.kind) return false;
+    if (filters.requestor !== "all" && item.requestor !== filters.requestor) return false;
+    if (filters.cohort !== "all" && (item.windowKey ?? "(none)") !== filters.cohort) return false;
+    return true;
+  });
+
   const [groupSort, setGroupSort] = useState<`${SortKey}_${SortDir}`>("priority_asc");
-  const groups = groupAsks(controls.pageItems);
+  const groups = groupAsks(filteredAsks);
   const [sortKey, sortDir] = groupSort.split("_") as [SortKey, SortDir];
   const mult = sortDir === "asc" ? 1 : -1;
   groups.sort((a, b) => {
@@ -404,9 +410,9 @@ export function AsksPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-base font-semibold text-foreground">
           Asks
-          {controls.filteredCount > 0 && (
+          {filteredAsks.length > 0 && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">
-              {controls.filteredCount} pending · {groups.length} decisions
+              {filteredAsks.length} pending · {groups.length} decisions
             </span>
           )}
           {standingTotal > 0 && (

@@ -114,7 +114,7 @@ export interface InlineAction {
   optionLetter?: string;
 }
 
-export function inlineActionsFor(ask: Pick<AskItem, "options">): InlineAction[] {
+export function inlineActionsFor(ask: Pick<AskItem, "options" | "kind">): InlineAction[] {
   const actions: InlineAction[] = [];
   if (ask.options && ask.options.length > 0) {
     ask.options.forEach((opt, i) => {
@@ -125,8 +125,13 @@ export function inlineActionsFor(ask: Pick<AskItem, "options">): InlineAction[] 
       });
     });
   } else {
+    // Kind-aware default labels, mirroring AskDetail's optionless contract
+    // exactly (PR #2027 R1): quality.review's B is "Request changes", not
+    // "Deny" — the letter-to-payload mapping is shared, the WORDING is
+    // per-kind.
+    const bLabel = ask.kind === "quality.review" ? "Request changes" : "Deny";
     actions.push({ label: "Approve", action: "resolve", optionLetter: "A" });
-    actions.push({ label: "Deny", action: "resolve", optionLetter: "B" });
+    actions.push({ label: bLabel, action: "resolve", optionLetter: "B" });
   }
   actions.push({ label: "Defer", action: "defer" });
   return actions;
