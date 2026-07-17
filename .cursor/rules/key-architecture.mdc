@@ -15,6 +15,15 @@ tags:
 - Multi-backend tasks: GitHub Issues, Minsky DB
 - Dependency injection via tsyringe (`docs/architecture.md` §6)
 
+## Rule-admission ladder (mt#2874)
+
+- New guidance content defaults DOWN before reaching `alwaysApply: true`: path-scoped
+  `.claude/rules` (file-shaped) → skill (task-shaped) → memory (incident-shaped) → docs
+  (reference-shaped) → `alwaysApply: true` LAST, reserved for genuinely per-turn discipline
+  (mt#1876: "would removal cause an agent to skip a check it runs every turn?"). Mechanically
+  gated at merge time by the growth-justification gate (`hook-files.mdc`) when a
+  `.minsky/rules/**` PR grows `CLAUDE.md` past 2,000 chars.
+
 ## Operational reference rules (not always-loaded; read via `.minsky/rules/<name>.mdc` or `rules_get`)
 
 - `mcp-disconnect-cadence` — disconnect cause classes, escalation thresholds, log-reading recipes (investigating MCP disconnects)
