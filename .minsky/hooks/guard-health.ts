@@ -344,8 +344,25 @@ export function computeGuardHealthSummary(
       }
     }
 
-    const escalation = guardEscalationFor(streak);
     const lastEvent = sorted.length > 0 ? (sorted[sorted.length - 1] ?? null) : null;
+
+    // mt#2814: a streak computed purely from gaps BETWEEN past events never
+    // resets once the log stops receiving NEW events for a guard — e.g. a
+    // test-fixture guard name (mt#2812's acceptance-test events, guardName
+    // "throws") that will never fire again in production. Without a recency
+    // check, that guard's last historical streak pins its escalation tier
+    // forever, since every future read recomputes the SAME streak from the
+    // SAME frozen events. Age the streak out once its most recent event is
+    // itself stale relative to `now` — reusing STREAK_RESET_GAP_MS (24h) as
+    // the recency window mirrors its existing role as the "how long is one
+    // incident" cutoff: a guard that hasn't failed in over 24h is not an
+    // ONGOING incident, so its streak (and any escalation derived from it)
+    // resets to 0 rather than persisting indefinitely.
+    if (lastEvent && nowMs - new Date(lastEvent.timestamp).getTime() > STREAK_RESET_GAP_MS) {
+      streak = 0;
+    }
+
+    const escalation = guardEscalationFor(streak);
 
     byGuard[guardName] = {
       failureCount24h,

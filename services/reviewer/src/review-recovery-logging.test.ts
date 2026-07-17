@@ -23,6 +23,7 @@ function baseRecoveryResult(
     reconcileApplied: false,
     convergenceDowngrades: [],
     diffScopeBoundedDowngrades: [],
+    refutationDowngrades: [],
     emptyFindingsRecovery: { toolCalls: [], applied: false },
     ...overrides,
   };
@@ -50,6 +51,7 @@ function baseInput(overrides: Partial<LogRecoveryOutcomesInput> = {}): LogRecove
     monotonicityRecoveryEnabled: false,
     compositionConvergenceEnabled: false,
     diffScopeBoundedEnabled: false,
+    refutationRecoveryEnabled: false,
     priorReviewsPresent: false,
     filesInScope: 0,
     ...overrides,
@@ -160,5 +162,61 @@ describe("logRecoveryOutcomes — mt#2828 budgeted summary signal", () => {
     const fire = findEvent(events, "reviewer.empty_findings_recovery");
     expect(fire).toBeDefined();
     expect(fire?.["synthesizedSummary"]).toBe("synth summary");
+  });
+});
+
+const REFUTATION_SUMMARY_EVENT = "reviewer.refutation_recovery_summary";
+
+describe("logRecoveryOutcomes — refutation-recovery logging (mt#2836)", () => {
+  test("emits nothing when refutationRecoveryEnabled is false", async () => {
+    const input = baseInput({ refutationRecoveryEnabled: false });
+    const { events } = await withCapturedLogs(() => logRecoveryOutcomes(input));
+
+    expect(findEvent(events, REFUTATION_SUMMARY_EVENT)).toBeUndefined();
+    expect(findEvent(events, "reviewer.refutation_recovery_downgrade")).toBeUndefined();
+  });
+
+  test("emits the summary event with downgradeApplied=false when enabled but no downgrades fired", async () => {
+    const input = baseInput({
+      refutationRecoveryEnabled: true,
+      recoveryResult: baseRecoveryResult({ refutationDowngrades: [] }),
+    });
+    const { events } = await withCapturedLogs(() => logRecoveryOutcomes(input));
+
+    const summary = findEvent(events, REFUTATION_SUMMARY_EVENT);
+    expect(summary).toBeDefined();
+    expect(summary?.["downgradeApplied"]).toBe(false);
+    expect(summary?.["downgradeCount"]).toBe(0);
+  });
+
+  test("emits a per-finding downgrade event plus the summary when a downgrade fired", async () => {
+    const input = baseInput({
+      refutationRecoveryEnabled: true,
+      recoveryResult: baseRecoveryResult({
+        refutationDowngrades: [
+          {
+            file: "src/queries.ts",
+            line: 40,
+            fromSeverity: "BLOCKING",
+            toSeverity: "NON-BLOCKING",
+            reassertionCount: 2,
+            totalRounds: 3,
+            refutationExcerpt: "PG17 transcript",
+            reason: "refutation-recovery: unaddressed after 3 rounds",
+          },
+        ],
+      }),
+    });
+    const { events } = await withCapturedLogs(() => logRecoveryOutcomes(input));
+
+    const fire = findEvent(events, "reviewer.refutation_recovery_downgrade");
+    expect(fire).toBeDefined();
+    expect(fire?.["file"]).toBe("src/queries.ts");
+    expect(fire?.["reassertionCount"]).toBe(2);
+    expect(fire?.["totalRounds"]).toBe(3);
+
+    const summary = findEvent(events, REFUTATION_SUMMARY_EVENT);
+    expect(summary?.["downgradeApplied"]).toBe(true);
+    expect(summary?.["downgradeCount"]).toBe(1);
   });
 });

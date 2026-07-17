@@ -415,6 +415,93 @@ export async function fetchPriorReviews(
 }
 
 /**
+ * A single commit on the PR, as needed for author-response context (mt#2836).
+ */
+export interface PullRequestCommit {
+  sha: string;
+  message: string;
+  /** ISO timestamp; undefined when GitHub omits it (rare, defensive). */
+  authoredAt?: string;
+}
+
+/**
+ * Cap mirroring MAX_REVIEWS_FETCHED — pathological PRs (hundreds of commits)
+ * should not blow up the fetch or the downstream prompt/recovery-pass budget.
+ */
+const MAX_COMMITS_FETCHED = 500;
+
+/**
+ * Fetch commit messages pushed to a PR since a given timestamp (mt#2836).
+ *
+ * Used to give the reviewer author-response context on re-review rounds: a
+ * commit message responding to a prior finding (e.g. "fix(mt#X): add PG17
+ * transcript proving GREATEST ignores NULL arguments") is evidence the model
+ * should weigh before re-asserting the same BLOCKING finding — see
+ * refutation-recovery.ts, which consumes this fetch's output.
+ *
+ * `sinceIso` is typically the most recent prior review's `submittedAt`.
+ * Filtering is done on the commit's own authored/committed date rather than
+ * by SHA-diffing against the prior review's `commitId`, so a rebase or
+ * force-push that changes SHAs without changing intent still resolves
+ * correctly — the same tradeoff `diff-scoper.ts`'s fix-commit-diff
+ * extraction currently approximates with the full PR diff (see its module
+ * doc). When `sinceIso` is omitted, all commits on the PR are returned
+ * (bounded by MAX_COMMITS_FETCHED) — used for the first-review case where
+ * there is no prior review to bound against, though callers typically skip
+ * calling this at all in that case (there is nothing to respond to yet).
+ */
+export async function fetchCommitMessagesSince(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  sinceIso?: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<PullRequestCommit[]> {
+  const allCommits = await withTimeout("github.pulls.listCommits", timeoutMs, (signal) =>
+    octokit.paginate(octokit.rest.pulls.listCommits, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+      request: { signal },
+    })
+  );
+
+  let rawCommits = allCommits;
+  if (rawCommits.length > MAX_COMMITS_FETCHED) {
+    log.warn("reviewer.commits_since_review_cap_exceeded", {
+      event: "reviewer.commits_since_review_cap_exceeded",
+      pr: prNumber,
+      count: rawCommits.length,
+      cap: MAX_COMMITS_FETCHED,
+    });
+    rawCommits = rawCommits.slice(0, MAX_COMMITS_FETCHED);
+  }
+
+  const commits: PullRequestCommit[] = rawCommits
+    .map((c): PullRequestCommit => {
+      const authoredAt = c.commit.committer?.date ?? c.commit.author?.date ?? undefined;
+      return {
+        sha: c.sha,
+        message: c.commit.message ?? "",
+        ...(authoredAt !== undefined ? { authoredAt } : {}),
+      };
+    })
+    .filter((c) => {
+      if (sinceIso === undefined) return true;
+      // Defensive: a commit with no resolvable date is included rather than
+      // silently dropped — better to over-include (the refutation matcher
+      // in refutation-recovery.ts is a topical-overlap heuristic, tolerant
+      // of extra unrelated commit messages) than to lose a genuine response.
+      if (c.authoredAt === undefined) return true;
+      return c.authoredAt > sinceIso;
+    });
+
+  return commits;
+}
+
+/**
  * Normalize a user-supplied path for the GitHub Contents API.
  *
  * The GitHub API expects an empty string for the repository root. Callers

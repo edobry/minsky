@@ -209,6 +209,27 @@ export interface GuardRegistration {
    * expensive (fs reads across every candidate) and is worth gating.
    */
   needsTranscript?: boolean;
+  /**
+   * Static attention-cost annotation (mt#2597, evaluation-loop RFC Part 1).
+   * Per the RFC: "Attention cost is annotated, not measured... a static
+   * per-guard annotation derived from the guard's denial-message size and
+   * option count — a registry field, not a per-fire measurement." Latency
+   * (the fire-log's `durationMs`) is the LESSER cost dimension; this field
+   * captures the vivid cost — reading a denial message, choosing among its
+   * remediation options, writing an override rationale.
+   *
+   * Optional and NOT populated for every guard as of this Phase-1 landing —
+   * see `docs/architecture/evaluation-loop-fire-log.md`'s "Known gaps"
+   * section. A follow-up sweep should populate this for the remaining
+   * guards; the field exists now so that sweep has a documented shape to
+   * fill in.
+   */
+  attentionCost?: {
+    /** Approx. character length of the guard's typical denial/warning message body. */
+    denialMessageSizeChars: number;
+    /** Number of distinct remediation options the guard's message presents (e.g. "override X, or do Y, or do Z" = 3). */
+    optionCount: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +298,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./check-guessed-session-path").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: true,
+    // mt#2597: measured against buildDenialReason()'s fixed message body
+    // (excluding the dynamic per-missing-path list) — ~398 chars; one
+    // remediation option (the MINSKY_SKIP_SESSION_PATH_CHECK override).
+    attentionCost: { denialMessageSizeChars: 398, optionCount: 1 },
   },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the

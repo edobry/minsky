@@ -10,16 +10,25 @@ import { describe, expect, test, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { findToolUseInputs, resolveTranscriptCandidates, type TranscriptLine } from "./transcript";
+import {
+  findToolUseInputs,
+  findCreatedResourceIds,
+  resolveTranscriptCandidates,
+  type TranscriptLine,
+} from "./transcript";
 import {
   normalizeTaskId,
   resolveTargetTaskId,
   specWasSurfaced,
+  specWasAuthored,
   specWasSurfacedInAnyTranscript,
   buildDenialReason,
   OVERRIDE_ENV_VAR,
   SPEC_GET_TOOL,
   TASKS_GET_TOOL,
+  TASKS_CREATE_TOOL,
+  SPEC_PATCH_TOOL,
+  SPEC_SEARCH_REPLACE_TOOL,
   STATUS_SET_TOOL,
   SESSION_START_TOOL,
   DISPATCH_TOOL,
@@ -58,6 +67,40 @@ function toolResult(): TranscriptLine {
 /** A real human prompt. */
 function userPrompt(text: string): TranscriptLine {
   return { type: "user", message: { role: "user", content: text } };
+}
+
+/** Assistant tool_use block carrying an explicit correlation id, for tool_result pairing. */
+function assistantToolUseWithId(
+  id: string,
+  name: string,
+  input: Record<string, unknown>
+): TranscriptLine {
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+  };
+}
+
+/**
+ * A user-role tool_result line whose text content is a JSON-serialized
+ * payload — mirrors the real shape an MCP tool call's result takes in a
+ * Claude Code transcript (`{ tool_use_id, type: "tool_result", content: [{
+ * type: "text", text: "<json>" }] }`).
+ */
+function toolResultJson(toolUseId: string, payload: Record<string, unknown>): TranscriptLine {
+  return {
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          tool_use_id: toolUseId,
+          type: "tool_result",
+          content: [{ type: "text", text: JSON.stringify(payload) }],
+        },
+      ],
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +243,141 @@ describe("findToolUseInputs", () => {
 });
 
 // ---------------------------------------------------------------------------
+// findCreatedResourceIds (mt#2814 — correlates a tool_use with no id in its
+// OWN input, e.g. tasks_create, against the server-assigned id in its result)
+// ---------------------------------------------------------------------------
+
+describe("findCreatedResourceIds", () => {
+  test("correlates a tool_use to the taskId reported in its tool_result", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, {
+        title: "New task",
+        spec: "## Summary",
+      }),
+      toolResultJson("toolu_1", { success: true, taskId: "mt#2814", message: "created" }),
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results).toHaveLength(1);
+    expect(results[0]?.createdId).toBe("mt#2814");
+    expect(results[0]?.input["spec"]).toBe("## Summary");
+    expect(results[0]?.result).toEqual({ success: true, taskId: "mt#2814", message: "created" });
+  });
+
+  test("no correlated tool_result -> createdId AND result undefined, never throws", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results).toHaveLength(1);
+    expect(results[0]?.createdId).toBeUndefined();
+    expect(results[0]?.result).toBeUndefined();
+  });
+
+  // PR #1982 review: extractToolResultText is not pinned to `{ type: "text" }`
+  // exactly — any block carrying a string `text` field is accepted, so an
+  // alternately-tagged text block is not silently dropped.
+  test("tool_result block WITHOUT an explicit type field, but with a text property -> still parsed", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: "toolu_1",
+              type: "tool_result",
+              content: [{ text: JSON.stringify({ success: true, taskId: "mt#2814" }) }],
+            },
+          ],
+        },
+      },
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results[0]?.createdId).toBe("mt#2814");
+  });
+
+  // A block whose text is nested one level deeper (an embedded-resource-style
+  // `{ content: [...] }` wrapper) is recursed into once rather than dropped.
+  test("tool_result text nested inside a wrapper block's own content array -> still parsed", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: "toolu_1",
+              type: "tool_result",
+              content: [
+                {
+                  type: "resource",
+                  content: [
+                    { type: "text", text: JSON.stringify({ success: true, taskId: "mt#2814" }) },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results[0]?.createdId).toBe("mt#2814");
+  });
+
+  test("tool_result is non-JSON (error path) -> createdId undefined, never throws", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: "toolu_1",
+              type: "tool_result",
+              content: [{ type: "text", text: "Error: --spec must be provided" }],
+            },
+          ],
+        },
+      },
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results[0]?.createdId).toBeUndefined();
+  });
+
+  test("result lacking the id field -> createdId undefined", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      toolResultJson("toolu_1", { success: true, message: "created" }),
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results[0]?.createdId).toBeUndefined();
+  });
+
+  test("ignores tool_use blocks for a different tool name", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", MEMORY_SEARCH_TOOL, { query: "x" }),
+      toolResultJson("toolu_1", { taskId: "mt#9999" }),
+    ];
+    expect(findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId")).toEqual([]);
+  });
+
+  test("multiple tasks_create calls in one transcript each correlate independently", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "First", spec: "a" }),
+      toolResultJson("toolu_1", { taskId: "mt#1" }),
+      assistantToolUseWithId("toolu_2", TASKS_CREATE_TOOL, { title: "Second", spec: "b" }),
+      toolResultJson("toolu_2", { taskId: "mt#2" }),
+    ];
+    const results = findCreatedResourceIds(lines, TASKS_CREATE_TOOL, "taskId");
+    expect(results.map((r) => r.createdId)).toEqual(["mt#1", "mt#2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // specWasSurfaced
 // ---------------------------------------------------------------------------
 
@@ -249,6 +427,122 @@ describe("specWasSurfaced", () => {
       // current tool call (tasks_status_set READY) fires now; not yet in transcript
     ];
     expect(specWasSurfaced(lines, "mt2515")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// specWasAuthored (mt#2814 — same-transcript spec-authorship credit)
+// ---------------------------------------------------------------------------
+
+describe("specWasAuthored", () => {
+  test("tasks_create with a spec, correlated result taskId matches -> true", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, {
+        title: "New task",
+        spec: "## Summary\n\nFull spec body.",
+      }),
+      toolResultJson("toolu_1", { success: true, taskId: "mt#2814" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(true);
+  });
+
+  test("tasks_create with a spec, correlated result taskId is a DIFFERENT task -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "Other task", spec: "x" }),
+      toolResultJson("toolu_1", { success: true, taskId: "mt#9999" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_create call with NO spec (e.g. a malformed call caught elsewhere) -> false even if a result correlates", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task" }),
+      toolResultJson("toolu_1", { success: true, taskId: "mt#2814" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_create failure (no taskId in result) -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      toolResultJson("toolu_1", { success: false, message: "--spec must be provided" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  // Server-side confirmation (PR #1982 review): a matching taskId alone is
+  // not sufficient — the correlated result must also explicitly report
+  // success:true. Guards against crediting authorship from a result that
+  // merely echoes an id-shaped field without confirming the create actually
+  // succeeded.
+  test("tasks_create result reports a matching taskId but NOT success:true -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      toolResultJson("toolu_1", { taskId: "mt#2814", message: "created" }), // no `success` field
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_create result has success:false but a (spurious) matching taskId -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, { title: "New task", spec: "x" }),
+      toolResultJson("toolu_1", { success: false, taskId: "mt#2814" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  // Partial-edit decision (mt#2814): a small spec_patch counts in full, no
+  // size/count threshold — see the function's docstring and
+  // docs/architecture/hooks/bind-advance-spec-read-guard.md for rationale.
+  test("a 2-line tasks_spec_patch targeting the task -> true (partial-edit decision)", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(SPEC_PATCH_TOOL, {
+        taskId: "mt#2814",
+        content: "// ... existing code ...\nfixed typo\n// ... existing code ...",
+      }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(true);
+  });
+
+  test("tasks_spec_patch for a DIFFERENT task -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(SPEC_PATCH_TOOL, { taskId: "mt#9999", content: "x" }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("tasks_spec_search_replace targeting the task -> true", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(SPEC_SEARCH_REPLACE_TOOL, {
+        taskId: "mt#2814",
+        search: "old",
+        replace: "new",
+      }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(true);
+  });
+
+  test("tasks_spec_search_replace for a DIFFERENT task -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(SPEC_SEARCH_REPLACE_TOOL, {
+        taskId: "mt#9999",
+        search: "old",
+        replace: "new",
+      }),
+    ];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("no authorship action anywhere -> false (regression: reads are NOT authorship)", () => {
+    const lines: TranscriptLine[] = [assistantToolUse(SPEC_GET_TOOL, { taskId: "mt#2814" })];
+    expect(specWasAuthored(lines, "mt2814")).toBe(false);
+  });
+
+  test("empty target -> false", () => {
+    const lines: TranscriptLine[] = [
+      assistantToolUse(SPEC_PATCH_TOOL, { taskId: "mt#2814", content: "x" }),
+    ];
+    expect(specWasAuthored(lines, "")).toBe(false);
   });
 });
 
@@ -435,5 +729,87 @@ describe("specWasSurfacedInAnyTranscript (mt#2637 regression)", () => {
     expect(specWasSurfacedInAnyTranscript("/nonexistent/session.jsonl", "abc", "mt2614")).toBe(
       false
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// specWasSurfacedInAnyTranscript — same-transcript authorship credit (mt#2814)
+//
+// These mirror the mt#2814 spec's Acceptance Tests verbatim:
+//   1. tasks_create with full spec for mt#X, then tasks_status_set(mt#X,
+//      READY) in the SAME transcript -> allowed.
+//   2. A 2-line tasks_spec_patch to mt#X, authored in THIS transcript ->
+//      allowed (the partial-edit decision: any same-transcript patch counts).
+//   3. No spec interaction for mt#X anywhere -> still blocked (regression,
+//      already covered above; re-asserted here through the combined check).
+//   4. Authorship recorded in a DIFFERENT session's transcript tree (never a
+//      candidate for THIS session's scan) does NOT satisfy the check — the
+//      spec's explicit carve-out: "fires where the agent authored the spec
+//      in a DIFFERENT session ... and never re-read it should STILL block."
+// ---------------------------------------------------------------------------
+
+describe("specWasSurfacedInAnyTranscript — same-transcript authorship credit (mt#2814)", () => {
+  test("acceptance test 1: tasks_create with full spec, then advance in the same transcript -> allowed", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        userPrompt("file the gap-analysis subtasks"),
+        assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, {
+          title: "Gap-analysis subtask",
+          spec: "## Summary\n\nFull spec body for the new task.",
+        }),
+        toolResultJson("toolu_1", { success: true, taskId: "mt#2814" }),
+        userPrompt("bring it to READY"),
+        // current tool call (tasks_status_set READY) fires now; not yet in transcript
+      ],
+      {}
+    );
+    expect(specWasSurfacedInAnyTranscript(parentPath, undefined, "mt2814")).toBe(true);
+  });
+
+  test("acceptance test 2: a 2-line tasks_spec_patch authored in this transcript -> allowed (partial-edit decision)", () => {
+    const parentPath = buildTranscriptTree(
+      [
+        userPrompt("fix the typo in mt#2814's spec"),
+        assistantToolUse(SPEC_PATCH_TOOL, {
+          taskId: "mt#2814",
+          content: "// ... existing code ...\nfixed typo\n// ... existing code ...",
+        }),
+        userPrompt("now advance it"),
+      ],
+      {}
+    );
+    expect(specWasSurfacedInAnyTranscript(parentPath, undefined, "mt2814")).toBe(true);
+  });
+
+  test("acceptance test 3 (regression): no spec interaction anywhere -> still blocked", () => {
+    const parentPath = buildTranscriptTree(
+      [userPrompt("ship it"), assistantToolUse(MEMORY_SEARCH_TOOL, { query: "unrelated" })],
+      {}
+    );
+    expect(specWasSurfacedInAnyTranscript(parentPath, undefined, "mt2814")).toBe(false);
+  });
+
+  test("acceptance test 4: authorship in a DIFFERENT session's transcript tree does NOT satisfy this session's check", () => {
+    // A prior session authored mt#2814's spec via tasks_create — but that
+    // transcript tree is never a candidate for a LATER, separate session's
+    // scan (resolveTranscriptCandidates only walks the given transcript's own
+    // tree). The spec's explicit carve-out (bdf8f782's mt#2738 fire): cross-
+    // session authorship must NOT be credited.
+    buildTranscriptTree(
+      [
+        assistantToolUseWithId("toolu_1", TASKS_CREATE_TOOL, {
+          title: "mt#2814's original author session",
+          spec: "## Summary\n\nAuthored in a prior, unrelated session.",
+        }),
+        toolResultJson("toolu_1", { success: true, taskId: "mt#2814" }),
+      ],
+      {}
+    );
+    // The CURRENT session's own transcript tree never engaged mt#2814 at all.
+    const currentSessionPath = buildTranscriptTree(
+      [userPrompt("bind to mt#2814"), assistantToolUse(MEMORY_SEARCH_TOOL, { query: "unrelated" })],
+      {}
+    );
+    expect(specWasSurfacedInAnyTranscript(currentSessionPath, undefined, "mt2814")).toBe(false);
   });
 });

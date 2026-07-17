@@ -1,7 +1,18 @@
-import { describe, test, expect } from "bun:test";
+/* eslint-disable custom/no-real-fs-in-tests -- this file's real fs use is
+   ONLY to create/tear down an isolated MINSKY_STATE_DIR temp directory (a
+   real path is required since the *default* recordFireLogEntry wiring under
+   test resolves a real fs path from this real env var) — it never touches
+   the developer's actual ~/.local/state/minsky/. Mirrors the same exemption
+   already granted to guard-health-dispatcher-integration.test.ts and
+   dispatch-userpromptsubmit.e2e.test.ts for the identical reason. */
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   checkOverride,
   buildOverrideAuditLine,
+  buildOverrideFireLogFields,
   calibrationLogPath,
   logCalibrationRecord,
   resolveDispatchContext,
@@ -12,9 +23,33 @@ import {
 import type { GuardRegistration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import type { TranscriptLine } from "./transcript";
+import type { RecordFireLogInput } from "./fire-log";
 
 /** The dispatcher's own compiled filename, used throughout as `hookFilename`. */
 const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
+
+// mt#2597: runDispatcher now fire-logs EVERY matched guard's outcome via the
+// real `recordFireLogEntry` default when a test doesn't inject
+// `recordFireLogFn`. Point MINSKY_STATE_DIR at an isolated temp dir for the
+// WHOLE file's duration (rather than adding `recordFireLogFn: () => {}` to
+// every pre-existing call site) so no test in this file — new or
+// pre-existing — can ever write through the developer's real
+// `~/.local/state/minsky/fire-log.jsonl` (the mt#2876 class this task's
+// coordination brief calls out explicitly).
+let fireLogTestStateDir: string;
+let prevMinskyStateDir: string | undefined;
+
+beforeAll(() => {
+  fireLogTestStateDir = mkdtempSync(join(tmpdir(), "mt2597-dispatcher-fire-log-isolation-"));
+  prevMinskyStateDir = process.env.MINSKY_STATE_DIR;
+  process.env.MINSKY_STATE_DIR = fireLogTestStateDir;
+});
+
+afterAll(() => {
+  if (prevMinskyStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
+  else process.env.MINSKY_STATE_DIR = prevMinskyStateDir;
+  rmSync(fireLogTestStateDir, { recursive: true, force: true });
+});
 
 // ---------------------------------------------------------------------------
 // checkOverride (D3)
@@ -37,6 +72,10 @@ const PILOT_GUARD_NAME = "check-guessed-session-path";
 /** Shared grant-reason fixture (Phase-7 adjunct, mt#2658) — extracted to satisfy
  * custom/no-magic-string-duplication. */
 const GRANT_REASON = "concurrent decomposition — distinct sibling";
+
+/** mt#2597 R1 — extracted to satisfy custom/no-magic-string-duplication across
+ * the `buildOverrideFireLogFields` test cases below. */
+const AUTHORIZED_EXCEPTION = "authorized_exception";
 
 describe("checkOverride", () => {
   test("no env var set -> not overridden", () => {
@@ -887,5 +926,310 @@ describe("runDispatcher", () => {
       resolveDispatchContextFn: () => stubContext(),
     });
     expect(stdout).toEqual(["[g] legacy override active\n"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fire-log integration (mt#2597, evaluation-loop Phase 1)
+// ---------------------------------------------------------------------------
+
+describe("runDispatcher fire-log integration (mt#2597)", () => {
+  function makeFireLogSpy(): {
+    records: RecordFireLogInput[];
+    fn: (i: RecordFireLogInput) => void;
+  } {
+    const records: RecordFireLogInput[] = [];
+    return { records, fn: (i) => records.push(i) };
+  }
+
+  test("a silently-allowed guard (null outcome) is still fire-logged as allow — 'including silent-allow'", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "silent",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => null }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.guardName).toBe("silent");
+    expect(spy.records[0]?.decision).toBe("allow");
+    expect(spy.records[0]?.overrideEnvVar).toBeUndefined();
+    expect(typeof spy.records[0]?.durationMs).toBe("number");
+  });
+
+  test("a denying guard is fire-logged as deny", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "denier",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.decision).toBe("deny");
+  });
+
+  test("a guard contributing additionalContext (no deny) is fire-logged as warn", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "informer",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "fyi" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.decision).toBe("warn");
+  });
+
+  test("a guard that throws is still fire-logged as allow (fail-open) in addition to guard-health's error record", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "throws",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              throw new Error("boom");
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      stderrWrite: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordGuardErrorFn: () => {},
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.guardName).toBe("throws");
+    expect(spy.records[0]?.decision).toBe("allow");
+  });
+
+  test("an env-var override is fire-logged with overrideEnvVar=MINSKY_HOOK_OVERRIDE, classification=authorized_exception — the guard itself is never invoked", async () => {
+    const spy = makeFireLogSpy();
+    let guardInvoked = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "pilot",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              guardInvoked = true;
+              return { deny: { reason: "would have denied" } };
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    process.env[HOOK_OVERRIDE_ENV_VAR] = "pilot";
+    try {
+      await runDispatcher("PreToolUse", {
+        hookFilename: DISPATCH_HOOK_FILENAME,
+        registrations,
+        readInputFn: () => Promise.resolve(baseInput()),
+        writeOutputFn: () => {},
+        stdoutWrite: () => {},
+        resolveDispatchContextFn: () => stubContext(),
+        recordFireLogFn: spy.fn,
+      });
+    } finally {
+      delete process.env[HOOK_OVERRIDE_ENV_VAR];
+    }
+    expect(guardInvoked).toBe(false);
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.decision).toBe("allow");
+    expect(spy.records[0]?.overrideEnvVar).toBe(HOOK_OVERRIDE_ENV_VAR);
+    expect(spy.records[0]?.overrideClassification).toBe("authorized_exception");
+    expect(spy.records[0]?.overrideSource).toBe("env");
+  });
+
+  // NOTE: a grant-file-channel override (mt#2658 Phase-7 adjunct — `checkOverride`
+  // consulting the grant store instead of the `MINSKY_HOOK_OVERRIDE` env var) is
+  // NOT reachable through a full `runDispatcher()` call today — that call site
+  // never passes a `scope` to `checkOverride` (grant-file consultation is a
+  // per-guard concern, e.g. `parallel-work-guard.ts`, not a dispatcher-loop one).
+  // The env->grant attribution logic itself (`buildOverrideFireLogFields`,
+  // covering grant-only/env-only/both-channels-present) is unit-tested directly
+  // below, and `classifyOverride`'s own three-way split is covered in
+  // fire-log.test.ts's `classifyOverride` suite.
+  describe("buildOverrideFireLogFields (mt#2597 R1 — env/grant attribution)", () => {
+    test("grant-only override (no raw env-var involved at all) -> source=grant, classification=authorized_exception, no overrideEnvVar", () => {
+      const fields = buildOverrideFireLogFields({ overridden: true, grantReason: GRANT_REASON });
+      expect(fields).toEqual({
+        overrideSource: "grant",
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+
+    test("env-only override (no grant involved) -> source=env, overrideEnvVar=MINSKY_HOOK_OVERRIDE, classification=authorized_exception", () => {
+      const fields = buildOverrideFireLogFields({ overridden: true, raw: "pilot" });
+      expect(fields).toEqual({
+        overrideSource: "env",
+        overrideEnvVar: HOOK_OVERRIDE_ENV_VAR,
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+
+    test("both raw and grantReason present (env var set for a DIFFERENT guard/token, this guard's override came from a grant) -> attributes to grant, mirroring checkOverride's own precedence rather than re-deriving it", () => {
+      // checkOverride() only ever returns BOTH `raw` and `grantReason` together
+      // when the grant channel is what decided — the env channel returns early
+      // (before the grant branch runs) whenever IT decides. So "both present"
+      // here means "grant decided while an unrelated env token happened to be
+      // set," not "env decided."
+      const fields = buildOverrideFireLogFields({
+        overridden: true,
+        raw: "some-other-guard",
+        grantReason: GRANT_REASON,
+      });
+      expect(fields).toEqual({
+        overrideSource: "grant",
+        overrideClassification: AUTHORIZED_EXCEPTION,
+      });
+    });
+  });
+
+  test("multiple matched guards each produce exactly one fire-log record, in registry order", async () => {
+    const spy = makeFireLogSpy();
+    const registrations: GuardRegistration[] = [
+      {
+        name: "a",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "A" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+      {
+        name: "b",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => null }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(spy.records.map((r) => r.guardName)).toEqual(["a", "b"]);
+    expect(spy.records.map((r) => r.decision)).toEqual(["warn", "allow"]);
+  });
+
+  test("a deny-capable guard's deny short-circuits later guards, but the denying guard's own fire-log record is still written", async () => {
+    const spy = makeFireLogSpy();
+    let secondGuardCalled = false;
+    const registrations: GuardRegistration[] = [
+      {
+        name: "first",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+      {
+        name: "second",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () =>
+          Promise.resolve({
+            run: () => {
+              secondGuardCalled = true;
+              return null;
+            },
+          }),
+        timeoutMs: 1000,
+        denyCapable: true,
+      },
+    ];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      recordFireLogFn: spy.fn,
+    });
+    expect(secondGuardCalled).toBe(false);
+    expect(spy.records.length).toBe(1);
+    expect(spy.records[0]?.guardName).toBe("first");
+    expect(spy.records[0]?.decision).toBe("deny");
+  });
+
+  test("the default recordFireLogFn (real recordFireLogEntry) never throws end-to-end — isolated MINSKY_STATE_DIR (file-level beforeAll) is honored", async () => {
+    const written: HookOutput[] = [];
+    const registrations: GuardRegistration[] = [
+      {
+        name: "g",
+        event: "PreToolUse",
+        matcher: "Bash",
+        module: () => Promise.resolve({ run: () => ({ additionalContext: "ok" }) }),
+        timeoutMs: 1000,
+        denyCapable: false,
+      },
+    ];
+    // No recordFireLogFn override — exercises the real default wiring,
+    // writing into fireLogTestStateDir (set by this file's beforeAll), never
+    // the developer's real ~/.local/state/minsky/fire-log.jsonl.
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations,
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      resolveDispatchContextFn: () => stubContext(),
+    });
+    expect(written[0]?.hookSpecificOutput?.additionalContext).toBe("ok");
   });
 });

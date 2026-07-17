@@ -145,8 +145,20 @@ export function computeGuardHealthSummary(
       }
     }
 
-    const escalation = guardEscalationFor(streak);
     const lastEvent = sorted.length > 0 ? (sorted[sorted.length - 1] ?? null) : null;
+
+    // mt#2814: age the streak out once its most recent event is itself stale
+    // relative to `now` — see .minsky/hooks/guard-health.ts's matching fix
+    // (kept in sync manually) for the full rationale. Without this, a guard
+    // whose log entries stopped updating (e.g. a test-fixture guard name that
+    // never fires again in production) pins its last-computed escalation
+    // tier forever, since every future read recomputes the same streak from
+    // the same frozen events.
+    if (lastEvent && nowMs - new Date(lastEvent.timestamp).getTime() > STREAK_RESET_GAP_MS) {
+      streak = 0;
+    }
+
+    const escalation = guardEscalationFor(streak);
 
     byGuard[guardName] = {
       failureCount24h,
