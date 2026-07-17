@@ -19,7 +19,7 @@ The argument is a task ID (e.g., \`/merge-coordination mt#328\`) or a GitHub PR 
 ### 0. Load the merge toolset bundle (mt#2822)
 
 Check first whether \`/implement-task\`'s Step 0b bundle already ran this conversation — its
-17-tool bundle already covers \`tasks_spec_get\`, \`session_pr_wait-for-review\`,
+18-tool bundle already covers \`tasks_spec_get\`, \`session_pr_wait-for-review\`,
 \`session_pr_checks\`, \`forge_check_runs_list\`, \`session_pr_get\`, \`session_pr_merge\`, and
 \`session_commit\`. Re-requesting an already-loaded tool via \`ToolSearch\` is harmless (the
 harness dedupes), but the two call shapes below keep each entry point requesting only what it
