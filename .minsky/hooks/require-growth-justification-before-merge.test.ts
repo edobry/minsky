@@ -220,6 +220,23 @@ describe("checkGrowthJustification", () => {
     expect(result.blocked).toBe(true);
   });
 
+  test("thresholdChars override (mt#2874 §7a live-verification seam): a real sub-2000 delta blocks under a lowered test threshold", () => {
+    // Mirrors the live-verification exercise: growth of 1936 chars (a REAL
+    // historical delta, PR #1935/mt#2801) is under the production 2000
+    // threshold but exceeds a deliberately lowered test threshold.
+    const result = checkGrowthJustification(RULES_FILES, "", 101_936, 100_000, 1000);
+    expect(result.deltaChars).toBe(1936);
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toContain("1936 chars");
+    expect(result.reason).toContain("threshold: 1000 chars");
+  });
+
+  test("thresholdChars override does not affect the reduction-never-triggers rule", () => {
+    const result = checkGrowthJustification(RULES_FILES, "", 99_000, 100_000, 1);
+    expect(result.deltaChars).toBe(-1000);
+    expect(result.blocked).toBe(false);
+  });
+
   test("a reduction never triggers, even a large one, regardless of marker absence", () => {
     const result = checkGrowthJustification(RULES_FILES, "", 90_000, 140_000);
     expect(result.deltaChars).toBe(-50_000);

@@ -181,12 +181,19 @@ export interface GrowthJustificationCheckResult {
  * merge-base. Pure core of the hook — injectable for unit tests (no `gh`
  * calls happen in here; the top-level entrypoint below resolves the two
  * sizes and passes them in).
+ *
+ * `thresholdChars` defaults to {@link GROWTH_THRESHOLD_CHARS} (the production
+ * value) but is overridable — this is the seam live-verification uses to
+ * exercise the deny path against a REAL PR's real (but sub-2000) growth with
+ * a deliberately lowered test threshold, per §7a's "low test threshold via
+ * fixture/env" dual-mode discipline (mt#2874 PR body has the worked example).
  */
 export function checkGrowthJustification(
   files: PrFile[],
   prBody: string,
   headSizeChars: number,
-  baseSizeChars: number
+  baseSizeChars: number,
+  thresholdChars: number = GROWTH_THRESHOLD_CHARS
 ): GrowthJustificationCheckResult {
   const warnings: string[] = [];
   const rulesFiles = findRulesDirFiles(files);
@@ -209,7 +216,7 @@ export function checkGrowthJustification(
   // yet trigger (parity with the acceptance test's "growth 1.5K -> allowed"
   // case and the general "exceeds" framing in the spec: the gate fires once
   // growth is STRICTLY greater than the threshold).
-  if (deltaChars <= GROWTH_THRESHOLD_CHARS) {
+  if (deltaChars <= thresholdChars) {
     return {
       blocked: false,
       rulesFiles,
@@ -229,7 +236,7 @@ export function checkGrowthJustification(
     };
   }
 
-  const reason = buildDenyMessage(deltaChars, rulesFiles);
+  const reason = buildDenyMessage(deltaChars, rulesFiles, thresholdChars);
   return {
     blocked: true,
     reason,
@@ -246,11 +253,15 @@ export function checkGrowthJustification(
  * key-architecture.mdc bullet and the create-rule skill — see mt#2874 PR
  * body for the cross-check), and names the marker form.
  */
-function buildDenyMessage(deltaChars: number, rulesFiles: string[]): string {
+function buildDenyMessage(
+  deltaChars: number,
+  rulesFiles: string[],
+  thresholdChars: number = GROWTH_THRESHOLD_CHARS
+): string {
   const fileList = rulesFiles.map((f) => `  - ${f}`).join("\n");
   return (
     `Merge blocked: this PR touches .minsky/rules/** and grows ${TARGET_FILE} by ` +
-    `${deltaChars} chars (threshold: ${GROWTH_THRESHOLD_CHARS} chars) with no ` +
+    `${deltaChars} chars (threshold: ${thresholdChars} chars) with no ` +
     `\`Size-budget justification:\` marker in the PR body.\n\n` +
     `Rule-admission ladder — new guidance content defaults DOWN:\n` +
     `  1. path-scoped \`.claude/rules\` — file-shaped guidance\n` +
