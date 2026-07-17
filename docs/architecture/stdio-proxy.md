@@ -112,15 +112,27 @@ Paths through the proxy:
   transform inspects the line. If it is not a `tools/list` response, the frame is
   passed through verbatim to stdout. Claude Code receives the response.
 
-- **Staleness exit / respawn path:** The inner server calls `process.exit(0)`.
-  The child's stdio closes. The proxy's `child.on("close")` fires, classifies the
-  exit as `clean_exit`, tears down the old Transform streams, and schedules a respawn
-  after `RESPAWN_DELAY_MS` (200 ms). A fresh child is spawned with the same command
-  and args. New Transform streams are wired. The proxy's stdin/stdout remain open
+- **Staleness exit / respawn path:** The inner server does NOT exit
+  immediately on detecting staleness. `triggerStaleSignal` (mt#1315 mechanism,
+  mt#2701 drain, mt#2830 idle-gap sequencing) sets a `pendingStaleExit` flag
+  and defers `process.exit(0)` until the first IDLE GAP — its in-flight
+  request counter reaching 0 — bounded by a hard cap (`staleDrainCapMs`,
+  default 30s) so a continuously-busy server cannot postpone the exit
+  indefinitely. Crucially (mt#2830), requests that ARRIVE during this drain
+  window are served normally on the still-loaded code, not rejected — only
+  true graceful shutdown (SIGTERM/SIGINT `drain()`) rejects new admissions.
+  Once the exit fires, the child's stdio closes. The proxy's
+  `child.on("close")` fires, classifies the exit as `clean_exit`, tears down
+  the old Transform streams, and schedules a respawn after `RESPAWN_DELAY_MS`
+  (200 ms). A fresh child is spawned with the same command and args. New
+  Transform streams are wired. The proxy's stdin/stdout remain open
   throughout. Claude Code sees no disconnect. After the fresh child confirms
   readiness via the ping probe (see below), the proxy emits
   `notifications/tools/list_changed` so Claude Code refreshes its tools/list
-  cache without operator action.
+  cache without operator action. See
+  `.minsky/rules/mcp-disconnect-cadence.mdc` §"Staleness-exit drain
+  semantics" for the full detail (this doc covers the proxy's side of the
+  boundary; that rule covers the inner server's drain state machine).
 
 - **Agent-initiated restart (`__proxy_restart_server`):** Claude Code writes a
   `tools/call` JSON-RPC frame with `params.name === "__proxy_restart_server"`. The
@@ -232,6 +244,15 @@ respond:
 | `null` / any | non-null | `signal`     | Respawn (proxy forward) |
 | non-zero     | `null`   | `crash`      | Respawn + count failure |
 
+This 3-way `ExitCause` (`classifyExit`) drives the proxy's OWN respawn and
+crash-loop-protection decision only. A SEPARATE, richer classifier
+(`classifyExitForDisconnectLog`, mt#2830) maps the same `(code, signal)` pair
+into the disconnect-tracker's full `McpDisconnectCause` taxonomy for the
+persistent log — e.g. distinguishing `signal_sigkill` from a generic
+`"signal"` bucket — since the coarse 3-way split above is sufficient for
+"should I respawn / count this as a failure" but not for diagnosing WHY a
+process died. See "Disconnect-tracker integration" below.
+
 **Signal-driven exits** occur when the proxy itself receives SIGTERM or SIGINT and
 forwards it to the child. When `isShuttingDown = true`, the proxy does not respawn;
 it exits after the child terminates.
@@ -265,11 +286,27 @@ by the proxy layer. The tracker discriminates:
 - **`uptimeMs`** — measured from the inner server's own process start, not the proxy's.
   Each respawned child has a fresh uptime counter.
 
-Net effect: from the disconnect-tracker's perspective, the proxy is invisible. Each
-inner-server instance is a separate process with its own tracker state. Staleness
-exits still appear as `cause: "staleness_exit"` and are not escalation-eligible.
-Genuine long-lived-session closures (the user kills the proxy with SIGTERM) are tracked
-correctly by the inner server's last instance.
+**mt#2830 — the proxy is NO LONGER invisible for non-clean exits.** The claim
+above ("the proxy is invisible") held only for the routine case. The proxy
+now ALSO records its own disconnect event — under a distinct
+`serverName: "minsky-proxy"` bucket, so it never merges into or skews the
+inner server's own cause-distribution stats — whenever a child exit is
+anything other than a clean `code === 0, signal === null` exit. This closes
+a real gap: a SIGKILL death gives the inner server zero opportunity to run
+ANY code, including its own disconnect-tracker call, so before this change
+such a death produced no log entry at all (not even `"unknown"`). The proxy,
+running in a separate OS process, reliably observes `code`/`signal` regardless
+of how the child died, and additionally captures a bounded stderr tail and
+the last outbound transport line as diagnostic breadcrumbs. See
+`.minsky/rules/mcp-disconnect-cadence.mdc` §"Diagnostic fields" and cause
+class 6 for the full field/cause reference; `src/mcp/stdio-proxy/proxy.ts`'s
+`classifyExitForDisconnectLog` and `onChildClose` for the implementation.
+
+Net effect: staleness exits still appear as `cause: "staleness_exit"` from the
+inner server and are not escalation-eligible; genuine long-lived-session
+closures (the user kills the proxy with SIGTERM) are tracked correctly by the
+inner server's last instance; and exits the inner cannot self-report (SIGKILL,
+abrupt crashes) are now captured by the proxy instead of silently vanishing.
 
 ## CLI opt-in
 
@@ -309,9 +346,12 @@ switch to the HTTP transport.
 
 **Not in-place hot-module reload.** mt#1713 Shape 3 (deferred design alternative) would
 reload Minsky's source modules in-process without restarting the server process at all.
-The proxy is a coarser mechanism: full child-process respawn with a brief 200 ms gap
-during which no tool calls can be served. Shape 3 would eliminate that gap but requires
-significantly more implementation work.
+The proxy is a coarser mechanism: full child-process respawn with a brief gap (roughly
+`RESPAWN_DELAY_MS` plus spawn time) between the OLD process actually exiting and the
+FRESH child confirming readiness, during which no tool calls can be served. This is
+distinct from — and much shorter than — the pre-exit drain window (mt#2701/mt#2830
+above), which now serves requests normally rather than blocking them. Shape 3 would
+eliminate the post-exit gap too but requires significantly more implementation work.
 
 **Not multi-tenant.** The proxy manages exactly one inner-server child at a time. It
 does not multiplex multiple clients or route requests across multiple child instances.
@@ -330,6 +370,15 @@ Each `minsky mcp proxy` invocation manages one child process.
   unnecessary for users willing to switch transport.
 - **mt#1716** — Gate (i) for `/plan-task`: planning-time check that catches tasks
   attempting to edit Minsky source without the proxy or an HTTP-daemon in place.
+- **mt#2701** — drain-before-exit: in-flight request counter + idle-gap sequencing so a
+  staleness exit doesn't orphan a concurrent sibling call.
+- **mt#2830** — (a) fixes the drain window to serve NEW requests normally instead of
+  surfacing MCP error -32603; (b) adds this doc's proxy-side unknown-cause
+  instrumentation (`classifyExitForDisconnectLog`, stderr-tail capture, the
+  `minsky-proxy` disconnect-log bucket). Also feeds — without resolving — two
+  cause-classification cousins: mt#1576 (disconnect-after-subagent-dispatch pattern)
+  and mt#1689 (stdout-pollution-into-stdio, cause class 5); see
+  `.minsky/rules/mcp-disconnect-cadence.mdc` for detail.
 - **`docs/mcp-signaling-spike-findings.md`** — mt#1315 spike: empirical survey of
   signaling surfaces and why none of them provided a clean solution without the
   supervisor-below approach.

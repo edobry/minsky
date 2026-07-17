@@ -21,6 +21,13 @@ const SESSION_NOT_FOUND_MSG = "Session not found";
 // Shared staleness-signal constants
 const STALENESS_LOGGER = "minsky-staleness";
 
+// Shared fake staleness message used by the mt#2701/mt#2830 drain tests below
+// — extracted to avoid the custom/no-magic-string-duplication warning once
+// the same literal is used by 3+ tests.
+const FAKE_STALE_MESSAGE =
+  "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
+  "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+
 describe("MCP Server", () => {
   beforeEach(() => {
     setupTestMocks();
@@ -835,9 +842,7 @@ describe("MCP Server", () => {
       handler: async () => "quick-done",
     });
 
-    const fakeStaleMessage =
-      "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
-      "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
     const fakeDetector = {
       getStaleWarning: mock(() => fakeStaleMessage),
       isCurrentlyStale: mock(() => true),
@@ -904,9 +909,7 @@ describe("MCP Server", () => {
       projectContext: { repositoryPath: "/mock/test-repo" },
     });
 
-    const fakeStaleMessage =
-      "\n\n⚠️ The Minsky MCP server was loaded from commit abc01234 " +
-      "but the workspace is now at def56789. Source files have changed. Run: /mcp then reconnect minsky";
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
     const fakeDetector = {
       getStaleWarning: mock(() => fakeStaleMessage),
       isCurrentlyStale: mock(() => true),
@@ -943,6 +946,82 @@ describe("MCP Server", () => {
     expect(exitCalls[0]).toBe(0);
 
     inFlight.delete(1);
+    await server.close();
+  });
+
+  test("staleness drain: a NEW request arriving during the drain window is served normally, not rejected (mt#2830)", async () => {
+    // Regression guard for mt#2830: before the fix, triggerStaleSignal set
+    // `draining = true`, and the tools/call handler rejected ANY new call
+    // with Error("Server is shutting down") while draining — surfacing to
+    // callers as MCP error -32603. This asserts a call issued AFTER
+    // staleness has been detected (but before the process actually exits)
+    // completes normally instead of throwing.
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool({
+      name: "quick",
+      description: "Quick tool",
+      handler: async () => "quick-done",
+    });
+
+    const fakeStaleMessage = FAKE_STALE_MESSAGE;
+    const fakeDetector = {
+      getStaleWarning: mock(() => fakeStaleMessage),
+      isCurrentlyStale: mock(() => true),
+    };
+    (server as unknown as { stalenessDetector: typeof fakeDetector }).stalenessDetector =
+      fakeDetector;
+
+    const exitCalls: number[] = [];
+    (server as unknown as { exit: (code: number) => void }).exit = (code: number) => {
+      exitCalls.push(code);
+    };
+
+    const sdkServer = (server as unknown as { server: { sendLoggingMessage: unknown } }).server;
+    sdkServer.sendLoggingMessage = mock(async () => {});
+
+    const handlers = (sdkServer as unknown as { _requestHandlers: Map<string, Function> })
+      ._requestHandlers;
+    const toolsCallHandler = handlers.get("tools/call");
+    if (!toolsCallHandler) throw new Error("Expected tools/call handler to be registered");
+
+    const textOf = (res: unknown): string =>
+      (res as { content: Array<{ type: string; text?: string }> }).content.find(
+        (c) => c.type === "text"
+      )?.text ?? "";
+
+    // First call detects staleness and arms the drain (pendingStaleExit=true).
+    const firstRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(firstRes)).toBe("quick-done");
+
+    // Confirm the drain semantics: pendingStaleExit is set, but the
+    // shutdown-rejecting `draining` flag is deliberately NOT set.
+    expect((server as unknown as { pendingStaleExit: boolean }).pendingStaleExit).toBe(true);
+    expect((server as unknown as { draining: boolean }).draining).toBe(false);
+
+    // A NEW call arrives during the drain window (before the exit has fired).
+    // It must be served normally, not rejected.
+    expect(exitCalls.length).toBe(0);
+    const secondRes = await toolsCallHandler(
+      { method: "tools/call", params: { name: "quick", arguments: {} } },
+      {}
+    );
+    expect(textOf(secondRes)).toBe("quick-done");
+
+    // Eventually, once genuinely idle, the exit still fires.
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    expect(exitCalls.length).toBe(1);
+    expect(exitCalls[0]).toBe(0);
+
     await server.close();
   });
 

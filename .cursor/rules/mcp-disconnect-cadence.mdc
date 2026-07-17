@@ -52,6 +52,60 @@ the tracker now distinguishes (mt#1682):
    Currently tolerated by Claude Code (logged as "Ignoring non-JSON line on
    stdout") and is **not a disconnect cause** but is a framing-corruption
    hazard worth tracking. Cleanup is a separate concern.
+6. **Proxy-observed exits (mt#2830)** — the stdio respawn proxy
+   (`src/mcp/stdio-proxy/proxy.ts`) is a SEPARATE OS process from the inner
+   server and is therefore the only reliable observer of exits the inner
+   cannot self-report — most importantly **SIGKILL**, which is uncatchable
+   and gives the inner zero opportunity to run any recording code before it
+   dies (previously: no disconnect-log entry at all for that death, not even
+   `"unknown"`). Recorded as `cause: "signal_sigkill"` for SIGKILL,
+   `cause: "proxy_observed_crash"` for a non-zero exit with no signal, or the
+   existing `signal_sigterm`/`signal_sigint`/`signal_sighup` causes for those
+   specific signals — under a **distinct `serverName: "minsky-proxy"`**
+   bucket, so historical cause-distribution stats for the inner server
+   (`"Minsky MCP Server"` / `"minsky-hosted"`) are unaffected. Routine clean
+   exits (code 0, no signal — the common `staleness_exit` case) are
+   deliberately NOT duplicated here; the inner already records those with a
+   more specific cause. **Counts toward escalation** (not by-design — an
+   external actor caused it).
+
+## Staleness-exit drain semantics (mt#2701, mt#2830)
+
+`triggerStaleSignal` (`src/mcp/server.ts`) does not exit immediately once
+staleness is detected. It tracks an in-flight request counter and defers
+`process.exit(0)` until the first IDLE GAP (counter reaches 0), bounded by a
+hard cap (`staleDrainCapMs`, default 30s) so a continuously-busy server
+cannot postpone the exit indefinitely.
+
+**mt#2830 fix:** requests that ARRIVE during the drain window — after
+staleness was detected but before the process actually exits — are served
+normally on the still-loaded code, not rejected. Before this fix, the same
+`draining` flag used by true graceful shutdown (`drain()`, the SIGTERM/SIGINT
+path) was also set by staleness-exit, so any new call landing in that window
+was rejected with `Error("Server is shutting down")` — surfacing to MCP
+clients as **error -32603** even though the server had not yet decided to
+die. A dedicated `pendingStaleExit` flag now carries the "exit once idle"
+intent without gating new admissions; `draining` is reserved for genuine
+shutdown. The freshness guarantee is unchanged for calls made AFTER the
+process actually exits and is respawned by the stdio proxy — only the
+in-between window changed behavior.
+
+## Diagnostic fields (mt#2830)
+
+Proxy-observed `disconnect` events additionally carry, when available:
+
+- `exitCode` — the child's exit code (`null` when killed by a signal)
+- `signal` — the raw POSIX signal name (e.g. `"SIGKILL"`), independent of
+  whether `cause` has a dedicated taxonomy entry for it
+- `stderrTail` — a bounded tail (last ~4000 chars) of the child's stderr
+  output captured immediately before it closed
+- `lastTransportEvent` — the last JSON-RPC line observed on the outbound
+  path (child → client) before the close, truncated to ~500 chars — a
+  breadcrumb for "what was the server doing when it died"
+
+These are absent on inner-server-recorded events (the inner has no stderr or
+exit-code visibility into itself) and on proxy events where the corresponding
+signal wasn't available.
 
 ## Process-role classification (mt#1705)
 
@@ -117,6 +171,9 @@ enclosing array. Each line carries:
 - `processRole` on `disconnect` events (mt#1705): `"helper"` or `"main_session"`
 - `pid` on `process_start` events
 - `error` on `transport_error` and (optionally) `disconnect` events
+- `exitCode`, `signal`, `stderrTail`, `lastTransportEvent` on
+  `serverName: "minsky-proxy"` `disconnect` events (mt#2830) — see
+  "Diagnostic fields" above
 
 The legacy mt#1645 single-array JSON format is still readable on load
 (backward-compat migration). After upgrade, new events append as JSONL
@@ -139,6 +196,14 @@ grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
 
 # Process count today
 grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
+
+# Proxy-observed exits with full diagnostics (mt#2830) — SIGKILL/crash cases
+grep -h '"serverName":"minsky-proxy"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq '{timestamp, cause, exitCode, signal, stderrTail, lastTransportEvent}'
+
+# Unknown-cause share (the mt#2830 gap-analysis metric)
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq -r '.cause' | sort | uniq -c | awk '$2=="unknown"{u=$1} {t+=$1} END{printf "%d/%d (%.1f%%)\n", u+0, t, 100*(u+0)/t}'
 ```
 
 ## Cross-references
@@ -146,6 +211,23 @@ grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
 - `mt#1645` — measurement layer (parent task)
 - `mt#1682` — cause classification + append-only log
 - `mt#1705` — process-role classification to exclude helper sessions (this rule update)
+- `mt#2701` — drain-before-exit: in-flight request counter + idle-gap
+  sequencing + hard drain cap, so a staleness exit doesn't orphan a
+  concurrent sibling call already in flight
+- `mt#2830` — this update: (a) fixes the drain window to serve NEW requests
+  normally instead of surfacing -32603 (see "Staleness-exit drain semantics"
+  above); (b) adds proxy-side unknown-cause instrumentation (cause class 6,
+  "Diagnostic fields" above)
+- `mt#1576` / `mt#1689` — cause-classification cousins, not resolved by this
+  task but fed by it: mt#1576 investigates a disconnect-after-subagent-dispatch
+  pattern and mt#1689 investigates stdout-pollution-into-stdio (cause class
+  5) — both were previously constrained by having only a bare `cause` string
+  to diagnose from. The exit code / signal / stderr tail / last-transport-event
+  fields this task adds are exactly the missing signal their diagnosis needs;
+  neither task is closed by this work, but both should be revisited with the
+  richer log now available.
 - `src/mcp/disconnect-tracker.ts` — implementation
+- `src/mcp/stdio-proxy/proxy.ts` — proxy-side child-close observation,
+  `classifyExitForDisconnectLog`, stderr-tail capture (mt#2830)
 - `src/mcp/server.ts` — `wireDisconnectHooks`, `installSignalHandlers`,
   `triggerStaleSignal`, `incrementToolCallCount` integration points

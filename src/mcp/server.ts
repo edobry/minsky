@@ -399,11 +399,33 @@ export class MinskyMCPServer {
 
   // Graceful shutdown tracking
   private inFlightRequests = new Map<number, number>();
+  // True ONLY during a genuine graceful shutdown initiated by `drain()`
+  // (the SIGTERM/SIGINT signal path in start-command.ts). New tool calls are
+  // rejected while this is true (see the `tools/call` handler gate) because
+  // the process really is going away and accepting new work would just be
+  // discarded.
+  //
+  // mt#2830: staleness-exit does NOT set this flag — see `pendingStaleExit`
+  // below. Sharing this flag between the two mechanisms was the bug: a
+  // staleness-triggered drain used to set `draining = true`, which caused
+  // every NEW tool call arriving during the drain window to be rejected with
+  // `Error("Server is shutting down")` (surfaced to callers as MCP error
+  // -32603) even though the process had not decided to exit yet and the old
+  // code was still fully able to serve the request.
   private draining = false;
   private nextRequestId = 0;
 
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
+  // mt#2830: set by `triggerStaleSignal` instead of `draining`. Signals that
+  // the process intends to exit once genuinely idle, WITHOUT rejecting new
+  // tool calls in the meantime — new requests arriving during this window are
+  // served normally (on the currently-loaded, "old" code; the freshness
+  // guarantee only applies to calls made AFTER the process actually exits and
+  // is respawned by the stdio proxy). `scheduleStaleExitAfterDrain` polls
+  // `inFlightRequests` for the first idle gap; `staleDrainCapMs` bounds how
+  // long a continuously-busy server can postpone the exit.
+  private pendingStaleExit = false;
 
   // mt#2701: max time to wait for in-flight tool calls to drain before a
   // staleness exit force-terminates. Overridable in tests. A wedged request
@@ -986,6 +1008,10 @@ export class MinskyMCPServer {
     // Call tool
     server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/call", request, extra);
+      // Only true `drain()` (SIGTERM/SIGINT graceful shutdown) sets this —
+      // staleness-exit sets `pendingStaleExit` instead, deliberately NOT this
+      // flag, so a tool call arriving during a staleness drain window is
+      // served normally instead of being rejected here (mt#2830).
       if (this.draining) {
         throw new Error("Server is shutting down");
       }
@@ -1671,16 +1697,28 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Begin a staleness-driven shutdown (mt#1315 mechanism, mt#2701 drain): emit a
-   * notifications/message at level=alert, tag the upcoming exit as
-   * `staleness_exit`, mark the server `draining` (rejecting new calls), then wait
-   * for in-flight tool calls to DRAIN before scheduling `process.exit(0)` after a
-   * 200ms flush buffer. A hard cap (`staleDrainCapMs`) force-exits a wedged request.
+   * Begin a staleness-driven shutdown (mt#1315 mechanism, mt#2701 drain, mt#2830
+   * idle-gap sequencing): emit a notifications/message at level=alert, tag the
+   * upcoming exit as `staleness_exit`, set `pendingStaleExit` (NOT `draining` —
+   * see the field comment), then wait for the first IDLE GAP — the moment
+   * `inFlightRequests` reaches 0 — before scheduling `process.exit(0)` after a
+   * 200ms flush buffer. A hard cap (`staleDrainCapMs`) force-exits if the server
+   * is never idle for that long.
    *
    * Only fires once per process lifetime (guarded by hasTriggeredStaleSignal).
-   * Draining before exit is what prevents a sibling call in a parallel batch from
-   * being orphaned: the detecting call is itself in flight until its `finally`
-   * runs, so the drain waits for it and every concurrent sibling to respond first.
+   *
+   * mt#2830: requests already in flight when staleness is detected are waited
+   * on (mt#2701's original guarantee — the detecting call is itself in flight
+   * until its `finally` runs, so the drain waits for it and every concurrent
+   * sibling to respond first). NEW requests that arrive DURING the drain window
+   * are also served normally — they are NOT rejected — because `draining`
+   * (the flag the `tools/call` handler gates on) is intentionally left false.
+   * This closes the -32603 "Server is shutting down" gap: a caller issuing a
+   * tool call while a staleness exit is pending gets a normal response on the
+   * still-loaded ("old") code, exactly as it would have moments earlier. The
+   * freshness guarantee is unchanged for the POST-exit world — the next call
+   * after the process actually exits and is respawned gets the new HEAD.
+   *
    * See scheduleStaleExitAfterDrain.
    */
   private triggerStaleSignal(server: Server): void {
@@ -1724,9 +1762,10 @@ export class MinskyMCPServer {
       errorMessage: staleMessage || undefined,
     });
 
-    // mt#2701: reject NEW calls and drain in-flight ones before exiting, instead
-    // of arming a 200ms fuse that orphans concurrent siblings still executing.
-    this.draining = true;
+    // mt#2830: set pendingStaleExit (NOT draining) so the exit is sequenced
+    // into the first idle gap while new tool calls keep being served normally
+    // in the meantime. See the field comments and this method's docstring.
+    this.pendingStaleExit = true;
     this.scheduleStaleExitAfterDrain();
   }
 
@@ -1734,6 +1773,16 @@ export class MinskyMCPServer {
    * Poll until no tool call is in flight (or `staleDrainCapMs` elapses), then
    * schedule the process exit after a short flush buffer so the final response
    * reaches the transport before the process dies (mt#2701).
+   *
+   * mt#2830: `inFlightRequests` counts BOTH requests that were already
+   * executing when staleness was detected AND new requests that arrive while
+   * `pendingStaleExit` is true (the `tools/call` handler does not reject them
+   * — see `pendingStaleExit`'s field comment). So a steady trickle of new
+   * calls naturally extends the drain past a single request's lifetime; this
+   * is intentional ("first idle gap", not "first response"). `staleDrainCapMs`
+   * is the backstop: if the server is never idle for that long, the exit
+   * fires anyway so staleness cannot be starved indefinitely by continuous
+   * traffic.
    */
   private scheduleStaleExitAfterDrain(): void {
     const POLL_INTERVAL_MS = 50;
