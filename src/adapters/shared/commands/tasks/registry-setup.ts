@@ -149,6 +149,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
   } = require("./deps-visualization-commands");
   const { createTasksAvailableCommand, createTasksRouteCommand } = require("./routing-commands");
   const { createTasksDispatchCommand } = require("./dispatch-command");
+  const { createTasksDispatchRecoverCommand } = require("./dispatch-recover-command");
   const { createTasksOrchestrateCommand } = require("./orchestrate-command");
   const {
     createTasksDecomposeCommand,
@@ -206,6 +207,8 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
       getTaskService,
       getTracker
     ),
+    // Dispatch-recover (mt#2831): server-side detect/classify/prepare for a died/stalled dispatch
+    createTasksDispatchRecoverCommand(getSessionProvider, getTaskService, getTracker),
     // Orchestrate (find dispatchable subtasks for a parent)
     createTasksOrchestrateCommand(getTaskGraphService, getTaskService),
     // Context commands (decompose, estimate, analyze)

@@ -510,7 +510,7 @@ export function createTasksDispatchCommand(
       try {
         const tracker = getTracker?.();
         if (tracker) {
-          await tracker.recordSubagentInvocation({
+          const invocationId = await tracker.recordSubagentInvocation({
             taskId,
             subagentSessionId: sessionId, // Minsky session id of the subagent's workspace
             agentType: promptResult.agentType ?? p.type,
@@ -518,7 +518,42 @@ export function createTasksDispatchCommand(
             startedAt: new Date(),
             outcome: "crashed-no-output",
           });
-          log.debug("[tasks.dispatch] Pending invocation row written", { taskId });
+          log.debug("[tasks.dispatch] Pending invocation row written", { taskId, invocationId });
+
+          // mt#2831 R1 BLOCKING #1: write the current-invocation marker so the
+          // SubagentStop hook can bind its eventual Stop-time update to THIS exact
+          // row (strong binding) instead of guessing by subagentSessionId — see
+          // SubagentDispatchTracker.recordSubagentInvocation's docstring. Best-effort;
+          // a write failure here just means the Stop hook falls back to the
+          // heuristic upsert path, same as before this mechanism existed.
+          //
+          // mt#2831 R3 NB #3: nested try/catch for symmetry with
+          // dispatch-recover-command.ts's marker-write guard (R3 BLOCKING #2) —
+          // this whole Step 5 block is already inside the OUTER try/catch below,
+          // so a throw here was already non-fatal to `tasks.dispatch`, but an
+          // inner guard keeps a marker-write failure from masking whether the
+          // INVOCATION ROW write (the more important of the two) itself
+          // succeeded, and gives the marker failure its own distinct log line.
+          if (invocationId) {
+            try {
+              const { writeCurrentInvocationMarker } = await import(
+                "@minsky/domain/session/current-invocation-marker"
+              );
+              const wrote = await writeCurrentInvocationMarker(sessionDir, sessionId, invocationId);
+              if (!wrote) {
+                log.warn("[tasks.dispatch] Failed to write current-invocation marker", {
+                  taskId,
+                  sessionDir,
+                });
+              }
+            } catch (err) {
+              log.warn("[tasks.dispatch] current-invocation marker write threw unexpectedly", {
+                taskId,
+                sessionDir,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
         }
       } catch (err) {
         // Non-fatal: fail-safe. The invocation row is best-effort telemetry.

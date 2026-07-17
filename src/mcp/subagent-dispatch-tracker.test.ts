@@ -39,7 +39,10 @@ import {
   type SubagentInvocationInput,
 } from "./subagent-dispatch-tracker";
 import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
-import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import {
+  SUBAGENT_INVOCATION_OUTCOME_VALUES,
+  subagentInvocationsTable,
+} from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { NoopEventEmitter } from "@minsky/domain/events/emitter";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +83,8 @@ interface FakeRow {
   prUrl: string | null;
   lastCommitHash: string | null;
   handoffWritten: boolean | null;
+  resumedFromInvocationId: string | null;
+  attemptNumber: number;
 }
 
 let nextId = 1;
@@ -113,6 +118,8 @@ function inputToRow(input: SubagentInvocationInput): FakeRow {
     prUrl: input.prUrl ?? null,
     lastCommitHash: input.lastCommitHash ?? null,
     handoffWritten: input.handoffWritten ?? null,
+    resumedFromInvocationId: input.resumedFromInvocationId ?? null,
+    attemptNumber: input.attemptNumber ?? 1,
   };
 }
 
@@ -129,6 +136,7 @@ const COLUMN_TO_FIELD: Record<string, keyof FakeRow> = {
   id: "id",
   outcome: "outcome",
   started_at: "startedAt",
+  ended_at: "endedAt",
   parent_session_id: "parentSessionId",
   subagent_session_id: "subagentSessionId",
   agent_type: "agentType",
@@ -217,6 +225,22 @@ function parseWhere(clause: string, params: unknown[]): (row: FakeRow) => boolea
       throw new Error(`parseWhere: unknown column in IS NOT NULL clause: ${colName}`);
     }
     return (row) => row[field] != null;
+  }
+
+  // IS NULL: `"table"."col" is null` (mt#2831 — isNull(endedAt) in the
+  // heuristic upsert target selector). Checked after IS NOT NULL above so a
+  // literal "is not null" clause is never mis-parsed here.
+  const isNullMatch = clause.match(/"[^"]+"\."([^"]+)" is null/i);
+  if (isNullMatch) {
+    const colName = isNullMatch[1];
+    if (!colName) {
+      throw new Error(`parseWhere: malformed IS NULL clause: ${clause}`);
+    }
+    const field = COLUMN_TO_FIELD[colName];
+    if (!field) {
+      throw new Error(`parseWhere: unknown column in IS NULL clause: ${colName}`);
+    }
+    return (row) => row[field] == null;
   }
 
   // Comparison: `"table"."col" >= $N` or `"table"."col" = $N`
@@ -323,7 +347,10 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
     selectedFields: Record<string, unknown>;
     wherePred: ((row: FakeRow) => boolean) | null;
     groupByFn: ((row: FakeRow) => string) | null;
-    orderByDescStartedAt: boolean;
+    // mt#2831 R1 NB #4: `getInvocationChainForTask` orders ASC (bare column, no
+    // `desc()` wrapper) while every pre-existing caller orders DESC — the fake must
+    // distinguish direction, not always assume DESC. `null` = no orderBy called.
+    orderDirection: "asc" | "desc" | null;
     limitVal: number | null;
     countField: string | null; // "total" or "cnt" — signals a count() aggregation
   };
@@ -341,8 +368,13 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         ctx.groupByFn = buildGroupByFn(ctx.selectedFields);
         return chain;
       },
-      orderBy(_col: unknown) {
-        ctx.orderByDescStartedAt = true;
+      orderBy(col: unknown) {
+        // Identity check: every production callsite orders by either the bare
+        // `subagentInvocationsTable.startedAt` column (ASC — drizzle's default
+        // when a column is passed unwrapped) or `desc(subagentInvocationsTable.startedAt)`
+        // (a distinct wrapper object). Bare-column reference is the ONLY case that
+        // means ascending across this file's callers.
+        ctx.orderDirection = col === subagentInvocationsTable.startedAt ? "asc" : "desc";
         return chain;
       },
       limit(n: number) {
@@ -412,9 +444,11 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
       return result;
     }
 
-    // Apply orderBy (desc startedAt — this is the only ordering used in the tracker)
-    if (ctx.orderByDescStartedAt) {
+    // Apply orderBy — startedAt, ASC or DESC per the identity check in orderBy() above.
+    if (ctx.orderDirection === "desc") {
       rs = [...rs].sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+    } else if (ctx.orderDirection === "asc") {
+      rs = [...rs].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     }
 
     // Apply limit
@@ -439,7 +473,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         selectedFields: fields,
         wherePred: null,
         groupByFn: null,
-        orderByDescStartedAt: false,
+        orderDirection: null,
         limitVal: null,
         countField,
       };
@@ -455,6 +489,12 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
           return {
             onConflictDoUpdate(_opts: unknown): Promise<void> {
               return Promise.resolve();
+            },
+            // mt#2831: recordDispatchRecoveryAttempt calls `.returning({ id: ... })`
+            // after `.values(...)`. The fake ignores the requested field shape and
+            // always returns the row's real id — sufficient for the tests that use it.
+            returning(_fields?: unknown): Promise<Array<{ id: string }>> {
+              return Promise.resolve([{ id: row.id }]);
             },
             then(resolve: (v: void) => void, _reject: (e: unknown) => void): Promise<void> {
               return Promise.resolve().then(resolve);
@@ -516,6 +556,23 @@ function makeInput(overrides: Partial<SubagentInvocationInput> = {}): SubagentIn
     startedAt: BASE_DATE,
     ...overrides,
   };
+}
+
+/**
+ * mt#2831: `recordSubagentInvocation` returns void, but several retry-linkage tests need the
+ * freshly-inserted row's id (to pass as `resumedFromInvocationId` to a follow-up
+ * `recordDispatchRecoveryAttempt` call). Records the input, then reads back the row via
+ * `getLatestInvocationForTask` — safe in these tests because each caller uses a distinct
+ * `taskId`/`startedAt` per call so "most recent" is unambiguous.
+ */
+async function recordAndGetId(
+  tracker: SubagentDispatchTracker,
+  input: SubagentInvocationInput
+): Promise<string> {
+  await tracker.recordSubagentInvocation(input);
+  const row = await tracker.getLatestInvocationForTask(input.taskId);
+  if (!row) throw new Error(`recordAndGetId: no row found for taskId ${input.taskId}`);
+  return row.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,6 +1175,368 @@ describe("SubagentDispatchTracker", () => {
     test("DAILY_RATE_LIMITED_THRESHOLD is exported and positive", () => {
       expect(typeof DAILY_RATE_LIMITED_THRESHOLD).toBe("number");
       expect(DAILY_RATE_LIMITED_THRESHOLD).toBeGreaterThan(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Dispatch-recovery retry linkage (mt#2831)
+  // -------------------------------------------------------------------------
+
+  describe("dispatch-recovery retry linkage (mt#2831)", () => {
+    test("getLatestInvocationForTask returns null for a task with no rows", async () => {
+      const result = await tracker.getLatestInvocationForTask("mt#9999");
+      expect(result).toBeNull();
+    });
+
+    test("getLatestInvocationForTask returns the most recently started row", async () => {
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(2), outcome: OUTCOME_CRASHED })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(1), outcome: OUTCOME_COMMITTED_NO_PR })
+      );
+      const result = await tracker.getLatestInvocationForTask("mt#2831");
+      expect(result?.outcome).toBe(OUTCOME_COMMITTED_NO_PR);
+    });
+
+    test("getInvocationChainForTask returns every row for the task, none for others", async () => {
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(3) })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(2) })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#0001", startedAt: hoursAgo(1) })
+      );
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      expect(chain).toHaveLength(2);
+      expect(chain.every((row) => row.taskId === "mt#2831")).toBe(true);
+    });
+
+    test("getInvocationChainForTask returns rows oldest -> newest (ordering contract, mt#2831 R1 NB #4)", async () => {
+      // Insert deliberately OUT of chronological order — the method's contract is
+      // "always ASC by startedAt", not "insertion order". Each row is INSERT-only
+      // (no shared subagentSessionId, so no upsert collision) and distinguished by
+      // its own attemptNumber, read back via the chain itself rather than via
+      // per-insert id capture (which would be ambiguous here — recordAndGetId's
+      // "most recently started row" lookup would keep re-matching whichever row
+      // happens to have the latest startedAt across these deliberately-reordered
+      // inserts, not necessarily the one just written).
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(1), attemptNumber: 2 })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(3), attemptNumber: 1 })
+      );
+      await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", startedAt: hoursAgo(0.5), attemptNumber: 3 })
+      );
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+
+      expect(chain).toHaveLength(3);
+      expect(chain.map((row) => row.attemptNumber)).toEqual([1, 2, 3]);
+      // chain[0] is always the original (oldest startedAt); chain[chain.length - 1]
+      // is always the most recent attempt.
+      expect(chain[0]?.attemptNumber).toBe(1);
+      expect(chain[chain.length - 1]?.attemptNumber).toBe(3);
+      // Monotonic startedAt ASC across the whole array — the actual contract.
+      for (let i = 1; i < chain.length; i++) {
+        const prev = chain[i - 1];
+        const curr = chain[i];
+        expect(prev && curr && curr.startedAt.getTime() >= prev.startedAt.getTime()).toBe(true);
+      }
+    });
+
+    test("recordDispatchRecoveryAttempt INSERTs a NEW row rather than upserting over the original", async () => {
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: "shared-session",
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(1),
+        })
+      );
+
+      const resumedId = await tracker.recordDispatchRecoveryAttempt({
+        taskId: "mt#2831",
+        subagentSessionId: "shared-session",
+        agentType: "implementer",
+        outcome: OUTCOME_COMMITTED_NO_PR,
+        startedAt: BASE_DATE,
+        resumedFromInvocationId: originalId,
+        attemptNumber: 2,
+      });
+
+      expect(resumedId).not.toBeNull();
+      expect(resumedId).not.toBe(originalId);
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      expect(chain).toHaveLength(2);
+      const resumedRow = chain.find((row) => row.id === resumedId);
+      expect(resumedRow?.attemptNumber).toBe(2);
+      expect((resumedRow as unknown as FakeRow).resumedFromInvocationId).toBe(originalId);
+
+      // The original row is untouched — a plain insert, not an upsert clobber.
+      const originalRow = chain.find((row) => row.id === originalId);
+      expect(originalRow?.outcome).toBe(OUTCOME_CRASHED);
+    });
+
+    test("recordSubagentInvocation upsert targets the MOST RECENT row when a subagentSessionId has multiple rows", async () => {
+      const SHARED_SESSION_ID = "shared-session-2";
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(2),
+        })
+      );
+      const resumedId = await tracker.recordDispatchRecoveryAttempt({
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: "implementer",
+        outcome: OUTCOME_CRASHED,
+        startedAt: hoursAgo(1),
+        resumedFromInvocationId: originalId,
+        attemptNumber: 2,
+      });
+
+      // A later upsert (e.g. the SubagentStop hook classifying the resumed attempt)
+      // must land on the RESUMED row, not the original — this is the ordering fix
+      // (orderBy startedAt DESC before limit(1) in the upsert's SELECT).
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          startedAt: BASE_DATE,
+        })
+      );
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      const original = chain.find((row) => row.id === originalId);
+      const resumed = chain.find((row) => row.id === resumedId);
+      expect(original?.outcome).toBe(OUTCOME_CRASHED);
+      expect(resumed?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Deterministic attribution (mt#2831 R1 BLOCKING #1)
+  //
+  // PR #2028 R1 finding: after a recovery insert, the subagentSessionId-keyed
+  // upsert's "most recent row" selection can attribute a Stop-time update to
+  // the WRONG invocation row — e.g. a delayed SubagentStop event for the
+  // ORIGINAL attempt, arriving AFTER a RESUMED attempt's row was already
+  // inserted, would land on the (more recently started) resumed row instead
+  // of the original one it actually describes.
+  // -------------------------------------------------------------------------
+
+  describe("deterministic attribution (mt#2831 R1 BLOCKING #1)", () => {
+    test("strong binding via `id`: a late Stop event for the ORIGINAL updates the ORIGINAL row, not the newer RESUMED row it would otherwise match by subagentSessionId recency", async () => {
+      const SHARED_SESSION_ID = "attribution-session-1";
+
+      // Original dispatch (attempt 1), still open (endedAt null — it went
+      // silent without a normal Stop classification, which is WHY it was
+      // recovered).
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(2),
+        })
+      );
+
+      // Recovery closes the original (mirrors dispatch-recover-command.ts's
+      // fix: the recover command now UPDATEs the original row by id — via
+      // the SAME strong-binding path this test exercises — before inserting
+      // the resumed row) and inserts the resumed attempt, which starts LATER
+      // than the original (so a subagentSessionId + startedAt-DESC lookup
+      // would prefer it).
+      await tracker.recordSubagentInvocation({
+        id: originalId,
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: "implementer",
+        outcome: OUTCOME_PARTIAL_UNCOMMITTED,
+        startedAt: hoursAgo(2),
+        endedAt: hoursAgo(1.5),
+      });
+      const resumedId = await tracker.recordDispatchRecoveryAttempt({
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: "implementer",
+        outcome: OUTCOME_CRASHED,
+        startedAt: hoursAgo(1),
+        resumedFromInvocationId: originalId,
+        attemptNumber: 2,
+      });
+
+      // The ORIGINAL process's real (late) Stop event finally arrives — mirrors
+      // `.claude/hooks/record-subagent-invocation.ts` reading a current-invocation
+      // marker that still names the ORIGINAL id (written at dispatch time, not
+      // yet overwritten from this process's own perspective) and passing it
+      // through as `id`. This is the exact "original dies late AFTER the
+      // resumed row was inserted" scenario.
+      await tracker.recordSubagentInvocation({
+        id: originalId,
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: UNKNOWN_AGENT_TYPE,
+        outcome: OUTCOME_COMPLETED_WITH_PR,
+        startedAt: hoursAgo(2),
+        endedAt: BASE_DATE,
+        prUrl: "https://github.com/edobry/minsky/pull/9999",
+      });
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      const original = chain.find((row) => row.id === originalId);
+      const resumed = chain.find((row) => row.id === resumedId);
+
+      // The late Stop event landed on the ORIGINAL row (its real outcome +
+      // prUrl), not the resumed row.
+      expect(original?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+      expect((original as unknown as FakeRow)?.prUrl).toBe(
+        "https://github.com/edobry/minsky/pull/9999"
+      );
+      // The resumed row is UNTOUCHED by the original's late Stop event.
+      expect(resumed?.outcome).toBe(OUTCOME_CRASHED);
+      expect((resumed as unknown as FakeRow)?.prUrl).toBeNull();
+    });
+
+    test("heuristic fallback: once the original is closed (endedAt set) at recovery time, a marker-less Stop update lands on the OPEN resumed row, not the closed original", async () => {
+      const SHARED_SESSION_ID = "attribution-session-2";
+
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(2),
+        })
+      );
+      // Recovery closes the original...
+      await tracker.recordSubagentInvocation({
+        id: originalId,
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: "implementer",
+        outcome: OUTCOME_PARTIAL_UNCOMMITTED,
+        startedAt: hoursAgo(2),
+        endedAt: hoursAgo(1.5),
+      });
+      // ...and inserts the (still OPEN — no endedAt) resumed row.
+      const resumedId = await tracker.recordDispatchRecoveryAttempt({
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: "implementer",
+        outcome: OUTCOME_CRASHED,
+        startedAt: hoursAgo(1),
+        resumedFromInvocationId: originalId,
+        attemptNumber: 2,
+      });
+
+      // A caller with NO id available (e.g. a pre-mt#2831 marker-less
+      // session) upserts by subagentSessionId alone. The heuristic's
+      // open-row-first pass must select the resumed row (the only open one),
+      // not fall back to most-recent-overall (which would still be correct
+      // here since resumed IS also most recent — see the next assertion for
+      // the case that distinguishes them).
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          startedAt: hoursAgo(1),
+        })
+      );
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      const original = chain.find((row) => row.id === originalId);
+      const resumed = chain.find((row) => row.id === resumedId);
+      expect(original?.outcome).toBe(OUTCOME_PARTIAL_UNCOMMITTED);
+      expect(resumed?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+    });
+
+    test("strong binding falls through to the heuristic path when the supplied `id` matches no row (stale/missing marker)", async () => {
+      const SHARED_SESSION_ID = "attribution-session-3";
+      const originalId = await recordAndGetId(
+        tracker,
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: SHARED_SESSION_ID,
+          outcome: OUTCOME_CRASHED,
+          startedAt: hoursAgo(1),
+        })
+      );
+
+      await tracker.recordSubagentInvocation({
+        id: "nonexistent-invocation-id",
+        taskId: "mt#2831",
+        subagentSessionId: SHARED_SESSION_ID,
+        agentType: UNKNOWN_AGENT_TYPE,
+        outcome: OUTCOME_COMPLETED_WITH_PR,
+        startedAt: hoursAgo(1),
+        endedAt: BASE_DATE,
+      });
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      expect(chain).toHaveLength(1);
+      expect(chain[0]?.id).toBe(originalId);
+      expect(chain[0]?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+    });
+
+    test("recordSubagentInvocation returns the persisted row's id on both INSERT and UPDATE", async () => {
+      const insertedId = await tracker.recordSubagentInvocation(
+        makeInput({ taskId: "mt#2831", subagentSessionId: "attribution-session-4" })
+      );
+      expect(typeof insertedId).toBe("string");
+
+      const updatedId = await tracker.recordSubagentInvocation(
+        makeInput({
+          taskId: "mt#2831",
+          subagentSessionId: "attribution-session-4",
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+        })
+      );
+      expect(updatedId).toBe(insertedId);
+    });
+
+    // mt#2831 R1 NB #5: `attemptNumber` is `NOT NULL DEFAULT 1` at the DB level
+    // (packages/domain/src/storage/schemas/subagent-invocations-schema.ts) — a real
+    // Postgres row can never read back null/undefined here. This fake-store
+    // equivalent proves the SAME "missing means 1" contract holds through the whole
+    // read path (getLatestInvocationForTask / getInvocationChainForTask) when a row
+    // is constructed WITHOUT an explicit attemptNumber, mirroring what the DB
+    // default backfill guarantees for any pre-mt#2831 row.
+    test("a row constructed without an explicit attemptNumber defaults to 1 through the read path", async () => {
+      // Deliberately bypass makeInput's own `attemptNumber` handling by inserting via
+      // the tracker with a plain SubagentInvocationInput that has no `attemptNumber`
+      // key at all — this is what every dispatch.tasks Step-5 write (pre-dating
+      // mt#2831's retry-linkage columns) looks like.
+      const plainInput: SubagentInvocationInput = {
+        taskId: "mt#2831",
+        subagentSessionId: "attempt-number-default-test",
+        agentType: "implementer",
+        outcome: OUTCOME_CRASHED,
+        startedAt: BASE_DATE,
+      };
+      expect("attemptNumber" in plainInput).toBe(false);
+
+      await tracker.recordSubagentInvocation(plainInput);
+
+      const latest = await tracker.getLatestInvocationForTask("mt#2831");
+      expect(latest?.attemptNumber).toBe(1);
+
+      const chain = await tracker.getInvocationChainForTask("mt#2831");
+      expect(chain[0]?.attemptNumber).toBe(1);
     });
   });
 });
