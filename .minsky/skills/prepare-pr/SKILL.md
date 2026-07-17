@@ -27,8 +27,11 @@ loaded the lifecycle bundle in its own Step 0b), load the tools this skill needs
 ToolSearch(query: "select:mcp__minsky__tasks_spec_get,mcp__minsky__session_commit,mcp__minsky__session_pr_create", max_results: 10)
 ```
 
-If `/implement-task` already ran this conversation, its Step 0b bundle already covers these
-three tools — skip this step.
+All three tools here (`tasks_spec_get`, `session_commit`, `session_pr_create`) are also named in
+`/implement-task`'s Step 0b bundle (`.minsky/skills/implement-task/skill.ts`) — if that step
+already ran this conversation, skip this step rather than re-requesting the same tools. This is
+a cross-skill coupling: if the implement-task bundle's tool list changes, re-check that it still
+covers these three names (or drops this skip-condition and always loads its own bundle).
 
 ### 1. Verify implementation completeness
 

@@ -96,14 +96,18 @@ wait-for-review, then merge, then deploy-verify — each its own round-trip). Me
 `ToolSearch` calls respectively (conversation `6cac7a30`, `ac4f5675`, `4b019e33`) — mostly
 fragmented 1-2-tool discovery calls with no decision content, not exploratory search.
 
-Call this once, right after the entry gate, before Step 1:
+Call this once, right after the entry gate, before Step 1. `tasks_spec_get` is included
+directly (not conditionally) because Step 2 needs it immediately after this step and Step 0a
+may not have loaded it yet (it only loads the spec on-demand if `## Scope` parsing requires
+it):
 
 ```
-ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_edit_file,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 20)
+ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_edit_file,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_get,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 30)
 ```
 
-If `tasks_spec_get` wasn't already loaded by an earlier step this conversation, add it to the
-list too — Step 2 needs it immediately after this step.
+(`max_results` set above the current 18-tool count with headroom — if this list grows, bump
+`max_results` in step so a future addition can't silently truncate the returned set below what
+was requested.)
 
 **Verified, not assumed (mt#2822):** `ToolSearch`'s `select:` accepts a long comma-separated
 tool list in one call with no observed length limit — 16 names loaded cleanly in one call
