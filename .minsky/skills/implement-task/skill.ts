@@ -30,6 +30,7 @@ Optional: task ID (e.g., \`/implement-task mt#123\`). If omitted, uses the curre
 
 Step 0: Entry gate: check task status
 Step 0a: Late parallel-work spot-check
+Step 0b: Load the lifecycle toolset bundle
 Step 1: Retrieve relevant memory context
 Step 2: Read and verify the task spec
 Step 3: Start a session (READY → IN-PROGRESS)
@@ -81,6 +82,42 @@ with explicit acknowledgment).
 
 This is the last-line enforcement of \`feedback_check_parallel_work_before_decomposing\`.
 The full gate ran at PLANNING; this is the spot-check before the session is created.
+
+### 0b. Load the lifecycle toolset bundle (mt#2822)
+
+Once the entry gate confirms this run is actually going to execute the lifecycle (READY or
+IN-PROGRESS), load the whole standard-lifecycle tool set in **one** \`ToolSearch\` call instead
+of discovering tools piecemeal at each phase (session start, then commit, then PR, then
+wait-for-review, then merge, then deploy-verify — each its own round-trip). Measured baseline
+(mt#2822): three recent standard implement→PR→merge→deploy conversations cost 21, 15, and 13
+\`ToolSearch\` calls respectively (conversation \`6cac7a30\`, \`ac4f5675\`, \`4b019e33\`) — mostly
+fragmented 1-2-tool discovery calls with no decision content, not exploratory search.
+
+Call this once, right after the entry gate, before Step 1:
+
+\`\`\`
+ToolSearch(query: "select:mcp__minsky__session_start,mcp__minsky__session_exec,mcp__minsky__session_edit_file,mcp__minsky__session_write_file,mcp__minsky__validate_typecheck,mcp__minsky__validate_lint,mcp__minsky__session_commit,mcp__minsky__session_update,mcp__minsky__session_pr_create,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__session_pr_merge,mcp__minsky__session_pr_get,mcp__minsky__forge_check_runs_list,mcp__minsky__deployment_wait-for-latest,mcp__minsky__tasks_spec_patch,mcp__minsky__tasks_status_set", max_results: 20)
+\`\`\`
+
+If \`tasks_spec_get\` wasn't already loaded by an earlier step this conversation, add it to the
+list too — Step 2 needs it immediately after this step.
+
+**Verified, not assumed (mt#2822):** \`ToolSearch\`'s \`select:\` accepts a long comma-separated
+tool list in one call with no observed length limit — 16 names loaded cleanly in one call
+during this bundle's own verification, and a naturally-occurring 10-tool \`select:\` call
+already appears in production transcript \`4b019e33\` (an agent self-bundling by hand, which is
+exactly what this step now does by default).
+
+**Context-cost check (mt#2822 acceptance criterion):** front-loading pays the bundle's full
+schema-token cost once, up front, whether or not every tool in it ends up used this run. For a
+run that actually executes the standard lifecycle — the case this step targets — nearly every
+tool in the bundle gets used, so the schema-token cost is the same as lazy discovery would have
+paid anyway; the win is eliminating the ~15-20 extra round-trip envelopes (tool_use + tool_result
+framing) and the agent-turn overhead of deciding what to search for next at each phase boundary.
+The one real cost: a run that's known in advance to skip a whole phase (e.g. a docs-only PR that
+will never call \`deployment_wait-for-latest\`) pays for one or two unused ~300-400-token schemas
+it would not have discovered lazily — small relative to the round-trip overhead removed. See the
+mt#2822 PR body for the full token comparison.
 
 ### 1. Retrieve relevant memory context
 

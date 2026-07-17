@@ -19,6 +19,22 @@ The argument is a task ID (e.g., `/merge-coordination mt#328`) or a GitHub PR UR
 
 ## Process
 
+### 0. Load the merge toolset bundle (mt#2822, when invoked standalone)
+
+When this skill is entered directly (not chain-walked from `/implement-task`, which already
+loaded the lifecycle bundle in its own Step 0b), load the merge-coordination tool subset in one
+`ToolSearch` call instead of discovering them one at a time across steps 1-8:
+
+```
+ToolSearch(query: "select:mcp__minsky__session_pr_review_context,mcp__minsky__tasks_spec_get,mcp__minsky__session_pr_wait-for-review,mcp__minsky__session_pr_checks,mcp__minsky__forge_check_runs_list,mcp__minsky__session_pr_get,mcp__minsky__session_pr_merge,mcp__minsky__session_commit,mcp__minsky__reviewer_retrigger", max_results: 15)
+```
+
+If `/implement-task` already ran this conversation, its Step 0b bundle already covers
+`tasks_spec_get`, `session_pr_wait-for-review`, `session_pr_checks`, `forge_check_runs_list`,
+`session_pr_get`, `session_pr_merge`, and `session_commit` — this step only needs to add
+`session_pr_review_context` and `reviewer_retrigger`, the two tools specific to merge
+coordination that aren't part of the earlier phases.
+
 ### 1. Gather context
 
 Use `mcp__minsky__session_pr_review_context` with the task ID or session ID to fetch all review data in a single call. This returns PR metadata, CI check runs, the raw diff, the task spec, and existing review threads with resolved/outdated state.
