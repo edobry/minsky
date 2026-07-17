@@ -575,6 +575,16 @@ export interface ReviewPromptInput {
    * inReplyTo) instead of opening duplicates. Undefined or empty → section omitted.
    */
   reviewThreads?: ReviewThread[];
+  /**
+   * Rendered markdown of commits pushed since the most recent prior review
+   * (mt#2836). When present and non-empty, injected as a "## Commits Since
+   * Last Review" section — author-response context so the model can weigh
+   * refutation evidence before re-asserting a prior BLOCKING finding, rather
+   * than re-deriving each finding from the diff alone. Undefined or empty
+   * string → section omitted (also the R1 case, where there is no prior
+   * review to respond to yet).
+   */
+  authorCommitsSinceLastReview?: string;
 }
 
 export function buildReviewPrompt(input: ReviewPromptInput): string {
@@ -601,6 +611,11 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
       ? `\n\n${buildReviewThreadsSection(input.reviewThreads)}`
       : "";
 
+  const authorCommitsSection =
+    input.authorCommitsSinceLastReview && input.authorCommitsSinceLastReview.trim()
+      ? `\n\n${input.authorCommitsSinceLastReview}`
+      : "";
+
   return `# PR Review Request
 
 ## PR Metadata
@@ -614,7 +629,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${input.prBody || "(empty)"}
 
-${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
+${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
 
 ## Diff
 
