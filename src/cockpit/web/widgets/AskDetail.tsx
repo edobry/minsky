@@ -12,6 +12,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
+import { formatRequestor } from "../lib/entity-labels";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -319,7 +320,17 @@ export function AskDetail({
         <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
           <div>
             <span className="font-medium">From:</span>{" "}
-            <span className="font-mono">{ask.requestor}</span>
+            {(() => {
+              // Derived requestor label (mt#2883): ascribed unknown:hash
+              // actors render as "unattributed agent" (raw id on hover);
+              // declared identities keep the monospace treatment.
+              const display = formatRequestor(ask.requestor, ask.parentTaskId ?? null);
+              return (
+                <span className={display.isAscribed ? "italic" : "font-mono"} title={display.raw}>
+                  {display.label}
+                </span>
+              );
+            })()}
           </div>
           <div>
             <span className="font-medium">Age:</span> <span>{formatRelative(ask.createdAt)}</span>

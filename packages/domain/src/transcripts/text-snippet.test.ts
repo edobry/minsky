@@ -7,6 +7,7 @@ import {
   truncateSnippet,
   toDisplaySnippet,
   stripHarnessMarkup,
+  stripLeadingWrapperBlocks,
 } from "./text-snippet";
 
 describe("stripMarkdown", () => {
@@ -151,5 +152,47 @@ describe("toDisplaySnippet", () => {
     const input =
       "<system-reminder>Background context injected by the harness.</system-reminder>\nWhy does the reviewer bot keep timing out?";
     expect(toDisplaySnippet(input, 60)).toBe("Why does the reviewer bot keep timing out?");
+  });
+});
+
+describe("stripLeadingWrapperBlocks (mt#2883)", () => {
+  test("strips an unknown leading tag pair — the observed skill-format leak", () => {
+    expect(
+      stripLeadingWrapperBlocks("<skill-format>true</skill-format> Base directory for this skill")
+    ).toBe("Base directory for this skill");
+  });
+
+  test("strips multiple consecutive leading blocks", () => {
+    expect(
+      stripLeadingWrapperBlocks('<a-tag>x</a-tag>\n<b-tag attr="1">y</b-tag> real prose')
+    ).toBe("real prose");
+  });
+
+  test("strips a lone self-closing leading tag", () => {
+    expect(stripLeadingWrapperBlocks("<marker/> the actual question")).toBe("the actual question");
+  });
+
+  test("leaves mid-prose angle brackets untouched", () => {
+    expect(stripLeadingWrapperBlocks("use the <Card> primitive here")).toBe(
+      "use the <Card> primitive here"
+    );
+  });
+
+  test("does not treat a leading comparison as a tag", () => {
+    expect(stripLeadingWrapperBlocks("<3 this design, keep it")).toBe("<3 this design, keep it");
+  });
+
+  test("bounded: stops after the cap instead of looping", () => {
+    const blocks = Array.from({ length: 8 }, (_, i) => `<t${i}>x</t${i}>`).join(" ");
+    const out = stripLeadingWrapperBlocks(`${blocks} tail`);
+    // First 5 stripped; the rest remain (bounded loop), tail preserved.
+    expect(out.endsWith("tail")).toBe(true);
+    expect(out.startsWith("<t5>")).toBe(true);
+  });
+
+  test("toDisplaySnippet integration: unknown leading wrapper never reaches the label", () => {
+    expect(
+      toDisplaySnippet("<skill-format>true</skill-format> Base directory for this skill", 60)
+    ).toBe("Base directory for this skill");
   });
 });
