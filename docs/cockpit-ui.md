@@ -11,7 +11,13 @@ A single whole-system view: all of Minsky on one board, laid out on the VSM
 five-organ skeleton in a process-engineering (P&ID) visual language. Reached via
 the **Plant** entry in the cockpit rail, or directly at `/plant`. (The home
 page is the triage radiator since mt#2881 — needs-you band, fleet strip,
-substrate line — not a widget grid; navigation lives in the rail, mt#2398.)
+substrate line — not a widget grid; navigation lives in the rail, mt#2398.
+The `/agents` fleet table defaults to **needs-me-first** ordering since
+mt#2884: rows needing the operator — an open bound ask, or a non-terminal PR
+on a recently-active lane — rank above working/idle/done, with recency only
+within a band; the liveness dot and the needs-me badge are two independent
+status channels, and the absence of a badge is the calm state. An explicit
+`?ag_sort=` URL param still selects any other ordering.)
 
 Its purpose is comprehension and observability-in-the-felt-sense: see the system's
 structure, watch it breathe, and build an intuitive model of its rhythms over time
