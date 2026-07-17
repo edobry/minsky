@@ -7,8 +7,10 @@ import {
   findValidAskGrant,
   isAskGrantValid,
   isOverbroadPattern,
+  withAskGrantStoreLock,
   type AskGrant,
   type AskGrantStoreFsDeps,
+  type AskGrantLockDeps,
 } from "./ask-grant-store";
 
 const NOW = Date.parse("2026-07-17T10:00:00.000Z");
@@ -49,6 +51,14 @@ function makeFs(initial: Record<string, string> = {}): {
     },
   };
 }
+
+/** Always-available in-memory lock (per custom/no-real-fs-in-tests). */
+const passthroughLock: AskGrantLockDeps = {
+  tryExclusiveCreate: () => true,
+  unlinkSync: () => {},
+  lockAgeMs: () => null,
+  sleepMs: () => {},
+};
 
 describe("isOverbroadPattern", () => {
   test("refuses wildcard-only and short patterns", () => {
@@ -123,13 +133,13 @@ describe("append + consume", () => {
   test("append prunes expired grants and keeps consumed unexpired ones (audit trace)", () => {
     const { deps, files } = makeFs();
     const expired = grant({ issuedAt: new Date(NOW - 60 * 60 * 1000).toISOString() });
-    appendAskGrant("/store.json", expired, deps, NOW - 50 * 60 * 1000);
+    appendAskGrant("/store.json", expired, deps, NOW - 50 * 60 * 1000, passthroughLock);
 
     const consumed = grant({
       askId: "38b1c0de-1234-4abc-8def-000000000002",
       consumedAt: new Date(NOW - 1000).toISOString(),
     });
-    appendAskGrant("/store.json", consumed, deps, NOW);
+    appendAskGrant("/store.json", consumed, deps, NOW, passthroughLock);
 
     const parsed = parseAskGrantStoreContent(files["/store.json"] as string);
     expect(parsed?.map((g) => g.askId)).toEqual(["38b1c0de-1234-4abc-8def-000000000002"]);
@@ -138,14 +148,96 @@ describe("append + consume", () => {
   test("consume marks exactly one matching unconsumed grant; second consume returns false", () => {
     const { deps } = makeFs();
     const g = grant();
-    appendAskGrant("/store.json", g, deps, NOW);
+    appendAskGrant("/store.json", g, deps, NOW, passthroughLock);
 
-    expect(consumeAskGrant("/store.json", g, deps, NOW)).toBe(true);
+    expect(consumeAskGrant("/store.json", g, deps, NOW, passthroughLock)).toBe(true);
     const after = readAskGrantStore("/store.json", deps);
     expect(after.status).toBe("ok");
     if (after.status === "ok") {
       expect(after.grants[0]?.consumedAt).toBeDefined();
     }
-    expect(consumeAskGrant("/store.json", g, deps, NOW)).toBe(false);
+    expect(consumeAskGrant("/store.json", g, deps, NOW, passthroughLock)).toBe(false);
+  });
+});
+
+describe("store lock (PR #2015 R1 — one-shot under concurrency)", () => {
+  function makeLock(initiallyHeld = false): { deps: AskGrantLockDeps; state: { held: boolean } } {
+    const state = { held: initiallyHeld };
+    return {
+      state,
+      deps: {
+        tryExclusiveCreate: () => {
+          if (state.held) return false;
+          state.held = true;
+          return true;
+        },
+        unlinkSync: () => {
+          state.held = false;
+        },
+        lockAgeMs: () => (state.held ? 0 : null),
+        sleepMs: () => {},
+      },
+    };
+  }
+
+  test("runs the critical section holding the lock and releases it after", () => {
+    const { deps, state } = makeLock();
+    let heldDuring = false;
+    const result = withAskGrantStoreLock(
+      "/store.json",
+      () => {
+        heldDuring = state.held;
+        return 42;
+      },
+      deps
+    );
+    expect(result).toBe(42);
+    expect(heldDuring).toBe(true);
+    expect(state.held).toBe(false);
+  });
+
+  test("releases the lock even when the critical section throws", () => {
+    const { deps, state } = makeLock();
+    expect(() =>
+      withAskGrantStoreLock(
+        "/store.json",
+        () => {
+          throw new Error("boom");
+        },
+        deps
+      )
+    ).toThrow("boom");
+    expect(state.held).toBe(false);
+  });
+
+  test("a fresh (non-stale) held lock exhausts retries and throws", () => {
+    const { deps } = makeLock(true);
+    expect(() => withAskGrantStoreLock("/store.json", () => 1, deps)).toThrow(/could not acquire/);
+  });
+
+  test("a stale lock is reclaimed", () => {
+    const state = { held: true };
+    const deps: AskGrantLockDeps = {
+      tryExclusiveCreate: () => {
+        if (state.held) return false;
+        state.held = true;
+        return true;
+      },
+      unlinkSync: () => {
+        state.held = false;
+      },
+      lockAgeMs: () => (state.held ? 60_000 : null),
+      sleepMs: () => {},
+    };
+    expect(withAskGrantStoreLock("/store.json", () => "ran", deps)).toBe("ran");
+    expect(state.held).toBe(false);
+  });
+
+  test("consumeAskGrant returns false (defers) when the lock cannot be acquired", () => {
+    const { deps: fsDeps } = makeFs();
+    const g = grant();
+    appendAskGrant("/store.json", g, fsDeps, NOW, passthroughLock);
+    const { deps: lockDeps } = makeLock(true);
+    expect(consumeAskGrant("/store.json", g, fsDeps, NOW, lockDeps)).toBe(false);
   });
 });

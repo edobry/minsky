@@ -96,7 +96,7 @@ function emitAuditEvent(grant: AskGrant, command: string): void {
     subject: `${grant.askId} → ${grant.tool}: ${command.slice(0, 200)}`,
   });
   const result = execWithPath(["minsky", "events", "emit", "hook.fired", "--payload", payload], {
-    timeout: 15000,
+    timeout: 5000,
   });
   if (result.exitCode !== 0) {
     process.stderr.write(

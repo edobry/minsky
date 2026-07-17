@@ -130,18 +130,42 @@ function fetchState(state: string, exec: ExecFn): AskRow[] | { error: string } {
  * Verify `askId` is an operator-approved `authorization.approve` Ask,
  * reading both "responded" (answered, pre-close) and "closed" (resolved)
  * states server-side.
+ *
+ * Partial-failure resilience (PR #2015 R1): a verdict grounded in a state
+ * that WAS readable stands — if the ask is found in a readable state, its
+ * evaluation (approved or not-approved) is definitive since an ask lives in
+ * exactly one state. Only the not-found case escalates to "unavailable"
+ * when a fetch failed, because absent-vs-in-the-failed-state cannot be
+ * distinguished. Both fetches failing is always "unavailable".
  */
 export function verifyApprovedAsk(
   askId: string,
   exec: ExecFn = execWithPath
 ): AskVerificationResult {
   const rows: AskRow[] = [];
+  const errors: string[] = [];
   for (const state of ["responded", "closed"]) {
     const fetched = fetchState(state, exec);
     if ("error" in fetched) {
-      return { verdict: "unavailable", detail: fetched.error };
+      errors.push(fetched.error);
+    } else {
+      rows.push(...fetched);
     }
-    rows.push(...fetched);
   }
+
+  if (errors.length === 2) {
+    return { verdict: "unavailable", detail: errors.join("; ") };
+  }
+
+  const found = rows.some((r) => typeof r.id === "string" && r.id === askId);
+  if (!found && errors.length > 0) {
+    return {
+      verdict: "unavailable",
+      detail: `ask ${askId} not found in readable states, and one state fetch failed (${errors.join(
+        "; "
+      )}) — cannot distinguish absent from unreadable`,
+    };
+  }
+
   return evaluateAskRows(rows, askId);
 }

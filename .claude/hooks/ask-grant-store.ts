@@ -191,6 +191,91 @@ const defaultFsDeps: AskGrantStoreFsDeps = {
 };
 
 // ---------------------------------------------------------------------------
+// Store lock (PR #2015 R1 — one-shot must hold under concurrent invocations)
+// ---------------------------------------------------------------------------
+//
+// `consumeAskGrant` is a read-modify-write; without mutual exclusion two
+// near-simultaneous hook invocations could both match the same grant, both
+// mark it consumed, and both emit "allow" — violating the single-use
+// guarantee. Mutual exclusion via atomic exclusive-create of a sibling
+// `.lock` file (O_EXCL): the creator holds the lock; a stale lock (older
+// than LOCK_STALE_MS, e.g. a crashed holder) is reclaimed.
+
+const LOCK_SUFFIX = ".lock";
+const LOCK_STALE_MS = 10_000;
+const LOCK_RETRIES = 40;
+const LOCK_RETRY_DELAY_MS = 25;
+
+export interface AskGrantLockDeps {
+  /** Atomically create the lock file; false when it already exists. */
+  tryExclusiveCreate: (path: string, content: string) => boolean;
+  unlinkSync: (path: string) => void;
+  /** Age of the lock file in ms, or null when missing/unreadable. */
+  lockAgeMs: (path: string) => number | null;
+  sleepMs: (ms: number) => void;
+}
+
+const defaultLockDeps: AskGrantLockDeps = {
+  tryExclusiveCreate: (p: string, content: string): boolean => {
+    try {
+      const fd = fs.openSync(p, "wx");
+      fs.writeSync(fd, content);
+      fs.closeSync(fd);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "EEXIST") return false;
+      throw err;
+    }
+  },
+  unlinkSync: (p: string): void => {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      // Already gone — fine.
+    }
+  },
+  lockAgeMs: (p: string): number | null => {
+    try {
+      return Date.now() - fs.statSync(p).mtimeMs;
+    } catch {
+      return null;
+    }
+  },
+  sleepMs: (ms: number): void => {
+    Bun.sleepSync(ms);
+  },
+};
+
+/**
+ * Run `fn` holding the store's sibling lock file. Throws when the lock
+ * cannot be acquired within the retry budget (~1s) — callers decide whether
+ * that is fatal (issuance) or a defer (consumption).
+ */
+export function withAskGrantStoreLock<T>(
+  storePath: string,
+  fn: () => T,
+  lockDeps: AskGrantLockDeps = defaultLockDeps
+): T {
+  const lockPath = `${storePath}${LOCK_SUFFIX}`;
+  for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
+    if (lockDeps.tryExclusiveCreate(lockPath, `${process.pid} ${new Date().toISOString()}`)) {
+      try {
+        return fn();
+      } finally {
+        lockDeps.unlinkSync(lockPath);
+      }
+    }
+    const age = lockDeps.lockAgeMs(lockPath);
+    if (age !== null && age > LOCK_STALE_MS) {
+      lockDeps.unlinkSync(lockPath);
+      continue;
+    }
+    lockDeps.sleepMs(LOCK_RETRY_DELAY_MS);
+  }
+  throw new Error(`could not acquire ask-grant store lock at ${lockPath}`);
+}
+
+// ---------------------------------------------------------------------------
 // Read path
 // ---------------------------------------------------------------------------
 
@@ -281,21 +366,30 @@ function pruneExpired(grants: AskGrant[], nowMs: number): AskGrant[] {
  * retained until expiry as an audit trace). Creates the state dir/store if
  * absent. A corrupt existing store starts fresh — issuance is an explicit
  * action; the read side's conservatism is what protects the bridge.
+ * Holds the store lock for the read-modify-write (throws on lock failure —
+ * issuance fails loudly rather than risking a lost concurrent update).
  */
 export function appendAskGrant(
   storePath: string,
   grant: AskGrant,
   fsDeps: AskGrantStoreFsDeps = defaultFsDeps,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  lockDeps: AskGrantLockDeps = defaultLockDeps
 ): void {
   fsDeps.mkdirSync(path.dirname(storePath));
 
-  const existing = readAskGrantStore(storePath, fsDeps);
-  const currentGrants = existing.status === "ok" ? existing.grants : [];
-  const unexpired = pruneExpired(currentGrants, nowMs);
+  withAskGrantStoreLock(
+    storePath,
+    () => {
+      const existing = readAskGrantStore(storePath, fsDeps);
+      const currentGrants = existing.status === "ok" ? existing.grants : [];
+      const unexpired = pruneExpired(currentGrants, nowMs);
 
-  unexpired.push(grant);
-  fsDeps.writeFileSync(storePath, `${JSON.stringify({ grants: unexpired }, null, 2)}\n`);
+      unexpired.push(grant);
+      fsDeps.writeFileSync(storePath, `${JSON.stringify({ grants: unexpired }, null, 2)}\n`);
+    },
+    lockDeps
+  );
 }
 
 /**
@@ -303,35 +397,48 @@ export function appendAskGrant(
  * issuedAt) — the tuple that uniquely identifies an issuance. Returns true
  * when a matching unconsumed grant was found and marked; false otherwise
  * (caller must then NOT emit an allow — losing the race means the grant was
- * already spent).
+ * already spent). The read-modify-write holds the store lock; a lock-
+ * acquisition failure returns false (defer — never allow without a
+ * confirmed exclusive consume).
  */
 export function consumeAskGrant(
   storePath: string,
   grant: AskGrant,
   fsDeps: AskGrantStoreFsDeps = defaultFsDeps,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  lockDeps: AskGrantLockDeps = defaultLockDeps
 ): boolean {
-  const existing = readAskGrantStore(storePath, fsDeps);
-  if (existing.status !== "ok") return false;
+  try {
+    return withAskGrantStoreLock(
+      storePath,
+      () => {
+        const existing = readAskGrantStore(storePath, fsDeps);
+        if (existing.status !== "ok") return false;
 
-  let marked = false;
-  const updated = existing.grants.map((g) => {
-    if (
-      !marked &&
-      g.consumedAt === undefined &&
-      g.askId === grant.askId &&
-      g.tool === grant.tool &&
-      g.commandPattern === grant.commandPattern &&
-      g.issuedAt === grant.issuedAt
-    ) {
-      marked = true;
-      return { ...g, consumedAt: new Date(nowMs).toISOString() };
-    }
-    return g;
-  });
+        let marked = false;
+        const updated = existing.grants.map((g) => {
+          if (
+            !marked &&
+            g.consumedAt === undefined &&
+            g.askId === grant.askId &&
+            g.tool === grant.tool &&
+            g.commandPattern === grant.commandPattern &&
+            g.issuedAt === grant.issuedAt
+          ) {
+            marked = true;
+            return { ...g, consumedAt: new Date(nowMs).toISOString() };
+          }
+          return g;
+        });
 
-  if (!marked) return false;
-  fsDeps.mkdirSync(path.dirname(storePath));
-  fsDeps.writeFileSync(storePath, `${JSON.stringify({ grants: updated }, null, 2)}\n`);
-  return true;
+        if (!marked) return false;
+        fsDeps.mkdirSync(path.dirname(storePath));
+        fsDeps.writeFileSync(storePath, `${JSON.stringify({ grants: updated }, null, 2)}\n`);
+        return true;
+      },
+      lockDeps
+    );
+  } catch {
+    return false;
+  }
 }

@@ -110,4 +110,39 @@ describe("verifyApprovedAsk", () => {
     const garbageExec: ExecFn = () => ({ exitCode: 0, stdout: "not json", stderr: "" });
     expect(verifyApprovedAsk(ASK_ID, garbageExec).verdict).toBe("unavailable");
   });
+
+  const partialExec =
+    (failState: string, rowsInOther: AskRow[]): ExecFn =>
+    (cmd) => {
+      const state = cmd[cmd.indexOf("--state") + 1] as string;
+      if (state === failState) return { exitCode: 1, stdout: "", stderr: "down" };
+      return { exitCode: 0, stdout: JSON.stringify({ asks: rowsInOther }), stderr: "" };
+    };
+
+  test("one fetch fails but the ask is FOUND approved in the readable state → approved", () => {
+    const result = verifyApprovedAsk(
+      ASK_ID,
+      partialExec("responded", [approvedRow({ state: "closed" })])
+    );
+    expect(result.verdict).toBe("approved");
+  });
+
+  test("one fetch fails and the ask is found NOT-approved in the readable state → not-approved (definitive)", () => {
+    const result = verifyApprovedAsk(
+      ASK_ID,
+      partialExec("responded", [
+        approvedRow({
+          state: "closed",
+          response: { responder: "operator", payload: { approved: false } },
+        }),
+      ])
+    );
+    expect(result.verdict).toBe("not-approved");
+  });
+
+  test("one fetch fails and the ask is not found in the readable state → unavailable", () => {
+    const result = verifyApprovedAsk(ASK_ID, partialExec("responded", []));
+    expect(result.verdict).toBe("unavailable");
+    expect(result.detail).toMatch(/cannot distinguish/);
+  });
 });
