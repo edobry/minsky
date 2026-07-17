@@ -1170,7 +1170,11 @@ Doc: `generated-file-edit-guard.md`.
 ## Branch Freshness Guard
 
 PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main` has
-commits the branch lacks; on block, `session_update` to rebase, review overlap, retry.
+commits the branch lacks; on block, `session_update` to rebase, review overlap, retry. mt#2815: on a
+CLEAN working tree, attempts an inline `git merge --no-edit` before denying — a clean merge allows
+the call to proceed (audit line, no manual round-trip); any conflict aborts the merge and denies
+exactly as before (no silent conflict resolution; protects against a left-behind MERGE_HEAD being
+misread as an operator mid-merge on the next invocation).
 Hook: `check-branch-fresh.ts`. Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine
 paths + merge-in-progress (audit line); fetch failures warn.
 Doc: `branch-freshness-guard.md`.
