@@ -56,18 +56,16 @@
 //      this module's design mirrors, and the caller of runStandaloneDuplicateGuard
 // @see docs/architecture/hooks/parallel-work-guard.md — full mechanism + calibration writeup
 
-import { execWithPath, writeOutput } from "./types";
+import { execWithPath, writeOutput, TERMINAL_TASK_STATUSES } from "./types";
 import type { ToolHookInput } from "./types";
 import { recordGuardError, recordGuardCheckSkip } from "./guard-health";
 import { safeTruncate } from "../../src/utils/safe-truncate";
 
-/**
- * Statuses that cannot represent live duplicate work (mt#2683 discipline).
- * Mirror of `TERMINAL_TASK_STATUSES` in parallel-work-guard.ts — duplicated
- * here (rather than imported) to avoid a circular module dependency between
- * the two files; keep in sync if the terminal-status set ever changes.
- */
-const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
+// TERMINAL_TASK_STATUSES (mt#2683 discipline — a DONE/CLOSED/COMPLETED task
+// cannot represent live duplicate work) is imported from ./types, shared
+// with parallel-work-guard.ts's sibling duplicate-CHILD matcher (mt#2813 R1:
+// this used to be a locally-duplicated copy, flagged as a drift risk by
+// review — hoisted to one shared definition instead).
 
 /** One `minsky tasks search --json` result row. */
 export interface TaskSearchResult {

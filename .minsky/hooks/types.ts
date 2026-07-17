@@ -18,6 +18,16 @@ export interface ToolHookInput extends ClaudeHookInput {
   tool_result?: Record<string, unknown>;
 }
 
+/**
+ * Task statuses that cannot represent live/in-flight duplicate work (mt#2683
+ * discipline, generalized mt#2813 R1: hoisted here so parallel-work-guard.ts
+ * and parallel-work-guard-standalone.ts share ONE definition instead of two
+ * independently-maintained copies — the sibling duplicate-CHILD matcher and
+ * the standalone-duplicate probe both exclude these statuses from their
+ * respective candidate pools before thresholding).
+ */
+export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
+
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;
   stop_hook_active?: boolean;

@@ -48,7 +48,7 @@
 // @see mt#1305 — Tier-2 skill-step enforcement (floor)
 // @see feedback_check_parallel_work_before_decomposing — four-incident history
 
-import { readInput, writeOutput, execWithPath } from "./types";
+import { readInput, writeOutput, execWithPath, TERMINAL_TASK_STATUSES } from "./types";
 import type { ToolHookInput } from "./types";
 import { checkOverride } from "./dispatcher";
 import type { OverrideResult } from "./dispatcher";
@@ -1759,11 +1759,13 @@ export interface DuplicateMatch {
 /** Minimum shared substantive tokens to flag a duplicate. */
 export const DUPLICATE_TOKEN_THRESHOLD = 2;
 
-/**
- * Statuses that cannot represent a concurrent decomposition in flight
- * (mt#2683). A terminal sibling match warns instead of blocking.
- */
-export const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set(["DONE", "CLOSED", "COMPLETED"]);
+// Statuses that cannot represent a concurrent decomposition in flight
+// (mt#2683). A terminal sibling match warns instead of blocking. Re-exported
+// (mt#2813 R1) so existing importers of `TERMINAL_TASK_STATUSES` from this
+// module keep working — the canonical definition now lives in `./types.ts`,
+// shared with parallel-work-guard-standalone.ts (closes the mt#2813 review
+// R1 drift-risk finding: two independently-maintained copies of the same set).
+export { TERMINAL_TASK_STATUSES };
 
 // Latency bounds for the N+1 `tasks get` fetch. The PreToolUse host cap for this
 // hook is 30s (.claude/settings.json); blowing it gets the hook SIGTERM'd
