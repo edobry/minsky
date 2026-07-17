@@ -59,9 +59,10 @@ import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
  * (Bun docs, "Environment variables": .env.local is one of the files Bun
  * reads automatically, https://bun.com/docs/runtime/env). An MCP-only agent
  * has no parameter path to set this var directly: `session_commit` has no
- * env-passthrough parameter, and a raw `git commit` is blocked by the
- * `.claude/hooks/block-git-gh-cli.ts` PreToolUse guard (mt#1196; compiled
- * from `.minsky/hooks/block-git-gh-cli.ts`). The SANCTIONED mid-session
+ * env-passthrough parameter, and raw `git commit` invocations from agent
+ * tool contexts are denied by the repo's git/gh-CLI PreToolUse ban
+ * (mt#1196 — see CLAUDE.md §Hook Files for the guard registry; agents are
+ * redirected to `session_commit`). The SANCTIONED mid-session
  * override is therefore: write a session-workspace `.env.local` containing
  * `MINSKY_SKIP_SIZE_BUDGET=1`, then commit via `session_commit` as normal —
  * the value is picked up automatically on the next `bun run`. `.env.local`
