@@ -15,6 +15,7 @@ import { Button } from "../components/ui/button";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { formatRequestor, formatRequestorOption } from "../lib/entity-labels";
 import { cn } from "../lib/utils";
 import {
   fetchAsks,
@@ -36,6 +37,34 @@ interface Filters {
   kind: string;
   requestor: string;
   cohort: string;
+}
+
+/**
+ * Requestor display cell (mt#2883): derived label rendered, raw identity on
+ * hover. Ascribed `unknown:hash:` actors (opaque, churning — ADR-006) never
+ * render as the visible label; they show as "unattributed agent" with the
+ * ask's parent-task context when available. Declared identities keep their
+ * monospace id treatment.
+ */
+function RequestorCell({
+  requestor,
+  parentTaskId,
+}: {
+  requestor: string;
+  parentTaskId: string | null;
+}) {
+  const display = formatRequestor(requestor, parentTaskId);
+  return (
+    <span
+      className={cn(
+        "text-xs text-muted-foreground flex-shrink-0 max-w-[140px] truncate hidden sm:block",
+        display.isAscribed ? "italic" : "font-mono"
+      )}
+      title={display.raw}
+    >
+      {display.label}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -75,9 +104,7 @@ function AskRow({ ask, onClick }: AskRowProps) {
         </div>
       </div>
 
-      <span className="text-xs text-muted-foreground font-mono flex-shrink-0 max-w-[120px] truncate hidden sm:block">
-        {ask.requestor}
-      </span>
+      <RequestorCell requestor={ask.requestor} parentTaskId={ask.parentTaskId ?? null} />
 
       {deadlineStr && (
         <span
@@ -188,11 +215,14 @@ export function AsksPage() {
             aria-label="Filter by requestor"
           >
             <option value="all">All requestors</option>
-            {uniqueRequestors.map((r) => (
-              <option key={r} value={r}>
-                {r.length > 30 ? r.slice(0, 30) + "..." : r}
-              </option>
-            ))}
+            {uniqueRequestors.map((r) => {
+              const label = formatRequestorOption(r);
+              return (
+                <option key={r} value={r}>
+                  {label.length > 30 ? label.slice(0, 30) + "..." : label}
+                </option>
+              );
+            })}
           </select>
 
           <select
