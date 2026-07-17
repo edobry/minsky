@@ -15,7 +15,7 @@ import {
 } from "@minsky/domain/errors/index";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
-import { classifyMergeError, withOriginalMessage } from "./merge-error-classification";
+import { classifyOctokitOriginReadError, withOriginalMessage } from "./merge-error-classification";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrWaitForReviewCommandParams } from "./session-parameters";
 import { sessionPrWaitForReview } from "@minsky/domain/session/commands/pr-subcommands";
@@ -184,19 +184,27 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
           // on ResourceNotFoundError (missing PR) vs ValidationError
           // (invalid --since) vs generic MinskyError. Only wrap truly
           // unknown errors to avoid swallowing unexpected failures silently.
+          //
+          // ORDERING (mt#2888, fixed per PR #2018 R1): named domain-typed
+          // subclasses are preserved FIRST, exactly as before this task's
+          // changes — classification never runs on them, so a
+          // ResourceNotFoundError/ValidationError whose message happens to
+          // mention "rate limit" for its own unrelated reasons can never be
+          // reclassified into a transport-error shape. Read-path
+          // classification (classifyOctokitOriginReadError) then runs on
+          // whatever's LEFT, using a TIGHT match on handleOctokitError's
+          // exact headline text (not classifyMergeError's broader
+          // substring/regex, which is tuned for session.pr.merge's
+          // different job) — see merge-error-classification.ts's module
+          // doc for why. Any remaining MinskyError (e.g. a 401/403/404 from
+          // handleOctokitError, or the subcommand's own generic wrap) is
+          // preserved unchanged, matching this site's ORIGINAL behavior
+          // before mt#2888 touched it.
           if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
             throw error;
           }
 
-          // mt#2888: classify rate-limit/degraded(5xx) GitHub failures
-          // before falling through to the generic MinskyError wrap — same
-          // vocabulary as session.pr.merge (mt#2890's classifyMergeError /
-          // withOriginalMessage). A plain MinskyError from a domain layer
-          // that already classified its own failure (e.g. a
-          // ResourceNotFoundError-adjacent case) still passes through
-          // classifyMergeError harmlessly (its message won't match either
-          // pattern and falls to the generic wrap below).
-          const errorClass = classifyMergeError(error);
+          const errorClass = classifyOctokitOriginReadError(error);
           const originalMessage = error instanceof Error ? error.message : String(error);
 
           if (errorClass.kind === "rate-limit") {

@@ -112,3 +112,59 @@ export function withOriginalMessage(headline: string, originalMessage: string): 
   const excerpt = safeTruncate(flattened, MERGE_ERROR_SUMMARY_EXCERPT_LIMIT);
   return `${headline}: ${excerpt}`;
 }
+
+// ── Read-path classification (mt#2888, tightened per PR #2018 R1) ────────
+//
+// `classifyMergeError`'s "rate limit" / "(HTTP 5xx)" matching is a broad
+// substring/regex test, tuned for `session.pr.merge`'s narrow job:
+// discriminating a REAL merge conflict from a GitHub degradation that had
+// been mislabeled as one (mt#2890). Reusing it as-is at the three read-path
+// sites (`session.pr.checks`, `session.pr.wait-for-review`,
+// `forge.check_runs_list`) creates a DIFFERENT risk those sites didn't have
+// before: an already domain-typed error (e.g. `ResourceNotFoundError`,
+// `ValidationError`, or a generic wrap from the subcommand's own catch-all)
+// whose message merely happens to CONTAIN the substring "rate limit" would
+// get silently reclassified into a transport-error shape, discarding its
+// original type/message (PR #2018 R1 finding).
+//
+// `classifyOctokitOriginReadError` closes that gap by matching ONLY the
+// EXACT headline text `handleOctokitError` (github-error-handler.ts)
+// itself produces for its rate-limit and 5xx-degraded branches — not a
+// loose substring. Every read-path failure that is GENUINELY Octokit-
+// origin (routed through `handleOctokitError` in the domain repository
+// layer) carries one of these two headlines verbatim at the start of its
+// message; nothing else plausibly does. This is strictly narrower than
+// `classifyMergeError` and is used ONLY at the three read-path sites —
+// `classifyMergeError`/`session.pr.merge` are UNCHANGED (mt#2890 behavior
+// stays byte-identical).
+const OCTOKIT_RATE_LIMIT_HEADLINE = "GitHub Rate Limit Exceeded";
+const OCTOKIT_DEGRADED_HEADLINE_PREFIX = "GitHub API degraded/unavailable";
+
+/** Discriminated classification for the read-path sites — narrower than {@link MergeErrorClass} (no "conflict" kind; these sites never produce merge-conflict diagnoses). */
+export type ReadErrorClass =
+  | { kind: "rate-limit" }
+  | { kind: "degraded"; status?: string }
+  | { kind: "other" };
+
+/**
+ * Classify a read-path (`session.pr.checks` / `session.pr.wait-for-review` /
+ * `forge.check_runs_list`) failure into rate-limit / degraded(5xx) / other,
+ * matching ONLY `handleOctokitError`'s exact headline text — see the module
+ * doc above for why this is deliberately tighter than `classifyMergeError`.
+ * `kind: "other"` covers every already domain-typed error (ResourceNotFoundError,
+ * ValidationError, a generic subcommand-level wrap, etc.) — callers must
+ * preserve/rethrow those unchanged, not reclassify them.
+ *
+ * Exported for direct unit testing.
+ */
+export function classifyOctokitOriginReadError(err: unknown): ReadErrorClass {
+  const message = mergeErrorMessage(err);
+  if (message.startsWith(OCTOKIT_RATE_LIMIT_HEADLINE)) {
+    return { kind: "rate-limit" };
+  }
+  if (message.startsWith(OCTOKIT_DEGRADED_HEADLINE_PREFIX)) {
+    const match = message.match(/\(HTTP (5\d\d)\)/);
+    return { kind: "degraded", status: match?.[1] };
+  }
+  return { kind: "other" };
+}

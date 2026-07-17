@@ -28,7 +28,10 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
-import { classifyMergeError, withOriginalMessage } from "./session/merge-error-classification";
+import {
+  classifyOctokitOriginReadError,
+  withOriginalMessage,
+} from "./session/merge-error-classification";
 
 // ── Internal helper: resolve a ForgeBackend from config ───────────────────
 
@@ -250,12 +253,15 @@ sharedCommandRegistry.registerCommand({
       const result = await backend.ci.getChecksForRef(sha);
       return { success: true, ...result };
     } catch (error) {
-      // mt#2888: classify rate-limit/degraded(5xx) GitHub failures with the
-      // same vocabulary session.pr.merge/session.pr.checks use (mt#2890's
-      // classifyMergeError/withOriginalMessage). By the time an error
-      // reaches here, backend.ci.getChecksForRef -> handleOctokitError has
-      // already stripped any raw HTML body.
-      const errorClass = classifyMergeError(error);
+      // ORDERING (mt#2888, fixed per PR #2018 R1): classify using a TIGHT
+      // match on handleOctokitError's exact headline text
+      // (classifyOctokitOriginReadError — see merge-error-
+      // classification.ts's module doc for why this is narrower than
+      // classifyMergeError's broader substring/regex match). Anything that
+      // doesn't match either headline falls through to `throw error`
+      // UNCHANGED — this site never wrapped errors before mt#2888 either,
+      // so "other" preserves the original no-catch shape exactly.
+      const errorClass = classifyOctokitOriginReadError(error);
       const originalMessage = error instanceof Error ? error.message : String(error);
 
       if (errorClass.kind === "rate-limit") {

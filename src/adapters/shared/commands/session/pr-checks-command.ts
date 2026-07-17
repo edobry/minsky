@@ -5,14 +5,19 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
+import {
+  MinskyError,
+  ResourceNotFoundError,
+  ValidationError,
+  getErrorMessage,
+} from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrChecksCommandParams } from "./session-parameters";
 import { sessionPrChecks } from "@minsky/domain/session/commands/pr-subcommands";
 import type { CheckRunResult } from "@minsky/domain/repository/github-pr-checks";
 import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
-import { classifyMergeError, withOriginalMessage } from "./merge-error-classification";
+import { classifyOctokitOriginReadError, withOriginalMessage } from "./merge-error-classification";
 
 // ── Formatting helpers ───────────────────────────────────────────────────
 
@@ -98,15 +103,23 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
 
         return { success: true, message: lines.join("\n") };
       } catch (error) {
-        // mt#2888: classify rate-limit/degraded(5xx) GitHub failures with the
-        // same vocabulary session.pr.merge already uses (mt#2890's
-        // classifyMergeError/withOriginalMessage), instead of a generic
-        // MinskyError wrap. By the time an error reaches here, the domain
-        // layer (getChecksForPR/getChecksForRef -> handleOctokitError) has
-        // already stripped any raw HTML body — this only adds the
-        // machine-readable `code` + one-line excerpt for the two known
-        // transient-transport classes.
-        const errorClass = classifyMergeError(error);
+        // ORDERING (mt#2888, fixed per PR #2018 R1): preserve already
+        // domain-typed errors (ResourceNotFoundError — missing session/PR;
+        // ValidationError) FIRST, unchanged — classification never runs on
+        // them, so a domain error whose message happens to mention "rate
+        // limit" for unrelated reasons can never be reclassified into a
+        // transport-error shape. Then classify what's LEFT using a TIGHT
+        // match on handleOctokitError's exact headline text
+        // (classifyOctokitOriginReadError — see merge-error-
+        // classification.ts's module doc for why this is narrower than
+        // classifyMergeError). Anything that doesn't match either headline
+        // falls through to the original generic MinskyError wrap, matching
+        // this site's behavior before mt#2888 touched it.
+        if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
+          throw error;
+        }
+
+        const errorClass = classifyOctokitOriginReadError(error);
         const originalMessage = error instanceof Error ? error.message : String(error);
 
         if (errorClass.kind === "rate-limit") {
