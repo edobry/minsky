@@ -62,6 +62,13 @@ export interface WorkstreamCard {
   activeChildCount: number;
   doneChildCount: number;
   blockedChildCount: number;
+  /**
+   * Newest `updatedAt` across the parent and all children, ISO string
+   * (mt#2885) — the stream's last-motion signal; null when no task in the
+   * stream carries a timestamp. Stall detection derives from this
+   * render-side against the decision-defaults thresholds.
+   */
+  lastActivityAt: string | null;
 }
 
 /**
@@ -297,6 +304,17 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
           // Filter rule: only include workstreams with at least one active child
           if (activeChildCount === 0) continue;
 
+          // Last-motion signal (mt#2885): newest updatedAt across parent +
+          // children. Tasks without a timestamp simply don't contribute.
+          let lastActivityMs = parentTask.updatedAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+          for (const childId of childIds) {
+            const t = taskMap.get(childId)?.updatedAt?.getTime();
+            if (t !== undefined && t > lastActivityMs) lastActivityMs = t;
+          }
+          const lastActivityAt = Number.isFinite(lastActivityMs)
+            ? new Date(lastActivityMs).toISOString()
+            : null;
+
           workstreams.push({
             parentId: formatTaskIdForDisplay(parentTask.id),
             parentTitle: parentTask.title ?? "",
@@ -305,6 +323,7 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
             activeChildCount,
             doneChildCount,
             blockedChildCount,
+            lastActivityAt,
           });
         }
 
