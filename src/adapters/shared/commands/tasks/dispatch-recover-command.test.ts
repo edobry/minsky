@@ -25,6 +25,7 @@ import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provide
 import { SessionStatus } from "@minsky/domain/session/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { FakeTaskService } from "@minsky/domain/tasks/fake-task-service";
 import type {
   SubagentInvocationRecord,
   SubagentInvocationInsert,
@@ -43,6 +44,8 @@ class FakeTracker {
   private rows = new Map<string, SubagentInvocationRecord>();
   private nextId = 1;
   public recordedAttempts: Array<SubagentInvocationInsert & { attemptNumber: number }> = [];
+  /** Every `recordSubagentInvocation` call this fake received (mt#2831 R1 — the original-row closeout). */
+  public recordedInvocationCalls: SubagentInvocationInsert[] = [];
 
   seed(row: Partial<SubagentInvocationRecord> & { taskId: string }): SubagentInvocationRecord {
     const full: SubagentInvocationRecord = {
@@ -99,6 +102,43 @@ class FakeTracker {
     });
     return row.id;
   }
+
+  /**
+   * mt#2831 R1: the command now closes out the ORIGINAL row (by `id`) before
+   * inserting the resumed attempt. This fake mirrors the real tracker's
+   * strong-binding UPDATE-by-id path closely enough for the command's tests:
+   * when `input.id` matches an existing row, update it in place; otherwise
+   * insert (matching the real tracker's fallback-to-insert behavior).
+   */
+  async recordSubagentInvocation(input: SubagentInvocationInsert): Promise<string | null> {
+    this.recordedInvocationCalls.push(input);
+    if (input.id && this.rows.has(input.id)) {
+      const existing = this.rows.get(input.id) as SubagentInvocationRecord;
+      const updated: SubagentInvocationRecord = {
+        ...existing,
+        ...input,
+        id: existing.id,
+        startedAt: existing.startedAt,
+        endedAt:
+          input.endedAt === undefined
+            ? existing.endedAt
+            : input.endedAt instanceof Date
+              ? input.endedAt
+              : input.endedAt
+                ? new Date(input.endedAt as never)
+                : null,
+      } as SubagentInvocationRecord;
+      this.rows.set(existing.id, updated);
+      return existing.id;
+    }
+    const row = this.seed({
+      ...input,
+      taskId: input.taskId,
+      startedAt:
+        input.startedAt instanceof Date ? input.startedAt : new Date(input.startedAt as never),
+    });
+    return row.id;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,11 +160,15 @@ function makeGitOps(overrides: Partial<DispatchRecoveryGitOps> = {}): DispatchRe
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// Deliberately throws on any access — exercises the command's fail-open handling of
+// getTaskService().getTaskStatus() (mt#2831 R1 NB #3: an unresolvable status must not
+// block recovery). Tests that care about the task-status guard's actual VALUE use
+// FakeTaskService instead (see makeCommand's `taskService` override below).
 const throwingTaskService = new Proxy(
   {},
   {
     get() {
-      throw new Error("taskService should not be reached in these tests");
+      throw new Error("taskService intentionally throws — exercises fail-open handling");
     },
   }
 ) as TaskServiceInterface;
@@ -146,10 +190,11 @@ function makeCommand(opts: {
   sessionProvider: FakeSessionProvider;
   gitOps?: DispatchRecoveryGitOps;
   staleMs?: number;
+  taskService?: TaskServiceInterface;
 }) {
   return createTasksDispatchRecoverCommand(
     async () => opts.sessionProvider,
-    () => throwingTaskService,
+    () => opts.taskService ?? throwingTaskService,
     () => opts.tracker as never,
     { gitOps: opts.gitOps ?? makeGitOps(), now: () => NOW, staleMs: opts.staleMs }
   );
@@ -204,6 +249,7 @@ describe("tasks.dispatch-recover", () => {
     expect(result.status).toBe("healthy");
     // No recovery attempt was recorded — nothing touched.
     expect(tracker.recordedAttempts).toHaveLength(0);
+    expect(tracker.recordedInvocationCalls).toHaveLength(0);
   });
 
   test("stale, clean tree, no commits -> crashed-no-output, continuation prompt returned, attempt recorded", async () => {
@@ -230,6 +276,43 @@ describe("tasks.dispatch-recover", () => {
     expect(tracker.recordedAttempts).toHaveLength(1);
     expect(tracker.recordedAttempts[0]?.resumedFromInvocationId).toBe(original.id);
     expect(tracker.recordedAttempts[0]?.attemptNumber).toBe(2);
+    // The NEW (resumed) row always gets the pessimistic dispatch-time-convention
+    // default outcome, never the classification — the classification describes the
+    // ORIGINAL attempt's final state, recorded on the ORIGINAL row instead (see the
+    // "closes out the ORIGINAL row" test below). In this fixture the two happen to
+    // be the same VALUE (crashed-no-output) by coincidence of the scenario (no
+    // commits, no dirty files) — the assertion below on recordedInvocationCalls is
+    // what actually distinguishes "pessimistic default" from "classification".
+    expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
+  });
+
+  test("closes out the ORIGINAL row with the classification + endedAt before inserting the resumed attempt (mt#2831 R1)", async () => {
+    const tracker = new FakeTracker();
+    const original = tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    // Dirty tree, no handoff -> classification is partial-uncommitted-no-handoff —
+    // deliberately DIFFERENT from the resumed row's pessimistic crashed-no-output
+    // default, so this test can distinguish the two rather than coincide with them.
+    const gitOps = makeGitOps({
+      status: async () => ({ staged: ["a.ts"], unstaged: [], untracked: [] }),
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps });
+
+    await cmd.execute({ taskId: "mt#2831" } as never);
+
+    expect(tracker.recordedInvocationCalls).toHaveLength(1);
+    const closeoutCall = tracker.recordedInvocationCalls[0];
+    expect(closeoutCall?.id).toBe(original.id);
+    expect(closeoutCall?.outcome).toBe("partial-uncommitted-no-handoff");
+    expect(closeoutCall?.endedAt).toBeInstanceOf(Date);
+
+    // The NEW row is untouched by the classification — it keeps the pessimistic
+    // default, not "partial-uncommitted-no-handoff".
+    expect(tracker.recordedAttempts).toHaveLength(1);
     expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
   });
 
@@ -353,8 +436,10 @@ describe("tasks.dispatch-recover", () => {
     expect(escalation.attempts).toHaveLength(2);
     expect(escalation.message).toContain("2-attempt bound");
 
-    // No 3rd attempt was recorded.
+    // No 3rd attempt was recorded, and neither row was touched (escalation is
+    // read-only against the existing chain).
     expect(tracker.recordedAttempts).toHaveLength(0);
+    expect(tracker.recordedInvocationCalls).toHaveLength(0);
   });
 
   test("missing subagentSessionId on the latest row -> a clear error, not a crash", async () => {
@@ -367,5 +452,47 @@ describe("tasks.dispatch-recover", () => {
 
     expect(result.success).toBe(false);
     expect(result.error as string).toContain("subagentSessionId");
+  });
+
+  test("task status outside IN-PROGRESS/IN-REVIEW (e.g. DONE) -> not-in-flight, tracker untouched (mt#2831 R1 NB #3)", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const taskService = new FakeTaskService({
+      initialTasks: [{ id: "mt#2831", title: "fixture", status: "DONE" }],
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, taskService });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("not-in-flight");
+    expect(result.message as string).toContain("DONE");
+    // The guard fires BEFORE any tracker read/write.
+    expect(tracker.recordedAttempts).toHaveLength(0);
+    expect(tracker.recordedInvocationCalls).toHaveLength(0);
+  });
+
+  test("task status IN-REVIEW proceeds normally (guard is not IN-PROGRESS-only)", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const taskService = new FakeTaskService({
+      initialTasks: [{ id: "mt#2831", title: "fixture", status: "IN-REVIEW" }],
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, taskService });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("recover");
   });
 });

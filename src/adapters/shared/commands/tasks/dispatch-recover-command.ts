@@ -59,6 +59,25 @@
  * @see mt#2831 — this task
  * @see mt#2646 — dispatch-watchdog detection + `dispatch-recovery-probe.ts`
  * @see mt#2512 — kill+redispatch doctrine (no mid-flight correction)
+ *
+ * ## CLI shell-completion note (mt#2831 R1 NB #2)
+ *
+ * `taskId` does NOT appear in `src/generated/completion-manifest.json`'s
+ * `dispatch-recover` entry. This is NOT a gap specific to this command — it is
+ * the completion-manifest generator's pre-existing, uniform "positionals are
+ * invisible" limitation (confirmed via `walkCommand` in
+ * `scripts/build-completion-manifest.ts`, which reads only `cmd.options`,
+ * never Commander's `cmd.registeredArguments`). This command has exactly one
+ * required param and no `tasks-customizations.ts` entry, so the CLI bridge's
+ * DEFAULT (`useFirstRequiredParamAsArgument: true`,
+ * `src/adapters/shared/bridges/cli/command-customization-manager.ts`)
+ * promotes `taskId` to a Commander positional argument, not a `--task-id`
+ * flag. The same gap is visible today for `tasks.deps.list` /
+ * `tasks.deps.tree` (their manifest entries show `--task` — the legacy alias
+ * OPTION — and `--verbose`/`--max-depth`, but never their canonical
+ * `<task-id>` positional). `minsky tasks dispatch-recover <taskId>` works
+ * correctly from the shell; only its TAB-completion is affected, identically
+ * to every other uncustomized single-required-param command.
  */
 import { z } from "zod";
 import type { CommandParameterMap, InferParams } from "../../command-registry";
@@ -225,6 +244,30 @@ export function createTasksDispatchRecoverCommand(
       const { normalizeTaskIdInput } = await import("@minsky/domain/tasks/commands/shared-helpers");
       const taskId = normalizeTaskIdInput(params.taskId);
 
+      // Scope to the SAME task-status window the dispatch-watchdog producer flags
+      // (`computeDispatchWatchdogFlags`, src/cockpit/dispatch-watchdog.ts): only
+      // IN-PROGRESS/IN-REVIEW tasks have a dispatch worth recovering. A stale
+      // subagent_invocations row for a task that has since gone DONE/CLOSED/BLOCKED
+      // (or was never advanced past TODO/PLANNING) is not a live recovery target —
+      // refuse before touching the tracker, rather than probing/classifying state
+      // for a task no dispatch is actually running against.
+      let taskStatus: string | undefined;
+      try {
+        taskStatus = await getTaskService().getTaskStatus(taskId);
+      } catch {
+        taskStatus = undefined; // fail-open: an unresolvable status does not block recovery
+      }
+      if (taskStatus && taskStatus !== "IN-PROGRESS" && taskStatus !== "IN-REVIEW") {
+        return {
+          success: true,
+          status: "not-in-flight" as const,
+          taskId,
+          message:
+            `Task ${taskId} is in status ${taskStatus}, not IN-PROGRESS/IN-REVIEW — no dispatch ` +
+            `is currently expected to be running against it. Nothing to recover.`,
+        };
+      }
+
       const tracker = getTracker();
       if (!tracker) {
         return {
@@ -387,20 +430,53 @@ export function createTasksDispatchRecoverCommand(
         originalStartedAt: latest.startedAt.toISOString(),
       });
 
+      // Close out the ORIGINAL row: it has now been classified as died/stalled. The
+      // classification describes the ORIGINAL attempt's final state, not the new
+      // (about-to-be-redispatched) attempt's — record it there, and mark the row
+      // ended (mt#2831 R1 BLOCKING #1). This is also what makes the tracker's
+      // heuristic upsert path's "prefer the OPEN row" selection meaningful: once
+      // this UPDATE lands, at most one row per subagentSessionId is open at a time
+      // in the common (non-racing) case.
+      await tracker.recordSubagentInvocation({
+        id: latest.id,
+        taskId,
+        subagentSessionId,
+        agentType: latest.agentType,
+        suggestedModel: latest.suggestedModel,
+        startedAt: latest.startedAt,
+        endedAt: now(),
+        outcome: classification,
+        summary: `Classified as ${classification} by tasks.dispatch-recover; superseded by attempt ${attemptNumber + 1}.`,
+      });
+
+      // Insert the NEW (resumed) row. Pessimistic default outcome + no endedAt —
+      // mirrors the dispatch-time convention in tasks.dispatch Step 5: this row
+      // describes the worst-case observed state until the eventual SubagentStop
+      // classifies it for real. It must NOT carry `classification`, which describes
+      // the ORIGINAL attempt (recorded above), not this brand-new one.
       const newInvocationId = await tracker.recordDispatchRecoveryAttempt({
         taskId,
         subagentSessionId,
         agentType: latest.agentType,
         suggestedModel: latest.suggestedModel,
         startedAt: now(),
-        outcome: classification,
+        outcome: "crashed-no-output",
         resumedFromInvocationId: latest.id,
         attemptNumber: attemptNumber + 1,
-        summary: `Auto-resumed via tasks.dispatch-recover from invocation ${latest.id} (attempt ${attemptNumber}).`,
+        summary: `Auto-resumed via tasks.dispatch-recover from invocation ${latest.id} (attempt ${attemptNumber}, classified ${classification}).`,
       });
 
       if (!newInvocationId) {
         log.warn("[tasks.dispatch-recover] Failed to record recovery attempt row", { taskId });
+      } else {
+        // mt#2831 R1 BLOCKING #1: overwrite the current-invocation marker so the
+        // NEXT SubagentStop event for this session binds to THIS (resumed) row —
+        // not the just-closed original. Best-effort; a write failure here just
+        // means the eventual Stop event falls back to the heuristic upsert path.
+        const { writeCurrentInvocationMarker } = await import(
+          "@minsky/domain/session/current-invocation-marker"
+        );
+        await writeCurrentInvocationMarker(sessionDir, subagentSessionId, newInvocationId);
       }
 
       return {

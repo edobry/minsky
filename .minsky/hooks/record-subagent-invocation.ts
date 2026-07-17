@@ -192,7 +192,26 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // NOT NULL constraint on `agent_type`.
   const subagentSessionId = extractMinskySessionId(cwd);
 
+  // mt#2831 R1 BLOCKING #1: strong-binding read. When the current-invocation
+  // marker file names an exact row, pass it through as `id` — the tracker's
+  // strong-binding path then updates THAT row directly, immune to the
+  // late-Stop-event misattribution a subagentSessionId-only lookup can hit once
+  // a dispatch has been auto-resumed (see
+  // packages/domain/src/session/current-invocation-marker.ts and
+  // SubagentDispatchTracker.recordSubagentInvocation's docstring). Absent/
+  // unreadable marker (pre-mt#2831 session, or a write that never landed) falls
+  // through to `undefined`, and the tracker uses its heuristic fallback —
+  // unchanged behavior from before this mechanism existed.
+  let markerInvocationId: string | undefined;
+  if (subagentSessionId) {
+    const { readCurrentInvocationMarker } = await import(
+      "../../packages/domain/src/session/current-invocation-marker"
+    );
+    markerInvocationId = (await readCurrentInvocationMarker(cwd, subagentSessionId)) ?? undefined;
+  }
+
   await tracker.recordSubagentInvocation({
+    id: markerInvocationId,
     taskId,
     subagentSessionId,
     agentSessionId: agentId, // harness-native conversation UUID
