@@ -460,8 +460,9 @@ Doc: `guard-health-tracker.md`.
 
 ## Dispatch-Intent Write Gate
 
-PreToolUse on 6 session/PR-mutating tools: denies a subagent call when a live `"read-only"`
-dispatch-intent covers the target session (forks included). Declared via the dispatch surfaces'
+PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded — D5-covered): denies a
+subagent call when a live `"read-only"` dispatch-intent covers the target session (forks
+included). Declared via the dispatch surfaces'
 `intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
 `dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
 store-read errors only. Doc: `dispatch-intent-write-gate.md`.
