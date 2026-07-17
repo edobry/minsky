@@ -11,165 +11,154 @@ tags:
 All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Write` tool creates
 `644` by default — pre-commit enforces this).
 
-**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620)** — each `Doc:` pointer
-below is a file in that directory. Entries are a terse index (trigger, hook, override, fail posture,
-doc); narration lives in the linked doc.
+**Per-hook detail lives under `docs/architecture/hooks/<name>.md` (mt#2620).** Each `Doc:` pointer
+below is a file there. Entries are a terse index (trigger, hook, override, fail posture, doc);
+narration lives in the linked doc.
 
 ## Vocabulary (mt#2626)
 
-**"Hook"** = the Claude Code registration mechanics; the domain noun for the mechanism is
-**"interlock"** (docs/cockpit copy). "Guard" naming is pending a corpus pass.
+**"Hook"** = Claude Code registration mechanics; domain noun for the mechanism: **"interlock"**
+(cockpit copy). "Guard" naming pending a corpus pass.
 
 ## Guard-Dispatcher Framework (ADR-028)
 
 A shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
-entrypoints) so multiple guards share ONE spawned Bun process per event; only
-`GUARD_REGISTRY`-listed guards run through it. Migrated: `check-guessed-session-path` (Phase 1, mt#2650);
-the full `UserPromptSubmit` event (Phase 2, mt#2652+mt#2687 — 15 guards; roster in doc), plus
-`guard-health-escalation-detector` (mt#2812) and `silent-stretch-detector` (mt#2824), each
-authored directly onto the framework rather than migrated from a prior standalone
-registration — 17 guards in the family as of the mt#2812 x mt#2824 merge.
-`policy-coverage-detector` is NOT in this family: it is registered on
-`PreToolUse` (both phases' specs named it — recorded spec discrepancy). Every other guard
-below is a standalone `settings.json` registration. History: `guard-dispatcher-framework.md`, ADR-028.
+entrypoints) letting multiple guards share ONE spawned Bun process per event. Only `GUARD_REGISTRY`-listed
+guards run through it — 17 migrated (Phase 1: `check-guessed-session-path`, mt#2650; Phase 2:
+the full `UserPromptSubmit` event, mt#2652/2687/2812/2824). `policy-coverage-detector` stays on
+`PreToolUse` (spec discrepancy). Every other guard below is a standalone `settings.json`
+registration.
 
-**Guard-module contract.** A migrated guard exports a pure `run(input, ctx): GuardOutcome | null`
-alongside its CLI entrypoint; `ctx` carries `hostCapSec`/`budgets`/`transcriptLines` (mt#2637) —
-read from `ctx`, never re-derive (closes the background-subagent transcript-read bug).
+**Load-bearing.** A dispatcher's `timeout` is the HOST CAP for the process; guards run
+SEQUENTIALLY — size a family's entry to the SUM of pre-migration timeouts, not one guard's budget
+(`ctx` carries `hostCapSec`/`budgets`/`transcriptLines`, mt#2637 — read once, never
+re-derive). Source lives in `.minsky/hooks/`; `.claude/hooks/*` is GENERATED (mt#2304) —
+after editing, run `bun run minsky compile --target claude-hooks` and commit both together
+(pre-commit blocks otherwise). This rule is itself compiled — after editing, run `rules compile` and grep
+the change into `CLAUDE.md`.
 
-**Dispatcher host-cap budget model (load-bearing).** A dispatcher's `settings.json` `timeout` is the
-HOST CAP for the whole process and matched guards run SEQUENTIALLY within it — size a family's entry
-to at least the SUM of its guards' pre-migration timeouts, never one guard's budget.
-
-**Recompile rule (mt#2304 — load-bearing).** Source lives in `.minsky/hooks/`; `.claude/hooks/*` is
-GENERATED. After editing `.minsky/hooks/*.ts`, run `bun run minsky compile --target claude-hooks` and
-commit sources + generated output together (pre-commit blocks otherwise). This RULE file is itself a
-compiled source — after editing it, run `rules compile` (bare invocation regenerates every
-existing target — AGENTS.md, CLAUDE.md, .cursor/rules — in one pass, mt#2803) and grep the
-change into `CLAUDE.md` to check.
-
-The framework has no override; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all`
-overrides migrated guards.
+Framework has no override; `MINSKY_HOOK_OVERRIDE=<guard-name>[,...]|all` covers migrated
+guards.
+Doc: `guard-dispatcher-framework.md`.
 
 ## Parallel-Work Guard
 
-PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create`(parent set): blocks session-binding
-calls (mt#2657) on open-PR file overlap (advisory-only for recently-merged); blocks subtask creation
-(incl. new-task-mode `tasks_dispatch`, mt#2683) on duplicate-child titles vs an ACTIVE sibling —
-terminal-status siblings WARN; parent-title tokens discounted. Tier-3 ceiling (mt#1362); Tier-2 floor:
-`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1`
-/ `MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only); the duplicate-child matcher also honors the
-reason-mandatory grant file (mt#2658) — the sanctioned mid-session override:
+PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
+(mt#2657) on open-PR file overlap (advisory for recently-merged); blocks subtask creation (incl.
+`tasks_dispatch` new-task mode, mt#2683) on duplicate-child titles vs an ACTIVE sibling (terminal
+siblings WARN; parent-title tokens discounted). Tier-3 ceiling (mt#1362); Tier-2 floor:
+`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time only); duplicate-child also honors a reason-mandatory
+grant file (mt#2658):
 `bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
-Fail: closed (open-PR sweep) / open (duplicate sweep: only unreadable data warns+permits;
-ACTIVE-sibling duplicates block).
+Fail: closed (open-PR) / open (duplicate: unreadable data warns+permits; ACTIVE duplicates block).
 Doc: `parallel-work-guard.md`.
 
 ## Bypass-Merge Guard
 
 PreToolUse on `Bash`/`session_exec`: blocks ALL `gh api -X PUT /pulls/.../merge` — prefer
-`session_pr_merge`'s audited `forceBypass`. Subagent invocations always blocked, no override. Hook: `block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent
-only). Fail: default-deny, no fail-open path. Doc: `bypass-merge-guard.md`.
+`session_pr_merge`'s audited `forceBypass`. Subagent invocations always blocked, no override.
+Hook: `block-subagent-bypass-merge.ts`. Override: `MINSKY_FORCE_BYPASS=1` (main-agent only).
+Fail: default-deny, no fail-open path. Doc: `bypass-merge-guard.md`.
 
 ## Out-of-Band Merge Guard
 
 PreToolUse on `session_pr_merge`/`gh api PUT merge`: blocks a merge whose PR body documents a
-coupled out-of-band step never confirmed executed (markdown-aware scan). Hook:
+coupled out-of-band step never confirmed (markdown-aware scan). Hook:
 `block-out-of-band-merge.ts`. Override: `MINSKY_ACK_OOB_MERGE=1`. Fail: open — `gh` failure allows
 with a warning. Doc: `out-of-band-merge-guard.md`.
 
 ## Skill/Agent/Rule Staleness Detector
 
 UserPromptSubmit: warns when `.claude/skills/**` / `.claude/agents/**` / `.minsky/rules/**` changed
-since the session's baseline mtime snapshot. Hook: `skill-staleness-detector.ts`.
-Override: `MINSKY_SKIP_SKILL_STALENESS=1`. Fail: informational, silent on error.
+since session baseline mtime. Hook: `skill-staleness-detector.ts`. Override:
+`MINSKY_SKIP_SKILL_STALENESS=1`. Fail: informational, silent on error.
 Doc: `skill-staleness-detector.md`.
 
 ## Generated File Edit Guard
 
 PreToolUse on file-edit tools (`Edit`/`Write`/`session_edit_file`/`session_write_file`/
-`session_search_replace`): blocks edits to a file whose first 5 lines carry a generation banner. Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`.
-Fail: open — no match/missing file/read error all permit.
+`session_search_replace`): blocks edits to a file whose first 5 lines carry a generation banner.
+Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`. Fail: open on
+no-match/missing-file/read-error.
 Doc: `generated-file-edit-guard.md`.
 
 ## Branch Freshness Guard
 
 PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main` has
-commits the session branch lacks; on block, `session_update` to rebase, review overlap, retry.
+commits the branch lacks; on block, `session_update` to rebase, review overlap, retry.
 Hook: `check-branch-fresh.ts`. Override: `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine
-paths; merge-in-progress allows with audit line; fetch failures always warn.
+paths + merge-in-progress (audit line); fetch failures warn.
 Doc: `branch-freshness-guard.md`.
 
 ## Bundle-Boot Smoke Gate
 
-Merge-gate extension: denies `session_pr_merge` unless the `bundle-boot-smoke` CI check_run
-concluded `success` on HEAD (catches dev-vs-bundled-boot divergence). Override: `MINSKY_SKIP_BUNDLE_SMOKE=1`
-(only after manually verifying local boot). Fail: deny-by-default (4 denial classes).
+Merge-gate extension: denies `session_pr_merge` unless `bundle-boot-smoke` CI concluded `success`
+on HEAD (catches dev-vs-bundled-boot divergence). Override:
+`MINSKY_SKIP_BUNDLE_SMOKE=1` (only after manually verifying local boot). Fail: deny-by-default
+(4 denial classes).
 Doc: `bundle-boot-smoke-gate.md`.
 
 ## Single Shared PR-Data Fetch Layer
 
-Not a guard: `.claude/hooks/pr-context.ts` (mt#2617), the ONE place the four `session_pr_merge`
+Not a guard: `.claude/hooks/pr-context.ts` (mt#2617), the ONE place the 4 `session_pr_merge`
 gates fetch PR data from `gh`. No trigger/override (library). Doc: `pr-data-fetch-layer.md`.
 
 ## Execution-Evidence Merge Gate
 
-PreToolUse on `session_pr_merge`: blocks a merge when the PR diff adds new **test files** (mt#1459)
-or new **operational scripts** (`scripts/*.ts`, mt#2776) but the PR body lacks an
-`Execution evidence:` block — run the artifact before merge; dual-mode scripts need EACH production
-branch exercised (dry-run AND bounded `--execute`, mt#2760/mt#2774). Marker forms: mt#2648 (below). Hook: `require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]`
-title tag + follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings:
-`/prepare-pr` §1b, `/implement-task` §7a; mt#2421 extends to render-path PRs.
+PreToolUse on `session_pr_merge`: blocks a merge adding new **test files** (mt#1459) or new
+**operational scripts** (`scripts/*.ts`, mt#2776) without an `Execution evidence:` block — run
+before merge; dual-mode scripts need EACH branch exercised (dry-run + bounded `--execute`,
+mt#2760/mt#2774). Marker forms: mt#2648 (below). Hook:
+`require-execution-evidence-before-merge.ts`. Override: `[unverified-tests]` title tag +
+follow-up task. Fail: open on unresolvable repo/PR or `gh` failure. Siblings: `/prepare-pr` §1b,
+`/implement-task` §7a; mt#2421 extends to render-path PRs.
 
 ## Deploy-Verification Merge Gate + Post-Merge Reminder
 
 PreToolUse on `session_pr_merge`: blocks a deploy-surface PR (`infra/**`, `services/*/Dockerfile`,
-`services/*/railway.json`, `services/*/deploy.config.ts`, `.github/workflows/deploy-*.yml`) lacking a
-`Deploy verification:` commitment; paired PostToolUse injects a mandatory post-merge
+`services/*/railway.json`, `services/*/deploy.config.ts`, `.github/workflows/deploy-*.yml`) lacking
+a `Deploy verification:` commitment; paired PostToolUse injects a
 `deployment_wait-for-latest` reminder. Hooks: `deploy-surface-detector.ts` +
-`require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escape hatches:
-`[no-deploy-impact]` title tag; `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
-
-**Marker acceptance (mt#2648 — load-bearing).** Both `Deploy verification:` and
-`Execution evidence:` accept, case-insensitive: a plain label line WITH a colon, OR a Markdown heading
-(any level), optional trailing colon — the colon is required only for the
-non-heading form.
-
+`require-deploy-verification-before-merge.ts` + `deploy-verification-after-merge.ts`. Escapes:
+`[no-deploy-impact]` title tag; a `Deploy verification:` section; `MINSKY_SKIP_DEPLOY_VERIFY=1`.
+Marker acceptance (mt#2648, load-bearing, shared with `Execution evidence:`): case-insensitive
+plain label WITH a colon, OR a Markdown heading (any level, colon optional).
 Fail: open — unresolvable repo/PR/non-surface PR allows silently; PostToolUse always exits 0.
 Doc: `deploy-verification-merge-gate.md`.
 
 ## NUL-Byte Pre-Commit Guard
 
-Pre-commit step (`runNulByteCheck()` in `src/hooks/pre-commit.ts`): blocks staged text files
-containing literal NUL bytes (allowlist: binary extensions + `tests/fixtures/`).
-Override: `MINSKY_SKIP_NUL_CHECK=1`. Fail: blocks on any hit outside the allowlist.
+Pre-commit step (`runNulByteCheck()` in `src/hooks/pre-commit.ts`): blocks staged text with
+literal NUL bytes (allowlist: binary extensions + `tests/fixtures/`). Override:
+`MINSKY_SKIP_NUL_CHECK=1`. Fail: blocks any hit outside the allowlist.
 Doc: `nul-byte-precommit-guard.md`.
 
 ## Workspace-COPY Pre-Commit Guard
 
 Pre-commit step: REGENERATES (mt#2621) the workspace `package.json` COPY block in every protected
 Dockerfile from the root `workspaces` glob, auto-restaging. No override — only ever auto-fixes
-forward. Fail: blocks only when a protected Dockerfile lacks the generated-block markers entirely.
+forward. Fail: blocks only if a protected Dockerfile lacks the generated-block markers.
 Doc: `workspace-copy-precommit-guard.md`.
 
 ## Deploy-Domain Ownership Guard
 
 Pre-commit step: blocks committing a domain **asserted** as a deploy target (`infra/index.ts`,
-`services/*/{deploy,astro}.config.ts`, README "Deployed at" claims) unless it's
-in `infra/controlled-domains.json`'s verified allowlist; distinguishes assertions from mentions.
-Override: `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`. Fail: blocks on any unallowlisted asserted domain.
+`services/*/{deploy,astro}.config.ts`, README "Deployed at" claims) unless allowlisted in
+`infra/controlled-domains.json`; distinguishes assertions from mentions. Override:
+`MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`. Fail: blocks any unallowlisted asserted domain.
 Doc: `deploy-domain-ownership-guard.md`.
 
 ## Drive-PR-To-Convergence Reminder
 
 PostToolUse on successful `session_pr_create`: injects a mandatory convergence reminder naming
-`session_pr_wait-for-review` as the next action, forbidding deferral phrases.
-Hook: `drive-pr-to-convergence.ts`. No override (informational). Fail: always exits 0.
+`session_pr_wait-for-review` as next action, forbidding deferral phrases. Hook:
+`drive-pr-to-convergence.ts`. No override. Fail: always exits 0.
 Doc: `drive-pr-to-convergence-reminder.md`.
 
 ## Substrate-Bypass Detector
 
-UserPromptSubmit: detects verbal commitments with no same-turn encoding call, inline-retrospective
+UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
 prose without `/retrospective`, and DB-substrate-bypass phrasing in the prior turn. Hook:
 `substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`. Fail: open on transcript
 error; silent on first turn.
@@ -178,67 +167,68 @@ Doc: `substrate-bypass-detector.md`.
 ## Retrospective-Trigger Scanner
 
 UserPromptSubmit: scans the prior assistant turn for retrospective-trigger phrase families +
-user-correction signals; reminds to invoke `/retrospective` (suppressed when the prior turn already
-did). Hook: `retrospective-trigger-scanner.ts`. Calibration log:
+user-correction signals; reminds to invoke `/retrospective` (suppressed if the prior turn already
+did). Hook: `retrospective-trigger-scanner.ts`. Log:
 `.minsky/retrospective-trigger-calibration.jsonl`. Override: `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1`.
 Fail: open on transcript error. Doc: `retrospective-trigger-scanner.md`.
 
 ## Current-Time Injection Hook
 
-UserPromptSubmit: injects current date/day/local-time/UTC every turn. Hook:
+UserPromptSubmit: injects date/day/local/UTC time every turn. Hook:
 `inject-current-time.ts` (always fires, <1ms). Override: `MINSKY_SKIP_TIME_INJECTION=1`.
 Doc: `current-time-injection-hook.md`.
 
 ## Git-State Injection Hook
 
-UserPromptSubmit: injects branch, working-tree status, ahead/behind, and 5 recent commits (one line
-when clean+in-sync); no per-turn `git fetch`.
-Hook: `inject-git-state.ts`. Override: `MINSKY_SKIP_GIT_STATE_INJECTION=1`. Fail: silent bail on
-non-repo/detached-HEAD/timeout. Doc: `git-state-injection-hook.md`.
+UserPromptSubmit: injects branch, working-tree status, ahead/behind, 5 recent commits (one line
+when clean+in-sync); no per-turn `git fetch`. Hook: `inject-git-state.ts`. Override:
+`MINSKY_SKIP_GIT_STATE_INJECTION=1`. Fail: silent bail on non-repo/detached-HEAD/timeout.
+Doc: `git-state-injection-hook.md`.
 
 ## Prod-State Injection Hook
 
-UserPromptSubmit: injects a prod migration-ledger snapshot (producer: cockpit sweep; consumer:
-local cache). Shapes: fresh (ground truth), stale (re-verify), unknown (do NOT assert from memory). Hook: `inject-prod-state.ts`. Override:
-`MINSKY_SKIP_PROD_STATE_INJECTION=1`. Fail: never crashes; emits UNKNOWN/STALE notes.
+UserPromptSubmit: injects a prod migration-ledger snapshot (cockpit-sweep producer, local-cache
+consumer). Shapes: fresh/stale/unknown (do NOT assert from memory when unknown). Hook:
+`inject-prod-state.ts`. Override: `MINSKY_SKIP_PROD_STATE_INJECTION=1`. Fail: never crashes;
+emits UNKNOWN/STALE notes.
 Doc: `prod-state-injection-hook.md`.
 
 ## Dispatch-Watchdog Injection Hook
 
-UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (producer: cockpit sweep;
-consumer: local cache). Recovery: `session.status probe:true` + `/orchestrate`.
-Hook: `inject-dispatch-watchdog.ts`. Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Fail:
+UserPromptSubmit: warns when an in-flight subagent dispatch is silent ≥30m (cockpit-sweep
+producer, local-cache consumer). Recovery: `session.status probe:true` + `/orchestrate`. Hook:
+`inject-dispatch-watchdog.ts`. Override: `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`. Fail:
 silent on empty/missing cache.
 Doc: `dispatch-watchdog-injection-hook.md`.
 
 ## Immutable-Migration Pre-Commit Guard
 
-Pre-commit step: blocks a staged modification/rename of a journaled migration `.sql` (editing an applied
-migration drifts its ledger hash). Override:
-`MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks any staged M/R of a journaled tag;
-additions/unjournaled edits allowed.
+Pre-commit step: blocks a staged modification/rename of a journaled migration `.sql` (drifts its
+ledger hash). Override: `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks any staged M/R of
+a journaled tag; additions/unjournaled edits allowed.
 Doc: `immutable-migration-precommit-guard.md`.
 
 ## Guessed-Session-Path Guard
 
 PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
-path whose directory doesn't exist (guessed session ids). Hook: `check-guessed-session-path.ts`.
-Override: `MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
+path that doesn't exist. Hook: `check-guessed-session-path.ts`. Override:
+`MINSKY_SKIP_SESSION_PATH_CHECK=1`. Fail: open — only a confirmed-nonexistent path denies.
 Doc: `guessed-session-path-guard.md`.
 
 ## Bind/Advance Spec-Read Guard
 
-PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task mode,
-mt#2657): blocks when the target task's spec was never surfaced (`tasks_spec_get` / `tasks_get
-includeSpec:true`) in the transcript. On hit: read the full spec, retry. Hook:
-`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error. Doc: `bind-advance-spec-read-guard.md`.
+PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task,
+mt#2657): blocks when the spec was never surfaced (`tasks_spec_get` / `tasks_get
+includeSpec:true`). On hit: read the spec, retry. Hook:
+`check-task-spec-read.ts`. Override: `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
+Doc: `bind-advance-spec-read-guard.md`.
 
 ## Session-End Transcript Ingest Hook
 
-`SessionEnd` hook: synchronously ingests the finished session's transcript into `agent_transcripts`
-(crash-terminated sessions: MCP boot sweep). Hook:
-`transcript-ingest-on-session-end.ts`. Overrides: `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`;
-`MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in embed). Fail: always exits 0.
+`SessionEnd` hook: synchronously ingests the finished session transcript into `agent_transcripts`
+(crash-terminated: MCP boot sweep). Hook: `transcript-ingest-on-session-end.ts`.
+Overrides: `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK=1`; `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED=1` (opt-in
+embed). Fail: always exits 0.
 Doc: `session-end-transcript-ingest-hook.md`.
 
 ## Causal-Premise Detector (calibration)
@@ -251,18 +241,18 @@ Doc: `causal-premise-detector.md`.
 
 ## Ask-Routing Deferral Detector (calibration)
 
-UserPromptSubmit (v1 calibration-only): logs decision deferrals routed via chat prose instead of the
-Ask substrate (suppressed when the turn already called `asks_create`). Hook:
-`ask-routing-deferral-detector.ts`. Log: `.minsky/ask-routing-deferral-calibration.jsonl`. Override:
-`MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript error.
+UserPromptSubmit (v1 calibration-only): logs decision deferrals routed via chat prose instead of
+the Ask substrate (suppressed once the turn called `asks_create`). Hook:
+`ask-routing-deferral-detector.ts`. Log: `.minsky/ask-routing-deferral-calibration.jsonl`.
+Override: `MINSKY_ACK_ASK_ROUTING_DEFERRAL=1`. Fail: open on transcript error.
 Doc: `ask-routing-deferral-detector.md`.
 
 ## Calibration-Review Cadence Detector
 
-UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires +
-≥3 distinct phrases) or goes stale; on fire run `/calibration-review` — unless a disposition Ask is
-already open (mt#2659 watermark: one pending line, once per session; `policy-coverage`-class logs
-re-warn on cooldown only). Hook: `calibration-review-cadence-detector.ts`. Override:
+UserPromptSubmit: warns when a hook-calibration JSONL log crosses its review threshold (≥10 fires,
+≥3 distinct phrases) or goes stale; on fire run `/calibration-review` unless a disposition Ask is
+already open (mt#2659 watermark: one pending line/session; `policy-coverage`-class logs re-warn on
+cooldown only). Hook: `calibration-review-cadence-detector.ts`. Override:
 `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Fail: open on any read error.
 Doc: `calibration-review-cadence-detector.md`.
 
@@ -272,45 +262,27 @@ PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` s
 valid, unexpired capability grant (ADR-028 D5 default-deny). Grant before dispatch:
 `bun scripts/grant-subagent-merge.ts --task mt#<id> --ttl-minutes 30`. Hooks:
 `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`. Override:
-`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on GENUINE grant-store read errors — a missing
-store or no-match is default-deny working.
+`MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors — a missing
+store/no-match is default-deny working.
 Doc: `subagent-merge-capability-guard.md`.
 
 ## Guard-Health Tracker + Escalation Detector
 
-Not a permission gate — makes guard-LAYER FAILURES visible instead of silent. Two capture
-paths (mt#2812): (a) `.minsky/hooks/dispatcher.ts`'s guard-loop `catch` block calls
-`recordGuardError()` automatically for every ADR-028-migrated guard (both `PreToolUse` and
-`UserPromptSubmit` families) — zero per-guard changes; (b) `recordGuardCheckSkip()`, exported
-from the same shared module, for a standalone hook's own catch block to call. Both append to
-an append-only JSONL log (`~/.local/state/minsky/guard-health-log.jsonl`), same architectural
-shape as the MCP disconnect tracker (mt#1645/1682) and subagent dispatch tracker (mt#1735-1738).
-`debug_systemInfo.guardHealth` (read side: `src/mcp/guard-health-tracker.ts`, a duplicate
-read+aggregate implementation — `.minsky/hooks/` is outside the root tsconfig's `include` and
-is intentionally dependency-free, so the reader cannot import the writer's module) reports
-per-guard error counts (24h/7d), consecutive-failure streaks, and an escalation tier
-(`none | attention | critical`; critical = 3+ consecutive failures, per this task's observed-
-cadence calibration). A minimal cockpit widget (`guard-health`, mirrors `embeddings-health.ts`)
-surfaces the same aggregate. When any guard is `critical`, the ADR-028-registered
-`guard-health-escalation-detector` UserPromptSubmit guard injects a warning naming the dead
-gate(s) every turn (no de-dup — mirrors `inject-current-time`'s "fresh info every turn"
-posture). Hooks: `guard-health.ts` (shared record/read/aggregate module),
-`guard-health-escalation-detector.ts`. No override (informational only). Fail: fail-safe —
-every recording/reading call swallows its own errors; a broken/missing log never blocks a
-guard or the dispatcher loop. Does NOT cover: a guard returning a wrong verdict without
-erroring (owner: the evaluation-loop RFC, mt#2589/mt#2597); out-of-process deaths like
-`process.exit()` killing the dispatcher mid-loop (owner: mt#2835's `guard-entrypoint-gate.test.ts`
-+ `dispatch-userpromptsubmit.e2e.test.ts`).
+Not a permission gate — surfaces guard-layer failures instead of silence (mt#2812).
+`dispatcher.ts`'s guard-loop `catch` calls `recordGuardError()` for migrated guards;
+`recordGuardCheckSkip()` covers standalone hooks. Appends to
+`~/.local/state/minsky/guard-health-log.jsonl`; `debug_systemInfo.guardHealth` reports
+counts/streaks/tier (`none|attention|critical`, critical = 3+ consecutive); the escalation guard
+(+ cockpit widget) warns every turn while any guard is critical. Hooks: `guard-health.ts`,
+`guard-health-escalation-detector.ts`. No override. Fail: fail-safe, swallows its own errors.
 Doc: `guard-health-tracker.md`.
 
 ## Silent-Stretch Detector (calibration)
 
-UserPromptSubmit (v1 calibration-only, no injection): measures the just-completed turn for a
-tool-only silent stretch — no assistant TEXT output — and logs a record when it crossed 10 minutes
-of wall-clock silence OR 15 consecutive tool calls, whichever first (mt#2824). Pairs with the
-`§Progress heartbeats` discipline bullet in `user-preferences.mdc` (the agent-side narration
-requirement this detector calibrates); sibling to `inject-dispatch-watchdog.ts` (that guard covers
-SUBAGENT silence from the dispatching agent's side; this one covers the MAIN agent's own silence).
-Hook: `silent-stretch-detector.ts`. Log: `.minsky/silent-stretch-calibration.jsonl`. Override:
+UserPromptSubmit (v1 calibration-only, no injection): flags a tool-only silent stretch — no
+assistant TEXT — crossing 10 minutes wall-clock OR 15 consecutive tool calls, whichever first
+(mt#2824). Pairs with `user-preferences.mdc §Progress heartbeats`; sibling to
+`inject-dispatch-watchdog.ts` (subagent vs main-agent silence). Hook:
+`silent-stretch-detector.ts`. Log: `.minsky/silent-stretch-calibration.jsonl`. Override:
 `MINSKY_SKIP_SILENT_STRETCH=1`. Fail: open on transcript error or missing `transcript_path`.
 Doc: `silent-stretch-detector.md`.
