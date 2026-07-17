@@ -195,6 +195,16 @@ export function computeReviewDueLogs(
     // has never been reviewed and isn't past-threshold either simply hasn't
     // accumulated enough signal yet (e.g. causal-premise at 1 fire) — that's
     // "keep collecting," not "forgotten."
+    //
+    // mt#2896 (filed, not yet implemented): a log with NO watermark at all
+    // (never reviewed, ever) that has nonetheless been accumulating fires for
+    // a long time is currently invisible to BOTH conditions above —
+    // `pastThreshold` requires diversity as well as count, and this
+    // "time-stale" branch requires `wm` to be truthy. mt#2896's third trigger
+    // leg (never-reviewed + days-since-first-fire) slots in HERE, as an
+    // `if (!wm) { ... }` branch using each log's earliest record's
+    // `timestamp` (not yet threaded through `CalibrationLogResult` — that's
+    // part of mt#2896's own scope) instead of `wm.lastReviewedAt`.
     if (!wm || r.firesSinceLastReview <= 0) continue;
     const reviewedMs = Date.parse(wm.lastReviewedAt);
     if (Number.isNaN(reviewedMs)) continue;

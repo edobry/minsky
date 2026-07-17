@@ -14,6 +14,9 @@ import {
   clearResolvedAskIds,
   selectAckablePaths,
   runSweep,
+  calibrationRecordToFireLogEntry,
+  calibrationLogAsFireLogEntries,
+  readAllCalibrationLogsAsFireLogEntries,
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
   CALIBRATION_LOG_REGISTRY,
@@ -32,6 +35,11 @@ const DEFERRAL_CLASS = "principal-reserved";
 const CODE_MECHANISM_KIND = "code-mechanism-assertion";
 const SILENT_STRETCH_KIND = "silent-stretch";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
+const RETRO_PATH = ".minsky/retrospective-trigger-calibration.jsonl";
+const CAUSAL_GUARD_NAME = "causal-premise-detector";
+const RETRO_GUARD_NAME = "retrospective-trigger-scanner";
+const RECORD_PARSE_FAIL = "record failed to parse";
+const POLICY_COVERAGE_MISSING = "policy-coverage entry missing";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -443,7 +451,7 @@ const CAUSAL_ENTRY: CalibrationLogEntry = {
 };
 
 const RETRO_ENTRY: CalibrationLogEntry = {
-  path: ".minsky/retrospective-trigger-calibration.jsonl",
+  path: RETRO_PATH,
   name: RETRO_KIND,
   kind: RETRO_KIND,
 };
@@ -1015,5 +1023,235 @@ describe("runSweep", () => {
     const retroResult = results.find((r) => r.entry.name === RETRO_KIND);
     if (!retroResult) throw new Error("retrospective-trigger result missing");
     expect(retroResult.pastThreshold).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fire-log schema adapter (mt#2889)
+// ---------------------------------------------------------------------------
+
+function makePolicyCoverageRecord(outcome: string): string {
+  return JSON.stringify({
+    timestamp: "2026-06-01T12:00:00Z",
+    sessionId: "test-session",
+    toolName: "Edit",
+    reason: "new-file",
+    outcome,
+  });
+}
+
+describe("calibrationRecordToFireLogEntry / decision mapping", () => {
+  test("causal-premise record maps to guardName=causal-premise-detector, decision=warn", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === "causal-premise");
+    if (!entry) throw new Error("causal-premise entry missing");
+    const record = parseCalibrationRecord(makeCausalRecord(), entry.kind);
+    if (!record) throw new Error(RECORD_PARSE_FAIL);
+    const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+    expect(fireLogEntry.guardName).toBe(CAUSAL_GUARD_NAME);
+    expect(fireLogEntry.event).toBe("Calibration");
+    expect(fireLogEntry.decision).toBe("warn");
+    expect(fireLogEntry.durationMs).toBe(0);
+    expect(fireLogEntry.sessionId).toBe("test-session");
+    expect(fireLogEntry.timestamp).toBe("2026-06-01T12:00:00Z");
+  });
+
+  test("retrospective-trigger record maps to guardName=retrospective-trigger-scanner, decision=warn", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === RETRO_KIND);
+    if (!entry) throw new Error("retrospective-trigger entry missing");
+    const record = parseCalibrationRecord(makeRetroRecord(), entry.kind);
+    if (!record) throw new Error(RECORD_PARSE_FAIL);
+    const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+    expect(fireLogEntry.guardName).toBe("retrospective-trigger-scanner");
+    expect(fireLogEntry.decision).toBe("warn");
+  });
+
+  test("ask-routing-deferral record maps to guardName=ask-routing-deferral-detector, decision=warn", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === DEFERRAL_KIND);
+    if (!entry) throw new Error("ask-routing-deferral entry missing");
+    const record = parseCalibrationRecord(makeDeferralRecord(), entry.kind);
+    if (!record) throw new Error(RECORD_PARSE_FAIL);
+    const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+    expect(fireLogEntry.guardName).toBe("ask-routing-deferral-detector");
+    expect(fireLogEntry.decision).toBe("warn");
+  });
+
+  test("policy-coverage 'uncovered-blocked' maps to decision=deny", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === "policy-coverage");
+    if (!entry) throw new Error(POLICY_COVERAGE_MISSING);
+    const record = parseCalibrationRecord(
+      makePolicyCoverageRecord("uncovered-blocked"),
+      entry.kind
+    );
+    if (!record) throw new Error(RECORD_PARSE_FAIL);
+    const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+    expect(fireLogEntry.guardName).toBe("policy-coverage-detector");
+    expect(fireLogEntry.decision).toBe("deny");
+  });
+
+  test("policy-coverage 'uncovered-logged' maps to decision=warn", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === "policy-coverage");
+    if (!entry) throw new Error(POLICY_COVERAGE_MISSING);
+    const record = parseCalibrationRecord(makePolicyCoverageRecord("uncovered-logged"), entry.kind);
+    if (!record) throw new Error(RECORD_PARSE_FAIL);
+    const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+    expect(fireLogEntry.decision).toBe("warn");
+  });
+
+  test("policy-coverage 'covered' and 'dismissed' map to decision=allow", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === "policy-coverage");
+    if (!entry) throw new Error(POLICY_COVERAGE_MISSING);
+    for (const outcome of ["covered", "dismissed"]) {
+      const record = parseCalibrationRecord(makePolicyCoverageRecord(outcome), entry.kind);
+      if (!record) throw new Error(RECORD_PARSE_FAIL);
+      const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+      expect(fireLogEntry.decision).toBe("allow");
+    }
+  });
+
+  test("an unmapped calibration name falls back to the entry's own name as guardName", () => {
+    const syntheticEntry: CalibrationLogEntry = {
+      path: ".minsky/unmapped-calibration.jsonl",
+      name: "unmapped-name",
+      kind: "causal-premise",
+    };
+    const record = parseCalibrationRecord(makeCausalRecord(), syntheticEntry.kind);
+    if (!record) throw new Error(RECORD_PARSE_FAIL);
+    const fireLogEntry = calibrationRecordToFireLogEntry(record, syntheticEntry);
+    expect(fireLogEntry.guardName).toBe("unmapped-name");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-trip completeness (mt#2889 PR #2012 R1 — BLOCKING #4)
+// ---------------------------------------------------------------------------
+//
+// Regression test for the exact gap R1 caught: CALIBRATION_LOG_REGISTRY grew
+// a 7th entry ("silent-stretch", mt#2866) via this PR's pre-merge rebase onto
+// main, landing AFTER CALIBRATION_NAME_TO_GUARD_NAME was first written — the
+// hand-maintained map fell out of sync with the registry it must exhaustively
+// cover, and the silent fallback-to-entry.name path masked it (no thrown
+// error, just a wrong-but-plausible-looking guardName). This test asserts
+// EVERY CALIBRATION_LOG_REGISTRY entry — present today AND any added in the
+// future — round-trips through calibrationRecordToFireLogEntry to its
+// canonical GUARD_REGISTRY name, not a silent fallback. Adding an 8th
+// registry entry without a matching case below fails this test immediately
+// (the "no fixture for this kind" branch), rather than only surfacing at
+// review time on the next PR that happens to touch this file.
+
+/** One minimal, valid raw JSONL line per CalibrationLogEntry.kind, plus the canonical GUARD_REGISTRY name that kind's registry entry must map to. */
+const KIND_FIXTURES: Readonly<
+  Record<CalibrationLogEntry["kind"], { line: () => string; expectedGuardName: string }>
+> = {
+  "causal-premise": { line: () => makeCausalRecord(), expectedGuardName: CAUSAL_GUARD_NAME },
+  "retrospective-trigger": {
+    line: () => makeRetroRecord(),
+    expectedGuardName: RETRO_GUARD_NAME,
+  },
+  "ask-routing-deferral": {
+    line: () => makeDeferralRecord(),
+    expectedGuardName: "ask-routing-deferral-detector",
+  },
+  "code-mechanism-assertion": {
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-06-01T12:00:00Z",
+        session_id: "test-session",
+        claims: [{ symbol: "executeCommand", predicate: "clamps" }],
+        hadSameTurnRead: false,
+      }),
+    expectedGuardName: "code-mechanism-assertion-detector",
+  },
+  "pre-narration": {
+    // Same matches-shape family as retrospective-trigger (see this file's
+    // CalibrationLogEntry.kind doc comment) — reuses makeRetroRecord's shape,
+    // parsed under the "pre-narration" kind.
+    line: () => makeRetroRecord(),
+    expectedGuardName: "pre-narration-detector",
+  },
+  "policy-coverage": {
+    line: () => makePolicyCoverageRecord("covered"),
+    expectedGuardName: "policy-coverage-detector",
+  },
+  "silent-stretch": {
+    line: () => makeSilentStretchRecord(),
+    expectedGuardName: "silent-stretch-detector",
+  },
+};
+
+describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
+  test("every CALIBRATION_LOG_REGISTRY entry maps to its canonical GUARD_REGISTRY name, not a silent fallback to entry.name", () => {
+    for (const entry of CALIBRATION_LOG_REGISTRY) {
+      const fixture = KIND_FIXTURES[entry.kind];
+      if (!fixture) {
+        throw new Error(
+          `No KIND_FIXTURES entry for CalibrationLogEntry.kind "${entry.kind}" ` +
+            `(registry entry name="${entry.name}") — add one so this completeness ` +
+            `test actually covers the new kind, per the R1 regression this test guards against.`
+        );
+      }
+      const record = parseCalibrationRecord(fixture.line(), entry.kind);
+      if (!record) {
+        throw new Error(`Fixture for kind "${entry.kind}" failed to parse — fix KIND_FIXTURES.`);
+      }
+      const fireLogEntry = calibrationRecordToFireLogEntry(record, entry);
+      expect(fireLogEntry.guardName).toBe(fixture.expectedGuardName);
+      // The exact regression this test prevents: silently falling back to
+      // the raw registry name instead of the canonical guard name.
+      expect(fireLogEntry.guardName).not.toBe(entry.name);
+    }
+  });
+
+  test("CALIBRATION_LOG_REGISTRY has exactly 7 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(7);
+    for (const entry of CALIBRATION_LOG_REGISTRY) {
+      expect(KIND_FIXTURES[entry.kind]).toBeDefined();
+    }
+  });
+});
+
+describe("calibrationLogAsFireLogEntries", () => {
+  test("maps every record in a log to a fire-log-schema entry, preserving order and count", () => {
+    const entry = CALIBRATION_LOG_REGISTRY.find((e) => e.name === "causal-premise");
+    if (!entry) throw new Error("causal-premise entry missing");
+    const lines = buildLines(3, (i) => makeCausalRecord([`phrase-${i}`]));
+    const records = parseCalibrationLines(lines, entry.kind);
+    const fireLogEntries = calibrationLogAsFireLogEntries(records, entry);
+    expect(fireLogEntries).toHaveLength(3);
+    for (const e of fireLogEntries) {
+      expect(e.guardName).toBe(CAUSAL_GUARD_NAME);
+      expect(e.decision).toBe("warn");
+    }
+  });
+});
+
+describe("readAllCalibrationLogsAsFireLogEntries", () => {
+  test("aggregates records across multiple logs, skipping absent ones — read-only (never touches historical files)", async () => {
+    const readContent = async (path: string): Promise<string | null> => {
+      if (path === CAUSAL_PATH) return buildLines(2, (i) => makeCausalRecord([`phrase-${i}`]));
+      if (path === RETRO_PATH) {
+        return buildLines(1, () => makeRetroRecord());
+      }
+      return null; // every other registered log absent
+    };
+    const results = await readAllCalibrationLogsAsFireLogEntries(
+      CALIBRATION_LOG_REGISTRY,
+      readContent
+    );
+    expect(results).toHaveLength(3);
+    const byGuard = results.reduce<Record<string, number>>((acc, r) => {
+      acc[r.guardName] = (acc[r.guardName] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect(byGuard[CAUSAL_GUARD_NAME]).toBe(2);
+    expect(byGuard[RETRO_GUARD_NAME]).toBe(1);
+  });
+
+  test("returns an empty array when every log is absent", async () => {
+    const readContent = async (_path: string): Promise<string | null> => null;
+    const results = await readAllCalibrationLogsAsFireLogEntries(
+      CALIBRATION_LOG_REGISTRY,
+      readContent
+    );
+    expect(results).toEqual([]);
   });
 });

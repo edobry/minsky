@@ -29,8 +29,12 @@ import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { validateStatusTransition } from "../../packages/domain/src/tasks/status-transitions";
 import { TaskStatus, isValidTaskStatus } from "../../packages/domain/src/tasks/taskConstants";
+import { recordFireLogEntry } from "./fire-log";
 
 const TARGET_TOOL = "mcp__minsky__tasks_status_set";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "tasks-status-set-guard";
 
 export interface CheckResult {
   decision: "allow" | "deny";
@@ -124,6 +128,7 @@ export function checkTransition(
 }
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
   const result = checkTransition(input.tool_name, input.tool_input ?? {}, {
     readCurrentTask: readCurrentTaskViaCLI,
@@ -137,5 +142,16 @@ if (import.meta.main) {
       },
     });
   }
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // including the common "not the target tool" / fail-open silent-allow
+  // paths. No documented override env-var for this guard.
+  recordFireLogEntry({
+    guardName: GUARD_NAME,
+    event: "PreToolUse",
+    decision: result.decision,
+    durationMs: Date.now() - startMs,
+    toolName: input.tool_name,
+    sessionId: input.session_id,
+  });
   process.exit(0);
 }

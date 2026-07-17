@@ -27,6 +27,31 @@
 import type { ClaudeHookInput } from "./types";
 import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// ---------------------------------------------------------------------------
+// Canary fixture helpers (mt#2889 PR #2012 R1 BLOCKING #2 — portable defaults)
+// ---------------------------------------------------------------------------
+
+/**
+ * Machine-independent absolute path matching `check-guessed-session-path.ts`'s
+ * `SESSION_DIR_RE` (`[^\s'"]*\/state\/minsky\/sessions\/([^/\s'"]+)`) — that
+ * regex only requires the literal substring `/state/minsky/sessions/<id>`
+ * ANYWHERE in the string, so prefixing it with `os.tmpdir()` (instead of a
+ * hardcoded developer home directory) satisfies the guard's detection while
+ * working identically on any machine/user. The id itself is a fixed sentinel
+ * UUID-shaped string that will never exist as a real session — `exists()`
+ * (real `fs.existsSync`) always returns false for it, so the canary
+ * deterministically triggers the guard's deny path.
+ */
+const CANARY_NONEXISTENT_SESSION_PATH = join(
+  tmpdir(),
+  "state",
+  "minsky",
+  "sessions",
+  "00000000-canary-nonexistent-0000"
+);
 
 // ---------------------------------------------------------------------------
 // Lifecycle events
@@ -230,6 +255,58 @@ export interface GuardRegistration {
     /** Number of distinct remediation options the guard's message presents (e.g. "override X, or do Y, or do Z" = 3). */
     optionCount: number;
   };
+  /**
+   * Canary declaration (mt#2889, evaluation-loop Phase 1 completion) — the
+   * RFC's load-bearing broken-vs-dormant disambiguator. A guard with a
+   * declared canary can be run through a SYNTHETIC input known to trigger a
+   * specific outcome; a guard that stops firing on its own canary is BROKEN,
+   * not merely dormant (low real-world trigger frequency). Without this,
+   * mt#2057's dead retrospective-trigger hook (9 days silent) and mt#2835's
+   * dead UserPromptSubmit dispatcher (7 days silent, killed by a sibling
+   * guard's ungated `main()`) were both indistinguishable from "nobody
+   * happened to trip this guard yet" until an operator noticed by hand.
+   *
+   * `input` is a `ClaudeHookInput`/`ToolHookInput` FRAGMENT — only the fields
+   * this specific guard's `run()` actually reads need to be populated (the
+   * canary runner, `scripts/run-guard-canaries.ts`, merges it onto a minimal
+   * base input). `transcriptLines` is populated directly (bypassing a real
+   * `transcript_path` file read) for `needsTranscript` guards — synthetic
+   * `TranscriptLine[]` content, reusing phrases already present in the
+   * guard's own source or `.test.ts` fixtures per this task's instruction
+   * ("existing unit-test fixtures qualify as canary inputs — reuse them, do
+   * not invent new ones").
+   *
+   * `expects` names which `GuardOutcome` field the canary input should
+   * populate on a HEALTHY guard: `"deny"` (outcome.deny set), `"warn"`
+   * (outcome.additionalContext set — the RFC's fire-log `"warn"` decision),
+   * `"calibration"` (outcome.calibration set — a calibration-first detector
+   * like `causal-premise-detector` with `INJECTION_ENABLED=false`), or
+   * `"sessionTitle"` (outcome.sessionTitle set — `auto-session-title`'s
+   * scalar-output shape).
+   */
+  canary?: {
+    input: Partial<ClaudeHookInput> & Record<string, unknown>;
+    transcriptLines?: TranscriptLine[];
+    expects: "deny" | "warn" | "calibration" | "sessionTitle";
+    /**
+     * Optional pre-invocation priming hook for STATEFUL guards whose real
+     * outcome depends on a prior invocation (e.g. `skill-staleness-detector`
+     * only warns on its SECOND call for a given session — the first
+     * establishes a baseline). Receives the SAME dynamically-imported guard
+     * module and synthetic `DispatchContext` the real canary check will use,
+     * so it can call `mod.run()` itself as many times as needed to prime
+     * state before the canary runner's own (checked) invocation. May
+     * optionally RETURN a partial input patch (e.g. a dynamically-generated
+     * temp `cwd`/`session_id` the checked invocation must reuse) — merged
+     * onto `canary.input` after `setup` completes, so the checked call sees
+     * whatever state `setup` just primed. Most guards don't need this — omit
+     * for anything whose outcome is determined by a single `run()` call.
+     */
+    setup?: (
+      mod: GuardModule,
+      ctx: DispatchContext
+    ) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +379,19 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // (excluding the dynamic per-missing-path list) — ~398 chars; one
     // remediation option (the MINSKY_SKIP_SESSION_PATH_CHECK override).
     attentionCost: { denialMessageSizeChars: 398, optionCount: 1 },
+    // mt#2889: a Bash command referencing an absolute sessions/<id>/ path
+    // that has never existed on disk — findMissingInToolInput's exists()
+    // check (real fs.existsSync, no synthetic override needed) always
+    // returns false for this fixed sentinel path.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: `cd ${CANARY_NONEXISTENT_SESSION_PATH}/ && ls`,
+        },
+      },
+      expects: "deny",
+    },
   },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
@@ -313,6 +403,21 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./auto-session-title").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    // mt#2889: scalar sessionTitle output — no denial-message concept, no options.
+    attentionCost: { denialMessageSizeChars: 0, optionCount: 0 },
+    canary: {
+      input: { session_id: "mt2889-canary-autotitle" },
+      expects: "sessionTitle",
+      // Seed the trigger file this guard's run() consumes+deletes (mirrors
+      // session_start's real write path) — /tmp/claude-session-label-<sid>.json.
+      setup: async () => {
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(
+          "/tmp/claude-session-label-mt2889-canary-autotitle.json",
+          JSON.stringify({ taskId: "mt#123", title: "Test task" })
+        );
+      },
+    },
   },
   {
     name: "inject-current-time",
@@ -320,6 +425,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 90, optionCount: 0 },
+    // mt#2889: fires unconditionally on every UserPromptSubmit — the simplest liveness canary in the registry.
+    canary: { input: {}, expects: "warn" },
   },
   {
     name: "inject-git-state",
@@ -327,6 +435,38 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 200, optionCount: 0 },
+    canary: {
+      input: {}, // cwd populated dynamically by setup below
+      expects: "warn",
+      // mt#2889 PR #2012 R1 BLOCKING #3: the guard's run() requires `cwd` to
+      // resolve as a real git repo (buildGitStateSnapshot returns null, and
+      // the guard silently no-ops, otherwise) — relying on the canary
+      // RUNNER's own ambient process.cwd() being a git checkout was flaky
+      // (true only when invoked from within a repo; false in CI contexts or
+      // other invocation cwds). Init a disposable, hermetic throwaway repo in
+      // a fresh temp dir instead — a single commit is enough for
+      // `git symbolic-ref HEAD` / `git log` / `git status` to all resolve
+      // cleanly, giving a deterministic "clean, default-branch-undetectable"
+      // snapshot (no origin configured) regardless of where the canary
+      // runner itself is invoked from.
+      setup: async () => {
+        const { mkdtempSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const cwd = mkdtempSync(join(tmpdir(), "mt2889-git-state-canary-"));
+        const run = (args: string[]): void => {
+          Bun.spawnSync(["git", ...args], { cwd, stdout: "ignore", stderr: "ignore" });
+        };
+        run(["init", "--initial-branch=main"]);
+        run(["config", "user.email", "canary@example.invalid"]);
+        run(["config", "user.name", "mt2889 canary"]);
+        writeFileSync(join(cwd, "canary.txt"), "canary fixture\n");
+        run(["add", "canary.txt"]);
+        run(["commit", "-m", "canary fixture commit"]);
+        return { cwd };
+      },
+    },
   },
   {
     name: "inject-prod-state",
@@ -334,6 +474,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 250, optionCount: 0 },
+    // mt#2889: no cache file present in the canary runner's isolated
+    // MINSKY_STATE_DIR -> deterministic UNKNOWN branch fires additionalContext.
+    canary: { input: {}, expects: "warn" },
   },
   {
     name: "inject-dispatch-watchdog",
@@ -341,6 +485,37 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 450, optionCount: 3 },
+    canary: {
+      input: {},
+      expects: "warn",
+      // Seed a stalled-dispatch flag in the isolated MINSKY_STATE_DIR cache.
+      setup: async () => {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) return;
+        mkdirSync(stateDir, { recursive: true });
+        writeFileSync(
+          join(stateDir, "dispatch-watchdog-cache.json"),
+          JSON.stringify({
+            checkedAt: new Date().toISOString(),
+            staleMs: 1_800_000,
+            flags: [
+              {
+                taskId: "mt#0000",
+                subagentSessionId: "mt2889-canary-session",
+                agentType: "implementer",
+                taskStatus: "IN-PROGRESS",
+                startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+                lastActivityAt: new Date(Date.now() - 1_800_000).toISOString(),
+                staleForMs: 1_800_000,
+              },
+            ],
+          })
+        );
+      },
+    },
   },
   {
     name: "memory-search",
@@ -348,6 +523,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./memory-search").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 280, optionCount: 1 },
+    // mt#2889 KNOWN GAP (documented in PR body, no silent cap): this guard's
+    // run() shells to the live `minsky memory search` process with no
+    // injectable seam (unlike every other guard, which takes an injected
+    // fs/env dependency) — a canary would require either a live memory-store
+    // round trip (not hermetic/isolated) or an execWithPath-style dependency
+    // injection refactor (out of scope: this task explicitly excludes guard
+    // behavior/refactor changes beyond additive fields). No canary declared.
   },
   {
     name: "skill-staleness-detector",
@@ -355,6 +538,37 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 350, optionCount: 2 },
+    canary: {
+      input: {}, // cwd/session_id populated dynamically by setup below
+      expects: "warn",
+      // Two-invocation stateful guard: first call establishes a baseline
+      // mtime snapshot for a synthetic watched file in an isolated cwd; this
+      // setup then advances that file's mtime so the canary runner's own
+      // (checked) SECOND invocation sees a change and warns.
+      setup: async (mod, ctx) => {
+        const { mkdtempSync, mkdirSync, writeFileSync, utimesSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const cwd = mkdtempSync(join(tmpdir(), "mt2889-skill-staleness-canary-"));
+        const skillDir = join(cwd, ".claude", "skills", "canary-skill");
+        mkdirSync(skillDir, { recursive: true });
+        const skillFile = join(skillDir, "SKILL.md");
+        writeFileSync(skillFile, "# canary skill\n");
+        const sessionId = "mt2889-canary-skillstale";
+        const primeInput = {
+          session_id: sessionId,
+          cwd,
+          hook_event_name: "UserPromptSubmit",
+          tool_name: "",
+          tool_input: {},
+        };
+        await mod.run(primeInput, ctx); // baseline established; no warning expected yet
+        const future = new Date(Date.now() + 5000);
+        utimesSync(skillFile, future, future);
+        return { session_id: sessionId, cwd };
+      },
+    },
   },
   {
     name: "mcp-daemon-staleness-detector",
@@ -362,6 +576,15 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    // mt#2889 KNOWN GAP (documented in PR body, no silent cap): correctness
+    // depends on a REAL `minskyHomeDir` git checkout whose current HEAD
+    // differs from a stored `startCommit` with `src/` changes in between —
+    // fabricating that safely (without depending on this exact repo's live
+    // commit graph at canary-run time, which would make the canary flaky
+    // across checkouts/rebases) needs a scratch git-repo fixture heavier than
+    // this pass's budget. No canary declared; the guard is still fire-log
+    // instrumented via the dispatcher (GUARD_REGISTRY membership) regardless.
   },
   // -------------------------------------------------------------------------
   // Phase 2a (mt#2652) — the six guidance detectors, in the Phase 2a
@@ -374,6 +597,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 15000,
     denyCapable: false,
     needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 4 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "I'll save this insight for later." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "warn",
+    },
   },
   {
     name: "retrospective-trigger-scanner",
@@ -383,6 +622,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "retrospective-trigger",
     denyCapable: false,
     needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "I owe you an apology for that mistake." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "warn",
+    },
   },
   {
     name: "pre-narration-detector",
@@ -392,6 +647,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "pre-narration",
     denyCapable: false,
     needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "I created the PR and it's ready." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "warn",
+    },
   },
   {
     name: "causal-premise-detector",
@@ -401,6 +672,31 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "causal-premise",
     denyCapable: false,
     needsTranscript: true,
+    // mt#2889: INJECTION_ENABLED=false — this detector is calibration-first
+    // (dormant by flag). The canary asserts the calibration outcome, not
+    // additionalContext, so a future INJECTION_ENABLED flip doesn't silently
+    // break this canary (it would simply gain an ADDITIONAL warn outcome).
+    attentionCost: { denialMessageSizeChars: 550, optionCount: 2 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "The branch name got mangled due to the encoding configuration in the client library.",
+              },
+            ],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "calibration",
+    },
   },
   {
     name: "code-mechanism-assertion-detector",
@@ -410,6 +706,24 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "code-mechanism-assertion",
     denyCapable: false,
     needsTranscript: true,
+    // mt#2889: INJECTION_ENABLED=false — dormant by flag, same rationale as
+    // causal-premise-detector above; canary asserts calibration, not warn.
+    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "`executeCommand` clamps maxBuffer to 10MB." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "calibration",
+    },
   },
   {
     name: "ask-routing-deferral-detector",
@@ -419,6 +733,22 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "ask-routing-deferral",
     denyCapable: false,
     needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "That decision is yours to make." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "warn",
+    },
   },
   // -------------------------------------------------------------------------
   // mt#2812 — new guard, not part of any legacy settings.json migration.
@@ -432,6 +762,36 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
+    canary: {
+      input: {},
+      expects: "warn",
+      // Seed 3 consecutive error events for a synthetic guard name in the
+      // canary runner's isolated MINSKY_STATE_DIR guard-health-log.jsonl —
+      // CRITICAL_STREAK_THRESHOLD=2 means streak > 2 (i.e. 3+) escalates to
+      // "critical" (see guard-health.ts).
+      setup: async () => {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const stateDir = process.env["MINSKY_STATE_DIR"];
+        if (!stateDir) return;
+        mkdirSync(stateDir, { recursive: true });
+        const now = Date.now();
+        const lines = [0, 1, 2]
+          .map((i) =>
+            JSON.stringify({
+              timestamp: new Date(now - (2 - i) * 60_000).toISOString(),
+              guardName: "mt2889-canary-fixture-guard",
+              event: "PreToolUse",
+              kind: "error",
+              errorClass: "Error",
+              message: "canary-fixture-error",
+            })
+          )
+          .join("\n");
+        writeFileSync(join(stateDir, "guard-health-log.jsonl"), `${lines}\n`);
+      },
+    },
   },
   // -------------------------------------------------------------------------
   // mt#2824 — silent-stretch heartbeat detector. New guard authored directly
@@ -448,6 +808,36 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "silent-stretch",
     denyCapable: false,
     needsTranscript: true,
+    // mt#2889: INJECTION_ENABLED=false — calibration-first (dormant by flag),
+    // same rationale as causal-premise-detector above.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        {
+          type: "user",
+          message: { role: "user", content: "start" },
+          timestamp: "2026-01-01T00:00:00Z",
+        },
+        // TOOL_CALL_THRESHOLD=15 consecutive tool_use-only assistant lines,
+        // zero assistant TEXT in between — crosses the tool-count cadence
+        // bar regardless of the wall-clock gap threshold.
+        ...Array.from({ length: 15 }, (_, i) => ({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", name: "Bash", input: {} }],
+          },
+          timestamp: `2026-01-01T00:00:${String(i + 1).padStart(2, "0")}Z`,
+        })),
+        {
+          type: "user",
+          message: { role: "user", content: "still going" },
+          timestamp: "2026-01-01T00:00:16Z",
+        },
+      ],
+      expects: "calibration",
+    },
   },
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
@@ -465,6 +855,32 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 1 },
+    canary: {
+      input: {}, // cwd populated dynamically by setup below
+      expects: "warn",
+      // Seed a registered calibration log (causal-premise) with >= FIRES_THRESHOLD
+      // (10) fires and >= DIVERSITY_THRESHOLD (3) distinct phrases, no watermark
+      // present -> pastThreshold fires review-due. Resolved relative to
+      // input.cwd (this guard resolves every path via `resolve(input.cwd)`).
+      setup: async () => {
+        const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const cwd = mkdtempSync(join(tmpdir(), "mt2889-cadence-canary-"));
+        mkdirSync(join(cwd, ".minsky"), { recursive: true });
+        const lines = Array.from({ length: 10 }, (_, i) =>
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            session_id: "mt2889-canary",
+            matchedPhrases: [`canary-phrase-${i % 4}`],
+            hadSameTurnVerification: false,
+          })
+        ).join("\n");
+        writeFileSync(join(cwd, ".minsky", "causal-premise-calibration.jsonl"), `${lines}\n`);
+        return { cwd };
+      },
+    },
   },
 ];
 

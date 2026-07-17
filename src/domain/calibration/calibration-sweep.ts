@@ -699,3 +699,168 @@ export function selectAckablePaths(
   }
   return { ackablePaths, skippedOpenAskPaths };
 }
+
+// ---------------------------------------------------------------------------
+// Fire-log schema adapter (mt#2889 — evaluation-loop Phase 1 completion)
+// ---------------------------------------------------------------------------
+//
+// The 6 legacy `.minsky/*-calibration.jsonl` logs (this module's own
+// CALIBRATION_LOG_REGISTRY) predate the shared fire-log schema
+// (`.minsky/hooks/fire-log.ts`'s `FireLogEntry`, mt#2597). This is a
+// READ-SIDE-ONLY adapter: it maps each parsed CalibrationRecord to a
+// fire-log-schema-shaped view so the calibration corpus can be aggregated
+// alongside the dispatcher/pre-commit fire-log for the evaluation-loop RFC's
+// Phase-1 GATE check ("logs exist for all instrumented guards AND >=2 guards
+// show >=5 fires"), WITHOUT rewriting, moving, or otherwise touching the
+// historical .jsonl files themselves (mt#2889 scope guard: "do NOT
+// move/rewrite historical files").
+//
+// This module does NOT import `.minsky/hooks/fire-log.ts`'s `FireLogEntry`
+// type directly. `.minsky/hooks/` is a dependency-free tree per its own
+// SPEC.md invariant (no `packages/domain`/`src` imports, so it keeps working
+// even when the main codebase has type errors) — there is no established
+// precedent for reaching across that boundary in EITHER direction beyond
+// duplicating the shape. `src/hooks/pre-commit-fire-log.ts` follows the same
+// pattern (its own `PreCommitFireLogEntry` mirrors the hook-runtime schema
+// structurally rather than importing it) — this adapter mirrors that
+// precedent rather than introducing a new cross-tree coupling.
+//
+// @see mt#2889 — this task
+// @see .minsky/hooks/fire-log.ts — the canonical FireLogEntry schema this mirrors
+// @see docs/architecture/evaluation-loop-fire-log.md — Known gaps section (this adapter's owner note)
+
+/** The fire-log schema's tri-state decision axis (mirrors `FireLogDecision` in `.minsky/hooks/fire-log.ts`). */
+export type FireLogDecision = "allow" | "warn" | "deny";
+
+/**
+ * Fire-log-schema-shaped view of ONE legacy calibration record. Structurally
+ * mirrors `.minsky/hooks/fire-log.ts`'s `FireLogEntry` — see the module
+ * comment above for why this is a parallel declaration, not a cross-tree
+ * import.
+ */
+export interface CalibrationAsFireLogEntry {
+  timestamp: string;
+  guardName: string;
+  /** Distinguishes an adapted legacy-calibration record from a real dispatcher/pre-commit fire. */
+  event: "Calibration";
+  decision: FireLogDecision;
+  /** Legacy calibration records never captured per-fire timing — always 0. */
+  durationMs: 0;
+  sessionId?: string;
+}
+
+/**
+ * Maps a `CalibrationLogEntry.name` (the calibration-log registry key, e.g.
+ * `"causal-premise"`) to the canonical fire-log `guardName` the SAME
+ * detector uses when instrumented via the dispatcher
+ * (`.minsky/hooks/registry.ts`'s `GUARD_REGISTRY` entries' `name` field) —
+ * so aggregating the dispatcher fire-log alongside this adapter's output
+ * merges cleanly under ONE guard identifier instead of splitting one
+ * detector's fire history across two different id strings.
+ *
+ * Hand-maintained (same duplication-over-cross-import precedent as
+ * `.minsky/hooks/known-override-env-vars.ts`): this module cannot import
+ * `.minsky/hooks/registry.ts` (dependency-free tree, see above), and even if
+ * it could, the registry doesn't reverse-index calibrationLog name -> guard
+ * name today. `"policy-coverage"` maps to `"policy-coverage-detector"`, a
+ * STANDALONE guard (not GUARD_REGISTRY-registered as of this landing) — see
+ * `docs/architecture/evaluation-loop-fire-log.md`'s "Known gaps" section.
+ *
+ * MUST have one entry per `CALIBRATION_LOG_REGISTRY` entry's `name` — a
+ * missing entry silently falls back to `entry.name` in
+ * `calibrationRecordToFireLogEntry` (below), splitting that guard's fire
+ * history across two different id strings instead of failing loudly. The
+ * "every registry name has an explicit mapping" test in
+ * `calibration-sweep.test.ts` exists specifically to catch a repeat of this
+ * (mt#2889 PR #2012 R1: `CALIBRATION_LOG_REGISTRY` gained a 7th entry,
+ * `"silent-stretch"` (mt#2866), via this PR's pre-merge rebase onto main —
+ * landing AFTER this map was first written, so the map fell out of sync
+ * with the registry it must exhaustively cover).
+ */
+const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
+  "causal-premise": "causal-premise-detector",
+  "retrospective-trigger": "retrospective-trigger-scanner",
+  "ask-routing-deferral": "ask-routing-deferral-detector",
+  "code-mechanism-assertion": "code-mechanism-assertion-detector",
+  "pre-narration": "pre-narration-detector",
+  "policy-coverage": "policy-coverage-detector",
+  "silent-stretch": "silent-stretch-detector",
+};
+
+/**
+ * Map ONE legacy calibration record to the fire-log schema's decision axis.
+ *
+ * Every one of the 5 matched-phrase detector logs (causal-premise,
+ * retrospective-trigger, ask-routing-deferral, code-mechanism-assertion,
+ * pre-narration) is calibration-first / informational-only — `denyCapable:
+ * false` on every corresponding `GUARD_REGISTRY` entry (registry.ts). A
+ * logged record IS the detector firing its one and only outcome, which maps
+ * to `"warn"`: never `"deny"` (these detectors never block), and never
+ * `"allow"` (the log only ever contains FIRED/matched records — a
+ * non-match is never logged at all, so there is no "allow" case to
+ * represent here).
+ *
+ * `policy-coverage` is the one log with a genuine per-record decision axis
+ * (mt#1575's `outcome` field, covering every Edit/Write/NotebookEdit — not
+ * just fires) and is mapped explicitly: `"uncovered-blocked"` -> `"deny"`,
+ * `"uncovered-logged"` -> `"warn"`, `"covered"`/`"dismissed"` -> `"allow"`.
+ */
+function decisionForRecord(
+  record: CalibrationRecord,
+  kind: CalibrationLogEntry["kind"]
+): FireLogDecision {
+  if (kind === "policy-coverage" && "outcome" in record) {
+    if (record.outcome === "uncovered-blocked") return "deny";
+    if (record.outcome === "uncovered-logged") return "warn";
+    // "covered" / "dismissed" — no coverage gap flagged, or the operator
+    // explicitly dismissed the warning; both resolve to allow.
+    return "allow";
+  }
+  return "warn";
+}
+
+/** Map ONE legacy calibration record to a fire-log-schema-shaped entry. */
+export function calibrationRecordToFireLogEntry(
+  record: CalibrationRecord,
+  entry: CalibrationLogEntry
+): CalibrationAsFireLogEntry {
+  return {
+    timestamp: record.timestamp,
+    guardName: CALIBRATION_NAME_TO_GUARD_NAME[entry.name] ?? entry.name,
+    event: "Calibration",
+    decision: decisionForRecord(record, entry.kind),
+    durationMs: 0,
+    ...(record.session_id ? { sessionId: record.session_id } : {}),
+  };
+}
+
+/** Map every parsed record in one legacy calibration log to fire-log-schema entries. */
+export function calibrationLogAsFireLogEntries(
+  records: readonly CalibrationRecord[],
+  entry: CalibrationLogEntry
+): CalibrationAsFireLogEntry[] {
+  return records.map((r) => calibrationRecordToFireLogEntry(r, entry));
+}
+
+/**
+ * Read-side aggregate: parse EVERY registered legacy calibration log's raw
+ * content and surface ALL records through the shared fire-log schema — the
+ * cross-log view the RFC's Phase-1 GATE check consults alongside the real
+ * dispatcher/pre-commit fire-log (`~/.local/state/minsky/fire-log.jsonl`).
+ * Read-only (never touches the historical files); `readContent` mirrors
+ * `runSweep`'s injected reader so this composes with the same I/O seam and
+ * the same test-without-touching-the-filesystem discipline.
+ */
+export async function readAllCalibrationLogsAsFireLogEntries(
+  entries: CalibrationLogEntry[],
+  readContent: (path: string) => Promise<string | null>
+): Promise<CalibrationAsFireLogEntry[]> {
+  const all: CalibrationAsFireLogEntry[] = [];
+  for (const entry of entries) {
+    const content = await readContent(entry.path);
+    if (content === null) continue;
+    const records = parseCalibrationLines(content, entry.kind);
+    all.push(...calibrationLogAsFireLogEntries(records, entry));
+  }
+  return all;
+}

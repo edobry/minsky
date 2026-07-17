@@ -49,6 +49,10 @@ import {
   DEFAULT_HOST_CAP_SEC,
 } from "./types";
 import type { ToolHookInput, HostCapInfo } from "./types";
+import { recordFireLogEntry, classifyOverride } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "check-branch-fresh";
 // PR #963 R1 NON-BLOCKING #2 fix: import the shared helper instead of
 // duplicating filename + write logic in this file. Keeps payload shape +
 // path canonical at one site (src/domain/session/freshness-marker.ts) so
@@ -909,11 +913,40 @@ const GUARDED_TOOLS = new Set([
 ]);
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // exactly once per invocation regardless of which exit fires below. NOTE:
+  // no canary declared for this guard (registry.ts) — its real evaluation
+  // has genuine side effects (a live `git fetch`, and on a blocked+clean-tree
+  // path an actual `git merge` via attemptCleanTreeAutoMerge, mt#2815; a CAS
+  // marker write on the allow path) that a synthetic canary invocation
+  // cannot safely exercise without either mutating a real repo checkout or
+  // building a disposable scratch git-repo fixture beyond this pass's
+  // budget — documented as a known gap in the PR body.
+  const recordAndExit = (
+    decision: "allow" | "deny",
+    overrideFields?: {
+      overrideEnvVar: string;
+      overrideClassification: ReturnType<typeof classifyOverride>;
+    }
+  ): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+      ...overrideFields,
+    });
+    process.exit(0);
+  };
 
   // Only act on the guarded tools
   if (!GUARDED_TOOLS.has(input.tool_name)) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Check for override env var
@@ -923,7 +956,15 @@ if (import.meta.main) {
     process.stdout.write(
       `[check-branch-fresh] OVERRIDE active (MINSKY_SKIP_FRESHNESS=1) — tool=${input.tool_name} ts=${ts}\n`
     );
-    process.exit(0);
+    // mt#2889 PR #2012 R1 (class-not-instance fix, mirroring NON-BLOCKING #5's
+    // check-generated-file-edit.ts fix): classify via the shared
+    // classifyOverride() rather than a hardcoded literal, so a future
+    // deregistration of this var from KNOWN_OVERRIDE_ENV_VARS correctly
+    // downgrades the fire-log classification instead of silently lying.
+    recordAndExit("allow", {
+      overrideEnvVar: "MINSKY_SKIP_FRESHNESS",
+      overrideClassification: classifyOverride("MINSKY_SKIP_FRESHNESS"),
+    });
   }
 
   // Resolve the repo ROOT from the shell cwd (mt#2700): `input.cwd` is
@@ -1069,7 +1110,7 @@ if (import.meta.main) {
         },
       });
     }
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Blocked: format and emit denial. Reuse `result.mainRef` and the EXACT
@@ -1110,5 +1151,5 @@ if (import.meta.main) {
       permissionDecisionReason: fullMessage,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }
