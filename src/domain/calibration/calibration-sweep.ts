@@ -54,6 +54,12 @@ export interface CalibrationLogEntry {
    *   a per-tool-call coverage-decision audit record, NOT a matched-phrase
    *   record. Diversity is measured over distinct `reason` values instead of
    *   distinct phrases (see extractDistinctPhrases).
+   * "silent-stretch"           → record.{gapMinutes, toolCallCount, hadTextInTurn?}
+   *   (mt#2824 detector, registered mt#2866) — a per-turn heartbeat-cadence
+   *   measurement, NOT a matched-phrase record. Diversity is measured over
+   *   distinct `session_id` (conversation) values instead of distinct
+   *   phrases — the signal is "how many different conversations hit the
+   *   cadence threshold," mirroring policy-coverage's non-phrase axis.
    */
   kind:
     | "causal-premise"
@@ -61,7 +67,8 @@ export interface CalibrationLogEntry {
     | "ask-routing-deferral"
     | "code-mechanism-assertion"
     | "pre-narration"
-    | "policy-coverage";
+    | "policy-coverage"
+    | "silent-stretch";
 }
 
 /**
@@ -82,6 +89,14 @@ export interface CalibrationLogEntry {
  *     It is registered here so the standing cadence mechanism surfaces it —
  *     see mt#2619 PR body for the disposition finding (100% "covered" outcome
  *     across 1,457 fires with evidence spans that do not match the action).
+ *
+ * V3 entry (mt#2866):
+ *   - silent-stretch-calibration.jsonl (mt#2824 detector) — NOTE: like
+ *     policy-coverage, this is NOT a matched-phrase log. It is a per-turn
+ *     heartbeat-cadence measurement (gapMinutes/toolCallCount); diversity is
+ *     measured over distinct `session_id` (conversation) values. mt#2824
+ *     shipped the detector but consciously descoped wiring it into this
+ *     registry (see that task's PR body); this entry closes that gap.
  *
  * To add another log: append one CalibrationLogEntry here.
  */
@@ -115,6 +130,11 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/policy-coverage-calibration.jsonl",
     name: "policy-coverage",
     kind: "policy-coverage",
+  },
+  {
+    path: ".minsky/silent-stretch-calibration.jsonl",
+    name: "silent-stretch",
+    kind: "silent-stretch",
   },
 ];
 
@@ -226,12 +246,31 @@ export interface PolicyCoverageRecord {
   evidence?: Array<{ policySource: string; matchedCategory?: string; matchedAuthority?: string }>;
 }
 
+/**
+ * Parsed silent-stretch calibration record (mt#2824 detector, registered mt#2866).
+ *
+ * Unlike the phrase/claims-shaped records, this is a per-turn heartbeat-cadence
+ * measurement — no matched-phrase concept exists. Diversity is measured over
+ * distinct `session_id` values (how many different conversations crossed the
+ * cadence threshold), mirroring `PolicyCoverageRecord`'s non-phrase diversity
+ * axis (`reason`). Mirrors the exact fields the detector writes in
+ * `.minsky/hooks/silent-stretch-detector.ts` (`appendCalibrationRecord` call).
+ */
+export interface SilentStretchRecord {
+  timestamp: string;
+  session_id?: string;
+  gapMinutes: number;
+  toolCallCount: number;
+  hadTextInTurn?: boolean;
+}
+
 /** Union of all record types. */
 export type CalibrationRecord =
   | CausalPremiseRecord
   | RetrospectiveTriggerRecord
   | CodeMechanismAssertionRecord
-  | PolicyCoverageRecord;
+  | PolicyCoverageRecord
+  | SilentStretchRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -346,6 +385,24 @@ export function parseCalibrationRecord(
       } satisfies PolicyCoverageRecord;
     }
 
+    if (kind === "silent-stretch") {
+      // Shape: { timestamp, session_id?, gapMinutes: number, toolCallCount: number, hadTextInTurn?: boolean }
+      // Mirrors the exact record `.minsky/hooks/silent-stretch-detector.ts`
+      // appends (mt#2824). Not a matched-phrase record — no `matches`/`claims`
+      // field.
+      if (typeof raw["gapMinutes"] !== "number" || typeof raw["toolCallCount"] !== "number") {
+        return null;
+      }
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        gapMinutes: raw["gapMinutes"],
+        toolCallCount: raw["toolCallCount"],
+        hadTextInTurn:
+          raw["hadTextInTurn"] !== undefined ? Boolean(raw["hadTextInTurn"]) : undefined,
+      } satisfies SilentStretchRecord;
+    }
+
     // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
@@ -394,6 +451,16 @@ export function parseCalibrationLines(
 // ---------------------------------------------------------------------------
 
 /**
+ * Fallback label for a silent-stretch record with no `session_id` (mt#2866).
+ * Exported so every surface that renders/aggregates a silent-stretch record's
+ * conversation identity (this module's `extractDistinctPhrases` AND
+ * `src/adapters/shared/commands/calibration.ts`'s `formatResult`) uses the
+ * exact same fallback string — avoids the two surfaces silently drifting
+ * apart (PR #2004 R1 review finding).
+ */
+export const UNKNOWN_SILENT_STRETCH_SESSION_LABEL = "unknown-session";
+
+/**
  * Extract the set of distinct matched phrases from a slice of records.
  *
  * For causal-premise records: each entry in `matchedPhrases` is a phrase.
@@ -417,6 +484,10 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       }
     } else if ("reason" in rec) {
       phrases.add(rec.reason);
+    } else if ("gapMinutes" in rec) {
+      // silent-stretch: diversity axis is distinct conversations (session_id),
+      // not phrases — mirrors the policy-coverage `reason` axis above.
+      phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
