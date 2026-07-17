@@ -114,6 +114,23 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
+  // ── Rate limiting (checked BEFORE 403: GitHub's primary rate limits are
+  // HTTP 403 with a "rate limit" message, and the 403 branch below matches
+  // any 403 — ordering is load-bearing; PR #2005 R-final finding, mt#2890) ──
+  if (
+    info.status === 429 ||
+    info.messageLower.includes("429") ||
+    info.messageLower.includes("rate limit")
+  ) {
+    throw new MinskyError(
+      `GitHub Rate Limit Exceeded\n\n` +
+        `You've hit GitHub's API rate limit.\n\n` +
+        `To fix this:\n` +
+        `  - Wait a few minutes before trying again\n` +
+        `  - Use a GitHub token for higher rate limits`
+    );
+  }
+
   // ── Permission denied (403 / forbidden) ─────────────────────────
   if (
     (info.status === 403 ||
@@ -148,21 +165,6 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  - Verify the repository/PR exists and is accessible\n` +
         `  - Check if the repository is private and you have access\n\n` +
         `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`
-    );
-  }
-
-  // ── Rate limiting (429) ─────────────────────────────────────────
-  if (
-    info.status === 429 ||
-    info.messageLower.includes("429") ||
-    info.messageLower.includes("rate limit")
-  ) {
-    throw new MinskyError(
-      `GitHub Rate Limit Exceeded\n\n` +
-        `You've hit GitHub's API rate limit.\n\n` +
-        `To fix this:\n` +
-        `  - Wait a few minutes before trying again\n` +
-        `  - Use a GitHub token for higher rate limits`
     );
   }
 

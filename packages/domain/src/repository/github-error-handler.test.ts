@@ -32,6 +32,8 @@ const CTX: ErrorContext = {
   prNumber: 1988,
 };
 
+const PERMISSION_DENIED_MSG = "GitHub Permission Denied";
+
 describe("handleOctokitError — 5xx branch (mt#2890)", () => {
   test("500 surfaces 'GitHub API degraded/unavailable (HTTP 500)'", () => {
     expect(() => handleOctokitError(makeStatusError(500), CTX)).toThrow(
@@ -71,7 +73,7 @@ describe("handleOctokitError — 5xx branch (mt#2890)", () => {
     expect(() => handleOctokitError(makeStatusError(401), CTX)).toThrow(
       "GitHub Authentication Failed"
     );
-    expect(() => handleOctokitError(makeStatusError(403), CTX)).toThrow("GitHub Permission Denied");
+    expect(() => handleOctokitError(makeStatusError(403), CTX)).toThrow(PERMISSION_DENIED_MSG);
     expect(() => handleOctokitError(makeStatusError(404), CTX)).toThrow("GitHub Not Found");
     expect(() => handleOctokitError(makeStatusError(429), CTX)).toThrow(
       "GitHub Rate Limit Exceeded"
@@ -82,6 +84,22 @@ describe("handleOctokitError — 5xx branch (mt#2890)", () => {
     // No numeric status at all -- falls through to the generic fallback.
     expect(() => handleOctokitError(new Error("some other failure"), CTX)).toThrow(
       "Failed to merge pull request: some other failure"
+    );
+  });
+});
+
+describe("handleOctokitError — 403 rate-limit precedence (mt#2890 R-final)", () => {
+  test("a 403 with a rate-limit message classifies as rate limit, NOT permission denied", () => {
+    // GitHub's PRIMARY rate limits are HTTP 403 with "API rate limit exceeded" —
+    // the rate-limit branch must run before the any-403 permission branch.
+    const err = makeStatusError(403, "API rate limit exceeded for installation ID 123");
+    expect(() => handleOctokitError(err, CTX)).toThrow("GitHub Rate Limit Exceeded");
+    expect(() => handleOctokitError(err, CTX)).not.toThrow(PERMISSION_DENIED_MSG);
+  });
+
+  test("a plain 403 without rate-limit text still classifies as permission denied", () => {
+    expect(() => handleOctokitError(makeStatusError(403, "Resource not accessible"), CTX)).toThrow(
+      PERMISSION_DENIED_MSG
     );
   });
 });
