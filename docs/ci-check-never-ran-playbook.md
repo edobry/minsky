@@ -95,14 +95,20 @@ dirty/behind, not still-queued, not a real failure).
    declare a `workflow_dispatch:` trigger. `ci.yml`'s own inline comment (dating to `mt#1469`) is
    explicit: a manually-dispatched run **does not satisfy GitHub branch protection's required
    status check**, because manual runs aren't `pull_request`-triggered events — branch protection
-   matches on triggering context, not just check name + SHA. Use `gh workflow run <file> --ref
-<branch>` to confirm the workflow itself isn't broken (i.e., rule out a workflow-file bug as the
-   cause), but do not expect it alone to unblock a PR-merge gate that requires the `pull_request`
+   matches on triggering context, not just check name + SHA. Confirm the workflow itself isn't
+   broken (i.e., rule out a workflow-file bug as the cause) with:
+
+   ```bash
+   gh workflow run <file> --ref <branch>
+   ```
+
+   Do not expect this alone to unblock a PR-merge gate that requires the `pull_request`
    event class. Note: a **SHA-scoped** custom gate that reads check-runs by commit SHA regardless
    of triggering event (e.g. this repo's `bundle-boot-smoke` PreToolUse evaluator, which queries
    `commits/<sha>/check-runs` with no event-type filter) may accept a `workflow_dispatch`-produced
    check_run even though native branch protection would not — this is plausible from the gate's
    own read-path but has not been empirically verified; treat it as worth trying, not as guaranteed.
+
 5. **Close and reopen the PR.** The heaviest-weight option: forces a fresh `opened` event and
    reliably re-dispatches every `pull_request`-triggered workflow cleanly. Reserve for cases where
    options 2–4 have been tried and failed, since it disrupts review-thread continuity and forces a
@@ -141,8 +147,8 @@ are **not** a first resort:
 
 ## Related-but-distinct family
 
-This playbook covers **GitHub Actions never dispatching a workflow run** (zero check_runs
-created). It does _not_ cover:
+This playbook covers **GitHub Actions never dispatching a workflow run** (zero check*runs
+created). It does \_not* cover:
 
 - **Reviewer-bot webhook misses** (the review never posts) — see
   `.minsky/skills/merge-coordination/skill.ts` §7a; same event-delivery-miss shape, different
@@ -179,9 +185,9 @@ instance):** `session_commit`'s push path (`packages/domain/src/session/session-
 `tokenProvider.getToken("implementer")`, gated on `tokenProvider?.isServiceAccountConfigured()`. On
 any failure to obtain the token, it logs a `log.warn` and **silently falls back to system-keychain
 credentials** for the push. Per this repo's own `push-operations.ts` (`mt#1477` fix, lines
-105–108): pushing with the App token "triggers `pull_request` workflows (unlike GITHUB_TOKEN or
-system-keychain credentials)" — i.e., the keychain-credential fallback path is _documented in this
-codebase_ as unreliable for triggering downstream workflow dispatch. Since the two earlier pushes
+105–108): pushing with the App token "triggers `pull_request` workflows (unlike GITHUB*TOKEN or
+system-keychain credentials)" — i.e., the keychain-credential fallback path is \_documented in this
+codebase* as unreliable for triggering downstream workflow dispatch. Since the two earlier pushes
 on the same branch (`76a18097` at 00:17Z, `5ba8c32e8` at 00:25Z) _did_ get full CI while these two
 later ones did not, the failure is intermittent per-push rather than a standing misconfiguration —
 consistent with the prior finding on this exact class (memory `8bd30dc2` / task `mt#1469`: "the

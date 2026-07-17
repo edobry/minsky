@@ -105,7 +105,7 @@ After pushing a follow-up commit that addresses BLOCKING findings, `minsky-revie
 **Diagnosis steps:**
 
 1. Confirm the latest push reached GitHub: `mcp__minsky__session_pr_get` and check `head.sha` matches your local HEAD.
-2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks` (or `mcp__github__pull_request_read` with `method: "get_check_runs"` if the Minsky tool is unavailable). If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue. The merge gate enforces this independently as of mt#1309. For the CI-check-never-ran class specifically (zero check_runs, distinct from this section's reviewer-webhook-miss class), work `docs/ci-check-never-ran-playbook.md` (mt#2800) instead of this section's ladder.
+2. Check whether CI fired on the same push: `mcp__minsky__session_pr_checks` (or `mcp__github__pull_request_read` with `method: "get_check_runs"` if the Minsky tool is unavailable). If CI also produced 0 check_runs, that's a separate `webhook/CI-trigger` problem — note both classes when filing a reliability issue. The merge gate enforces this independently as of mt#1309. The CI-check-never-ran class (zero check_runs) is distinct from this section's reviewer-webhook-miss class and can co-occur on the same PR: work `docs/ci-check-never-ran-playbook.md` (mt#2800) for the CI piece, and continue this section's remaining steps below for the reviewer-silence piece.
 3. Wait at most 5 minutes. Do not loop indefinitely.
 
 **Unblock options** (in preference order):
