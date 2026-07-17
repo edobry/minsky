@@ -433,6 +433,30 @@ export class SubagentDispatchTracker {
   }
 
   /**
+   * Return every `subagent_invocations` row for a task (mt#2831), ordered by `startedAt`
+   * ASC — the full retry chain (original + any auto-resumed attempts), used to build the
+   * escalation package when the 2-attempt bound is reached.
+   *
+   * Returns an empty array on DB error (fail-safe) rather than null, since callers treat
+   * this as a list to render, not a single optional record.
+   */
+  async getInvocationChainForTask(taskId: string): Promise<SubagentInvocationRecord[]> {
+    try {
+      return await this.db
+        .select()
+        .from(subagentInvocationsTable)
+        .where(eq(subagentInvocationsTable.taskId, taskId))
+        .orderBy(subagentInvocationsTable.startedAt);
+    } catch (err) {
+      log.warn("subagent_dispatch_tracker: getInvocationChainForTask failed", {
+        taskId,
+        error: getErrorMessage(err),
+      });
+      return [];
+    }
+  }
+
+  /**
    * Insert a NEW row for a dispatch-recovery auto-resume attempt (mt#2831). Deliberately a
    * plain INSERT rather than `recordSubagentInvocation`'s upsert — a resumed attempt reuses
    * the SAME Minsky session workspace (and therefore the same `subagentSessionId`) as the
