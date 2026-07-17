@@ -81,3 +81,26 @@ describe("resolveRefs", () => {
     expect(results[0]?.error).toMatch(/unrecognized ref format/);
   });
 });
+
+describe("completion-manifest integrity", () => {
+  // Regression guard for the generator (and evidence for PR #2009 review
+  // rounds R1/R3, which asserted a duplicate top-level `refs` entry from the
+  // cumulative diff — the block MOVED between commits, it was never
+  // duplicated): the generated manifest must declare `refs` exactly once,
+  // anywhere in the tree.
+  test("the generated manifest declares exactly one refs command", async () => {
+    const manifest = (await import("../../../generated/completion-manifest.json")) as {
+      subcommands?: unknown[];
+    };
+    const countRefs = (nodes: unknown[]): number =>
+      nodes.reduce((count: number, node) => {
+        const rec = node as { name?: string; subcommands?: unknown[] };
+        return (
+          count +
+          (rec.name === "refs" ? 1 : 0) +
+          (Array.isArray(rec.subcommands) ? countRefs(rec.subcommands) : 0)
+        );
+      }, 0);
+    expect(countRefs(manifest.subcommands ?? [])).toBe(1);
+  });
+});
