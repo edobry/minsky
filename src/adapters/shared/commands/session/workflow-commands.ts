@@ -700,17 +700,16 @@ export function buildSessionMergeDeps(
 // surfaces) — re-exported here unchanged so existing imports from
 // "./workflow-commands" (e.g. workflow-commands-merge-error-
 // classification.test.ts) keep working without modification.
-export {
+import {
   MERGE_ERROR_SUMMARY_EXCERPT_LIMIT,
   classifyMergeError,
   withOriginalMessage,
+  mergeErrorMessage,
   type MergeErrorClass,
 } from "./merge-error-classification";
-import {
-  classifyMergeError,
-  withOriginalMessage,
-  mergeErrorMessage,
-} from "./merge-error-classification";
+
+export { MERGE_ERROR_SUMMARY_EXCERPT_LIMIT, classifyMergeError, withOriginalMessage };
+export type { MergeErrorClass };
 
 export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
