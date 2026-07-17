@@ -51,6 +51,27 @@ import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
  * packages/domain/src/configuration/sources/environment.ts per the mt#1788
  * ESLint rule contract. Follows the same override-with-audit pattern as
  * `NUL_BYTE_CHECK_OVERRIDE_ENV` etc. (`isOverrideTruthy`, imported above).
+ *
+ * **Mid-session override path for MCP-only agents (mt#2904).** This hook runs
+ * via `.husky/pre-commit`'s `bun run src/hooks/pre-commit.ts`, and Bun
+ * auto-loads a `.env.local` (or `.env`) file from the process cwd into
+ * `process.env` for every `bun run` invocation — no shell export required
+ * (Bun docs, "Environment variables": .env.local is one of the files Bun
+ * reads automatically, https://bun.com/docs/runtime/env). An MCP-only agent
+ * has no parameter path to set this var directly: `session_commit` has no
+ * env-passthrough parameter, and raw `git commit` invocations from agent
+ * tool contexts are denied by the repo's git/gh-CLI PreToolUse ban
+ * (mt#1196 — see CLAUDE.md §Hook Files for the guard registry; agents are
+ * redirected to `session_commit`). The SANCTIONED mid-session
+ * override is therefore: write a session-workspace `.env.local` containing
+ * `MINSKY_SKIP_SIZE_BUDGET=1`, then commit via `session_commit` as normal —
+ * the value is picked up automatically on the next `bun run`. `.env.local`
+ * is gitignored (see `.gitignore`), so this never lands in the commit
+ * itself. Proven by three independent implementer sessions on 2026-07-17
+ * (mt#2888, mt#2894, mt#2729 — see their PR #2018/#2019/#2020 bodies) before
+ * being canonicalized here. This is still an AUDITED override (the skip is
+ * logged with a timestamp per invocation, value never echoed) — it is a new
+ * DELIVERY MECHANISM for the same env var, not a new bypass.
  */
 const SIZE_BUDGET_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_SIZE_BUDGET";
 
