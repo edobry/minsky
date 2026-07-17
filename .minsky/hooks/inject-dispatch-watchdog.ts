@@ -159,12 +159,16 @@ export function formatDispatchWatchdogState(
     `DISPATCH WATCHDOG: ${record.flags.length} in-flight subagent dispatch(es) appear stalled ` +
     `(no commit / PR event / subagent_invocations activity past the stale window, last checked ` +
     `${record.checkedAt}):\n${lines.join("\n")}\n` +
-    "Before assuming the dispatch is dead: probe recovery-relevant state in one call via the " +
-    "session.status MCP tool with probe=true (PR/review state, commits-ahead-of-base, dirty-file " +
-    "count, handoff.md presence) for the flagged session, THEN apply the resume protocol documented " +
-    "in the /orchestrate skill (Dispatch watchdog and resume protocol section): (a) uncommitted work " +
-    "present → checkpoint-commit first; (b) prefer SendMessage-resume of the SAME agent for fix " +
-    "rounds; (c) fresh dispatch into the EXISTING session only when the transcript is unusable."
+    "Do NOT hand-roll a probe-then-decide sequence. Call the tasks.dispatch-recover MCP tool " +
+    "(mt#2831) with the flagged taskId — it captures session state (git-diff presence, " +
+    "commits-ahead-of-base, handoff.md), classifies the outcome per the subagent-outcome " +
+    "taxonomy, and enforces the 2-attempt bound server-side. Branch on its `status` field: " +
+    '`"healthy"` -> a false-positive flag, no action needed; `"recover"` -> redispatch the ' +
+    "returned `continuationPrompt` VERBATIM via the Agent tool into the SAME session (do not " +
+    'edit it, do not start a new session); `"escalate"` -> the 2-attempt bound is reached, ' +
+    "surface the returned escalation summary to the operator instead of retrying again; " +
+    '`"not-in-flight"` / `"no-dispatch"` -> nothing to recover. See the /orchestrate skill\'s ' +
+    '"Dispatch watchdog and resume protocol" section for the full walkthrough.'
   );
 }
 

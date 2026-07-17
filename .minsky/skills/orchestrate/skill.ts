@@ -383,50 +383,51 @@ UserPromptSubmit hook — you do not need to poll for this; a stalled dispatch s
 \`additionalContext\` automatically. Treat a "DISPATCH WATCHDOG" warning as the trigger to run the
 probe below before assuming the dispatch is dead.
 
-### Probe: one-call recovery state
+### Auto-recovery: call tasks.dispatch-recover, then act on its status (mt#2831)
 
-Before deciding how to recover a flagged (or suspected-stalled) dispatch, call
-\`mcp__minsky__session_status\` with \`probe: true\` for the subagent's session. This returns, in
-one call:
+Do NOT hand-roll a probe-then-decide sequence for a flagged (or suspected-stalled) dispatch.
+Call \`mcp__minsky__tasks_dispatch-recover\` with the flagged \`taskId\`. Server-side, this command
+cannot spawn a harness subagent itself (the Agent tool only exists in YOUR — the orchestrating
+agent's — context), so it never dispatches anything. Instead it does the detect/classify/prepare
+work and hands you back what to do:
 
-- git status (staged/unstaged/untracked files, dirty-file count) — the existing \`session.status\`
-  output.
-- \`probe.commitsAheadOfBase\` — commits on the session branch not yet on the base branch (local-ref
-  comparison; "vs last-fetched origin", same honesty tradeoff as the git-state injection hook).
-- \`probe.pr\` — PR number, URL, cached state, and the most recently posted review (state,
-  reviewer, timestamp) when a PR exists; \`reviewFetchError\` is set (without blanking the rest)
-  if the live review lookup failed.
-- \`probe.handoff\` — whether \`.minsky/sessions/<sessionId>/handoff.md\` exists, and its first ~20
-  lines if so.
+- Captures session state — git-diff presence (dirty-file count, commits-ahead-of-base) and
+  \`.minsky/sessions/<id>/handoff.md\` presence — via the same probe shape mt#2646's
+  \`session.status probe:true\` uses.
+- Classifies the outcome per the subagent-outcome taxonomy: \`committed-no-pr\`,
+  \`partial-committed-handoff-written\`, \`partial-uncommitted-no-handoff\`, or \`crashed-no-output\`.
+- Enforces the 2-attempt bound SERVER-SIDE by reading the latest invocation's \`attemptNumber\` —
+  a 3rd recover call for the SAME dispatch chain refuses and returns an escalation package
+  instead of a prompt. The bound does not depend on you remembering to stop retrying.
+- Records the attempt in \`subagent_invocations\` with retry linkage
+  (\`resumedFromInvocationId\` / \`attemptNumber\`).
 
-This replaces the prior ad hoc sequence (separate \`git status\`, \`session.pr.get\`, a manual
-\`handoff.md\` read, a manual \`git rev-list\`) with a single read.
+Branch on the returned \`status\`:
 
-### Resume decision rule
+1. **\`"healthy"\`** — recent activity below the stale window; a false-positive flag. Do nothing.
+   This is the acceptance-test case for "don't kill a healthy long-running dispatch."
+2. **\`"recover"\`** — redispatch the returned \`continuationPrompt\` VERBATIM via the Agent tool
+   into the SAME session (the result's \`sessionId\`/\`sessionDir\`) — do not edit the prompt, do
+   not start a new session. The prompt already carries classification-specific guidance (commit
+   uncommitted work first, drive an existing PR to convergence, re-implement from scratch, etc.)
+   — you do not need to re-derive the recovery strategy yourself.
+3. **\`"escalate"\`** — the 2-attempt bound is reached. Do NOT call \`tasks.dispatch-recover\` a
+   third time for this chain; surface the returned \`escalation\` summary (both attempts' state)
+   to the operator and stop.
+4. **\`"not-in-flight"\`** / **\`"no-dispatch"\`** — nothing to recover (the dispatch already has a
+   terminal outcome, or never existed).
 
-Apply this rule, in order, once the probe result is in hand:
+This replaces the prior ad hoc probe-then-decide sequence (a separate \`session.status
+probe:true\` read, then a manual SendMessage-vs-fresh-dispatch judgment call) — the
+classification and the continuation prompt are now computed server-side, not re-derived per
+incident.
 
-1. **Uncommitted work present** (\`dirtyFileCount > 0\`) → the dispatch has real, unlanded work.
-   Checkpoint it FIRST: \`mcp__minsky__session_commit\` with a \`partial:\` description
-   (\`<type>(mt#X): partial: <status>\`) before doing anything else. Never discard uncommitted
-   work by re-dispatching into a fresh session over it.
-2. **Clean tree, PR open, review round in progress** (typically a CHANGES_REQUESTED review with
-   no matching fix commit yet, or the dispatch died mid-fix) → **prefer SendMessage-resume of the
-   SAME agent** over a fresh dispatch. Per memory \`6038c0a1\` (validated 2026-07-03, mt#2578 /
-   PR #1776): the harness \`SendMessage\` tool resumes a completed OR paused subagent from its
-   transcript with FULL context of the code it already wrote — a fix round lands in ~34 tool
-   uses vs. the cost of rebuilding context from scratch. Include the review findings verbatim
-   plus an explicit stop condition in the resume message, same as a fresh dispatch prompt.
-3. **Transcript unusable** (no agent id / transcript recoverable, or the resumed agent's
-   response indicates it lost context) → **fresh dispatch into the EXISTING session**, not a new
-   one. The session workspace, branch, and any committed work are already there; re-run
-   \`mcp__minsky__session_generate_prompt\` for the same \`sessionId\`/\`taskId\` and dispatch a new
-   agent against it. Creating a brand-new session for a task that already has one duplicates
-   state and orphans the original branch's history.
-
-**Do not loop the same recovery move.** If step 2's SendMessage-resume itself goes silent past
-the watchdog window, that is new evidence the transcript (or the agent process) is unusable —
-move to step 3 rather than re-sending the same message.
+**Scope note (Covers / Does NOT cover, per the mt#2831 spec).** Covers API drops and watchdog
+stalls. Does NOT cover semantically-wrong-but-alive work (a subagent actively committing but
+going in the wrong direction — that's the reviewer's job, \`minsky-reviewer[bot]\`) or rate-limit
+storms (repeated \`rate-limited\` outcomes are \`SubagentDispatchTracker.getEscalation()\`'s
+"daily" tier's job — check it before treating a stale-but-silent dispatch as dead; per memory
+\`5f2154cd\`, "long-paused subagent != dead subagent").
 
 ## Dependency graph navigation
 
