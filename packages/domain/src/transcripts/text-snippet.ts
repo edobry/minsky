@@ -71,6 +71,49 @@ export function stripHarnessMarkup(text: string): string {
   return s;
 }
 
+/**
+ * Bound on how many consecutive LEADING wrapper blocks
+ * {@link stripLeadingWrapperBlocks} removes. Defensive: harness injections
+ * prepend at most a couple of blocks; an unbounded loop on pathological input
+ * is not worth the risk.
+ */
+const MAX_LEADING_WRAPPER_BLOCKS = 5;
+
+/**
+ * Strip XML-ish wrapper blocks at the START of the text, whatever their tag
+ * name (mt#2883). {@link stripHarnessMarkup}'s fixed allowlist misses any
+ * harness wrapper it doesn't know about — the observed leak was
+ * `<skill-format>true</skill-format> Base directory…` rendering verbatim as a
+ * conversation label (the tag postdates the allowlist). Rather than chase tag
+ * names one by one, treat ANY matched tag pair (or lone opening tag) at the
+ * head of the text as structural markup: operator prose essentially never
+ * BEGINS with a matched XML pair, while harness injections routinely do.
+ * Mid-prose angle brackets (e.g. "use the <Card> primitive here") are
+ * untouched — only leading blocks are stripped, at most
+ * {@link MAX_LEADING_WRAPPER_BLOCKS} of them.
+ */
+export function stripLeadingWrapperBlocks(text: string): string {
+  let s = text.trimStart();
+  for (let i = 0; i < MAX_LEADING_WRAPPER_BLOCKS; i++) {
+    // Matched pair: <tag ...>content</tag> — non-greedy, tolerates attributes
+    // and closing-tag whitespace, case-insensitive backreference via the
+    // same-case source (harness tags are consistent within one injection).
+    const paired = s.match(/^<([a-zA-Z][\w-]*)(?:\s+[^>]*)?>[\s\S]*?<\/\1\s*>/);
+    if (paired) {
+      s = s.slice(paired[0].length).trimStart();
+      continue;
+    }
+    // Lone leading tag (self-closing or unpaired opener): <tag ...> / <tag/>.
+    const solo = s.match(/^<[a-zA-Z][\w-]*(?:\s+[^>]*)?\/?>/);
+    if (solo) {
+      s = s.slice(solo[0].length).trimStart();
+      continue;
+    }
+    break;
+  }
+  return s;
+}
+
 /** Strip common markdown syntax, collapsing the result to a single line. */
 export function stripMarkdown(text: string): string {
   let s = text;
@@ -121,7 +164,10 @@ export function truncateSnippet(text: string, maxLen: number): string {
  */
 export function toDisplaySnippet(text: string | null | undefined, maxLen: number): string {
   if (!text) return "";
-  const stripped = stripMarkdown(stripHarnessMarkup(text));
+  // Allowlist strip first (removes known wrapper blocks anywhere in the
+  // text), then the generic leading-wrapper strip (kills unknown harness
+  // tags at the head — mt#2883), then markdown.
+  const stripped = stripMarkdown(stripLeadingWrapperBlocks(stripHarnessMarkup(text)));
   if (!stripped) return "";
   return truncateSnippet(stripped, maxLen);
 }

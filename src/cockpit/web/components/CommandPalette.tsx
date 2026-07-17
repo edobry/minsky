@@ -26,6 +26,7 @@ import {
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { entityToPath } from "../lib/entity-codec";
 import { extractConversationRows } from "../lib/conversations-source";
+import { fetchTaskIndex, TASK_INDEX_QUERY_KEY } from "../lib/entity-labels";
 
 // ---------------------------------------------------------------------------
 // Entity types for the palette
@@ -126,17 +127,6 @@ const PAGES: PalettePage[] = [
 // Data fetchers
 // ---------------------------------------------------------------------------
 
-async function fetchTaskList(): Promise<PaletteTask[]> {
-  try {
-    const res = await fetch("/api/tasks");
-    if (!res.ok) return [];
-    const data = (await res.json()) as { tasks: { id: string; title: string; status: string }[] };
-    if (!Array.isArray(data.tasks)) return [];
-    return data.tasks.map((t) => ({ type: "task" as const, ...t }));
-  } catch {
-    return [];
-  }
-}
 
 function extractSessions(data: WidgetData | undefined): PaletteSession[] {
   if (!data || data.state !== "ok") return [];
@@ -288,10 +278,12 @@ export function CommandPalette() {
     }
   }, [open]);
 
-  // Data queries — only active when palette is open
+  // Data queries — only active when palette is open. The task index rides
+  // the shared fetcher + key from lib/entity-labels.ts (mt#2883) so palette
+  // search and tab labels serve from ONE cache with ONE row shape.
   const tasksQuery = useQuery({
-    queryKey: ["command-palette-tasks"],
-    queryFn: fetchTaskList,
+    queryKey: TASK_INDEX_QUERY_KEY,
+    queryFn: fetchTaskIndex,
     enabled: open,
     staleTime: 30_000,
   });
@@ -327,7 +319,10 @@ export function CommandPalette() {
     staleTime: 30_000,
   });
 
-  const tasks = tasksQuery.data ?? [];
+  const tasks: PaletteTask[] = (tasksQuery.data ?? []).map((t) => ({
+    type: "task" as const,
+    ...t,
+  }));
   const sessions = extractSessions(agentsQuery.data);
   const asks = extractAsks(attentionQuery.data);
   const memories = extractMemories(memoriesQuery.data);
