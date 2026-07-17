@@ -400,6 +400,13 @@
       "when": 1784155671648,
       "tag": "0056_session_attachment_extras",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1784239973517,
+      "tag": "0057_session_interface_binding",
+      "breakpoints": true
     }
   ]
 }

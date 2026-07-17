@@ -211,6 +211,13 @@ export const sessionPsCommandParams = {
 };
 
 /**
+ * Session bindings refresh command parameters (mt#1628).
+ */
+export const sessionBindingsRefreshCommandParams = {
+  json: commonSessionParams.json,
+};
+
+/**
  * Session focus (alias: session goto) command parameters (mt#2285).
  */
 export const sessionFocusCommandParams = {

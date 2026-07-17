@@ -2262,6 +2262,28 @@
           ]
         },
         {
+          "name": "bindings",
+          "description": "bindings commands",
+          "subcommands": [
+            {
+              "name": "refresh",
+              "description": "refresh commands",
+              "subcommands": [
+                {
+                  "name": "bindings-refresh",
+                  "description": "Run one iTerm-tab correlation pass (mt#1628): classifies every session with a live runtime attachment (mt#2284) as bound to a currently-open iTerm2 tab (`iterm-tab`) or not (`unbound`), and persists the result on the session record. Local-macOS-Minsky only -- skips gracefully (no `osascript` invoked) on hosted Minsky or non-darwin hosts.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
           "name": "delete",
           "description": "Delete a session",
           "options": [

@@ -50,6 +50,13 @@ export const postgresSessions = pgTable("sessions", {
   // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
   // canonical; repo_name/repo_url here stay as a denormalized cache.
   projectId: uuid("project_id").references(() => projectsTable.id),
+
+  // Operator-interface binding (mt#1628 — iTerm-tab binding v0). JSON text,
+  // same embedded-JSON convention as prState/pullRequest above. See the
+  // Design Decision note on SessionRecord.interfaceBinding in
+  // ../../session/types.ts for why this is a field here rather than a
+  // separate table.
+  interfaceBinding: pgText("interface_binding"),
 });
 
 // Type exports for better type inference
@@ -116,6 +123,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
 
     // Project scoping (mt#2415 / mt#2416)
     projectId: record.projectId ?? null,
+
+    // Operator-interface binding (mt#1628)
+    interfaceBinding: record.interfaceBinding ? JSON.stringify(record.interfaceBinding) : null,
   };
 }
 
@@ -149,5 +159,8 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
 
     // Project scoping (mt#2415 / mt#2416)
     projectId: record.projectId ?? undefined,
+
+    // Operator-interface binding (mt#1628)
+    interfaceBinding: record.interfaceBinding ? JSON.parse(record.interfaceBinding) : undefined,
   };
 }

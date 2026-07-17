@@ -22,6 +22,7 @@ import {
   annotateSessionsWithAttachment,
   annotateSessionWithAttachment,
 } from "./attachment-annotation";
+import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index";
 
 export function createSessionListCommand(
   getDeps: LazySessionDeps,
@@ -122,7 +123,15 @@ export function createSessionListCommand(
         getPersistenceProvider
       );
 
-      return { success: true, sessions: annotatedSessions, verbose };
+      // mt#1628: interfaceBinding always present in the response (defaults to
+      // `unbound` when no correlation pass has ever observed this session —
+      // pure/synchronous, never blocks the list).
+      const boundSessions = annotatedSessions.map((session) => ({
+        ...session,
+        interfaceBinding: resolveInterfaceBinding(session),
+      }));
+
+      return { success: true, sessions: boundSessions, verbose };
     }),
   };
 }
@@ -172,7 +181,14 @@ export function createSessionGetCommand(
       // mt#2284: attached/detached indicator, best-effort (never blocks get).
       const annotatedSession = await annotateSessionWithAttachment(session, getPersistenceProvider);
 
-      return { success: true, session: annotatedSession };
+      // mt#1628: interfaceBinding always present in the response (defaults to
+      // `unbound` when no correlation pass has ever observed this session).
+      const boundSession = {
+        ...annotatedSession,
+        interfaceBinding: resolveInterfaceBinding(annotatedSession),
+      };
+
+      return { success: true, session: boundSession };
     }),
   };
 }

@@ -28,6 +28,7 @@ import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/ses
 import { SessionStatus } from "@minsky/domain/session/types";
 import { deriveSessionLiveness } from "@minsky/domain/session/types";
 import type { SessionAttachment } from "@minsky/domain/session/index";
+import { resolveInterfaceBinding } from "@minsky/domain/interface-binding/index";
 import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
@@ -109,6 +110,15 @@ export interface AgentRow {
    * `driven` carry the input affordance, rows without stay observe-only.
    */
   driven: { sessionId: string; status: string } | null;
+  /**
+   * Local-Minsky-only iTerm-tab binding (mt#1628). Always present for a
+   * `dispatched-agent` row (via `resolveInterfaceBinding`'s `unbound`
+   * default), `null` for every other row kind — same "only ever populated
+   * for workspace-session rows" scoping as `attachState` above, since this
+   * is a distinct question from attachment ("is a live iTerm2 tab still
+   * open for this session," not "is anything self-registered as attached").
+   */
+  interfaceBinding: { kind: string; surfaceId?: string; lastObservedAt: string } | null;
 }
 
 /**
@@ -187,6 +197,9 @@ function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
     // Attached from the driven-session registry snapshot (mt#2752) when a
     // driven session was launched against this workspace.
     driven: null,
+    // mt#1628: read-side default (undefined stored value -> explicit
+    // `unbound`), same pattern as basic-commands.ts's session.get/list.
+    interfaceBinding: resolveInterfaceBinding(record),
     // Filled in below (createAgentsWidget's fetch()) when a live-attachments
     // source is supplied; null otherwise (mt#2286).
     attachState: null,
@@ -244,6 +257,8 @@ export function spliceDrivenSessions(
       // A driven session is inherently app-started, not a workspace row —
       // attachState (mt#2284/mt#2286) doesn't apply (mt#2286).
       attachState: null,
+      // Not a Minsky workspace session -- no iTerm-tab binding question applies (mt#1628).
+      interfaceBinding: null,
     });
   }
   return [...rows, ...standalone];
@@ -427,6 +442,8 @@ export function createAgentsWidget(
               // Conversation-derived rows have no Minsky workspace sessionId
               // — attachState (mt#2284/mt#2286) doesn't apply.
               attachState: null,
+              // Nor does the iTerm-tab binding question (mt#1628) — same reasoning.
+              interfaceBinding: null,
             }));
           }
         }
