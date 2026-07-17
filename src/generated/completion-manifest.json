@@ -1969,6 +1969,12 @@
               "takesValue": true
             },
             {
+              "flags": ["--intent"],
+              "description": "Dispatch intent (mt#2865). Defaults to \"implementation\" — no behavior change from before this param existed. \"read-only\" adds an explicit read-only-bound section to the generated prompt AND writes a TTL-bound declaration to the dispatch-intent store for the dispatched session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES session-mutating/PR-mutating tools for ANY subagent operating in this session while the declaration is live. Use for bounded lookups, never for a task expected to write code.",
+              "takesValue": true,
+              "values": ["read-only", "implementation"]
+            },
+            {
               "flags": ["--description"],
               "description": "Task description/spec content for a NEW task. Only valid in new-task (`title`) mode — rejected when passed together with `taskId` (existing-task mode).",
               "takesValue": true
@@ -3523,6 +3529,12 @@
             {
               "flags": ["--omit-operating-envelope"],
               "description": "Suppress the Operating Envelope block (budget awareness, graceful exit, handoff-note convention). Default: envelope is included."
+            },
+            {
+              "flags": ["--intent"],
+              "description": "Dispatch intent (mt#2865). Defaults to \"implementation\" — no behavior change from before this param existed. \"read-only\" adds an explicit read-only-bound section to the generated prompt AND writes a TTL-bound declaration to the dispatch-intent store for this session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES session_commit/session_edit_file/session_write_file/session_search_replace/session_pr_create/session_pr_edit for ANY subagent operating in this session while the declaration is live, regardless of which specific agent_id makes the call (covers a context-inheriting `fork`, not just the dispatched agent itself). Use this for bounded lookups (memory search, code investigation, review) dispatched from inside an active implementation context — never fork for those; see subagent-routing.mdc.",
+              "takesValue": true,
+              "values": ["read-only", "implementation"]
             }
           ]
         },
