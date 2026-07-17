@@ -5,11 +5,19 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
+import {
+  MinskyError,
+  ResourceNotFoundError,
+  ValidationError,
+  getErrorMessage,
+} from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrChecksCommandParams } from "./session-parameters";
 import { sessionPrChecks } from "@minsky/domain/session/commands/pr-subcommands";
 import type { CheckRunResult } from "@minsky/domain/repository/github-pr-checks";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { classifyOctokitOriginReadError, withOriginalMessage } from "./merge-error-classification";
 
 // ── Formatting helpers ───────────────────────────────────────────────────
 
@@ -95,6 +103,47 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
 
         return { success: true, message: lines.join("\n") };
       } catch (error) {
+        // ORDERING (mt#2888, fixed per PR #2018 R1): preserve already
+        // domain-typed errors (ResourceNotFoundError — missing session/PR;
+        // ValidationError) FIRST, unchanged — classification never runs on
+        // them, so a domain error whose message happens to mention "rate
+        // limit" for unrelated reasons can never be reclassified into a
+        // transport-error shape. Then classify what's LEFT using a TIGHT
+        // match on handleOctokitError's exact headline text
+        // (classifyOctokitOriginReadError — see merge-error-
+        // classification.ts's module doc for why this is narrower than
+        // classifyMergeError). Anything that doesn't match either headline
+        // falls through to the original generic MinskyError wrap, matching
+        // this site's behavior before mt#2888 touched it.
+        if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
+          throw error;
+        }
+
+        const errorClass = classifyOctokitOriginReadError(error);
+        const originalMessage = error instanceof Error ? error.message : String(error);
+
+        if (errorClass.kind === "rate-limit") {
+          throw mcpStructuredError({
+            code: McpErrorCode.RATE_LIMITED,
+            summary: withOriginalMessage(
+              "GitHub API rate limit exceeded while fetching PR checks — wait a few minutes before retrying",
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
+        }
+        if (errorClass.kind === "degraded") {
+          const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+          throw mcpStructuredError({
+            code: McpErrorCode.SERVICE_DEGRADED,
+            summary: withOriginalMessage(
+              `GitHub API degraded/unavailable while fetching PR checks${statusSuffix}`,
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
+        }
+
         throw new MinskyError(`Failed to get session PR checks: ${getErrorMessage(error)}`);
       }
     }),

@@ -26,6 +26,12 @@ import type { CommandExecutionContext } from "../command-registry";
 import { MinskyError } from "@minsky/domain/errors/index";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import {
+  classifyOctokitOriginReadError,
+  withOriginalMessage,
+} from "./session/merge-error-classification";
 
 // ── Internal helper: resolve a ForgeBackend from config ───────────────────
 
@@ -242,9 +248,46 @@ sharedCommandRegistry.registerCommand({
   requiresSetup: true,
   execute: async (params, ctx: CommandExecutionContext) => {
     const sha = params.sha as string;
-    const backend = await resolveForgeBackend(ctx);
-    const result = await backend.ci.getChecksForRef(sha);
-    return { success: true, ...result };
+    try {
+      const backend = await resolveForgeBackend(ctx);
+      const result = await backend.ci.getChecksForRef(sha);
+      return { success: true, ...result };
+    } catch (error) {
+      // ORDERING (mt#2888, fixed per PR #2018 R1): classify using a TIGHT
+      // match on handleOctokitError's exact headline text
+      // (classifyOctokitOriginReadError — see merge-error-
+      // classification.ts's module doc for why this is narrower than
+      // classifyMergeError's broader substring/regex match). Anything that
+      // doesn't match either headline falls through to `throw error`
+      // UNCHANGED — this site never wrapped errors before mt#2888 either,
+      // so "other" preserves the original no-catch shape exactly.
+      const errorClass = classifyOctokitOriginReadError(error);
+      const originalMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorClass.kind === "rate-limit") {
+        throw mcpStructuredError({
+          code: McpErrorCode.RATE_LIMITED,
+          summary: withOriginalMessage(
+            "GitHub API rate limit exceeded while listing check-runs — wait a few minutes before retrying",
+            originalMessage
+          ),
+          details: { originalMessage },
+        });
+      }
+      if (errorClass.kind === "degraded") {
+        const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+        throw mcpStructuredError({
+          code: McpErrorCode.SERVICE_DEGRADED,
+          summary: withOriginalMessage(
+            `GitHub API degraded/unavailable while listing check-runs${statusSuffix}`,
+            originalMessage
+          ),
+          details: { originalMessage },
+        });
+      }
+
+      throw error;
+    }
   },
 });
 

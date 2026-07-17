@@ -13,6 +13,9 @@ import {
   ValidationError,
   getErrorMessage,
 } from "@minsky/domain/errors/index";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { classifyOctokitOriginReadError, withOriginalMessage } from "./merge-error-classification";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrWaitForReviewCommandParams } from "./session-parameters";
 import { sessionPrWaitForReview } from "@minsky/domain/session/commands/pr-subcommands";
@@ -181,11 +184,52 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
           // on ResourceNotFoundError (missing PR) vs ValidationError
           // (invalid --since) vs generic MinskyError. Only wrap truly
           // unknown errors to avoid swallowing unexpected failures silently.
-          if (
-            error instanceof ResourceNotFoundError ||
-            error instanceof ValidationError ||
-            error instanceof MinskyError
-          ) {
+          //
+          // ORDERING (mt#2888, fixed per PR #2018 R1): named domain-typed
+          // subclasses are preserved FIRST, exactly as before this task's
+          // changes — classification never runs on them, so a
+          // ResourceNotFoundError/ValidationError whose message happens to
+          // mention "rate limit" for its own unrelated reasons can never be
+          // reclassified into a transport-error shape. Read-path
+          // classification (classifyOctokitOriginReadError) then runs on
+          // whatever's LEFT, using a TIGHT match on handleOctokitError's
+          // exact headline text (not classifyMergeError's broader
+          // substring/regex, which is tuned for session.pr.merge's
+          // different job) — see merge-error-classification.ts's module
+          // doc for why. Any remaining MinskyError (e.g. a 401/403/404 from
+          // handleOctokitError, or the subcommand's own generic wrap) is
+          // preserved unchanged, matching this site's ORIGINAL behavior
+          // before mt#2888 touched it.
+          if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
+            throw error;
+          }
+
+          const errorClass = classifyOctokitOriginReadError(error);
+          const originalMessage = error instanceof Error ? error.message : String(error);
+
+          if (errorClass.kind === "rate-limit") {
+            throw mcpStructuredError({
+              code: McpErrorCode.RATE_LIMITED,
+              summary: withOriginalMessage(
+                "GitHub API rate limit exceeded while waiting for PR review — wait a few minutes before retrying",
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+          if (errorClass.kind === "degraded") {
+            const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+            throw mcpStructuredError({
+              code: McpErrorCode.SERVICE_DEGRADED,
+              summary: withOriginalMessage(
+                `GitHub API degraded/unavailable while waiting for PR review${statusSuffix}`,
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+
+          if (error instanceof MinskyError) {
             throw error;
           }
           throw new MinskyError(`Failed to wait for session PR review: ${getErrorMessage(error)}`);

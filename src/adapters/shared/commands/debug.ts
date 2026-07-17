@@ -14,6 +14,7 @@ import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker"
 import { GuardHealthTracker } from "../../../mcp/guard-health-tracker";
 import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
 import { getSourceFreshness } from "../../../mcp/source-freshness";
+import { getLastGithubRateLimitSnapshot } from "@minsky/domain/repository/github-rate-limit-state";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -281,6 +282,19 @@ export function registerDebugCommands(): void {
            * `git rev-parse HEAD` shell probe.
            */
           sourceFreshness: getSourceFreshness(),
+          /**
+           * GitHub REST rate-limit state (mt#2888).
+           *
+           * Last-observed `x-ratelimit-remaining` / `x-ratelimit-limit` /
+           * `x-ratelimit-reset` snapshot, captured from EVERY Octokit
+           * request (success or failure) this process has made — see
+           * `github-rate-limit-state.ts` / `createOctokit`'s request hooks.
+           * `null` when no Octokit request has been made yet this process
+           * (not an error — just no data captured so far). Lets an agent
+           * check remaining quota before a heavy parallel-agent workstream
+           * rather than discovering exhaustion via a hard 403/429 failure.
+           */
+          githubRateLimit: getLastGithubRateLimitSnapshot(),
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };

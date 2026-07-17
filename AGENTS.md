@@ -1214,7 +1214,23 @@ Doc: `bundle-boot-smoke-gate.md`.
 ## Single Shared PR-Data Fetch Layer
 
 Not a guard: `.claude/hooks/pr-context.ts` (mt#2617), the ONE place the 4 `session_pr_merge`
-gates fetch PR data from `gh`. No trigger/override (library). Doc: `pr-data-fetch-layer.md`.
+gates fetch PR data from `gh`. No trigger/override (library). mt#2888: `fetchCheckRunsRaw`
+retries via `minsky forge check_runs_list` (Octokit-backed, same App token) on a `gh`
+transport-class failure (5xx/timeout/HTML-body JSON-decode error) — never on a genuine
+404/401/422. Doc: `pr-data-fetch-layer.md`.
+
+## Required-Checks Bypass-Merge D8 Escape Valve
+
+PreToolUse on `Bash`/`session_exec`: layer 2 of the required-checks defense (mt#1951; layer 1
+is `require-review-before-merge.ts`, mt#1938) — denies a `gh api PUT .../merge` bypass unless
+every branch-protection-required check concluded `success` on HEAD. mt#2888: distinguishes
+"cannot read" (a fetch itself failed — CI status UNKNOWN) from "read and failed" (fetch
+succeeded, a check is genuinely red/pending); only the former consults the mt#2658 D8
+guard-grant store (guard `require-checks-on-bypass-merge`, scope `owner/repo#PR`) and gets
+denial text naming the grant-issuance recovery instead of a bypass nudge. Hook:
+`require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1` (launch-time)
+or a D8 grant (`scripts/grant-guard-override.ts`, mid-session-reachable). Fail: deny-on-failure
+(unresolvable PR/target denies). Doc: `required-checks-bypass-merge-gate.md`.
 
 ## Execution-Evidence Merge Gate
 

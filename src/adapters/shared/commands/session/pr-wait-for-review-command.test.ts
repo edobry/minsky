@@ -12,12 +12,14 @@ import {
   formatMatchMessage,
   formatTimeoutMessage,
   isTrimmedReview,
+  createSessionPrWaitForReviewCommand,
 } from "./pr-wait-for-review-command";
 import type {
   AnnotatedReview,
   SessionPrWaitForReviewMatch,
   SessionPrWaitForReviewTimeout,
 } from "@minsky/domain/session/commands/pr-wait-for-review-subcommand";
+import { ResourceNotFoundError, ValidationError } from "@minsky/domain/errors/index";
 
 const REVIEWER_BOT = "minsky-reviewer[bot]";
 /** Shared check-run name literal (extracted per custom/no-magic-string-duplication, mt#2777 SC#1). */
@@ -302,5 +304,51 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     const msg = formatTimeoutMessage(result);
     expect(msg).toContain("[PENDING] <null> @ <no submittedAt>");
     expect(msg).toContain("missing-submittedAt:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSessionPrWaitForReviewCommand — catch-block ordering (mt#2888,
+// PR #2018 R1 regression fix)
+// ---------------------------------------------------------------------------
+//
+// `getDeps` is `await`-ed first inside the command's `try` block, so a
+// throwing `getDeps` reaches the SAME `catch` block a throwing domain call
+// would — the simplest injection point available without mocking the
+// `sessionPrWaitForReview` module import.
+
+describe("createSessionPrWaitForReviewCommand — error-classification ordering (mt#2888)", () => {
+  const CTX = { interface: "cli" } as any;
+
+  test("REGRESSION: a ResourceNotFoundError whose message contains 'rate limit' passes through with its ORIGINAL type, not reclassified", async () => {
+    const err = new ResourceNotFoundError(
+      "Session 'my-session' not found (internal rate limit tracker had no entry)"
+    );
+    const command = createSessionPrWaitForReviewCommand(async () => {
+      throw err;
+    });
+    await expect(command.execute({ sessionId: "my-session" }, CTX)).rejects.toBe(err);
+  });
+
+  test("REGRESSION: a ValidationError whose message contains '(HTTP 5' passes through with its ORIGINAL type, not reclassified", async () => {
+    const err = new ValidationError("Invalid --since timestamp: '(HTTP 500-ish looking value)'");
+    const command = createSessionPrWaitForReviewCommand(async () => {
+      throw err;
+    });
+    await expect(command.execute({ sessionId: "my-session" }, CTX)).rejects.toBe(err);
+  });
+
+  test("a genuine GitHub-rate-limit MinskyError (handleOctokitError's exact headline) IS classified as RATE_LIMITED", async () => {
+    const command = createSessionPrWaitForReviewCommand(async () => {
+      throw new Error(
+        "GitHub Rate Limit Exceeded\n\nYou've hit GitHub's API rate limit.\n\nTo fix this:\n  - Wait a few minutes before trying again"
+      );
+    });
+    try {
+      await command.execute({ sessionId: "my-session" }, CTX);
+      throw new Error("expected command.execute to throw");
+    } catch (err) {
+      expect((err as { payload?: { code?: string } })?.payload?.code).toBe("RATE_LIMITED");
+    }
   });
 });

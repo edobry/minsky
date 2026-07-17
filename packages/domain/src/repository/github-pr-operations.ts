@@ -24,6 +24,7 @@ import {
   handleMerge405or422,
   type ErrorContext,
 } from "./github-error-handler";
+import { recordRateLimitHeaders } from "./github-rate-limit-state";
 import type { AuthorshipTier } from "../provenance/types";
 import { ensureAuthorshipLabelsExist, addAuthorshipLabel } from "../provenance/authorship-labels";
 import { SessionStatus } from "../session/types";
@@ -57,15 +58,48 @@ export interface GitHubContext {
 
 /**
  * Create a silent-log Octokit instance.
+ *
+ * mt#2888: registers `after`/`error` request hooks that capture GitHub's
+ * `x-ratelimit-*` response headers into the process-wide
+ * `github-rate-limit-state.ts` snapshot on EVERY request (success or
+ * failure) this Octokit instance makes — surfaced via `debug.systemInfo`
+ * and classified read-path error metadata. Header capture is best-effort
+ * and defensively wrapped: a malformed/missing header must never affect the
+ * real request/response, and the `error` hook always rethrows the ORIGINAL
+ * error unchanged (before-after-hook's "error" hook swallows the error and
+ * replaces the result with whatever the callback returns UNLESS it rethrows
+ * -- see `before-after-hook/lib/add.js`).
  */
 export function createOctokit(token: string): Octokit {
-  return new Octokit({
+  const octokit = new Octokit({
     auth: token,
     log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     // Bound every request to a deadline so a hung GitHub call can't wedge a
     // long-lived process (mt#2270 sweep; mt#2245 originating fix, mt#2186 incident).
     request: { fetch: createTimeoutFetch() },
   });
+
+  octokit.hook.after("request", (response) => {
+    try {
+      recordRateLimitHeaders(response?.headers as Record<string, unknown> | undefined);
+    } catch {
+      // Capture must never affect the real response.
+    }
+  });
+  octokit.hook.error("request", (error) => {
+    try {
+      const headers = (error as { response?: { headers?: Record<string, unknown> } })?.response
+        ?.headers;
+      recordRateLimitHeaders(headers);
+    } catch {
+      // Capture must never affect the real error.
+    }
+    // MUST rethrow: before-after-hook's "error" hook replaces the result
+    // with whatever this callback returns unless it throws.
+    throw error;
+  });
+
+  return octokit;
 }
 
 /**
