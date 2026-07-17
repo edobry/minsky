@@ -7,7 +7,7 @@
  * @see mt#2092 — Event log Phase 1a
  */
 
-import { and, count, desc, eq, gte, lte, inArray, isNotNull, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   systemEventsTable,
@@ -157,4 +157,31 @@ export async function countEvents(
       : await query;
 
   return rows[0]?.value ?? 0;
+}
+
+/**
+ * Find the most recent event of `eventType` whose payload carries the given
+ * dry-run token (`payload->>'token'`, mt#2819). Used by `tasks.bulk-edit`'s
+ * execute path to load the approved change set (dry_run event) and to detect
+ * prior execution (executed event — the one-shot consumption marker).
+ */
+export async function findEventByToken(
+  db: PostgresJsDatabase,
+  eventType: SystemEventType,
+  token: string
+): Promise<SystemEvent | null> {
+  const rows = await db
+    .select()
+    .from(systemEventsTable)
+    .where(
+      and(
+        eq(systemEventsTable.eventType, eventType),
+        sql`${systemEventsTable.payload}->>'token' = ${token}`
+      )
+    )
+    .orderBy(desc(systemEventsTable.createdAt))
+    .limit(1);
+
+  const row = rows[0];
+  return row ? toSystemEvent(row) : null;
 }
