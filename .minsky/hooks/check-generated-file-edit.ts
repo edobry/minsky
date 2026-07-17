@@ -33,6 +33,10 @@
 import { join, isAbsolute } from "node:path";
 import { readInput, writeOutput, readHostCap, deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "check-generated-file-edit";
 
 // ---------------------------------------------------------------------------
 // Budget derivation from host cap (mt#1546 pattern)
@@ -288,11 +292,32 @@ const GUARDED_TOOLS = new Set([
 ]);
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
+
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // including the common "not a guarded tool" / "path unresolvable" /
+  // "file missing" / "no banner" silent-allow paths, exactly once per
+  // invocation regardless of which early-return fires. No documented
+  // override env-var beyond MINSKY_FORCE_EDIT_GENERATED, which is audited
+  // separately via emitOverrideAuditLog (a distinct stdout audit line, not
+  // a fire-log override field — this guard's override is a legacy per-guard
+  // var, not the dispatcher's unified MINSKY_HOOK_OVERRIDE channel).
+  const recordAndExit = (decision: "allow" | "deny"): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
+    process.exit(0);
+  };
 
   // Only act on the guarded tools
   if (!GUARDED_TOOLS.has(input.tool_name)) {
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Read host cap from settings.json and apply derived budgets. Deferred from
@@ -307,7 +332,7 @@ if (import.meta.main) {
   const targetPath = extractTargetPath(input.tool_name, input.tool_input, input.cwd);
   if (!targetPath) {
     // Can't extract path — fail-open (shape mismatch or unsupported tool variant)
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Scan the file's first 5 lines for generation-banner markers FIRST so that
@@ -319,19 +344,19 @@ if (import.meta.main) {
 
   if (scanResult.skipReason) {
     // File missing or unreadable — fail-open
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   if (!scanResult.found) {
     // No banner marker — permit
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   // Banner found. Check for override; if set, audit-log with the matched
   // marker and permit. Otherwise emit denial.
   if (isOverrideSet()) {
     emitOverrideAuditLog(input.tool_name, targetPath, scanResult.patternName);
-    process.exit(0);
+    recordAndExit("allow");
   }
 
   const denialReason = formatDenialReason(
@@ -349,5 +374,5 @@ if (import.meta.main) {
       permissionDecisionReason: denialReason,
     },
   });
-  process.exit(0);
+  recordAndExit("deny");
 }

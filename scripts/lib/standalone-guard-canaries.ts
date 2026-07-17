@@ -51,4 +51,86 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       return decision.denied;
     },
   },
+  {
+    guardName: "tasks-status-set-guard",
+    expects: "deny",
+    check: async () => {
+      const { checkTransition } = await import("../../.minsky/hooks/tasks-status-set-guard");
+      // TODO -> DONE is not a valid transition in the canonical state machine.
+      const result = checkTransition(
+        "mcp__minsky__tasks_status_set",
+        { taskId: "mt#0000", status: "DONE" },
+        { readCurrentTask: () => ({ status: "TODO", kind: null }) }
+      );
+      return result.decision === "deny";
+    },
+  },
+  {
+    guardName: "validate-task-spec",
+    expects: "deny",
+    check: async () => {
+      const { validateSpecContent } = await import("../../.minsky/hooks/validate-task-spec");
+      // Over MIN_SPEC_LENGTH_FOR_VALIDATION (100 chars), missing both
+      // required headings.
+      const specContent = `A canary task spec body long enough to cross the validation length threshold. ${"padding ".repeat(5)}`;
+      const result = validateSpecContent(specContent);
+      return !result.valid;
+    },
+  },
+  {
+    guardName: "check-generated-file-edit",
+    expects: "deny",
+    check: async () => {
+      const { scanFileForBanner } = await import("../../.minsky/hooks/check-generated-file-edit");
+      const { GENERATED_BANNER } = await import(
+        "../../packages/domain/src/rules/compile/banner-constants"
+      );
+      const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = mkdtempSync(join(tmpdir(), "mt2889-generated-file-canary-"));
+      const filePath = join(dir, "canary-generated-output.md");
+      writeFileSync(filePath, `${GENERATED_BANNER}\n\nsome generated content\n`);
+      try {
+        const result = await scanFileForBanner(filePath, 5);
+        return result.found;
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  },
+  {
+    guardName: "check-task-spec-read",
+    expects: "deny",
+    check: async () => {
+      const { resolveTargetTaskId, specWasSurfacedInAnyTranscript } = await import(
+        "../../.minsky/hooks/check-task-spec-read"
+      );
+      const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = mkdtempSync(join(tmpdir(), "mt2889-spec-read-canary-"));
+      const transcriptPath = join(dir, "transcript.jsonl");
+      // A transcript with real activity but NO tasks_spec_get / tasks_get
+      // includeSpec / spec-authoring call for the target task.
+      const lines = [
+        { type: "user", message: { role: "user", content: "let's start on something" } },
+        {
+          type: "assistant",
+          message: { role: "assistant", content: [{ type: "text", text: "Sure, one moment." }] },
+        },
+      ];
+      writeFileSync(transcriptPath, lines.map((l) => JSON.stringify(l)).join("\n"));
+      try {
+        const targetId = resolveTargetTaskId("mcp__minsky__session_start", {
+          task: "mt#9999",
+        });
+        if (!targetId) return false;
+        const surfaced = specWasSurfacedInAnyTranscript(transcriptPath, undefined, targetId);
+        return !surfaced; // NOT surfaced -> the real guard would deny
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  },
 ];

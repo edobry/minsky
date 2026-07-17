@@ -68,6 +68,10 @@ import {
   resolveTranscriptCandidates,
   type TranscriptLine,
 } from "./transcript";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
+const GUARD_NAME = "check-task-spec-read";
 
 // ---------------------------------------------------------------------------
 // Public API / constants
@@ -270,6 +274,24 @@ export function buildDenialReason(toolName: string, rawTaskId: unknown): string 
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
+  let sessionId: string | undefined;
+  let toolNameForLog: string | undefined;
+  // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
+  // exactly once per invocation regardless of which early-return fires
+  // (not-guarded / non-READY / no-transcript / spec-surfaced / denied).
+  const recordAndExit = (decision: "allow" | "deny"): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: toolNameForLog,
+      sessionId,
+    });
+    process.exit(0);
+  };
+
   try {
     const overrideVal = process.env[OVERRIDE_ENV_VAR];
     const isOverride =
@@ -278,24 +300,26 @@ if (import.meta.main) {
       overrideVal?.toLowerCase() === "yes";
 
     const input = await readInput<ToolHookInput>();
+    sessionId = input.session_id;
+    toolNameForLog = input.tool_name;
 
     if (isOverride) {
       process.stdout.write(
         `[check-task-spec-read] OVERRIDE: ack=${overrideVal} tool=${input.tool_name} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`
       );
-      process.exit(0);
+      recordAndExit("allow");
     }
 
     const toolName = input.tool_name;
     const toolInput = input.tool_input ?? {};
     const targetId = resolveTargetTaskId(toolName, toolInput);
-    if (!targetId) process.exit(0); // not guarded / non-READY transition / no resolvable id
+    if (!targetId) recordAndExit("allow"); // not guarded / non-READY transition / no resolvable id
 
     const transcriptPath = input.transcript_path;
-    if (!transcriptPath) process.exit(0); // can't verify without a transcript — fail-open
+    if (!transcriptPath) recordAndExit("allow"); // can't verify without a transcript — fail-open
 
     if (specWasSurfacedInAnyTranscript(transcriptPath, input.agent_id, targetId)) {
-      process.exit(0);
+      recordAndExit("allow");
     }
 
     const rawTaskId =
@@ -310,11 +334,11 @@ if (import.meta.main) {
       },
     };
     process.stdout.write(`${JSON.stringify(output)}\n`);
-    process.exit(0);
+    recordAndExit("deny");
   } catch (err) {
     process.stderr.write(
       `[check-task-spec-read] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    process.exit(0);
+    recordAndExit("allow");
   }
 }
