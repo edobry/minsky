@@ -37,6 +37,67 @@ export class FreshnessCasError extends MinskyError {
 }
 
 /**
+ * Which credential path a session-commit push used (mt#2897).
+ *
+ * - "app-token": GitHub App installation token resolved and used — the path
+ *   that reliably triggers pull_request workflows (mt#1477).
+ * - "keychain-unconfigured": no service account is configured; system
+ *   credentials are the expected path for this install (not a failure).
+ * - "keychain-fallback": a service account IS configured but token resolution
+ *   failed — the push falls back to system keychain credentials, which may
+ *   silently fail to trigger pull_request workflows (the intermittent CI-miss
+ *   class in docs/ci-check-never-ran-playbook.md §Root cause).
+ */
+export type PushCredentialPath = "app-token" | "keychain-unconfigured" | "keychain-fallback";
+
+export interface PushCredentialResolution {
+  authToken?: string;
+  credentialPath: PushCredentialPath;
+  /** Present only on the "keychain-fallback" path: why token resolution failed. */
+  failureReason?: string;
+}
+
+/**
+ * Resolve the credential for a session-commit push, loudly (mt#2897).
+ *
+ * The fallback path emits a structured warning with a stable event name
+ * (`session.commit.push_credential_fallback`) and the failure reason, and the
+ * resolution is returned to the caller so `credentialPath` can be surfaced in
+ * the commit result — a convergence-driving agent can then anticipate a
+ * possible workflow-trigger drop instead of discovering it via zero check
+ * runs. The unconfigured path is deliberately quiet: keychain credentials are
+ * the expected push auth when no App service account exists, and warning on
+ * every commit for those installs would be noise.
+ */
+export async function resolvePushCredential(
+  tokenProvider: Pick<TokenProvider, "isServiceAccountConfigured" | "getToken"> | undefined,
+  deps: {
+    session?: string;
+    warn?: (message: string, context?: Record<string, unknown>) => void;
+  } = {}
+): Promise<PushCredentialResolution> {
+  const warn = deps.warn ?? log.warn;
+  if (!tokenProvider?.isServiceAccountConfigured()) {
+    return { credentialPath: "keychain-unconfigured" };
+  }
+  try {
+    const authToken = await tokenProvider.getToken("implementer");
+    return { authToken, credentialPath: "app-token" };
+  } catch (tokenErr) {
+    const failureReason = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+    warn(
+      "[session.commit] App-token resolution failed; pushing with system keychain credentials — pull_request workflows may not trigger (mt#2897)",
+      {
+        event: "session.commit.push_credential_fallback",
+        session: deps.session,
+        reason: failureReason,
+      }
+    );
+    return { credentialPath: "keychain-fallback", failureReason };
+  }
+}
+
+/**
  * Session PR creation parameters
  */
 export interface SessionPrParams {
@@ -149,6 +210,7 @@ export async function sessionCommit(
   deletions?: number;
   files?: Array<{ path: string; status: string }>;
   pushed: boolean;
+  credentialPath?: PushCredentialPath;
 }> {
   if (!params.session) {
     throw new MinskyError("Session parameter is required", "VALIDATION_ERROR");
@@ -382,22 +444,16 @@ export async function sessionCommit(
       // Always push changes in session context - commit and push should be atomic
       // mt#1477: when a token provider is available, use the App installation
       // token for push authentication so pull_request workflows trigger.
-      let authToken: string | undefined;
-      if (tokenProvider?.isServiceAccountConfigured()) {
-        try {
-          authToken = await tokenProvider.getToken("implementer");
-        } catch (tokenErr) {
-          log.warn(
-            `[session.commit] Failed to get App token for push auth; falling back to system credentials: ${
-              tokenErr instanceof Error ? tokenErr.message : String(tokenErr)
-            }`
-          );
-        }
-      }
+      // mt#2897: credential resolution is loud + surfaced — the silent
+      // fallback here was the leading root-cause hypothesis for the
+      // intermittent "push delivered but zero workflow runs" class.
+      const pushCredential = await resolvePushCredential(tokenProvider, {
+        session: params.session,
+      });
 
       const pushResult = await pushFromParams({
         repo: workdir,
-        authToken,
+        authToken: pushCredential.authToken,
       });
 
       // mt#2593: the commit (and push) succeeded, so the commit-authorization
@@ -547,6 +603,7 @@ export async function sessionCommit(
         deletions,
         files,
         pushed: pushResult.pushed,
+        credentialPath: pushCredential.credentialPath,
       };
     } catch (error) {
       log.debug("Session commit failed", {

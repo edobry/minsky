@@ -29,6 +29,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { Transform, type Readable, type Writable } from "stream";
 import { log } from "@minsky/shared/logger";
+import { DisconnectTracker, type McpDisconnectCause } from "../disconnect-tracker";
 import {
   PROXY_RESTART_TOOL_NAME,
   PROXY_RESTART_NUDGE_TEXT,
@@ -64,6 +65,32 @@ const FAILURE_WINDOW_MS = 60_000;
  */
 const READY_PROBE_TIMEOUT_MS = 2000;
 
+/**
+ * Max chars retained in the child stderr ring buffer (mt#2830). Bounded so a
+ * noisy or crash-looping child cannot grow this without limit; large enough
+ * to usually capture a full stack trace's last few frames.
+ */
+const STDERR_TAIL_MAX_CHARS = 4000;
+
+/**
+ * Max chars retained for the last-observed outbound transport line (mt#2830).
+ * Individual JSON-RPC responses (e.g. large tool results) can be huge; this
+ * is a diagnostic breadcrumb ("what was the server doing when it died"), not
+ * a full payload capture, so it is truncated aggressively.
+ */
+const LAST_TRANSPORT_EVENT_MAX_CHARS = 500;
+
+/**
+ * `serverName` used for disconnect-tracker events recorded BY THE PROXY
+ * (mt#2830), distinct from the inner server's own `"Minsky MCP Server"` /
+ * `"minsky-hosted"` names. The proxy runs in a separate OS process with its
+ * own `DisconnectTracker` singleton; using a distinct name keeps its
+ * cause-distribution stats separate from the inner's in
+ * `debug.systemInfo`/`getSummary()` byServer breakdowns rather than silently
+ * merging into (and skewing) the inner server's historical counts.
+ */
+export const PROXY_DISCONNECT_SERVER_NAME = "minsky-proxy";
+
 export interface ProxyOptions {
   /** Command to spawn as the inner MCP server. Default: "minsky" */
   childCommand?: string;
@@ -81,6 +108,48 @@ function classifyExit(code: number | null, signal: NodeJS.Signals | null): ExitC
   if (signal !== null) return "signal";
   if (code === 0) return "clean_exit";
   return "crash";
+}
+
+/**
+ * Map a child-process exit (code, signal) to the disconnect-tracker's richer
+ * `McpDisconnectCause` taxonomy (mt#2830). Distinct from `classifyExit`
+ * above, which drives the proxy's OWN respawn/crash-loop-protection decision
+ * with a coarser 3-way bucket — this function feeds the persistent
+ * disconnect log so an operator reading `mcp-disconnect-log.json` sees e.g.
+ * `"signal_sigkill"` instead of a generic "signal" bucket, closing the
+ * unknown-cause gap for exits the inner server cannot self-classify
+ * (SIGKILL is uncatchable; the inner gets zero chance to run any code).
+ *
+ * `null`/clean exits (code 0, no signal — the overwhelmingly common
+ * staleness_exit case) are handled by the caller BEFORE this is invoked:
+ * see the "only record signal/crash exits" comment at the `onChildClose`
+ * call site — recording every routine clean exit here too would just
+ * duplicate the inner server's own `staleness_exit`/`server_close` events
+ * under a second serverName bucket, adding log volume without new signal.
+ */
+export function classifyExitForDisconnectLog(
+  code: number | null,
+  signal: NodeJS.Signals | null
+): McpDisconnectCause {
+  switch (signal) {
+    case "SIGKILL":
+      return "signal_sigkill";
+    case "SIGTERM":
+      return "signal_sigterm";
+    case "SIGINT":
+      return "signal_sigint";
+    case "SIGHUP":
+      return "signal_sighup";
+    case null:
+      break;
+    default:
+      // Any other signal (SIGSEGV, SIGABRT, SIGBUS, ...) — no dedicated
+      // taxonomy entry; the legacy generic "signal" bucket plus the raw
+      // `event.signal` field (always recorded alongside) still identifies it
+      // precisely instead of collapsing to "unknown".
+      return "signal";
+  }
+  return code === 0 ? "server_close" : "proxy_observed_crash";
 }
 
 /**
@@ -158,6 +227,49 @@ export class MinskyStdioProxy {
    * passed through as-is.
    */
   private outboundTransform: Transform | null = null;
+
+  /**
+   * Bounded tail of the current child's stderr output (mt#2830). Reset on
+   * each new spawn (`spawnChild()`); appended to as stderr chunks arrive;
+   * truncated to `STDERR_TAIL_MAX_CHARS`. Read by `onChildClose` to attach
+   * diagnostic context to a proxy-observed disconnect event.
+   *
+   * This buffer is RAW / unredacted — stderr can carry credential-shaped
+   * content (an API key in a stack trace, a DB URL with embedded
+   * credentials), so this value must never be logged, printed, or persisted
+   * directly. Two consumers, two different treatments (R1 review finding 2):
+   * the LIVE mirror below (`process.stderr.write`) reproduces the pre-mt#2830
+   * `stdio: "inherit"` pass-through exactly — no new surface, same bytes an
+   * operator would have seen before this change. The value passed to
+   * `recordDisconnect` (`onChildClose`) is a SEPARATE, NEW, persisted surface
+   * (the JSONL disconnect log) — `DisconnectTracker.recordDisconnect` /
+   * `sanitizeDiagnosticFields` in `disconnect-tracker.ts` is where the actual
+   * hard-truncation and credential-scrubbing (reusing the existing
+   * `credential-scrubber.ts`) happen, specifically BECAUSE it is a new
+   * durable surface this field's raw content must not leak into unredacted.
+   */
+  private stderrTail = "";
+
+  /**
+   * The last JSON-RPC line observed on the outbound path (child stdout →
+   * client stdout) before the current child closed (mt#2830). Reset on each
+   * new spawn; updated by the outbound transform's per-line loop; truncated
+   * to `LAST_TRANSPORT_EVENT_MAX_CHARS`.
+   */
+  private lastTransportEvent = "";
+
+  /**
+   * Lazily-resolved disconnect tracker for events THIS PROXY observes
+   * (mt#2830) — see `PROXY_DISCONNECT_SERVER_NAME`. Lazy so tests that never
+   * spawn a real child never touch the tracker's file-I/O side effects.
+   */
+  private disconnectTracker: DisconnectTracker | null = null;
+  private getDisconnectTracker(): DisconnectTracker {
+    if (!this.disconnectTracker) {
+      this.disconnectTracker = DisconnectTracker.getInstance(PROXY_DISCONNECT_SERVER_NAME);
+    }
+    return this.disconnectTracker;
+  }
 
   constructor(options: ProxyOptions = {}) {
     this.childCommand = options.childCommand ?? DEFAULT_CHILD_COMMAND;
@@ -242,11 +354,19 @@ export class MinskyStdioProxy {
       args: this.childArgs,
     });
 
+    // mt#2830: reset the diagnostic buffers for the new child. Stale data
+    // from a prior child must never be attributed to this one.
+    this.stderrTail = "";
+    this.lastTransportEvent = "";
+
     const child = spawn(this.childCommand, this.childArgs, {
       // stdin: pipe so we can write to it
       // stdout: pipe so we can read and intercept
-      // stderr: inherit so inner server logs surface directly
-      stdio: ["pipe", "pipe", "inherit"],
+      // stderr: pipe (mt#2830, was "inherit") so we can capture a bounded
+      // tail for unknown-cause disconnect diagnostics WHILE STILL forwarding
+      // every byte to the proxy's own stderr below — operators lose no
+      // visibility, we just also keep a ring buffer.
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     this.child = child;
@@ -258,6 +378,22 @@ export class MinskyStdioProxy {
     // Wire the outbound path: child.stdout → outbound-transform → stdout
     this.outboundTransform = this.createOutboundTransform();
     (child.stdout as Readable).pipe(this.outboundTransform).pipe(proc.stdout as Writable);
+
+    // mt#2830: capture stderr into the bounded tail AND forward it verbatim
+    // to the proxy's own stderr (equivalent to the old `"inherit"` behavior
+    // for operator-visible logs).
+    if (child.stderr) {
+      (child.stderr as Readable).on("data", (chunk: Buffer | string) => {
+        const chunkStr = String(chunk);
+        this.stderrTail = (this.stderrTail + chunkStr).slice(-STDERR_TAIL_MAX_CHARS);
+        try {
+          process.stderr.write(chunkStr);
+        } catch {
+          // Best-effort forwarding only — never let a write failure here
+          // affect child lifecycle handling.
+        }
+      });
+    }
 
     child.on("error", (err) => {
       log.error("[proxy] Child process error", { error: err.message });
@@ -408,6 +544,40 @@ export class MinskyStdioProxy {
   private onChildClose(code: number | null, signal: NodeJS.Signals | null): void {
     const cause = classifyExit(code, signal);
     log.debug("[proxy] Inner MCP server exited", { cause, code, signal });
+
+    // mt#2830: record a disconnect event FOR EVERY NON-CLEAN exit, under the
+    // proxy's own DisconnectTracker instance (see PROXY_DISCONNECT_SERVER_NAME).
+    // The proxy is a separate OS process and is the only reliable observer of
+    // exits the inner server cannot self-report — most importantly SIGKILL,
+    // which is uncatchable and gives the inner zero opportunity to run any
+    // recording code before it dies. Routine clean exits (code 0, no signal —
+    // overwhelmingly `staleness_exit`) are skipped here: the inner server
+    // already records those itself with a more specific cause, and mirroring
+    // every one under a second serverName bucket would add log volume without
+    // new signal (see classifyExitForDisconnectLog's docstring).
+    if (cause !== "clean_exit") {
+      try {
+        this.getDisconnectTracker().recordDisconnect(classifyExitForDisconnectLog(code, signal), {
+          exitCode: code,
+          signal,
+          stderrTail: this.stderrTail || undefined,
+          lastTransportEvent: this.lastTransportEvent || undefined,
+          // The proxy has no tool-call-count visibility (that counter
+          // lives in the INNER server's own tracker instance, a separate
+          // process) — the default helper/main_session heuristic would
+          // always misclassify these as "helper" and exclude them from
+          // escalation. "main_session" is the conservative choice: a
+          // signal kill or crash is exactly the class of event escalation
+          // exists to surface.
+          processRoleOverride: "main_session",
+        });
+      } catch (err) {
+        // Diagnostic instrumentation must never affect respawn behavior.
+        log.debug("[proxy] Failed to record proxy-observed disconnect (non-blocking)", {
+          error: (err as Error).message,
+        });
+      }
+    }
 
     // Capture and clear this.child before tearDownPipes so the child streams
     // are still accessible for unpipe even though this.child is now null.
@@ -577,6 +747,12 @@ export class MinskyStdioProxy {
           t.push(`${line}\n`);
           continue;
         }
+        // mt#2830: record this as the last-observed outbound transport event
+        // BEFORE any interception logic below (probe-response swallow,
+        // tools/list augmentation) — a diagnostic breadcrumb for "what was
+        // the server doing right before it closed", not a forwarding
+        // decision, so it must capture every line unconditionally.
+        proxy.lastTransportEvent = line.slice(0, LAST_TRANSPORT_EVENT_MAX_CHARS);
         let outputLine = line;
         try {
           const msg = JSON.parse(line) as JsonRpcMessage;

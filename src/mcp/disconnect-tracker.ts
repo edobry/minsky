@@ -69,6 +69,7 @@ import path from "path";
 import os from "os";
 import { log } from "@minsky/shared/logger";
 import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
+import { scrubText } from "@minsky/domain/transcripts/credential-scrubber";
 
 /**
  * The kind of event recorded.
@@ -92,6 +93,25 @@ export type McpEventKind = "process_start" | "disconnect" | "reconnect" | "trans
  * - `signal_sigterm` / `signal_sigint` / `signal_sighup`: process received the named signal.
  * - `server_close`: `server.close()` was called directly (normal shutdown).
  *
+ * Proxy-observed (mt#2830): recorded by the stdio respawn proxy
+ * (`src/mcp/stdio-proxy/proxy.ts`), which is a SEPARATE process from the
+ * inner server and is therefore the only reliable observer of exits the
+ * inner process cannot self-report — most importantly SIGKILL, which is
+ * uncatchable and gives the inner server zero opportunity to run any
+ * cleanup/recording code before it dies. These causes are NOT server-
+ * initiated by design (an external actor — OOM killer, operator, a crash —
+ * caused them), so they ARE escalation-eligible:
+ * - `signal_sigkill`: child process was killed via SIGKILL. Only observable
+ *   from outside the process (the proxy), never from the inner server itself.
+ * - `proxy_observed_crash`: child exited with a non-zero code and no signal,
+ *   as observed by the proxy. May duplicate an inner-recorded `stdin_close`/
+ *   `transport_error` for the same underlying event (the proxy has no way to
+ *   know whether the inner already recorded one) — deliberately recorded
+ *   under a distinct `serverName` (`"minsky-proxy"`) rather than merged into
+ *   the inner's own event stream, so historical `byServer`/cause-distribution
+ *   stats for the inner server are unaffected; readers cross-reference by
+ *   timestamp when correlating the two.
+ *
  * Other:
  * - `transport_error`: error on the underlying transport stream.
  * - `process_start`: synthetic cause for `process_start` events (no actual disconnect).
@@ -104,10 +124,12 @@ export type McpDisconnectCause =
   | "signal_sigterm"
   | "signal_sigint"
   | "signal_sighup"
+  | "signal_sigkill"
   | "transport_error"
   | "idle_timeout"
   | "server_close"
   | "staleness_exit"
+  | "proxy_observed_crash"
   | "process_start"
   | "unknown";
 
@@ -174,6 +196,37 @@ export interface McpDisconnectEvent {
    * conservatively as `"main_session"` for escalation eligibility.
    */
   processRole?: McpProcessRole;
+  /**
+   * Child process exit code, when known (mt#2830). Populated by the stdio
+   * proxy's child-close observation (`src/mcp/stdio-proxy/proxy.ts`), which
+   * is the only reliable source for this signal — the inner server cannot
+   * report its own exit code from inside itself. `null` when the process was
+   * killed by a signal (Node reports `code: null` in that case).
+   */
+  exitCode?: number | null;
+  /**
+   * POSIX signal name that terminated the child process, when known
+   * (mt#2830). Populated by the stdio proxy's child-close observation.
+   * Distinct from `cause` — e.g. `signal: "SIGKILL"` pairs with
+   * `cause: "signal_sigkill"`, but this field carries the raw signal name
+   * for any signal, not just the ones with a dedicated taxonomy entry.
+   */
+  signal?: string | null;
+  /**
+   * Bounded tail of the child process's stderr output captured immediately
+   * before it closed (mt#2830). Populated by the stdio proxy, which pipes
+   * (rather than inherits) the child's stderr specifically to keep this
+   * ring buffer. Truncated to a fixed byte/line budget — see
+   * `STDERR_TAIL_MAX_CHARS` in `src/mcp/stdio-proxy/proxy.ts`.
+   */
+  stderrTail?: string;
+  /**
+   * The last JSON-RPC line observed on the outbound path (child stdout →
+   * client stdout) before the child closed, truncated (mt#2830). Populated
+   * by the stdio proxy. Useful for distinguishing "died mid-response to a
+   * specific tool call" from "died while idle" when reading the log.
+   */
+  lastTransportEvent?: string;
 }
 
 /**
@@ -238,6 +291,22 @@ const ESCALATION_THRESHOLD_24H = 3;
  * the 1.8–2.1s typical handshake time observed in Claude Code's MCP logs.
  */
 const SHORT_LIVED_THRESHOLD_MS = 5000;
+
+/**
+ * Hard size bounds for the mt#2830 diagnostic fields (R1 review finding 3).
+ * Enforced HERE, at `recordDisconnect` — the point of persistence — rather
+ * than relying on callers (e.g. the stdio proxy) to have already truncated:
+ * a hostile or merely-huge payload passed by any current or future caller
+ * must not be able to bloat the persisted JSONL log. Callers that already
+ * truncate (the proxy does, for `stderrTail`/`lastTransportEvent`) get a
+ * harmless no-op re-truncation here — defense-in-depth, not a contradiction.
+ */
+const MAX_STDERR_TAIL_CHARS = 4000;
+const MAX_LAST_TRANSPORT_EVENT_CHARS = 500;
+/** POSIX signal names are short (e.g. "SIGRTMIN+15" is 11 chars); generous ceiling. */
+const MAX_SIGNAL_CHARS = 32;
+/** Same risk class as the new fields above; this field pre-dates mt#2830 but was never bounded. */
+const MAX_ERROR_MESSAGE_CHARS = 2000;
 
 /**
  * Fixed `sessionKey` used in stdio mode. A stdio MCP server process has
@@ -307,6 +376,78 @@ function isValidEvent(item: unknown): item is McpDisconnectEvent {
     typeof r.kind === "string" &&
     typeof r.cause === "string"
   );
+}
+
+/**
+ * Validate, hard-truncate, and credential-scrub the mt#2830 diagnostic
+ * fields before they are persisted (R1 review findings 2 and 3).
+ *
+ * Two distinct risks this closes:
+ * - **Unbounded size** — a hostile or merely-huge payload (any current or
+ *   future caller of `recordDisconnect`, not just the stdio proxy, which
+ *   already self-truncates before calling in) must not be able to bloat the
+ *   append-only JSONL log. Every string field is hard-capped here,
+ *   regardless of what the caller passed.
+ * - **Credential leakage** — `stderrTail` and `lastTransportEvent` carry
+ *   live subprocess/transport output verbatim, which can contain
+ *   credential-shaped content (the mt#2903-class discovery this review
+ *   cites). Reusing the already-vetted `scrubText` (mt#2763's
+ *   transcript-ingest scrubber) redacts any matching shape before the value
+ *   is written into a durable, potentially-shared log file. This does NOT
+ *   change the LIVE stderr mirror the proxy writes to its own stderr for
+ *   operator visibility (`src/mcp/stdio-proxy/proxy.ts`) — that mirror
+ *   matches the pre-mt#2830 pass-through behavior exactly (no new surface
+ *   there); only the NEW persisted copy is scrubbed.
+ *
+ * Malformed `exitCode`/`signal` (wrong type, non-finite number) are dropped
+ * (treated as absent) rather than persisted as garbage — a disconnect event
+ * with a missing diagnostic field is far preferable to one with a corrupt
+ * one that could confuse a downstream reader expecting `number | null` /
+ * `string | null`.
+ */
+function sanitizeDiagnosticFields(input: {
+  exitCode?: number | null;
+  signal?: string | null;
+  stderrTail?: string;
+  lastTransportEvent?: string;
+  errorMessage?: string;
+}): {
+  exitCode: number | null | undefined;
+  signal: string | null | undefined;
+  stderrTail: string | undefined;
+  lastTransportEvent: string | undefined;
+  errorMessage: string | undefined;
+} {
+  const exitCode =
+    input.exitCode === null
+      ? null
+      : typeof input.exitCode === "number" && Number.isFinite(input.exitCode)
+        ? input.exitCode
+        : undefined;
+
+  const signal =
+    input.signal === null
+      ? null
+      : typeof input.signal === "string" && input.signal.length > 0
+        ? input.signal.slice(0, MAX_SIGNAL_CHARS)
+        : undefined;
+
+  const stderrTail =
+    typeof input.stderrTail === "string" && input.stderrTail.length > 0
+      ? scrubText(input.stderrTail.slice(-MAX_STDERR_TAIL_CHARS)).text
+      : undefined;
+
+  const lastTransportEvent =
+    typeof input.lastTransportEvent === "string" && input.lastTransportEvent.length > 0
+      ? scrubText(input.lastTransportEvent.slice(0, MAX_LAST_TRANSPORT_EVENT_CHARS)).text
+      : undefined;
+
+  const errorMessage =
+    typeof input.errorMessage === "string" && input.errorMessage.length > 0
+      ? scrubText(input.errorMessage.slice(0, MAX_ERROR_MESSAGE_CHARS)).text
+      : undefined;
+
+  return { exitCode, signal, stderrTail, lastTransportEvent, errorMessage };
 }
 
 /**
@@ -479,24 +620,72 @@ export class DisconnectTracker {
    * argument (legacy two-arg form) or the new `{ sessionKey?, errorMessage? }`
    * options object. The legacy form falls back to `DEFAULT_SESSION_KEY`,
    * matching the pre-mt#1705-per-session-counter behavior.
+   *
+   * mt#2830: the options object also accepts `exitCode`/`signal`/`stderrTail`
+   * (best-effort child-process diagnostics, populated by the stdio proxy's
+   * child-close observation — see `McpDisconnectEvent`'s field docs) and
+   * `processRoleOverride`. The proxy runs in a SEPARATE process from the
+   * inner server and has no tool-call-count visibility, so the default
+   * `toolCallCounts`-derived helper/main_session heuristic would always
+   * classify its events as "helper" (0 calls) and silently exclude them from
+   * escalation — including the SIGKILL case this instrumentation exists to
+   * surface. `processRoleOverride` lets such a caller supply the correct
+   * classification directly instead of relying on the inapplicable heuristic.
    */
   recordDisconnect(
     cause: McpDisconnectCause,
-    errorMessageOrOptions?: string | { sessionKey?: string; errorMessage?: string }
+    errorMessageOrOptions?:
+      | string
+      | {
+          sessionKey?: string;
+          errorMessage?: string;
+          exitCode?: number | null;
+          signal?: string | null;
+          stderrTail?: string;
+          lastTransportEvent?: string;
+          processRoleOverride?: McpProcessRole;
+        }
   ): McpDisconnectEvent {
     // Normalize the two call shapes.
     let sessionKey: string;
     let errorMessage: string | undefined;
+    let exitCode: number | null | undefined;
+    let signal: string | null | undefined;
+    let stderrTail: string | undefined;
+    let lastTransportEvent: string | undefined;
+    let processRoleOverride: McpProcessRole | undefined;
     if (typeof errorMessageOrOptions === "string") {
       sessionKey = DEFAULT_SESSION_KEY;
       errorMessage = errorMessageOrOptions;
     } else if (errorMessageOrOptions) {
       sessionKey = errorMessageOrOptions.sessionKey ?? DEFAULT_SESSION_KEY;
       errorMessage = errorMessageOrOptions.errorMessage;
+      exitCode = errorMessageOrOptions.exitCode;
+      signal = errorMessageOrOptions.signal;
+      stderrTail = errorMessageOrOptions.stderrTail;
+      lastTransportEvent = errorMessageOrOptions.lastTransportEvent;
+      processRoleOverride = errorMessageOrOptions.processRoleOverride;
     } else {
       sessionKey = DEFAULT_SESSION_KEY;
       errorMessage = undefined;
     }
+
+    // mt#2830 R1 fix: validate, hard-truncate, and credential-scrub the
+    // diagnostic fields at THIS boundary — the point of persistence — not
+    // just trust that the caller (e.g. the stdio proxy) already did. See
+    // `sanitizeDiagnosticFields`'s docstring for the two risks this closes.
+    const sanitized = sanitizeDiagnosticFields({
+      exitCode,
+      signal,
+      stderrTail,
+      lastTransportEvent,
+      errorMessage,
+    });
+    exitCode = sanitized.exitCode;
+    signal = sanitized.signal;
+    stderrTail = sanitized.stderrTail;
+    lastTransportEvent = sanitized.lastTransportEvent;
+    errorMessage = sanitized.errorMessage;
 
     const uptimeMs = Date.now() - this.processStartTime;
     // mt#1705: classify process role from PER-SESSION tool-call count at
@@ -505,8 +694,11 @@ export class DisconnectTracker {
     // in the process had made a tool call — see R1 review on PR #1027.
     // 0 calls → "helper" (harness helper: hook spawner, probe, pre-flight check).
     // 1+ calls → "main_session" (substantive working session).
+    // mt#2830: `processRoleOverride` bypasses this heuristic entirely — see
+    // the method docstring above.
     const sessionToolCalls = this.toolCallCounts.get(sessionKey) ?? 0;
-    const processRole: McpProcessRole = sessionToolCalls === 0 ? "helper" : "main_session";
+    const processRole: McpProcessRole =
+      processRoleOverride ?? (sessionToolCalls === 0 ? "helper" : "main_session");
     // Evict the entry — the session is closing and we've captured what we need.
     this.toolCallCounts.delete(sessionKey);
     const event: McpDisconnectEvent = {
@@ -517,6 +709,10 @@ export class DisconnectTracker {
       uptimeMs,
       processRole,
       ...(errorMessage ? { error: errorMessage } : {}),
+      ...(exitCode !== undefined ? { exitCode } : {}),
+      ...(signal !== undefined ? { signal } : {}),
+      ...(stderrTail ? { stderrTail } : {}),
+      ...(lastTransportEvent ? { lastTransportEvent } : {}),
     };
     this.push(event);
     this.sessionDisconnects++;

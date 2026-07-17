@@ -195,17 +195,17 @@ trigger drop is intermittent, not 100% systematic").
 
 This hypothesis is not confirmed by a direct runtime log for the specific two pushes (the
 token-fallback warning is a `log.warn` on the MCP server process; no persisted server log from that
-session was available to this investigation). If this recurs, the fallback warning should be
-promoted from a log line to a structured, queryable signal (e.g., surfaced in the push result or a
-metric) so a future recurrence can be confirmed directly rather than inferred from code-reading —
-this playbook does not file that as a new task since it would duplicate the receipts-oriented
-framing already tracked in memory `b7ea5048` ("State-mutating operations need verifiable receipts
-of effect") and the existing `mt#1469`/`mt#1477` lineage; revisit if a third recurrence of this
-specific class is observed.
+session was available to this investigation). The promotion of that warning to a structured,
+queryable signal is now owned by `mt#2897`: the fallback emits a structured warning event
+(`session.commit.push_credential_fallback`) and the `session_commit` result carries a
+`credentialPath` field (`app-token` / `keychain-unconfigured` / `keychain-fallback`), so a future
+recurrence can be confirmed directly from the tool result rather than inferred from code-reading.
 
 ## Cross-references
 
 - `mt#2800` — this task (investigation + this playbook).
+- `mt#2897` — the root-cause instrumentation: loud structured fallback warning + `credentialPath`
+  in the `session_commit` result (this section's "promote to a queryable signal" follow-through).
 - `mt#1469` / `mt#1477` — prior investigation and fix for the App-token-vs-keychain push-trigger
   class; source of the leading hypothesis above.
 - `8bd30dc2`, `6262934f`, `b7ea5048` — memories cited above (verify-CI-fired discipline, the

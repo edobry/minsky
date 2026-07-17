@@ -366,6 +366,7 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             deletions: result.deletions,
             files: result.files,
             pushed: result.pushed,
+            credentialPath: result.credentialPath,
             oneline: params.oneline === true,
             noFiles: params.noFiles === true,
           };
