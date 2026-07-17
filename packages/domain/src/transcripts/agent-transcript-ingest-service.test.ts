@@ -934,4 +934,64 @@ describe("AgentTranscriptIngestService", () => {
       expect(result.sessionsErrored).toBe(0);
     });
   });
+
+  // mt#2763 acceptance test 2: "A test Bash command that would echo a known
+  // credential pattern has its output redacted before transcript
+  // persistence." The credential below is SYNTHETIC (shape-matching only,
+  // not derived from any real incident) — see credential-scrubber.test.ts's
+  // header note on this convention.
+  describe("credential scrubbing (mt#2763)", () => {
+    const FAKE_AWS_KEY = "AKIAABCDEFGHIJKLMNOP"; // AKIA + 16 uppercase alnum — synthetic
+
+    function makeToolResultLine(ts: string, text: string): RawTurnLine {
+      return {
+        type: "user",
+        timestamp: ts,
+        uuid: `uuid-${ts}`,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_1", content: text }],
+        },
+      };
+    }
+
+    test("redacts a synthetic credential-shaped string before it reaches the persisted transcript", async () => {
+      const leakedOutput = `aws key present: ${FAKE_AWS_KEY}`;
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [makeToolResultLine(TS1, leakedOutput)]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      expect(result.error).toBeUndefined();
+      const row = state.get(SESSION_A);
+      expect(row).toBeDefined();
+      const persisted = JSON.stringify(row?.transcript ?? []);
+
+      // The raw credential must never appear in the durable copy...
+      expect(persisted).not.toContain(FAKE_AWS_KEY);
+      // ...replaced with the identifiable, shape-tagged marker.
+      expect(persisted).toContain("[REDACTED:aws-access-key-id:");
+      expect(persisted).toContain(FAKE_AWS_KEY.slice(0, 8));
+    });
+
+    test("leaves transcript content untouched when no credential shape matches", async () => {
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, [makeToolResultLine(TS1, "no secrets here, just output")]);
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      db._primeSession(SESSION_A);
+
+      const svc = makeSvc(db, source);
+      await svc.ingestSession(makeDiscovered(SESSION_A));
+
+      const row = state.get(SESSION_A);
+      const persisted = JSON.stringify(row?.transcript ?? []);
+      expect(persisted).toContain("no secrets here, just output");
+      expect(persisted).not.toContain("[REDACTED:");
+    });
+  });
 });
