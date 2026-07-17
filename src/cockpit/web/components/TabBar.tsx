@@ -28,7 +28,8 @@ import {
   GitPullRequest,
   AlertCircle,
 } from "lucide-react";
-import { useTabs, type EntityTabKind } from "../lib/tabs";
+import { useTabs, type EntityTab, type EntityTabKind } from "../lib/tabs";
+import { useEntityLabel } from "../lib/entity-labels";
 import { cn } from "../lib/utils";
 
 const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string }>> = {
@@ -54,6 +55,35 @@ const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
  */
 export function resolveKindIcon(kind: EntityTabKind): React.ComponentType<{ className?: string }> {
   return KIND_ICONS[kind] ?? FALLBACK_ICON;
+}
+
+/**
+ * Derived tab label (mt#2883): resolves the tab's human-legible name via the
+ * shared entity-label resolver, degrading to the persisted shortened-id label
+ * while data loads. Enriched titles render in the UI sans face; the id
+ * fallback keeps its monospace treatment (it IS an identifier). Split out as
+ * a child component so the resolver hook runs per tab.
+ */
+function TabLabel({ tab }: { tab: EntityTab }) {
+  const { primary, enriched } = useEntityLabel(tab);
+  // Tooltip carries BOTH the full derived label (the visible text truncates)
+  // AND the raw entity id — this inner title wins over the parent Link's on
+  // hover, so it must not drop the raw-id contract (reviewer R1). In the
+  // error case the span sets NO title, letting the parent Link's
+  // "<id> (not found)" tooltip stand alone (one title per contract).
+  const tooltip = enriched ? `${primary}\n${tab.entityId}` : tab.entityId;
+  return (
+    <span
+      className={cn(
+        "max-w-[220px] truncate text-xs",
+        enriched ? "font-sans" : "font-mono",
+        tab.error && "text-destructive"
+      )}
+      title={tab.error ? undefined : tooltip}
+    >
+      {primary}
+    </span>
+  );
 }
 
 export function TabBar() {
@@ -100,14 +130,7 @@ export function TabBar() {
                   className={cn("h-3.5 w-3.5 flex-shrink-0", active && "text-primary")}
                 />
               )}
-              <span
-                className={cn(
-                  "max-w-[160px] truncate font-mono text-xs",
-                  tab.error && "text-destructive"
-                )}
-              >
-                {tab.label}
-              </span>
+              <TabLabel tab={tab} />
             </Link>
             <button
               type="button"

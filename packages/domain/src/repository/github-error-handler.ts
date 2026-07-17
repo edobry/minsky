@@ -114,6 +114,23 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
+  // ── Rate limiting (checked BEFORE 403: GitHub's primary rate limits are
+  // HTTP 403 with a "rate limit" message, and the 403 branch below matches
+  // any 403 — ordering is load-bearing; PR #2005 R-final finding, mt#2890) ──
+  if (
+    info.status === 429 ||
+    info.messageLower.includes("429") ||
+    info.messageLower.includes("rate limit")
+  ) {
+    throw new MinskyError(
+      `GitHub Rate Limit Exceeded\n\n` +
+        `You've hit GitHub's API rate limit.\n\n` +
+        `To fix this:\n` +
+        `  - Wait a few minutes before trying again\n` +
+        `  - Use a GitHub token for higher rate limits`
+    );
+  }
+
   // ── Permission denied (403 / forbidden) ─────────────────────────
   if (
     (info.status === 403 ||
@@ -151,18 +168,23 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
-  // ── Rate limiting (429) ─────────────────────────────────────────
-  if (
-    info.status === 429 ||
-    info.messageLower.includes("429") ||
-    info.messageLower.includes("rate limit")
-  ) {
+  // ── Server-side degradation (5xx) ────────────────────────────────
+  //
+  // mt#2890: distinct from the generic fallback below so the status code
+  // survives into the message text — the fallback's `getErrorMessage(error)`
+  // typically does NOT include the numeric status, which downstream
+  // classifiers (workflow-commands.ts's merge-error classifier) rely on to
+  // tell a real GitHub-side outage apart from a merge conflict or a rate
+  // limit.
+  if (info.status !== undefined && info.status >= 500 && info.status < 600) {
     throw new MinskyError(
-      `GitHub Rate Limit Exceeded\n\n` +
-        `You've hit GitHub's API rate limit.\n\n` +
+      `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
+        `GitHub's API returned a server error for this request. This is not a problem with ` +
+        `your PR or credentials — GitHub's service is temporarily degraded.\n\n` +
         `To fix this:\n` +
-        `  - Wait a few minutes before trying again\n` +
-        `  - Use a GitHub token for higher rate limits`
+        `  - Check GitHub status: https://www.githubstatus.com/\n` +
+        `  - Retry the operation in a few minutes\n\n` +
+        `Error: ${info.message}`
     );
   }
 
