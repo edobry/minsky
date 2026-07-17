@@ -36,6 +36,20 @@ export interface IngestPriorReviewsResult {
   markdown: string;
   /** Flat prior findings for the monotonicity-recovery layer ([] when none / on error). */
   flatFindings: FlatPriorFinding[];
+  /**
+   * Sanitized prior review bodies, oldest-first ([] when none / on error).
+   * mt#2836: feeds the refutation-recovery pass, which needs each round's
+   * FULL body text (not just the flattened file/severity/line shape
+   * `flatFindings` provides) to compute per-round finding-identity matches
+   * and re-assertion counts.
+   */
+  sanitizedBodies: string[];
+  /**
+   * `submittedAt` of the most recent prior review (undefined when none / on
+   * error). mt#2836: used as the lower bound for fetching commit messages
+   * pushed since the last review (see fetchCommitMessagesSince).
+   */
+  latestSubmittedAt?: string;
 }
 
 /**
@@ -58,6 +72,9 @@ export async function ingestPriorReviews(
       body: sanitizeReviewBody(r.body).body,
     }));
     const summary = summarizePriorReviews(priorReviews, headSha);
+    // priorReviews is already sorted ascending by submittedAt (oldest first;
+    // see fetchPriorReviews), so the last element is the most recent.
+    const latest = priorReviews[priorReviews.length - 1];
     return {
       ingestion: {
         iterationCount: summary.iterationCount,
@@ -69,6 +86,11 @@ export async function ingestPriorReviews(
       // recovery layer. Always computed (cheap) regardless of the feature flag,
       // so the wiring is symmetric across flag states.
       flatFindings: parsePriorReviewFindings(priorReviews.map((r) => r.body)),
+      // mt#2836: sanitized bodies (oldest-first) for the refutation-recovery
+      // pass, and the latest review's submittedAt to bound the commit-message
+      // fetch.
+      sanitizedBodies: priorReviews.map((r) => r.body),
+      ...(latest !== undefined ? { latestSubmittedAt: latest.submittedAt } : {}),
     };
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -82,6 +104,7 @@ export async function ingestPriorReviews(
       },
       markdown: "",
       flatFindings: [],
+      sanitizedBodies: [],
     };
   }
 }

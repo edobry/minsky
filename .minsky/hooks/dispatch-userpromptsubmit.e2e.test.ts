@@ -34,7 +34,12 @@
 // calibration/state writes (calibration JSONL, skill-staleness baseline,
 // mcp-daemon-staleness tracker, etc.) land under an isolated directory
 // instead of the real repo's `.minsky/` — this test must never mutate real
-// repo state.
+// repo state. `MINSKY_STATE_DIR` is ALSO pointed at the same temp directory
+// (mt#2597) — since every dispatcher guard evaluation now fire-logs via
+// `recordFireLogEntry`'s default real-fs wiring, an unspun-off
+// `MINSKY_STATE_DIR` would otherwise append real records to the developer's
+// `~/.local/state/minsky/fire-log.jsonl` on every test run (the mt#2876
+// class this task's coordination brief calls out explicitly).
 //
 // @see mt#2835 — this task (root-cause + fix spec)
 // @see .minsky/hooks/dispatch-userpromptsubmit.ts — the source entrypoint under test
@@ -98,7 +103,7 @@ async function invokeDispatcher(
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, MINSKY_STATE_DIR: projectDir },
   });
   proc.stdin.write(JSON.stringify(payload));
   proc.stdin.end();

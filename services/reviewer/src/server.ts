@@ -34,6 +34,7 @@ import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-sta
 import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
+import { recoverPendingReviews, loadBootRecoveryConfig } from "./boot-recovery";
 import { bootDomainContainer, type DomainServices } from "./domain-container";
 import {
   recordWebhookReceipt,
@@ -105,6 +106,19 @@ const RESOLVE_COMMAND_RE = /^\s*\/resolve\s*$/;
 
 /** Author associations that are allowed to trigger /review. */
 const ALLOWED_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
+
+/**
+ * Default SIGTERM drain window (mt#2799 Layer 1).
+ *
+ * Deliberately kept BELOW the Railway `drainingSeconds` configured in
+ * services/reviewer/railway.json's `deploy` block (and the redundant
+ * `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` service variable in infra/index.ts —
+ * see that file's comment for why both exist) so the process voluntarily
+ * exits before Railway's SIGKILL fires. 280s leaves a 20s margin below the
+ * 300s Railway setting; both cover a typical review's ~60-90s latency with
+ * ample headroom. Configurable via REVIEWER_DRAIN_TIMEOUT_MS.
+ */
+const DEFAULT_DRAIN_TIMEOUT_MS = 280_000;
 
 /**
  * Type guard: payload is a closed+merged PR event.
@@ -179,6 +193,17 @@ export function createApp(
 
   /** Module-scope set of in-flight review promises within this app instance. */
   const inflight: Set<Promise<unknown>> = new Set();
+
+  /**
+   * Set true once gracefulShutdown has been invoked (mt#2799 Layer 1 drain
+   * gate). Gates the /webhook route: new work is rejected with 503 while
+   * draining, so GitHub's automatic redelivery (or Railway's overlap
+   * routing to the newly-active deployment) picks it up instead of racing
+   * a process that is about to exit. In-flight reviews already tracked in
+   * `inflight` are unaffected — they continue to completion (bounded by the
+   * drain window in gracefulShutdown below).
+   */
+  let draining = false;
 
   async function updateStatusCommentSafe(
     owner: string,
@@ -1203,6 +1228,15 @@ export function createApp(
       }
 
       if (request.method === "POST" && url.pathname === "/webhook") {
+        // mt#2799 Layer 1: reject new work once draining has started. Return
+        // 503 (not a hard connection close) so GitHub's delivery-retry logic
+        // treats this as a transient failure and redelivers — the newly
+        // active deployment (up during Railway's overlap window) picks it up.
+        if (draining) {
+          log.info("webhook_rejected_draining", { event: "webhook_rejected_draining" });
+          return new Response("service draining", { status: 503 });
+        }
+
         const signature = request.headers.get("x-hub-signature-256");
         // R2 BLOCKING fix: previously fell back to the literal "unknown".
         // Combined with DO NOTHING upsert semantics, that collapsed every
@@ -1236,6 +1270,9 @@ export function createApp(
         // Log webhook_received BEFORE the missing-headers check so that requests
         // with absent headers (signature_present: false) still produce a log line.
         // This is the primary diagnostic signal for bad-actor or misconfigured senders.
+        // NOTE: this is a log line only, never a durable DB write — logging every
+        // attempt (including unverified ones) for forensic visibility is fine;
+        // persisting them to a table boot-recovery reads is NOT (see below).
         log.info("webhook_received", {
           event: "webhook_received",
           delivery_id: deliveryId,
@@ -1244,33 +1281,78 @@ export function createApp(
           signature_present: Boolean(signature),
         });
 
-        // Persist webhook receipt for forensic investigation (mt#1372).
-        // Fire-and-forget: recordWebhookReceipt swallows errors internally.
-        //
-        // R1 BLOCKING #3 fix: persist EVERY webhook the reviewer receives,
-        // not just those with x-github-event header. Webhooks with missing
-        // or malformed headers are exactly the cases most worth investigating
-        // (misconfigured senders, GitHub API changes, malicious probes).
-        // Use "unknown" sentinel when eventName is null.
+        // mt#2799 PR #1990 R1 fix: verify BEFORE persisting, and only persist
+        // events that pass verification (verify -> persist -> ACK). A row in
+        // reviewer_webhook_events is no longer forensics-only as of this PR —
+        // boot-recovery.ts treats ANY non-terminal row as a recovery candidate
+        // and re-dispatches it through runReview using owner/repo/pr/headSha
+        // taken directly from the persisted body. Persisting an unauthenticated
+        // or malformed payload would let an unauthenticated caller inject
+        // arbitrary target coordinates into that recovery path. So unlike the
+        // pre-mt#2799 mt#1372 design intent ("persist EVERY webhook, even
+        // malformed ones, for forensic investigation"), a request that fails
+        // EITHER the presence check or the signature check now gets rejected
+        // with NO durable write at all — the trade-off is reduced forensic
+        // coverage of rejected/malicious probes in exchange for boot-recovery
+        // never acting on unverified data. See boot-recovery.ts's header for
+        // the resulting invariant: every row that module reads is
+        // verified-by-construction.
+        if (!signature || !eventName) {
+          return new Response("missing signature or event headers", { status: 400 });
+        }
+
+        let verified: boolean;
+        try {
+          // Webhooks#verify performs ONLY the HMAC-SHA-256 check (no parsing,
+          // no dispatch) — this is the "verify" half of verifyAndReceive,
+          // called standalone so persistence can happen strictly between
+          // verification and dispatch.
+          verified = await webhooks.verify(body, signature);
+        } catch (err: unknown) {
+          verified = false;
+          log.warn("webhook_verify_threw", {
+            event: "webhook_verify_threw",
+            delivery_id: deliveryId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        if (!verified) {
+          log.error("webhook_signature_invalid", {
+            event: "webhook_signature_invalid",
+            delivery_id: deliveryId,
+            github_event: eventName,
+          });
+          return new Response("invalid signature", { status: 401 });
+        }
+
+        // Persist webhook receipt for forensic investigation (mt#1372) AND,
+        // as of mt#2799, as the durable row boot-time recovery reads to
+        // resume a review interrupted by a redeploy. AWAITED (not
+        // fire-and-forget) so the row is guaranteed to exist BEFORE the 200
+        // ACK returns below (mt#2799 SC#3) — a process killed in the window
+        // between "GitHub got its 200" and "the async insert lands" would
+        // otherwise lose the row boot recovery depends on.
+        // recordWebhookReceipt swallows its own errors internally (never
+        // throws), so awaiting it cannot turn a persistence failure into a
+        // webhook-handling failure.
         if (db !== undefined) {
-          void recordWebhookReceipt(
+          await recordWebhookReceipt(
             db,
             deliveryId,
-            eventName ?? "unknown",
+            eventName,
             extractPersistedHeaders((name) => request.headers.get(name)),
             parsedBody ?? { raw: safeTruncate(body, 1000, "head") }
           );
         }
 
-        if (!signature || !eventName) {
-          return new Response("missing signature or event headers", { status: 400 });
-        }
-
         try {
-          // verifyAndReceive validates the signature and dispatches to the
-          // registered webhook handlers. The handlers call startDetachedReview
-          // which returns immediately (fire-and-forget). So this await only
-          // blocks for signature verification + event dispatch, not the review.
+          // verifyAndReceive re-verifies the signature (cheap — a single HMAC
+          // computation, already known-valid from the standalone verify()
+          // call above) and dispatches to the registered webhook handlers.
+          // The handlers call startDetachedReview which returns immediately
+          // (fire-and-forget). So this await only blocks for signature
+          // re-verification + event dispatch, not the review.
           await webhooks.verifyAndReceive({
             id: deliveryId,
             name: eventName,
@@ -1279,8 +1361,11 @@ export function createApp(
           });
           return new Response("ok", { status: 200 });
         } catch (error) {
-          // verifyAndReceive throws on signature-verification failure.
-          // Handler errors no longer propagate here since reviews are detached.
+          // Signature was already verified above, so in practice this catch
+          // only reaches dispatch errors. The isSignatureError branch is kept
+          // as defense in depth (e.g. a future divergence between the
+          // standalone verify() and verifyAndReceive()'s internal check)
+          // rather than assumed unreachable.
           const message = error instanceof Error ? error.message : String(error);
           const isSignatureError = /signature/i.test(message);
           log.error(isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error", {
@@ -1293,8 +1378,8 @@ export function createApp(
           });
 
           // Persist failure outcome and surface as operator-visible alert (mt#1372).
-          // Signature failures are expected from misconfigured senders — only non-signature
-          // errors (dispatch failures) surface as webhook_processing_failed alerts.
+          // A row now definitely exists at this point (persisted above, after
+          // verification succeeded), so this update always has a target row.
           if (db !== undefined) {
             void updateOutcome(
               db,
@@ -1325,27 +1410,46 @@ export function createApp(
   });
 
   /**
-   * Graceful shutdown for this server instance.
+   * Graceful shutdown for this server instance (mt#2799 Layer 1 drain).
    *
-   * 1. Logs drain start with current inflight count.
-   * 2. Stops accepting new connections.
-   * 3. Waits for all in-flight reviews to settle (max 25s).
-   * 4. Logs drain complete and sets exitCode = 0.
+   * 1. Sets `draining = true` (synchronously, before any await) so the
+   *    /webhook route starts rejecting new work with 503 immediately.
+   * 2. Logs drain start with current inflight count.
+   * 3. Waits for all in-flight reviews to settle, bounded by
+   *    REVIEWER_DRAIN_TIMEOUT_MS (default 280s — see DEFAULT_DRAIN_TIMEOUT_MS).
+   * 4. Stops accepting connections (the HTTP server itself) now that the
+   *    drain window has elapsed or all work settled — kept open THROUGH the
+   *    drain window (unlike the pre-mt#2799 behavior of stopping it
+   *    immediately) so /health stays reachable while this deployment winds
+   *    down during Railway's overlap window.
+   * 5. Logs drain complete — including the remaining inflight count and
+   *    whether the drain window was exhausted — and sets exitCode = 0.
    */
   async function gracefulShutdown(): Promise<void> {
+    draining = true;
+
     log.info("shutdown_drain_start", {
       event: "shutdown_drain_start",
       inflightCount: inflight.size,
     });
 
-    server.stop(true);
+    const drainTimeoutMs = parsePositiveIntEnv(
+      "REVIEWER_DRAIN_TIMEOUT_MS",
+      DEFAULT_DRAIN_TIMEOUT_MS
+    );
 
-    const drain = Promise.allSettled(Array.from(inflight));
-    const timeout = new Promise<void>((resolve) => setTimeout(resolve, 25_000));
-    await Promise.race([drain, timeout]);
+    const drain = Promise.allSettled(Array.from(inflight)).then(() => "drained" as const);
+    const timeout = new Promise<"timed_out">((resolve) =>
+      setTimeout(() => resolve("timed_out"), drainTimeoutMs)
+    );
+    const outcome = await Promise.race([drain, timeout]);
+
+    server.stop(true);
 
     log.info("shutdown_drain_complete", {
       event: "shutdown_drain_complete",
+      remainingInflightCount: inflight.size,
+      timedOut: outcome === "timed_out",
     });
 
     process.exitCode = 0;
@@ -1435,10 +1539,34 @@ if (import.meta.main) {
     domainServicesEnabled: Boolean(domainServices),
   });
 
+  // Boot-time recovery (mt#2799 Layer 2): re-dispatch any pull_request
+  // review interrupted by the PREVIOUS process's restart before it reached
+  // a terminal outcome. Called here — after migrations and the
+  // bootDomainContainer() attempt have both resolved, and the HTTP server
+  // is already listening — so recovered reviews get the same domain
+  // services (task-spec fetch, tier resolution) a live webhook would.
+  // Dispatch is synchronous with respect to this call (the reviews
+  // themselves run detached), satisfying mt#2799 AT#3's "dispatches within
+  // 30s of boot." See boot-recovery.ts for the full design.
+  void recoverPendingReviews(db, config, loadBootRecoveryConfig(), runReview, {
+    ...(domainServices
+      ? {
+          taskService: domainServices.taskService,
+          persistenceProvider: domainServices.persistenceProvider,
+        }
+      : {}),
+  }).catch((err: unknown) => {
+    log.error("boot_recovery.unhandled_error", {
+      event: "boot_recovery.unhandled_error",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
   // Register graceful shutdown handlers for SIGTERM, SIGINT, SIGHUP.
   // On signal: emit shutdown_signal log line (mt#1966 SC#3) so future
   // restart-cause investigations can see WHICH signal triggered the shutdown,
-  // then stop accepting new connections, drain in-flight reviews (max 25s), then exit.
+  // then stop accepting new connections, drain in-flight reviews (bounded by
+  // REVIEWER_DRAIN_TIMEOUT_MS, default 280s — mt#2799), then exit.
   //
   // The shutdown_signal log line was the load-bearing observability gap during
   // mt#1963 — the 2026-05-20 restart window showed no signal in retained logs,
@@ -1451,14 +1579,27 @@ if (import.meta.main) {
       signal,
       uptime_sec: Math.round(uptimeSec * 1000) / 1000,
     });
-    gracefulShutdown().catch((err: unknown) => {
-      log.error("shutdown_error", {
-        event: "shutdown_error",
-        signal,
-        error: err instanceof Error ? err.message : String(err),
+    gracefulShutdown()
+      .catch((err: unknown) => {
+        log.error("shutdown_error", {
+          event: "shutdown_error",
+          signal,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        process.exitCode = 1;
+      })
+      .finally(() => {
+        // mt#2799 kill-test finding: background setInterval handles (e.g.
+        // the webhook-event retention pruner below, a 24h interval with no
+        // corresponding clearInterval) keep the event loop alive
+        // indefinitely — `process.exitCode = 0` alone never actually exits
+        // the process. Pre-mt#2799 this was masked by Railway's default
+        // drainingSeconds=0 (SIGKILL arrived almost immediately regardless);
+        // now that a real drain window exists, an un-exited process would
+        // sit alive for the full window even after draining had genuinely
+        // finished. Exit explicitly once gracefulShutdown has settled.
+        process.exit(process.exitCode ?? 0);
       });
-      process.exitCode = 1;
-    });
   }
   process.on("SIGTERM", () => handleShutdownSignal("SIGTERM"));
   process.on("SIGINT", () => handleShutdownSignal("SIGINT"));

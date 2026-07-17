@@ -62,6 +62,23 @@ export interface TranscriptTurnResult {
   /** Cosine-distance score from pgvector (<=> operator). Lower = more similar. */
   score: number;
   sessionMetadata: TranscriptSessionMetadata;
+  /**
+   * Ready-to-run resume hint for this turn's conversation (mt#2523) — the
+   * exact command an operator can paste to resume the harness conversation
+   * this turn belongs to. Derived purely from `agentSessionId`; kept as a
+   * field (not left for callers to compose) so every search surface (CLI,
+   * MCP, cockpit) renders the identical string.
+   */
+  resumeHint: string;
+}
+
+/**
+ * Build the ready-to-run `claude --resume <id>` hint for a harness
+ * conversation id (mt#2523). Single source of truth so CLI/MCP output and
+ * the cockpit search surface never drift on the exact command string.
+ */
+export function buildResumeHint(conversationId: string): string {
+  return `claude --resume ${conversationId}`;
 }
 
 /**
@@ -214,6 +231,7 @@ export class TranscriptSimilarityService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope; not yet populated
         },
+        resumeHint: buildResumeHint(row.agentSessionId),
       }));
     } catch (err) {
       throw new Error(`TranscriptSimilarityService.search: query failed: ${getErrorMessage(err)}`, {
@@ -335,6 +353,7 @@ export class TranscriptSimilarityService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null,
         },
+        resumeHint: buildResumeHint(row.agentSessionId),
       }));
     } catch (err) {
       throw new Error(

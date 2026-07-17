@@ -1812,3 +1812,8 @@ describe("applyRecoveryAndCompose (mt#1496)", () => {
     });
   });
 });
+
+// Refutation-aware re-assertion recovery wiring (mt#2836) has its own test
+// file — recovery-compose.test.ts — to keep this file under the max-lines
+// ceiling. That file imports applyRecoveryAndCompose directly from
+// ./recovery-compose (the re-export here stays for other consumers).

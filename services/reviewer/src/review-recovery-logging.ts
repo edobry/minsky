@@ -70,6 +70,8 @@ export interface LogRecoveryOutcomesInput {
   compositionConvergenceEnabled: boolean;
   /** REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED — gates the diff_scope_bounded events. */
   diffScopeBoundedEnabled: boolean;
+  /** REVIEWER_REFUTATION_RECOVERY_ENABLED — gates the refutation_recovery events. */
+  refutationRecoveryEnabled: boolean;
   /** True when prior reviews exist on this PR (R≥2). Reported in the diff-scope summary. */
   priorReviewsPresent: boolean;
   /** fixCommitLineRange.size — number of files in the fix-commit scope. */
@@ -92,6 +94,7 @@ export function logRecoveryOutcomes(input: LogRecoveryOutcomesInput): void {
     monotonicityRecoveryEnabled,
     compositionConvergenceEnabled,
     diffScopeBoundedEnabled,
+    refutationRecoveryEnabled,
     priorReviewsPresent,
     filesInScope,
   } = input;
@@ -260,6 +263,38 @@ export function logRecoveryOutcomes(input: LogRecoveryOutcomesInput): void {
       filesInScope,
       downgradeApplied: recoveryResult.diffScopeBoundedDowngrades.length > 0,
       downgradeCount: recoveryResult.diffScopeBoundedDowngrades.length,
+    });
+  }
+
+  // mt#2836 refutation-aware re-assertion recovery logging: emit one
+  // structured event per downgraded finding, plus a summary event. Mirrors
+  // the diff-scope-bounded convention above — summary always emits when
+  // enabled (zero downgrades still useful for "enabled but never fired"
+  // observability); per-finding events only emit when the downgrade fires.
+  if (refutationRecoveryEnabled) {
+    for (const d of recoveryResult.refutationDowngrades) {
+      log.info("reviewer.refutation_recovery_downgrade", {
+        event: "reviewer.refutation_recovery_downgrade",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: headSha,
+        file: d.file,
+        line: d.line,
+        ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+        fromSeverity: d.fromSeverity,
+        toSeverity: d.toSeverity,
+        reassertionCount: d.reassertionCount,
+        totalRounds: d.totalRounds,
+        refutationExcerpt: d.refutationExcerpt,
+        reason: d.reason,
+      });
+    }
+    log.info("reviewer.refutation_recovery_summary", {
+      event: "reviewer.refutation_recovery_summary",
+      prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+      sha: headSha,
+      iterationIndex,
+      downgradeApplied: recoveryResult.refutationDowngrades.length > 0,
+      downgradeCount: recoveryResult.refutationDowngrades.length,
     });
   }
 

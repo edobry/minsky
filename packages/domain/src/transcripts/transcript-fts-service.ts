@@ -26,9 +26,10 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import { buildTurnDateRangeConditions } from "./transcript-search-filters";
 import type { AgentSessionId } from "./transcript-source";
-import type {
-  TranscriptTurnResult,
-  TranscriptSessionMetadata,
+import {
+  buildResumeHint,
+  type TranscriptTurnResult,
+  type TranscriptSessionMetadata,
 } from "./transcript-similarity-service";
 
 // ── Re-export for convenience ─────────────────────────────────────────────────
@@ -163,6 +164,7 @@ export class TranscriptFtsService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope; not yet populated
         },
+        resumeHint: buildResumeHint(row.agentSessionId),
       }));
     } catch (err) {
       throw new Error(`TranscriptFtsService.searchText: query failed: ${getErrorMessage(err)}`, {
@@ -253,6 +255,7 @@ export class TranscriptFtsService {
           relatedPrNumbers: row.relatedPrNumbers,
           parentAgentSessionId: null, // mt#1327 scope
         },
+        resumeHint: buildResumeHint(row.agentSessionId),
       }));
     } catch (err) {
       // Re-throw the "session not found" error as-is; wrap everything else.

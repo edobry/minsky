@@ -108,6 +108,27 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   BRAINTRUST_API_KEY: sealed("braintrust-api-key"),
   SWEEPER_ENABLED: plain("true"),
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
+  // mt#2799: zero-downtime redeploy drain/overlap. These duplicate
+  // services/reviewer/railway.json's `deploy.drainingSeconds` /
+  // `deploy.overlapSeconds` (the config-as-code path Railway's schema
+  // documents for this — see docs.railway.com/reference/config-as-code).
+  // Declared HERE too (as service variables, which Railway also accepts for
+  // these two settings per the Deployments reference) because the live
+  // reviewer service's `configPath` has been observed drifted to null in
+  // production (memory mt1815_soak_still_failing_2026_07_15, tracked as
+  // mt#1815/mt#2777 SC#3, unresolved as of this task) — i.e. the
+  // railway.json `deploy` block may not actually apply until that drift is
+  // fixed. Service variables are a separate Railway mechanism unaffected by
+  // the configPath drift, so this is the belt to railway.json's suspenders.
+  // Values: 300s draining covers a typical review (kill-test target <30s
+  // recovery + normal review latency ~60-90s, well under 300s); 60s overlap
+  // gives the new deployment time to pass its healthcheck and start
+  // draining the old one gracefully. There is no service-variable
+  // equivalent for `deploy.healthcheckPath` — that setting depends solely
+  // on the railway.json config-as-code path (or the dashboard) actually
+  // applying.
+  RAILWAY_DEPLOYMENT_DRAINING_SECONDS: plain("300"),
+  RAILWAY_DEPLOYMENT_OVERLAP_SECONDS: plain("60"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
   // Canonical persistence config (mt#2463): the domain container reads

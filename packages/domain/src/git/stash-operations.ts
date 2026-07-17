@@ -1,4 +1,5 @@
 import { validateProcess } from "../schemas/runtime";
+import { runGitCommandWithLockHandling, type LockDependencies } from "./lock-operations";
 
 // POSIX shell single-quote escape
 function shellQuote(s: string): string {
@@ -9,12 +10,7 @@ function shellQuote(s: string): string {
 // Shared deps type
 // ---------------------------------------------------------------------------
 
-export interface StashDependencies {
-  execAsync: (
-    command: string,
-    options?: Record<string, unknown>
-  ) => Promise<{ stdout: string; stderr: string }>;
-}
+export type StashDependencies = LockDependencies;
 
 // ---------------------------------------------------------------------------
 // git_stash
@@ -26,6 +22,11 @@ export interface StashOptions {
   message?: string;
   /** Optional list of paths to stash selectively */
   paths?: string[];
+  /**
+   * When true, a blocked `.git/index.lock` is auto-repaired (confirm-gated
+   * internally: only removed when provably stale) and the stash retried once.
+   */
+  repairLock?: boolean;
 }
 
 export interface StashImplResult {
@@ -56,7 +57,10 @@ export async function stashImpl(
     }
   }
 
-  const { stdout } = await deps.execAsync(args.join(" "));
+  const { stdout } = await runGitCommandWithLockHandling(args.join(" "), deps, {
+    repoPath: workdir,
+    repairLock: options.repairLock,
+  });
   const trimmed = stdout.trim();
 
   // git outputs "No local changes to save" when tree is clean
@@ -79,6 +83,11 @@ export interface StashPopOptions {
   repoPath?: string;
   /** Specific stash ref to pop, e.g. "stash@{1}". Defaults to most recent. */
   ref?: string;
+  /**
+   * When true, a blocked `.git/index.lock` is auto-repaired (confirm-gated
+   * internally: only removed when provably stale) and the pop retried once.
+   */
+  repairLock?: boolean;
 }
 
 export interface StashPopResult {
@@ -102,7 +111,10 @@ export async function stashPopImpl(
   const cmd = `git -C ${qWorkdir} stash pop${refArg}`;
 
   try {
-    await deps.execAsync(cmd);
+    await runGitCommandWithLockHandling(cmd, deps, {
+      repoPath: workdir,
+      repairLock: options.repairLock,
+    });
     return { workdir, popped: true, conflicts: [] };
   } catch (err: unknown) {
     // Extract stderr/stdout safely using direct property access rather than validateGitError,

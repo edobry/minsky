@@ -110,6 +110,10 @@ import {
 } from "./review-finalize";
 import { logRecoveryOutcomes } from "./review-recovery-logging";
 import { ingestPriorReviews } from "./prior-review-ingestion";
+import {
+  ingestCommitMessagesSinceLastReview,
+  type CommitMessageFetcherFn,
+} from "./commit-ingestion";
 
 export {
   buildEmptyOutputSkipNotice,
@@ -219,6 +223,12 @@ export interface RunReviewDeps {
    * arguments. Throw to simulate a fetch error.
    */
   priorReviewFetcher?: PriorReviewFetcherFn;
+
+  /**
+   * Test seam for commit-message fetch (mt#2836). When provided, replaces
+   * the real fetchCommitMessagesSince call. Throw to simulate a fetch error.
+   */
+  commitMessageFetcher?: CommitMessageFetcherFn;
 
   /**
    * Drizzle DB instance for writing convergence metrics.
@@ -346,7 +356,17 @@ export async function runReview(
   // Fail-open contract (SC #6): if the DB is unavailable, proceed without the
   // marker guarantee rather than blocking the review.
   // ---------------------------------------------------------------------------
-  const acquiredBy = deliveryId.startsWith("sweeper-") ? "sweeper" : "webhook";
+  // mt#2799: boot-time recovery dispatches through this same runReview path,
+  // tagged with a "recovered-" delivery-id prefix (mirroring the sweeper's
+  // "sweeper-" prefix) so the marker row's acquired_by column distinguishes
+  // recovered-after-restart reviews from the primary webhook and sweeper
+  // paths in forensic queries — no new dedup mechanism, just a distinct
+  // label on the SAME acquireMarker() concurrency primitive.
+  const acquiredBy = deliveryId.startsWith("sweeper-")
+    ? "sweeper"
+    : deliveryId.startsWith("recovered-")
+      ? "recovered"
+      : "webhook";
   let markerId: string | null = null;
 
   if (deps.db !== undefined) {
@@ -507,6 +527,8 @@ async function runReviewBody(
     ingestion: priorReviewIngestion,
     markdown: priorReviewsMarkdown,
     flatFindings: priorFlatFindings,
+    sanitizedBodies: priorReviewSanitizedBodies,
+    latestSubmittedAt: latestPriorReviewSubmittedAt,
   } = await ingestPriorReviews({
     fetcher: deps.priorReviewFetcher,
     octokit,
@@ -516,6 +538,23 @@ async function runReviewBody(
     timeoutMs: config.githubTimeoutMs,
     headSha: pr.headSha,
   });
+
+  // mt#2836: fetch commit messages pushed since the most recent prior review
+  // for author-response context (refutation evidence the model should weigh
+  // before re-asserting a prior BLOCKING finding). Only meaningful when a
+  // prior review exists (R>=2) — on R1 there is nothing to respond to yet.
+  const { markdown: commitsSinceLastReviewMarkdown, messages: commitMessagesSinceLastReview } =
+    latestPriorReviewSubmittedAt !== undefined
+      ? await ingestCommitMessagesSinceLastReview({
+          fetcher: deps.commitMessageFetcher,
+          octokit,
+          owner,
+          repo,
+          prNumber,
+          sinceIso: latestPriorReviewSubmittedAt,
+          timeoutMs: config.githubTimeoutMs,
+        })
+      : { markdown: "", messages: [] };
 
   // Fetch review threads (mt#1345): provides existing inline thread state to
   // the model so it can reply to existing threads rather than opening duplicates.
@@ -582,6 +621,7 @@ async function runReviewBody(
     baseBranch: pr.baseBranch,
     priorReviews: priorReviewsMarkdown || undefined,
     reviewThreads: reviewThreads.length > 0 ? reviewThreads : undefined,
+    authorCommitsSinceLastReview: commitsSinceLastReviewMarkdown || undefined,
   };
 
   const userPrompt = buildReviewPrompt({
@@ -811,6 +851,15 @@ async function runReviewBody(
     // prompt-context routing and the post-hoc downgrade are always in sync.
     const diffScopeBoundedEnabled = diffScopeBoundedEnabledForPrompt;
 
+    // mt#2836 refutation-aware re-assertion recovery: downgrade a BLOCKING
+    // finding re-asserted >=2 rounds when the round's context contained the
+    // author's refutation (a commit pushed since the last review) and this
+    // round's finding text does not engage it. Default-off, same convention
+    // as the sibling recovery passes above.
+    const refutationRecoveryEnabled = /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_REFUTATION_RECOVERY_ENABLED ?? "").trim()
+    );
+
     // Compute iteration index (1-based) for the convergence threshold gate.
     // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
     // so iterationIndex = iterationCount + 1.
@@ -922,6 +971,9 @@ async function runReviewBody(
         iterationIndex: currentIterationIndex,
         diffScopeBoundedEnabled,
         fixCommitLineRange,
+        refutationRecoveryEnabled,
+        priorReviewBodiesForRefutation: priorReviewSanitizedBodies,
+        commitMessagesForRefutation: commitMessagesSinceLastReview,
       }
     );
     const composed = recoveryResult.composed;
@@ -942,6 +994,7 @@ async function runReviewBody(
       monotonicityRecoveryEnabled,
       compositionConvergenceEnabled,
       diffScopeBoundedEnabled,
+      refutationRecoveryEnabled,
       priorReviewsPresent,
       filesInScope: fixCommitLineRange.size,
     });

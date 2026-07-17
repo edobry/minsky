@@ -18,5 +18,11 @@
       "bunfig.toml",
       "tsconfig.json"
     ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 100,
+    "overlapSeconds": 60,
+    "drainingSeconds": 300
   }
 }

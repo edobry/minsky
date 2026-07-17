@@ -39,6 +39,10 @@
 import { execSync } from "child_process";
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { recordFireLogEntry } from "./fire-log";
+
+/** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
+const GUARD_NAME = "block-git-gh-cli";
 
 // ---------------------------------------------------------------------------
 // Tool context
@@ -689,11 +693,30 @@ export function checkDenial(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
+  const startMs = Date.now();
   const input = await readInput<ToolHookInput>();
   const command = (input.tool_input.command as string) ?? "";
   const context = toolContextFromName(input.tool_name);
 
   const parsedCommands = parseCommands(command);
+
+  // mt#2597 (evaluation-loop Phase 1): fire-log this invocation exactly
+  // once, regardless of how many parsed sub-commands were checked — "one
+  // enforcement point firing" maps to one hook invocation, not one
+  // sub-command. No documented override env-var for this guard (denials are
+  // absolute — no MINSKY_SKIP_*/MINSKY_ACK_* escape hatch), so no override
+  // fields are ever populated here.
+  const recordAndExit = (decision: "allow" | "deny"): never => {
+    recordFireLogEntry({
+      guardName: GUARD_NAME,
+      event: "PreToolUse",
+      decision,
+      durationMs: Date.now() - startMs,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
+    process.exit(0);
+  };
 
   for (const parsed of parsedCommands) {
     const reason = checkDenial(parsed, context);
@@ -705,9 +728,9 @@ if (import.meta.main) {
           permissionDecisionReason: reason,
         },
       });
-      process.exit(0);
+      recordAndExit("deny");
     }
   }
 
-  process.exit(0);
+  recordAndExit("allow");
 }

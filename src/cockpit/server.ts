@@ -61,6 +61,7 @@ import { mountAgentFocusRoutes } from "./routes/agent-focus";
 import type { AgentFocusRouteOptions } from "./routes/agent-focus";
 import { mountConversationRoutes } from "./routes/conversations";
 import type { ConversationRoutesOptions } from "./routes/conversations";
+import { mountConversationSearchRoutes } from "./routes/conversation-search";
 import { mountChangesetRoutes } from "./routes/changesets";
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
@@ -289,6 +290,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountAgentRoutes(app);
   mountAgentFocusRoutes(app, opts.overrideAgentFocus ?? {});
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
+  mountConversationSearchRoutes(app);
   mountChangesetRoutes(app);
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);

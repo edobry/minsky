@@ -36,6 +36,11 @@ import {
   IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
   MIGRATION_DIRS,
 } from "./immutable-migration-detector";
+import {
+  recordPreCommitFireLogEntry,
+  classifyOverride as classifyPreCommitOverride,
+} from "./pre-commit-fire-log";
+import type { RecordPreCommitFireLogInput } from "./pre-commit-fire-log";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips a size-budget-exceeded
@@ -71,14 +76,107 @@ export interface ESLintSummary {
   results: ESLintResult[];
 }
 
+// ---------------------------------------------------------------------------
+// mt#2597 R1 fix — the fire-log instrumentation wrapper, extracted to a
+// standalone exported function so its override-attribution logic is
+// unit-testable without instantiating (or running the real heavy steps of)
+// `PreCommitHook`. `PreCommitHook.instrumented()` below is a thin delegate.
+// ---------------------------------------------------------------------------
+
+export interface RunInstrumentedStepDeps {
+  /** Injectable for tests — defaults to the real `recordPreCommitFireLogEntry`. */
+  recordFireLog?: (input: RecordPreCommitFireLogInput) => void;
+  /** Injectable clock for duration measurement — defaults to `Date.now`. */
+  now?: () => number;
+}
+
+/**
+ * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — instruments a single
+ * pre-commit step without touching the step method's own body. Records
+ * exactly one fire-log entry per step invocation: decision=allow on success,
+ * decision=deny on failure.
+ *
+ * Override attribution (R1 fix): a pre-commit step's override env-var (e.g.
+ * `MINSKY_SKIP_NUL_CHECK`) is read INSIDE the step's own body — this wrapper
+ * has no independent visibility into whether a violation was actually found
+ * and suppressed. The ORIGINAL Phase-1 landing approximated this by checking
+ * `result.success && isOverrideTruthy(process.env[overrideEnvVar])` — but that
+ * conflates "the env-var happens to be set in the environment" with "this
+ * step's own decision was actually overridden": a var left set from an
+ * earlier step, a different step's test run, or a developer's unrelated
+ * export would misattribute a NORMAL pass as an override. The fix: each
+ * step's own function body now sets `result.overridden = true` on the
+ * SPECIFIC branch where it actually consulted its var and took the skip
+ * path (mirroring the guard-dispatcher's `checkOverride`, which observes the
+ * decision BEFORE the guard runs and so always knows definitively). This
+ * wrapper reads that flag — not `process.env` — as the sole override signal.
+ */
+export function runInstrumentedStep(
+  guardName: string,
+  fn: () => Promise<HookResult>,
+  overrideEnvVar?: string,
+  deps: RunInstrumentedStepDeps = {}
+): Promise<HookResult> {
+  const recordFireLog = deps.recordFireLog ?? recordPreCommitFireLogEntry;
+  const now = deps.now ?? Date.now;
+  const startMs = now();
+  return fn().then((result) => {
+    const durationMs = now() - startMs;
+    const overridden = result.overridden === true && overrideEnvVar !== undefined;
+    recordFireLog({
+      guardName,
+      decision: result.success ? "allow" : "deny",
+      durationMs,
+      ...(overridden
+        ? {
+            overrideEnvVar,
+            overrideClassification: classifyPreCommitOverride(overrideEnvVar),
+          }
+        : {}),
+    });
+    return result;
+  });
+}
+
 export interface HookResult {
   success: boolean;
   message: string;
   exitCode: number;
+  /**
+   * mt#2597 R1 fix (reviewer finding: "pre-commit over-attribution on
+   * presence vs. actual suppression") — set to `true` by a step's OWN
+   * function body when IT actually consulted its paired override env-var
+   * and took the skip path (e.g. `runNulByteCheck`'s
+   * `isOverrideTruthy(process.env[NUL_BYTE_CHECK_OVERRIDE_ENV])` branch).
+   * `instrumented()`/`runInstrumentedStep` reads THIS flag — not a blanket
+   * `process.env` scan — to decide whether to attach override fields to the
+   * fire-log record. Omitted (or `false`) means "ran its normal path," even
+   * if the step's paired override env-var happens to be truthy in the
+   * environment for an unrelated reason (a leftover export, a var set for a
+   * DIFFERENT step, a developer testing something else) — that env-var
+   * presence must never be conflated with "this step's decision was
+   * actually overridden."
+   */
+  overridden?: boolean;
 }
 
 export class PreCommitHook {
   constructor(private projectRoot: string = process.cwd()) {}
+
+  /**
+   * Fire-log wrapper (mt#2597, evaluation-loop Phase 1) — thin per-instance
+   * delegate to the standalone `runInstrumentedStep` (see that function's
+   * doc comment above for the override-attribution rationale, including the
+   * R1 fix that replaced the original presence-based env-var scan with the
+   * step's own `result.overridden` signal).
+   */
+  private async instrumented(
+    guardName: string,
+    fn: () => Promise<HookResult>,
+    overrideEnvVar?: string
+  ): Promise<HookResult> {
+    return runInstrumentedStep(guardName, fn, overrideEnvVar);
+  }
 
   /**
    * Run all pre-commit validation steps
@@ -90,7 +188,9 @@ export class PreCommitHook {
       // ── Instant checks (~0s) ──
 
       // Step 0: Hook file permissions
-      const hookPermResult = await this.runHookPermissionCheck();
+      const hookPermResult = await this.instrumented("hook-permission-check", () =>
+        this.runHookPermissionCheck()
+      );
       if (!hookPermResult.success) {
         return hookPermResult;
       }
@@ -98,7 +198,9 @@ export class PreCommitHook {
       // ── Fast, lightweight checks first (~1s each) ──
 
       // Step 1: Code formatting (lint-staged, only staged files, ~1s)
-      const formatResult = await this.runCodeFormatting();
+      const formatResult = await this.instrumented("code-formatting", () =>
+        this.runCodeFormatting()
+      );
       if (!formatResult.success) {
         return formatResult;
       }
@@ -114,7 +216,9 @@ export class PreCommitHook {
       // re-staging a corrected version carries none of the "don't want an
       // unreviewed content rewrite auto-committed" risk that motivates the
       // rules/skills compile checks blocking instead of auto-fixing.
-      const completionManifestResult = await this.runCompletionManifestRegen();
+      const completionManifestResult = await this.instrumented("completion-manifest-regen", () =>
+        this.runCompletionManifestRegen()
+      );
       if (!completionManifestResult.success) {
         return completionManifestResult;
       }
@@ -125,13 +229,17 @@ export class PreCommitHook {
       // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
-      const variableResult = await this.runVariableNamingCheck();
+      const variableResult = await this.instrumented("variable-naming-check", () =>
+        this.runVariableNamingCheck()
+      );
       if (!variableResult.success) {
         return variableResult;
       }
 
       // Step 3a: Node shim detection — ban node shebangs, npm run, npx in source files (~0s)
-      const nodeShimResult = await this.runNodeShimCheck();
+      const nodeShimResult = await this.instrumented("node-shim-check", () =>
+        this.runNodeShimCheck()
+      );
       if (!nodeShimResult.success) {
         return nodeShimResult;
       }
@@ -140,7 +248,11 @@ export class PreCommitHook {
       // a literal 0x00 byte (mt#1824). Closes the gate-gap exposed by mt#1821
       // / PR #1107 R1 where a JSON-escaped U+0000 landed on disk inside a TS
       // template literal and slipped past every other quality gate.
-      const nulByteResult = await this.runNulByteCheck();
+      const nulByteResult = await this.instrumented(
+        "nul-byte-check",
+        () => this.runNulByteCheck(),
+        NUL_BYTE_CHECK_OVERRIDE_ENV
+      );
       if (!nulByteResult.success) {
         return nulByteResult;
       }
@@ -156,7 +268,10 @@ export class PreCommitHook {
       // manifest auto-fix-and-restage pattern). Eliminates the drift class
       // that caused mt#1977 (75-minute root-Dockerfile outage) and mt#1991
       // (4-hour reviewer-Dockerfile outage).
-      const dockerfileWorkspaceCopyResult = await this.runDockerfileWorkspaceCopyRegen();
+      const dockerfileWorkspaceCopyResult = await this.instrumented(
+        "dockerfile-workspace-copy-regen",
+        () => this.runDockerfileWorkspaceCopyRegen()
+      );
       if (!dockerfileWorkspaceCopyResult.success) {
         return dockerfileWorkspaceCopyResult;
       }
@@ -166,7 +281,11 @@ export class PreCommitHook {
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
       // hand-written SQL file ships without a journal entry, making it
       // invisible to Drizzle's migrator.
-      const migrationJournalResult = await this.runMigrationJournalCheck();
+      const migrationJournalResult = await this.instrumented(
+        "migration-journal-check",
+        () => this.runMigrationJournalCheck(),
+        MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV
+      );
       if (!migrationJournalResult.success) {
         return migrationJournalResult;
       }
@@ -176,7 +295,11 @@ export class PreCommitHook {
       // directories whose tag is already listed in meta/_journal.json.
       // Editing an applied migration drifts Drizzle's sha256 ledger —
       // the mt#1641/mt#2250 root cause (migrations 0002/0014/0015).
-      const immutableMigrationResult = await this.runImmutableMigrationCheck();
+      const immutableMigrationResult = await this.instrumented(
+        "immutable-migration-check",
+        () => this.runImmutableMigrationCheck(),
+        IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV
+      );
       if (!immutableMigrationResult.success) {
         return immutableMigrationResult;
       }
@@ -189,7 +312,11 @@ export class PreCommitHook {
       // Prevents recurrence of the minsky.dev class: an illustrative example URL
       // that hardened into authoritative config + a false "Deployed at" claim,
       // never ownership-verified.
-      const deployDomainResult = await this.runDeployDomainCheck();
+      const deployDomainResult = await this.instrumented(
+        "deploy-domain-check",
+        () => this.runDeployDomainCheck(),
+        DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV
+      );
       if (!deployDomainResult.success) {
         return deployDomainResult;
       }
@@ -197,13 +324,15 @@ export class PreCommitHook {
       // ── Medium-weight static analysis (~5s each) ──
 
       // Step 4: TypeScript type checking (~5s)
-      const typeCheckResult = await this.runTypeCheck();
+      const typeCheckResult = await this.instrumented("type-check", () => this.runTypeCheck());
       if (!typeCheckResult.success) {
         return typeCheckResult;
       }
 
       // Step 5: ESLint validation (~5-10s)
-      const lintResult = await this.runESLintValidation();
+      const lintResult = await this.instrumented("eslint-validation", () =>
+        this.runESLintValidation()
+      );
       if (!lintResult.success) {
         return lintResult;
       }
@@ -211,7 +340,9 @@ export class PreCommitHook {
       // ── Security scanning (~2-3s, critical but rare) ──
 
       // Step 6: Secret scanning
-      const secretsResult = await this.runSecretScanning();
+      const secretsResult = await this.instrumented("secret-scanning", () =>
+        this.runSecretScanning()
+      );
       if (!secretsResult.success) {
         return secretsResult;
       }
@@ -219,25 +350,33 @@ export class PreCommitHook {
       // ── Expensive runtime checks (tests) ──
 
       // Step 7: Unit tests (most expensive)
-      const testsResult = await this.runUnitTests();
+      const testsResult = await this.instrumented("unit-tests", () => this.runUnitTests());
       if (!testsResult.success) {
         return testsResult;
       }
 
       // Step 8: ESLint rule tooling tests (niche)
-      const ruleTestsResult = await this.runESLintRuleTests();
+      const ruleTestsResult = await this.instrumented("eslint-rule-tests", () =>
+        this.runESLintRuleTests()
+      );
       if (!ruleTestsResult.success) {
         return ruleTestsResult;
       }
 
       // Step 9: Rules compile staleness check (legacy `rules compile` system)
-      const rulesCheckResult = await this.runRulesCompileCheck();
+      const rulesCheckResult = await this.instrumented(
+        "rules-compile-check",
+        () => this.runRulesCompileCheck(),
+        SIZE_BUDGET_CHECK_OVERRIDE_ENV
+      );
       if (!rulesCheckResult.success) {
         return rulesCheckResult;
       }
 
       // Step 9b: Compile staleness check (new `compile` system — mt#2252)
-      const compileCheckResult = await this.runCompileCheck();
+      const compileCheckResult = await this.instrumented("compile-check", () =>
+        this.runCompileCheck()
+      );
       if (!compileCheckResult.success) {
         return compileCheckResult;
       }
@@ -723,7 +862,12 @@ export class PreCommitHook {
         `[pre-commit:nul-byte-check] override ${NUL_BYTE_CHECK_OVERRIDE_ENV}=${process.env[NUL_BYTE_CHECK_OVERRIDE_ENV]} ` +
           `at ${ts} — NUL-byte check skipped`
       );
-      return { success: true, message: "NUL-byte check skipped via override", exitCode: 0 };
+      return {
+        success: true,
+        message: "NUL-byte check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
     }
 
     try {
@@ -928,6 +1072,7 @@ export class PreCommitHook {
         success: true,
         message: "Migration journal check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1011,6 +1156,7 @@ export class PreCommitHook {
         success: true,
         message: "Immutable-migration check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1164,6 +1310,7 @@ export class PreCommitHook {
         success: true,
         message: "Deploy-domain check skipped via override",
         exitCode: 0,
+        overridden: true,
       };
     }
 
@@ -1590,6 +1737,12 @@ export class PreCommitHook {
       return { success: true, message: "No compile targets to check", exitCode: 0 };
     }
 
+    // mt#2597 R1 fix: tracks whether THIS invocation actually consulted
+    // SIZE_BUDGET_CHECK_OVERRIDE_ENV and took the skip branch below — the
+    // final success return reports `overridden: true` only when this flag
+    // was set, never from a blanket env-var presence check.
+    let overrodeSizeBudget = false;
+
     for (const target of targetsToCheck) {
       try {
         // mt#1829: `target` is from the locally-built `targetsToCheck` array
@@ -1618,6 +1771,7 @@ export class PreCommitHook {
               `active at ${ts} — size budget failure for target "${target}" skipped ` +
               `(env value not echoed)`
           );
+          overrodeSizeBudget = true;
           continue;
         }
 
@@ -1629,7 +1783,12 @@ export class PreCommitHook {
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
-    return { success: true, message: "Rules compile check passed", exitCode: 0 };
+    return {
+      success: true,
+      message: "Rules compile check passed",
+      exitCode: 0,
+      ...(overrodeSizeBudget ? { overridden: true } : {}),
+    };
   }
 
   /**

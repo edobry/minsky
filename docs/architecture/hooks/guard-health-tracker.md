@@ -66,6 +66,18 @@ firing sparsely-but-reliably across a multi-day incident (the mt#2806 "18/18 ove
 evidence) still count as one continuous streak, while an isolated failure a week later starts
 over.
 
+**Staleness age-out (mt#2814).** The gap-based rule above only resets a streak on a NEW event
+arriving with a large-enough gap — it says nothing about a guard whose log simply stops
+receiving new events. Without a recency check, a guard name that only ever appears in a single
+historical burst (a test-fixture guard name, e.g. mt#2812's own acceptance-test events for
+guard `"throws"`) would recompute the SAME streak from the SAME frozen events on every future
+read, pinning its escalation tier — including `"critical"` — forever, with no way to self-heal.
+`computeGuardHealthSummary` now also checks the MOST RECENT event's recency against `now`: if
+`now - lastEvent.timestamp > STREAK_RESET_GAP_MS`, the streak is reset to `0` regardless of how
+long the historical streak was. A guard that hasn't failed in over 24h is not an ongoing
+incident, so its streak — and any escalation derived from it — ages out rather than persisting
+indefinitely.
+
 ## Escalation thresholds
 
 Grounded per the mt#2812 spec's explicit calibration ("a gate that errors on 3+ consecutive
