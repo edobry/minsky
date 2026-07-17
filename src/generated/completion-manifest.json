@@ -1372,6 +1372,61 @@
           ]
         },
         {
+          "name": "bulk-edit",
+          "description": "Bulk-edit tasks (kind, tag add/remove) with a mandatory dry-run: the dry-run returns the full change set and a token; execute requires the token and aborts on any state drift since the dry-run",
+          "options": [
+            {
+              "flags": ["--kind"],
+              "description": "Task workflow kind — selects the state machine (implementation, umbrella, state-ops)",
+              "takesValue": true,
+              "values": ["implementation", "umbrella", "state-ops"]
+            },
+            {
+              "flags": ["--add-tag"],
+              "description": "Tag to add to every target task",
+              "takesValue": true
+            },
+            {
+              "flags": ["--remove-tag"],
+              "description": "Tag to remove from every target task",
+              "takesValue": true
+            },
+            {
+              "flags": ["--execute"],
+              "description": "Apply the approved change set (default is dry-run preview; requires the dry-run token)"
+            },
+            {
+              "flags": ["--token"],
+              "description": "Dry-run token binding the approved change set (required with execute)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier",
+              "takesValue": true
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
           "name": "delete",
           "description": "Delete a task",
           "options": [
@@ -5949,7 +6004,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | task.bulk_edit.dry_run | task.bulk_edit.executed)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -5971,7 +6026,9 @@
                 "deploy.smoke",
                 "deploy.live",
                 "deploy.fail",
-                "ask.policy_closed"
+                "ask.policy_closed",
+                "task.bulk_edit.dry_run",
+                "task.bulk_edit.executed"
               ]
             },
             {
@@ -6025,6 +6082,27 @@
               "flags": ["--related-session-id"],
               "description": "Related Minsky session ID",
               "takesValue": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "refs",
+      "description": "REFS commands",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask uuids) to their current status in one call, with not-found explicit per ref",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
             }
           ]
         }

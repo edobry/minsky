@@ -129,6 +129,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksDeleteCommand,
   } = require("./crud-commands");
   const { createTasksEditCommand } = require("./edit-commands");
+  const { createTasksBulkEditCommand } = require("./bulk-edit-command");
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
   const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
   const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
@@ -176,6 +177,7 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     ),
     createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     createTasksEditCommand(getPersistenceProvider, getTaskService),
+    createTasksBulkEditCommand(getPersistenceProvider, getTaskService),
     createTasksDeleteCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     new TasksSimilarCommand(getPersistenceProvider, getTaskService),
     new TasksSearchCommand(getPersistenceProvider, getTaskService),

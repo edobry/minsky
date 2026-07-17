@@ -53,6 +53,7 @@ export enum CommandCategory {
   PRINCIPAL_CORPUS = "PRINCIPAL_CORPUS",
   FORGE = "FORGE",
   EVENTS = "EVENTS",
+  REFS = "REFS",
 }
 
 /**
