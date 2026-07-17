@@ -114,6 +114,29 @@ export interface InlineAction {
   optionLetter?: string;
 }
 
+/**
+ * One-line consequence snippet for a collapsed inbox row (PR #2027 R2): the
+ * ask QUESTION's lead sentence, which — per the escalation-packaging
+ * contract (humility.mdc §Escalation packaging: "lead with the action") —
+ * states what the decision does. Rendered under the title so approve/reject
+ * consequences are readable without expansion or navigation. A structured
+ * per-ask blast-radius FIELD does not exist in the ask schema today; adding
+ * one is producer-side work (ask lifecycle, mt#1034) — this surfaces what
+ * the ask declares, and only that.
+ */
+export function consequenceSnippet(question: string, maxLen = 140): string {
+  const firstLine =
+    question
+      .split("\n")
+      .find((l) => l.trim().length > 0)
+      ?.trim() ?? "";
+  // Prefer a sentence boundary when one lands within the cap.
+  const period = firstLine.indexOf(". ");
+  const candidate = period > 20 && period < maxLen ? firstLine.slice(0, period + 1) : firstLine;
+  if (candidate.length <= maxLen) return candidate;
+  return `${candidate.slice(0, maxLen).trimEnd()}…`;
+}
+
 export function inlineActionsFor(ask: Pick<AskItem, "options" | "kind">): InlineAction[] {
   const actions: InlineAction[] = [];
   if (ask.options && ask.options.length > 0) {

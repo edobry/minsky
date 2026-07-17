@@ -35,6 +35,7 @@ import { formatRequestor, formatRequestorOption } from "../lib/entity-labels";
 import {
   groupAsks,
   inlineActionsFor,
+  consequenceSnippet,
   isStanding,
   STANDING_ASK_BUDGET,
   type AskGroup,
@@ -230,6 +231,10 @@ function AskRow({
                 variant={a.optionLetter === "A" ? "default" : "outline"}
                 className="h-6 px-2 text-xs"
                 disabled={pending}
+                title={
+                  ask.options?.[(a.optionLetter ?? "A").charCodeAt(0) - 65]?.description ??
+                  undefined
+                }
                 onClick={() =>
                   actions.resolveMutation.mutate({ ask, optionLetter: a.optionLetter ?? "A" })
                 }
@@ -260,6 +265,14 @@ function AskRow({
           </button>
         </div>
       </div>
+
+      {/* Collapsed consequence line (PR #2027 R2): the question's lead
+          sentence — what this decision DOES — readable without expansion. */}
+      {!expanded && (
+        <p className="truncate px-9 pb-1.5 text-xs text-muted-foreground">
+          {consequenceSnippet(ask.question)}
+        </p>
+      )}
 
       {/* Expanded: the full question + option descriptions — the decision is
           readable here, without opening the detail page. */}

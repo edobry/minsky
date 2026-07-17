@@ -6,7 +6,14 @@
  * direction.decide asks sharing a task anchor (mt#2505), and singletons.
  */
 import { describe, expect, test } from "bun:test";
-import { groupAsks, askSubject, inlineActionsFor, isStanding, STANDING_AGE_MS } from "./ask-groups";
+import {
+  groupAsks,
+  askSubject,
+  inlineActionsFor,
+  consequenceSnippet,
+  isStanding,
+  STANDING_AGE_MS,
+} from "./ask-groups";
 import type { AskItem } from "../widgets/AskDetail";
 
 const AUTH_KIND = "authorization.approve" as const;
@@ -108,6 +115,25 @@ describe("groupAsks", () => {
     const b = ask({ id: "b", kind: "quality.review", createdAt: "2026-07-17T11:00:00Z" });
     const groups = groupAsks([a, b], NOW);
     expect(groups.length).toBe(2);
+  });
+});
+
+describe("consequenceSnippet", () => {
+  test("takes the lead sentence when a boundary lands within the cap", () => {
+    expect(
+      consequenceSnippet("Approves push to prod config. Reversible via rollback within 5m.")
+    ).toBe("Approves push to prod config.");
+  });
+
+  test("truncates a long single-sentence lead with an ellipsis", () => {
+    const long = `Authorize commit in session abc: ${"x".repeat(200)}`;
+    const out = consequenceSnippet(long);
+    expect(out.length).toBeLessThanOrEqual(141);
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  test("skips leading blank lines", () => {
+    expect(consequenceSnippet("\n\nDo the thing.")).toBe("Do the thing.");
   });
 });
 
