@@ -35,6 +35,7 @@ import {
   advanceWatermarks,
   clearResolvedAskIds,
   selectAckablePaths,
+  UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
@@ -131,7 +132,7 @@ function formatResult(results: CalibrationLogResult[]): string {
         } else if ("gapMinutes" in rec) {
           lines.push(
             `    [${rec.timestamp}] gap=${rec.gapMinutes}min toolCalls=${rec.toolCallCount} ` +
-              `conversation=${rec.session_id ?? "unknown"}`
+              `conversation=${rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`
           );
         } else {
           lines.push(

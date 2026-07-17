@@ -17,6 +17,7 @@ import {
   FIRES_THRESHOLD,
   DIVERSITY_THRESHOLD,
   CALIBRATION_LOG_REGISTRY,
+  UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogEntry,
   type CalibrationRecord,
   type LogWatermark,
@@ -415,6 +416,19 @@ describe("extractDistinctPhrases", () => {
     expect(distinct.size).toBe(2);
     expect(distinct.has("conv-a")).toBe(true);
     expect(distinct.has("conv-b")).toBe(true);
+  });
+
+  test("falls back to UNKNOWN_SILENT_STRETCH_SESSION_LABEL when session_id is missing (mt#2866, PR #2004 R1)", () => {
+    // Exported so this label stays byte-for-byte identical to the one
+    // src/adapters/shared/commands/calibration.ts's formatResult uses for the
+    // same fallback case — a PR #2004 R1 non-blocking finding was that the two
+    // surfaces had silently drifted ("unknown-session" vs "unknown").
+    const records: CalibrationRecord[] = [
+      { timestamp: "t", gapMinutes: 10, toolCallCount: 15 }, // no session_id
+    ];
+    const distinct = extractDistinctPhrases(records);
+    expect(distinct.size).toBe(1);
+    expect(distinct.has(UNKNOWN_SILENT_STRETCH_SESSION_LABEL)).toBe(true);
   });
 });
 

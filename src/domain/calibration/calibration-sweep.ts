@@ -451,6 +451,16 @@ export function parseCalibrationLines(
 // ---------------------------------------------------------------------------
 
 /**
+ * Fallback label for a silent-stretch record with no `session_id` (mt#2866).
+ * Exported so every surface that renders/aggregates a silent-stretch record's
+ * conversation identity (this module's `extractDistinctPhrases` AND
+ * `src/adapters/shared/commands/calibration.ts`'s `formatResult`) uses the
+ * exact same fallback string — avoids the two surfaces silently drifting
+ * apart (PR #2004 R1 review finding).
+ */
+export const UNKNOWN_SILENT_STRETCH_SESSION_LABEL = "unknown-session";
+
+/**
  * Extract the set of distinct matched phrases from a slice of records.
  *
  * For causal-premise records: each entry in `matchedPhrases` is a phrase.
@@ -477,7 +487,7 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
     } else if ("gapMinutes" in rec) {
       // silent-stretch: diversity axis is distinct conversations (session_id),
       // not phrases — mirrors the policy-coverage `reason` axis above.
-      phrases.add(rec.session_id ?? "unknown-session");
+      phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
