@@ -26,6 +26,9 @@ import type { CommandExecutionContext } from "../command-registry";
 import { MinskyError } from "@minsky/domain/errors/index";
 import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { classifyMergeError, withOriginalMessage } from "./session/merge-error-classification";
 
 // ── Internal helper: resolve a ForgeBackend from config ───────────────────
 
@@ -242,9 +245,43 @@ sharedCommandRegistry.registerCommand({
   requiresSetup: true,
   execute: async (params, ctx: CommandExecutionContext) => {
     const sha = params.sha as string;
-    const backend = await resolveForgeBackend(ctx);
-    const result = await backend.ci.getChecksForRef(sha);
-    return { success: true, ...result };
+    try {
+      const backend = await resolveForgeBackend(ctx);
+      const result = await backend.ci.getChecksForRef(sha);
+      return { success: true, ...result };
+    } catch (error) {
+      // mt#2888: classify rate-limit/degraded(5xx) GitHub failures with the
+      // same vocabulary session.pr.merge/session.pr.checks use (mt#2890's
+      // classifyMergeError/withOriginalMessage). By the time an error
+      // reaches here, backend.ci.getChecksForRef -> handleOctokitError has
+      // already stripped any raw HTML body.
+      const errorClass = classifyMergeError(error);
+      const originalMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorClass.kind === "rate-limit") {
+        throw mcpStructuredError({
+          code: McpErrorCode.RATE_LIMITED,
+          summary: withOriginalMessage(
+            "GitHub API rate limit exceeded while listing check-runs — wait a few minutes before retrying",
+            originalMessage
+          ),
+          details: { originalMessage },
+        });
+      }
+      if (errorClass.kind === "degraded") {
+        const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+        throw mcpStructuredError({
+          code: McpErrorCode.SERVICE_DEGRADED,
+          summary: withOriginalMessage(
+            `GitHub API degraded/unavailable while listing check-runs${statusSuffix}`,
+            originalMessage
+          ),
+          details: { originalMessage },
+        });
+      }
+
+      throw error;
+    }
   },
 });
 

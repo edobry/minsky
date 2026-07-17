@@ -10,6 +10,9 @@ import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrChecksCommandParams } from "./session-parameters";
 import { sessionPrChecks } from "@minsky/domain/session/commands/pr-subcommands";
 import type { CheckRunResult } from "@minsky/domain/repository/github-pr-checks";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { classifyMergeError, withOriginalMessage } from "./merge-error-classification";
 
 // ── Formatting helpers ───────────────────────────────────────────────────
 
@@ -95,6 +98,39 @@ export function createSessionPrChecksCommand(getDeps: LazySessionDeps): CommandD
 
         return { success: true, message: lines.join("\n") };
       } catch (error) {
+        // mt#2888: classify rate-limit/degraded(5xx) GitHub failures with the
+        // same vocabulary session.pr.merge already uses (mt#2890's
+        // classifyMergeError/withOriginalMessage), instead of a generic
+        // MinskyError wrap. By the time an error reaches here, the domain
+        // layer (getChecksForPR/getChecksForRef -> handleOctokitError) has
+        // already stripped any raw HTML body — this only adds the
+        // machine-readable `code` + one-line excerpt for the two known
+        // transient-transport classes.
+        const errorClass = classifyMergeError(error);
+        const originalMessage = error instanceof Error ? error.message : String(error);
+
+        if (errorClass.kind === "rate-limit") {
+          throw mcpStructuredError({
+            code: McpErrorCode.RATE_LIMITED,
+            summary: withOriginalMessage(
+              "GitHub API rate limit exceeded while fetching PR checks — wait a few minutes before retrying",
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
+        }
+        if (errorClass.kind === "degraded") {
+          const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+          throw mcpStructuredError({
+            code: McpErrorCode.SERVICE_DEGRADED,
+            summary: withOriginalMessage(
+              `GitHub API degraded/unavailable while fetching PR checks${statusSuffix}`,
+              originalMessage
+            ),
+            details: { originalMessage },
+          });
+        }
+
         throw new MinskyError(`Failed to get session PR checks: ${getErrorMessage(error)}`);
       }
     }),

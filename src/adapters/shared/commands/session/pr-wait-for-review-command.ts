@@ -13,6 +13,9 @@ import {
   ValidationError,
   getErrorMessage,
 } from "@minsky/domain/errors/index";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { classifyMergeError, withOriginalMessage } from "./merge-error-classification";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrWaitForReviewCommandParams } from "./session-parameters";
 import { sessionPrWaitForReview } from "@minsky/domain/session/commands/pr-subcommands";
@@ -181,11 +184,44 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
           // on ResourceNotFoundError (missing PR) vs ValidationError
           // (invalid --since) vs generic MinskyError. Only wrap truly
           // unknown errors to avoid swallowing unexpected failures silently.
-          if (
-            error instanceof ResourceNotFoundError ||
-            error instanceof ValidationError ||
-            error instanceof MinskyError
-          ) {
+          if (error instanceof ResourceNotFoundError || error instanceof ValidationError) {
+            throw error;
+          }
+
+          // mt#2888: classify rate-limit/degraded(5xx) GitHub failures
+          // before falling through to the generic MinskyError wrap — same
+          // vocabulary as session.pr.merge (mt#2890's classifyMergeError /
+          // withOriginalMessage). A plain MinskyError from a domain layer
+          // that already classified its own failure (e.g. a
+          // ResourceNotFoundError-adjacent case) still passes through
+          // classifyMergeError harmlessly (its message won't match either
+          // pattern and falls to the generic wrap below).
+          const errorClass = classifyMergeError(error);
+          const originalMessage = error instanceof Error ? error.message : String(error);
+
+          if (errorClass.kind === "rate-limit") {
+            throw mcpStructuredError({
+              code: McpErrorCode.RATE_LIMITED,
+              summary: withOriginalMessage(
+                "GitHub API rate limit exceeded while waiting for PR review — wait a few minutes before retrying",
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+          if (errorClass.kind === "degraded") {
+            const statusSuffix = errorClass.status ? ` (HTTP ${errorClass.status})` : "";
+            throw mcpStructuredError({
+              code: McpErrorCode.SERVICE_DEGRADED,
+              summary: withOriginalMessage(
+                `GitHub API degraded/unavailable while waiting for PR review${statusSuffix}`,
+                originalMessage
+              ),
+              details: { originalMessage },
+            });
+          }
+
+          if (error instanceof MinskyError) {
             throw error;
           }
           throw new MinskyError(`Failed to wait for session PR review: ${getErrorMessage(error)}`);
