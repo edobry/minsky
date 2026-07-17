@@ -124,7 +124,13 @@ chat prose is advisory only, per the Plan decision recorded in mt#2827.
   artifacts, queued work with task ids + statuses + next actions, open threads, recommended
   next sessions, resume recommendation) as plain markdown — same no-tables discipline as chat
   output (see step 9)
-- `tags`: include `handoff` plus every task ID touched (e.g. `mt#2827`)
+- `scope`: `"project"` — a handoff is project-grain state. Do NOT pass `projectId` explicitly:
+  `memory_create` resolves the current project from the working directory (the same
+  ADR-021 resolution the read side uses), and a hand-supplied id risks mis-scoping the
+  entry to the wrong project. Only pass it when deliberately writing a handoff for a
+  DIFFERENT project than the cwd resolves to.
+- `tags`: include `handoff`, the cluster/workstream tag if one exists (e.g.
+  `gap-analysis-2026-07`), plus every task ID touched (e.g. `mt#2827`)
 
 Capture the returned memory `id` (uuid) — the chat pointer in step 9 links to it.
 
@@ -134,7 +140,10 @@ Chat output is a **pointer plus a compact human summary** — never the full pay
 and never a substitute for the durable record written in step 8. Render:
 
 1. A `minsky://memory/<uuid>` deeplink to the memory entry from step 8, per
-   `cockpit-deeplinks.mdc` (label: a short readable description, not the raw uuid).
+   `cockpit-deeplinks.mdc` (label: a short readable description, not the raw uuid). Also
+   state the id's first 8 hex characters in plain text next to the link (e.g.
+   "memory `bd38be2c`") — if the link degrades or the paste mangles the URL, the prefix
+   alone recovers the entry via `memory_get`'s prefix resolution.
 2. A **plain-markdown** summary per `## Output format` below — headings and `-` bullet lists
    only. **Never render a pipe (`|`) table or Unicode box-drawing characters anywhere in
    handoff chat output** — see "Why no tables" in `## Output format`.
