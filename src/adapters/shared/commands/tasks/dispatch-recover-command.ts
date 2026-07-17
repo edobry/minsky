@@ -471,12 +471,39 @@ export function createTasksDispatchRecoverCommand(
       } else {
         // mt#2831 R1 BLOCKING #1: overwrite the current-invocation marker so the
         // NEXT SubagentStop event for this session binds to THIS (resumed) row —
-        // not the just-closed original. Best-effort; a write failure here just
-        // means the eventual Stop event falls back to the heuristic upsert path.
-        const { writeCurrentInvocationMarker } = await import(
-          "@minsky/domain/session/current-invocation-marker"
-        );
-        await writeCurrentInvocationMarker(sessionDir, subagentSessionId, newInvocationId);
+        // not the just-closed original. Best-effort; a write failure here must
+        // NOT abort the recover command — the marker is a deterministic-
+        // attribution OPTIMIZATION (the tracker's heuristic open-row-first
+        // fallback exists for exactly the case where no marker is available),
+        // not a correctness requirement for returning the continuation prompt.
+        // mt#2831 R3 BLOCKING #2: `writeCurrentInvocationMarker` itself already
+        // swallows write errors internally (returns `false`), but the dynamic
+        // `import(...)` above it is NOT inside that try/catch — a module
+        // resolution failure there would throw and abort this whole command.
+        // Wrap the entire block so ANY failure here (import or write) degrades
+        // to a logged warning, never a thrown error.
+        try {
+          const { writeCurrentInvocationMarker } = await import(
+            "@minsky/domain/session/current-invocation-marker"
+          );
+          const wrote = await writeCurrentInvocationMarker(
+            sessionDir,
+            subagentSessionId,
+            newInvocationId
+          );
+          if (!wrote) {
+            log.warn("[tasks.dispatch-recover] Failed to write current-invocation marker", {
+              taskId,
+              sessionDir,
+            });
+          }
+        } catch (err) {
+          log.warn("[tasks.dispatch-recover] current-invocation marker write threw unexpectedly", {
+            taskId,
+            sessionDir,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       return {

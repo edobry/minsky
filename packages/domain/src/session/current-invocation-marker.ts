@@ -1,3 +1,6 @@
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+
 /**
  * Current-invocation marker (mt#2831 R1 BLOCKING #1) — the "thread the invocation
  * id" mechanism that lets the SubagentStop hook bind a Stop-time update to the
@@ -40,6 +43,14 @@ export function getCurrentInvocationMarkerPath(sessionDir: string, sessionId: st
  * write error and returns `false` rather than throwing — writing this marker is
  * a best-effort deterministic-attribution aid, not a correctness-critical write
  * (the tracker's heuristic fallback still functions if this never lands).
+ *
+ * mt#2831 R3 BLOCKING #1: `.minsky/sessions/<sessionId>/` does not necessarily
+ * exist yet — a fresh session (or one that has never had a handoff.md written)
+ * has no `.minsky/sessions/` tree at all under its workspace root. `Bun.write`
+ * does NOT create missing parent directories, so the first marker write for
+ * such a session would fail with ENOENT. `mkdir(..., { recursive: true })`
+ * first makes this idempotent and safe regardless of whether the directory
+ * already exists.
  */
 export async function writeCurrentInvocationMarker(
   sessionDir: string,
@@ -48,6 +59,7 @@ export async function writeCurrentInvocationMarker(
 ): Promise<boolean> {
   try {
     const path = getCurrentInvocationMarkerPath(sessionDir, sessionId);
+    await mkdir(dirname(path), { recursive: true });
     await Bun.write(path, invocationId);
     return true;
   } catch {

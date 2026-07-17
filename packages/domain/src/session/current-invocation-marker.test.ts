@@ -2,7 +2,7 @@
    requires real file I/O against a scratch tmp dir (mirrors the pattern already used for
    dispatch-recovery-probe's sibling handoff.md convention). */
 import { describe, test, expect, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync as fsExistsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -69,5 +69,24 @@ describe("current-invocation-marker", () => {
     // A path under a directory that doesn't exist and won't be created by read.
     const result = await readCurrentInvocationMarker("/nonexistent-mt2831-dir", "sess-1");
     expect(result).toBeNull();
+  });
+
+  test("write creates the missing parent directory tree (mt#2831 R3 BLOCKING #1 — fresh session dir)", async () => {
+    // Deliberately does NOT mkdtempSync a real directory first — mirrors a fresh
+    // session workspace that has never had `.minsky/sessions/<id>/` created (no
+    // handoff.md, no prior marker write). Only the TOP-level scratch dir is
+    // guaranteed to exist (created once, below); the `.minsky/sessions/<id>/`
+    // subtree under it must be created BY the write itself.
+    const parentDir = mkdtempSync(join(tmpdir(), "mt2831-marker-freshsession-"));
+    dirs.push(parentDir);
+    const sessionDir = join(parentDir, "brand-new-session-workspace");
+    // Confirm the precondition: sessionDir itself does not exist yet.
+    expect(fsExistsSync(sessionDir)).toBe(false);
+
+    const ok = await writeCurrentInvocationMarker(sessionDir, "sess-fresh", "invocation-xyz");
+    expect(ok).toBe(true);
+
+    const result = await readCurrentInvocationMarker(sessionDir, "sess-fresh");
+    expect(result).toBe("invocation-xyz");
   });
 });

@@ -205,6 +205,20 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // unreadable marker (pre-mt#2831 session, or a write that never landed) falls
   // through to `undefined`, and the tracker uses its heuristic fallback —
   // unchanged behavior from before this mechanism existed.
+  // mt#2831 R3 NB #4: kept as a DYNAMIC import deliberately, matching every other
+  // packages/domain/src/mcp import already in this file (workspace-classifier,
+  // transcript-metrics, persistence/factory, drizzle-session-repository,
+  // subagent-dispatch-tracker, all above). This hook is a documented, deliberate
+  // EXCEPTION to the SPEC.md self-containment invariant the original six
+  // typecheck/workflow hooks hold to ("self-contained — no imports from src/, so
+  // they work even when the main codebase has type errors") — see
+  // docs/architecture/hooks/subagent-merge-capability-guard.md, which explicitly
+  // calls out this file's DB-backed resolution strategy as the invariant OTHER
+  // guards must not replicate. Even as an exception, the imports stay DYNAMIC so
+  // the domain-module load cost is paid only when a SubagentStop actually fires
+  // and this code path is reached — not at hook-registration time for every
+  // Claude Code event this hook (or the dispatcher framework) touches. A static
+  // import here would front-load that cost unconditionally.
   let markerInvocationId: string | undefined;
   if (subagentSessionId) {
     const { readCurrentInvocationMarker } = await import(
