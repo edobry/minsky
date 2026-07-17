@@ -94,6 +94,18 @@
         ]
       },
       {
+        "_comment": "mt#2823 approved-Ask permission bridge. Deliberately STANDALONE (not GUARD_REGISTRY/dispatcher): it emits permissionDecision ALLOW, which the dispatcher's deny-aggregation contract does not carry — mirrors parallel-work-guard's standalone precedent. Harness deny-precedence means any sibling hook's deny still outranks this hook's allow.",
+        "matcher": "Bash|mcp__minsky__session_exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/ask-permission-bridge.ts",
+            "timeout": 60,
+            "statusMessage": "Checking approved-Ask action grants..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__github__create_pull_request|mcp__github__update_pull_request|mcp__github__merge_pull_request|mcp__github__pull_request_review_write",
         "hooks": [
           {

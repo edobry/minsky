@@ -1354,6 +1354,23 @@ valid, unexpired capability grant (ADR-028 D5 default-deny). Grant:
 store/no-match is default-deny working.
 Doc: `subagent-merge-capability-guard.md`.
 
+## Ask-Permission Bridge
+
+PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — NOT dispatcher-migrated; the
+dispatcher's deny-aggregation contract doesn't carry `allow`): when the pending command matches a
+live one-shot ask-grant AND the referenced `authorization.approve` Ask re-verifies server-side as
+operator-approved (kind + `responder === "operator"` + approving value), emits the harness
+`permissionDecision: allow` with an audit reason + `hook.fired {decision:"overridden"}` event —
+an operator-approved Ask authorizes the action without a second manual approval (mt#2823).
+Issuance (verifies before writing; refuses overbroad patterns; TTL default 15m, one-shot):
+`bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
+`ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override (additive
+allow-path; no-grant is the default flow). Fail: silent defer on no-grant / store-error /
+verification-unavailable — never allows on unverifiable state; DENY only on
+grant-present-but-ask-unverified (fabrication signal). Residual risk: responder attribution
+unauthenticated until mt#2898. Deny-precedence: any sibling hook's deny outranks this allow.
+Doc: `ask-permission-bridge.md`.
+
 ## Guard-Health Tracker + Escalation Detector
 
 Not a permission gate — surfaces guard-layer failures instead of silence (mt#2812).
