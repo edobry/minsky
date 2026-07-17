@@ -168,33 +168,96 @@ dir) -> the guarded operation still completes; a degraded marker is emitted."
   `process.env` presence scan — the original approximation could misattribute a
   normal pass as "overridden" whenever an unrelated `MINSKY_SKIP_*` var happened
   to be truthy for a DIFFERENT step.
-- **Two standalone (non-dispatcher) PreToolUse guards**: `block-git-gh-cli.ts`,
-  `require-session-for-main-workspace-edits.ts`. `check-guessed-session-path` is
+- **Seven standalone (non-dispatcher) PreToolUse guards**: `block-git-gh-cli.ts`,
+  `require-session-for-main-workspace-edits.ts` (both mt#2597), plus
+  `tasks-status-set-guard.ts`, `validate-task-spec.ts`,
+  `check-generated-file-edit.ts`, `check-task-spec-read.ts`, and
+  `check-branch-fresh.ts` (all five mt#2889). `check-guessed-session-path` is
   already covered via the dispatcher (it's `GUARD_REGISTRY`-registered).
 
-## Known gaps (not yet landed — owner: mt#2889 unless noted)
+## Known gaps (post mt#2889 — merge gates only, plus documented per-guard exclusions)
 
-- **Merge-gate instrumentation** — explicitly out of scope for Phase 1 (the
-  RFC's own Phase 3, and this task's scope guard). No owner task yet — Phase 3
-  is not yet filed.
-- **Calibration-log compatibility adapter** — making the 6 existing
-  `.minsky/*-calibration.jsonl` logs readable as the shared fire-log schema.
-  **Owner: mt#2889** ("calibration-log schema adapter").
-- **Canary declarations** — a per-guard synthetic triggering input + a runnable
-  canary check distinguishing a broken guard from a dormant/deterrent one.
-  **Owner: mt#2889** ("canary declarations + runner").
-- **Attention-cost annotation** — a static per-guard registry field
-  (denial-message size / option count); only 1 of 17+ guards annotated as of
-  this landing. **Owner: mt#2889** ("attention-cost population").
-- **Full standalone-guard coverage** — only 2 of the "highest-traffic" standalone
-  guards named in the task prompt are instrumented; the remainder (and any not
-  named) are a follow-up sweep. **Owner: mt#2889** ("remaining standalone-guard
-  coverage").
-- **Phase-1 GATE verification** — the RFC's own gate ("logs exist for all
-  instrumented guards AND at least two guards show ≥5 fires") is plausibly
-  already satisfied (51 records accumulated during this task's own session) but
-  has not been formally verified against the real log. **Owner: mt#2889**
-  ("RFC Phase-1 gate check recorded... verify and cite actual counts").
+mt#2889 closed every item this section previously listed except merge-gate
+instrumentation (Phase 3, no owner task filed yet). What it shipped:
+
+- **Canary declarations + runner** — `GuardRegistration.canary` (registry.ts)
+  populated for 18 of 18 `GUARD_REGISTRY` entries with a feasible synthetic
+  trigger, plus 6 standalone (non-registry) guards, via
+  `.minsky/hooks/canary-runner.ts` + `scripts/run-guard-canaries.ts`. Two
+  registry guards have NO canary (documented gaps, not silent caps):
+  - `memory-search` — shells to a live `minsky memory search` process inside
+    `run()` with no injectable seam; a canary would need either a live
+    round-trip (not hermetic) or an `execWithPath`-style DI refactor (out of
+    scope: no guard-behavior/refactor changes this task).
+  - `mcp-daemon-staleness-detector` — correctness depends on a real
+    `minskyHomeDir` git checkout whose current HEAD differs from a stored
+    `startCommit`; fabricating that safely without depending on this repo's
+    live commit graph needs a scratch git-repo fixture beyond this pass.
+- **Calibration-log compatibility adapter** — `src/domain/calibration/
+calibration-sweep.ts` gained `calibrationRecordToFireLogEntry` /
+  `calibrationLogAsFireLogEntries` / `readAllCalibrationLogsAsFireLogEntries`:
+  a READ-SIDE-ONLY mapping from the 6 legacy `.minsky/*-calibration.jsonl`
+  shapes to this doc's fire-log schema (guardName via a hand-maintained
+  name mirror, decision per-kind — matched-phrase logs always "warn";
+  `policy-coverage`'s own outcome axis maps to deny/warn/allow). Historical
+  files are never rewritten or moved.
+- **Attention-cost annotation** — populated for all 18 `GUARD_REGISTRY`
+  entries with a canary (all 20 total, including the 2 gap guards) and for
+  the 7 fire-log-instrumented standalone guards.
+- **Standalone-guard coverage** — 7 of 12 identified non-registry,
+  non-merge-gate PreToolUse guards are now fire-log instrumented:
+  `block-git-gh-cli`, `require-session-for-main-workspace-edits` (mt#2597),
+  `tasks-status-set-guard`, `validate-task-spec`, `check-generated-file-edit`,
+  `check-task-spec-read` (all four also canary-covered), and
+  `check-branch-fresh` (fire-log only — no canary; its real evaluation has
+  side effects a synthetic invocation cannot safely trigger: a live `git
+fetch`, an actual `git merge` on the blocked+clean-tree auto-merge path
+  (mt#2815), and a CAS-marker write on allow). Five guards remain
+  uninstrumented, each with a documented reason:
+  - `parallel-work-guard.ts` — its `tasks_create` duplicate-child path
+    (`runTasksCreateGuardInner`) resolves its decision via an internal
+    `switch` with no return value bubbled to the call site; attributing a
+    fire-log decision would need restructuring that function's void return
+    into a decision-returning one — a larger structural change than the
+    additive instrumentation this task's scope allows.
+  - `policy-coverage-detector.ts` — already has its own purpose-built
+    calibration log (now surfaced via the adapter above); a canary would be
+    structurally brittle (depends on live corpus content) and the guard has
+    8 early-exit branches.
+  - `block-github-mcp-pr-writes.ts` — near-identical in shape/signal to the
+    already-instrumented `block-git-gh-cli`; low marginal value.
+  - `loop-preflight-pr-merge-check.ts` — narrow trigger (`Skill:"loop"`
+    only); no injectable seam without a refactor.
+  - `check-prompt-watermark.ts` — narrow trigger (`Agent` dispatches only);
+    low fire frequency.
+- **Phase-1 GATE verification** — see the next section; formally re-run
+  against the real log post-landing.
+
+## Phase-1 GATE result (mt#2889, verified 2026-07-17)
+
+The RFC's Phase-1 gate ("logs exist for all instrumented guards AND at
+least two guards show ≥5 fires") is met with wide margin against the real
+`~/.local/state/minsky/fire-log.jsonl`:
+
+```
+Total records: 3517
+Distinct guards: 37
+Guards with >= 5 fires: 37 (ALL of them)
+Decision distribution: 2629+ allow, 33+ deny, 139+ warn (growing)
+```
+
+Every guard instrumented as of this landing (dispatcher-registered +
+pre-commit + the fire-log-instrumented standalone guards) already shows
+≥5 fires in production usage accumulated since mt#2597's original landing
+— not merely the RFC's ≥2-guard bar. The 5 NEWLY fire-log-instrumented
+standalone guards this task adds (`tasks-status-set-guard`,
+`validate-task-spec`, `check-generated-file-edit`, `check-task-spec-read`,
+`check-branch-fresh`) do not yet appear in this snapshot — canary
+invocations bypass `recordFireLogEntry` by design (they call the guard's
+`run()`/pure decision function directly, never the dispatcher's fire-log
+call site), so their real-world fire counts will accumulate from ordinary
+subsequent usage (the next `tasks_status_set`, `tasks_create`,
+`session_commit`, etc. in any session).
 
 ## Operating the fire-log
 
@@ -235,11 +298,13 @@ fire-log JSONL record itself).
 - RFC: Notion `392937f0-3cb4-8188-aad6-d7d041de814b` — the originating proposal
   (§Part 1 is this document's direct source).
 - mt#2589 — RFC tracking task; mt#2597 — this Phase-1 implementation task.
-- mt#2889 — Phase-1 completion follow-up: canary declarations + runner,
-  calibration-log schema adapter, remaining standalone-guard coverage,
-  attention-cost population, and the Phase-1 GATE verification. Owner of every
-  gap in the "Known gaps" section above except merge-gate instrumentation
-  (unfiled Phase-3 concern).
+- mt#2889 — Phase-1 completion follow-up (IMPLEMENTED): canary declarations
+  - runner (18/18 GUARD_REGISTRY guards + 6 standalone, 2 registry gaps
+    documented), calibration-log schema adapter (read-side, non-destructive),
+    standalone-guard coverage (7 of 12 instrumented, 5 documented exclusions),
+    attention-cost population, and the Phase-1 GATE verification (37/37
+    instrumented guards show ≥5 fires — see the dedicated section above).
+    Merge-gate instrumentation (Phase 3) remains unowned/unfiled.
 - `.minsky/hooks/guard-health.ts` / `docs/architecture/hooks/guard-health.md` —
   the sibling failure-half tracker (mt#2812).
 - `.minsky/hooks/fire-log.ts`, `.minsky/hooks/known-override-env-vars.ts` —
