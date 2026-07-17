@@ -426,6 +426,101 @@ describe("runGitCommandWithLockHandling", () => {
       expect(existsSync(lockPath)).toBe(false);
     }
   );
+
+  // R1 non-regression matrix (mt#2886 PR #2031 review): pin BOTH repairLock
+  // branches against a genuinely PERSISTENT (LIVE, never-resolving) lock —
+  // the "without repairLock" test above already covers the false branch
+  // against a stale-but-persistent-because-never-repaired lock; this test
+  // covers the true branch against a LIVE (unrepairable — busy, not stale)
+  // lock, confirming repairIndexLock's OWN actionable busy error propagates
+  // unchanged after the retry budget exhausts — not swallowed, not replaced
+  // by a generic failure, not silence.
+  test(
+    "with repairLock: true — persistent LIVE (non-stale) lock: retries exhaust, then " +
+      "repairIndexLock's own busy error propagates unchanged (not swallowed)",
+    async () => {
+      // A REAL subprocess holds an open fd on the lock for the whole test —
+      // this is "busy", not "stale", so repairIndexLock must refuse to
+      // remove it (mirrors the "acceptance: a live-held lock" test above).
+      const holder = spawn("sh", ["-c", `exec 3<> ${JSON.stringify(lockPath)}; sleep 5`], {
+        cwd: repoPath,
+        stdio: "ignore",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(existsSync(lockPath)).toBe(true);
+
+      try {
+        const deps = {
+          execAsync: async (command: string) => {
+            if (
+              command.startsWith("git -C") &&
+              command.includes("status") &&
+              existsSync(lockPath)
+            ) {
+              throw Object.assign(new Error("blocked"), {
+                stderr: `fatal: Unable to create '${lockPath}': File exists.`,
+              });
+            }
+            return realExec(command);
+          },
+        };
+
+        await expect(
+          runGitCommandWithLockHandling(`git -C ${JSON.stringify(repoPath)} status`, deps, {
+            repoPath,
+            repairLock: true,
+            retryBackoffMs: [0, 0, 0],
+            sleep: async () => {},
+          })
+        ).rejects.toThrow(/busy, not stale/);
+        // The live-held lock must NOT have been removed by the failed
+        // repair attempt — repairIndexLock refuses, it doesn't silently no-op.
+        expect(existsSync(lockPath)).toBe(true);
+      } finally {
+        holder.kill("SIGKILL");
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await rm(lockPath, { force: true });
+      }
+    },
+    10000
+  );
+});
+
+describe("extractStderr fallback (mt#2886 R1 hardening)", () => {
+  test("falls back to .message when .stderr is absent — a lock-blocked rejection with no .stderr is still classified correctly", async () => {
+    // Simulates an exec rejection shape where .stderr is missing (some
+    // Node child_process failure modes omit it) but .message carries the
+    // same diagnostic text — the conventional `Command failed: ...\n<stderr>`
+    // shape. Without the fallback, this would misclassify as a non-lock
+    // error and bail out of the retry loop immediately.
+    let call = 0;
+    const deps = {
+      execAsync: async (command: string) => {
+        if (command.includes("rev-parse")) {
+          // Diagnostic call inside the fallthrough busy-error path — let
+          // it "succeed" with a fake git-dir so the enrichment message
+          // forms (mirrors the sibling pure-mock test above).
+          return { stdout: "/scratch/.git\n", stderr: "" };
+        }
+        call++;
+        throw new Error(
+          "Command failed: git status\nfatal: Unable to create '/scratch/.git/index.lock': File exists."
+        );
+        // Deliberately NOT attaching a `.stderr` property.
+      },
+    };
+
+    await expect(
+      runGitCommandWithLockHandling("git status", deps, {
+        repoPath: "/scratch",
+        retryBackoffMs: [0, 0],
+        sleep: async () => {},
+      })
+    ).rejects.toThrow(/repairLock: true/);
+    // Correctly retried through the FULL budget (not bailed early on the
+    // first missing-.stderr rejection) before falling through.
+    expect(call).toBe(3);
+  });
 });
 
 /** Shared fixture stderr for the pure-mock retry-backoff tests below. */

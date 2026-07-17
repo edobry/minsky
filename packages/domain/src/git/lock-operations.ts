@@ -456,11 +456,35 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Extract `stderr` from an exec-style rejection, tolerating non-Error shapes. */
+/**
+ * Extract `stderr` from an exec-style rejection, tolerating non-Error
+ * shapes. Falls back to `.message` when `.stderr` is absent or empty
+ * (mt#2886 R1 hardening): Node's `child_process.exec` error shape is not
+ * guaranteed across every failure mode (e.g. some rejection paths omit
+ * `.stderr` or set it to an empty string), and `.message` for an exec
+ * rejection conventionally embeds the same stderr text (Node's own
+ * convention: `Command failed: <cmd>\n<stderr>`). Without this fallback, a
+ * lock-blocked rejection whose `.stderr` happens to be missing/empty would
+ * fail `isIndexLockError` classification and be treated as a NON-lock
+ * error — inside the retry loop, that means throwing the raw rejection
+ * immediately instead of continuing to retry or falling through to the
+ * enriched actionable busy error. This fallback closes that
+ * misclassification gap without narrowing the well-formed case (a
+ * populated `.stderr` is still checked first and normally suffices).
+ */
 function extractStderr(err: unknown): string {
-  return err !== null && typeof err === "object" && "stderr" in err
-    ? String((err as { stderr: unknown }).stderr ?? "")
-    : "";
+  if (err !== null && typeof err === "object") {
+    const errObj = err as { stderr?: unknown; message?: unknown };
+    const stderrText = typeof errObj.stderr === "string" ? errObj.stderr : "";
+    if (stderrText) {
+      return stderrText;
+    }
+    const messageText = typeof errObj.message === "string" ? errObj.message : "";
+    if (messageText) {
+      return messageText;
+    }
+  }
+  return "";
 }
 
 /**

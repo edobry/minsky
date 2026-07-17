@@ -38,10 +38,16 @@
  *     through the FIXED `runGitCommandWithLockHandling` (mt#2886's
  *     bounded retry-backoff) — demonstrating the fix absorbs the
  *     transient race.
- *   Phase 4 — Non-regression: a genuinely persistent (EXTERNAL-style)
- *     lock hold well beyond the retry budget — the FIXED path must still
- *     surface the actionable busy error, bounded by ~2s, not hang
- *     indefinitely and not silently succeed.
+ *   Phase 4 — Non-regression, repairLock: false (default): a genuinely
+ *     persistent (EXTERNAL-style) lock hold well beyond the retry budget —
+ *     the FIXED path must still surface the actionable enriched busy
+ *     error, bounded by ~2s, not hang indefinitely and not silently
+ *     succeed.
+ *   Phase 5 — Non-regression, repairLock: true (PR #2031 R1 addition): the
+ *     SAME persistent LIVE lock, but with `repairLock: true` — the retry
+ *     budget must still exhaust first, then `repairIndexLock`'s OWN busy
+ *     error ("busy, not stale") must propagate unchanged, not be swallowed
+ *     or replaced by a generic failure.
  *
  * Runnable: `bun scripts/repro-mt2886-lock-race.ts`. Exit 0 = all phases
  * behaved as expected, non-zero = a phase's assertion failed.
@@ -51,7 +57,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { exec, spawn } from "child_process";
+import { exec, spawn, type ChildProcess } from "child_process";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
@@ -78,6 +84,53 @@ async function setupRepo(): Promise<{ tmpBase: string; repoPath: string; lockPat
   const gitDir = await git(repoPath, "rev-parse", "--absolute-git-dir");
   const lockPath = join(gitDir, "index.lock");
   return { tmpBase, repoPath, lockPath };
+}
+
+/**
+ * Spawn an independent OS process that acquires `.git/index.lock` via a
+ * TRUE exclusive-create — `fs.openSync(path, "wx")`, i.e.
+ * `O_WRONLY|O_CREAT|O_EXCL` — faithfully mirroring git's own lockfile
+ * acquisition protocol (`lockfile.c`'s `hold_lock_file_for_update` opens
+ * with the same `O_CREAT|O_EXCL` combination, so it fails with EEXIST if
+ * the path is already locked, exactly like this helper does). PR #2031 R1:
+ * the prior version used a shell `exec 3>path` redirect, which is a
+ * truncate-and-open (`O_WRONLY|O_CREAT|O_TRUNC`) — NOT exclusive — so it
+ * would silently succeed even if the file already existed, unlike git's
+ * real acquire. This helper is the faithful mirror instead.
+ *
+ * Runs in a genuinely separate process (not just an in-process fd) so it
+ * represents "a different OS process holds this lock" — the exact
+ * condition mt#2886 investigates — not merely a same-process open handle.
+ * The close-listener is attached BEFORE any other await, per the
+ * documented Node child_process race (a fast-finishing holder can close —
+ * and fire its event — before a later `.on("close", ...)` attachment would
+ * ever see it).
+ */
+function spawnExclusiveLockHolder(
+  lockPath: string,
+  holdMs: number
+): { proc: ChildProcess; closed: Promise<unknown> } {
+  const code = `
+    const fs = require("fs");
+    const [lockPath, holdMsStr] = process.argv.slice(1);
+    const holdMs = Number(holdMsStr);
+    let fd;
+    try {
+      fd = fs.openSync(lockPath, "wx");
+    } catch (e) {
+      console.error("ACQUIRE_FAILED:" + (e && e.message));
+      process.exit(2);
+    }
+    fs.closeSync(fd);
+    await new Promise((r) => setTimeout(r, holdMs));
+    fs.rmSync(lockPath, { force: true });
+  `;
+  const proc = spawn("bun", ["-e", code, "--", lockPath, String(holdMs)], { stdio: "ignore" });
+  const closed = new Promise((resolve, reject) => {
+    proc.on("close", resolve);
+    proc.on("error", reject);
+  });
+  return { proc, closed };
 }
 
 /** Spawn a child process that loops N real `git commit --allow-empty` calls as fast as possible. */
@@ -131,36 +184,19 @@ async function phase1RawNaturalRace(repoPath: string): Promise<{ pass: boolean; 
 
 /**
  * Phase 2: controlled residual-window reproduction. Process A ("dying
- * process's untracked subprocess") manually acquires `.git/index.lock`
- * (mirroring git's own O_CREAT|O_EXCL acquire) and holds it open for
- * `holdMs`, then releases it. Process B ("freshly spawned sibling
- * process's new git_* call") starts ~0ms later and attempts a REAL git
- * write with NO retry (raw). Demonstrates the exact race class mt#2886's
- * spec describes is reachable when the windows overlap.
+ * process's untracked subprocess") acquires `.git/index.lock` via a TRUE
+ * exclusive-create (mirroring git's own O_CREAT|O_EXCL acquire) and holds
+ * it open for `holdMs`, then releases it. Process B ("freshly spawned
+ * sibling process's new git_* call") starts ~0ms later and attempts a REAL
+ * git write with NO retry (raw). Demonstrates the exact race class
+ * mt#2886's spec describes is reachable when the windows overlap.
  */
 async function phase2ControlledRaceRaw(
   repoPath: string,
   lockPath: string,
   holdMs: number
 ): Promise<{ pass: boolean; detail: string; raced: boolean }> {
-  // Process A: acquire the lock exactly as git does (exclusive create),
-  // hold it open for holdMs, then release — simulating a subprocess still
-  // winding down after its owning MCP server process began exiting.
-  const holderScript = `
-    exec 3>${shellQuote(lockPath)}
-    sleep ${(holdMs / 1000).toFixed(3)}
-    exec 3>&-
-    rm -f ${shellQuote(lockPath)}
-  `;
-  const holder = spawn("sh", ["-c", holderScript], { stdio: "ignore" });
-  // Attach the close-listener IMMEDIATELY, before any other await — a
-  // fast-finishing holder can close (and fire its event) before a later
-  // `.on("close", ...)` attachment would ever see it (Node EventEmitters
-  // do not replay missed events to late listeners).
-  const holderClosed = new Promise((resolve, reject) => {
-    holder.on("close", resolve);
-    holder.on("error", reject);
-  });
+  const { closed: holderClosed } = spawnExclusiveLockHolder(lockPath, holdMs);
 
   // Give the holder a brief instant to actually create the lock file
   // (mirrors the near-zero, but non-zero, scheduling gap between a dying
@@ -179,7 +215,7 @@ async function phase2ControlledRaceRaw(
   }
 
   await holderClosed;
-  // Cleanup in case the holder script's own rm somehow didn't fire (e.g. B
+  // Cleanup in case the holder's own unlink somehow didn't fire (e.g. B
   // raced the unlink) — never leave a real lock behind.
   await rm(lockPath, { force: true });
 
@@ -207,21 +243,7 @@ async function phase3ControlledRaceFixed(
     "../packages/domain/src/git/lock-operations"
   );
 
-  const holderScript = `
-    exec 3>${shellQuote(lockPath)}
-    sleep ${(holdMs / 1000).toFixed(3)}
-    exec 3>&-
-    rm -f ${shellQuote(lockPath)}
-  `;
-  const holder = spawn("sh", ["-c", holderScript], { stdio: "ignore" });
-  // See phase2's comment: attach the close-listener BEFORE awaiting
-  // anything else — the wrapped call below can outlast the holder (that's
-  // the whole point of the retry absorbing the race), so a late
-  // `.on("close", ...)` attachment would miss an already-fired event.
-  const holderClosed = new Promise((resolve, reject) => {
-    holder.on("close", resolve);
-    holder.on("error", reject);
-  });
+  const { closed: holderClosed } = spawnExclusiveLockHolder(lockPath, holdMs);
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   const execAsyncDep = (command: string) => execAsync(command);
@@ -252,12 +274,13 @@ async function phase3ControlledRaceFixed(
 }
 
 /**
- * Phase 4: non-regression. A genuinely persistent, EXTERNAL-style lock
- * hold (well beyond the retry budget) — the FIXED path must still
- * surface the actionable busy error, bounded by ~2s (not immediate, not
- * indefinite, not silently swallowed).
+ * Phase 4: non-regression, repairLock: false (default). A genuinely
+ * persistent, EXTERNAL-style lock hold (well beyond the retry budget) —
+ * the FIXED path must still surface the actionable ENRICHED busy error
+ * ("Git operation blocked by index.lock... Pass `repairLock: true`..."),
+ * bounded by ~2s (not immediate, not indefinite, not silently swallowed).
  */
-async function phase4NonRegressionBusyError(
+async function phase4NonRegressionBusyErrorNoRepair(
   repoPath: string,
   lockPath: string
 ): Promise<{ pass: boolean; detail: string }> {
@@ -268,11 +291,7 @@ async function phase4NonRegressionBusyError(
   // Hold the lock for 6s — far longer than the ~2s retry budget, modeling
   // a genuine external git process (or a wedged one, pre-mt#2820 timeout
   // notwithstanding) that is still legitimately running.
-  const holder = spawn(
-    "sh",
-    ["-c", `exec 3>${shellQuote(lockPath)}; sleep 6; exec 3>&-; rm -f ${shellQuote(lockPath)}`],
-    { stdio: "ignore" }
-  );
+  const { proc: holder } = spawnExclusiveLockHolder(lockPath, 6000);
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   const execAsyncDep = (command: string) => execAsync(command);
@@ -283,7 +302,7 @@ async function phase4NonRegressionBusyError(
     await runGitCommandWithLockHandling(
       `git -C ${shellQuote(repoPath)} commit -q --allow-empty -m "should-not-succeed"`,
       { execAsync: execAsyncDep },
-      { repoPath }
+      { repoPath, repairLock: false }
     );
   } catch (err) {
     threw = true;
@@ -304,6 +323,59 @@ async function phase4NonRegressionBusyError(
     message.includes("repairLock: true") &&
     elapsedMs >= 1900 && // the full ~2s backoff budget was actually spent
     elapsedMs < 4500; // but bounded — nowhere near the 6s external hold
+  return { pass, detail };
+}
+
+/**
+ * Phase 5 (PR #2031 R1 addition): non-regression, repairLock: true. The
+ * SAME persistent LIVE lock hold as phase 4, but with `repairLock: true`.
+ * The retry budget must still exhaust first (a genuinely live lock is
+ * never "stale", so the retries can't absorb it), and then
+ * `repairIndexLock`'s OWN busy error ("busy, not stale... will not
+ * remove") must propagate unchanged — the R1 review's concern was that
+ * this branch could swallow the actionable error; this phase proves it
+ * does not, against a REAL cross-process lock (not a mock).
+ */
+async function phase5NonRegressionBusyErrorWithRepairLock(
+  repoPath: string,
+  lockPath: string
+): Promise<{ pass: boolean; detail: string }> {
+  const { runGitCommandWithLockHandling } = await import(
+    "../packages/domain/src/git/lock-operations"
+  );
+
+  const { proc: holder } = spawnExclusiveLockHolder(lockPath, 6000);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const execAsyncDep = (command: string) => execAsync(command);
+  const start = Date.now();
+  let threw = false;
+  let message = "";
+  try {
+    await runGitCommandWithLockHandling(
+      `git -C ${shellQuote(repoPath)} commit -q --allow-empty -m "should-not-succeed-repairlock"`,
+      { execAsync: execAsyncDep },
+      { repoPath, repairLock: true }
+    );
+  } catch (err) {
+    threw = true;
+    message = err instanceof Error ? err.message : String(err);
+  }
+  const elapsedMs = Date.now() - start;
+
+  holder.kill("SIGKILL");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await rm(lockPath, { force: true });
+
+  const detail =
+    `wrapped call (repairLock:true) threw=${threw}, elapsedMs=${elapsedMs} ` +
+    `(expect: threw=true, elapsedMs in [~2000, ~5000)), message contains 'busy, not stale'=` +
+    `${message.includes("busy, not stale")}`;
+  const pass =
+    threw &&
+    message.includes("busy, not stale") &&
+    elapsedMs >= 1900 && // the full ~2s retry budget was actually spent first
+    elapsedMs < 5000; // repairIndexLock's own diagnostic exec calls add a little more
   return { pass, detail };
 }
 
@@ -334,11 +406,28 @@ async function main(): Promise<number> {
     results.push({ name: "phase3-controlled-race-fixed", pass: p3.pass, detail: p3.detail });
 
     console.log(
-      "\n--- Phase 4: non-regression — persistent external contention still surfaces (~2s bound) ---"
+      "\n--- Phase 4: non-regression (repairLock: false) — persistent external contention " +
+        "still surfaces the enriched busy error (~2s bound) ---"
     );
-    const p4 = await phase4NonRegressionBusyError(repoPath, lockPath);
+    const p4 = await phase4NonRegressionBusyErrorNoRepair(repoPath, lockPath);
     console.log(`  ${p4.detail}`);
-    results.push({ name: "phase4-non-regression-busy-error", pass: p4.pass, detail: p4.detail });
+    results.push({
+      name: "phase4-non-regression-busy-error-no-repair",
+      pass: p4.pass,
+      detail: p4.detail,
+    });
+
+    console.log(
+      "\n--- Phase 5: non-regression (repairLock: true) — persistent LIVE lock still surfaces " +
+        "repairIndexLock's own busy error (~2s+ bound), not swallowed ---"
+    );
+    const p5 = await phase5NonRegressionBusyErrorWithRepairLock(repoPath, lockPath);
+    console.log(`  ${p5.detail}`);
+    results.push({
+      name: "phase5-non-regression-busy-error-with-repair-lock",
+      pass: p5.pass,
+      detail: p5.detail,
+    });
   } finally {
     await rm(tmpBase, { recursive: true, force: true });
   }
