@@ -100,6 +100,8 @@ export interface SubagentEntry {
   label: string;
   cwd: string | null;
   startedAt: string | null;
+  /** Terminal timestamp when the subagent conversation ended; null = still running (mt#2884). */
+  endedAt: string | null;
 }
 
 /** Fields the merge attaches to an existing workspace ("dispatched-agent") row. */
@@ -356,6 +358,7 @@ export async function mergeConversationRows(
           label: labelFor(row, firstUserTextById, spawnAgentKindById),
           cwd: row.cwd,
           startedAt: row.startedAt?.toISOString() ?? null,
+          endedAt: row.endedAt?.toISOString() ?? null,
         };
         const list = subagentsByParent.get(spawn.parentId) ?? [];
         list.push(entry);

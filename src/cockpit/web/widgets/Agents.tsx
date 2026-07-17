@@ -12,7 +12,7 @@
  * live-tail pulse indicator (reusing `useActiveConversationSessions`, the
  * same mechanism the retired `/conversations` page used).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import {
@@ -34,6 +34,8 @@ import { useFocusAttachment } from "../hooks/useFocusAttachment";
 import { basePathFor, pathForTab } from "./RunDetail";
 import { cn } from "../lib/utils";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
+import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
+import { fetchAsks, type AsksListResponse } from "./AskDetail";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
@@ -52,6 +54,8 @@ interface SubagentEntry {
   label: string;
   cwd: string | null;
   startedAt: string | null;
+  /** Terminal timestamp; null = still running (mt#2884). */
+  endedAt: string | null;
 }
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
@@ -158,7 +162,7 @@ function KindBadge({ kind }: { kind: RunKind }) {
 // Sort / filter config
 // ---------------------------------------------------------------------------
 
-type AgentSortKey = "lastActivityAt" | "sessionId" | "liveness";
+type AgentSortKey = "needsMe" | "lastActivityAt" | "sessionId" | "liveness";
 
 interface AgentFilters {
   liveness: "all" | "healthy" | "idle" | "stale" | "orphaned";
@@ -285,6 +289,18 @@ function AgentsControlBar({
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
       {/* Sort controls */}
       <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+      <button
+        onClick={() => onSort("needsMe")}
+        className={`text-xs px-2 py-1 rounded border transition-colors ${
+          sortKey === "needsMe"
+            ? "border-primary bg-primary/10 text-foreground"
+            : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+        }`}
+        aria-pressed={sortKey === "needsMe"}
+      >
+        Needs me
+        <SortIndicator active={sortKey === "needsMe"} dir={sortDir} />
+      </button>
       <button
         onClick={() => onSort("lastActivityAt")}
         className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -702,7 +718,33 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
 // Nested subagent row (collapsed under its parent by default)
 // ---------------------------------------------------------------------------
 
+/**
+ * Needs-me badge — the SECOND status channel (mt#2884): "does this run need
+ * the human" rendered independently of "is it alive" (the liveness dot).
+ * Working/idle/done bands render nothing — absence of a badge IS the calm
+ * state; only the two attention bands mark themselves.
+ */
+function NeedsMeBadge({ band }: { band: NeedsMeBand }) {
+  if (band === "needs-input") {
+    return (
+      <span className="rounded bg-warn-amber/40 px-1.5 py-0.5 text-xs font-medium text-foreground flex-shrink-0">
+        needs you
+      </span>
+    );
+  }
+  if (band === "review") {
+    return (
+      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-xs text-foreground flex-shrink-0">
+        in review
+      </span>
+    );
+  }
+  return null;
+}
+
 function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: boolean }) {
+  const elapsed = subagentElapsed(entry.startedAt, entry.endedAt);
+  const running = isLive || (entry.startedAt != null && entry.endedAt == null);
   return (
     <Link
       to={`/conversation/${encodeURIComponent(entry.conversationId)}`}
@@ -714,6 +756,13 @@ function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: bool
         {entry.label}
         {isLive && <LiveDot />}
       </span>
+      {/* Elapsed + terminal state (mt#2884, subsumes mt#2041): running nodes
+          show live elapsed; ended nodes show total runtime. */}
+      {elapsed && (
+        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
+          {running ? `${elapsed} · running` : `${elapsed} · ended`}
+        </span>
+      )}
       <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
         {entry.startedAt ? formatRelative(entry.startedAt) : ""}
       </span>
@@ -728,9 +777,11 @@ function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: bool
 function AgentRowItem({
   agent,
   activeConversationIds,
+  band,
 }: {
   agent: AgentRow;
   activeConversationIds: Set<string>;
+  band: NeedsMeBand;
 }) {
   const [expanded, setExpanded] = useState(false);
   const label = livenessLabel(agent.liveness);
@@ -772,6 +823,10 @@ function AgentRowItem({
         </span>
         {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
+
+      {/* Needs-me badge (mt#2884) — the SECOND status channel, independent of
+          the liveness dot: "does this run need the human" vs "is it alive". */}
+      <NeedsMeBadge band={band} />
 
       {/* Driven chip — workspace rows with an app-started driven session
           (mt#2752). Standalone driven rows already navigate to /driven/:id
@@ -935,9 +990,41 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
 
 function AgentsInner({ agents }: { agents: AgentRow[] }) {
   const filterFn = useCallback(agentFilterFn, []);
-  const sortFn = useCallback(agentSortFn, []);
   const activeSessionsQuery = useActiveConversationSessions();
   const activeConversationIds = activeSessionsQuery.data ?? new Set<string>();
+
+  // Needs-me join (mt#2884): open asks bound to a workspace session mark its
+  // row needs-input. Shared ["asks"] cache with TriageBand/AsksPage.
+  const asksQuery = useQuery<AsksListResponse, Error>({
+    queryKey: ["asks"],
+    queryFn: fetchAsks,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+  });
+  const askSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const a of asksQuery.data?.asks ?? []) {
+      if (a.parentSessionId) ids.add(a.parentSessionId);
+    }
+    return ids;
+  }, [asksQuery.data]);
+
+  // Band-aware sort: needs-me rank first, recency within a band. Recency-only
+  // and the other keys remain selectable; needs-me is the DEFAULT (needs-me
+  // over newest, /product-thinking principle 1).
+  const sortFn = useCallback(
+    (a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir): number => {
+      if (key === "needsMe") {
+        const bandDiff =
+          BAND_RANK[needsMeBand(a, askSessionIds)] - BAND_RANK[needsMeBand(b, askSessionIds)];
+        if (bandDiff !== 0) return dir === "asc" ? bandDiff : -bandDiff;
+        const cmp = a.lastActivityAt.localeCompare(b.lastActivityAt);
+        return dir === "asc" ? -cmp : cmp; // newest-first within a band
+      }
+      return agentSortFn(a, b, key, dir);
+    },
+    [askSessionIds]
+  );
 
   const {
     pageItems,
@@ -959,8 +1046,8 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
   } = useListControls<AgentRow, AgentSortKey, AgentFilters>({
     items: agents,
     defaultPageSize: 20,
-    defaultSortKey: "lastActivityAt",
-    defaultSortDir: "desc",
+    defaultSortKey: "needsMe",
+    defaultSortDir: "asc",
     defaultFilters: DEFAULT_FILTERS,
     filterFn,
     sortFn,
@@ -1004,6 +1091,7 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
               key={agent.sessionId}
               agent={agent}
               activeConversationIds={activeConversationIds}
+              band={needsMeBand(agent, askSessionIds)}
             />
           ))}
           <PaginationBar

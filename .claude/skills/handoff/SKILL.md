@@ -14,6 +14,10 @@ user-invocable: true
 
 Produces a standardized end-of-conversation summary capturing motivation, shipped work, queued work, process artifacts, and recommended next sessions. Distinct from `/retrospective` (failure analysis) and `/incident-memo` (multi-incident synthesis): handoff is the multi-success state-capture for resumption.
 
+The structured payload (work queue: task ids + statuses + next actions + operational notes) is
+persisted as a durable memory record (mt#2827); chat only ever shows a pointer to that record
+plus a plain-markdown human summary — the chat prose is advisory, never the source of truth.
+
 ## Arguments
 
 Optional: a hint about what to focus on (e.g., "for next agent," "summarize the bypass cluster"). If omitted, summarize the entire current conversation.
@@ -44,7 +48,8 @@ Walk the conversation for:
 - **Status changes** of importance (TODO → READY escalations, BLOCKED → unblocked)
 - **Production-effective deliverables** — services restarted, env vars set, infrastructure changed
 
-Tabular format works best when there are 3+ items. Each row: task ID, status, what shipped.
+List format: one `-` bullet per item — task ID, status, what shipped. Handoff chat output
+never uses pipe (`|`) tables; see `## Output format` below for why.
 
 ### 3. Survey process artifacts
 
@@ -107,11 +112,50 @@ State explicitly: **resume in same conversation OR new session.** Apply this rul
 
 When in doubt, recommend new session. Cost of fresh-context restart is low; cost of context-collapse mid-action is high.
 
+### 8. Write the durable payload
+
+Before rendering anything to chat, call `mcp__minsky__memory_create` (type `"project"`) to
+persist the full structured handoff payload — this is the durable, machine-checkable artifact;
+chat prose is advisory only, per the Plan decision recorded in mt#2827.
+
+- `name`: a short slug, e.g. `handoff_<cluster-slug>_<date>`
+- `description`: one-line summary of the cluster
+- `content`: the full payload from steps 1-7 above (motivation, shipped work, process
+  artifacts, queued work with task ids + statuses + next actions, open threads, recommended
+  next sessions, resume recommendation) as plain markdown — same no-tables discipline as chat
+  output (see step 9)
+- `scope`: `"project"` — a handoff is project-grain state. Do NOT pass `projectId` explicitly:
+  `memory_create` resolves the current project from the working directory (the same
+  ADR-021 resolution the read side uses), and a hand-supplied id risks mis-scoping the
+  entry to the wrong project. Only pass it when deliberately writing a handoff for a
+  DIFFERENT project than the cwd resolves to.
+- `tags`: include `handoff`, the cluster/workstream tag if one exists (e.g.
+  `gap-analysis-2026-07`), plus every task ID touched (e.g. `mt#2827`)
+
+Capture the returned memory `id` (uuid) — the chat pointer in step 9 links to it.
+
+### 9. Render chat output: pointer + summary, no tables
+
+Chat output is a **pointer plus a compact human summary** — never the full payload restated,
+and never a substitute for the durable record written in step 8. Render:
+
+1. A `minsky://memory/<uuid>` deeplink to the memory entry from step 8, per
+   `cockpit-deeplinks.mdc` (label: a short readable description, not the raw uuid). Also
+   state the id's first 8 hex characters in plain text next to the link (e.g.
+   "memory `bd38be2c`") — if the link degrades or the paste mangles the URL, the prefix
+   alone recovers the entry via `memory_get`'s prefix resolution.
+2. A **plain-markdown** summary per `## Output format` below — headings and `-` bullet lists
+   only. **Never render a pipe (`|`) table or Unicode box-drawing characters anywhere in
+   handoff chat output** — see "Why no tables" in `## Output format`.
+
 ## Output format
 
-Use this exact structure:
+Lead with the durable-artifact pointer from step 8, then the plain-markdown summary. Use this
+exact structure:
 
 ```markdown
+Handoff recorded: [<short cluster description>](minsky://memory/<uuid>)
+
 ## Handoff — <short cluster description> (<date range>)
 
 ### Original motivation
@@ -131,10 +175,8 @@ Use this exact structure:
 
 ### Queued (filed, not implemented)
 
-| Task     | Status | Scope |
-| -------- | ------ | ----- |
-| **mt#X** | READY  | ...   |
-| **mt#Y** | TODO   | ...   |
+- **mt#X** — READY — <one-sentence scope>
+- **mt#Y** — TODO — <one-sentence scope>
 
 ### Open threads
 
@@ -153,13 +195,49 @@ Use this exact structure:
 For shorter conversations (1-2 PRs, no retrospectives), compress to:
 
 ```markdown
-## Handoff
+Handoff recorded: [<short cluster description>](minsky://memory/<uuid>)
 
 **Shipped:** mt#X (PR #N), ...
 **Queued:** mt#Y (READY) ...
 **Next:** `/implement-task mt#Y`
 **Resume:** <same | new>
 ```
+
+**Why no tables (mt#2827).** Evidence from conversation 2c9ac5e6: a pasted handoff's queued-work
+table arrived with cells truncated mid-word ("e Minsky-actor via", "Pl runs the", "Ue recurs in
+8+") — content lost to terminal-width wrapping during generation or paste, and consumed as-is
+with no integrity signal at either end. A pipe (`|`) table (and the Unicode box-drawing borders
+a terminal UI may substitute when rendering one) wraps unpredictably at narrow terminal widths;
+cells split mid-word with no visible marker that anything was lost. A `-` bullet list degrades
+to ordinary line-wrapping instead, which is visually recoverable and doesn't silently truncate
+content. **Never render a `|`-delimited table or Unicode box-drawing characters (the "Box
+Drawing" Unicode block, U+2500-U+257F — the glyphs used to draw table borders and box outlines)
+anywhere in handoff chat output** — this is why steps 8-9 above make the memory entry, not the
+chat table, the authoritative record.
+
+## Continuation guidance (for the receiving conversation)
+
+A fresh conversation (or future-you) picking up a handoff should not trust the pasted chat
+prose as the source of truth — it is advisory only, per the Plan decision recorded in mt#2827.
+Instead:
+
+1. **Dereference the pointer.** Call `mcp__minsky__memory_get` with the id from the
+   `minsky://memory/<uuid>` link (or the id-prefix cited in pasted prose, per `## Citing
+uuid-keyed records` below) to fetch the full structured payload written in step 8 — not the
+   chat summary.
+2. **Re-derive statuses live — don't trust the pasted table or the memory snapshot's status
+   field.** Both may be stale (superseded by work that happened after the handoff was written)
+   or, for pasted prose, corrupted by paste/terminal-wrap. Call `mcp__minsky__refs_status` with
+   the full list of task ids / PR numbers / ask ids from the memory payload — one call
+   re-validates the whole queue against live state (task status, PR merge state, ask response
+   state) in a single round trip — or `mcp__minsky__tasks_status_get` per task id if only task
+   statuses are needed.
+3. **Proceed from the live-verified queue**, not from the memory payload's status snapshot or
+   any pasted-prose summary.
+
+This makes a corrupted or partial paste recoverable by construction: the pointer alone —
+`memory_get` followed by `refs_status` — reconstructs the full, currently-accurate work queue,
+independent of whatever text actually survived into the chat.
 
 ## Anti-patterns
 
@@ -168,6 +246,10 @@ For shorter conversations (1-2 PRs, no retrospectives), compress to:
 - **Don't editorialize the work.** "We did great work today" is editorial. "mt#1556 + mt#1558 merged; reviewer service is healthy" is factual.
 - **Don't repeat the retrospective.** If the conversation ran a retrospective, link to where it was produced (in chat or in Notion); don't re-narrate the analysis.
 - **Don't speculate about next steps the user hasn't endorsed.** Recommend "the work that's filed and READY," not "things I think we should also do."
+- **Don't render pipe tables or box-drawing characters.** A `|`-delimited markdown table (or the
+  Unicode box-drawing a terminal UI may render one as) wraps unpredictably and can truncate
+  cells mid-word with no visible integrity signal (see `## Output format`'s "Why no tables").
+  Use `-` bullet lists for every section, including the queued-work list.
 - **Don't end with a question.** The handoff is a state document. If a question is needed, it goes in a separate turn.
 
 ## Key principles
