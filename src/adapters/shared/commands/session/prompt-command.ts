@@ -32,6 +32,26 @@ const promptCommandParams = {
       "Suppress the Operating Envelope block (budget awareness, graceful exit, handoff-note convention). Default: envelope is included.",
     required: false,
   },
+  intent: {
+    schema: z.enum(["read-only", "implementation"]),
+    description:
+      'Dispatch intent (mt#2865). Defaults to "implementation" — no behavior change from before ' +
+      'this param existed. "read-only" adds an explicit read-only-bound section to the generated ' +
+      "prompt AND writes a TTL-bound declaration to the dispatch-intent store for this session — " +
+      "the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES " +
+      "session_commit/session_edit_file/session_write_file/session_search_replace/" +
+      "session_pr_create/session_pr_edit for ANY subagent operating in this session while the " +
+      "declaration is live, regardless of which specific agent_id makes the call (covers a " +
+      "context-inheriting `fork`, not just the dispatched agent itself). IMPORTANT: on " +
+      '"read-only" the generated prompt also SILENTLY OMITS the commit/PR instructions ' +
+      "(the `session_commit`/`session_pr_create` sections present in an `implementation`-intent " +
+      "prompt) and forces the read-only Operating Envelope regardless of `type` — since those " +
+      "tools are structurally denied for this dispatch, the prompt never tells the agent to use " +
+      "them. Use this for bounded lookups (memory search, code investigation, review) dispatched " +
+      "from inside an active implementation context — never fork for those; see " +
+      "subagent-routing.mdc.",
+    required: false,
+  },
 };
 
 export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): CommandDefinition {
@@ -56,6 +76,7 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
       const instructions = params.instructions as string;
       const scopeRaw = params.scope as string | undefined;
       const omitOperatingEnvelope = params.omitOperatingEnvelope as boolean | undefined;
+      const intent = (params.intent as "read-only" | "implementation" | undefined) ?? undefined;
 
       const session = await service.get({ task });
 
@@ -85,7 +106,40 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
         instructions,
         scope,
         omitOperatingEnvelope,
+        intent,
       });
+
+      // mt#2865: write the dispatch-intent declaration BEFORE the caller
+      // dispatches the subagent (this call returns the prompt text; the
+      // caller passes it to the Agent tool next) — so the write-gate guard
+      // is already live by the time the subagent (or a fork it later
+      // spawns, inheriting the SAME session) makes its first tool call.
+      // Best-effort: never blocks prompt generation on a store-write
+      // failure — the declaration is defense-in-depth, not correctness-
+      // critical for the prompt text itself (which already states the
+      // read-only bound regardless of whether the write succeeded).
+      if (intent === "read-only") {
+        try {
+          const { declareReadOnlyIntent } = await import(
+            "@minsky/domain/session/dispatch-intent-writer"
+          );
+          const declared = declareReadOnlyIntent(sessionId, {
+            issuedBy: `session.generate_prompt:${task}`,
+            // Not pre-truncated here — the writer itself sanitizes (strips
+            // newlines, caps length) at declaration time (mt#2865 PR #2033
+            // R1 BLOCKING #2), so every caller gets the same guaranteed-clean
+            // persisted shape regardless of what it passes.
+            reason: instructions,
+          });
+          if (!declared) {
+            log.warn(
+              `[session.generate_prompt] Failed to write read-only dispatch-intent declaration for session ${sessionId}`
+            );
+          }
+        } catch (err) {
+          log.warn(`[session.generate_prompt] dispatch-intent declaration write threw: ${err}`);
+        }
+      }
 
       // mt#2796: write a pending dispatch-time invocation row so
       // `suggested_model` is populated before the subagent even starts,

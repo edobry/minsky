@@ -105,6 +105,21 @@ const tasksDispatchParams = {
     description: "Comma-separated file paths to constrain the subagent to",
     required: false,
   },
+  intent: {
+    schema: z.enum(["read-only", "implementation"]).optional(),
+    description:
+      'Dispatch intent (mt#2865). Defaults to "implementation" — no behavior change from before ' +
+      'this param existed. "read-only" adds an explicit read-only-bound section to the generated ' +
+      "prompt AND writes a TTL-bound declaration to the dispatch-intent store for the dispatched " +
+      "session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES " +
+      "session-mutating/PR-mutating tools for ANY subagent operating in this session while the " +
+      'declaration is live. IMPORTANT: on "read-only" the generated prompt also SILENTLY OMITS ' +
+      "the commit/PR instructions (`session_commit`/`session_pr_create`) and forces the " +
+      "read-only Operating Envelope regardless of `type` — since those tools are structurally " +
+      "denied for this dispatch, the prompt never tells the agent to use them. Use for bounded " +
+      "lookups, never for a task expected to write code.",
+    required: false,
+  },
   description: {
     schema: z.string().optional(),
     description:
@@ -481,7 +496,35 @@ export function createTasksDispatchCommand(
         type: p.type,
         instructions: p.instructions,
         scope,
+        intent: p.intent,
       });
+
+      // mt#2865: write the dispatch-intent declaration BEFORE returning the
+      // prompt to the caller — see the parallel comment in
+      // session/prompt-command.ts for the full rationale. Best-effort;
+      // never blocks dispatch on a store-write failure.
+      if (p.intent === "read-only") {
+        try {
+          const { declareReadOnlyIntent } = await import(
+            "@minsky/domain/session/dispatch-intent-writer"
+          );
+          const declared = declareReadOnlyIntent(sessionId, {
+            issuedBy: `tasks.dispatch:${taskId}`,
+            // Not pre-truncated here — the writer itself sanitizes (strips
+            // newlines, caps length) at declaration time (mt#2865 PR #2033
+            // R1 BLOCKING #2), so every caller gets the same guaranteed-clean
+            // persisted shape regardless of what it passes.
+            reason: p.instructions,
+          });
+          if (!declared) {
+            log.warn(
+              `[tasks.dispatch] Failed to write read-only dispatch-intent declaration for session ${sessionId}`
+            );
+          }
+        } catch (err) {
+          log.warn(`[tasks.dispatch] dispatch-intent declaration write threw: ${err}`);
+        }
+      }
 
       // TODO(mt#441): When native subagent dispatch ships, set _meta["io.minsky/agent_id"]
       // on each MCP request the dispatched subagent makes. The value should be:

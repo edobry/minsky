@@ -23,6 +23,21 @@ import { detectAgentHarness, type AgentHarness } from "../runtime/harness-detect
 export type PromptType = "implementation" | "refactor" | "review" | "cleanup" | "audit";
 
 /**
+ * Dispatch-intent declaration (mt#2865). Orthogonal to `PromptType` — a
+ * `"review"`/`"audit"` prompt is conventionally read-only by TYPE, but that
+ * convention alone was never enforced structurally. `intent: "read-only"`
+ * is what actually triggers (a) the read-only-bound prompt section below
+ * and (b) the dispatch-time write of a declaration to the dispatch-intent
+ * store, which `.minsky/hooks/dispatch-intent-write-gate.ts` then enforces
+ * for the ENTIRE gated tool family regardless of prompt type. Defaults to
+ * `"implementation"` (unaffected — existing callers see no behavior
+ * change). See mt#2865 for the originating incident (a `fork` subagent
+ * dispatched for a bounded read-only lookup instead wrote code, committed,
+ * and edited a shared PR after inheriting a full implementation context).
+ */
+export type DispatchIntent = "read-only" | "implementation";
+
+/**
  * 1:1 mapping from prompt type to compiled agent name (file at
  * `.claude/agents/<name>.md`). Drives both `agentType` emission and the
  * standalone-path skill lookup.
@@ -79,6 +94,17 @@ export interface GeneratePromptParams {
    * `<workspacePath>/.claude/skills`.
    */
   skillLoader?: SkillLoader;
+  /**
+   * Dispatch intent (mt#2865). Defaults to `"implementation"` — omitting
+   * this param produces byte-identical output to before this field existed.
+   * `"read-only"` adds an explicit read-only-bound section to the prompt
+   * and forces the read-only Operating Envelope variant regardless of
+   * `type`; the caller (the `session.generate_prompt` / `tasks.dispatch`
+   * commands) is separately responsible for writing the matching
+   * declaration to the dispatch-intent store so the write-gate guard
+   * actually enforces it — this function only controls prompt TEXT.
+   */
+  intent?: DispatchIntent;
 }
 
 export interface GeneratePromptResult {
@@ -284,6 +310,24 @@ After committing, create a PR using:
 Do NOT merge the PR.`;
 }
 
+/**
+ * Read-only-bound section (mt#2865). Explicitly names the gated tool
+ * family and points the agent at the sanctioned alternative (report back;
+ * the parent decides) — the originating incident's fork ran for ~70
+ * minutes past its bounded directive despite the harness's OWN
+ * fork-boilerplate prompt already saying "execute ONE directive, then
+ * stop." This section names the STRUCTURAL backstop explicitly so the
+ * agent knows write attempts will be denied, not just discouraged.
+ */
+function renderReadOnlyBoundSection(): string {
+  return `
+## Read-Only Dispatch Bound
+
+This dispatch is declared **read-only** (mt#2865). A structural write-gate DENIES \`session_commit\`, \`session_edit_file\`, \`session_write_file\`, \`session_search_replace\`, \`session_pr_create\`, and \`session_pr_edit\` for this session while the declaration is live — do not attempt them; the denial will not go away on retry.
+
+Execute the instructions above, then report your findings back. Do not continue past them into implementation work, even if the surrounding session context makes further work seem natural — a prior incident (mt#2865) traced a ~70-minute, ~197-tool-call scope violation to exactly that pattern (a bounded read-only dispatch that inherited an active implementation context and kept going). If your directive turns out to genuinely require a write, stop and report that back instead of working around the gate.`;
+}
+
 function renderToolingNote(): string {
   return `
 ## Important
@@ -397,7 +441,8 @@ function generateSinglePrompt(
   batchIndex?: number,
   totalBatches?: number
 ): string {
-  const { type, scope, sessionId, taskId, omitOperatingEnvelope } = params;
+  const { type, scope, sessionId, taskId, omitOperatingEnvelope, intent } = params;
+  const readOnlyIntent = intent === "read-only";
   const effectiveScope = batchScope ?? scope;
 
   const sections: string[] = [];
@@ -407,6 +452,10 @@ function generateSinglePrompt(
     sections.push(`${header}\n\n**Batch ${batchIndex} of ${totalBatches}**`);
   } else {
     sections.push(header);
+  }
+
+  if (readOnlyIntent) {
+    sections.push(renderReadOnlyBoundSection());
   }
 
   if (skillSection) {
@@ -461,10 +510,15 @@ For large scopes, commit after each batch of ~10 files rather than all at once.`
   }
 
   if (!omitOperatingEnvelope) {
-    sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, /* readOnly */ false));
+    sections.push(renderSubagentOperatingEnvelope(sessionId, taskId, readOnlyIntent));
   }
 
-  if (batchIndex !== undefined && totalBatches !== undefined && batchIndex < totalBatches) {
+  if (
+    !readOnlyIntent &&
+    batchIndex !== undefined &&
+    totalBatches !== undefined &&
+    batchIndex < totalBatches
+  ) {
     sections.push(`
 ## Intermediate Commit
 
@@ -473,7 +527,13 @@ Commit this batch before proceeding to the next.
 - Parameters: \`sessionId: "${sessionId}"\`, \`all: true\``);
   } else {
     sections.push(renderSessionExecNote(taskId));
-    sections.push(renderCommitInstructions(sessionId, taskId));
+    // mt#2865: a read-only-intent dispatch never gets commit/PR instructions
+    // — those tools are structurally denied by the write-gate guard while
+    // the declaration is live, so instructing the agent to use them would
+    // just produce a guaranteed-to-fail retry loop.
+    if (!readOnlyIntent) {
+      sections.push(renderCommitInstructions(sessionId, taskId));
+    }
   }
 
   sections.push(renderToolingNote());

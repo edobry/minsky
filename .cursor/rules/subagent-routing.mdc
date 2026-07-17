@@ -26,7 +26,27 @@ condition into the message. **Messaging a still-RUNNING subagent mid-flight rema
 treat "cannot be messaged, kill + re-dispatch" as scoped to that untested case only, not to
 resume-after-completion; prefer kill + re-dispatch there until it's validated. (mt#2512; whether to
 adopt Agent Teams or build a Minsky-native equivalent for genuine mid-flight steering is tracked in
-mt#2521.)
+mt#2521.) (mt#2865: memory `6038c0a1`'s own description still calls this rule-text correction
+"pending" — it isn't; this paragraph already carries it, so treat that memory's pending note as stale.)
+
+**Never fork for bounded lookups from an active implementation context (mt#2865).** A `fork`
+subagent inherits the FULL conversation context — confirmed at the transcript level (mt#2828
+incident, 2026-07-16): a fork dispatched with a narrow, bounded, read-only instruction ("search
+memory... report back under 300 words") instead ran ~70 minutes and ~197 tool calls, independently
+implementing overlapping code, committing to the shared session workspace, and editing the shared
+PR's title/body/author after the primary implementer had already finalized it — including writing a
+false test-count claim into the PR body. The harness's OWN fork-boilerplate prompt already said "you
+are NOT a continuation of that agent... execute ONE directive, then stop... do NOT spawn subagents";
+it did not hold. Prompt-level containment is not sufficient once a fork carries a full
+implementation context. For a bounded read-only lookup (memory search, code investigation, review)
+dispatched from inside an active implementation session, use a fresh minimal-context agent instead —
+`Explore` or `general-purpose` (per the Types table above) — NOT a fork. If a fork genuinely is the
+right shape, declare `intent: "read-only"` on `session_generate_prompt`/`tasks_dispatch` before
+dispatching it: the resulting dispatch-intent declaration is enforced structurally by
+`dispatch-intent-write-gate.ts`, which denies session-mutating/PR-mutating tool calls for the
+declared session regardless of which `agent_id` ends up making them — the gate contains a fork's
+WRITES to the shared substrate; it cannot stop a fork from THINKING like an implementer (a harness
+context-scoping capability outside Minsky's control, per mt#2512/mt#2521).
 
 **Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
 

@@ -257,6 +257,16 @@ escalation guard (+ cockpit widget) warns every turn while any guard is critical
 `guard-health.ts` + `guard-health-escalation-detector.ts`. No override; fail-safe.
 Doc: `guard-health-tracker.md`.
 
+## Dispatch-Intent Write Gate
+
+PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded, D5-covered): denies a
+subagent call when a live `"read-only"` dispatch-intent declaration covers the target session
+(session-scoped, covers a context-inheriting fork too). Declared via
+`session_generate_prompt`/`tasks_dispatch`'s `intent` param (default `"implementation"`, no-op).
+Default-ALLOW (opposite of D5). Hooks: `dispatch-intent-write-gate.ts` +
+`dispatch-intent-store.ts` (4th grant-store instance). No override; fail-open on store-read
+errors only. Doc: `dispatch-intent-write-gate.md`.
+
 ## Silent-Stretch Detector (calibration)
 
 UserPromptSubmit (calibration-only): flags a tool-only silent stretch — no assistant TEXT —
