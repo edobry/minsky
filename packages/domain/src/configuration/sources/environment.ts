@@ -281,8 +281,9 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_CALIBRATION_CADENCE", // .claude/hooks/calibration-review-cadence-detector.ts (mt#2619) — skip calibration-review-due warning injection
   "MINSKY_SKIP_MERGE_GRANT_CHECK", // .claude/hooks/block-subagent-merge-without-grant.ts (mt#2651) — override for the ADR-028 D5 subagent merge-capability-grant guard
   "MINSKY_HOOK_OVERRIDE", // .claude/hooks/dispatcher.ts (mt#2650) — ADR-028 D3 unified guard-dispatcher override (comma-separated guard names, or "all")
-  "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md)
+  "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md); also covers the mt#2874 per-rule 15K ceiling extension (one audited escape hatch, not two)
   "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
+  "MINSKY_SKIP_SIZE_JUSTIFICATION", // .claude/hooks/require-growth-justification-before-merge.ts (mt#2874) — override for the growth-justification merge gate (rules-touching PR that grows CLAUDE.md beyond the threshold without a Size-budget justification: marker)
 ]);
 
 /**

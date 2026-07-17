@@ -13,7 +13,9 @@ import {
   topContributors,
   evaluateSizeBudget,
   formatTopContributors,
+  findPerRuleCeilingViolations,
   TOP_CONTRIBUTOR_COUNT,
+  DEFAULT_PER_RULE_CEILING_CHARS,
   type SizeBudget,
 } from "./size-budget";
 import { makeRule } from "./test-utils";
@@ -234,6 +236,101 @@ describe("evaluateSizeBudget()", () => {
       defaultBudget: DEFAULT_BUDGET,
     });
 
+    expect(evaluation.status).toBe("ok");
+  });
+});
+
+describe("findPerRuleCeilingViolations() (mt#2874)", () => {
+  it("returns empty when no alwaysApply rule exceeds the ceiling", () => {
+    const rules = [
+      makeRule("always-small", "x".repeat(100), { alwaysApply: true }),
+      makeRule("always-medium", "y".repeat(14_000), { alwaysApply: true }),
+    ];
+    const violations = findPerRuleCeilingViolations(
+      rules,
+      ["always-small", "always-medium"],
+      15_000
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("flags an alwaysApply rule whose contribution STRICTLY exceeds the ceiling", () => {
+    const rules = [makeRule("always-huge", "z".repeat(15_001), { alwaysApply: true })];
+    const violations = findPerRuleCeilingViolations(rules, ["always-huge"], 15_000);
+    expect(violations).toEqual([{ id: "always-huge", size: 15_001 }]);
+  });
+
+  it("boundary: a rule exactly AT the ceiling does not violate", () => {
+    const rules = [makeRule("always-exact", "a".repeat(15_000), { alwaysApply: true })];
+    const violations = findPerRuleCeilingViolations(rules, ["always-exact"], 15_000);
+    expect(violations).toEqual([]);
+  });
+
+  it("boundary: a rule one char OVER the ceiling violates", () => {
+    const rules = [makeRule("always-over", "a".repeat(15_001), { alwaysApply: true })];
+    const violations = findPerRuleCeilingViolations(rules, ["always-over"], 15_000);
+    expect(violations).toEqual([{ id: "always-over", size: 15_001 }]);
+  });
+
+  it("ignores a NON-alwaysApply rule even when it exceeds the ceiling", () => {
+    const rules = [
+      makeRule("glob-scoped-huge", "b".repeat(20_000), { alwaysApply: false, globs: ["**/*.ts"] }),
+    ];
+    const violations = findPerRuleCeilingViolations(rules, ["glob-scoped-huge"], 15_000);
+    expect(violations).toEqual([]);
+  });
+
+  it("only considers rules present in includedIds", () => {
+    const rules = [makeRule("excluded-huge", "c".repeat(20_000), { alwaysApply: true })];
+    const violations = findPerRuleCeilingViolations(rules, [], 15_000);
+    expect(violations).toEqual([]);
+  });
+
+  it("ranks multiple violations by size descending", () => {
+    const rules = [
+      makeRule("medium-violator", "d".repeat(16_000), { alwaysApply: true }),
+      makeRule("big-violator", "e".repeat(18_000), { alwaysApply: true }),
+    ];
+    const violations = findPerRuleCeilingViolations(
+      rules,
+      ["medium-violator", "big-violator"],
+      15_000
+    );
+    expect(violations.map((v) => v.id)).toEqual(["big-violator", "medium-violator"]);
+  });
+
+  it("defaults to DEFAULT_PER_RULE_CEILING_CHARS (15,000) when no ceiling is passed", () => {
+    const rules = [makeRule("always-huge", "f".repeat(15_001), { alwaysApply: true })];
+    const violations = findPerRuleCeilingViolations(rules, ["always-huge"]);
+    expect(violations).toEqual([{ id: "always-huge", size: 15_001 }]);
+    expect(DEFAULT_PER_RULE_CEILING_CHARS).toBe(15_000);
+  });
+});
+
+describe("evaluateSizeBudget() — perRuleCeiling integration (mt#2874)", () => {
+  it("omits perRuleViolations computation entirely when perRuleCeiling is not supplied", () => {
+    const rules = [makeRule("always-huge", "g".repeat(20_000), { alwaysApply: true })];
+    const evaluation = evaluateSizeBudget({
+      sizeChars: 20_000,
+      rules,
+      includedIds: ["always-huge"],
+      defaultBudget: { warnChars: 100_000, failChars: 200_000 },
+    });
+    expect(evaluation.perRuleViolations).toEqual([]);
+  });
+
+  it("populates perRuleViolations when perRuleCeiling is supplied and exceeded", () => {
+    const rules = [makeRule("always-huge", "h".repeat(20_000), { alwaysApply: true })];
+    const evaluation = evaluateSizeBudget({
+      sizeChars: 20_000,
+      rules,
+      includedIds: ["always-huge"],
+      defaultBudget: { warnChars: 100_000, failChars: 200_000 },
+      perRuleCeiling: 15_000,
+    });
+    expect(evaluation.perRuleViolations).toEqual([{ id: "always-huge", size: 20_000 }]);
+    // The aggregate budget (100K warn / 200K fail) independently passes —
+    // per-rule and aggregate checks are orthogonal (mt#2874 spec).
     expect(evaluation.status).toBe("ok");
   });
 });

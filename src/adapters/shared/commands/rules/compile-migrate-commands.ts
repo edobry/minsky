@@ -25,8 +25,15 @@ import { formatTopContributors } from "@minsky/domain/rules/compile/size-budget"
  * or size-budget exceeded) so callers can aggregate failures across ALL
  * probed targets instead of throwing on the first one found. Returns
  * undefined when the target passed (or when not in --check mode).
+ *
+ * Exported for unit testing (mt#2874 R1 — this function previously had ZERO
+ * direct unit tests despite four distinct branches; see
+ * `compile-migrate-commands.test.ts`).
  */
-function reportSingleTargetCompile(target: string, result: CompileRulesResult): string | undefined {
+export function reportSingleTargetCompile(
+  target: string,
+  result: CompileRulesResult
+): string | undefined {
   // Report output size on every compile (mt#2802 success criterion #1).
   if (result.sizeChars !== undefined) {
     log.cli(`[rules compile] Target "${target}" output size: ${result.sizeChars} chars`);
@@ -66,6 +73,24 @@ function reportSingleTargetCompile(target: string, result: CompileRulesResult): 
       `target "${target}" exceeds size budget ` +
       `(${result.sizeChars} > ${result.sizeBudget.failChars} chars)`
     );
+  }
+
+  // --check mode: report + fail when any alwaysApply:true rule's OWN compiled
+  // contribution exceeds the per-rule ceiling (mt#2874 — makes mt#1877's per-rule
+  // 15KB budget mechanical). Independent of the aggregate budget check above — a
+  // target can pass the aggregate budget while still having one oversized always-on
+  // rule. Only reachable when the aggregate check above did not already fail (same
+  // "fix the bigger problem first" precedence as the stale-vs-budget check above).
+  if (result.check && result.perRuleViolations && result.perRuleViolations.length > 0) {
+    log.cli(`[rules compile --check] Target "${target}" HAS RULE(S) EXCEEDING PER-RULE CEILING`);
+    for (const violation of result.perRuleViolations) {
+      log.cli(`  Rule "${violation.id}": ${violation.size} chars`);
+    }
+    log.cli(
+      `  Trim the rule(s) above, or override via MINSKY_SKIP_SIZE_BUDGET=1 (pre-commit only).`
+    );
+    const violationsList = result.perRuleViolations.map((v) => `${v.id} (${v.size} chars)`);
+    return `target "${target}" has rule(s) exceeding the per-rule ceiling: ${violationsList.join(", ")}`;
   }
 
   // Non-check compiles never fail on budget — warn loudly instead (mt#2802 criterion #6),

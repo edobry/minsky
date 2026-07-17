@@ -1962,6 +1962,31 @@ export function compileCheckTargets(present: {
  * command itself failed — telling the operator to "regenerate" would be
  * misleading because the same error will recur.
  *
+ * **Marker-classification precedence (R1 fix — made explicit, was previously
+ * only implicit in code order).** Exactly THREE stdout markers are checked,
+ * IN THIS ORDER, each an early `return` so at most one ever fires:
+ *
+ *   1. `is STALE` (staleness) — checked FIRST. A stale target's compiled
+ *      output doesn't reflect the current rule source, so evaluating a size
+ *      budget against it would be meaningless (the operator needs to
+ *      regenerate before ANY size classification is trustworthy).
+ *   2. `EXCEEDS SIZE BUDGET` (aggregate budget, mt#2802) — checked SECOND,
+ *      only reachable when not stale.
+ *   3. `HAS RULE(S) EXCEEDING PER-RULE CEILING` (per-rule ceiling, mt#2874) —
+ *      checked THIRD, only reachable when neither stale nor aggregate-
+ *      exceeded. Both 2 and 3 map to the SAME `"budget-exceeded"` errorKind
+ *      (one audited override, `MINSKY_SKIP_SIZE_BUDGET`, not two) — their
+ *      relative order between each other doesn't change override behavior,
+ *      but staleness MUST stay first regardless.
+ *
+ * Each of the three ordered pairs (stale-vs-aggregate, stale-vs-per-rule,
+ * aggregate-vs-per-rule) has a direct unit test in
+ * `src/hooks/rules-compile-check.test.ts` asserting the correct marker wins
+ * when BOTH are present in the same stdout (a scenario that should not occur
+ * in practice — the CLI's own `reportSingleTargetCompile` returns on the
+ * first failure it finds in this same order — but the classifier's
+ * precedence must still be deterministic if it ever does).
+ *
  * Exported for unit testing; not part of the public hook API.
  */
 export function classifyCompileCheckError(
@@ -2032,6 +2057,33 @@ export function classifyCompileCheckError(
         `💡 Trim the rules listed above, or set MINSKY_SKIP_SIZE_BUDGET=1 to override this commit (audit-logged).`,
       ],
       message: `Compile output for target "${target}" exceeds its size budget`,
+      errorKind: "budget-exceeded",
+    };
+  }
+
+  // mt#2874: per-rule-ceiling-exceeded classification. Reuses the SAME
+  // "budget-exceeded" errorKind (and therefore the same MINSKY_SKIP_SIZE_BUDGET
+  // override) as the aggregate budget check above — one audited escape hatch,
+  // not two, per the mt#2874 spec.
+  const perRuleCeilingLineRe = new RegExp(
+    `\\[${cmd} --check\\] Target "${escapedTarget}" HAS RULE\\(S\\) EXCEEDING PER-RULE CEILING`,
+    "m"
+  );
+  const isPerRuleCeilingExceeded = perRuleCeilingLineRe.test(stdout);
+
+  if (isPerRuleCeilingExceeded) {
+    const detail = stdout.trim();
+    const indentedDetail = detail
+      .split("\n")
+      .map((line) => `   ${line}`)
+      .join("\n");
+    return {
+      logLines: [
+        `❌ Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling.`,
+        indentedDetail,
+        `💡 Trim the rule(s) listed above, or set MINSKY_SKIP_SIZE_BUDGET=1 to override this commit (audit-logged).`,
+      ],
+      message: `Compile output for target "${target}" has rule(s) exceeding the per-rule ceiling`,
       errorKind: "budget-exceeded",
     };
   }

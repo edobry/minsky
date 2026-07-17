@@ -17,6 +17,31 @@ Optional: rule name or description (e.g., `/create-rule no-magic-numbers`).
 
 ## Process
 
+### 0. Check the rule-admission ladder first (mt#2874)
+
+Before drafting ANY new guidance content, check whether it belongs in a rule at all —
+and if it does, whether it needs `alwaysApply: true`. New guidance content defaults
+DOWN the ladder; `alwaysApply: true` is the LAST rung, not the default:
+
+1. **Path-scoped `.claude/rules`** — file-shaped guidance (applies only when a matching
+   glob is in context). Use `globs` in the frontmatter instead of `alwaysApply`.
+2. **Skill** — task-shaped guidance (a procedure invoked for a specific workflow, not
+   needed on every turn).
+3. **Memory** (`mcp__minsky__memory_create`) — incident-shaped guidance (a durable
+   finding from a specific incident, not a standing per-turn check).
+4. **Docs** (`docs/`) — reference-shaped guidance (background/architecture an agent
+   looks up on demand, not a behavior it must apply unprompted).
+5. **`alwaysApply: true`** — LAST, reserved for genuinely per-turn discipline. Apply the
+   mt#1876 criterion before choosing this rung: **"would removal cause an agent to skip
+   a check it runs every turn?"** If the answer is no, the content belongs on a cheaper
+   rung above.
+
+Every rule addition that reaches step 2 below and sets `alwaysApply: true` is implicitly
+asserting it passed this check. A PR that grows the compiled `CLAUDE.md` by more than a
+couple thousand bytes via `.minsky/rules/**` is mechanically gated on this same ladder
+at merge time (`require-growth-justification-before-merge.ts`, mt#2874) — front-loading
+the check here avoids that round-trip.
+
 ### 1. Define the rule's purpose
 
 - What specific behavior does this rule govern?

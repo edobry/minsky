@@ -24,6 +24,8 @@ import {
   resolvePrBodyFromTask,
   fetchPrContext,
   formatContextFailureWarnings,
+  fetchMergeBaseSha,
+  fetchFileSizeAtRef,
   type ExecFn,
   type PrContextFailure,
 } from "./pr-context";
@@ -350,6 +352,95 @@ describe("resolvePrBodyFromTask", () => {
     const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "network down" });
     const result = resolvePrBodyFromTask(REPO, TASK, { cwd: CWD, exec });
     expect(result && "ok" in result && result.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchMergeBaseSha / fetchFileSizeAtRef (mt#2874 — growth-justification gate)
+// ---------------------------------------------------------------------------
+
+describe("fetchMergeBaseSha", () => {
+  it("returns the merge-base SHA on success", () => {
+    const exec = makeExecFn([
+      { match: "compare/main...abc123", exitCode: 0, stdout: "deadbeef\n" },
+    ]);
+    const result = fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(result).toBe("deadbeef");
+  });
+
+  it("returns null on a non-zero exit", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "not found" });
+    const result = fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when stdout is empty", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "", stderr: "" });
+    const result = fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("issues ONE gh call", () => {
+    const { exec, count } = withCallCounter(
+      makeExecFn([{ match: "compare", exitCode: 0, stdout: "deadbeef" }])
+    );
+    fetchMergeBaseSha(REPO, "main", "abc123", { cwd: CWD, exec });
+    expect(count()).toBe(1);
+  });
+});
+
+describe("fetchFileSizeAtRef", () => {
+  it("returns the file size (bytes) on success", () => {
+    const exec = makeExecFn([
+      { match: "contents/CLAUDE.md?ref=abc123", exitCode: 0, stdout: "114500\n" },
+    ]);
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBe(114500);
+  });
+
+  it("returns 0 when the file does not exist at the ref (404 Not Found)", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBe(0);
+  });
+
+  it("returns null on a genuine transport failure (not a 404)", () => {
+    const exec: ExecFn = () => ({ exitCode: 1, stdout: "", stderr: "connection reset" });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("returns null (not 0) for an unrelated error containing 'not found' but no HTTP 404 (R1 tightened match)", () => {
+    // Prior loose `/not found/i` matching would have false-positively treated
+    // this as file-absence. The tightened `/\(HTTP 404\)/` match requires the
+    // actual gh CLI status-code suffix, not just the substring "not found"
+    // appearing anywhere in stderr (e.g. from a differently-shaped tool error).
+    const exec: ExecFn = () => ({
+      exitCode: 127,
+      stdout: "",
+      stderr: "bash: gh: command not found",
+    });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
+  });
+
+  it("returns 0 for a bad-ref 404 whose message doesn't say literal 'Not Found' (real gh behavior)", () => {
+    // Verified empirically against the live GitHub API (mt#2874 PR body):
+    // an invalid ref returns `gh: No commit found for the ref ... (HTTP 404)`
+    // — no literal "Not Found" substring, but still a genuine 404.
+    const exec: ExecFn = () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "gh: No commit found for the ref deadbeef (HTTP 404)",
+    });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "deadbeef", { cwd: CWD, exec });
+    expect(result).toBe(0);
+  });
+
+  it("returns null when the size output is unparseable", () => {
+    const exec: ExecFn = () => ({ exitCode: 0, stdout: "not-a-number", stderr: "" });
+    const result = fetchFileSizeAtRef(REPO, "CLAUDE.md", "abc123", { cwd: CWD, exec });
+    expect(result).toBeNull();
   });
 });
 

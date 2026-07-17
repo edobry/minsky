@@ -50,6 +50,13 @@ export interface CompileResult {
    * `sizeChars` is target scaffolding (banner, headers, section preamble).
    */
   ruleContentChars?: number;
+  /**
+   * `alwaysApply: true` rules whose own compiled contribution exceeds the
+   * per-rule ceiling (mt#2874). Only populated for targets that opt into the
+   * check (currently `claude.md`) — see `evaluateSizeBudget`'s
+   * `perRuleCeiling` param.
+   */
+  perRuleViolations?: RuleContribution[];
 }
 
 export interface CompileTarget {

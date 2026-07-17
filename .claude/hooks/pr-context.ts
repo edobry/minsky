@@ -616,6 +616,87 @@ export function fetchReviewsRaw(
   return exec(["gh", "api", `repos/${repo}/pulls/${prNumber}/reviews`], { cwd, timeout });
 }
 
+/**
+ * Resolve the merge-base commit SHA between a PR's base branch and its head
+ * SHA, via GitHub's compare API (`GET /compare/{base}...{head}`). ONE `gh`
+ * call. Used by the mt#2874 growth-justification gate to isolate what THIS
+ * PR's diff contributed to a committed target file (e.g. `CLAUDE.md`) —
+ * comparing head against the PR's OWN base branch head (rather than the
+ * merge-base) would also count unrelated growth from sibling PRs that landed
+ * on `main` after this PR branched.
+ *
+ * Returns `null` on any failure (network, missing branch/ref, empty/
+ * malformed output) — callers should fail-open with a warning.
+ */
+export function fetchMergeBaseSha(
+  repo: string,
+  base: string,
+  head: string,
+  opts: FetchOpts = {}
+): string | null {
+  const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
+  const result = exec(
+    ["gh", "api", `repos/${repo}/compare/${base}...${head}`, "--jq", ".merge_base_commit.sha"],
+    { cwd, timeout }
+  );
+  if (result.exitCode !== 0) return null;
+  const sha = result.stdout.trim();
+  return sha.length > 0 ? sha : null;
+}
+
+/**
+ * Fetch a file's size in BYTES at a given git ref, via GitHub's contents API
+ * (`GET /contents/{path}?ref={ref}`). ONE `gh` call. Uses the response's
+ * `.size` field directly (already byte-counted server-side, matching `wc
+ * -c`) rather than decoding the base64 `content` field just to measure its
+ * length.
+ *
+ * Returns `0` when the file does not exist at that ref — a legitimately-
+ * absent file (e.g. a PR that newly adds `CLAUDE.md`, or a merge-base that
+ * predates the file) contributes zero growth from that side of the diff,
+ * not a fetch failure. Returns `null` on any OTHER failure (network, auth,
+ * rate-limit, parse) — callers should fail-open with a warning on `null`
+ * specifically, not on `0`.
+ *
+ * 404 detection (R1 fix — tightened from a loose `/not found/i` substring
+ * match): `gh api` reports every non-2xx response as `gh: <message> (HTTP
+ * <code>)` on stderr. Matching on the literal `(HTTP 404)` suffix — verified
+ * empirically against three real cases (missing file: `gh: Not Found (HTTP
+ * 404)`; missing repo: same message, GitHub's contents endpoint doesn't
+ * distinguish; invalid ref: `gh: No commit found for the ref ... (HTTP
+ * 404)`) — is precise about the STATUS CODE, unlike the prior pattern, which
+ * could also match unrelated errors that happen to contain the substring
+ * "not found" anywhere in their text (a different tool's stderr noise, a
+ * DNS message, etc.). Residual ambiguity: this endpoint's 404 does not let
+ * us distinguish "file absent" from "repo/ref invalid" — both messages
+ * shown above satisfy the same regex. This is safe for THIS hook's actual
+ * call sites: `require-growth-justification-before-merge.ts` only ever
+ * passes a `headSha` from a resolved `PrMeta` or a `mergeBaseSha` already
+ * validated by `fetchMergeBaseSha`'s own compare-API call — both are
+ * real, existing commits in the SAME repo, so "ref invalid" / "repo
+ * invalid" are not realistic failure modes here; the only realistic 404 is
+ * genuine file-absence-at-a-valid-commit.
+ */
+export function fetchFileSizeAtRef(
+  repo: string,
+  path: string,
+  ref: string,
+  opts: FetchOpts = {}
+): number | null {
+  const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
+  const result = exec(["gh", "api", `repos/${repo}/contents/${path}?ref=${ref}`, "--jq", ".size"], {
+    cwd,
+    timeout,
+  });
+  if (result.exitCode !== 0) {
+    // Match gh's actual HTTP-status suffix, not a loose "not found" substring.
+    if (/\(HTTP 404\)/.test(result.stderr)) return 0;
+    return null;
+  }
+  const size = parseInt(result.stdout.trim(), 10);
+  return Number.isFinite(size) ? size : null;
+}
+
 /** Fetch a PR's body only, by number. ONE call. */
 export function fetchPrBody(
   repo: string,
