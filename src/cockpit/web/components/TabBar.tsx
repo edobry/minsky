@@ -66,6 +66,12 @@ export function resolveKindIcon(kind: EntityTabKind): React.ComponentType<{ clas
  */
 function TabLabel({ tab }: { tab: EntityTab }) {
   const { primary, enriched } = useEntityLabel(tab);
+  // Tooltip carries BOTH the full derived label (the visible text truncates)
+  // AND the raw entity id — this inner title wins over the parent Link's on
+  // hover, so it must not drop the raw-id contract (reviewer R1). In the
+  // error case the span sets NO title, letting the parent Link's
+  // "<id> (not found)" tooltip stand alone (one title per contract).
+  const tooltip = enriched ? `${primary}\n${tab.entityId}` : tab.entityId;
   return (
     <span
       className={cn(
@@ -73,7 +79,7 @@ function TabLabel({ tab }: { tab: EntityTab }) {
         enriched ? "font-sans" : "font-mono",
         tab.error && "text-destructive"
       )}
-      title={primary}
+      title={tab.error ? undefined : tooltip}
     >
       {primary}
     </span>
