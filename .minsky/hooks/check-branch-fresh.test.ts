@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
   formatBlockMessage,
   checkBranchFreshness,
@@ -10,8 +10,10 @@ import {
   refreshRemoteRefs,
   applyHostCap,
   getCurrentBudgets,
+  attemptCleanTreeAutoMerge,
   type BranchFreshnessResult,
   type MergeDetectFs,
+  type AutoMergeDeps,
 } from "./check-branch-fresh";
 import {
   readHostCap,
@@ -23,6 +25,19 @@ import {
   MIN_DERIVED_BUDGET_MS,
   DEFAULT_HOST_CAP_SEC,
 } from "./types";
+import { join } from "path";
+// mt#2815 real-git integration tests (below) need real fs + a real git
+// binary to exercise the DEFAULT (non-injected) deps of
+// attemptCleanTreeAutoMerge — the hermetic unit tests above already cover
+// the decision logic with fakes. Same justification as
+// packages/domain/src/git/mt1509-deadlock.test.ts and
+// packages/domain/src/session/freshness-marker.test.ts.
+/* eslint-disable custom/no-real-fs-in-tests */
+import { mkdtemp, rm, writeFile, mkdir } from "fs/promises";
+import { tmpdir as osTmpdir } from "os";
+/* eslint-enable custom/no-real-fs-in-tests */
+import { exec as childExec } from "child_process";
+import { promisify as nodePromisify } from "util";
 
 // Shared fixtures for mt#1546 tests — extracted to avoid magic-string
 // duplication warnings.
@@ -1586,3 +1601,302 @@ describe("applyHostCap (mt#1546)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// attemptCleanTreeAutoMerge — hermetic unit tests (injectable deps, mt#2815)
+// ---------------------------------------------------------------------------
+
+describe("attemptCleanTreeAutoMerge (injectable deps)", () => {
+  const REPO = "/fake/session/repo";
+  const BRANCH_REF = "origin/task/mt-2815";
+  const MAIN_REF = "origin/main";
+
+  function makeAutoMergeDeps(overrides: Partial<AutoMergeDeps> = {}): AutoMergeDeps & {
+    calls: { isWorkingTreeClean: number; runMerge: number; abortMerge: number };
+  } {
+    const calls = { isWorkingTreeClean: 0, runMerge: 0, abortMerge: 0 };
+    return {
+      calls,
+      isWorkingTreeClean: (...args) => {
+        calls.isWorkingTreeClean++;
+        return overrides.isWorkingTreeClean ? overrides.isWorkingTreeClean(...args) : true;
+      },
+      runMerge: (...args) => {
+        calls.runMerge++;
+        return overrides.runMerge ? overrides.runMerge(...args) : { exitCode: 0 };
+      },
+      abortMerge: (...args) => {
+        calls.abortMerge++;
+        overrides.abortMerge?.(...args);
+      },
+      listConflictedFiles: overrides.listConflictedFiles ?? (() => []),
+    };
+  }
+
+  test("not attempted when branchRef is missing", () => {
+    const deps = makeAutoMergeDeps();
+    const result = attemptCleanTreeAutoMerge(REPO, undefined, MAIN_REF, 3, Date.now(), deps);
+    expect(result).toEqual({
+      attempted: false,
+      reason: "missing branchRef/mainRef — comparison did not fully run",
+    });
+    expect(deps.calls.isWorkingTreeClean).toBe(0);
+    expect(deps.calls.runMerge).toBe(0);
+  });
+
+  test("not attempted when mainRef is missing", () => {
+    const deps = makeAutoMergeDeps();
+    const result = attemptCleanTreeAutoMerge(REPO, BRANCH_REF, undefined, 3, Date.now(), deps);
+    expect(result.attempted).toBe(false);
+    expect(deps.calls.isWorkingTreeClean).toBe(0);
+  });
+
+  test("not attempted when overall budget already exhausted", () => {
+    const { overallBudgetMs } = getCurrentBudgets();
+    // hookStart far enough in the past that `Date.now() - hookStart` alone
+    // already exceeds the overall budget. Not a filesystem-path-uniqueness
+    // pattern (the rule's actual target) — this is wall-clock arithmetic
+    // for the budget guard under test.
+    // eslint-disable-next-line custom/no-real-fs-in-tests
+    const exhaustedStart = Date.now() - overallBudgetMs - 1000;
+    const deps = makeAutoMergeDeps();
+    const result = attemptCleanTreeAutoMerge(REPO, BRANCH_REF, MAIN_REF, 3, exhaustedStart, deps);
+    expect(result.attempted).toBe(false);
+    if (!result.attempted) {
+      expect(result.reason).toContain("budget exhausted");
+    }
+    expect(deps.calls.isWorkingTreeClean).toBe(0);
+  });
+
+  test("not attempted when working tree is dirty — merge is never invoked (regression: dirty-tree behavior unchanged)", () => {
+    const deps = makeAutoMergeDeps({ isWorkingTreeClean: () => false });
+    const result = attemptCleanTreeAutoMerge(REPO, BRANCH_REF, MAIN_REF, 3, Date.now(), deps);
+    expect(result.attempted).toBe(false);
+    if (!result.attempted) {
+      expect(result.reason).toContain("not clean");
+    }
+    expect(deps.calls.runMerge).toBe(0);
+  });
+
+  test("merged: true on a clean merge (exitCode 0) — reports the original ahead count", () => {
+    const deps = makeAutoMergeDeps({ runMerge: () => ({ exitCode: 0 }) });
+    const result = attemptCleanTreeAutoMerge(REPO, BRANCH_REF, MAIN_REF, 3, Date.now(), deps);
+    expect(result).toEqual({ attempted: true, merged: true, mergedCommitCount: 3 });
+    expect(deps.calls.abortMerge).toBe(0);
+  });
+
+  test("merged: false + aborts on a conflicting merge (non-zero exit) — protective property", () => {
+    const deps = makeAutoMergeDeps({
+      runMerge: () => ({ exitCode: 1 }),
+      listConflictedFiles: () => ["shared.txt", "other.txt"],
+    });
+    const result = attemptCleanTreeAutoMerge(REPO, BRANCH_REF, MAIN_REF, 2, Date.now(), deps);
+    expect(result).toEqual({
+      attempted: true,
+      merged: false,
+      conflictedFiles: ["shared.txt", "other.txt"],
+    });
+    // Critical: abort must be called so no MERGE_HEAD survives for the next
+    // hook invocation to misread as an operator-driven mid-merge.
+    expect(deps.calls.abortMerge).toBe(1);
+  });
+
+  test("aborts even when conflictedFiles comes back empty (unexpected merge failure, not just conflicts)", () => {
+    const deps = makeAutoMergeDeps({
+      runMerge: () => ({ exitCode: 128 }),
+      listConflictedFiles: () => [],
+    });
+    const result = attemptCleanTreeAutoMerge(REPO, BRANCH_REF, MAIN_REF, 1, Date.now(), deps);
+    expect(result.attempted).toBe(true);
+    if (result.attempted) {
+      expect(result.merged).toBe(false);
+    }
+    expect(deps.calls.abortMerge).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attemptCleanTreeAutoMerge — real-git integration tests (mt#2815 acceptance)
+// ---------------------------------------------------------------------------
+//
+// Justification for real fs/git (no-real-fs-in-tests suppressed below): this
+// exercises the DEFAULT deps (real `execWithPath` calls against a real git
+// binary). The hermetic tests above cover the decision logic; these cover
+// the actual git mechanics — that `git merge --no-edit` really does apply
+// cleanly on disjoint changes and really does leave conflict markers (and
+// get aborted) on overlapping changes. Mirrors the established pattern in
+// packages/domain/src/git/mt1509-deadlock.test.ts.
+
+/* eslint-disable custom/no-real-fs-in-tests */
+const execAsyncReal = nodePromisify(childExec);
+
+async function gitReal(cwd: string, ...args: string[]): Promise<string> {
+  const { stdout } = await execAsyncReal(`git -C ${JSON.stringify(cwd)} ${args.join(" ")}`);
+  return stdout.trim();
+}
+
+async function setGitIdentityReal(repoPath: string): Promise<void> {
+  await gitReal(repoPath, "config", "user.email", '"mt2815-test@example.com"');
+  await gitReal(repoPath, "config", "user.name", '"mt2815 test"');
+}
+
+describe("attemptCleanTreeAutoMerge — real git (mt#2815 acceptance)", () => {
+  let tmpBase: string;
+
+  beforeAll(async () => {
+    tmpBase = await mkdtemp(join(osTmpdir(), "minsky-mt2815-"));
+  });
+
+  afterAll(async () => {
+    if (tmpBase) {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  test("clean-behind-by-3-commits: auto-merge applies with zero conflicts, no manual round-trip needed", async () => {
+    const scenarioDir = join(tmpBase, "clean-scenario");
+    const originPath = join(scenarioDir, "origin.git");
+    const seedPath = join(scenarioDir, "seed");
+    const sessionPath = join(scenarioDir, "session");
+
+    await mkdir(originPath, { recursive: true });
+    await execAsyncReal(`git init --bare -b main ${JSON.stringify(originPath)}`);
+
+    // Seed clone: initial commit on main, then branch off for the "session".
+    await mkdir(seedPath, { recursive: true });
+    await execAsyncReal(`git clone ${JSON.stringify(originPath)} ${JSON.stringify(seedPath)}`);
+    await setGitIdentityReal(seedPath);
+    await writeFile(join(seedPath, "README.md"), "initial\n");
+    await gitReal(seedPath, "add", "README.md");
+    await gitReal(seedPath, "commit", "-m", '"chore: initial"');
+    await gitReal(seedPath, "push", "origin", "HEAD:main");
+
+    // Session branch: one commit of the agent's own work, pushed to origin.
+    await gitReal(seedPath, "checkout", "-b", "task/mt-9999");
+    await writeFile(join(seedPath, "session-work.txt"), "agent work\n");
+    await gitReal(seedPath, "add", "session-work.txt");
+    await gitReal(seedPath, "commit", "-m", '"feat: session work"');
+    await gitReal(seedPath, "push", "origin", "task/mt-9999");
+
+    // Sibling PRs advance main by 3 commits on DISJOINT files (the empirical
+    // shape from the mt#2815 investigation evidence).
+    await gitReal(seedPath, "checkout", "main");
+    for (const n of [1, 2, 3]) {
+      await writeFile(join(seedPath, `sibling-${n}.txt`), `sibling change ${n}\n`);
+      await gitReal(seedPath, "add", `sibling-${n}.txt`);
+      await gitReal(seedPath, "commit", "-m", `"feat: sibling PR ${n}"`);
+    }
+    await gitReal(seedPath, "push", "origin", "main");
+
+    // The actual session workspace: fresh clone checked out on task/mt-9999,
+    // simulating the state check-branch-fresh operates on.
+    await mkdir(sessionPath, { recursive: true });
+    await execAsyncReal(
+      `git clone --branch task/mt-9999 ${JSON.stringify(originPath)} ${JSON.stringify(sessionPath)}`
+    );
+    await setGitIdentityReal(sessionPath);
+    // Refresh remote-tracking refs, mirroring what the hook entrypoint does
+    // via refreshRemoteRefs before calling checkBranchFreshness.
+    await gitReal(sessionPath, "fetch", "origin", "--prune", "--no-tags", "--quiet");
+
+    const hookStart = Date.now();
+    const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
+    expect(freshness.blocked).toBe(true);
+    expect(freshness.aheadCount).toBe(3);
+    expect(freshness.mainRef).toBe("origin/main");
+    expect(freshness.branchRef).toBe("origin/task/mt-9999");
+
+    const mergeOutcome = attemptCleanTreeAutoMerge(
+      sessionPath,
+      freshness.branchRef,
+      freshness.mainRef,
+      freshness.aheadCount,
+      hookStart
+      // default (real) deps — this is the point of the integration test
+    );
+
+    expect(mergeOutcome).toEqual({ attempted: true, merged: true, mergedCommitCount: 3 });
+
+    // Verify the merge actually landed: sibling files present, working tree
+    // clean, no dangling merge state.
+    for (const n of [1, 2, 3]) {
+      const files = await gitReal(sessionPath, "ls-files");
+      expect(files).toContain(`sibling-${n}.txt`);
+    }
+    const status = await gitReal(sessionPath, "status", "--porcelain");
+    expect(status).toBe("");
+    expect(detectMergeInProgress(sessionPath)).toBeNull();
+  }, 30000);
+
+  test("conflicting upstream change: auto-merge aborts and leaves the branch exactly as the pre-mt#2815 block path would (protective property)", async () => {
+    const scenarioDir = join(tmpBase, "conflict-scenario");
+    const originPath = join(scenarioDir, "origin.git");
+    const seedPath = join(scenarioDir, "seed");
+    const sessionPath = join(scenarioDir, "session");
+
+    await mkdir(originPath, { recursive: true });
+    await execAsyncReal(`git init --bare -b main ${JSON.stringify(originPath)}`);
+
+    await mkdir(seedPath, { recursive: true });
+    await execAsyncReal(`git clone ${JSON.stringify(originPath)} ${JSON.stringify(seedPath)}`);
+    await setGitIdentityReal(seedPath);
+    await writeFile(join(seedPath, "shared.txt"), "line one\nline two\n");
+    await gitReal(seedPath, "add", "shared.txt");
+    await gitReal(seedPath, "commit", "-m", '"chore: initial shared file"');
+    await gitReal(seedPath, "push", "origin", "HEAD:main");
+
+    // Session branch modifies line one.
+    await gitReal(seedPath, "checkout", "-b", "task/mt-8888");
+    await writeFile(join(seedPath, "shared.txt"), "session change\nline two\n");
+    await gitReal(seedPath, "add", "shared.txt");
+    await gitReal(seedPath, "commit", "-m", '"feat: session edits line one"');
+    await gitReal(seedPath, "push", "origin", "task/mt-8888");
+
+    // main ALSO modifies line one, differently — guaranteed conflict.
+    await gitReal(seedPath, "checkout", "main");
+    await writeFile(join(seedPath, "shared.txt"), "main change\nline two\n");
+    await gitReal(seedPath, "add", "shared.txt");
+    await gitReal(seedPath, "commit", "-m", '"feat: main edits line one differently"');
+    await gitReal(seedPath, "push", "origin", "main");
+
+    await mkdir(sessionPath, { recursive: true });
+    await execAsyncReal(
+      `git clone --branch task/mt-8888 ${JSON.stringify(originPath)} ${JSON.stringify(sessionPath)}`
+    );
+    await setGitIdentityReal(sessionPath);
+    await gitReal(sessionPath, "fetch", "origin", "--prune", "--no-tags", "--quiet");
+
+    const hookStart = Date.now();
+    const freshness = checkBranchFreshness(sessionPath, undefined, hookStart);
+    expect(freshness.blocked).toBe(true);
+    expect(freshness.aheadCount).toBe(1);
+
+    const mergeOutcome = attemptCleanTreeAutoMerge(
+      sessionPath,
+      freshness.branchRef,
+      freshness.mainRef,
+      freshness.aheadCount,
+      hookStart
+    );
+
+    expect(mergeOutcome.attempted).toBe(true);
+    if (mergeOutcome.attempted) {
+      expect(mergeOutcome.merged).toBe(false);
+      if (!mergeOutcome.merged) {
+        expect(mergeOutcome.conflictedFiles).toContain("shared.txt");
+      }
+    }
+
+    // Protective property: the merge attempt must be fully aborted. No
+    // MERGE_HEAD left behind (which would otherwise be silently picked up
+    // as an operator-driven mid-merge by the NEXT hook invocation), and the
+    // working tree is back to the session's own pre-merge content.
+    expect(detectMergeInProgress(sessionPath)).toBeNull();
+    const status = await gitReal(sessionPath, "status", "--porcelain");
+    expect(status).toBe("");
+    const content = await gitReal(sessionPath, "show", "HEAD:shared.txt");
+    expect(content).toContain("session change");
+    expect(content).not.toContain("main change");
+  }, 30000);
+});
+/* eslint-enable custom/no-real-fs-in-tests */
