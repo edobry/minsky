@@ -251,12 +251,17 @@ Doc: `guard-dispatcher-framework.md`.
 PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
 (mt#2657) on open-PR file overlap (advisory for recently-merged); blocks subtask creation (incl.
 `tasks_dispatch` new-task mode, mt#2683) on duplicate-child titles vs an ACTIVE sibling (terminal
-siblings WARN; parent-title tokens discounted). Tier-3 ceiling (mt#1362); Tier-2 floor:
-`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time only); duplicate-child also honors a reason-mandatory
-grant file (mt#2658):
+siblings WARN; parent-title tokens discounted). `tasks_create` WITHOUT a parent (standalone,
+non-subtask creates) instead runs the standalone-duplicate probe (mt#2813): an embeddings
+similarity search (`tasks.search` on `title + spec`) against ALL active tasks, WARNing (never
+blocking) on hits at or under a calibrated distance threshold, terminal-status matches excluded.
+Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`.
+Overrides: `MINSKY_FORCE_PARALLEL=1` / `MINSKY_FORCE_DUPLICATE_OK=1` (launch-time only);
+duplicate-child also honors a reason-mandatory grant file (mt#2658):
 `bun scripts/grant-guard-override.ts --guard duplicate-child-matcher --scope <parent> --reason "<why>"`.
-Fail: closed (open-PR) / open (duplicate: unreadable data warns+permits; ACTIVE duplicates block).
+The standalone-duplicate probe has no override (advisory-only, nothing to bypass).
+Fail: closed (open-PR) / open (duplicate-child: unreadable data warns+permits, ACTIVE duplicates
+block; standalone-duplicate: search-backend failure warns+permits, loud skip + hook-health record).
 Doc: `parallel-work-guard.md`.
 
 ## Bypass-Merge Guard

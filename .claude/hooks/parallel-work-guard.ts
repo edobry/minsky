@@ -23,6 +23,12 @@
 // in-process, so no top-level `tasks_create` call ever fires, and the matcher must run on
 // the dispatch call itself when `parentTaskId` is present.
 //
+// mt#2813 note: `tasks_create` WITHOUT a parent (a standalone, non-subtask create) is
+// covered by neither the open-PR sweep above nor the duplicate-CHILD matcher (mt#2683,
+// which needs a parent to enumerate a sibling pool) — it falls through to a THIRD check,
+// the standalone-duplicate probe (see that section below), which runs an embeddings
+// similarity search against ALL active tasks instead of a sibling pool.
+//
 // Two checks are run:
 //   A. Open-PR sweep (BLOCKING): any open PR whose changed files overlap the task's
 //      in-scope paths. This is the genuine merge-conflict signal.
@@ -47,6 +53,7 @@ import type { ToolHookInput } from "./types";
 import { checkOverride } from "./dispatcher";
 import type { OverrideResult } from "./dispatcher";
 import { GUARD_REGISTRY } from "./registry";
+import { runStandaloneDuplicateGuard } from "./parallel-work-guard-standalone";
 
 // NOTE: execWithPath is centralized in types.ts and imported above.
 // This avoids duplicating the PATH-augmentation logic across hooks.
@@ -2380,6 +2387,21 @@ export function resolveDuplicateGuardOverride(
   return { active: false };
 }
 
+// ---------------------------------------------------------------------------
+// Standalone-creation duplicate probe (mt#2813) — split into its own module,
+// parallel-work-guard-standalone.ts, to stay under the custom/max-lines
+// 1500-line hard error. That module exports `runStandaloneDuplicateGuard`
+// (imported above) plus the pure decision/formatting/CLI-fetch functions
+// (`decideStandaloneDuplicateGuard`, `detectStandaloneDuplicates`,
+// `buildStandaloneDuplicateQuery`, `fetchSimilarActiveTasks`, etc.) — see
+// that file's module doc comment for the full mechanism + calibration
+// writeup, and docs/architecture/hooks/parallel-work-guard.md for the
+// operator-facing summary. Wired in below: `runTasksCreateGuardInner` routes
+// any parentless `tasks_create`/new-task-mode `tasks_dispatch` call here
+// instead of falling through the duplicate-CHILD matcher (which needs a
+// parent to enumerate a sibling pool).
+// ---------------------------------------------------------------------------
+
 /** Entrypoint wrapper: resolve the decision and map it to hook output. */
 function runTasksCreateGuard(input: ToolHookInput): void {
   // Observability (PR #1660 R1 BLOCKING): any unexpected throw is surfaced on
@@ -2400,6 +2422,16 @@ function runTasksCreateGuard(input: ToolHookInput): void {
 
 function runTasksCreateGuardInner(input: ToolHookInput): void {
   const parentForScope = resolveDuplicateGuardParent(input.tool_input) || undefined;
+
+  if (!parentForScope) {
+    // Standalone (parentless) create — mt#2813. The duplicate-CHILD matcher
+    // below needs a parent to enumerate a sibling pool; a standalone create
+    // has none, so it falls through to the STANDALONE-duplicate probe
+    // instead (embeddings search against ACTIVE tasks repo-wide).
+    runStandaloneDuplicateGuard(input);
+    return;
+  }
+
   const overrideResolution = resolveDuplicateGuardOverride(parentForScope, process.env);
   const decision = decideTasksCreateGuard(input.tool_input, {
     fetchChildren: (parent) => fetchTaskChildren(parent),
