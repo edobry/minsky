@@ -116,6 +116,32 @@ export async function fetchAskById(id: string): Promise<AskItem> {
   return body.ask;
 }
 
+/**
+ * Compose the operator resolve payload for an option letter (mt#2882 R3 —
+ * ONE definition shared by AskPage and the AsksPage inline actions so the
+ * two surfaces cannot drift): explicit options map letter → option value;
+ * optionless asks map A → approved. `resolvedIn` names the invoking surface.
+ */
+export function composeResolvePayload(
+  ask: Pick<AskItem, "options">,
+  optionLetter: string,
+  resolvedIn: string
+): unknown {
+  const letterIndex = optionLetter.charCodeAt(0) - "A".charCodeAt(0);
+  let payloadValue: unknown;
+  if (ask.options && ask.options.length > 0) {
+    const option = ask.options[letterIndex];
+    payloadValue = { option: String(option?.value ?? ""), chosen: String(option?.value ?? "") };
+  } else {
+    payloadValue = { approved: optionLetter === "A" };
+  }
+  return {
+    responder: "operator",
+    payload: payloadValue,
+    attentionCost: { transport: "inbox", resolvedIn },
+  };
+}
+
 export async function resolveAsk(id: string, payload: unknown): Promise<void> {
   const res = await fetch(`/api/asks/${id}/resolve`, {
     method: "POST",

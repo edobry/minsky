@@ -45,6 +45,7 @@ import {
   fetchAsks,
   resolveAsk,
   deferAsk,
+  composeResolvePayload,
   formatRelative,
   formatDeadlineRemaining,
   kindStyle,
@@ -69,27 +70,6 @@ interface Filters {
 // Inline action mutations
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve payload mirrors AskPage's contract exactly (option letter →
- * option value, or optionless approved-boolean; responder "operator";
- * attention-cost transport "inbox").
- */
-function composeResolvePayload(ask: AskItem, optionLetter: string): unknown {
-  const letterIndex = optionLetter.charCodeAt(0) - "A".charCodeAt(0);
-  let payloadValue: unknown;
-  if (ask.options && ask.options.length > 0) {
-    const option = ask.options[letterIndex];
-    payloadValue = { option: String(option?.value ?? ""), chosen: String(option?.value ?? "") };
-  } else {
-    payloadValue = { approved: optionLetter === "A" };
-  }
-  return {
-    responder: "operator",
-    payload: payloadValue,
-    attentionCost: { transport: "inbox", resolvedIn: "inbox" },
-  };
-}
-
 function useInlineAskActions() {
   const queryClient = useQueryClient();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -102,7 +82,7 @@ function useInlineAskActions() {
 
   const resolveMutation = useMutation({
     mutationFn: ({ ask, optionLetter }: { ask: AskItem; optionLetter: string }) =>
-      resolveAsk(ask.id, composeResolvePayload(ask, optionLetter)),
+      resolveAsk(ask.id, composeResolvePayload(ask, optionLetter, "inbox")),
     onMutate: ({ ask }) => setPendingId(ask.id),
     onSettled: settle,
   });
