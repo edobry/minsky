@@ -123,6 +123,37 @@ every turn while any guard remains critical, mirroring `inject-current-time.ts` 
 `inject-git-state.ts`'s "fresh info every turn" posture: a dead gate silently forgotten after
 one mention would defeat the point of an escalating signal.
 
+## Test write-isolation (mt#2875)
+
+The store path was already injectable at both layers before mt#2875 — the write side
+(`.minsky/hooks/guard-health.ts`'s `recordGuardError`/`recordGuardCheckSkip`) accepts an
+explicit `logPath`/`env` option, and the read side (`src/mcp/guard-health-tracker.ts`'s
+`GuardHealthTracker`) accepts a constructor `logPathOverride`; both fall back to the
+`MINSKY_STATE_DIR` env-var override (mirroring `disconnect-tracker.ts`'s `getStateDir()`) when
+no explicit override is given. What mt#2875 fixed was not injectability itself but **how the
+handful of tests exercising the real (unmocked) write/read path chose to isolate** — two tests
+(`dispatcher.test.ts`'s "default recordGuardErrorFn" test and
+`guard-health-escalation-detector.test.ts`'s "returns null when the real guard-health log has
+no critical guards" test) pointed `MINSKY_STATE_DIR` at an assumed-unwritable literal path
+(`/nonexistent/...`) and relied on the OS rejecting the write/read, rather than a real,
+guaranteed-safe `mkdtemp` scratch directory.
+
+That reliance is an environment assumption, not a guarantee: 4 fixture rows (guardName
+`"throws"`, message `"boom"`, `sessionId: "sess-1"` — exactly the `dispatcher.test.ts` test's
+fixture shape) were found in the operator's live `~/.local/state/minsky/guard-health-log.jsonl`
+on 2026-07-16, with timestamps landing inside that exact test's development window. mt#2875
+migrated both tests to real `mkdtempSync` scratch directories (cleaned up in `finally`/
+`afterEach`, matching the `mkdtemp` real-fs pattern already established elsewhere in the repo —
+see `packages/domain/src/rules/operations/crud-operations.test.ts`) and added a dedicated
+regression test, `.minsky/hooks/guard-health-write-isolation.test.ts`, which seeds a canary
+"live store" scratch file and asserts it stays byte-identical after the real default
+`recordGuardError` write path fires against a separately scoped `MINSKY_STATE_DIR`.
+
+`guard-health-dispatcher-integration.test.ts`'s own unwritable-state-dir test (verifying guards
+still run when the tracker log is unavailable) was already safe under this discipline — its
+"unwritable" directory is a subdirectory of a real `mkdtemp` scratch dir with a blocker file
+placed inside it, not a literal path outside test control, so it needed no change.
+
 ## Fail-safe posture
 
 Every layer swallows its own errors:
@@ -182,3 +213,10 @@ aggregation, streaks, and escalation tiering; operator/agent-facing surfacing vi
   own that class)
 - mt#2589 / mt#2597 — the evaluation-loop RFC and its fire-log task, which own
   verdict-quality and full successful-fire logging respectively
+- mt#2875 — write-isolation follow-up: migrated the two tests exercising the real
+  (unmocked) write/read path off an assumed-unwritable literal path onto real `mkdtemp`
+  scratch directories and added `.minsky/hooks/guard-health-write-isolation.test.ts`.
+  The live-store purge is a separate operator-context step (this PR cannot reach
+  `~/.local/state/`): mt#2872 purged the original 4 fixture rows; the one additional row
+  leaked during this task's own pre-fix test run was purged from the main-agent context
+  2026-07-16T22:12Z, verified via `debug_systemInfo` (`guardHealth.escalation: "none"`)

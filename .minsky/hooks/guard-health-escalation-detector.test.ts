@@ -1,6 +1,15 @@
 // Tests for .minsky/hooks/guard-health-escalation-detector.ts — mt#2812.
 
+/* eslint-disable custom/no-real-fs-in-tests -- the "returns null when the
+   real guard-health log has no critical guards" test below exercises the
+   real (unmocked) getGuardHealthSummary read path against a real, empty
+   mkdtemp scratch directory (mt#2875 fix), replacing the prior reliance on
+   an assumed-unwritable literal path ("/nonexistent/..."). */
+
 import { describe, test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildCriticalWarning, run } from "./guard-health-escalation-detector";
 import type { GuardHealthSummary } from "./guard-health";
 import type { ClaudeHookInput } from "./types";
@@ -112,16 +121,25 @@ describe("buildCriticalWarning", () => {
 
 describe("run (guard-dispatcher entry point)", () => {
   test("returns null when the real guard-health log has no critical guards (fail-safe empty-log path)", () => {
-    // Points MINSKY_STATE_DIR at a nonexistent path so getGuardHealthSummary
-    // reads no real log — exercises the true default wiring end-to-end.
+    // Points MINSKY_STATE_DIR at a real, empty mkdtemp scratch directory
+    // (mt#2875 fix) so getGuardHealthSummary reads no real log — exercises
+    // the true default wiring end-to-end without relying on an assumed-
+    // unwritable literal path ("/nonexistent/..."). This test only reads
+    // (run() -> getGuardHealthSummary() never writes), but a genuinely
+    // empty scratch dir is a stronger and more portable "no log" fixture
+    // than a hardcoded absolute path whose non-existence/unwritability is
+    // an environment assumption rather than a guarantee — see mt#2875,
+    // which migrated every guard-health test off that assumption.
+    const scratchDir = mkdtempSync(join(tmpdir(), "mt2875-escalation-detector-test-"));
     const prevStateDir = process.env.MINSKY_STATE_DIR;
-    process.env.MINSKY_STATE_DIR = "/nonexistent/mt2812-escalation-detector-test";
+    process.env.MINSKY_STATE_DIR = scratchDir;
     try {
       const outcome = run(baseInput(), stubContext());
       expect(outcome).toBeNull();
     } finally {
       if (prevStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
       else process.env.MINSKY_STATE_DIR = prevStateDir;
+      rmSync(scratchDir, { recursive: true, force: true });
     }
   });
 });
