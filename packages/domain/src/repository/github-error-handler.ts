@@ -166,6 +166,26 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     );
   }
 
+  // ── Server-side degradation (5xx) ────────────────────────────────
+  //
+  // mt#2890: distinct from the generic fallback below so the status code
+  // survives into the message text — the fallback's `getErrorMessage(error)`
+  // typically does NOT include the numeric status, which downstream
+  // classifiers (workflow-commands.ts's merge-error classifier) rely on to
+  // tell a real GitHub-side outage apart from a merge conflict or a rate
+  // limit.
+  if (info.status !== undefined && info.status >= 500 && info.status < 600) {
+    throw new MinskyError(
+      `GitHub API degraded/unavailable (HTTP ${info.status})\n\n` +
+        `GitHub's API returned a server error for this request. This is not a problem with ` +
+        `your PR or credentials — GitHub's service is temporarily degraded.\n\n` +
+        `To fix this:\n` +
+        `  - Check GitHub status: https://www.githubstatus.com/\n` +
+        `  - Retry the operation in a few minutes\n\n` +
+        `Error: ${info.message}`
+    );
+  }
+
   // ── Network / connectivity ──────────────────────────────────────
   if (
     info.messageLower.includes("network") ||
