@@ -164,6 +164,13 @@ export async function countEvents(
  * dry-run token (`payload->>'token'`, mt#2819). Used by `tasks.bulk-edit`'s
  * execute path to load the approved change set (dry_run event) and to detect
  * prior execution (executed event — the one-shot consumption marker).
+ *
+ * Injection safety (PR #2009 R1): the `sql` tagged template BINDS interpolated
+ * values as parameters — `${token}` becomes a placeholder, never string
+ * concatenation; `${systemEventsTable.payload}` resolves to a quoted column
+ * identifier. This is Drizzle's documented pattern for JSON-operator access.
+ * The caller additionally validates the token shape (64 hex chars) before
+ * calling.
  */
 export async function findEventByToken(
   db: PostgresJsDatabase,

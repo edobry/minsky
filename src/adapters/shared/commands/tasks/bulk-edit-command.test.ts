@@ -172,6 +172,13 @@ describe("tasks.bulk-edit execute", () => {
     ).rejects.toThrow(/Unknown dry-run token/);
   });
 
+  test("execute with a malformed token is refused before any lookup", async () => {
+    const { command } = setup([makeTask("mt#1")]);
+    await expect(
+      run(command, { ids: ["mt#1"], addTag: "x", execute: true, token: "not-a-token" })
+    ).rejects.toThrow(/Malformed token/);
+  });
+
   test("aborts naming the drift when a target changed between dry-run and execute", async () => {
     const tasks = [makeTask("mt#1"), makeTask("mt#2")];
     const { command, calls } = setup(tasks);

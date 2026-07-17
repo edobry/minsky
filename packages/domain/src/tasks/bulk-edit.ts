@@ -51,9 +51,16 @@ export type DriftVerdict = "pending" | "applied" | "drift";
  */
 const DEFAULT_KIND = "implementation";
 
-/** Canonical string form of a record value, for hashing and drift comparison. */
+/**
+ * Canonical string form of a record value, for hashing and drift comparison.
+ * Arrays (tags) are canonicalized as a SET — sorted copy before serialization
+ * — so a pure reordering of tags is never a change and never drift (PR #2009
+ * R1: tags are semantically a set; order-sensitive comparison would falsely
+ * trigger drift when another writer reorders without changing membership).
+ * Application still uses the record's `after` array as stored.
+ */
 export function canonicalValue(value: string | string[]): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
+  return typeof value === "string" ? value : JSON.stringify([...value].sort());
 }
 
 /**

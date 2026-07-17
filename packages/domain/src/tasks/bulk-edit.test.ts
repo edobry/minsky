@@ -55,6 +55,13 @@ describe("computeChangeSet", () => {
   test("no ops produce an empty change set", () => {
     expect(computeChangeSet([task("mt#1", "implementation", ["a"])], {})).toEqual([]);
   });
+
+  test("tag membership equality is order-insensitive (a pure reorder is not a change)", () => {
+    const set = computeChangeSet([task("mt#1", undefined, ["b", "a"])], {
+      addTag: "a",
+    });
+    expect(set).toEqual([]);
+  });
 });
 
 describe("computeDryRunToken", () => {
@@ -101,5 +108,16 @@ describe("checkRecordDrift", () => {
     expect(checkRecordDrift(record, task("mt#1", undefined, ["a"]))).toBe("pending");
     expect(checkRecordDrift(record, task("mt#1", undefined, ["a", "b"]))).toBe("applied");
     expect(checkRecordDrift(record, task("mt#1", undefined, ["c"]))).toBe("drift");
+  });
+
+  test("tag reordering without membership change is NOT drift (set semantics)", () => {
+    const record = {
+      taskId: "mt#1",
+      field: "tags" as const,
+      before: ["a", "b"],
+      after: ["a", "b", "c"],
+    };
+    expect(checkRecordDrift(record, task("mt#1", undefined, ["b", "a"]))).toBe("pending");
+    expect(checkRecordDrift(record, task("mt#1", undefined, ["c", "b", "a"]))).toBe("applied");
   });
 });

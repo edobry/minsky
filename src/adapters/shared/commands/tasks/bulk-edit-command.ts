@@ -234,6 +234,15 @@ export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditPa
       );
     }
 
+    // Defense-in-depth (PR #2009 R1): tokens are sha256 hex by construction.
+    // The events query binds the value as a parameter either way; this shape
+    // check just fails malformed input earlier with a clearer error.
+    if (!/^[0-9a-f]{64}$/.test(token)) {
+      throw new ValidationError(
+        "Malformed token: expected 64 lowercase hex characters (the dry-run's returned token)."
+      );
+    }
+
     // One-shot consumption: a matching executed event makes this a no-op.
     const executedAt = await this.eventStore.findExecutedAt(token);
     if (executedAt) {
