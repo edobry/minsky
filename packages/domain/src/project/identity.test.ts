@@ -120,6 +120,41 @@ describe("deriveSlugFromGitRemote", () => {
     });
     expect(deriveSlugFromGitRemote("/repo", deps)).toBeNull();
   });
+
+  // mt#2893: the git-availability probe. In a git-less container (e.g. the
+  // reviewer service), shelling out to `git remote get-url origin` directly
+  // makes the invoking shell itself print `/bin/sh: 1: git: not found` to
+  // stderr — text a try/catch around the JS-level error cannot suppress.
+  // `deriveSlugFromGitRemote` now probes with `command -v git` (a shell
+  // builtin that only searches PATH and never execs the target) before
+  // attempting the real invocation, so a missing `git` binary never reaches
+  // a "not found" shell error in the first place.
+  test("probes git availability first — skips the real invocation when the probe fails", () => {
+    const calls: string[] = [];
+    const deps = makeDeps({
+      execSync: (cmd) => {
+        calls.push(cmd);
+        throw new Error("/bin/sh: 1: git: not found");
+      },
+    });
+    expect(deriveSlugFromGitRemote("/repo", deps)).toBeNull();
+    // Only the availability probe ran — the real `git remote get-url origin`
+    // invocation (which would fail the same way) was never attempted.
+    expect(calls).toEqual(["command -v git"]);
+  });
+
+  test("invokes the real remote lookup only after a successful availability probe", () => {
+    const calls: string[] = [];
+    const deps = makeDeps({
+      execSync: (cmd) => {
+        calls.push(cmd);
+        if (cmd === "command -v git") return "/usr/bin/git";
+        return GITHUB_SSH_URL;
+      },
+    });
+    expect(deriveSlugFromGitRemote("/repo", deps)).toBe("edobry/minsky");
+    expect(calls).toEqual(["command -v git", "git remote get-url origin"]);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
