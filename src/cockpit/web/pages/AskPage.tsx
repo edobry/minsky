@@ -37,6 +37,7 @@ import {
   type AskItem,
   type AskState,
   type AsksListResponse,
+  composeResolvePayload,
 } from "../widgets/AskDetail";
 import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { LoadingState } from "../components/LoadingState";
@@ -88,19 +89,9 @@ export function AskPage() {
 
   const resolveMutation = useMutation({
     mutationFn: async ({ target, optionLetter }: { target: AskItem; optionLetter: string }) => {
-      const letterIndex = optionLetter.charCodeAt(0) - "A".charCodeAt(0);
-      let payloadValue: unknown;
-      if (target.options && target.options.length > 0) {
-        const option = target.options[letterIndex];
-        payloadValue = { option: String(option?.value ?? ""), chosen: String(option?.value ?? "") };
-      } else {
-        payloadValue = { approved: optionLetter === "A" };
-      }
-      await resolveAsk(target.id, {
-        responder: "operator",
-        payload: payloadValue,
-        attentionCost: { transport: "inbox", resolvedIn: "inbox" },
-      });
+      // Shared payload composition (mt#2882 R3) — one contract definition in
+      // AskDetail serves both the inline inbox actions and this detail page.
+      await resolveAsk(target.id, composeResolvePayload(target, optionLetter, "inbox"));
     },
     onMutate: () => setResolving(true),
     onSettled: settle,
