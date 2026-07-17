@@ -144,6 +144,33 @@ export function normalizeSessionId(id: string): string {
 
 const VALID_INTENTS: ReadonlySet<string> = new Set(["read-only", "implementation"]);
 
+/**
+ * Cap on `reason`'s persisted length (PR #2033 R1 BLOCKING #2). `reason` is
+ * free-form caller-supplied text (often a slice of a dispatch's
+ * `instructions`) — an unbounded value could bloat the store file
+ * indefinitely across repeated dispatches. 300 matches the cap the dispatch
+ * surfaces (`session.generate_prompt` / `tasks.dispatch`) already used at
+ * their own call sites before this fix centralized the cap here instead.
+ */
+export const MAX_REASON_LENGTH = 300;
+
+/**
+ * Sanitize a `reason` value for storage: collapse any CR/LF sequences to a
+ * single space (PR #2033 R1 BLOCKING #2 — "strip/reject newlines so the
+ * store's line-oriented integrity holds": a `reason` embedding raw
+ * newlines could break a future single-line audit/log consumer, e.g. a
+ * denial message rendered as one stdout line, the way sibling guards'
+ * audit lines are), trim, and cap to `MAX_REASON_LENGTH`. Returns
+ * `undefined` for an absent/empty/whitespace-only input (mirrors the
+ * optional-field shape every sibling store uses).
+ */
+export function sanitizeReason(reason: string | undefined): string | undefined {
+  if (reason === undefined) return undefined;
+  const collapsed = reason.replace(/[\r\n]+/g, " ").trim();
+  if (collapsed.length === 0) return undefined;
+  return collapsed.length > MAX_REASON_LENGTH ? collapsed.slice(0, MAX_REASON_LENGTH) : collapsed;
+}
+
 function validateDeclaration(item: unknown): DispatchIntentDeclaration | null {
   if (!item || typeof item !== "object") return null;
   const rec = item as Record<string, unknown>;
@@ -154,7 +181,12 @@ function validateDeclaration(item: unknown): DispatchIntentDeclaration | null {
   if (typeof rec.ttlMs !== "number" || !Number.isFinite(rec.ttlMs) || rec.ttlMs <= 0) return null;
 
   const issuedBy = typeof rec.issuedBy === "string" ? rec.issuedBy : undefined;
-  const reason = typeof rec.reason === "string" ? rec.reason : undefined;
+  // Sanitize defensively on READ too (not just on write, below) — a
+  // hand-edited or pre-fix-vintage store entry could still carry raw
+  // newlines or an over-length reason; every consumer of a parsed
+  // declaration gets the same guaranteed-clean shape regardless of how the
+  // entry was originally written.
+  const reason = sanitizeReason(typeof rec.reason === "string" ? rec.reason : undefined);
 
   return {
     sessionId: rec.sessionId,
@@ -318,6 +350,92 @@ export function findLiveReadOnlyDeclaration(
 }
 
 // ---------------------------------------------------------------------------
+// Store lock (PR #2033 R1 NON-BLOCKING #6 — mirrors ask-grant-store.ts's
+// `withAskGrantStoreLock` EXACTLY, per the review's explicit instruction to
+// reuse that proven shape rather than invent a new one. ask-grant-store.ts
+// gained this lock in its own review round (PR #2015 R1) for the identical
+// weakness: `appendDispatchIntentDeclaration` below is a read-modify-write,
+// and without mutual exclusion two near-simultaneous dispatches (e.g. an
+// orchestrator issuing read-only declarations for two parallel subagent
+// dispatches in the same tick) could each read the same pre-write snapshot
+// and one's append could be lost when the other's write lands after it.)
+// ---------------------------------------------------------------------------
+
+const LOCK_SUFFIX = ".lock";
+const LOCK_STALE_MS = 10_000;
+const LOCK_RETRIES = 40;
+const LOCK_RETRY_DELAY_MS = 25;
+
+export interface DispatchIntentLockDeps {
+  /** Atomically create the lock file; false when it already exists. */
+  tryExclusiveCreate: (path: string, content: string) => boolean;
+  unlinkSync: (path: string) => void;
+  /** Age of the lock file in ms, or null when missing/unreadable. */
+  lockAgeMs: (path: string) => number | null;
+  sleepMs: (ms: number) => void;
+}
+
+const defaultLockDeps: DispatchIntentLockDeps = {
+  tryExclusiveCreate: (p: string, content: string): boolean => {
+    try {
+      const fd = fs.openSync(p, "wx");
+      fs.writeSync(fd, content);
+      fs.closeSync(fd);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "EEXIST") return false;
+      throw err;
+    }
+  },
+  unlinkSync: (p: string): void => {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      // Already gone — fine.
+    }
+  },
+  lockAgeMs: (p: string): number | null => {
+    try {
+      return Date.now() - fs.statSync(p).mtimeMs;
+    } catch {
+      return null;
+    }
+  },
+  sleepMs: (ms: number): void => {
+    Bun.sleepSync(ms);
+  },
+};
+
+/**
+ * Run `fn` holding the store's sibling lock file. Throws when the lock
+ * cannot be acquired within the retry budget (~1s) — callers decide
+ * whether that is fatal (issuance) or a defer.
+ */
+export function withDispatchIntentStoreLock<T>(
+  storePath: string,
+  fn: () => T,
+  lockDeps: DispatchIntentLockDeps = defaultLockDeps
+): T {
+  const lockPath = `${storePath}${LOCK_SUFFIX}`;
+  for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
+    if (lockDeps.tryExclusiveCreate(lockPath, `${process.pid} ${new Date().toISOString()}`)) {
+      try {
+        return fn();
+      } finally {
+        lockDeps.unlinkSync(lockPath);
+      }
+    }
+    const age = lockDeps.lockAgeMs(lockPath);
+    if (age !== null && age > LOCK_STALE_MS) {
+      lockDeps.unlinkSync(lockPath);
+      continue;
+    }
+    lockDeps.sleepMs(LOCK_RETRY_DELAY_MS);
+  }
+  throw new Error(`could not acquire dispatch-intent store lock at ${lockPath}`);
+}
+
+// ---------------------------------------------------------------------------
 // Write path (used by the dispatch-time issuance surface only)
 // ---------------------------------------------------------------------------
 
@@ -325,7 +443,9 @@ export function findLiveReadOnlyDeclaration(
  * Append `declaration` to the store at `storePath`, pruning already-expired
  * declarations along the way (keeps the file from growing unbounded across
  * a long-lived operator workstation). Creates the state dir and an empty
- * store if neither exists yet.
+ * store if neither exists yet. Holds the store lock for the
+ * read-modify-write (throws on lock failure — issuance fails loudly rather
+ * than risking a lost concurrent update; see "Store lock" above).
  *
  * If the existing store is unreadable/malformed, this starts fresh rather
  * than failing — issuance is an explicit dispatch-time action and should
@@ -333,30 +453,47 @@ export function findLiveReadOnlyDeclaration(
  * is what protects guard invocations from a corrupt file, not this
  * function's tolerance.
  *
+ * `declaration.reason` is sanitized (newlines stripped, length capped —
+ * see `sanitizeReason`) before being persisted, regardless of what the
+ * caller passed in.
+ *
  * @param fsDeps — injectable fs functions; defaults to real `node:fs`.
  * @param nowMs — clock reading used for the expiry prune, mirroring
  *   `guard-grant-store.ts`'s `appendGuardGrant` injectable-clock pattern
  *   (mt#2839). Defaults to `Date.now()` for production callers; tests pass
  *   a fixed `nowMs` so pruning is deterministic relative to their fixture
  *   clock.
+ * @param lockDeps — injectable lock functions; defaults to real `node:fs`.
  */
 export function appendDispatchIntentDeclaration(
   storePath: string,
   declaration: DispatchIntentDeclaration,
   fsDeps: DispatchIntentStoreFsDeps = defaultFsDeps,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  lockDeps: DispatchIntentLockDeps = defaultLockDeps
 ): void {
   fsDeps.mkdirSync(path.dirname(storePath));
 
-  const existing = readDispatchIntentStore(storePath, fsDeps);
-  const currentDeclarations = existing.status === "ok" ? existing.declarations : [];
+  const sanitized: DispatchIntentDeclaration = {
+    ...declaration,
+    reason: sanitizeReason(declaration.reason),
+  };
 
-  const now = nowMs;
-  const unexpired = currentDeclarations.filter((d) => {
-    const issuedMs = Date.parse(d.issuedAt);
-    return !Number.isNaN(issuedMs) && now < issuedMs + d.ttlMs;
-  });
+  withDispatchIntentStoreLock(
+    storePath,
+    () => {
+      const existing = readDispatchIntentStore(storePath, fsDeps);
+      const currentDeclarations = existing.status === "ok" ? existing.declarations : [];
 
-  unexpired.push(declaration);
-  fsDeps.writeFileSync(storePath, `${JSON.stringify({ declarations: unexpired }, null, 2)}\n`);
+      const now = nowMs;
+      const unexpired = currentDeclarations.filter((d) => {
+        const issuedMs = Date.parse(d.issuedAt);
+        return !Number.isNaN(issuedMs) && now < issuedMs + d.ttlMs;
+      });
+
+      unexpired.push(sanitized);
+      fsDeps.writeFileSync(storePath, `${JSON.stringify({ declarations: unexpired }, null, 2)}\n`);
+    },
+    lockDeps
+  );
 }

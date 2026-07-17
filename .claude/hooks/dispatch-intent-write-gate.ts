@@ -141,6 +141,18 @@ export function isSubagentContext(input: ToolHookInput): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Clone `SESSION_DIR_RE` with its EXACT flags (`RegExp.prototype.flags`),
+ * never a hardcoded literal — a fresh instance per call avoids shared
+ * `lastIndex` state across invocations (the constant is `g`-flagged), while
+ * deriving the flags from the source constant (rather than assuming `"g"`)
+ * keeps this correct if that pattern's flags ever change. Exported so tests
+ * can assert the clone tracks the source exactly (PR #2033 R1 BLOCKING #1).
+ */
+export function cloneSessionDirRegex(): RegExp {
+  return new RegExp(SESSION_DIR_RE.source, SESSION_DIR_RE.flags);
+}
+
+/**
  * Best-effort, self-contained session-id resolution for the current tool
  * call. Prefers `tool_input.sessionId` (the direct param most of these
  * tools accept). Falls back to parsing `input.cwd` against the shared
@@ -162,8 +174,13 @@ export function resolveSessionIdFromInput(input: ToolHookInput): string | null {
   if (!cwd) return null;
 
   // Fresh regex per call to avoid shared lastIndex state across invocations
-  // (SESSION_DIR_RE is a `g`-flagged module-level constant).
-  const re = new RegExp(SESSION_DIR_RE.source, "g");
+  // (SESSION_DIR_RE is a `g`-flagged module-level constant) — cloned with its
+  // EXACT flags (not a hardcoded subset) via `cloneSessionDirRegex`, so this
+  // stays correct if the source pattern's flags ever change (PR #2033 R1
+  // BLOCKING #1: a prior version hardcoded `"g"` here, which happened to
+  // match today's flags by coincidence but would silently drift from
+  // SESSION_DIR_RE on any future flag change).
+  const re = cloneSessionDirRegex();
   const match = re.exec(cwd);
   const sessionId = match?.[2];
   return sessionId && sessionId.trim().length > 0 ? sessionId.trim() : null;

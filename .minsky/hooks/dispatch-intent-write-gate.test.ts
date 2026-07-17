@@ -5,7 +5,9 @@ import {
   decideDispatchIntentGate,
   buildDenialMessage,
   GATED_TOOL_NAMES,
+  cloneSessionDirRegex,
 } from "./dispatch-intent-write-gate";
+import { SESSION_DIR_RE } from "./check-guessed-session-path";
 import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
 import type { ToolHookInput } from "./types";
 
@@ -82,6 +84,43 @@ describe("isSubagentContext", () => {
     const input = makeInput();
     delete (input as Partial<ToolHookInput>).agent_id;
     expect(isSubagentContext(input)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cloneSessionDirRegex (PR #2033 R1 BLOCKING #1 — regex-clone flag bug)
+// ---------------------------------------------------------------------------
+
+describe("cloneSessionDirRegex", () => {
+  it("clones SESSION_DIR_RE with its exact flags, not a hardcoded subset", () => {
+    const cloned = cloneSessionDirRegex();
+    expect(cloned.flags).toBe(SESSION_DIR_RE.flags);
+    expect(cloned.source).toBe(SESSION_DIR_RE.source);
+  });
+
+  it("global flag matters: repeated exec() on the SAME clone instance walks through DISTINCT matches", () => {
+    // Demonstrates why deriving flags from the source constant (rather than
+    // a hardcoded literal) is load-bearing: a properly `g`-flagged clone
+    // advances `lastIndex` across exec() calls on the same instance,
+    // finding the SECOND session path on the second call. A clone that
+    // dropped the `g` flag would ignore `lastIndex` and return the FIRST
+    // match again on every call — silently resolving the wrong session id
+    // if this pattern were ever reused for multi-match scanning.
+    const cwd = "/a/state/minsky/sessions/session-A/foo /b/state/minsky/sessions/session-B/bar";
+    const clone = cloneSessionDirRegex();
+    const first = clone.exec(cwd);
+    const second = clone.exec(cwd);
+    expect(first?.[2]).toBe("session-A");
+    expect(second?.[2]).toBe("session-B");
+  });
+
+  it("negative control: a clone WITHOUT the global flag repeats the first match instead of walking forward", () => {
+    const cwd = "/a/state/minsky/sessions/session-A/foo /b/state/minsky/sessions/session-B/bar";
+    const nonGlobalClone = new RegExp(SESSION_DIR_RE.source); // no flags — the shape of the original bug
+    const first = nonGlobalClone.exec(cwd);
+    const second = nonGlobalClone.exec(cwd);
+    expect(first?.[2]).toBe("session-A");
+    expect(second?.[2]).toBe("session-A"); // repeats — proves the flag is load-bearing
   });
 });
 

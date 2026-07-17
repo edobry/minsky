@@ -8,14 +8,28 @@ import {
   appendDispatchIntentDeclaration,
   getStateDir,
   getDispatchIntentStorePath,
+  sanitizeReason,
+  MAX_REASON_LENGTH,
+  withDispatchIntentStoreLock,
   type DispatchIntentDeclaration,
   type DispatchIntentStoreFsDeps,
+  type DispatchIntentLockDeps,
 } from "./dispatch-intent-store";
+
+/** Always-available in-memory lock (per custom/no-real-fs-in-tests) — mirrors ask-grant-store.test.ts's passthroughLock exactly. */
+const passthroughLock: DispatchIntentLockDeps = {
+  tryExclusiveCreate: () => true,
+  unlinkSync: () => {},
+  lockAgeMs: () => null,
+  sleepMs: () => {},
+};
 
 const NOW = Date.parse("2026-07-17T20:00:00.000Z");
 const MOCK_STORE_PATH = "/mock/state/minsky/dispatch-intents.json";
 const STATE_DIR_ENV_VAR = "MINSKY_STATE_DIR";
 const SESSION_ID = "6b71e8fb-0c8e-4543-8347-3c3ade427e71";
+/** Shared reason fixture — satisfies custom/no-magic-string-duplication. */
+const SAMPLE_REASON = "bounded memory-search lookup";
 
 function makeDeclaration(
   overrides: Partial<DispatchIntentDeclaration> = {}
@@ -25,7 +39,7 @@ function makeDeclaration(
     intent: "read-only",
     issuedAt: new Date(NOW).toISOString(),
     ttlMs: 30 * 60 * 1000,
-    reason: "bounded memory-search lookup",
+    reason: SAMPLE_REASON,
     ...overrides,
   };
 }
@@ -150,7 +164,7 @@ describe("parseDispatchIntentStoreContent", () => {
     });
     const declarations = parseDispatchIntentStoreContent(raw);
     expect(declarations?.[0]?.issuedBy).toBe("session.generate_prompt:mt#2828");
-    expect(declarations?.[0]?.reason).toBe("bounded memory-search lookup");
+    expect(declarations?.[0]?.reason).toBe(SAMPLE_REASON);
   });
 });
 
@@ -287,7 +301,13 @@ describe("findLiveReadOnlyDeclaration", () => {
 describe("appendDispatchIntentDeclaration", () => {
   it("creates the store with the new declaration when no file exists", () => {
     const fakeFs = makeFakeFs();
-    appendDispatchIntentDeclaration(MOCK_STORE_PATH, makeDeclaration(), fakeFs, NOW);
+    appendDispatchIntentDeclaration(
+      MOCK_STORE_PATH,
+      makeDeclaration(),
+      fakeFs,
+      NOW,
+      passthroughLock
+    );
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.declarations).toHaveLength(1);
     expect(written.declarations[0].sessionId).toBe(SESSION_ID);
@@ -306,7 +326,8 @@ describe("appendDispatchIntentDeclaration", () => {
       MOCK_STORE_PATH,
       makeDeclaration({ sessionId: "session-2" }),
       fakeFs,
-      NOW
+      NOW,
+      passthroughLock
     );
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.declarations).toHaveLength(2);
@@ -329,7 +350,8 @@ describe("appendDispatchIntentDeclaration", () => {
       MOCK_STORE_PATH,
       makeDeclaration({ sessionId: "new-session" }),
       fakeFs,
-      NOW
+      NOW,
+      passthroughLock
     );
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.declarations).toHaveLength(1);
@@ -338,8 +360,170 @@ describe("appendDispatchIntentDeclaration", () => {
 
   it("starts fresh when the existing store is malformed", () => {
     const fakeFs = makeFakeFs({ [MOCK_STORE_PATH]: "{not json" });
-    appendDispatchIntentDeclaration(MOCK_STORE_PATH, makeDeclaration(), fakeFs, NOW);
+    appendDispatchIntentDeclaration(
+      MOCK_STORE_PATH,
+      makeDeclaration(),
+      fakeFs,
+      NOW,
+      passthroughLock
+    );
     const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
     expect(written.declarations).toHaveLength(1);
+  });
+
+  it("sanitizes reason at write time — strips newlines and caps length regardless of caller input", () => {
+    const fakeFs = makeFakeFs();
+    const longReason = `line one\nline two\r\nline three ${"x".repeat(400)}`;
+    appendDispatchIntentDeclaration(
+      MOCK_STORE_PATH,
+      makeDeclaration({ reason: longReason }),
+      fakeFs,
+      NOW,
+      passthroughLock
+    );
+    const written = JSON.parse(fakeFs.files[MOCK_STORE_PATH] as string);
+    const persistedReason: string = written.declarations[0].reason;
+    expect(persistedReason).not.toContain("\n");
+    expect(persistedReason).not.toContain("\r");
+    expect(persistedReason.length).toBeLessThanOrEqual(MAX_REASON_LENGTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeReason (PR #2033 R1 BLOCKING #2)
+// ---------------------------------------------------------------------------
+
+describe("sanitizeReason", () => {
+  it("returns undefined for an undefined input", () => {
+    expect(sanitizeReason(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined for a whitespace-only or empty input", () => {
+    expect(sanitizeReason("")).toBeUndefined();
+    expect(sanitizeReason("   \n\n  ")).toBeUndefined();
+  });
+
+  it("strips embedded newlines, collapsing to a single space", () => {
+    expect(sanitizeReason("line one\nline two\r\nline three")).toBe("line one line two line three");
+  });
+
+  it("caps length at MAX_REASON_LENGTH", () => {
+    const long = "x".repeat(MAX_REASON_LENGTH + 100);
+    const sanitized = sanitizeReason(long);
+    expect(sanitized).toHaveLength(MAX_REASON_LENGTH);
+  });
+
+  it("passes short, clean input through unchanged (aside from trim)", () => {
+    expect(sanitizeReason(`  ${SAMPLE_REASON}  `)).toBe(SAMPLE_REASON);
+  });
+});
+
+describe("validateDeclaration (via parseDispatchIntentStoreContent) sanitizes reason defensively on read", () => {
+  it("strips newlines and caps length even for a pre-fix-vintage/hand-edited entry", () => {
+    const raw = JSON.stringify({
+      declarations: [
+        {
+          ...makeDeclaration(),
+          reason: `bad\nreason\r\nwith newlines ${"y".repeat(400)}`,
+        },
+      ],
+    });
+    const declarations = parseDispatchIntentStoreContent(raw);
+    const reason = declarations?.[0]?.reason ?? "";
+    expect(reason).not.toContain("\n");
+    expect(reason).not.toContain("\r");
+    expect(reason.length).toBeLessThanOrEqual(MAX_REASON_LENGTH);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withDispatchIntentStoreLock (PR #2033 R1 NON-BLOCKING #6 — mirrors
+// ask-grant-store.test.ts's "store lock" block exactly)
+// ---------------------------------------------------------------------------
+
+describe("withDispatchIntentStoreLock", () => {
+  function makeLock(initiallyHeld = false): {
+    deps: DispatchIntentLockDeps;
+    state: { held: boolean };
+  } {
+    const state = { held: initiallyHeld };
+    return {
+      state,
+      deps: {
+        tryExclusiveCreate: () => {
+          if (state.held) return false;
+          state.held = true;
+          return true;
+        },
+        unlinkSync: () => {
+          state.held = false;
+        },
+        lockAgeMs: () => (state.held ? 0 : null),
+        sleepMs: () => {},
+      },
+    };
+  }
+
+  it("runs the critical section holding the lock and releases it after", () => {
+    const { deps, state } = makeLock();
+    let heldDuring = false;
+    const result = withDispatchIntentStoreLock(
+      MOCK_STORE_PATH,
+      () => {
+        heldDuring = state.held;
+        return 42;
+      },
+      deps
+    );
+    expect(result).toBe(42);
+    expect(heldDuring).toBe(true);
+    expect(state.held).toBe(false);
+  });
+
+  it("releases the lock even when the critical section throws", () => {
+    const { deps, state } = makeLock();
+    expect(() =>
+      withDispatchIntentStoreLock(
+        MOCK_STORE_PATH,
+        () => {
+          throw new Error("boom");
+        },
+        deps
+      )
+    ).toThrow("boom");
+    expect(state.held).toBe(false);
+  });
+
+  it("a fresh (non-stale) held lock exhausts retries and throws", () => {
+    const { deps } = makeLock(true);
+    expect(() => withDispatchIntentStoreLock(MOCK_STORE_PATH, () => 1, deps)).toThrow(
+      /could not acquire/
+    );
+  });
+
+  it("a stale lock is reclaimed", () => {
+    const state = { held: true };
+    const deps: DispatchIntentLockDeps = {
+      tryExclusiveCreate: () => {
+        if (state.held) return false;
+        state.held = true;
+        return true;
+      },
+      unlinkSync: () => {
+        state.held = false;
+      },
+      lockAgeMs: () => (state.held ? 60_000 : null),
+      sleepMs: () => {},
+    };
+    expect(withDispatchIntentStoreLock(MOCK_STORE_PATH, () => "ran", deps)).toBe("ran");
+    expect(state.held).toBe(false);
+  });
+
+  it("appendDispatchIntentDeclaration throws (does not silently drop the write) when the lock cannot be acquired", () => {
+    const fakeFs = makeFakeFs();
+    const { deps: lockDeps } = makeLock(true);
+    expect(() =>
+      appendDispatchIntentDeclaration(MOCK_STORE_PATH, makeDeclaration(), fakeFs, NOW, lockDeps)
+    ).toThrow(/could not acquire/);
   });
 });

@@ -223,13 +223,13 @@
         ]
       },
       {
-        "_comment": "mt#2865 dispatch-intent write gate. Deliberately STANDALONE, not GUARD_REGISTRY/dispatcher: dispatch-pretooluse.ts is registered only under the 'Bash|mcp__minsky__session_exec' matcher block above — the session_commit/session_edit_file/session_write_file/session_search_replace/session_pr_create/session_pr_edit tool family this guard gates is NOT among the tool names that already spawn the dispatcher process, so migrating would require widening THAT block's matcher (extra dispatcher spawns for every guard already registered there, for zero benefit — none of them match this tool family). A standalone registration is the cheaper correct choice here, mirroring block-subagent-merge-without-grant.ts's precedent for the sibling D5 merge guard. session_pr_merge is deliberately excluded — already D5-covered by block-subagent-merge-without-grant.ts above.",
+        "_comment": "mt#2865 dispatch-intent write gate. Deliberately STANDALONE, not GUARD_REGISTRY/dispatcher: dispatch-pretooluse.ts is registered only under the 'Bash|mcp__minsky__session_exec' matcher block above — the session_commit/session_edit_file/session_write_file/session_search_replace/session_pr_create/session_pr_edit tool family this guard gates is NOT among the tool names that already spawn the dispatcher process, so migrating would require widening THAT block's matcher (extra dispatcher spawns for every guard already registered there, for zero benefit — none of them match this tool family). A standalone registration is the cheaper correct choice here, mirroring block-subagent-merge-without-grant.ts's precedent for the sibling D5 merge guard. session_pr_merge is deliberately excluded — already D5-covered by block-subagent-merge-without-grant.ts above. Timeout=30 (PR #2033 R1 NON-BLOCKING #4): matched to parallel-work-guard.ts's timeout (also 30, below) rather than invented — both are standalone PreToolUse guards reacting to session/dispatch-lifecycle tool calls, a closer shape match than ask-permission-bridge.ts's 60 (that guard does live Ask server verification, a heavier network-bound workload this guard never does — it only reads a local JSON file, plus this PR's new exclusive-create lock retry loop, which itself caps at ~1s well inside 30).",
         "matcher": "mcp__minsky__session_commit|mcp__minsky__session_edit_file|mcp__minsky__session_write_file|mcp__minsky__session_search_replace|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
         "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-intent-write-gate.ts",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Checking dispatch-intent write gate..."
           }
         ]

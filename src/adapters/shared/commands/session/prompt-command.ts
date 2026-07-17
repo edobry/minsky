@@ -42,9 +42,14 @@ const promptCommandParams = {
       "session_commit/session_edit_file/session_write_file/session_search_replace/" +
       "session_pr_create/session_pr_edit for ANY subagent operating in this session while the " +
       "declaration is live, regardless of which specific agent_id makes the call (covers a " +
-      "context-inheriting `fork`, not just the dispatched agent itself). Use this for bounded " +
-      "lookups (memory search, code investigation, review) dispatched from inside an active " +
-      "implementation context — never fork for those; see subagent-routing.mdc.",
+      "context-inheriting `fork`, not just the dispatched agent itself). IMPORTANT: on " +
+      '"read-only" the generated prompt also SILENTLY OMITS the commit/PR instructions ' +
+      "(the `session_commit`/`session_pr_create` sections present in an `implementation`-intent " +
+      "prompt) and forces the read-only Operating Envelope regardless of `type` — since those " +
+      "tools are structurally denied for this dispatch, the prompt never tells the agent to use " +
+      "them. Use this for bounded lookups (memory search, code investigation, review) dispatched " +
+      "from inside an active implementation context — never fork for those; see " +
+      "subagent-routing.mdc.",
     required: false,
   },
 };
@@ -120,7 +125,11 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
           );
           const declared = declareReadOnlyIntent(sessionId, {
             issuedBy: `session.generate_prompt:${task}`,
-            reason: instructions.slice(0, 300),
+            // Not pre-truncated here — the writer itself sanitizes (strips
+            // newlines, caps length) at declaration time (mt#2865 PR #2033
+            // R1 BLOCKING #2), so every caller gets the same guaranteed-clean
+            // persisted shape regardless of what it passes.
+            reason: instructions,
           });
           if (!declared) {
             log.warn(

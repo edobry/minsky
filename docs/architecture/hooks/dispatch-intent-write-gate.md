@@ -71,6 +71,27 @@ A declaration is a JSON record `{ sessionId, intent, issuedAt, ttlMs, issuedBy?,
 appended to the shared store, keyed by SESSION id (not task id, not agent id) — the session
 workspace is the shared, corruptible resource the incident fork actually damaged.
 
+**Write-time hardening (PR #2033 R1).** Three properties hold for every write to the store,
+regardless of caller:
+
+- **`reason` is sanitized**, not trusted verbatim: CR/LF sequences are collapsed to a single
+  space and the result is capped at `MAX_REASON_LENGTH` (300 chars) — a free-form
+  caller-supplied value (often a slice of a dispatch's `instructions`) could otherwise embed
+  raw newlines (breaking a future single-line audit/log consumer) or grow the store file
+  unboundedly across repeated dispatches. Enforced centrally in `appendDispatchIntentDeclaration`
+  (both the hooks-tree store and its `src/`-side writer twin), not at each call site — a caller
+  passing an unsanitized `reason` still gets the guaranteed-clean persisted shape.
+- **The append is mutual-exclusion-safe.** `appendDispatchIntentDeclaration`'s read-modify-write
+  holds an exclusive-create sibling `.lock` file for its duration (stale-lock reclaim after 10s,
+  ~1s retry budget) — mirrors `.minsky/hooks/ask-grant-store.ts`'s `withAskGrantStoreLock`
+  exactly (that store gained the identical fix in its own review round, PR #2015 R1, for the
+  identical weakness: without it, two near-simultaneous declarations for different sessions
+  could race and one's write could be lost).
+- **One injected fs-deps shape** (`DispatchIntentStoreFsDeps` / `DispatchIntentWriterFsDeps`)
+  covers both the read and write path in each module — a prior version of the `src/`-side
+  writer used two different IO seams (an unabstracted `readTextFileSync` for reads, raw
+  `node:fs` for writes).
+
 **Issuance surface:** `mcp__minsky__session_generate_prompt` and `mcp__minsky__tasks_dispatch`
 both accept an optional `intent` param (`"read-only"` | `"implementation"`, default
 `"implementation"` — omitting it is a no-op, byte-identical to before this param existed). When

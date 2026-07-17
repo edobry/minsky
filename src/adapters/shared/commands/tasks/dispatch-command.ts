@@ -113,7 +113,11 @@ const tasksDispatchParams = {
       "prompt AND writes a TTL-bound declaration to the dispatch-intent store for the dispatched " +
       "session — the PreToolUse write-gate guard (dispatch-intent-write-gate.ts) then DENIES " +
       "session-mutating/PR-mutating tools for ANY subagent operating in this session while the " +
-      "declaration is live. Use for bounded lookups, never for a task expected to write code.",
+      'declaration is live. IMPORTANT: on "read-only" the generated prompt also SILENTLY OMITS ' +
+      "the commit/PR instructions (`session_commit`/`session_pr_create`) and forces the " +
+      "read-only Operating Envelope regardless of `type` — since those tools are structurally " +
+      "denied for this dispatch, the prompt never tells the agent to use them. Use for bounded " +
+      "lookups, never for a task expected to write code.",
     required: false,
   },
   description: {
@@ -506,7 +510,11 @@ export function createTasksDispatchCommand(
           );
           const declared = declareReadOnlyIntent(sessionId, {
             issuedBy: `tasks.dispatch:${taskId}`,
-            reason: p.instructions.slice(0, 300),
+            // Not pre-truncated here — the writer itself sanitizes (strips
+            // newlines, caps length) at declaration time (mt#2865 PR #2033
+            // R1 BLOCKING #2), so every caller gets the same guaranteed-clean
+            // persisted shape regardless of what it passes.
+            reason: p.instructions,
           });
           if (!declared) {
             log.warn(
