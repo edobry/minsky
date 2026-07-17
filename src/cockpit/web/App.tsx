@@ -1,9 +1,8 @@
-import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { WidgetShell } from "./components/WidgetShell";
 import { useDeepLinkHandler } from "./hooks/useDeepLinkHandler";
 import {
   fetchWidgets,
@@ -13,12 +12,7 @@ import {
 } from "./lib/widget-client";
 import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
-import { Attention } from "./widgets/Attention";
-import { BasicHealth } from "./widgets/BasicHealth";
-import { CredentialsSummary } from "./widgets/Credentials";
-import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
-import { McpServerStatus } from "./widgets/McpServerStatus";
-import { ReviewerBotStatus } from "./widgets/ReviewerBotStatus";
+import { HomePage } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 const AgentsPage = lazy(() =>
@@ -141,64 +135,25 @@ export const plantRoutes = (
 );
 
 // ---------------------------------------------------------------------------
-// Widget renderer maps
-//
-// Self-fetching widgets: own their data via TanStack Query; no data prop needed.
-// These remain on the home page grid.
+// App-level prop-driven widgets (mt#2881: the home grid's renderer maps are
+// gone — HomePage is a fixed, curated composition of self-fetching bands, see
+// pages/HomePage.tsx. The only remaining app-level-polled widget is the
+// promoted task-graph page, whose route receives data via props.)
 // ---------------------------------------------------------------------------
-const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>> = {
-  attention: Attention,
-  credentials: CredentialsSummary,
-  "embeddings-health": EmbeddingsHealth,
-  "mcp-server-status": McpServerStatus,
-  "reviewer-bot-status": ReviewerBotStatus,
-};
-
-// Prop-driven widgets: receive data from App-level polling.
-const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
-  "basic-health": BasicHealth,
-};
-
-// Widgets whose data App fetches at the app level and distributes via props:
-//   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
-//   - promoted prop-driven page widgets whose routes receive data via props
-//     (TasksLayout) rather than self-fetching.
-// All other widgets — self-fetching home cards (attention, credentials, ...) and
-// self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
-// the registry-gated /api/widget/:id/data endpoint and must NOT be polled
-// app-wide. This keeps app-level background load bounded to a small fixed set,
-// independent of how many widgets the registry contains (mt#2294).
-// Workstreams migrated off this list to a param-aware self-fetching query
-// (mt#2385 slice/altitude parameterization — see lib/use-workstreams-data.ts).
-//
-// Drift guard: the explicit page-widget entries below MUST also be in
-// PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
-// via props — see taskGraphData below). A dev-time assertion
-// enforces this so adding a self-fetching page widget here (which would start
-// needless app-wide polling) fails fast rather than silently regressing load.
 const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["task-graph"] as const;
-const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
-  ...Object.keys(PROP_DRIVEN_RENDERERS),
-  ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
-]);
+const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([...APP_LEVEL_PAGE_PROP_WIDGET_IDS]);
 
-// IDs of widgets that have dedicated page routes — excluded from the home grid
-// (see homeWidgets below). Their data strategy varies: only the ones ALSO in
-// APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are app-level-polled and
-// prop-driven; the rest (agents, context-inspector, task-list, workstreams)
-// self-fetch on their own pages. Workstreams self-fetches via a param-aware
-// query hook (use-workstreams-data.ts) — do NOT re-add it to the app-level
-// prop list: that would resurrect param-less app-wide polling and break the
-// altitude-keyed caching (mt#2385).
+// IDs of widgets that have dedicated page routes — their data strategy varies:
+// only the ones ALSO in APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are
+// app-level-polled and prop-driven; the rest (agents, context-inspector,
+// task-list, workstreams) self-fetch on their own pages. Workstreams
+// self-fetches via a param-aware query hook (use-workstreams-data.ts) — do NOT
+// re-add it to the app-level prop list: that would resurrect param-less
+// app-wide polling and break the altitude-keyed caching (mt#2385).
 //
 // "context-inspector" (mt#2768): the standalone /context page + its React
-// widget were retired (folded into the run-detail Context tab, keyed by a
-// known conversation id — no picker, no standalone route). The backend
-// widget itself stays registered as a DATA SOURCE (the sessions-picker rows
-// `ConversationPage`'s header label and others read via `fetchWidgetData`) —
-// it just has no home-grid renderer anymore, so it MUST stay in this set to
-// avoid a "no frontend renderer registered" placeholder card reappearing on
-// the home page.
+// widget were retired (folded into the run-detail Context tab). The backend
+// widget stays registered as a DATA SOURCE only.
 const PAGE_ROUTE_WIDGET_IDS = new Set([
   "agents",
   "context-inspector",
@@ -241,65 +196,6 @@ if (process.env.NODE_ENV !== "production") {
 interface WidgetState {
   meta: WidgetMeta;
   data: WidgetData | null;
-}
-
-// ---------------------------------------------------------------------------
-// Home page grid — small widgets + page nav tiles
-// ---------------------------------------------------------------------------
-
-interface HomePageProps {
-  widgets: WidgetState[];
-}
-
-function HomePage({ widgets }: HomePageProps) {
-  return (
-    <div className="p-4 flex flex-col gap-6 max-w-5xl mx-auto w-full">
-      {/* System section — always first: "is anything wrong?" scan */}
-      {widgets.length > 0 && (
-        <section aria-label="System status">
-          <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {widgets.map(({ meta, data }) => {
-                const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
-                const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
-
-                return (
-                  <ErrorBoundary key={meta.id} id={meta.id}>
-                    {SelfFetchingRenderer ? (
-                      meta.id === "attention" ? (
-                        /* Attention is the algedonic top surface — give it the
-                           full row so the default landing leads with it (mt#2398). */
-                        <div className="md:col-span-2 lg:col-span-3">
-                          <SelfFetchingRenderer title={meta.title} />
-                        </div>
-                      ) : (
-                        <SelfFetchingRenderer title={meta.title} />
-                      )
-                    ) : !PropDrivenRenderer ? (
-                      <WidgetShell variant="card" title={meta.title}>
-                        <p className="text-muted-foreground text-sm">
-                          Widget &apos;{meta.id}&apos; has no frontend renderer registered
-                        </p>
-                      </WidgetShell>
-                    ) : data === null ? (
-                      <WidgetShell variant="card" title={meta.title}>
-                        <p className="text-muted-foreground text-sm">Loading...</p>
-                      </WidgetShell>
-                    ) : (
-                      <PropDrivenRenderer data={data} />
-                    )}
-                  </ErrorBoundary>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Nav tiles removed (mt#2398): the persistent rail (mt#2397) is the
-          navigation surface; the tile grid duplicated it. */}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -408,13 +304,6 @@ export function App() {
   // ---------------------------------------------------------------------------
   const taskGraphData = widgets.find((w) => w.meta.id === "task-graph")?.data ?? null;
 
-  // Home page only receives the non-promoted, renderable widgets
-  const homeWidgets = widgets.filter(
-    (w) =>
-      !PAGE_ROUTE_WIDGET_IDS.has(w.meta.id) &&
-      (SELF_FETCHING_RENDERERS[w.meta.id] || PROP_DRIVEN_RENDERERS[w.meta.id])
-  );
-
   return (
     <Layout>
       <Suspense
@@ -425,7 +314,7 @@ export function App() {
         }
       >
         <Routes>
-          <Route path="/" element={<HomePage widgets={homeWidgets} />} />
+          <Route path="/" element={<HomePage />} />
           <Route
             path="/agents"
             element={
