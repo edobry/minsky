@@ -29,6 +29,7 @@ const RETRO_KIND = "retrospective-trigger";
 const DEFERRAL_KIND = "ask-routing-deferral";
 const DEFERRAL_CLASS = "principal-reserved";
 const CODE_MECHANISM_KIND = "code-mechanism-assertion";
+const SILENT_STRETCH_KIND = "silent-stretch";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,20 @@ function makeDeferralRecord(
   });
 }
 
+function makeSilentStretchRecord(
+  sessionId = "test-session",
+  gapMinutes = 12.5,
+  toolCallCount = 15
+): string {
+  return JSON.stringify({
+    timestamp: "2026-07-16T00:00:00Z",
+    session_id: sessionId,
+    gapMinutes,
+    toolCallCount,
+    hadTextInTurn: false,
+  });
+}
+
 function buildLines(count: number, makeLine: (i: number) => string): string {
   return Array.from({ length: count }, (_, i) => makeLine(i)).join("\n");
 }
@@ -79,8 +94,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has six entries (mt#2619 — cadence closeout adds three more logs)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(6);
+  test("has seven entries (mt#2619 adds three; mt#2866 adds silent-stretch)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(7);
   });
 
   test("first entry is causal-premise", () => {
@@ -119,6 +134,12 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[5]?.kind).toBe("policy-coverage");
     expect(CALIBRATION_LOG_REGISTRY[5]?.name).toBe("policy-coverage");
     expect(CALIBRATION_LOG_REGISTRY[5]?.path).toBe(".minsky/policy-coverage-calibration.jsonl");
+  });
+
+  test("seventh entry is silent-stretch (mt#2866)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[6]?.kind).toBe(SILENT_STRETCH_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[6]?.name).toBe(SILENT_STRETCH_KIND);
+    expect(CALIBRATION_LOG_REGISTRY[6]?.path).toBe(".minsky/silent-stretch-calibration.jsonl");
   });
 });
 
@@ -257,6 +278,22 @@ describe("parseCalibrationRecord", () => {
     const line = JSON.stringify({ timestamp: "2026-01-01", sessionId: "x" });
     expect(parseCalibrationRecord(line, "policy-coverage")).toBeNull();
   });
+
+  test("parses a valid silent-stretch record (mt#2824, registered mt#2866)", () => {
+    const line = makeSilentStretchRecord("conv-a", 11.2, 16);
+    const result = parseCalibrationRecord(line, SILENT_STRETCH_KIND);
+    expect(result).not.toBeNull();
+    if (!result || !("gapMinutes" in result)) throw new Error("wrong type");
+    expect(result.gapMinutes).toBe(11.2);
+    expect(result.toolCallCount).toBe(16);
+    expect(result.session_id).toBe("conv-a");
+    expect(result.hadTextInTurn).toBe(false);
+  });
+
+  test("returns null for a silent-stretch record missing gapMinutes/toolCallCount", () => {
+    const line = JSON.stringify({ timestamp: "2026-01-01", session_id: "x" });
+    expect(parseCalibrationRecord(line, SILENT_STRETCH_KIND)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -366,6 +403,18 @@ describe("extractDistinctPhrases", () => {
     expect(distinct.size).toBe(2);
     expect(distinct.has("new-file")).toBe(true);
     expect(distinct.has("new-dependency")).toBe(true);
+  });
+
+  test("collects distinct `session_id` (conversation) values from silent-stretch records (mt#2866)", () => {
+    const records: CalibrationRecord[] = [
+      { timestamp: "t", session_id: "conv-a", gapMinutes: 10, toolCallCount: 15 },
+      { timestamp: "t", session_id: "conv-b", gapMinutes: 11, toolCallCount: 16 },
+      { timestamp: "t", session_id: "conv-a", gapMinutes: 12, toolCallCount: 17 }, // dup conversation
+    ];
+    const distinct = extractDistinctPhrases(records);
+    expect(distinct.size).toBe(2);
+    expect(distinct.has("conv-a")).toBe(true);
+    expect(distinct.has("conv-b")).toBe(true);
   });
 });
 
@@ -528,6 +577,50 @@ describe("computeLogResult — policy-coverage kind (mt#1575, registered mt#2619
     expect(result.atCountThreshold).toBe(true);
     expect(result.distinctPhrases).toBe(1);
     expect(result.lowDiversity).toBe(true);
+    expect(result.pastThreshold).toBe(false);
+  });
+});
+
+describe("computeLogResult — silent-stretch kind (mt#2824, registered mt#2866)", () => {
+  const SILENT_STRETCH_ENTRY: CalibrationLogEntry = {
+    path: ".minsky/silent-stretch-calibration.jsonl",
+    name: SILENT_STRETCH_KIND,
+    kind: SILENT_STRETCH_KIND,
+  };
+
+  test("mt#2866 acceptance test: 12 fires across 4 distinct conversations crosses pastThreshold", () => {
+    const conversations = ["conv-a", "conv-b", "conv-c", "conv-d"];
+    const count = 12;
+    const content = buildLines(count, (i) =>
+      makeSilentStretchRecord(conversations[i % conversations.length])
+    );
+    const result = computeLogResult(SILENT_STRETCH_ENTRY, content, true, undefined);
+    expect(result.totalFires).toBe(12);
+    expect(result.firesSinceLastReview).toBe(12);
+    expect(result.distinctPhrases).toBe(4);
+    expect(result.atCountThreshold).toBe(true);
+    expect(result.lowDiversity).toBe(false);
+    expect(result.pastThreshold).toBe(true);
+  });
+
+  test("diversity is measured over distinct conversations, not fire count", () => {
+    const count = FIRES_THRESHOLD;
+    const content = buildLines(count, () => makeSilentStretchRecord("only-one-conversation"));
+    const result = computeLogResult(SILENT_STRETCH_ENTRY, content, true, undefined);
+    expect(result.atCountThreshold).toBe(true);
+    expect(result.distinctPhrases).toBe(1);
+    expect(result.lowDiversity).toBe(true);
+    expect(result.pastThreshold).toBe(false);
+  });
+
+  test("not past threshold below the fire-count bar even with diverse conversations", () => {
+    const count = FIRES_THRESHOLD - 1;
+    const conversations = ["conv-a", "conv-b", "conv-c", "conv-d"];
+    const content = buildLines(count, (i) =>
+      makeSilentStretchRecord(conversations[i % conversations.length])
+    );
+    const result = computeLogResult(SILENT_STRETCH_ENTRY, content, true, undefined);
+    expect(result.atCountThreshold).toBe(false);
     expect(result.pastThreshold).toBe(false);
   });
 });
