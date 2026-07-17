@@ -1133,7 +1133,7 @@ narration lives in the linked doc.
 ## Vocabulary (mt#2626)
 
 **"Hook"** = Claude Code registration mechanics; domain noun for the mechanism: **"interlock"**
-(cockpit copy). "Guard" naming pending a corpus pass.
+(cockpit copy).
 
 ## Guard-Dispatcher Framework (ADR-028)
 
@@ -1150,10 +1150,9 @@ Doc: `guard-dispatcher-framework.md`.
 ## Parallel-Work Guard
 
 PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): blocks session-binding
-on open-PR file overlap (advisory for recently-merged); blocks subtask creation on duplicate-child
-titles vs an ACTIVE sibling (terminal siblings WARN, mt#2683); parent-less `tasks_create` gets the
-WARN-only embeddings similarity probe instead (mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor:
-`/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
+on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
+ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
+(mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
 `MINSKY_FORCE_DUPLICATE_OK=1` (launch-time) + grant file (mt#2658); probe has none. Fail: closed
 (open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
@@ -1184,14 +1183,14 @@ Doc: `skill-staleness-detector.md`.
 PreToolUse on file-edit tools (`Edit`/`Write`/`session_edit_file`/`session_write_file`/
 `session_search_replace`): blocks edits to files whose first 5 lines carry a generation banner.
 Hook: `check-generated-file-edit.ts`. Override: `MINSKY_FORCE_EDIT_GENERATED=1`. Fail: open
-(no-match/missing-file/read-error all permit). Doc: `generated-file-edit-guard.md`.
+(no-match/missing-file/read-error). Doc: `generated-file-edit-guard.md`.
 
 ## Branch Freshness Guard
 
 PreToolUse on `session_commit`/`session_pr_create`/`session_pr_edit`: blocks when `origin/main`
 has commits the branch lacks; on a clean tree tries an inline `git merge --no-edit` first
-(mt#2815 — clean merge proceeds with audit line; conflict aborts + denies). On block:
-`session_update`, review overlap, retry. Hook: `check-branch-fresh.ts`. Override:
+(mt#2815 — clean merge proceeds with audit line; conflict aborts + denies). Hook:
+`check-branch-fresh.ts`. Override:
 `MINSKY_SKIP_FRESHNESS=1`. Fail: silent-allow on 4 routine paths + merge-in-progress; fetch
 failures warn. Doc: `branch-freshness-guard.md`.
 
@@ -1204,16 +1203,15 @@ deny-by-default. Doc: `bundle-boot-smoke-gate.md`.
 ## Single Shared PR-Data Fetch Layer
 
 Not a guard: `.claude/hooks/pr-context.ts` (mt#2617) — the ONE place the 4 `session_pr_merge`
-gates fetch PR data from `gh`. mt#2888: `fetchCheckRunsRaw` retries via `minsky forge
-check_runs_list` (Octokit) on `gh` transport-class failures only (5xx/timeout/HTML-body decode),
-never genuine 404/401/422. Doc: `pr-data-fetch-layer.md`.
+gates fetch PR data from `gh`. mt#2888: check-run fetches retry via `minsky forge
+check_runs_list` on `gh` transport-class failures only. Doc: `pr-data-fetch-layer.md`.
 
 ## Required-Checks Bypass-Merge D8 Escape Valve
 
 PreToolUse on `Bash`/`session_exec` (layer 2 of mt#1951; layer 1: `require-review-before-merge.ts`):
 denies a `gh api PUT .../merge` bypass unless every required check concluded `success` on HEAD.
-mt#2888: only "cannot read" (fetch failed — status UNKNOWN) consults the mt#2658 D8 grant store
-(guard `require-checks-on-bypass-merge`, scope `owner/repo#PR`); "read and failed" never does.
+mt#2888: only "cannot read" (fetch failed — status UNKNOWN) consults the mt#2658 D8 grant store;
+"read and failed" never does.
 Hook: `require-checks-on-bypass-merge.ts`. Overrides: `MINSKY_SKIP_REQUIRED_CHECKS=1`
 (launch-time) or a D8 grant (`scripts/grant-guard-override.ts`). Fail: deny-on-failure.
 Doc: `required-checks-bypass-merge-gate.md`.
@@ -1243,8 +1241,7 @@ always exits 0. Doc: `deploy-verification-merge-gate.md`.
 
 PreToolUse on `session_pr_merge`: when the diff touches `.minsky/rules/**` AND CLAUDE.md grows
 >2,000 bytes (head vs merge-base; reductions never trigger), denies without a `Size-budget
-justification:` marker (mt#2648 form) — states the measured delta + the rule-admission ladder
-(`key-architecture.mdc`). Hook: `require-growth-justification-before-merge.ts`. Override:
+justification:` marker (mt#2648 form). Hook: `require-growth-justification-before-merge.ts`. Override:
 `MINSKY_SKIP_SIZE_JUSTIFICATION=1` (audited, value not echoed). Fail: open on unreadable diff/PR.
 Doc: `growth-justification-merge-gate.md`.
 
@@ -1252,13 +1249,15 @@ Doc: `growth-justification-merge-gate.md`.
 
 - **NUL-byte** — blocks staged text with literal NUL bytes (allowlist: binary extensions +
   `tests/fixtures/`); override `MINSKY_SKIP_NUL_CHECK=1`. Doc: `nul-byte-precommit-guard.md`.
-- **Workspace-COPY** — REGENERATES (mt#2621) the workspace `package.json` COPY block in protected
-  Dockerfiles from the root `workspaces` glob, auto-restaging; no override (auto-fixes forward);
-  blocks only if markers are missing. Doc: `workspace-copy-precommit-guard.md`.
-- **Deploy-domain ownership** — blocks a domain **asserted** as a deploy target (`infra/index.ts`,
-  `services/*/{deploy,astro}.config.ts`, README "Deployed at") unless allowlisted in
-  `infra/controlled-domains.json`; override `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`.
+- **Workspace-COPY** — regenerates protected Dockerfiles' `package.json` COPY block from the root
+  `workspaces` glob (mt#2621), auto-restaging; no override; blocks only on missing markers.
+  Doc: `workspace-copy-precommit-guard.md`.
+- **Deploy-domain ownership** — blocks a domain **asserted** as a deploy target unless allowlisted
+  in `infra/controlled-domains.json`; override `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK=1`.
   Doc: `deploy-domain-ownership-guard.md`.
+- **Immutable-migration** — blocks a staged modification/rename of a journaled migration `.sql`
+  (drifts its ledger hash); additions/unjournaled edits allowed; override
+  `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Doc: `immutable-migration-precommit-guard.md`.
 
 ## Drive-PR-To-Convergence Reminder
 
@@ -1297,13 +1296,6 @@ Doc: `retrospective-trigger-scanner.md`.
   `MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION=1`; silent on empty cache.
   Doc: `dispatch-watchdog-injection-hook.md`.
 
-## Immutable-Migration Pre-Commit Guard
-
-Pre-commit step: blocks a staged modification/rename of a journaled migration `.sql` (drifts its
-ledger hash). Override: `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1`. Fail: blocks any staged M/R of
-a journaled tag; additions/unjournaled edits allowed.
-Doc: `immutable-migration-precommit-guard.md`.
-
 ## Guessed-Session-Path Guard
 
 PreToolUse on `Bash`/`session_exec`: denies a command referencing an absolute `sessions/<id>/...`
@@ -1315,7 +1307,7 @@ Doc: `guessed-session-path-guard.md`.
 
 PreToolUse on `tasks_status_set` (READY) / `session_start` / `tasks_dispatch` (existing-task,
 mt#2657): blocks when the spec was never surfaced (`tasks_spec_get` / `tasks_get
-includeSpec:true`). On hit: read the spec, retry. Hook: `check-task-spec-read.ts`. Override:
+includeSpec:true`). Hook: `check-task-spec-read.ts`. Override:
 `MINSKY_SKIP_SPEC_READ_CHECK=1`. Fail: open on any error.
 Doc: `bind-advance-spec-read-guard.md`.
 
@@ -1340,28 +1332,32 @@ Doc: `session-end-transcript-ingest-hook.md`.
   (≥10 fires, ≥3 phrases) or goes stale; run `/calibration-review` unless a disposition Ask is
   open (mt#2659). `calibration-review-cadence-detector.ts`; override
   `MINSKY_SKIP_CALIBRATION_CADENCE=1`. Doc: `calibration-review-cadence-detector.md`.
+- **Silent-stretch** — flags a tool-only stretch (no assistant text) crossing 10 min OR 15
+  consecutive tool calls (mt#2824). `silent-stretch-detector.ts`; log
+  `.minsky/silent-stretch-calibration.jsonl`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
+  Doc: `silent-stretch-detector.md`.
 
-All three: fail open on transcript/read error.
+All four: fail open on transcript/read error.
 
 ## Subagent Merge Capability Guard
 
 PreToolUse on `session_pr_merge`: denies subagent-initiated merges (`agent_id` set) without an
 unexpired capability grant (ADR-028 D5): `bun scripts/grant-subagent-merge.ts --task mt#<id>
 --ttl-minutes 30`. Hooks: `block-subagent-merge-without-grant.ts` + `merge-grant-store.ts`.
-Override: `MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors
-(missing store/no-match is default-deny working). Doc: `subagent-merge-capability-guard.md`.
+Override: `MINSKY_SKIP_MERGE_GRANT_CHECK=1`. Fail: open only on genuine grant-store errors.
+Doc: `subagent-merge-capability-guard.md`.
 
 ## Ask-Permission Bridge
 
 PreToolUse on `Bash`/`session_exec` (standalone, allow-emitting — not dispatcher-migrated): when
 the pending command matches a live one-shot ask-grant AND the referenced `authorization.approve`
 Ask re-verifies server-side as operator-approved, emits `permissionDecision: allow` with an audit
-reason + `hook.fired` event (mt#2823). Issuance (verifies first; refuses overbroad patterns; TTL
-15m, one-shot): `bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
+reason + `hook.fired` event (mt#2823). Issuance (TTL 15m, one-shot):
+`bun scripts/grant-ask-action.ts --ask <id> --command-exact "<cmd>"`. Hooks:
 `ask-permission-bridge.ts` + `ask-grant-store.ts` + `ask-verification.ts`. No override. Fail:
 silent defer on no-grant / store-error / verification-unavailable; DENY only on
-grant-present-but-ask-unverified. Sibling denies outrank this allow; responder attribution
-unauthenticated until mt#2898. Doc: `ask-permission-bridge.md`.
+grant-present-but-ask-unverified. Sibling denies outrank this allow (attribution: mt#2898).
+Doc: `ask-permission-bridge.md`.
 
 ## Guard-Health Tracker + Escalation Detector
 
@@ -1374,22 +1370,11 @@ Doc: `guard-health-tracker.md`.
 
 ## Dispatch-Intent Write Gate
 
-PreToolUse on 6 session/PR-mutating tools (`session_pr_merge` excluded, D5-covered): denies a
-subagent call when a live `"read-only"` dispatch-intent declaration covers the target session
-(session-scoped, covers a context-inheriting fork too). Declared via
-`session_generate_prompt`/`tasks_dispatch`'s `intent` param (default `"implementation"`, no-op).
-Default-ALLOW (opposite of D5). Hooks: `dispatch-intent-write-gate.ts` +
-`dispatch-intent-store.ts` (4th grant-store instance). No override; fail-open on store-read
-errors only. Doc: `dispatch-intent-write-gate.md`.
-
-## Silent-Stretch Detector (calibration)
-
-UserPromptSubmit (calibration-only): flags a tool-only silent stretch — no assistant TEXT —
-crossing 10 min wall-clock OR 15 consecutive tool calls, whichever first (mt#2824). Sibling to
-`inject-dispatch-watchdog.ts` (subagent vs main-agent silence). Hook: `silent-stretch-detector.ts`.
-Log: `.minsky/silent-stretch-calibration.jsonl`. Override: `MINSKY_SKIP_SILENT_STRETCH=1`. Fail:
-open on transcript error/missing `transcript_path`.
-Doc: `silent-stretch-detector.md`.
+PreToolUse on 6 session/PR-mutating tools: denies a subagent call when a live `"read-only"`
+dispatch-intent covers the target session (forks included). Declared via the dispatch surfaces'
+`intent` param (default `"implementation"`, no-op). Default-ALLOW. Hooks:
+`dispatch-intent-write-gate.ts` + `dispatch-intent-store.ts`. No override; fail-open on
+store-read errors only. Doc: `dispatch-intent-write-gate.md`.
 
 # Principal Communication Contract
 
