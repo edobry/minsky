@@ -32,6 +32,7 @@ import { useActiveConversationSessions } from "../hooks/useActiveConversationSes
 import { useFocusAttachment } from "../hooks/useFocusAttachment";
 import { basePathFor, pathForTab } from "./RunDetail";
 import { cn } from "../lib/utils";
+import { ConversationSearchPanel } from "./ConversationSearchPanel";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
@@ -1039,6 +1040,11 @@ export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {})
 
   return (
     <WidgetShell variant={variant} title={title}>
+      {/* mt#2523 — content/time search over past conversations, surfacing a
+          ready `claude --resume <id>` hint. Rendered above the live run list
+          (not gated on its loading/error state — search hits a separate,
+          user-triggered data source, not the polled agents list). */}
+      <ConversationSearchPanel />
       <AgentsBody query={query} />
     </WidgetShell>
   );
