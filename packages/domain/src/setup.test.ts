@@ -17,6 +17,18 @@ import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/m
 import { performSetup } from "./setup";
 import { workspaceConfigSchema } from "./configuration/schemas";
 import type { FsLike } from "./interfaces/fs-like";
+import { PERSISTENCE_CONNECTION_STRING_KEY, type ResolveExistingConnectionDeps } from "./setup-db";
+
+/**
+ * Deterministic "nothing configured" DB-resolution deps (mt#2502). Tests that are not
+ * exercising the DB-connection-inheritance behavior itself must inject this so
+ * `performSetup` never touches the real config loader or performs a live connectivity
+ * probe against whatever Postgres connection happens to be configured on the machine
+ * running the test suite.
+ */
+const NO_DB_DEPS: ResolveExistingConnectionDeps = {
+  loadConfig: async () => ({ effectiveValues: {} }),
+};
 
 setupTestMocks();
 
@@ -112,7 +124,7 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
   for (const client of clients) {
     test(`--client ${client}: written YAML workspace section is accepted by workspaceConfigSchema`, async () => {
       const mockFs = makeMockFs();
-      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs);
+      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs, NO_DB_DEPS);
 
       // config.local.yaml only contains the workspace overlay — validate that
       // sub-object against workspaceConfigSchema rather than the full root schema
@@ -132,7 +144,7 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
 
     test(`--client ${client}: harness is written under workspace.harness, not at root`, async () => {
       const mockFs = makeMockFs();
-      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs);
+      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs, NO_DB_DEPS);
 
       const parsed = readLocalConfig(mockFs);
 
@@ -150,7 +162,11 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
 describe("performSetup — baseline behaviour", () => {
   test("writes workspace.mainPath to the repo path", async () => {
     const mockFs = makeMockFs();
-    await performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, mockFs);
+    await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
 
     const parsed = readLocalConfig(mockFs);
     const workspace = parsed.workspace as Record<string, unknown> | undefined;
@@ -161,7 +177,8 @@ describe("performSetup — baseline behaviour", () => {
     const mockFs = makeMockFs();
     const result = await performSetup(
       { repoPath: REPO_PATH, client: "cursor", overwrite: true },
-      mockFs
+      mockFs,
+      NO_DB_DEPS
     );
 
     expect(result.success).toBe(true);
@@ -175,7 +192,74 @@ describe("performSetup — baseline behaviour", () => {
     mockFs.deleteFile(CONFIG_YAML_PATH);
 
     await expect(
-      performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, mockFs)
+      performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, mockFs, NO_DB_DEPS)
     ).rejects.toThrow("No .minsky/config.yaml found");
+  });
+});
+
+describe("performSetup — DB-connection inheritance (mt#2502)", () => {
+  test("nothing resolves: dbConnection.found is false", async () => {
+    const mockFs = makeMockFs();
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS
+    );
+
+    expect(result.dbConnection).toEqual({ found: false });
+  });
+
+  test("resolves from user config and reuses after a passing connectivity check", async () => {
+    const mockFs = makeMockFs();
+    let connectivityCalls = 0;
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      {
+        loadConfig: async () => ({
+          effectiveValues: {
+            [PERSISTENCE_CONNECTION_STRING_KEY]: {
+              value: "postgresql://user:pass@host:5432/db",
+              source: "user",
+              path: PERSISTENCE_CONNECTION_STRING_KEY,
+            },
+          },
+        }),
+        verifyConnectivity: async (cs) => {
+          connectivityCalls += 1;
+          expect(cs).toBe("postgresql://user:pass@host:5432/db");
+          return { ok: true };
+        },
+      }
+    );
+
+    expect(result.dbConnection.found).toBe(true);
+    expect(result.dbConnection.source).toContain("user config");
+    expect(result.dbConnection.connectivity).toEqual({ ok: true });
+    expect(connectivityCalls).toBe(1);
+  });
+
+  test("resolves but connectivity fails: reports the failure, does not throw", async () => {
+    const mockFs = makeMockFs();
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      {
+        loadConfig: async () => ({
+          effectiveValues: {
+            [PERSISTENCE_CONNECTION_STRING_KEY]: {
+              value: "postgresql://user:pass@stale-host:5432/db",
+              source: "project",
+              path: PERSISTENCE_CONNECTION_STRING_KEY,
+            },
+          },
+        }),
+        verifyConnectivity: async () => ({ ok: false, error: "ECONNREFUSED" }),
+      }
+    );
+
+    expect(result.dbConnection.found).toBe(true);
+    expect(result.dbConnection.source).toContain("repo config");
+    expect(result.dbConnection.connectivity).toEqual({ ok: false, error: "ECONNREFUSED" });
   });
 });

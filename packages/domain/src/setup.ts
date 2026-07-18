@@ -13,6 +13,11 @@ import type { FsLike } from "./interfaces/fs-like";
 import { createRealFs } from "./interfaces/real-fs";
 import { createFileIfNotExists } from "./init/file-system";
 import { registerWithClient, getRegistrar } from "./mcp/registration";
+import {
+  resolveExistingPostgresConnection,
+  type ResolveExistingConnectionDeps,
+  type ResolveExistingConnectionResult,
+} from "./setup-db";
 
 export interface SetupOptions {
   repoPath: string;
@@ -26,6 +31,14 @@ export interface SetupResult {
   harnessConfigPath: string;
   client: string;
   message: string;
+  /**
+   * Postgres connection-inheritance status, resolved via the config loader
+   * (mt#2502): whether an already-configured connection was found (project/user
+   * config or env), where it came from, and whether it is currently reachable.
+   * CLI callers use this to decide whether to fall back to the interactive
+   * `setup db` wizard.
+   */
+  dbConnection: ResolveExistingConnectionResult;
 }
 
 interface MinimalMcpConfig {
@@ -47,11 +60,18 @@ interface MinimalProjectConfig {
  * 3. Extract mcp section (default to { transport: "stdio" } if missing)
  * 4. Call registerWithClient() to write the harness config file
  * 5. Write .minsky/config.local.yaml with workspace.mainPath and workspace.harness
- * 6. Return result describing what was written
+ * 6. Resolve an already-configured Postgres connection via the config loader
+ *    (mt#2502) — reports source + connectivity so a second project on the
+ *    unified instance can inherit it instead of re-prompting. This step is a
+ *    pure resolve-and-verify — it never writes config or prompts; the CLI
+ *    caller decides whether to fall back to the interactive `setup db` wizard
+ *    when nothing resolves or the resolved connection isn't reachable.
+ * 7. Return result describing what was written
  */
 export async function performSetup(
   options: SetupOptions,
-  fileSystem: FsLike = createRealFs()
+  fileSystem: FsLike = createRealFs(),
+  dbDeps: ResolveExistingConnectionDeps = {}
 ): Promise<SetupResult> {
   const { repoPath, client = "cursor", overwrite = true } = options;
 
@@ -94,12 +114,16 @@ export async function performSetup(
   });
   await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
 
-  // 6. Return result
+  // 6. Resolve an already-configured Postgres connection (pure resolve + verify; no writes).
+  const dbConnection = await resolveExistingPostgresConnection(dbDeps);
+
+  // 7. Return result
   return {
     success: true,
     localConfigPath,
     harnessConfigPath,
     client,
     message: `Setup complete. Local config written to ${localConfigPath}. Harness config written to ${harnessConfigPath}.`,
+    dbConnection,
   };
 }
