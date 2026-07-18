@@ -41,9 +41,9 @@ describe("statusStyle", () => {
     expect(statusStyle("In-Review")).toEqual(statusStyle("IN-REVIEW"));
   });
 
-  test("treats COMPLETED as an alias for DONE", () => {
-    expect(statusStyle("COMPLETED")).toEqual(statusStyle("DONE"));
-    expect(statusStyle("completed")).toEqual(statusStyle("DONE"));
+  test("COMPLETED is retired (mt#2919) — falls back to TODO like any unrecognized status", () => {
+    expect(statusStyle("COMPLETED")).toEqual(statusStyle("TODO"));
+    expect(statusStyle("completed")).toEqual(statusStyle("TODO"));
   });
 
   test("falls back to TODO styling for an unknown status", () => {

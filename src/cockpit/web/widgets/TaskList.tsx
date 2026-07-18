@@ -6,6 +6,22 @@
  *
  * Uses useListControls with prefix "tl" for URL param persistence.
  * Status filter is multi-select via comma-separated URL param values.
+ *
+ * mt#2919 tasks-page pass:
+ *  - COMPLETED retired (not part of the canonical state machine; a
+ *    tasks_list(all:true) probe on 2026-07-18 confirmed zero live tasks
+ *    carry status COMPLETED — see the PR body for the probe transcript).
+ *  - Default sort foregrounds the supervision loop (IN-REVIEW/BLOCKED/
+ *    IN-PROGRESS above READY above PLANNING above TODO above the settled
+ *    DONE/CLOSED tail) instead of raw ID-desc, per /product-thinking's
+ *    "what is the state of the work?" framing. Explicit sort overrides
+ *    (clicking a column, a bookmarked ?tl_sort= URL) still win —
+ *    useListControls reads the URL before falling back to these defaults.
+ *  - Structural labels (control-bar row labels, table column headers) adopt
+ *    the docs/design-system.md §2 `eyebrow` type token + `font-mono` +
+ *    `uppercase` (brand-system.md §1's "Eyebrows ... -> JetBrains Mono"
+ *    register). Table-cell/badge text migrates text-xs -> text-small,
+ *    row-title text-sm -> text-body — same pixel sizes, named tokens.
  */
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
@@ -87,7 +103,7 @@ function StatusBadge({ status }: { status: string }) {
   const s = statusStyle(status);
   return (
     <span
-      className="text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap"
+      className="text-small px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap"
       style={{ background: s.background, color: s.color, border: `1px solid ${s.border}` }}
     >
       {status}
@@ -107,7 +123,40 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 }
 
 // ---------------------------------------------------------------------------
+// Supervision-loop status ordering (mt#2919)
+//
+// The default view answers "what is the state of the work?", not "what row
+// was inserted last?" (/product-thinking framing). Sorting the Status column
+// alphabetically (BLOCKED, CLOSED, DONE, IN-PROGRESS, IN-REVIEW, PLANNING,
+// READY, TODO) buries the active working set under an alphabetically-early
+// cluster. This priority order instead foregrounds what needs the operator's
+// attention now: IN-REVIEW/BLOCKED/IN-PROGRESS (the active supervision loop)
+// above READY (queued to start) above PLANNING (being scoped) above TODO
+// (backlog) above the settled DONE/CLOSED tail.
+// ---------------------------------------------------------------------------
+
+const STATUS_SORT_PRIORITY: Record<string, number> = {
+  "IN-REVIEW": 0,
+  BLOCKED: 1,
+  "IN-PROGRESS": 2,
+  READY: 3,
+  PLANNING: 4,
+  TODO: 5,
+  DONE: 6,
+  CLOSED: 7,
+};
+
+function statusPriority(status: string): number {
+  return STATUS_SORT_PRIORITY[status.toUpperCase()] ?? STATUS_SORT_PRIORITY.TODO;
+}
+
+// ---------------------------------------------------------------------------
 // All known statuses for the filter dropdown
+//
+// COMPLETED retired (mt#2919) — not part of the canonical state machine
+// (TODO -> PLANNING -> READY -> IN-PROGRESS -> IN-REVIEW -> DONE, side
+// states BLOCKED/CLOSED). A tasks_list(all:true) probe confirmed zero live
+// tasks carry this status; see the PR body for the probe transcript.
 // ---------------------------------------------------------------------------
 
 const ALL_STATUSES = [
@@ -119,7 +168,6 @@ const ALL_STATUSES = [
   "DONE",
   "BLOCKED",
   "CLOSED",
-  "COMPLETED",
 ];
 
 // ---------------------------------------------------------------------------
@@ -163,7 +211,7 @@ function TaskListControlBar({
     <div className="flex flex-col gap-2 py-2 mb-2 border-b border-border">
       {/* Row 1: sort + search + page size */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+        <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Sort:</span>
         {(["id", "title", "status", "kind"] as TaskSortKey[]).map((key) => (
           <button
             key={key}
@@ -182,7 +230,7 @@ function TaskListControlBar({
 
         <span className="text-border mx-1">|</span>
 
-        <span className="text-xs text-muted-foreground">Search:</span>
+        <span className="text-eyebrow font-mono uppercase text-muted-foreground">Search:</span>
         <input
           type="text"
           value={filters.search}
@@ -195,7 +243,9 @@ function TaskListControlBar({
         {/* Kind filter */}
         {kinds.length > 1 && (
           <>
-            <span className="text-xs text-muted-foreground ml-1">Kind:</span>
+            <span className="text-eyebrow font-mono uppercase text-muted-foreground ml-1">
+              Kind:
+            </span>
             <select
               value={filters.kind}
               onChange={(e) => onFilterKind(e.target.value)}
@@ -212,7 +262,7 @@ function TaskListControlBar({
 
         <span className="text-border mx-1">|</span>
 
-        <span className="text-xs text-muted-foreground">Per page:</span>
+        <span className="text-eyebrow font-mono uppercase text-muted-foreground">Per page:</span>
         <select
           value={pageSize}
           onChange={(e) => onPageSize(Number(e.target.value))}
@@ -238,7 +288,9 @@ function TaskListControlBar({
 
       {/* Row 2: status multi-select toggle pills */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Status:</span>
+        <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">
+          Status:
+        </span>
         {ALL_STATUSES.map((s) => {
           const isSelected = selectedStatuses.has(s);
           const style = statusStyle(s);
@@ -246,7 +298,7 @@ function TaskListControlBar({
             <button
               key={s}
               onClick={() => onToggleStatus(s)}
-              className="text-xs px-1.5 py-0.5 rounded-full font-medium transition-opacity"
+              className="text-small px-1.5 py-0.5 rounded-full font-medium transition-opacity"
               style={{
                 background: isSelected ? style.background : "transparent",
                 color: isSelected ? style.color : style.background,
@@ -281,7 +333,7 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
   if (pageCount <= 1 && filteredCount === totalCount) return null;
   return (
     <div className="flex items-center justify-between pt-2 mt-1 border-t border-border">
-      <span className="text-xs text-muted-foreground">
+      <span className="text-small text-muted-foreground">
         {filteredCount === totalCount
           ? `${totalCount} task${totalCount === 1 ? "" : "s"}`
           : `${filteredCount} of ${totalCount} shown`}
@@ -298,7 +350,7 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
           >
             ←
           </Button>
-          <span className="text-xs text-muted-foreground px-1 tabular-nums">
+          <span className="text-small text-muted-foreground px-1 tabular-nums">
             {page} / {pageCount}
           </span>
           <Button
@@ -334,33 +386,33 @@ function TaskTableHeader({
     <div className="flex items-center gap-3 py-1.5 mb-0.5 border-b border-border">
       <button
         onClick={() => onSort("status")}
-        className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-24 text-left hover:text-foreground transition-colors"
+        className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 w-24 text-left hover:text-foreground transition-colors"
       >
         Status
         <SortIndicator active={sortKey === "status"} dir={sortDir} />
       </button>
       <button
         onClick={() => onSort("id")}
-        className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-20 text-left hover:text-foreground transition-colors"
+        className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 w-20 text-left hover:text-foreground transition-colors"
       >
         ID
         <SortIndicator active={sortKey === "id"} dir={sortDir} />
       </button>
       <button
         onClick={() => onSort("title")}
-        className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide text-left hover:text-foreground transition-colors"
+        className="flex-1 text-eyebrow font-mono uppercase text-muted-foreground text-left hover:text-foreground transition-colors"
       >
         Title
         <SortIndicator active={sortKey === "title"} dir={sortDir} />
       </button>
       <button
         onClick={() => onSort("kind")}
-        className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-28 text-left hover:text-foreground transition-colors"
+        className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 w-28 text-left hover:text-foreground transition-colors"
       >
         Kind
         <SortIndicator active={sortKey === "kind"} dir={sortDir} />
       </button>
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-16 text-left">
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 w-16 text-left">
         Parent
       </span>
     </div>
@@ -381,16 +433,16 @@ function TaskRowItem({ task }: { task: TaskListItem }) {
         <div className="flex-shrink-0 w-24">
           <StatusBadge status={task.status} />
         </div>
-        <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-20">
+        <span className="text-small font-mono text-muted-foreground flex-shrink-0 w-20">
           {task.id}
         </span>
         <div className="flex-1 min-w-0">
-          <span className="text-sm truncate block">{task.title}</span>
+          <span className="text-body truncate block">{task.title}</span>
         </div>
-        <span className="text-xs text-muted-foreground flex-shrink-0 w-28 truncate">
+        <span className="text-small text-muted-foreground flex-shrink-0 w-28 truncate">
           {task.kind}
         </span>
-        <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-16">
+        <span className="text-small font-mono text-muted-foreground flex-shrink-0 w-16">
           {task.parentId ?? "—"}
         </span>
       </Link>
@@ -435,7 +487,9 @@ function taskSortFn(a: TaskListItem, b: TaskListItem, key: TaskSortKey, dir: Sor
       cmp = a.title.localeCompare(b.title);
       break;
     case "status":
-      cmp = a.status.localeCompare(b.status);
+      // mt#2919: workflow/supervision-priority order, not alphabetical —
+      // see STATUS_SORT_PRIORITY above.
+      cmp = statusPriority(a.status) - statusPriority(b.status);
       break;
     case "kind":
       cmp = a.kind.localeCompare(b.kind);
@@ -479,8 +533,13 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
   } = useListControls<TaskListItem, TaskSortKey, TaskFilters>({
     items: tasks,
     defaultPageSize: 25,
-    defaultSortKey: "id",
-    defaultSortDir: "desc",
+    // mt#2919: default to the supervision-loop ordering (status priority,
+    // ascending) instead of raw ID-desc — see STATUS_SORT_PRIORITY above.
+    // Explicit overrides (a click on any column header, or a bookmarked
+    // ?tl_sort=/?tl_dir= URL) still win — useListControls reads the URL
+    // before falling back to these defaults.
+    defaultSortKey: "status",
+    defaultSortDir: "asc",
     defaultFilters: DEFAULT_FILTERS,
     filterFn,
     sortFn,
@@ -516,10 +575,10 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
       )}
 
       {totalCount === 0 ? (
-        <p className="text-sm text-muted-foreground">No tasks</p>
+        <p className="text-body text-muted-foreground">No tasks</p>
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
-          <p className="text-sm text-muted-foreground">No tasks match these filters</p>
+          <p className="text-body text-muted-foreground">No tasks match these filters</p>
           <Button
             variant="ghost"
             size="sm"
@@ -561,19 +620,19 @@ interface TaskListBodyProps {
 
 function TaskListBody({ query }: TaskListBodyProps) {
   if (query.isError) {
-    return <p className="text-muted-foreground text-sm">Failed to load tasks: {query.error.message}</p>;
+    return <p className="text-muted-foreground text-body">Failed to load tasks: {query.error.message}</p>;
   }
   if (query.isLoading || !query.data) {
-    return <p className="text-muted-foreground text-sm">Loading…</p>;
+    return <p className="text-muted-foreground text-body">Loading…</p>;
   }
 
   const data = query.data;
 
   if (data.state === "degraded") {
-    return <p className="text-muted-foreground text-sm">{data.reason}</p>;
+    return <p className="text-muted-foreground text-body">{data.reason}</p>;
   }
   if (!isTaskListPayload(data.payload)) {
-    return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
+    return <p className="text-muted-foreground text-body">Unexpected payload shape</p>;
   }
 
   return <TaskListInner tasks={data.payload.tasks} />;
