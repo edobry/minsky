@@ -68,9 +68,23 @@ function textFromBlocks(blocks: AnthropicContentBlockLike[]): string {
 }
 
 /**
- * The most recent block's readable text, truncated to `maxLen`. Returns
- * `null` when there are no blocks yet (session hasn't produced output) or the
- * last block has no extractable text (e.g. a bare tool-result block).
+ * The most recent block's readable text, truncated for the peek row.
+ *
+ * Truncation semantics: `maxLen` bounds the number of UTF-16 code units kept
+ * from the ORIGINAL text — the returned string is at most `maxLen + 1`
+ * characters (the kept text plus one trailing `"…"`), never `maxLen` itself.
+ * The cut uses `safeTruncate(text, maxLen, "head")` (`@minsky/shared/safe-truncate`),
+ * so a truncation boundary that would otherwise land inside a UTF-16
+ * surrogate pair (e.g. splitting an emoji) instead drops the whole pair
+ * rather than emitting an unpaired surrogate — see
+ * `driven-peek-preview.test.ts`'s surrogate-pair case for the boundary this
+ * guards.
+ *
+ * Returns `null` in two distinct situations the caller (`AgentDrivenPeek`)
+ * renders differently: no blocks at all (session hasn't produced output
+ * yet), or the last block has no extractable text (e.g. a bare tool-result
+ * block) — callers should check `blocks.length` separately to tell these
+ * apart rather than inferring "no messages" from a `null` preview alone.
  */
 export function lastMessagePreview(
   blocks: SessionContextSnapshotBlock[],

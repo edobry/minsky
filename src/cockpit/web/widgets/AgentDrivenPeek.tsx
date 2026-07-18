@@ -40,6 +40,13 @@ export interface AgentDrivenPeekProps {
 export function AgentDrivenPeek({ sessionId }: AgentDrivenPeekProps) {
   const driven = useDrivenSession(sessionId);
   const preview = lastMessagePreview(driven.blocks);
+  // `lastMessagePreview` returns null for two different situations (see its
+  // docblock) — distinguish them here so the empty state stays honest rather
+  // than claiming "no messages" when the session has actually said
+  // something we just can't render as a text preview (e.g. a bare
+  // tool-result block).
+  const emptyStateText =
+    driven.blocks.length === 0 ? "No messages yet." : "No preview available for the latest message.";
 
   return (
     <div className="flex flex-col gap-2 py-2 pl-8 pr-2 border-b border-border/60 last:border-0">
@@ -54,7 +61,7 @@ export function AgentDrivenPeek({ sessionId }: AgentDrivenPeekProps) {
           {preview}
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground italic">No messages yet.</p>
+        <p className="text-xs text-muted-foreground italic">{emptyStateText}</p>
       )}
       <DrivenSessionComposer
         interactionState={driven.interactionState}

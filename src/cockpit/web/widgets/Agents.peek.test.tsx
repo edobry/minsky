@@ -12,71 +12,17 @@
  *
  * Stubs `fetch` for the widget payload / asks / active-sessions endpoints
  * (mirrors `TriageBand.test.tsx`'s pattern) and the global `WebSocket`
- * constructor (mirrors `AgentDrivenPeek.test.tsx`).
+ * constructor (via the shared `StubWebSocket` double in `../lib/stub-websocket.ts`).
  *
  * Run via:
  *   bun run test:components
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Agents, type AgentRow } from "./Agents";
-
-// ---------------------------------------------------------------------------
-// Stub WebSocket (mirrors AgentDrivenPeek.test.tsx's StubWebSocket)
-// ---------------------------------------------------------------------------
-
-type WsListener = (ev: unknown) => void;
-
-class StubWebSocket {
-  static instances: StubWebSocket[] = [];
-  static readonly CONNECTING = 0;
-  static readonly OPEN = 1;
-  static readonly CLOSING = 2;
-  static readonly CLOSED = 3;
-
-  readonly url: string;
-  readyState = StubWebSocket.CONNECTING;
-  sent: string[] = [];
-  private listeners = new Map<string, WsListener[]>();
-
-  constructor(url: string) {
-    this.url = url;
-    StubWebSocket.instances.push(this);
-  }
-
-  addEventListener(type: string, listener: WsListener): void {
-    const bucket = this.listeners.get(type) ?? [];
-    bucket.push(listener);
-    this.listeners.set(type, bucket);
-  }
-  removeEventListener(type: string, listener: WsListener): void {
-    const bucket = this.listeners.get(type);
-    if (!bucket) return;
-    this.listeners.set(
-      type,
-      bucket.filter((l) => l !== listener)
-    );
-  }
-  send(data: string): void {
-    this.sent.push(data);
-  }
-  close(): void {
-    this.readyState = StubWebSocket.CLOSED;
-    this.dispatch("close", {});
-  }
-  simulateOpen(): void {
-    this.readyState = StubWebSocket.OPEN;
-    this.dispatch("open", {});
-  }
-  simulateMessage(payload: unknown): void {
-    this.dispatch("message", { data: JSON.stringify(payload) });
-  }
-  private dispatch(type: string, ev: unknown): void {
-    for (const l of this.listeners.get(type) ?? []) l(ev);
-  }
-}
+import { StubWebSocket, firstStubWs } from "../lib/stub-websocket";
 
 let originalWebSocket: typeof globalThis.WebSocket;
 const originalFetch = globalThis.fetch;
@@ -124,6 +70,20 @@ const DRIVEN_WORKSPACE_ROW = baseRow({
   driven: { sessionId: "drv-workspace-1", status: "running" },
 });
 
+const DRIVEN_WITH_SUBAGENTS_ROW = baseRow({
+  sessionId: "driven-with-subagents-row",
+  driven: { sessionId: "drv-workspace-2", status: "running" },
+  subagents: [
+    {
+      conversationId: "conv-child-2",
+      label: "another child task",
+      cwd: null,
+      startedAt: "2026-07-18T00:00:00Z",
+      endedAt: null,
+    },
+  ],
+});
+
 function stubNetwork(agents: AgentRow[]) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -158,12 +118,6 @@ function renderAgents() {
       </MemoryRouter>
     </QueryClientProvider>
   );
-}
-
-function firstWs(): StubWebSocket {
-  const ws = StubWebSocket.instances[0];
-  if (!ws) throw new Error("expected a StubWebSocket instance to have been constructed");
-  return ws;
 }
 
 beforeEach(() => {
@@ -207,15 +161,15 @@ describe("Agents row expansion (mt#2912)", () => {
     // The peek mounts AgentDrivenPeek, which calls useDrivenSession exactly
     // once — the SAME hook/channel `/driven/:id` uses, no new transport.
     await waitFor(() => expect(StubWebSocket.instances).toHaveLength(1));
-    expect(firstWs().url).toBe("/api/driven-session/drv-workspace-1/ws");
-    firstWs().simulateOpen();
+    expect(firstStubWs().url).toBe("/api/driven-session/drv-workspace-1/ws");
+    firstStubWs().simulateOpen();
 
     const textarea = await screen.findByLabelText("Message to the driven session");
     fireEvent.change(textarea, { target: { value: "answering from the peek" } });
     fireEvent.click(screen.getByText("Send"));
 
-    await waitFor(() => expect(firstWs().sent).toHaveLength(1));
-    expect(JSON.parse(firstWs().sent[0] ?? "{}")).toEqual({ text: "answering from the peek" });
+    await waitFor(() => expect(firstStubWs().sent).toHaveLength(1));
+    expect(JSON.parse(firstStubWs().sent[0] ?? "{}")).toEqual({ text: "answering from the peek" });
 
     // Collapsing the row tears the peek (and its WS connection) down again —
     // expanding it back open doesn't leak a second stale connection.
@@ -229,5 +183,19 @@ describe("Agents row expansion (mt#2912)", () => {
 
     await waitFor(() => expect(screen.getByText("plain-row")).toBeDefined());
     expect(screen.queryByLabelText(/Expand/)).toBeNull();
+  });
+
+  test("a row with BOTH subagents and a driven binding gets a combined aria-label and renders both sections on expand", async () => {
+    stubNetwork([DRIVEN_WITH_SUBAGENTS_ROW]);
+    renderAgents();
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Expand subagents and driven session")).toBeDefined()
+    );
+    fireEvent.click(screen.getByLabelText("Expand subagents and driven session"));
+
+    await waitFor(() => expect(screen.getByText("another child task")).toBeDefined());
+    expect(await screen.findByLabelText("Message to the driven session")).toBeDefined();
+    expect(screen.getByLabelText("Collapse subagents and driven session")).toBeDefined();
   });
 });

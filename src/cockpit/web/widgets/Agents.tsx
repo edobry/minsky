@@ -786,6 +786,21 @@ function SubagentRowItem({ entry, isLive }: { entry: SubagentEntry; isLive: bool
 // Agent row component
 // ---------------------------------------------------------------------------
 
+/**
+ * Expand/collapse toggle aria-label (mt#2912 review R1) — a row can carry
+ * subagents, a driven binding, both, or neither. Building the label from the
+ * SET of what's expandable (rather than a nested ternary that only ever
+ * named one thing) keeps a dual-affordance row's label honest: "Expand
+ * subagents" on a row that ALSO has a driven peek waiting under the same
+ * toggle undersells what expanding it reveals.
+ */
+function expandToggleLabel(hasSubagents: boolean, hasDrivenBinding: boolean, expanded: boolean): string {
+  const parts: string[] = [];
+  if (hasSubagents) parts.push("subagents");
+  if (hasDrivenBinding) parts.push("driven session");
+  return `${expanded ? "Collapse" : "Expand"} ${parts.join(" and ")}`;
+}
+
 function AgentRowItem({
   agent,
   activeConversationIds,
@@ -875,15 +890,7 @@ function AgentRowItem({
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            aria-label={
-              expanded
-                ? hasSubagents
-                  ? "Collapse subagents"
-                  : "Collapse driven session"
-                : hasSubagents
-                  ? "Expand subagents"
-                  : "Expand driven session"
-            }
+            aria-label={expandToggleLabel(hasSubagents, hasDrivenBinding, expanded)}
             aria-expanded={expanded}
             className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
           >

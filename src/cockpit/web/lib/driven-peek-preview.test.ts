@@ -46,8 +46,29 @@ describe("lastMessagePreview", () => {
     const long = "x".repeat(300);
     const blocks = [assistantTextBlock("a", long)];
     const preview = lastMessagePreview(blocks, 240);
+    // maxLen bounds the KEPT text; the returned string is maxLen + 1 (the
+    // trailing ellipsis) — see the function's docblock for this contract.
     expect(preview?.length).toBe(241); // 240 chars + ellipsis
     expect(preview?.endsWith("…")).toBe(true);
+  });
+
+  test("truncation never splits a surrogate pair — a boundary landing mid-emoji drops the whole pair instead of emitting an unpaired surrogate", () => {
+    // 10 ASCII chars, then a surrogate-pair emoji (2 UTF-16 code units) whose
+    // FIRST unit sits exactly at index 10 — a naive `.slice(0, 11)` would cut
+    // between the emoji's high and low surrogate.
+    const prefix = "x".repeat(10);
+    const emoji = "\u{1F600}"; // 😀 — U+1F600, encoded as a surrogate pair
+    const long = `${prefix}${emoji}${"y".repeat(50)}`;
+    const preview = lastMessagePreview([assistantTextBlock("a", long)], 11);
+    if (preview === null) throw new Error("expected a non-null preview");
+    // safeTruncate backs the cut off to 10 (dropping the whole emoji) rather
+    // than keeping a lone high surrogate at position 10.
+    const kept = preview.slice(0, -1); // strip the trailing ellipsis
+    expect(kept).toBe(prefix);
+    // No unpaired surrogate survives: JSON round-trips cleanly (an unpaired
+    // surrogate is exactly the failure class safeTruncate exists to prevent —
+    // see packages/shared/src/safe-truncate.ts's docblock, mt#1598/mt#1615).
+    expect(() => JSON.parse(JSON.stringify(preview))).not.toThrow();
   });
 
   test("concatenates multiple text/thinking parts in order", () => {
