@@ -101,24 +101,29 @@ const KNOWN_STATUSES = new Set<string>(Object.keys(STATUS_STYLES));
 /**
  * Normalize an arbitrary status string to a known `TaskStatus`.
  *
- * Preserves two behaviors already present across the four pre-consolidation
- * copies:
- *  - Case-insensitive matching (TaskList.tsx / TaskDetail.tsx called
- *    `status.toUpperCase()` before switching).
- *  - The `COMPLETED` -> `DONE` alias (TaskList.tsx / TaskDetail.tsx treated
- *    `COMPLETED` as a DONE-colored synonym; TaskList.tsx's status filter
- *    still lists `COMPLETED` as its own selectable value, so the alias is
- *    resolved here at style-lookup time rather than folded into the type).
- * Unknown statuses fall back to TODO's neutral styling, matching every
- * original switch's `default` branch.
+ * Preserves one behavior already present across the four pre-consolidation
+ * copies: case-insensitive matching (TaskList.tsx / TaskDetail.tsx called
+ * `status.toUpperCase()` before switching).
+ *
+ * The `COMPLETED` -> `DONE` alias this function carried at mt#2909 shipping
+ * time was retired at mt#2919: a `tasks_list(all:true)` probe across the
+ * live minsky-backend task set (every TODO/PLANNING/READY/IN-PROGRESS/
+ * IN-REVIEW/DONE/BLOCKED/CLOSED row, 5591-line dump) found zero tasks
+ * carrying status COMPLETED — it was never part of the canonical state
+ * machine (TODO -> PLANNING -> READY -> IN-PROGRESS -> IN-REVIEW -> DONE,
+ * side states BLOCKED/CLOSED), and no live data depended on the alias.
+ * Unknown statuses (including a stray COMPLETED, should one ever appear)
+ * fall back to TODO's neutral styling, matching every original switch's
+ * `default` branch.
  */
 function normalizeStatus(status: string): TaskStatus {
   const upper = status.trim().toUpperCase();
-  if (upper === "COMPLETED") return "DONE";
   return KNOWN_STATUSES.has(upper) ? (upper as TaskStatus) : "TODO";
 }
 
-/** Resolve a task status (any case, including the `COMPLETED` alias) to its shared color triple. */
+/** Resolve a task status (any case) to its shared color triple. Unknown statuses,
+ * including the retired `COMPLETED` alias (see normalizeStatus above), fall back
+ * to TODO's neutral styling. */
 export function statusStyle(status: string): StatusStyle {
   return STATUS_STYLES[normalizeStatus(status)];
 }
