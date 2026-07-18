@@ -38,7 +38,9 @@ PreToolUse on `session_start`/`tasks_dispatch`/`tasks_create` (parent set): bloc
 on open-PR file overlap (advisory for recently-merged); blocks duplicate-child titles vs an
 ACTIVE sibling (terminal WARN, mt#2683); parent-less creates get a WARN-only similarity probe
 (mt#2813). Tier-3 ceiling (mt#1362); Tier-2 floor: `/plan-task` gate (g). Hook: `parallel-work-guard.ts`. Overrides: `MINSKY_FORCE_PARALLEL=1` /
-`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time) + grant file (mt#2658); probe has none. Fail: closed
+`MINSKY_FORCE_DUPLICATE_OK=1` (launch-time-env-only) + the mid-session, reason-mandatory
+grant channel (mt#2658) for BOTH guards — `--guard parallel-work-open-pr` for the open-PR
+sweep (mt#1637), `--guard duplicate-child-matcher` for the dup matcher; probe has none. Fail: closed
 (open-PR) / open (duplicate checks warn+permit on unreadable data).
 Doc: `parallel-work-guard.md`.
 
