@@ -121,7 +121,8 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
         )}
       </div>
 
-      {/* Reviewer-bot state — degrades to "—" (mt#2076/mt#2435 pending) */}
+      {/* Reviewer-bot state — reads record.prApproved (wired); degrades to "—"
+          only when that field is null (no review yet). */}
       <span
         className={`text-xs flex-shrink-0 hidden sm:block w-16 text-right tabular-nums ${approvedCls}`}
         aria-label={`Review: ${approvedText}`}
