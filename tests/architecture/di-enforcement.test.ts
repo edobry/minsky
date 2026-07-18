@@ -140,6 +140,11 @@ describe("DI enforcement", () => {
         "AgentTranscriptIngestService",
         "AgentTranscriptService",
         "ServiceWindowReaper",
+        // mt#2322/mt#2234: constructed directly via `new FollowUpService(db)`
+        // in the cockpit follow-up sweeper / db-providers helper, never
+        // resolved through the tsyringe container — same rationale as
+        // AgentTranscriptIngestService above.
+        "FollowUpService",
         // Error classes matching the loose "*Service*" substring pattern.
         "AmbiguousDeploymentServiceError",
         "NoDeploymentServicesError",

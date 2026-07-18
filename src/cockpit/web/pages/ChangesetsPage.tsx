@@ -2,11 +2,15 @@
  * ChangesetsPage — list route for active PRs across sessions (/changesets).
  *
  * Self-fetching via TanStack Query against GET /api/changesets.
- * Filter by review state; sort by age (newest-first default) or
- * attention-required. Row click navigates to /changeset/:prNumber (the
- * in-cockpit detail route from mt#2535).
+ * Filter by review state and age (last 24h / 7d / all); sort by age
+ * (newest-first default) or attention-required. Row click navigates to
+ * /changeset/:prNumber (the in-cockpit detail route from mt#2535).
  *
- * Reviewer-bot / CI columns degrade to "—" until mt#2076/mt#2435 merge.
+ * CI-state filter (mt#2561): deferred — even though mt#2076/mt#2435 shipped,
+ * `SessionRecord.pullRequest` / `SessionPrRef` (src/cockpit/session-detail.ts)
+ * still carry no CI/check-run field, so there is no data path to filter on.
+ * The CI column continues to degrade to "—" (see Changesets.tsx) until a task
+ * wires CI/check-run state onto the session-record source.
  * Uses useListControls for filter/sort/pagination, mirroring AsksPage pattern.
  */
 import { useNavigate } from "react-router-dom";
@@ -41,8 +45,16 @@ async function fetchChangesets(): Promise<ChangesetsListResponse> {
 
 type SortKey = "age" | "attention";
 
+/** Age-filter bucket → max age in ms (null = no upper bound / "all"). */
+const AGE_FILTER_MS: Record<string, number | null> = {
+  all: null,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+
 interface Filters {
   reviewState: string;
+  age: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +84,7 @@ export function ChangesetsPage() {
     defaultPageSize: 30,
     defaultSortKey: "age",
     defaultSortDir: "desc",
-    defaultFilters: { reviewState: "all" },
+    defaultFilters: { reviewState: "all", age: "all" },
     prefix: "changesets",
     filterFn: (item, filters) => {
       if (filters.reviewState !== "all") {
@@ -83,6 +95,14 @@ export function ChangesetsPage() {
               ? "approved"
               : "pending";
         if (state !== filters.reviewState) return false;
+      }
+      // Age filter: narrows to changesets active within the bucket's window,
+      // using the same recency proxy (changesetRecencyTime) the sort uses —
+      // lastActivityAt ?? createdAt (mt#1920 R1/R2, mt#2561).
+      const maxAgeMs = AGE_FILTER_MS[filters.age];
+      if (maxAgeMs != null) {
+        const recencyMs = changesetRecencyTime(item.session);
+        if (recencyMs === 0 || Date.now() - recencyMs > maxAgeMs) return false;
       }
       return true;
     },
@@ -150,6 +170,17 @@ export function ChangesetsPage() {
                 {s.charAt(0).toUpperCase() + s.slice(1)}
               </option>
             ))}
+          </select>
+
+          <select
+            value={controls.filters.age}
+            onChange={(e) => controls.setFilter("age", e.target.value)}
+            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
+            aria-label="Filter by age"
+          >
+            <option value="all">Any age</option>
+            <option value="24h">Active in last 24h</option>
+            <option value="7d">Active in last 7d</option>
           </select>
 
           <select

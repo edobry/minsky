@@ -22,7 +22,7 @@
 // @see docs/research/mt1035-system3-detector.md §Surface 4
 // @see .claude/hooks/post-merge-pull.ts — sibling hook on the same matcher
 
-import { readInput } from "./types";
+import { readInput, findRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
 
 import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
@@ -178,7 +178,11 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const projectRoot = input.cwd;
+  // mt#2710: `input.cwd` is routinely a repo SUBDIRECTORY — writeFindings
+  // joins `projectRoot` with `.minsky/state/unasked-directions/`, so a raw
+  // subdirectory cwd would scatter findings into a stray `.minsky/` there
+  // instead of the real repo root.
+  const projectRoot = findRepoRoot(input.cwd);
 
   const transcript = await loadTranscript(ctx.sessionId);
   if (!transcript || transcript.length === 0) {

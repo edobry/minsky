@@ -1,6 +1,6 @@
 {
-  "id": "d9b8b3f7-6a9a-4a41-ae9b-f7d99e3fa9f7",
-  "prevId": "adadb186-5149-4a04-8c4d-efc4639c6b19",
+  "id": "17d39cfc-3506-4db7-84d9-5db8e28f43cf",
+  "prevId": "d9b8b3f7-6a9a-4a41-ae9b-f7d99e3fa9f7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -931,6 +931,12 @@
           "primaryKey": false,
           "notNull": false,
           "default": "now()"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -950,7 +956,17 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "agent_transcripts_project_id_projects_id_fk": {
+          "name": "agent_transcripts_project_id_projects_id_fk",
+          "tableFrom": "agent_transcripts",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

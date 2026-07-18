@@ -13,6 +13,7 @@ import {
   startTranscriptSweepBackstop,
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
+  startFollowUpSweeper,
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
@@ -347,9 +348,16 @@ export function createStartCommand(): Command {
       // cockpit process was deployed from has completed, emitting a
       // best-effort deploy.smoke system event once per distinct commit.
       const stopDeploySmokeSweeper = startDeploySmokeSweeper();
+      // Scheduled follow-up sweeper (mt#2322 — remaining scope of parent
+      // mt#2234): periodic poll of the scheduled_follow_ups table, firing
+      // any pending row whose dueAt has passed. The general recurring-job
+      // scheduler facility itself IS createIntervalSweeper (already proven
+      // general by every sweeper in this list); this is simply its newest
+      // registrant plus a DB-durable one-shot primitive layered on top.
+      const stopFollowUpSweeper = startFollowUpSweeper();
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
-      // see sweepers.ts's docblock) that force-restarts any of the six
+      // see sweepers.ts's docblock) that force-restarts any of the seven
       // sweeps above whose interval has stopped attempting ticks entirely.
       // Covers the class per-tick isolation structurally cannot: a dropped
       // or wedged setInterval handle, not a hung/throwing tick.
@@ -366,6 +374,7 @@ export function createStartCommand(): Command {
         stopTranscriptSweep();
         stopDispatchWatchdogSweeper();
         stopDeploySmokeSweeper();
+        stopFollowUpSweeper();
         stopSweepMetaWatchdog();
         removeCurrentCockpitState();
       };
