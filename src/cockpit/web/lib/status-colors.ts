@@ -43,6 +43,15 @@ export interface StatusStyle {
  * Per-status color triples. Values are CSS `oklch(var(--token) / alpha)`
  * strings, not raw hex — see module doc comment above for the token mapping
  * this mirrors.
+ *
+ * Alpha choices: `background` alpha matches the SKILL.md className suffix
+ * verbatim for the three statuses it specifies one for (`/30` -> 0.3 for
+ * IN-REVIEW and DONE, `/40` -> 0.4 for BLOCKED); the remaining statuses
+ * (TODO, PLANNING, READY, IN-PROGRESS, CLOSED) use the token at full opacity,
+ * matching the SKILL's classNames for those statuses (`bg-muted`,
+ * `bg-secondary`, `bg-primary`, `bg-accent` — no alpha suffix). `border` is
+ * always full-opacity — it isn't part of the SKILL's className list (which
+ * targets borderless badges); see the module doc comment above.
  */
 const STATUS_STYLES: Record<TaskStatus, StatusStyle> = {
   TODO: {
@@ -104,7 +113,7 @@ const KNOWN_STATUSES = new Set<string>(Object.keys(STATUS_STYLES));
  * original switch's `default` branch.
  */
 function normalizeStatus(status: string): TaskStatus {
-  const upper = status.toUpperCase();
+  const upper = status.trim().toUpperCase();
   if (upper === "COMPLETED") return "DONE";
   return KNOWN_STATUSES.has(upper) ? (upper as TaskStatus) : "TODO";
 }

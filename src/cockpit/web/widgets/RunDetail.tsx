@@ -38,7 +38,7 @@ import { MetaItem } from "../components/MetaItem";
 import { ConversationView } from "./ConversationView";
 import { ContextBlockView } from "./ContextBlockView";
 import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
-import { livenessDotClass } from "./Agents";
+import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 
 // ---------------------------------------------------------------------------

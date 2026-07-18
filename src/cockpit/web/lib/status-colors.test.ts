@@ -50,6 +50,11 @@ describe("statusStyle", () => {
     expect(statusStyle("SOME-UNKNOWN-STATUS")).toEqual(statusStyle("TODO"));
   });
 
+  test("trims surrounding whitespace before matching", () => {
+    expect(statusStyle("  DONE  ")).toEqual(statusStyle("DONE"));
+    expect(statusStyle("\tin-review\n")).toEqual(statusStyle("IN-REVIEW"));
+  });
+
   test("status token families follow cockpit-design SKILL.md §Status color conventions", () => {
     expect(statusStyle("READY").background).toContain("--primary");
     expect(statusStyle("IN-REVIEW").border).toContain("--warn-amber");

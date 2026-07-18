@@ -21,7 +21,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
-import { statusStyle } from "../lib/status-colors";
+import { statusStyle, type TaskStatus } from "../lib/status-colors";
 import {
   streamHealth,
   STREAM_HEALTH_RANK,
@@ -35,17 +35,9 @@ import { useQuery } from "@tanstack/react-query";
 // Types — inline mirror of the server WorkstreamCard / WorkstreamsPayload shapes.
 // Frontend must stay self-contained (no server imports).
 // Keep in sync with src/cockpit/widgets/workstreams.ts.
+// TaskStatus itself is imported from ../lib/status-colors (a frontend-only
+// module, not a server import) to avoid a second inline copy of the enum.
 // ---------------------------------------------------------------------------
-
-type TaskStatus =
-  | "TODO"
-  | "READY"
-  | "IN-PROGRESS"
-  | "IN-REVIEW"
-  | "DONE"
-  | "BLOCKED"
-  | "CLOSED"
-  | "PLANNING";
 
 interface WorkstreamChild {
   id: string;

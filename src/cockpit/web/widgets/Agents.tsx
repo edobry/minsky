@@ -33,6 +33,7 @@ import { useActiveConversationSessions } from "../hooks/useActiveConversationSes
 import { useFocusAttachment } from "../hooks/useFocusAttachment";
 import { basePathFor, pathForTab } from "./RunDetail";
 import { cn } from "../lib/utils";
+import { livenessDotClass, type Liveness } from "../lib/liveness-colors";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
@@ -65,7 +66,7 @@ export interface AgentRow {
   sessionId: string;
   kind: RunKind;
   title: string;
-  liveness: "healthy" | "idle" | "stale" | "orphaned" | null;
+  liveness: Liveness;
   taskId: string | null;
   taskTitle: string | null;
   prNumber: number | null;
@@ -179,21 +180,9 @@ const DEFAULT_FILTERS: AgentFilters = {
 // ---------------------------------------------------------------------------
 // Liveness helpers
 // ---------------------------------------------------------------------------
-
-export function livenessDotClass(liveness: AgentRow["liveness"]): string {
-  switch (liveness) {
-    case "healthy":
-      return "bg-liveness-healthy";
-    case "idle":
-      return "bg-liveness-idle";
-    case "stale":
-      return "bg-liveness-stale";
-    case "orphaned":
-      return "bg-liveness-orphaned";
-    case null:
-      return "";
-  }
-}
+// livenessDotClass lives in ../lib/liveness-colors.ts (imported above) —
+// RunDetail.tsx needs it too, and this widget already imports basePathFor /
+// pathForTab FROM RunDetail.tsx, so a shared lib avoids a module cycle.
 
 function livenessLabel(liveness: AgentRow["liveness"]): string {
   switch (liveness) {
