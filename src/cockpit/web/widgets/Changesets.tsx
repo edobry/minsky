@@ -5,12 +5,15 @@
  * clickable button linking to the in-cockpit /changeset/:id detail route.
  * GitHub link-out is a secondary affordance (aria-label, small icon, _blank).
  *
- * Reviewer-bot / CI state columns degrade gracefully to "—" (no data path yet;
- * will consume mt#2076/mt#2435 when those merge).
+ * CI state column degrades gracefully to "—" — mt#2076/mt#2435 shipped but
+ * did not add a CI/check-run field to the session-record source
+ * (SessionRecord.pullRequest / SessionPrRef), so there is still no data path
+ * to consume here (probed at mt#2561; wire when that data path lands).
  *
  * Density-first, dark-mode-first per cockpit-dev design directives.
  */
 import { ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { relativeTime, changesetRecencyIso } from "../lib/format";
 import type { SessionPrRef, SessionDetailMeta } from "../../session-detail";
@@ -103,7 +106,13 @@ export function ChangesetRow({ item, onClick }: ChangesetRowProps) {
         {(taskId || branch) && (
           <div className="flex items-center gap-2 mt-0.5">
             {taskId && (
-              <span className="text-xs font-mono text-muted-foreground">{taskId}</span>
+              <Link
+                to={`/tasks/${encodeURIComponent(taskId)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="text-xs font-mono text-muted-foreground hover:text-foreground hover:underline transition-colors"
+              >
+                {taskId}
+              </Link>
             )}
             {branch && (
               <span className="text-xs text-muted-foreground truncate max-w-[160px]">{branch}</span>
