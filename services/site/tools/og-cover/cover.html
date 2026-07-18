@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>og-cover</title>
+    <style>
+      /* Brand tokens — mirrors services/site/src/styles/global.css (mt#1932 source of truth).
+         Keep these values in sync if global.css's color/type tokens change. */
+      :root {
+        --color-bg-base: #020202;
+        --color-text-primary: #eeeeee;
+        --color-text-muted: #a3a3a3;
+        --color-signal: #00bfd8;
+        --font-sans:
+          "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        --font-mono:
+          "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      .cover {
+        width: 1200px;
+        height: 630px;
+        position: relative;
+        overflow: hidden;
+        background: var(--color-bg-base);
+        font-family: var(--font-sans);
+      }
+
+      /* Ambient background glyph — the same wordmark glyph from Header.astro
+         (dashed orbit + core), scaled up and dimmed. Derived from existing
+         site chrome, not new imagery. */
+      .bg-glyph {
+        position: absolute;
+        right: -170px;
+        bottom: -170px;
+        width: 620px;
+        height: 620px;
+        opacity: 0.09;
+      }
+
+      .content {
+        position: absolute;
+        inset: 0;
+        padding: 84px 92px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .wordmark-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .wordmark-row svg {
+        width: 48px;
+        height: 48px;
+        flex-shrink: 0;
+      }
+
+      .wordmark-text {
+        font-size: 32px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        color: var(--color-text-primary);
+      }
+
+      .tagline-block {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        max-width: 940px;
+      }
+
+      .eyebrow-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .eyebrow-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--color-signal);
+        flex-shrink: 0;
+      }
+
+      .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 16px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--color-text-muted);
+        font-weight: 500;
+      }
+
+      .tagline {
+        margin: 0;
+        font-size: 60px;
+        font-weight: 500;
+        line-height: 1.14;
+        letter-spacing: -0.02em;
+        color: var(--color-text-primary);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cover">
+      <svg class="bg-glyph" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="13" stroke="#00bfd8" stroke-width="1.2" stroke-dasharray="2 4" />
+        <circle cx="16" cy="16" r="3" fill="#00bfd8" />
+      </svg>
+
+      <div class="content">
+        <div class="wordmark-row">
+          <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle
+              cx="16"
+              cy="16"
+              r="13"
+              stroke="#00bfd8"
+              stroke-width="1.5"
+              stroke-dasharray="2 4"
+            />
+            <circle cx="16" cy="16" r="3" fill="#00bfd8" />
+          </svg>
+          <span class="wordmark-text">Minsky</span>
+        </div>
+
+        <div class="tagline-block">
+          <div class="eyebrow-row">
+            <span class="eyebrow-dot"></span>
+            <span class="eyebrow">Minsky &middot; cyberbrain substrate</span>
+          </div>
+          <p class="tagline">The cyberbrain for software organizations.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
