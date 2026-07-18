@@ -35,8 +35,7 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -44,9 +43,20 @@ import {
   readHostCap,
   deriveBudgets,
   DEFAULT_HOST_CAP_SEC,
+  // mt#2710: `MergeDetectFs`/`DEFAULT_FS`/`resolveGitDir`/`findRepoRoot` were
+  // originally defined locally in this file (mt#2700) and now live in
+  // `./types` so every `.minsky/hooks/*.ts` guard can share one repo-root
+  // resolver. Re-exported below for backward compatibility with this file's
+  // own tests (`check-branch-fresh.test.ts` imports them from here).
+  DEFAULT_FS,
+  resolveGitDir,
+  findRepoRoot,
 } from "./types";
-import type { ToolHookInput, HostCapInfo } from "./types";
+import type { ToolHookInput, HostCapInfo, MergeDetectFs } from "./types";
 import { recordFireLogEntry, classifyOverride } from "./fire-log";
+
+export { resolveGitDir, findRepoRoot };
+export type { MergeDetectFs };
 
 /** This guard's fire-log identifier (mt#2889, evaluation-loop Phase 1 completion). */
 const GUARD_NAME = "check-branch-fresh";
@@ -247,64 +257,10 @@ export const MERGE_IN_PROGRESS_MARKERS = [
   "CHERRY_PICK_HEAD",
 ] as const;
 
-/**
- * Minimal fs surface used by mid-merge detection. Packaged so tests can
- * inject a mock without touching the real filesystem (per the
- * `no-real-fs-in-tests` lint rule).
- */
-export interface MergeDetectFs {
-  existsSync: (p: string) => boolean;
-  readFileSync: (p: string, encoding: BufferEncoding) => string;
-  statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean };
-}
-
-const DEFAULT_FS: MergeDetectFs = {
-  existsSync,
-  readFileSync: (p, encoding) => readFileSync(p, encoding) as string,
-  statSync: (p) => statSync(p),
-};
-
-/**
- * Resolve the on-disk git directory for `repoDir`, honoring git's `.git`-as-file
- * indirection convention. Three cases:
- *
- *   1. `<repoDir>/.git` is a directory — return that path (typical clone).
- *   2. `<repoDir>/.git` is a FILE whose contents are `gitdir: <path>` —
- *      parse and return the resolved target (typical `git worktree` checkout
- *      and certain submodule layouts). Relative `<path>` is resolved against
- *      `repoDir` per git's spec.
- *   3. `<repoDir>/.git` is missing or unparseable — fall back to
- *      `<repoDir>/.git` so callers' downstream `existsSync` probes return
- *      false naturally (no exception thrown for the missing-repo case).
- *
- * The fs surface is injectable for test purposes; defaults to real fs.
- *
- * @see mt#1739 — added to support worktree-based session layouts where the
- *   freshness-guard's mid-merge detection would otherwise miss markers
- *   living under the resolved gitdir, reintroducing the deadlock this fix
- *   exists to close. PR #1054 R1 BLOCKING #1.
- */
-export function resolveGitDir(repoDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
-  const dotGit = join(repoDir, ".git");
-  if (!fs.existsSync(dotGit)) {
-    return dotGit;
-  }
-  try {
-    if (fs.statSync(dotGit).isDirectory()) {
-      return dotGit;
-    }
-    const content = fs.readFileSync(dotGit, "utf-8");
-    const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
-    if (match && match[1]) {
-      const target = match[1].trim();
-      return isAbsolute(target) ? target : resolve(repoDir, target);
-    }
-  } catch {
-    // Fall through — any stat/read error falls back to the conventional path,
-    // which callers handle via existsSync returning false.
-  }
-  return dotGit;
-}
+// `MergeDetectFs`, `DEFAULT_FS`, `resolveGitDir`, and `findRepoRoot` moved to
+// `./types` (mt#2710) — imported above and re-exported for this file's own
+// tests. See that module's "Repo-root resolution" section for the full
+// doc comments (unchanged, just relocated).
 
 export function detectMergeInProgress(
   repoDir: string,
@@ -317,74 +273,6 @@ export function detectMergeInProgress(
     }
   }
   return null;
-}
-
-/**
- * Resolve the repository ROOT for `startDir`: walk parent directories until
- * one contains a `.git` entry (directory OR `gitdir:`-file — `resolveGitDir`
- * handles the indirection afterwards), falling back to `startDir` when no
- * `.git` exists anywhere up the tree (missing-repo case; downstream probes
- * then fail closed-to-allow exactly as before).
- *
- * Why this exists (mt#2700): the entrypoint passed `input.cwd` straight into
- * `detectMergeInProgress` and `writeFreshnessMarker`, but `input.cwd` tracks
- * the harness SHELL's working directory, which is routinely a SUBDIRECTORY
- * of the repo (e.g. `<session>/cockpit-tray/src-tauri` during a build). The
- * git subprocess probes (`git -C <dir>`) walk up to the repo root on their
- * own, so the freshness comparison stayed correct — but the fs-only marker
- * probe does NOT walk up, so a genuine in-progress merge at the repo root
- * was invisible and the mt#1739 carve-out silently failed to fire,
- * reintroducing the merge-completion deadlock it exists to close (observed
- * 2026-07-08, mt#2675 convergence). Same class: the mt#1522 CAS marker was
- * written under the subdirectory instead of the repo root, silently
- * bypassing session_commit's push-time CAS read.
- *
- * fs-only by design (no subprocess): mid-merge detection runs BEFORE the
- * wall-clock budget guard, which is safe only while it stays fs probes.
- * Cost is a few probes per path segment.
- *
- * A candidate directory is accepted ONLY when its `.git` entry is a real
- * git anchor — a DIRECTORY, or a FILE whose `gitdir:` indirection resolves
- * to an existing directory (PR #1851 R1 BLOCKING #2: a stray non-git `.git`
- * file in an ancestor must not stop the walk early, or every downstream
- * consumer runs against a pseudo-root). Invalid candidates are skipped and
- * the walk continues upward.
- */
-function isRepoRootCandidate(dir: string, fs: MergeDetectFs): boolean {
-  const dotGit = join(dir, ".git");
-  if (!fs.existsSync(dotGit)) {
-    return false;
-  }
-  try {
-    if (fs.statSync(dotGit).isDirectory()) {
-      return true;
-    }
-    // `.git` is a file — accept only a parseable `gitdir:` indirection
-    // (resolveGitDir returns dotGit itself when the file is unparseable)
-    // whose target exists and is a directory.
-    const resolved = resolveGitDir(dir, fs);
-    return resolved !== dotGit && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
-  } catch {
-    // Any stat/read error means this candidate can't be validated — skip it
-    // and let the walk continue.
-    return false;
-  }
-}
-
-export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
-  let dir = resolve(startDir);
-  for (;;) {
-    if (isRepoRootCandidate(dir, fs)) {
-      return dir;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) {
-      // Filesystem root reached without finding a repo — fall back to the
-      // original directory so callers' downstream probes fail naturally.
-      return resolve(startDir);
-    }
-    dir = parent;
-  }
 }
 
 /**
