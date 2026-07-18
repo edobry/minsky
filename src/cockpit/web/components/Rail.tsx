@@ -35,6 +35,7 @@ import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
 import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
+import { ProjectSelector } from "./ProjectSelector";
 
 interface NavItem {
   to: string;
@@ -187,6 +188,11 @@ export function Rail() {
           ⌘K
         </kbd>
       </div>
+
+      {/* Project selector (mt#2418) — shell-level filter. The component
+          renders its own wrapper (or null for a single-project deployment)
+          so no empty bordered strip appears when there is nothing to select. */}
+      <ProjectSelector />
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2" aria-label="Sections">
         {/* 1. Pinned attention digest */}

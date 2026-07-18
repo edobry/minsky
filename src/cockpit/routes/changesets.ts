@@ -6,7 +6,12 @@
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
-import { getServerSessionProvider, getServerTaskService } from "../db-providers";
+import {
+  getServerSessionProvider,
+  getServerTaskService,
+  getContextInspectorDb,
+} from "../db-providers";
+import { resolveCockpitProjectScope } from "../project-scope";
 
 /** Mount /api/changeset/:id and /api/changesets on `app`. */
 export function mountChangesetRoutes(app: express.Express): void {
@@ -145,8 +150,13 @@ export function mountChangesetRoutes(app: express.Express): void {
   });
 
   /** GET /api/changesets — active (open/draft) PRs across sessions (mt#1920).
-   * Session-record path only — changeset_list adapter unavailable in all envs. */
-  app.get("/api/changesets", async (_req, res) => {
+   * Session-record path only — changeset_list adapter unavailable in all envs.
+   *
+   * Query params:
+   *   ?project=<slug> — scope to one project (mt#2418); resolved to a
+   *   project uuid via `resolveCockpitProjectScope`. Omitted/`"all"` ->
+   *   ALL_PROJECTS (unscoped — the pre-mt#2418 behavior). */
+  app.get("/api/changesets", async (req, res) => {
     try {
       const provider = await getServerSessionProvider();
       if (!provider) {
@@ -156,7 +166,10 @@ export function mountChangesetRoutes(app: express.Express): void {
       const { buildSessionMeta, buildPrRef, compareChangesetsByRecency } = await import(
         "../session-detail"
       );
-      const allSessions = await provider.listSessions();
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const scopeDb = await getContextInspectorDb();
+      const projectScope = await resolveCockpitProjectScope(projectParam, scopeDb);
+      const allSessions = await provider.listSessions({ projectScope });
       const active = allSessions.filter((s) => {
         const pr = buildPrRef(s);
         return pr !== null && (pr.state === "open" || pr.state === "draft");

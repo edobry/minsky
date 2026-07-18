@@ -33,6 +33,7 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { statusStyle } from "../lib/status-colors";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Types — mirror of server TaskListItem / TaskListPayload
@@ -59,8 +60,8 @@ function isTaskListPayload(payload: unknown): payload is TaskListPayload {
   );
 }
 
-async function fetchTaskList(): Promise<WidgetData> {
-  return fetchWidgetData("task-list");
+async function fetchTaskList(queryParam?: { project: string }): Promise<WidgetData> {
+  return fetchWidgetData("task-list", queryParam);
 }
 
 // ---------------------------------------------------------------------------
@@ -665,9 +666,12 @@ interface TaskListProps {
 }
 
 export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = {}) {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["task-list"],
-    queryFn: fetchTaskList,
+    // mt#2418: selectedSlug in the key so switching projects invalidates
+    // the cache and refetches immediately rather than waiting out staleTime.
+    queryKey: ["task-list", selectedSlug],
+    queryFn: () => fetchTaskList(queryParam),
     staleTime: 30_000,
     refetchInterval: 10_000,
   });

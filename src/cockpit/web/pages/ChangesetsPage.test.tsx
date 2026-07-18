@@ -17,6 +17,7 @@ import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ChangesetsPage } from "./ChangesetsPage";
+import { ProjectProvider } from "../lib/project-context";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
 
 // ---------------------------------------------------------------------------
@@ -48,12 +49,14 @@ function renderChangesetsPage(onLocation?: (path: string) => void) {
   return render(
     <MemoryRouter initialEntries={["/changesets"]}>
       <QueryClientProvider client={queryClient}>
-        <Routes>
-          <Route path="/changesets" element={<ChangesetsPage />} />
-          {/* Catch-all so navigate("/changeset/:id") doesn't 404 in tests */}
-          <Route path="/changeset/:id" element={<div data-testid="changeset-detail" />} />
-        </Routes>
-        {onLocation && <LocationCapture onLocation={onLocation} />}
+        <ProjectProvider>
+          <Routes>
+            <Route path="/changesets" element={<ChangesetsPage />} />
+            {/* Catch-all so navigate("/changeset/:id") doesn't 404 in tests */}
+            <Route path="/changeset/:id" element={<div data-testid="changeset-detail" />} />
+          </Routes>
+          {onLocation && <LocationCapture onLocation={onLocation} />}
+        </ProjectProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );

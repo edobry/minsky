@@ -16,6 +16,7 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { changesetRecencyTime } from "../lib/format";
+import { useProject } from "../lib/project-context";
 import {
   Changesets,
   type ChangesetItem,
@@ -26,8 +27,9 @@ import {
 // Fetcher
 // ---------------------------------------------------------------------------
 
-async function fetchChangesets(): Promise<ChangesetsListResponse> {
-  const res = await fetch("/api/changesets");
+async function fetchChangesets(queryParam?: { project: string }): Promise<ChangesetsListResponse> {
+  const qs = queryParam ? `?project=${encodeURIComponent(queryParam.project)}` : "";
+  const res = await fetch(`/api/changesets${qs}`);
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Failed to load changesets: ${res.status}${body ? ` — ${body}` : ""}`);
@@ -51,10 +53,13 @@ interface Filters {
 
 export function ChangesetsPage() {
   const navigate = useNavigate();
+  const { selectedSlug, queryParam } = useProject();
 
   const query = useQuery<ChangesetsListResponse, Error>({
-    queryKey: ["changesets"],
-    queryFn: fetchChangesets,
+    // mt#2418: selectedSlug in the key so switching projects invalidates
+    // the cache and refetches immediately rather than waiting out staleTime.
+    queryKey: ["changesets", selectedSlug],
+    queryFn: () => fetchChangesets(queryParam),
     staleTime: 15_000,
     refetchInterval: 15_000,
   });
