@@ -64,6 +64,7 @@ import { mountConversationRoutes } from "./routes/conversations";
 import type { ConversationRoutesOptions } from "./routes/conversations";
 import { mountConversationSearchRoutes } from "./routes/conversation-search";
 import { mountChangesetRoutes } from "./routes/changesets";
+import { mountProjectRoutes } from "./routes/projects";
 import { mountEventsRoutes } from "./routes/events";
 import { mountActivityRoutes } from "./routes/activity";
 import { mountAskRoutes } from "./routes/asks";
@@ -294,6 +295,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
   mountConversationSearchRoutes(app);
   mountChangesetRoutes(app);
+  mountProjectRoutes(app); // mt#2418 — GET /api/projects (shell project selector)
   mountEventsRoutes(app, { sseBrokerOverride });
   mountActivityRoutes(app);
   mountAskRoutes(app, { askRepoOverride });
