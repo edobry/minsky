@@ -58,30 +58,49 @@
  * execution evidence, independently queryable via `asks_list`.
  *
  * Isolation (mt#2876 class — canary run never writes fixture records to real
- * state): `MINSKY_STATE_DIR`/`CLAUDE_PROJECT_DIR` are pointed at a fresh temp
- * directory ONLY around the canary-suite invocation, then restored to their
- * original values before this script's own self-review record (if any) is
- * written — so the canary sandbox never leaks into the real fire-log, and the
- * self-review record never lands in the sandbox.
+ * state; review R1 hardening). The canary suite runs as a genuinely SEPARATE
+ * `Bun.spawn` subprocess invoking `scripts/run-guard-canaries.ts` directly,
+ * NOT via in-process dynamic `import()` with a mutated `process.env`. The
+ * earlier in-process approach (mutate `MINSKY_STATE_DIR`/`CLAUDE_PROJECT_DIR`
+ * for THIS process, dynamically import the canary modules, restore in a
+ * `finally`) was carefully ordered to be correct — every real-state read in
+ * this script happens strictly before the mutation window and every real-
+ * state write strictly after restoration — but "carefully ordered" is a
+ * property of THIS script's current code, not a structural guarantee: any
+ * transitively-imported module that caches an env-derived value at IMPORT
+ * time (module load), rather than reading `process.env` fresh per call,
+ * would poison that cached value for the rest of THIS process's lifetime —
+ * a class of bug that only shows up when someone adds such a module later,
+ * far from this file. Running the canary suite in its own OS process
+ * eliminates the class outright: `run-guard-canaries.ts` sets its OWN
+ * environment for its OWN process only (that process exits and is reaped
+ * before this script's own real-state reads/writes ever run), and no amount
+ * of module-level caching inside the subprocess can leak back into this
+ * process's `process.env` or its already-open file handles. See
+ * `scripts/rationalization-review.test.ts` for a checksum-before/after test
+ * confirming a full script run (dry AND `--execute`) never mutates anything
+ * in the configured state dir except the ONE self-review record `--execute`
+ * itself appends.
  *
  * @see mt#2901 — this task
  * @see src/domain/calibration/rationalization-review.ts — pure panel/cadence logic
  * @see docs/architecture/evaluation-loop-phase2.md — design writeup (panel columns,
  *      auto-affirm threshold, family-metadata convention, cadence methodology)
- * @see scripts/run-guard-canaries.ts — the isolation-pattern precedent this mirrors
+ * @see scripts/run-guard-canaries.ts — the subprocess this script now spawns rather
+ *      than reimplementing canary-running in-process
  */
 
 // Required before any tsyringe-DI-consuming module (createCliContainer, used
 // by resolveFamilyRecurrences below) — mirrors scripts/backfill-close-stale-asks.ts.
 import "reflect-metadata";
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   buildPanel,
   computeCadenceRecommendation,
+  dedupeLegacyCalibrationOverlap,
   type RawFireRecord,
   type CanaryStatusInput,
   type AttentionCostInput,
@@ -89,6 +108,37 @@ import {
 } from "../src/domain/calibration/rationalization-review";
 
 const FAMILY_TAG_PREFIX = "family:";
+
+/**
+ * Run the full guard-canary suite as a SEPARATE subprocess
+ * (`scripts/run-guard-canaries.ts --json`) rather than in-process — see the
+ * module doc comment's "Isolation" section for why. Fail-open: any spawn
+ * failure, non-zero-non-one exit combined with unparseable output, or a
+ * `JSON.parse` failure degrades to `[]` (every guard then reports
+ * `canary=MISSING`, an existing, already-handled panel state) rather than
+ * crashing the whole review.
+ */
+async function runCanarySuite(): Promise<CanaryStatusInput[]> {
+  try {
+    const scriptPath = join(process.cwd(), "scripts", "run-guard-canaries.ts");
+    const proc = Bun.spawn([process.execPath, scriptPath, "--json"], {
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    const report = JSON.parse(stdout) as {
+      results: Array<{ guardName: string; passed?: boolean }>;
+    };
+    return report.results.map((r) => ({
+      guardName: r.guardName,
+      status: r.passed === undefined ? "MISSING" : r.passed ? "PASS" : "FAIL",
+    }));
+  } catch (err) {
+    if (process.env["MT2901_DEBUG"]) console.error("runCanarySuite failed:", err);
+    return [];
+  }
+}
 
 /**
  * Best-effort resolution of per-guard recurrence-since-done counts from the
@@ -104,20 +154,47 @@ const FAMILY_TAG_PREFIX = "family:";
 async function resolveFamilyRecurrences(
   records: RawFireRecord[]
 ): Promise<FamilyRecurrenceInput[]> {
-  try {
-    const { initializeConfiguration, CustomConfigFactory } = await import(
-      "@minsky/domain/configuration"
-    );
-    const { createCliContainer } = await import("../src/composition/cli");
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-    const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+  // The persistence/config bootstrap below (`initializeConfiguration` ->
+  // `createCliContainer`) emits its own winston `log.info(...)` lines
+  // ("Persistence provider created", "Running migrations from...", etc.) —
+  // `packages/shared/src/logger.ts`'s program logger sends "info" level to
+  // STDOUT by design, and under some inherited environments (verified: any
+  // env where a caller has set `MINSKY_LOG_MODE=STRUCTURED`, e.g. this
+  // script's own isolation tests spawn it with an inherited test-runner
+  // env) those lines land as JSON log records INTERLEAVED with this
+  // script's own `--json` output on the SAME stdout stream, corrupting it
+  // into unparseable output. `LOGLEVEL=error` (the logger's own documented
+  // env knob) silences the "info"-level noise without touching this
+  // script's own `console.log`/`process.stdout.write` calls, which are
+  // unaffected by winston's level filtering. Respects an explicit caller
+  // override (e.g. `LOGLEVEL=debug` while investigating) via `??=`.
+  process.env["LOGLEVEL"] ??= "error";
 
+  const { initializeConfiguration, CustomConfigFactory } = await import(
+    "@minsky/domain/configuration"
+  );
+  const { createCliContainer } = await import("../src/composition/cli");
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+  const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+
+  // Tracked outside the inner try so the `finally` below can close it on
+  // EVERY exit path (success, early return, or thrown error) — an unclosed
+  // Postgres connection keeps the process's event loop alive indefinitely
+  // after main() otherwise finishes (verified: a full script run printed a
+  // complete, correct report and then hung until killed, exit 143). Closing
+  // the connection is the structural fix; letting the process exit
+  // NATURALLY once the event loop empties (rather than a forced
+  // `process.exit()`) also avoids truncating buffered stdout writes when
+  // stdout is a pipe (the JSON report can exceed a single pipe-buffer flush).
+  let persistenceToClose: { close(): Promise<void> } | undefined;
+  try {
     await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
     const container = await createCliContainer();
     await container.initialize();
 
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence || !(persistence instanceof PersistenceProvider)) return [];
+    persistenceToClose = persistence;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return [];
     }
@@ -179,6 +256,16 @@ async function resolveFamilyRecurrences(
     // Fail-open — a DB/config hiccup degrades to "n/a" panel-wide, not a crash.
     if (process.env["MT2901_DEBUG"]) console.error("resolveFamilyRecurrences failed:", err);
     return [];
+  } finally {
+    // Always release the connection, on every exit path, so the process can
+    // exit naturally once main() finishes — see the doc comment above.
+    if (persistenceToClose) {
+      try {
+        await persistenceToClose.close();
+      } catch (closeErr) {
+        if (process.env["MT2901_DEBUG"]) console.error("persistence.close() failed:", closeErr);
+      }
+    }
   }
 }
 
@@ -222,7 +309,7 @@ async function main(): Promise<void> {
     readCalibrationLogContent
   );
 
-  const records: RawFireRecord[] = [
+  const rawRecords: RawFireRecord[] = [
     ...realFireLogEntries.map(
       (e): RawFireRecord => ({
         timestamp: e.timestamp,
@@ -244,44 +331,27 @@ async function main(): Promise<void> {
     ),
   ];
 
+  // De-duplicate BEFORE any downstream consumer (recurrence resolution,
+  // panel building, corpus-window/cadence math) — five of the six legacy
+  // calibration detectors are ALSO dispatcher-instrumented, so a single real
+  // fire can otherwise be double-counted across both corpora. See
+  // dedupeLegacyCalibrationOverlap's doc comment for the guard-scoped rule.
+  const records = dedupeLegacyCalibrationOverlap(rawRecords);
+
   // -------------------------------------------------------------------------
-  // 2. Family-recurrence resolution (best-effort; uses the records read above).
+  // 2. Family-recurrence resolution (best-effort; uses the de-duplicated
+  //    records above).
   // -------------------------------------------------------------------------
   const familyRecurrences = await resolveFamilyRecurrences(records);
 
   // -------------------------------------------------------------------------
-  // 3. Canary suite — isolate MINSKY_STATE_DIR/CLAUDE_PROJECT_DIR for this
-  //    sub-scope ONLY, then restore before anything else runs.
+  // 3. Canary suite — run as a separate subprocess (see module doc comment's
+  //    "Isolation" section). No env mutation in THIS process at all.
   // -------------------------------------------------------------------------
-  const originalStateDir = process.env["MINSKY_STATE_DIR"];
-  const originalProjectDir = process.env["CLAUDE_PROJECT_DIR"];
-  const canaryStateDir = mkdtempSync(join(tmpdir(), "mt2901-rationalization-review-"));
-  process.env["MINSKY_STATE_DIR"] = canaryStateDir;
-  process.env["CLAUDE_PROJECT_DIR"] = canaryStateDir;
-
-  let canaryStatuses: CanaryStatusInput[] = [];
-  try {
-    const { runAllRegistryCanaries, runAllStandaloneCanaries } = await import(
-      "../.minsky/hooks/canary-runner"
-    );
-    const { STANDALONE_GUARD_CANARIES } = await import("./lib/standalone-guard-canaries");
-    const registryResults = await runAllRegistryCanaries();
-    const standaloneResults = await runAllStandaloneCanaries(STANDALONE_GUARD_CANARIES);
-    canaryStatuses = [...registryResults, ...standaloneResults].map((r) => ({
-      guardName: r.guardName,
-      status: r.passed === undefined ? "MISSING" : r.passed ? "PASS" : "FAIL",
-    }));
-  } finally {
-    if (originalStateDir === undefined) delete process.env["MINSKY_STATE_DIR"];
-    else process.env["MINSKY_STATE_DIR"] = originalStateDir;
-    if (originalProjectDir === undefined) delete process.env["CLAUDE_PROJECT_DIR"];
-    else process.env["CLAUDE_PROJECT_DIR"] = originalProjectDir;
-    rmSync(canaryStateDir, { recursive: true, force: true });
-  }
+  const canaryStatuses = await runCanarySuite();
 
   // -------------------------------------------------------------------------
-  // 4. Attention-cost annotations — pulled from GUARD_REGISTRY (real env
-  //    already restored above; this import has no fs/env side effects).
+  // 4. Attention-cost annotations — pulled from GUARD_REGISTRY.
   // -------------------------------------------------------------------------
   const { GUARD_REGISTRY } = await import("../.minsky/hooks/registry");
   const attentionCosts: AttentionCostInput[] = [];
@@ -305,18 +375,42 @@ async function main(): Promise<void> {
     distinctGuardsWithFires,
     corpusWindowDays: corpusWindowDays(records),
   });
+  const rowsWithRecurrences = panel.rows.filter(
+    (r) => typeof r.recurrencesSinceDone === "number" && r.recurrencesSinceDone > 0
+  );
+  const recurrenceCaveat =
+    rowsWithRecurrences.length > 0
+      ? `CAVEAT (recurrencesSinceDone): the anchor timestamp is the family-tagged fix ` +
+        `task's \`updatedAt\` — ANY subsequent edit to that task (including the family-tag ` +
+        `edit itself) bumps it, so this count is a CONSERVATIVE UNDERCOUNT relative to the ` +
+        `true DONE-transition time, never inflated. Affects: ${rowsWithRecurrences.map((r) => r.guardName).join(", ")}. ` +
+        `Full explanation: docs/architecture/evaluation-loop-phase2.md "Known limitation."`
+      : null;
 
   // -------------------------------------------------------------------------
   // 6. Report.
   // -------------------------------------------------------------------------
   if (jsonMode) {
     process.stdout.write(
-      `${JSON.stringify({ panel, cadence, recordCount: records.length }, null, 2)}\n`
+      `${JSON.stringify(
+        {
+          panel,
+          cadence,
+          recordCount: records.length,
+          droppedAsOverlap: rawRecords.length - records.length,
+          caveats: recurrenceCaveat ? [recurrenceCaveat] : [],
+        },
+        null,
+        2
+      )}\n`
     );
   } else {
     console.log(`Rationalization review — ${new Date().toISOString()}`);
     console.log(
-      `Corpus: ${records.length} records (${realFireLogEntries.length} real fire-log + ${calibrationEntries.length} legacy-calibration), ${panel.rows.length} guards.\n`
+      `Corpus: ${records.length} records after de-duplication ` +
+        `(${rawRecords.length} raw = ${realFireLogEntries.length} real fire-log + ` +
+        `${calibrationEntries.length} legacy-calibration; ${rawRecords.length - records.length} ` +
+        `dropped as fire-log/calibration overlap), ${panel.rows.length} guards.\n`
     );
     for (const row of panel.rows) {
       const latency = row.latency
@@ -342,11 +436,13 @@ async function main(): Promise<void> {
     }
     console.log(`\nCadence recommendation: ${cadence.recommendedDays} days`);
     console.log(cadence.rationale);
+    if (recurrenceCaveat) console.log(`\n${recurrenceCaveat}`);
   }
 
   // -------------------------------------------------------------------------
-  // 7. Self-review fire-logging (--execute only). Real env is already
-  //    restored (step 3's finally block ran before this point).
+  // 7. Self-review fire-logging (--execute only). This script's own process
+  //    env was never mutated (the canary suite ran in a separate subprocess
+  //    at step 3), so no restoration is needed here.
   // -------------------------------------------------------------------------
   if (execute) {
     const { recordFireLogEntry } = await import("../.minsky/hooks/fire-log");
@@ -363,3 +459,14 @@ async function main(): Promise<void> {
 }
 
 await main();
+// No explicit process.exit() here (deliberate — see resolveFamilyRecurrences's
+// `finally` block): the task-service bootstrap's Postgres connection is now
+// closed on every exit path, so the process exits NATURALLY once the event
+// loop empties. A forced `process.exit()` immediately after a large stdout
+// write (the JSON report can exceed a single pipe-buffer flush) risks
+// truncating that write when stdout is a pipe rather than a TTY — verified
+// directly: an earlier version of this script that force-exited produced
+// truncated, unparseable JSON under `Bun.spawn({stdout: "pipe"})` in
+// scripts/rationalization-review.test.ts. Closing the real resource that
+// was keeping the event loop alive is the structural fix; forcing exit was
+// the workaround it replaced.
