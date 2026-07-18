@@ -172,6 +172,12 @@ The boundary does **not** extend further:
 - Any widget needing a **third** distinct status beyond healthy/warning is a signal to revisit
   as a real `success`/`warning` token pair, not to extend the raw-palette exception further.
 
+**Lint enforcement scope (mt#2916): cockpit only, not the marketing site.** The
+`custom/no-raw-colors-in-cockpit` ESLint rule enforces this boundary structurally, but only for
+`src/cockpit/web/**` — `services/site/**` (the marketing site) is Astro, runs through a separate
+build/lint pipeline, and is explicitly out of this rule's scope. Extending equivalent enforcement
+to the site is future work, not folded into mt#2916.
+
 ### 5.3 Resolved: `--muted`/`--secondary`/`--accent` dark-mode collision
 
 The mt#2909 visual-verification pass found `--muted`, `--secondary`, and `--accent` resolving to
