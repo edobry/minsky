@@ -26,7 +26,7 @@
  * click-outside-to-close, styled as a left-edge slide-in instead of a
  * centered modal.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -55,7 +55,7 @@ import { ErrorState } from "./ErrorState";
 interface NavItem {
   to: string;
   label: string;
-  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
 }
 
 /** The workstream-primary spine (default-lens axis per mt#2370). */
