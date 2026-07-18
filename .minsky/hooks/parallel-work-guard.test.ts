@@ -313,6 +313,22 @@ describe("formatBlockMessage", () => {
     expect(msg).toContain("MINSKY_FORCE_PARALLEL=1");
   });
 
+  it("names both override channels: env var AND mid-session grant issuance (mt#1637)", () => {
+    const collisions: ParallelWorkCollision[] = [
+      {
+        type: "open-pr",
+        prNumber: 788,
+        prTitle: "some PR",
+        overlappingFiles: ["src/foo.ts"],
+      },
+    ];
+    const msg = formatBlockMessage("mt#1068", collisions);
+    expect(msg).toContain("scripts/grant-guard-override.ts");
+    expect(msg).toContain("--guard parallel-work-open-pr");
+    expect(msg).toContain("--scope mt#1068");
+    expect(msg).toContain("--reason");
+  });
+
   it("includes recommended actions", () => {
     const collisions: ParallelWorkCollision[] = [
       {
