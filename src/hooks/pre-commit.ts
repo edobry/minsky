@@ -1440,25 +1440,49 @@ export class PreCommitHook {
   }
 
   /**
-   * Run TypeScript type checking
+   * Run TypeScript type checking.
+   *
+   * Covers TWO projects: the root tsconfig.json AND src/cockpit/web/tsconfig.json
+   * (mt#2424). The root tsconfig's own `exclude` list excludes src/cockpit/web —
+   * browser-only lib/DOM settings would otherwise leak into the root Bun/Node
+   * program — and `vite build` transpiles it via esbuild WITHOUT type-checking, so
+   * without this second target the cockpit frontend has no static type coverage
+   * at all. See mt#2424 for the two production escapes this closed (an unimported
+   * `UseQueryResult` type and a missing `KIND_ICONS` union key, both of which
+   * shipped past this same pre-commit hook before this project existed).
    */
   private async runTypeCheck(): Promise<HookResult> {
     log.cli("🔎 Running TypeScript type check...");
 
-    try {
-      await execAsync("bunx @typescript/native-preview --noEmit", {
-        cwd: this.projectRoot,
-        timeout: 60000,
-      });
-      log.cli("✅ TypeScript compilation passed — no type errors.");
-      return { success: true, message: "Type check passed", exitCode: 0 };
-    } catch (error: unknown) {
-      const err = error as { stdout?: string; message?: string };
-      const output = err.stdout || err.message || String(error);
-      log.cli("❌ TypeScript type errors found! Commit blocked.");
-      log.cli(output);
-      return { success: false, message: "TypeScript type check failed", exitCode: 1 };
+    const targets: Array<{ label: string; command: string }> = [
+      { label: "root", command: "bunx @typescript/native-preview --noEmit" },
+      {
+        label: "cockpit-web",
+        command: "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
+      },
+    ];
+
+    for (const target of targets) {
+      try {
+        await execAsync(target.command, {
+          cwd: this.projectRoot,
+          timeout: 60000,
+        });
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; message?: string };
+        const output = err.stdout || err.message || String(error);
+        log.cli(`❌ TypeScript type errors found (${target.label})! Commit blocked.`);
+        log.cli(output);
+        return {
+          success: false,
+          message: `TypeScript type check failed (${target.label})`,
+          exitCode: 1,
+        };
+      }
     }
+
+    log.cli("✅ TypeScript compilation passed — no type errors (root + cockpit-web).");
+    return { success: true, message: "Type check passed", exitCode: 0 };
   }
 
   /**

@@ -174,7 +174,7 @@ Run the formatter and linter:
 bun run format:check   # check formatting (Prettier)
 bun run format:all     # format and auto-fix lint issues
 bun run lint           # ESLint only
-bun run typecheck      # tsgo --noEmit
+bun run typecheck      # tsgo --noEmit (root tsconfig + src/cockpit/web/tsconfig.json)
 bun run validate-all   # run all checks (format + lint + typecheck + tests)
 ```
 

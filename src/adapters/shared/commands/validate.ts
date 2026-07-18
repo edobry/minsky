@@ -250,6 +250,12 @@ const defaultWorkspaceFs: WorkspaceFs = {
 };
 
 /**
+ * The cockpit frontend's dedicated typecheck project (mt#2424). Not discovered via
+ * {@link discoverTypecheckWorkspaces} — see its usage site below for why.
+ */
+const COCKPIT_WEB_TSCONFIG_REL = "src/cockpit/web";
+
+/**
  * Directory names a `<glob>/*` workspace pattern must never enumerate into — heavy or
  * irrelevant trees that can never be a declared workspace. Guards against a stray pattern
  * like `*` or `./*` walking `node_modules` on some layouts. Dot-directories are also skipped.
@@ -484,8 +490,9 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
       name: "typecheck",
       description:
         "Run TypeScript type checker and return structured results. By default covers the root " +
-        "tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass " +
-        "`workspace` to typecheck a single directory only. Error `file` paths are root-relative " +
+        "tsconfig, every self-typechecking sub-workspace (e.g. services/reviewer), AND " +
+        "src/cockpit/web (the cockpit frontend's own project, mt#2424); pass `workspace` to " +
+        "typecheck a single directory only. Error `file` paths are root-relative " +
         "in both modes. Pass `task` or `sessionId` to run against a session workspace.",
       parameters: typecheckParams,
       execute: async (params): Promise<TypecheckResult> => {
@@ -526,6 +533,25 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           for (const ws of workspaces) {
             checked.push(ws);
             errors.push(...(await runTypecheckTarget(rootDir, ws, `${ws}/tsconfig.json`)));
+          }
+
+          // src/cockpit/web (mt#2424) is a dedicated typecheck project but NOT a
+          // package.json `workspaces` entry (it has no package.json of its own — it's
+          // a subdirectory of the root package, built by vite, not a monorepo package),
+          // so discoverTypecheckWorkspaces' package.json-workspaces-glob discovery
+          // never finds it. Check for its tsconfig directly instead. The root
+          // tsconfig's own `exclude` list excludes this directory, and `vite build`
+          // transpiles it without type-checking, so without this it has NO static
+          // type coverage under a default validate.typecheck run.
+          if (existsSync(join(rootDir, COCKPIT_WEB_TSCONFIG_REL, "tsconfig.json"))) {
+            checked.push(COCKPIT_WEB_TSCONFIG_REL);
+            errors.push(
+              ...(await runTypecheckTarget(
+                rootDir,
+                COCKPIT_WEB_TSCONFIG_REL,
+                `${COCKPIT_WEB_TSCONFIG_REL}/tsconfig.json`
+              ))
+            );
           }
         }
 

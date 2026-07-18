@@ -5010,7 +5010,7 @@
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes. Pass `task` or `sessionId` to run against a session workspace.",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig, every self-typechecking sub-workspace (e.g. services/reviewer), AND src/cockpit/web (the cockpit frontend's own project, mt#2424); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes. Pass `task` or `sessionId` to run against a session workspace.",
               "options": [
                 {
                   "flags": ["--workspace"],
