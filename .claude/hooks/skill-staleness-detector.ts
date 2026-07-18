@@ -40,7 +40,7 @@
 // @see feedback_skill_copy_staleness_in_running_sessions — bridge memory
 // @see memory record b0b056f8-7fb8-493d-8cda-0945488b086d — synthesis frame
 
-import { readInput, writeOutput } from "./types";
+import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   appendFileSync,
@@ -600,7 +600,11 @@ export function decideAndUpdate(args: {
  */
 export function run(input: ClaudeHookInput, _ctx: DispatchContext): GuardOutcome | null {
   const sessionId = input.session_id ?? "unknown";
-  const projectDir = input.cwd;
+  // mt#2710: `input.cwd` is routinely a repo SUBDIRECTORY — snapshotMtimes
+  // walks `.claude/skills`, `.claude/agents`, `.minsky/rules` relative to
+  // `projectDir`, so a raw subdirectory cwd would find none of them and
+  // silently produce an empty (always-fresh) baseline.
+  const projectDir = input.cwd ? findRepoRoot(input.cwd) : input.cwd;
   if (!projectDir) return null;
 
   const decision = decideAndUpdate({ projectDir, sessionId, env: process.env });
@@ -621,7 +625,7 @@ if (import.meta.main) {
   }
 
   const sessionId = input.session_id ?? "unknown";
-  const projectDir = input.cwd;
+  const projectDir = input.cwd ? findRepoRoot(input.cwd) : input.cwd;
 
   if (!projectDir) {
     writeLog({
