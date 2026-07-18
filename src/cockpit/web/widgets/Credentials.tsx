@@ -620,7 +620,7 @@ function CredentialsSummaryBody({ query }: CredentialsSummaryBodyProps) {
         <span
           className={cn(
             "inline-block h-2.5 w-2.5 rounded-full flex-shrink-0",
-            allConfigured ? "bg-primary" : configured > 0 ? "bg-yellow-500" : "bg-destructive"
+            allConfigured ? "bg-primary" : configured > 0 ? "bg-amber-500" : "bg-destructive"
           )}
         />
         <span className="text-sm font-medium tabular-nums">
