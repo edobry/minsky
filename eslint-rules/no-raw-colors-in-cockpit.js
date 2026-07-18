@@ -21,12 +21,18 @@
  *
  * Coverage model (mirrors `no-entity-id-param-drift.js` / `eslint.config.js`'s
  * declared-coverage pattern, mt#2779/mt#2780): the ESLint config block
- * enumerates `src/cockpit/web/**` as the covered glob AND passes the
- * `statusFiles` allowlist (the blessed healthy/warning widgets) plus any
- * fully-exempted files (via a subsequent config block turning the rule
- * `"off"` for those exact paths, each with an inline justification comment —
- * the same technique `no-raw-console`'s CLI-exclude block uses). Config, not
- * rule-internal path heuristics, determines both scope and exceptions.
+ * enumerates `src/cockpit/web/**` as the covered glob AND passes two
+ * allowlists as rule options — `statusFiles` (the blessed healthy/warning
+ * widgets, restricted to `blessedHues`) and `paletteExemptFiles` (files with
+ * a genuinely non-status categorical raw-palette need — syntax highlighting,
+ * message-role chips, a third-party color convention — where ANY hue is
+ * permitted). Critically, `paletteExemptFiles` exempts ONLY the palette-class
+ * check: the hex-literal check below has NO file-based exemption at all and
+ * runs unconditionally everywhere, per §5.2's "never raw hex or arbitrary
+ * values" boundary applying even to blessed/exempted files (mt#2916 PR #2045
+ * review R1 — an earlier draft used a config-level `"off"` for exempt files,
+ * which would have silently let hex slip through unflagged there too).
+ * Config, not rule-internal path heuristics, determines scope and exceptions.
  *
  * Detection strategy: scan every string `Literal` and `TemplateElement` (raw
  * template-literal text) in the file for the two patterns above. This is
@@ -45,6 +51,21 @@
  * excludes `mt#2916` (preceded by `t`) while still matching a standalone
  * `"#4a5568"` or a bracketed Tailwind arbitrary value `"bg-[#4a5568]"`
  * (preceded by `[`).
+ *
+ * Known limitation (mt#2916 PR #2045 review R1, non-blocking): dynamically
+ * CONSTRUCTED class strings — `"bg-" + hue + "-500"`, or a `TemplateLiteral`
+ * whose color segment is itself inside an `${...}` expression rather than a
+ * literal quasi — are NOT detected, since only contiguous string `Literal`/
+ * `TemplateElement` text is scanned. This is a deliberate scope boundary, not
+ * an oversight: cockpit code in practice always spells out full Tailwind
+ * class names as literal strings (a Tailwind/PostCSS constraint independent
+ * of this rule — the JIT compiler itself can't see dynamically-assembled
+ * class names either, so the existing codebase convention already avoids
+ * this pattern). If dynamic class construction appears in cockpit code,
+ * prefer a static lookup table (object literal mapping a discriminant to a
+ * literal class string, as the codebase already does everywhere — see
+ * `statusDotColor()` in `MemoriesHealth.tsx`) over string concatenation; a
+ * lookup table keeps every branch statically greppable AND lint-visible.
  */
 
 import { sep as pathSep } from "node:path";
@@ -134,13 +155,19 @@ export default {
             description:
               "Tailwind color families allowed in statusFiles (default: emerald, green, amber).",
           },
+          paletteExemptFiles: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Repo-relative path suffixes of files fully exempt from the palette-class check (any hue permitted) for a recorded non-status categorical need. Hex literals are still ALWAYS flagged in these files — this option never exempts the hex check.",
+          },
         },
         additionalProperties: false,
       },
     ],
     messages: {
       rawHex:
-        "Raw hex color '{{match}}' in src/cockpit/web — never allowed, even in the blessed healthy/warning exception (docs/design-system.md §5.2). Use a semantic token (bg-background, text-destructive, bg-warn-amber, ...) instead.",
+        "Raw hex color '{{match}}' in src/cockpit/web — never allowed, even in the blessed healthy/warning exception or a paletteExemptFiles entry (docs/design-system.md §5.2). Use a semantic token (bg-background, text-destructive, bg-warn-amber, ...) instead.",
       rawPalette:
         "Raw Tailwind palette class '{{className}}' in src/cockpit/web — only the blessed healthy/warning hues ({{blessedHues}}) are allowed, and only in declared status-indicator widgets (docs/design-system.md §5.2). Use a semantic token, or if this is a genuinely new status-indicator widget, add this file to the rule's statusFiles option in eslint.config.js.",
     },
@@ -150,19 +177,28 @@ export default {
     const options = context.options[0] || {};
     const blessedHues = options.blessedHues || DEFAULT_BLESSED_HUES;
     const statusFileSuffixes = options.statusFiles || [];
+    const paletteExemptSuffixes = options.paletteExemptFiles || [];
 
     const filename = normalizePath(context.filename ?? context.getFilename());
     const isStatusFile = statusFileSuffixes.some((suffix) => filename.endsWith(suffix));
+    const isPaletteExempt = paletteExemptSuffixes.some((suffix) => filename.endsWith(suffix));
 
     function checkText(value, node) {
       if (typeof value !== "string" || value.length === 0) return;
 
+      // Hex has NO file-based exemption, ever — checked unconditionally
+      // before anything else, including for paletteExemptFiles entries.
       const hexMatch = HEX_COLOR_RE.exec(value);
       HEX_COLOR_RE.lastIndex = 0;
       if (hexMatch) {
         context.report({ node, messageId: "rawHex", data: { match: hexMatch[0] } });
         return;
       }
+
+      // A declared non-status categorical need (syntax highlighting, message
+      // -role chips, a third-party color convention) — any hue permitted,
+      // hex still banned (checked above).
+      if (isPaletteExempt) return;
 
       PALETTE_CLASS_RE.lastIndex = 0;
       let m;

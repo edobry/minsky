@@ -57,6 +57,49 @@ const COCKPIT_STATUS_FILES = [
   "src/cockpit/web/widgets/RunDetail.tsx",
 ];
 
+// File-level exceptions (docs/design-system.md §5.2: "any file-level
+// exceptions with recorded justification"): raw-Tailwind-palette usage that
+// is deliberate, pre-existing, and does not fit the healthy/warning pattern.
+// Every hue is permitted in these files, but hex literals are NEVER exempt —
+// the rule checks hex unconditionally regardless of this list (PR #2045
+// review R1: an earlier draft disabled the rule entirely via config for
+// these files, which would have silently let hex slip through here too).
+const COCKPIT_PALETTE_EXEMPT_FILES = [
+  // JSON syntax highlighter — 7+ distinct hues distinguish token types
+  // (string/number/boolean/key/punctuation/etc.), not a health-status
+  // indicator. A semantic replacement would need a new multi-hue token set,
+  // outside brand-system.md's "one accent, two warning tiers, one pastel"
+  // budget.
+  "src/cockpit/web/components/JsonView.tsx",
+  // Tool-call chip (sky = "no error") + subagent-spawn badge (violet) —
+  // categorical message-type distinction, not a status indicator. Same
+  // token-budget rationale as JsonView.tsx above.
+  "src/cockpit/web/widgets/ConversationView.tsx",
+  // Command-palette entity-type badges (memory=emerald, conversation=sky) —
+  // categorical entity-type coloring, not health status. Unifying with the
+  // signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already uses for
+  // "conversation" is a design decision, not a lint-rule fix.
+  "src/cockpit/web/components/CommandPalette.tsx",
+  // PR-state chip (open=green, merged=violet, closed=destructive) —
+  // deliberately mirrors GitHub's own PR-state color convention, not the
+  // cockpit healthy/warning pattern.
+  "src/cockpit/web/widgets/Changesets.tsx",
+];
+
+// Shared plugin-object reference for TSX/JSX `custom` rules (mt#2916 PR #2045
+// review R1): ESLint flat config errors ("Cannot redefine plugin 'custom'")
+// if two DIFFERENT object instances register the same plugin key for
+// overlapping `files` globs. Every TSX-scoped block below that needs the
+// `custom` plugin references THIS SAME object, so each block can declare its
+// own self-contained `plugins`/`languageOptions` (no relying on another
+// block having registered the rule first) without tripping that error.
+const TSX_CUSTOM_PLUGIN = {
+  rules: {
+    "no-raw-console": noRawConsole,
+    "no-raw-colors-in-cockpit": noRawColorsInCockpit,
+  },
+};
+
 export default [
   js.configs.recommended,
   prettierConfig, // Disables ESLint rules that conflict with Prettier
@@ -636,20 +679,16 @@ export default [
         ecmaFeatures: { jsx: true },
       },
     },
+    // References the SHARED `TSX_CUSTOM_PLUGIN` object (declared above,
+    // before `export default`) rather than a fresh object literal, so the
+    // mt#2916 cockpit-scoped TSX block further down can independently
+    // register the SAME plugin instance for its own narrower glob without
+    // ESLint's "Cannot redefine plugin 'custom'" error (which fires when two
+    // DIFFERENT object instances register the same plugin key for
+    // overlapping `files` globs — reference equality, not deep equality, is
+    // what ESLint checks).
     plugins: {
-      custom: {
-        rules: {
-          "no-raw-console": noRawConsole,
-          // Registered here (not a second TSX-scoped `plugins.custom` block)
-          // because ESLint flat config rejects two DIFFERENT `custom` plugin
-          // object instances applying to the same overlapping-glob file —
-          // "Cannot redefine plugin 'custom'". This block's `**/*.tsx` glob
-          // already covers `src/cockpit/web/**/*.tsx`, so the rule-enabling
-          // block further down (mt#2916) only needs a `rules` key, no
-          // `plugins`/`languageOptions` of its own.
-          "no-raw-colors-in-cockpit": noRawColorsInCockpit,
-        },
-      },
+      custom: TSX_CUSTOM_PLUGIN,
     },
     rules: {
       "custom/no-raw-console": [
@@ -846,64 +885,51 @@ export default [
   // vocabulary previously stated "semantic tokens only" / the blessed
   // exception in prose only). COVERAGE IS DECLARED HERE: src/cockpit/web/**
   // is the enforced glob; test files are excluded (fixtures/snapshots may
-  // legitimately reference color literals). COCKPIT_STATUS_FILES above is
-  // the blessed healthy/warning widget allowlist — see its comment for the
-  // "adding a widget here is a design decision" rationale. This `.ts` block
-  // needs no separate plugin registration: `no-raw-colors-in-cockpit` is
-  // already in the main `**/*.ts` block's `custom` plugin object above.
+  // legitimately reference color literals). COCKPIT_STATUS_FILES /
+  // COCKPIT_PALETTE_EXEMPT_FILES above are the two declared allowlists — see
+  // their comments for the "adding an entry is a design decision, not a lint
+  // tweak" rationale. This `.ts` block needs no separate plugin registration:
+  // `no-raw-colors-in-cockpit` is already in the main `**/*.ts` block's
+  // `custom` plugin object above.
   {
     files: ["src/cockpit/web/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
-      "custom/no-raw-colors-in-cockpit": ["error", { statusFiles: COCKPIT_STATUS_FILES }],
+      "custom/no-raw-colors-in-cockpit": [
+        "error",
+        { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
+      ],
     },
   },
-  // `.tsx` coverage needs no separate `plugins`/`languageOptions` of its
-  // own: the `no-raw-console` TSX-parity block earlier in this file already
-  // registers `no-raw-colors-in-cockpit` in the shared `custom` plugin
-  // object and sets JSX-aware `languageOptions` for every `**/*.tsx` file
-  // (including `src/cockpit/web/**/*.tsx`) — ESLint flat config merges all
-  // matching blocks for a file, and registering a SECOND, different `custom`
-  // plugin object instance for an overlapping glob is a hard error
-  // ("Cannot redefine plugin 'custom'"). This block only needs to turn the
-  // rule on for the narrower cockpit glob.
+  // `.tsx` coverage is fully self-contained (PR #2045 review R1): its own
+  // `languageOptions` (JSX-aware parser) and `plugins.custom` registration,
+  // rather than depending on the `no-raw-console` TSX-parity block above
+  // having registered the rule first. Both blocks reference the SAME
+  // `TSX_CUSTOM_PLUGIN` object (declared before `export default`), so this
+  // narrower glob doesn't trip ESLint's "Cannot redefine plugin 'custom'"
+  // error — if the `no-raw-console` block is later refactored or removed,
+  // this block keeps working independently.
   {
     files: ["src/cockpit/web/**/*.tsx"],
     ignores: ["**/*.test.tsx"],
-    rules: {
-      "custom/no-raw-colors-in-cockpit": ["error", { statusFiles: COCKPIT_STATUS_FILES }],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
     },
-  },
-  // File-level exceptions (docs/design-system.md §5.2: "any file-level
-  // exceptions with recorded justification"): raw-color usage that is
-  // deliberate, pre-existing, and does not fit the healthy/warning pattern.
-  // Each entry names why migrating to a semantic token is out of this task's
-  // small-cleanup scope. Fixing/tokenizing these is future widget-level
-  // design work (mt#2914 umbrella), not this rule's concern.
-  {
-    files: [
-      // JSON syntax highlighter — 7+ distinct hues distinguish token types
-      // (string/number/boolean/key/punctuation/etc.), not a health-status
-      // indicator. A semantic replacement would need a new multi-hue token
-      // set, outside brand-system.md's "one accent, two warning tiers, one
-      // pastel" budget.
-      "src/cockpit/web/components/JsonView.tsx",
-      // Tool-call chip (sky = "no error") + subagent-spawn badge (violet) —
-      // categorical message-type distinction, not a status indicator. Same
-      // token-budget rationale as JsonView.tsx above.
-      "src/cockpit/web/widgets/ConversationView.tsx",
-      // Command-palette entity-type badges (memory=emerald, conversation=sky)
-      // — categorical entity-type coloring, not health status. Unifying with
-      // the signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already
-      // uses for "conversation" is a design decision, not a lint-rule fix.
-      "src/cockpit/web/components/CommandPalette.tsx",
-      // PR-state chip (open=green, merged=violet, closed=destructive) —
-      // deliberately mirrors GitHub's own PR-state color convention, not the
-      // cockpit healthy/warning pattern.
-      "src/cockpit/web/widgets/Changesets.tsx",
-    ],
+    plugins: {
+      custom: TSX_CUSTOM_PLUGIN,
+    },
     rules: {
-      "custom/no-raw-colors-in-cockpit": "off",
+      "custom/no-raw-colors-in-cockpit": [
+        "error",
+        { statusFiles: COCKPIT_STATUS_FILES, paletteExemptFiles: COCKPIT_PALETTE_EXEMPT_FILES },
+      ],
     },
   },
 ];

@@ -17,6 +17,7 @@ import * as tsParser from "@typescript-eslint/parser";
 
 const statusFile = "src/cockpit/web/widgets/MemoriesHealth.tsx";
 const otherFile = "src/cockpit/web/widgets/Changesets.tsx";
+const exemptFile = "src/cockpit/web/components/JsonView.tsx";
 
 const tsxTester = new RuleTester({
   languageOptions: {
@@ -74,6 +75,13 @@ tsxTester.run("no-raw-colors-in-cockpit", rule, {
       code: `const cls = "bg-sky-500";`,
       options: [{ statusFiles: [statusFile], blessedHues: ["sky"] }],
     },
+    // paletteExemptFiles: any hue permitted (categorical/syntax-highlighting
+    // use), when the file is declared exempt.
+    {
+      filename: exemptFile,
+      code: `const cls = "text-sky-400 text-violet-400 text-orange-300";`,
+      options: [{ paletteExemptFiles: [exemptFile] }],
+    },
   ],
 
   invalid: [
@@ -116,6 +124,14 @@ tsxTester.run("no-raw-colors-in-cockpit", rule, {
       filename: otherFile,
       code: `function C() { return <div className="border-violet-500 text-violet-400" />; }`,
       errors: [{ messageId: "rawPalette" }, { messageId: "rawPalette" }],
+    },
+    // paletteExemptFiles exempts palette classes but NEVER hex — the exact
+    // gap PR #2045 review R1 flagged against a config-level "off" escape.
+    {
+      filename: exemptFile,
+      code: `const style = { color: "#4a5568" };`,
+      options: [{ paletteExemptFiles: [exemptFile] }],
+      errors: [{ messageId: "rawHex" }],
     },
   ],
 });
