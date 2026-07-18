@@ -273,10 +273,21 @@ legacy calibration logs) on 2026-07-18, after tagging `mt#2216`/`mt#2832` with
 **Caveat surfaced by this first run, carried into the routed ask:** the
 canary-missing outliers are overwhelmingly a coverage-scope artifact (pre-commit
 steps were out of scope for mt#2889's canary declarations), not a signal that 19
-guards are actually broken. The ask below treats this as ONE grouped outlier
+guards are actually broken. The routed ask treats this as ONE grouped outlier
 rather than 19 individually-argued ones, per the RFC's "guards packaged... reduces
 notification overhead" intent — flagging it explicitly rather than letting a large
 outlier count read as 19 independent problems.
+
+**The ONE routed ask:** `direction.decide` ask `c8fc1f97-f062-4da0-8b51-f367504738c2`
+(filed 2026-07-18) — the 22 auto-affirmed guards in one summary line, plus two
+outlier groups (the canary-missing pre-commit-scope gap; `causal-premise-detector`'s
+recurrence-since-done) each with flip/tune/retire/affirm options. Corpus numbers in
+this document and in the ask are a snapshot from the run that produced it — this
+environment runs many concurrent sessions, so the live fire-log grows continuously
+and a re-run minutes later will show slightly higher counts; the disposition
+signals (auto-affirm vs. outlier, and why) are stable across that drift. The
+review's own execution is fire-logged: `{guardName: "rationalization-review",
+event: "Review", decision: "allow"}`, written after the ask was filed.
 
 ## Cross-references
 
