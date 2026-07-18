@@ -168,6 +168,22 @@ See the routing table below. The two landing mechanics are:
 - **In-band** (memory; Notion-tracked doc rows) — the artifact isn't a
   guarded generated-file surface, so land it directly with the appropriate
   MCP tool, no session required.
+
+  **Note on Notion tool names.** The Notion MCP tools referenced below
+  (`mcp__plugin_Notion_notion__notion-create-pages`,
+  `mcp__plugin_Notion_notion__notion-update-page`,
+  `mcp__plugin_Notion_notion__notion-search`) are provided by the harness's
+  Notion plugin, not by this repository — same caveat as the `/draft-rfc`
+  skill's tool-availability note. They're only available when the plugin is
+  connected. **Verify
+  presence with `ToolSearch` before assuming availability** (query
+  `select:mcp__plugin_Notion_notion__notion-create-pages` or similar); if
+  unavailable, fall back to the repo-tracked landing mechanics below (file a
+  session-backed edit task) even for a Notion-taxonomy row, and say so in
+  the Step 5 output line. Once verified present, the short names
+  (`notion-create-pages` / `notion-update-page` / `notion-search`) are used
+  below for brevity.
+
 - **Session-backed task** (skill; rule; repo-tracked doc rows) — these are
   generated or version-controlled files under guard (`check-generated-file-
 edit.ts` blocks direct `.claude/skills/*` edits; `.minsky/rules/*.mdc`
@@ -188,9 +204,26 @@ edit.ts` blocks direct `.claude/skills/*` edits; `.minsky/rules/*.mdc`
 
 ### Step 5: Surface (one output line, non-blocking)
 
-Emit exactly one line naming the destination and the landing action —
-whether that's a memory ID, a task ID, or "edited directly in session
-`<id>`." Per the attention posture above, this line is informational, not a
+Emit exactly one line, filling in the template:
+
+```
+Learned: <one-line summary of the knowledge> → <landing action>.
+```
+
+`<landing action>` is exactly one of:
+
+- `captured as memory <memory-id>` — memory destination, new entry.
+- `updated existing memory <memory-id>` — memory destination, dedup hit
+  (Step 3 found a match and it was `memory_update`d/`memory_supersede`d
+  instead of duplicated).
+- `filed <task-ref> (<destination>: <artifact-name>) — carries the finding
+verbatim` — skill/rule/doc, not already in a suitable session.
+- `edited directly in session <session-id> (<destination>: <artifact-path>)`
+  — skill/rule/doc, already in a suitable session.
+- `landed via <notion-tool-name> (<destination>: <page title or id>)` —
+  Notion-tracked doc, in-band.
+
+Per the attention posture above, this line is informational — never a
 request for confirmation.
 
 ## Routing table
@@ -279,7 +312,7 @@ appropriate `.minsky/rules/*.mdc` test-pattern source with a `globs` pattern
 matching test files.
 
 **Step 5:** `Learned: --preload order silently no-ops mocks under condition
-X → filed mt#<placeholder> (rule: bun-test-patterns) — carries the repro
+X → filed mt#<placeholder> (rule: bun-test-patterns) — carries the finding
 verbatim.`
 
 ### Example 4 (doc) — illustrative
@@ -304,7 +337,7 @@ session whose scope covers that file, in which case it edits directly.
 
 **Step 5:** `Learned: Railway health-check grace-period pattern for
 zero-downtime deploys → filed mt#<placeholder> (doc:
-deploy-minsky-railway.md) — carries the citation verbatim.`
+deploy-minsky-railway.md) — carries the finding verbatim.`
 
 ## Future work (out of scope for this skill)
 
@@ -345,6 +378,9 @@ deploy-minsky-railway.md) — carries the citation verbatim.`
   point here instead of presenting itself as the only mechanism.
 - `documentation-taxonomy.mdc` — the ten-category doc classification this
   skill's Step 2 cites for doc destinations.
+- `/draft-rfc` skill — origin of the harness-provided-Notion-plugin
+  tool-availability caveat this skill's Step 4 reuses for Notion-tracked doc
+  landing.
 - `create-rule.mdc` Step 0 (mt#2874 rule-admission ladder) — the primary
   classification rubric this skill's Step 2 applies across all four
   destinations.
