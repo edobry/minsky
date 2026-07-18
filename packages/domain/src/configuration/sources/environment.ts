@@ -238,8 +238,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // environment doesn't crash the env-var-to-config dot-path parser at boot.
   "MINSKY_DEV_CHROMIUM_USER_DATA_DIR", // src/cockpit/dev-chromium.ts (dev Chromium profile dir override)
   "MINSKY_DEV_CHROMIUM_EXECUTABLE", // src/cockpit/dev-chromium.ts (dev Chromium binary path override)
-  "MINSKY_REVIEWER_WATCH_OWNER", // src/adapters/shared/commands/reviewer-watch.ts (watch-target owner default)
-  "MINSKY_REVIEWER_WATCH_REPO", // src/adapters/shared/commands/reviewer-watch.ts (watch-target repo default)
+  "MINSKY_REVIEWER_WATCH_OWNER", // src/adapters/shared/commands/reviewer-watch.ts (watch-target owner override; mt#2455)
+  "MINSKY_REVIEWER_WATCH_REPO", // src/adapters/shared/commands/reviewer-watch.ts (watch-target repo override; mt#2455)
   "MINSKY_REVIEWER_WATCH_BOT_LOGIN", // src/adapters/shared/commands/reviewer-watch.ts (reviewer-bot login default)
   "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
