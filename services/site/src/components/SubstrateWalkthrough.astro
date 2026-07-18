@@ -1,19 +1,28 @@
 ---
 import SubstrateScene from "./SubstrateScene.astro";
+import scene01SessionCli from "../assets/screenshots/scene-01-session-cli.png";
+import scene03CockpitHome from "../assets/screenshots/scene-03-cockpit-home.png";
+import scene04ReviewGithub from "../assets/screenshots/scene-04-review-github.png";
+import scene05TaskGraph from "../assets/screenshots/scene-05-task-graph.png";
+import scene06Memory from "../assets/screenshots/scene-06-memory.png";
+import scene07HookDenial from "../assets/screenshots/scene-07-hook-denial.png";
+import scene08Asks from "../assets/screenshots/scene-08-asks.png";
 
 /*
  * Eight scenes per marketing-site-design/SKILL.md §9.
  * Headlines are three- to four-word conceptual per docs/brand-system.md §4.
- * Real screenshots land in followup once principal authorizes capture; until
- * then each scene renders the brand-tokened placeholder via ProductFrame.
+ * Real screenshots captured 2026-07-18 (mt#2920, principal authorization
+ * 2026-07-17). Scene 02 (MCP tool call surfaced in a harness) has no clean
+ * live-capture path from this session — recorded exception, brand-tokened
+ * placeholder stands in via SubstrateScene's undefined-screenshot branch.
  */
 const scenes = [
   {
     eyebrow: "Sessions · Scene 01",
     title: "Sessions that isolate.",
     body: "Each task gets its own session workspace — branch, env, file scope. The agent never operates on main; the principal never adjudicates a merge conflict that came from agent-side drift.",
-    screenshot: undefined,
-    screenshotAlt: "CLI: minsky session start mt#1934",
+    screenshot: scene01SessionCli,
+    screenshotAlt: "Real CLI output: minsky session get / tasks status get for mt#2920",
   },
   {
     eyebrow: "Substrate · Scene 02",
@@ -26,43 +35,43 @@ const scenes = [
     eyebrow: "Cockpit · Scene 03",
     title: "Attention that allocates.",
     body: "The cockpit renders the principal's working set: in-flight tasks, open PRs, asks awaiting decision, hook denials worth knowing about. Mission-control density, not consumer-app whitespace.",
-    screenshot: undefined,
+    screenshot: scene03CockpitHome,
     screenshotAlt: "Cockpit web home — attention surface",
   },
   {
     eyebrow: "Review · Scene 04",
     title: "Reviews that hold.",
     body: "minsky-reviewer[bot] reviews every PR adversarially with a cross-family model and no implementer context. Chinese-wall by construction; merges block until the reviewer converges.",
-    screenshot: undefined,
-    screenshotAlt: "minsky-reviewer[bot] adversarial review on a PR",
+    screenshot: scene04ReviewGithub,
+    screenshotAlt: "minsky-reviewer[bot] adversarial review, approved, on PR #2034",
   },
   {
     eyebrow: "Graph · Scene 05",
     title: "Tasks that converge.",
     body: "Tasks decompose into subtasks and resolve as a DAG. The status state-machine is enforced in the domain layer — TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE — not as convention.",
-    screenshot: undefined,
-    screenshotAlt: "Task dependency graph with subtask DAG",
+    screenshot: scene05TaskGraph,
+    screenshotAlt: "Task dependency graph with subtask DAG — 637 tasks",
   },
   {
     eyebrow: "Memory · Scene 06",
     title: "Memory that compounds.",
     body: "Durable findings land in the Minsky memory store and surface on demand. The same lesson never has to be relearned across sessions, harnesses, or agents.",
-    screenshot: undefined,
-    screenshotAlt: "Memory recall at conversation start",
+    screenshot: scene06Memory,
+    screenshotAlt: "Memory recall — search and stats over the memory store",
   },
   {
     eyebrow: "Hooks · Scene 07",
     title: "Hooks that catch.",
     body: "Structural guardrails fire at the action surface — branch-freshness, contract-propagation, bypass-merge, generated-file edits. The agent runs into the wall before the principal does.",
-    screenshot: undefined,
-    screenshotAlt: "PreToolUse hook denying a stale-branch merge",
+    screenshot: scene07HookDenial,
+    screenshotAlt: "Pre-commit hook denying a per-rule-ceiling breach (mt#2913)",
   },
   {
     eyebrow: "Asks · Scene 08",
     title: "Decisions that surface.",
     body: "When a choice is principal-reserved — naming, framework selection, scope change — Minsky packages the question and the options instead of guessing. The principal stays load-bearing on principal-level decisions.",
-    screenshot: undefined,
-    screenshotAlt: "Asks subsystem packaging a principal decision",
+    screenshot: scene08Asks,
+    screenshotAlt: "Asks subsystem packaging pending principal decisions",
   },
 ];
 ---

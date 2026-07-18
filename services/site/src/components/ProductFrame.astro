@@ -71,6 +71,16 @@
     padding: 1.25rem 1.5rem;
     min-height: 280px;
   }
+  /* Real screenshots slotted in directly (e.g. Hero's real render, mt#2920)
+     need explicit responsive sizing — SubstrateScene's own scoped
+     `.scene-product img` rule doesn't reach a bare ProductFrame usage. */
+  .product-surface :global(picture),
+  .product-surface :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
   .terminal {
     font-family: var(--font-mono);
     font-size: 0.875rem;
