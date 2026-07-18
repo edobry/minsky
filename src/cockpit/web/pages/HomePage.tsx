@@ -30,6 +30,8 @@ import { EmbeddingsHealth } from "../widgets/EmbeddingsHealth";
 import { McpServerStatus } from "../widgets/McpServerStatus";
 import { ReviewerBotStatus } from "../widgets/ReviewerBotStatus";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { LoadingState } from "../components/LoadingState";
+import { ErrorState } from "../components/ErrorState";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +110,14 @@ function FleetStrip() {
     staleTime: 10_000,
     refetchInterval: 15_000,
   });
+
+  // Progressive disclosure (mt#2917): the FLEET band always renders SOMETHING
+  // now that it carries a visible eyebrow label above it — previously a
+  // loading/error/malformed-payload state fell through to `null`, which read
+  // as a silent gap under the (unlabeled) band. Genuine zero-fleet still gets
+  // its own honest-empty branch below, distinct from loading/error.
+  if (query.isLoading) return <LoadingState message="Loading fleet…" />;
+  if (query.isError) return <ErrorState prefix="Failed to load fleet" error={query.error} />;
 
   const counts = countFleet(query.data);
   if (!counts) return null;
