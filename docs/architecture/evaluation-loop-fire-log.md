@@ -297,6 +297,10 @@ fire-log JSONL record itself).
 
 - RFC: Notion `392937f0-3cb4-8188-aad6-d7d041de814b` — the originating proposal
   (§Part 1 is this document's direct source).
+- `docs/architecture/evaluation-loop-phase2.md` — Phase 2 (mt#2901): the
+  retrospective-skill recurrence-after-DONE check, the family-membership metadata
+  convention, and the first rationalization review — the direct consumer of every
+  data source this document describes.
 - mt#2589 — RFC tracking task; mt#2597 — this Phase-1 implementation task.
 - mt#2889 — Phase-1 completion follow-up (IMPLEMENTED): canary declarations
   - runner (18/18 GUARD_REGISTRY guards + 6 standalone, 2 registry gaps
