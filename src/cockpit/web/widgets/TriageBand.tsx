@@ -50,9 +50,19 @@ export function displayTier(ask: Pick<AskItem, "kind">): DisplayTier {
   return "low";
 }
 
+/**
+ * Display-tier badge colors (mt#2917 register pass). Per
+ * docs/design-system.md §5.1's red-scarcity rule, a priority/tier badge is
+ * classification, not an active alarm — never red, regardless of tier. The
+ * mt#2914 audit found "high" rendering bg-destructive (red) at volume (a P2
+ * kind collapsed into "high" on nearly every row); tiers now differentiate
+ * by amber weight only, reserving red for a genuinely escalated ask
+ * (deadline missed — see the isOverdue text-destructive treatment below,
+ * which is unchanged and correct).
+ */
 const TIER_STYLES: Record<DisplayTier, { badge: string; label: string }> = {
-  high: { badge: "bg-destructive text-destructive-foreground", label: "high" },
-  medium: { badge: "bg-warn-amber/40 text-foreground", label: "med" },
+  high: { badge: "bg-warn-amber text-background font-semibold", label: "high" },
+  medium: { badge: "bg-warn-amber/35 text-foreground", label: "med" },
   low: { badge: "bg-muted text-muted-foreground", label: "low" },
 };
 
@@ -208,7 +218,9 @@ export function TriageBand() {
     return (
       <div className="py-4 text-center">
         <p className="text-sm font-medium text-foreground">Nothing needs you</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">No pending asks.</p>
+        <p className="mt-0.5 font-warm-mono italic text-xs text-muted-foreground">
+          queue empty — no pending asks
+        </p>
       </div>
     );
   }

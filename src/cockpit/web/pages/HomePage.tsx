@@ -22,6 +22,7 @@
  * a card dump (frontend owns layout per docs/architecture/cockpit.md
  * §Widgets). New registry widgets no longer auto-append here.
  */
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { TriageBand } from "../widgets/TriageBand";
@@ -87,6 +88,19 @@ export function countFleet(
   return counts;
 }
 
+/** One instrument-style count segment: big tabular-nums digit + small unit label. */
+function FleetGauge({ dotClass, count, unit }: { dotClass: string; count: number; unit: string }) {
+  return (
+    <span className="flex items-baseline gap-1.5 px-3 first:pl-0">
+      <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} aria-hidden />
+      <span className="font-mono text-h3 font-semibold tabular-nums text-foreground">
+        {count}
+      </span>{" "}
+      <span className="text-xs text-muted-foreground">{unit}</span>
+    </span>
+  );
+}
+
 function FleetStrip() {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["agents"],
@@ -98,26 +112,38 @@ function FleetStrip() {
   const counts = countFleet(query.data);
   if (!counts) return null;
 
+  // Honest-empty state (system-speaks voice, warm-mono) rather than a row of
+  // zeros — the fleet legitimately being idle is a fact worth stating
+  // plainly, not a degraded/loading shell.
+  if (counts.total === 0) {
+    return (
+      <Link
+        to="/agents"
+        className="flex items-center justify-between rounded border border-border bg-card/50 px-3 py-2.5 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+        aria-label="Fleet status — open agents"
+      >
+        <span className="font-warm-mono italic text-sm text-muted-foreground">
+          fleet idle — nothing dispatched
+        </span>
+        <span className="text-muted-foreground">→</span>
+      </Link>
+    );
+  }
+
   return (
     <Link
       to="/agents"
-      className="flex items-center gap-3 rounded border border-border bg-card/50 px-3 py-2 text-xs hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+      className="flex items-center rounded border border-border bg-card/50 px-3 py-2 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors divide-x divide-border/50"
       aria-label="Fleet status — open agents"
     >
-      <span className="font-medium text-foreground">Fleet</span>
-      <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
-        <span className="h-2 w-2 rounded-full bg-liveness-healthy" aria-hidden />
-        {counts.working} working
-      </span>
-      <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
-        <span className="h-2 w-2 rounded-full bg-liveness-idle" aria-hidden />
-        {counts.idle} idle
-      </span>
-      <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
-        <span className="h-2 w-2 rounded-full bg-liveness-stale" aria-hidden />
-        {counts.stale} stale
-      </span>
-      <span className="ml-auto text-muted-foreground">→</span>
+      <FleetGauge
+        dotClass={`bg-liveness-healthy${counts.working > 0 ? " animate-status-dot" : ""}`}
+        count={counts.working}
+        unit="working"
+      />
+      <FleetGauge dotClass="bg-liveness-idle" count={counts.idle} unit="idle" />
+      <FleetGauge dotClass="bg-liveness-stale" count={counts.stale} unit="stale" />
+      <span className="ml-auto pl-3 text-muted-foreground">→</span>
     </Link>
   );
 }
@@ -245,14 +271,19 @@ function SubstrateBand() {
         </div>
       )}
 
-      {/* The calm line: healthy subsystems earn one line, not cards. */}
+      {/* The calm line: healthy subsystems earn one line, not cards. System-
+          speaks voice (warm-mono italic, brand-system.md §1) — this is
+          Minsky reporting on its own substrate, not operator-facing UI copy. */}
       {healthy.length > 0 && (
-        <p className="text-xs text-muted-foreground" data-testid="substrate-calm-line">
+        <p
+          className="font-warm-mono italic text-xs text-muted-foreground"
+          data-testid="substrate-calm-line"
+        >
           {anomalous.length === 0 ? "Substrate healthy" : "Otherwise healthy"} ·{" "}
           {healthy.map((s) => s.label).join(" · ")}
           <Link
             to="/settings"
-            className="ml-2 hover:text-foreground transition-colors"
+            className="ml-2 not-italic hover:text-foreground transition-colors"
             aria-label="System details on settings"
           >
             details →
@@ -267,23 +298,32 @@ function SubstrateBand() {
 // Page
 // ---------------------------------------------------------------------------
 
+/** Mono-caps structural label shared by every band on the radiator. */
+function BandEyebrow({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="mb-2 text-eyebrow font-mono uppercase text-muted-foreground">{children}</h2>
+  );
+}
+
 export function HomePage() {
   return (
-    <div className="p-4 flex flex-col gap-5 max-w-5xl mx-auto w-full">
+    <div className="p-4 flex flex-col gap-4 max-w-5xl mx-auto w-full">
       <section aria-label="Needs you">
-        <h2 className="mb-2 text-sm font-semibold text-foreground">Needs you</h2>
+        <BandEyebrow>Needs you</BandEyebrow>
         <ErrorBoundary id="triage-band">
           <TriageBand />
         </ErrorBoundary>
       </section>
 
       <section aria-label="Fleet">
+        <BandEyebrow>Fleet</BandEyebrow>
         <ErrorBoundary id="fleet-strip">
           <FleetStrip />
         </ErrorBoundary>
       </section>
 
       <section aria-label="Substrate health">
+        <BandEyebrow>Substrate</BandEyebrow>
         <ErrorBoundary id="substrate-band">
           <SubstrateBand />
         </ErrorBoundary>
