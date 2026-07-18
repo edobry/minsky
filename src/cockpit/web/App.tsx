@@ -33,6 +33,7 @@ const SettingsPage = lazy(() =>
 const WorkstreamsPage = lazy(() =>
   import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
 );
+const DigestPage = lazy(() => import("./pages/DigestPage").then((m) => ({ default: m.DigestPage })));
 const TasksLayout = lazy(() =>
   import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout }))
 );
@@ -421,6 +422,14 @@ export function App() {
             element={
               <ErrorBoundary id="workstreams-page">
                 <WorkstreamsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/digest"
+            element={
+              <ErrorBoundary id="digest-page">
+                <DigestPage />
               </ErrorBoundary>
             }
           />
