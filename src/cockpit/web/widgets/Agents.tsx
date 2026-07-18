@@ -37,6 +37,7 @@ import { livenessDotClass, type Liveness } from "../lib/liveness-colors";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
+import { AgentDrivenPeek } from "./AgentDrivenPeek";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
 type RunKind = "dispatched-agent" | "principal-conversation" | "subagent-group" | "driven-session";
@@ -798,6 +799,11 @@ function AgentRowItem({
   const label = livenessLabel(agent.liveness);
   const path = rowPath(agent);
   const hasSubagents = agent.subagents.length > 0;
+  // mt#2912 — a row with an active driven binding (either a dispatched-agent
+  // row annotated via the DrivenChip, or a standalone driven-session row)
+  // gets a peek expansion too, alongside/independent of the subagent tree.
+  const hasDrivenBinding = agent.driven != null;
+  const expandable = hasSubagents || hasDrivenBinding;
   const isLive = activeConversationIds.has(agent.conversationId ?? agent.sessionId);
 
   const body = (
@@ -862,13 +868,22 @@ function AgentRowItem({
   return (
     <div className="border-b border-border last:border-0">
       <div className="flex items-center gap-2">
-        {/* Subagent expand/collapse toggle — always reserves a column so rows
-            without children stay aligned with rows that have them. */}
-        {hasSubagents ? (
+        {/* Expand/collapse toggle — subagent tree and/or driven peek
+            (mt#2912); always reserves a column so rows without either stay
+            aligned with rows that have one. */}
+        {expandable ? (
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            aria-label={expanded ? "Collapse subagents" : "Expand subagents"}
+            aria-label={
+              expanded
+                ? hasSubagents
+                  ? "Collapse subagents"
+                  : "Collapse driven session"
+                : hasSubagents
+                  ? "Expand subagents"
+                  : "Expand driven session"
+            }
             aria-expanded={expanded}
             className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
           >
@@ -924,6 +939,14 @@ function AgentRowItem({
             />
           ))}
         </div>
+      )}
+
+      {/* Driven peek (mt#2912) — respond in-place without navigating to
+          /driven/:id. Renders alongside the subagent tree above when a row
+          happens to carry both (independent mechanisms — see the
+          `hasDrivenBinding` doc comment above). */}
+      {hasDrivenBinding && expanded && agent.driven && (
+        <AgentDrivenPeek sessionId={agent.driven.sessionId} />
       )}
     </div>
   );
