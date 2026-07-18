@@ -157,7 +157,7 @@ Recommended status mapping:
 
 Don't fall back to raw hex (e.g., `bg-yellow-500`) — that bypasses the dark-mode-first theming and creates per-widget drift. Always go through the semantic layer.
 
-**Existing inline hex colors in `Workstreams.tsx` / `TaskGraph.tsx` `statusStyle()` are pending refactor** to the tokens above. They were left in place by mt#1935 (foundation-layer migration only) so the refactor can land as a focused entity-display change; track or fold into a follow-up cockpit-design task when entity-display work next runs.
+**Implementation (mt#2909, shipped 2026-07-18):** all four `statusStyle()` call sites (`TaskGraph.tsx`, `Workstreams.tsx`, `TaskList.tsx`, `TaskDetail.tsx`) previously carried byte-identical raw-hex copies of this mapping — consolidated into one shared module, `src/cockpit/web/lib/status-colors.ts`. It expresses the mapping above as `oklch(var(--token) / alpha)` CSS color strings (the pattern `plant-gestures.ts` / `PlantFlowPage.tsx` already use) rather than Tailwind `className` strings, because several consumers apply status color via inline `style` and can't take a `className` directly — a react-flow node fill/edge stroke (`TaskGraph.tsx`), and a toggle-pill that swaps background/foreground on select (`TaskList.tsx`'s status filter row). Every consumer still resolves to the same token family named above; the module also derives a border color per status (not specified by the className list, which targets borderless badges) so call sites that previously rendered a `1px solid <border>` keep a visible outline. New status-color call sites should import `statusStyle` from this module rather than reintroducing a local copy.
 
 ### Sessions
 

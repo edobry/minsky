@@ -38,6 +38,7 @@ import { MetaItem } from "../components/MetaItem";
 import { ConversationView } from "./ConversationView";
 import { ContextBlockView } from "./ContextBlockView";
 import { ConversationOverviewPanel } from "./ConversationOverviewPanel";
+import { livenessDotClass } from "../lib/liveness-colors";
 import type { WorkspaceId, ConversationId } from "@minsky/domain/ids";
 
 // ---------------------------------------------------------------------------
@@ -185,20 +186,6 @@ export function pathForTab(base: string, keySpace: RunKeySpace, tab: RunTab): st
 // ---------------------------------------------------------------------------
 // Presentation helpers (shared Overview rendering)
 // ---------------------------------------------------------------------------
-
-function livenessDotClass(liveness: string): string {
-  switch (liveness) {
-    case "healthy":
-      return "bg-emerald-400";
-    case "idle":
-      return "bg-amber-400";
-    case "stale":
-      return "bg-slate-500";
-    case "orphaned":
-    default:
-      return "bg-red-400";
-  }
-}
 
 function formatTimestamp(iso: string | null): string {
   if (!iso) return "—";
