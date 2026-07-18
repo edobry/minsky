@@ -12,6 +12,7 @@ import {
   computeLatencyPercentiles,
   buildPanel,
   computeCadenceRecommendation,
+  dedupeLegacyCalibrationOverlap,
   OVERRIDE_RATE_BUDGET,
   type RawFireRecord,
   type GuardPanelRow,
@@ -199,6 +200,39 @@ describe("buildPanel", () => {
     // No field named "score" or "health" anywhere on the row (Goodhart threat, RFC).
     const keys = Object.keys(row);
     expect(keys.some((k) => /score|health/i.test(k))).toBe(false);
+  });
+});
+
+describe("dedupeLegacyCalibrationOverlap", () => {
+  test("drops calibration-source records for a guard that also has real fire-log records", () => {
+    const records: RawFireRecord[] = [
+      fireLogRecord({ guardName: CAUSAL_PREMISE_GUARD, source: "fire-log", timestamp: "T1" }),
+      fireLogRecord({ guardName: CAUSAL_PREMISE_GUARD, source: "calibration", timestamp: "T2" }),
+    ];
+    const result = dedupeLegacyCalibrationOverlap(records);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.source).toBe("fire-log");
+  });
+
+  test("keeps calibration-source records for a guard with NO real fire-log records", () => {
+    const records: RawFireRecord[] = [
+      fireLogRecord({ guardName: "policy-coverage-detector", source: "calibration" }),
+      fireLogRecord({ guardName: "policy-coverage-detector", source: "calibration" }),
+    ];
+    const result = dedupeLegacyCalibrationOverlap(records);
+    expect(result).toHaveLength(2);
+  });
+
+  test("real fire-log records for other guards are never dropped by an unrelated guard's overlap", () => {
+    const records: RawFireRecord[] = [
+      fireLogRecord({ guardName: GUARD_A, source: "fire-log" }),
+      fireLogRecord({ guardName: GUARD_A, source: "calibration" }),
+      fireLogRecord({ guardName: GUARD_B, source: "calibration" }),
+    ];
+    const result = dedupeLegacyCalibrationOverlap(records);
+    expect(result).toHaveLength(2); // GUARD_A's fire-log record + GUARD_B's sole calibration record
+    expect(result.filter((r) => r.guardName === GUARD_A)).toHaveLength(1);
+    expect(result.filter((r) => r.guardName === GUARD_B)).toHaveLength(1);
   });
 });
 

@@ -77,6 +77,44 @@ export interface FamilyRecurrenceInput {
 }
 
 // ---------------------------------------------------------------------------
+// Legacy-calibration / real-fire-log overlap de-duplication (review R1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Drop `source: "calibration"` records for any guard that ALSO has at least
+ * one `source: "fire-log"` record in the same corpus.
+ *
+ * Why this is needed: five of the six legacy `.minsky/*-calibration.jsonl`
+ * detectors (`causal-premise`, `retrospective-trigger`, `ask-routing-deferral`,
+ * `code-mechanism-assertion`, `pre-narration`) are ALSO `GUARD_REGISTRY`-
+ * registered and dispatcher-instrumented (mt#2597) — a SINGLE real firing
+ * event for one of these guards writes BOTH a real fire-log record (via the
+ * dispatcher's `recordFireLogEntry` call) AND a legacy calibration record
+ * (via the detector's own `appendCalibrationRecord` call, e.g.
+ * `.minsky/hooks/causal-premise-detector.ts` lines ~339/533). Merging BOTH
+ * corpora without de-duplication would double-count every such fire —
+ * inflating `fireCount`/`overrideRate`/`recurrencesSinceDone` for exactly
+ * the guards this review most needs accurate numbers for.
+ *
+ * The rule is guard-scoped, not global: `policy-coverage-detector` (and any
+ * other guard with NO real fire-log entries — see
+ * `docs/architecture/evaluation-loop-fire-log.md`'s Known Gaps, the 5
+ * standalone guards not yet fire-log-instrumented) has its ENTIRE history
+ * only in the legacy calibration log — for those, the calibration-sourced
+ * records are kept (no overlap risk, and they are the SOLE data source).
+ * "Has a real fire-log record" is a data-driven test (does this guard name
+ * appear with `source: "fire-log"` ANYWHERE in this corpus), not a
+ * hardcoded guard-name list — it needs no maintenance as instrumentation
+ * coverage expands.
+ */
+export function dedupeLegacyCalibrationOverlap(records: RawFireRecord[]): RawFireRecord[] {
+  const guardsWithRealFireLog = new Set(
+    records.filter((r) => r.source === "fire-log").map((r) => r.guardName)
+  );
+  return records.filter((r) => r.source === "fire-log" || !guardsWithRealFireLog.has(r.guardName));
+}
+
+// ---------------------------------------------------------------------------
 // Thresholds (grounded, not round numbers — CLAUDE.md §Thresholds)
 // ---------------------------------------------------------------------------
 
@@ -172,6 +210,19 @@ function emptyOverrideBuckets(): Record<OverrideClassification, number> {
  * unstated reason — the panel is decision-support, not a black box,
  * per the RFC's Goodhart threat: "no composite per-guard score is
  * computed, ever" — this function returns NAMED reasons, never a score).
+ *
+ * IMPORTANT — "zero-fire-anomaly" outlier status is NOT itself evidence the
+ * guard is broken. Per the RFC's retirement-discipline framing: "Zero fires
+ * is a *success* signal for a working prevention guard (the constraint has
+ * been internalized)." A guard with `fireCount === 0` AND `canaryStatus ===
+ * "PASS"` is the RFC's DORMANT/DETERRENT case — the healthy outcome for a
+ * prevention guard whose trigger condition nobody has hit. It routes to
+ * "outlier" here only because the auto-affirm threshold's job is deciding
+ * what needs NO human look this pass, not deciding what's broken — a
+ * zero-fire guard still deserves one human glance (is a canary declared and
+ * passing? if not, "zero fires" and "silently dead" are indistinguishable —
+ * see the RFC's nine-day dead-detector origin story) even though the
+ * likely disposition, once looked at, is "affirm — deterrent, not broken."
  */
 function classifyDisposition(row: {
   fireCount: number;
