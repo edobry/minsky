@@ -82,7 +82,8 @@ describe("DigestPage", () => {
 
     // Headline rolls up workstreams / merges / exceptions.
     expect(screen.getByTestId("digest-headline").textContent).toContain("2 workstreams active");
-    expect(screen.getByTestId("digest-headline").textContent).toContain("1 PRs merged");
+    // Pluralization fixed at PR #2037 R1: singular merge count reads "1 PR merged".
+    expect(screen.getByTestId("digest-headline").textContent).toContain("1 PR merged");
     expect(screen.getByTestId("digest-headline").textContent).toContain("1 exception");
 
     // Group card carries the task ref as an in-app deeplink and its title.

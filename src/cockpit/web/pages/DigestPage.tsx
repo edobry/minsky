@@ -15,7 +15,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ErrorBoundary } from "../components/ErrorBoundary";
 import { entityToPath } from "../lib/entity-codec";
 import {
   buildDigest,
@@ -48,7 +47,12 @@ function useDayDigest(dayOffset: number) {
     refetchInterval: dayOffset === 0 ? 60_000 : false,
     refetchOnWindowFocus: false,
     staleTime: 30_000,
-    select: buildDigest,
+    // A row count at the cap means the day may have MORE events than fetched —
+    // surfaced in the headline rather than silently truncated (PR #2037 R1).
+    select: (rows: DigestEventRow[]) => ({
+      groups: buildDigest(rows),
+      truncated: rows.length >= DAY_EVENT_LIMIT,
+    }),
   });
 }
 
@@ -129,7 +133,7 @@ function DigestBody({ dayOffset }: { dayOffset: number }) {
     );
   }
 
-  const groups = query.data ?? [];
+  const { groups, truncated } = query.data ?? { groups: [], truncated: false };
   if (groups.length === 0) {
     return (
       <p className="text-sm text-muted-foreground" data-testid="digest-empty">
@@ -140,13 +144,17 @@ function DigestBody({ dayOffset }: { dayOffset: number }) {
 
   const workstreams = groups.filter((g) => g.key !== FLEET_GROUP_KEY);
   const totalExceptions = groups.reduce((n, g) => n + g.exceptions.length, 0);
+  const prsMerged = groups.reduce((n, g) => n + g.counts.prsMerged, 0);
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground" data-testid="digest-headline">
         {workstreams.length} workstream{workstreams.length === 1 ? "" : "s"} active ·{" "}
-        {groups.reduce((n, g) => n + g.counts.prsMerged, 0)} PRs merged ·{" "}
+        {prsMerged} PR{prsMerged === 1 ? "" : "s"} merged ·{" "}
         {totalExceptions === 0 ? "no exceptions" : `${totalExceptions} exception${totalExceptions === 1 ? "" : "s"}`}
+        {truncated && (
+          <span className="text-warn-amber"> · showing the first {DAY_EVENT_LIMIT} events only</span>
+        )}
       </p>
       {groups.map((g) => (
         <GroupCard key={g.key} group={g} />
@@ -184,9 +192,9 @@ export function DigestPage() {
         </div>
       </div>
 
-      <ErrorBoundary id="digest">
-        <DigestBody dayOffset={dayOffset} />
-      </ErrorBoundary>
+      {/* No inner ErrorBoundary: the /digest route already wraps this page in
+          one (App.tsx, id="digest-page") — PR #2037 R1. */}
+      <DigestBody dayOffset={dayOffset} />
     </div>
   );
 }

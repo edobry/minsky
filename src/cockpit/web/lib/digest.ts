@@ -226,7 +226,10 @@ export function summarizeCounts(counts: DigestGroup["counts"]): string {
   const parts: string[] = [];
   if (counts.prsMerged > 0)
     parts.push(`${counts.prsMerged} PR${counts.prsMerged > 1 ? "s" : ""} merged`);
-  if (counts.changesetsOpened > 0) parts.push(`${counts.changesetsOpened} opened`);
+  if (counts.changesetsOpened > 0)
+    parts.push(
+      `${counts.changesetsOpened} changeset${counts.changesetsOpened > 1 ? "s" : ""} opened`
+    );
   if (counts.statusChanges > 0)
     parts.push(`${counts.statusChanges} status change${counts.statusChanges > 1 ? "s" : ""}`);
   if (counts.sessionsStarted > 0)
