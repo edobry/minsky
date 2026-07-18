@@ -36,7 +36,7 @@ import { statusStyle } from "../lib/status-colors";
 // Types — mirror of server TaskListItem / TaskListPayload
 // ---------------------------------------------------------------------------
 
-interface TaskListItem {
+export interface TaskListItem {
   id: string;
   title: string;
   status: string;
@@ -65,7 +65,7 @@ async function fetchTaskList(): Promise<WidgetData> {
 // Sort / filter config
 // ---------------------------------------------------------------------------
 
-type TaskSortKey = "id" | "title" | "status" | "kind";
+export type TaskSortKey = "id" | "title" | "status" | "kind";
 
 interface TaskFilters {
   /** Comma-separated status values for multi-select, or "all" */
@@ -135,7 +135,7 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 // (backlog) above the settled DONE/CLOSED tail.
 // ---------------------------------------------------------------------------
 
-const STATUS_SORT_PRIORITY: Record<string, number> = {
+export const STATUS_SORT_PRIORITY: Record<string, number> = {
   "IN-REVIEW": 0,
   BLOCKED: 1,
   "IN-PROGRESS": 2,
@@ -146,7 +146,7 @@ const STATUS_SORT_PRIORITY: Record<string, number> = {
   CLOSED: 7,
 };
 
-function statusPriority(status: string): number {
+export function statusPriority(status: string): number {
   return STATUS_SORT_PRIORITY[status.toUpperCase()] ?? STATUS_SORT_PRIORITY.TODO;
 }
 
@@ -159,7 +159,7 @@ function statusPriority(status: string): number {
 // tasks carry this status; see the PR body for the probe transcript.
 // ---------------------------------------------------------------------------
 
-const ALL_STATUSES = [
+export const ALL_STATUSES = [
   "TODO",
   "PLANNING",
   "READY",
@@ -474,7 +474,12 @@ function taskFilterFn(task: TaskListItem, filters: TaskFilters): boolean {
   return true;
 }
 
-function taskSortFn(a: TaskListItem, b: TaskListItem, key: TaskSortKey, dir: SortDir): number {
+export function taskSortFn(
+  a: TaskListItem,
+  b: TaskListItem,
+  key: TaskSortKey,
+  dir: SortDir
+): number {
   let cmp = 0;
   switch (key) {
     case "id": {
