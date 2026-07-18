@@ -47,7 +47,11 @@ export function AgentsPage() {
         <h1 className="text-h1 font-semibold text-foreground">Agents</h1>
         <StartScratchSessionButton />
       </div>
-      <Agents />
+      {/* page-body variant (mt#2917 fix, same issue as WorkstreamsPage): this
+          route renders its own <h1> above, so the widget must not ALSO
+          render a nested Card + CardTitle "Agents" — the default "card"
+          variant was doing exactly that. */}
+      <Agents variant="page-body" title="Agents" />
     </div>
   );
 }
