@@ -10,6 +10,12 @@ An exocortex for software organizations led by a principal — the substrate tha
 
 The principal — the human responsible for the work — declares intent; the substrate composes hooks, sessions, tasks, asks, memory, and reviewer agents to drive that intent to realization. Principality is recursive: every individual engineer running Minsky is the principal of their own flock, and an organization is a tree of principals all the way down to the ICs. Minsky is principal substrate at every level on that tree.
 
+Minsky is a substrate, not an operator: it doesn't write or judge the work — it composes the environment agents and engineers already run inside, so the right practice is the only path through, not a request an agent could decline. Environmental alignment is the mechanism, not instruction: the same pre-commit hook that blocks an unformatted commit from a human blocks one from an agent, with no separate AI configuration to maintain.
+
+The theory behind that mechanism — the control-system mapping the substrate follows, the attention-as-scarce-resource argument, the humility and noticing properties a substrate needs — is written up, not just implemented; the architecture underneath it is documented the same way.
+
+Theory: [`docs/theory-of-operation.md`](./docs/theory-of-operation.md) — Architecture index: [`docs/architecture.md`](./docs/architecture.md)
+
 ## What Minsky does
 
 ### Task management with multiple backends
