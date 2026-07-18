@@ -105,11 +105,22 @@
   --text-code--line-height: 1.5;
 
   /* Liveness status sub-tokens — cockpit-local per docs/brand-system.md §7.
-     Preserve green/amber/red/gray semantic for operator legibility. */
+     Preserve green/amber/red/gray semantic for operator legibility.
+     Recalibrated mt#2917 (register-unification pass): "stale" (an agent
+     that has simply been idle a while — no motion within the recency
+     window) is NOT a hard-alarm state per docs/design-system.md §5.1's
+     red-scarcity rule; it moves to the amber family (a deeper/more
+     saturated amber than --liveness-idle, so the two remain visually
+     distinct). "orphaned" (a session with no live owner — the genuinely
+     dead/errored state design-system.md §5.1 reserves red for) takes the
+     red slot instead, matching --warn-red/--destructive. This was
+     previously inverted: stale rendered red at volume (audit finding,
+     mt#2914) while the truly-dead orphaned state rendered a muted
+     blue-gray. */
   --liveness-healthy: 0.638 0.150 145;
   --liveness-idle: 0.756 0.180 70;
-  --liveness-stale: 0.585 0.219 27;
-  --liveness-orphaned: 0.560 0.020 240;
+  --liveness-stale: 0.680 0.190 55;
+  --liveness-orphaned: 0.585 0.219 27;
 }
 
 .dark {
@@ -144,11 +155,12 @@
   --input: 0.270 0 0;
   --ring: 0.745 0.124 215;
 
-  /* Liveness — tuned slightly down for dark elevation */
+  /* Liveness — tuned slightly down for dark elevation. See the :root block's
+     comment above for the mt#2917 stale/orphaned recalibration rationale. */
   --liveness-healthy: 0.580 0.140 145;
   --liveness-idle: 0.720 0.175 70;
-  --liveness-stale: 0.560 0.215 27;
-  --liveness-orphaned: 0.470 0.020 240;
+  --liveness-stale: 0.640 0.185 55;
+  --liveness-orphaned: 0.560 0.215 27;
 }
 
 @layer base {
