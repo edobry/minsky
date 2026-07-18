@@ -61,6 +61,9 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // onto the framework (not a Phase 2b migration), appended after the
       // pre-migration order this test otherwise byte-preserves.
       "silent-stretch-detector",
+      // mt#2870 — wall-of-text-detector, silent-stretch's over-signaling
+      // sibling; same new-guard-appended-after-legacy-order rationale.
+      "wall-of-text-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.

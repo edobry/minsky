@@ -134,6 +134,12 @@ function formatResult(results: CalibrationLogResult[]): string {
             `    [${rec.timestamp}] gap=${rec.gapMinutes}min toolCalls=${rec.toolCallCount} ` +
               `conversation=${rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`
           );
+        } else if ("wordCount" in rec) {
+          lines.push(
+            `    [${rec.timestamp}] words=${rec.wordCount} trigger=${rec.trigger}` +
+              `${rec.leadLabelHits && rec.leadLabelHits.length > 0 ? ` labels=${rec.leadLabelHits.join("+")}` : ""} ` +
+              `conversation=${rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL}`
+          );
         } else {
           lines.push(
             `    [${rec.timestamp}] families: ${rec.matches

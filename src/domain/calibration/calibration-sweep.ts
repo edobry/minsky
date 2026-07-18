@@ -68,7 +68,8 @@ export interface CalibrationLogEntry {
     | "code-mechanism-assertion"
     | "pre-narration"
     | "policy-coverage"
-    | "silent-stretch";
+    | "silent-stretch"
+    | "wall-of-text";
 }
 
 /**
@@ -97,6 +98,12 @@ export interface CalibrationLogEntry {
  *     measured over distinct `session_id` (conversation) values. mt#2824
  *     shipped the detector but consciously descoped wiring it into this
  *     registry (see that task's PR body); this entry closes that gap.
+ *
+ * V4 entry (mt#2870):
+ *   - wall-of-text-calibration.jsonl (mt#2870 detector) — the over-signaling
+ *     sibling of silent-stretch. Also NOT a matched-phrase log: a per-turn
+ *     report-shape measurement (wordCount/trigger/leadLabelHits); diversity
+ *     is measured over distinct `session_id` values, like silent-stretch.
  *
  * To add another log: append one CalibrationLogEntry here.
  */
@@ -135,6 +142,11 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     path: ".minsky/silent-stretch-calibration.jsonl",
     name: "silent-stretch",
     kind: "silent-stretch",
+  },
+  {
+    path: ".minsky/wall-of-text-calibration.jsonl",
+    name: "wall-of-text",
+    kind: "wall-of-text",
   },
 ];
 
@@ -264,13 +276,33 @@ export interface SilentStretchRecord {
   hadTextInTurn?: boolean;
 }
 
+/**
+ * Parsed wall-of-text calibration record (mt#2870 detector).
+ *
+ * Like SilentStretchRecord, a per-turn measurement with no matched-phrase
+ * concept — diversity is measured over distinct `session_id` values. Mirrors
+ * the exact fields the detector writes in
+ * `.minsky/hooks/wall-of-text-detector.ts` (`buildCalibrationRecord`).
+ */
+export interface WallOfTextRecord {
+  timestamp: string;
+  session_id?: string;
+  wordCount: number;
+  lineCount: number;
+  trigger: string;
+  leadLabelHits?: string[];
+  deeplinkCount?: number;
+  namedRefCount?: number;
+}
+
 /** Union of all record types. */
 export type CalibrationRecord =
   | CausalPremiseRecord
   | RetrospectiveTriggerRecord
   | CodeMechanismAssertionRecord
   | PolicyCoverageRecord
-  | SilentStretchRecord;
+  | SilentStretchRecord
+  | WallOfTextRecord;
 
 // ---------------------------------------------------------------------------
 // Per-log result
@@ -403,6 +435,28 @@ export function parseCalibrationRecord(
       } satisfies SilentStretchRecord;
     }
 
+    if (kind === "wall-of-text") {
+      // Shape: { timestamp, session_id?, wordCount: number, lineCount: number,
+      //          trigger: string, leadLabelHits?: string[], deeplinkCount?, namedRefCount? }
+      // Mirrors the exact record `.minsky/hooks/wall-of-text-detector.ts`
+      // writes (mt#2870). Not a matched-phrase record.
+      if (typeof raw["wordCount"] !== "number" || typeof raw["trigger"] !== "string") {
+        return null;
+      }
+      return {
+        timestamp: String(raw["timestamp"] ?? ""),
+        session_id: raw["session_id"] !== undefined ? String(raw["session_id"]) : undefined,
+        wordCount: raw["wordCount"],
+        lineCount: typeof raw["lineCount"] === "number" ? raw["lineCount"] : 0,
+        trigger: raw["trigger"],
+        leadLabelHits: Array.isArray(raw["leadLabelHits"])
+          ? (raw["leadLabelHits"] as unknown[]).map(String)
+          : undefined,
+        deeplinkCount: typeof raw["deeplinkCount"] === "number" ? raw["deeplinkCount"] : undefined,
+        namedRefCount: typeof raw["namedRefCount"] === "number" ? raw["namedRefCount"] : undefined,
+      } satisfies WallOfTextRecord;
+    }
+
     // retrospective-trigger, ask-routing-deferral (mt#2498), OR pre-narration
     // (mt#2197) — same matches-shape family. retrospective-trigger labels each
     // match with `family`; ask-routing-deferral labels it with `class`;
@@ -487,6 +541,11 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
     } else if ("gapMinutes" in rec) {
       // silent-stretch: diversity axis is distinct conversations (session_id),
       // not phrases — mirrors the policy-coverage `reason` axis above.
+      phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
+    } else if ("wordCount" in rec) {
+      // wall-of-text (mt#2870): same distinct-conversation diversity axis as
+      // silent-stretch; the fallback label's VALUE is the shared generic
+      // "unknown-session" string.
       phrases.add(rec.session_id ?? UNKNOWN_SILENT_STRETCH_SESSION_LABEL);
     } else {
       for (const m of rec.matches) {
@@ -785,6 +844,7 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "pre-narration": "pre-narration-detector",
   "policy-coverage": "policy-coverage-detector",
   "silent-stretch": "silent-stretch-detector",
+  "wall-of-text": "wall-of-text-detector",
 };
 
 /**
