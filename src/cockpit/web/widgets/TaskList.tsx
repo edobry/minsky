@@ -8,9 +8,11 @@
  * Status filter is multi-select via comma-separated URL param values.
  *
  * mt#2919 tasks-page pass:
- *  - COMPLETED retired (not part of the canonical state machine; a
- *    tasks_list(all:true) probe on 2026-07-18 confirmed zero live tasks
- *    carry status COMPLETED — see the PR body for the probe transcript).
+ *  - The legacy off-state-machine status pill (never part of the canonical
+ *    TODO -> PLANNING -> READY -> IN-PROGRESS -> IN-REVIEW -> DONE machine,
+ *    side states BLOCKED/CLOSED) is retired — a tasks_list(all:true) probe
+ *    on 2026-07-18 confirmed zero live tasks carry it; see status-colors.ts
+ *    and the PR body for the full probe transcript.
  *  - Default sort foregrounds the supervision loop (IN-REVIEW/BLOCKED/
  *    IN-PROGRESS above READY above PLANNING above TODO above the settled
  *    DONE/CLOSED tail) instead of raw ID-desc, per /product-thinking's
@@ -153,10 +155,11 @@ export function statusPriority(status: string): number {
 // ---------------------------------------------------------------------------
 // All known statuses for the filter dropdown
 //
-// COMPLETED retired (mt#2919) — not part of the canonical state machine
-// (TODO -> PLANNING -> READY -> IN-PROGRESS -> IN-REVIEW -> DONE, side
-// states BLOCKED/CLOSED). A tasks_list(all:true) probe confirmed zero live
-// tasks carry this status; see the PR body for the probe transcript.
+// The legacy off-state-machine status pill is retired (mt#2919) — it was
+// never part of the canonical state machine (TODO -> PLANNING -> READY ->
+// IN-PROGRESS -> IN-REVIEW -> DONE, side states BLOCKED/CLOSED). A
+// tasks_list(all:true) probe confirmed zero live tasks carry it; see
+// status-colors.ts and the PR body for the full probe transcript.
 // ---------------------------------------------------------------------------
 
 export const ALL_STATUSES = [
