@@ -213,6 +213,19 @@ This check turns "the structural fix exists" from an assumption into an invarian
 
 The default until the 2026-04-26 meta-retrospective was "save memory, file structural task only after recurrence." That cost 12-24h per pattern. Reference: Notion incident memo `34e937f03cb4813c8046c6e00cb668f2` ("Mitigation-tier inversion") — of four pattern-fixes that day, only one (session_update force-push, mt#1304) followed the corrected sequence; the other three (verify-script-not-run, parallel-work, reviewer-bot misreads) waited 1-2+ days before the structural task was filed, and the failure mode recurred in the meantime.
 
+**DONE-but-recurred contradiction check (2026-07-18, mt#2901, evaluation-loop RFC Part 2)**
+
+The liveness check above already treats `DONE` as one of three dead-as-target statuses, with a prose note: "If the memory's pattern recurred anyway, the citation is stale." This extension promotes that observation into a **structural check with a mandatory output section**, per the RFC's Position #5: "Recurrence-after-done should be detected mechanically... the primary trigger is the retrospective skill itself... does not depend on memory-labeling conventions."
+
+For every structural-fix task cited in this retrospective (whether from Step 3's recurrence check, Step 4's fix design, or a prior bridge memory being re-verified):
+
+1. **Status check** (same call as the liveness check above — no extra round-trip): if `mcp__minsky__tasks_status_get` returns `DONE`, continue to step 2. Any other status follows the existing liveness-check branches unchanged.
+2. **Family-match check.** Call `mcp__minsky__tasks_get <task-id>` and read its `tags`. Per the family-membership metadata convention (`docs/architecture/evaluation-loop-phase2.md` — task `tags`, convention `family:<slug>`; slug is the guard's own name for a single-guard family, or a short kebab-case pattern name matching Step 3's family-name convention for a multi-guard/process family):
+   - If the cited task (or another task in the same family — multiple tasks may share a tag) carries a `family:<slug>` tag whose slug matches the **current incident's** family (the name/pattern Step 3's family-level recurrence check already established, or the guard whose fire the incident traces to): the contradiction is **confirmed structurally** — go to step 3.
+   - If the cited task carries **no** `family:` tag yet: the contradiction is still real (a DONE fix, a recurred pattern), but unconfirmed by structured metadata. State the DONE-but-recurred finding in prose per the pre-existing liveness-check note, AND add the missing tag now (`mcp__minsky__tasks_edit taskId:"<id>" tag:[...existing tags, "family:<slug>"] execute:true`) — per the migration path documented in `docs/architecture/evaluation-loop-phase2.md` §Migration path, this is the natural moment to backfill the tag, closing the gap for the NEXT retrospective that cites the same family.
+3. **Mandatory output section.** When step 2 confirms a structural match, the retrospective's output MUST include the `### Recurrence-after-DONE` section (below) — this is NOT folded into the ordinary `### Fixes` list. The section's presence is unconditional whenever the structural match fires, independent of the overall triage level (Minor correction / Process failure / Repeated failure) and independent of whether Step 3's family-count-based `### Escalation` section also fires (a DONE-but-recurred contradiction can be the FIRST recurrence in a family — R2 — not just the third-plus that triggers `### Escalation`).
+4. **Primary-recommendation requirement.** When `### Recurrence-after-DONE` fires, the retrospective's PRIMARY recommendation (the first item in `### Fixes`, or a dedicated recommendation inside the new section) must address **containment failure** — why the shipped mechanism didn't hold the class it was supposed to cover (scope too narrow? trigger condition different from what was tested? a code path the fix never touched?) — not merely another isolated per-surface patch for the new instance. A per-surface fix MAY still ship alongside this (per `### Escalation`'s own precedent: "the per-surface fix may still ship, but it MUST be paired with" the structural finding), but it cannot be the ONLY output when this section fires.
+
 ### 5a. Emit `retrospective.fired` (mt#2537)
 
 After a fix in step 5 lands a durable artifact change (a CLAUDE.md/rule edit, a
@@ -281,6 +294,17 @@ Present findings to the user as:
 
 **Recommendation**: <"escalate the family's structural-fix task" / "file successor because original is dead" / "the structural fix is alive but stalled — bump priority + name the cumulative cost in a task comment">
 
+### Recurrence-after-DONE (when a cited structural-fix task's status is DONE AND it — or another task in the same family — carries a `family:<slug>` tag matching this incident's family)
+
+**Contradiction**: <task-id> shipped DONE on <date> as the fix for <family/pattern name>, and this incident (<one-line description>) is the SAME family — the shipped mechanism did not contain the class it was built to cover.
+**Family slug**: `family:<slug>` (per `docs/architecture/evaluation-loop-phase2.md`'s convention).
+**What the fix covered vs. what recurred**: <name the shipped mechanism's actual scope/trigger condition, and the specific way THIS incident falls outside it — narrower trigger, different code path, a case the fix's own tests never exercised, etc.>
+**Containment-failure analysis**: <why did the mechanism not generalize? This is the Step 3 root-cause question applied specifically to the shipped fix's own design, not to the agent's proximate error.>
+
+**Primary recommendation** (must address containment, not just this instance): <the specific change to the ALREADY-SHIPPED mechanism — widen its scope, add the missed trigger condition, add the missed code path — not merely a note for the next occurrence>
+
+(This section is independent of `### Escalation` above — it can fire on the SECOND occurrence of a family, R2, not only at the ≥3-recurrence threshold that triggers `### Escalation`. Both sections may appear together when both conditions hold.)
+
 ### Fixes
 
 1. **<artifact>**: <specific change> — prevents <failure mode> by <mechanism>
@@ -340,6 +364,78 @@ The agent searches for a live successor via `mcp__minsky__tasks_search` on the f
 The per-surface fix for R7 (a new spec-amendment-time check, or extending an existing one) may still ship — but the PR body and the bridge memory must reference the family Escalation and the live successor task, not mt#1541. If only the per-surface fix ships and the escalation is omitted, R7's retrospective itself becomes R8 of the family at the meta-level.
 
 **Why this walkthrough succeeds where the R6 retrospective did not.** R6 produced a per-surface fix (mt#2014) and a bridge memory (`f4306866`) citing mt#1541 as the mechanization target. The R6 retrospective did NOT run a family-level recurrence count (which would have surfaced 6 R's at that point) and did NOT run a liveness check on mt#1541 (which would have surfaced its CLOSED status). The user surfaced both gaps post-fact. The Step 3 family check and Step 5 liveness check above structurally produce both findings on first run.
+
+## Worked example: recurrence-after-DONE (causal-premise history)
+
+This walkthrough demonstrates the new DONE-but-recurred contradiction check
+(Step 5) and the `### Recurrence-after-DONE` output section, using the REAL
+task history this check was designed against (mt#2901).
+
+**Setup.** `mt#2216` ("Escalate confabulated-causal-explanation pattern beyond
+memory tier (R3): diagnosis/explanation premise-check enforcement") shipped
+DONE on 2026-06-08 — it built the causal-premise detector's premise-check
+enforcement, the structural fix for the confabulated-causal-explanation
+family. Roughly five weeks later, `mt#2832` ("Calibration-exhaust
+consumption: run overdue reviews; causal-premise detector missed its target
+class (1 log entry, live A/B-confound incident uncaught)") was filed and shipped
+DONE on 2026-07-16: a live incident whose failure pattern the causal-premise
+detector was specifically built to catch went uncaught. This is precisely the
+RFC's originating example: "a detector hook whose scope didn't cover the
+recurring case."
+
+**A hypothetical retrospective run over the mt#2832 incident, walking the new
+check:**
+
+**Step 3 — recurrence check.** The agent identifies the incident's family as
+"causal-premise" — the same detector/pattern mt#2216 addressed.
+
+**Step 5 — status + family-match check.** `mcp__minsky__tasks_status_get
+mt#2216` → `DONE`. Per the DONE-but-recurred extension, the agent does NOT stop
+at the pre-existing liveness-check prose note; it checks family match:
+`mcp__minsky__tasks_get mt#2216` → `tags: ["process",
+"family:causal-premise-detector"]`. The current incident's family slug
+(`causal-premise-detector`, the guard's own name — the single-guard-family
+convention) matches. **Structural contradiction confirmed.**
+
+**Output — Recurrence-after-DONE section (mandatory, fires independent of
+`### Escalation`'s ≥3-count threshold — this is only the family's second
+labeled instance):**
+
+```markdown
+### Recurrence-after-DONE
+
+**Contradiction**: mt#2216 shipped DONE on 2026-06-08 as the fix for the
+causal-premise-detector family (diagnosis/explanation premise-check
+enforcement), and this incident (mt#2832 — the detector missed a live
+A/B-confound incident, 1 uncaught instance) is the SAME family — the shipped
+mechanism did not contain the class it was built to cover.
+**Family slug**: `family:causal-premise-detector`.
+**What the fix covered vs. what recurred**: mt#2216 enforced a same-turn
+verification requirement for VOLUNTEERED causal/mechanism claims about
+tool/system behavior. The A/B-confound incident mt#2832 surfaced was a claim
+shape the detector's pattern set did not match — a genuine miss, not an
+override or a suppressed warning (the fire-log shows zero overrides for this
+guard in the relevant window).
+**Containment-failure analysis**: the enforcement mechanism (pattern-matching
+on trigger phrases) generalizes only as far as its phrase corpus. A miss means
+the corpus itself is incomplete relative to the family's true extent, not that
+the enforcement was bypassed — the fix was a coverage-radius decision, and the
+radius was too small for this instance.
+
+**Primary recommendation** (containment, not another isolated patch): widen
+the causal-premise-detector's trigger-phrase corpus to cover the A/B-confound
+claim shape mt#2832 identified — a change to the ALREADY-SHIPPED detector, not
+a new standalone check for this one incident.
+```
+
+**Why this fires on R2, not only at R3+.** `### Escalation`'s family-count
+threshold (≥3) would NOT have fired here — this is only the causal-premise
+family's second labeled instance. The DONE-but-recurred check is deliberately
+independent of that threshold: per the RFC, "this fires at the moment of
+maximum context (mid-retrospective, with the incident classified)" — waiting
+for a third occurrence before surfacing a DONE-but-recurred contradiction
+would mean two full incidents pass with only the pre-existing prose note (easy
+to skim past) before the mandatory structured section appears.
 
 ## Key principles
 
