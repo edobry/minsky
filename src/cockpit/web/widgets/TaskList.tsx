@@ -551,6 +551,13 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
     defaultFilters: DEFAULT_FILTERS,
     filterFn,
     sortFn,
+    // Pre-existing override of useListControls' shared DEFAULT_PAGE_SIZE_OPTIONS
+    // ([10, 25, 50]) — predates mt#2919, unchanged by this PR. Justification
+    // (per reviewer request): the task backlog routinely runs into the
+    // hundreds (the mt#2919 COMPLETED probe's tasks_list(all:true) dump alone
+    // covered ~700 tasks), so a higher page-size ceiling reduces pagination
+    // clicks for an operator scanning the full backlog; 10 as a floor is too
+    // small to be useful for a list this size.
     pageSizeOptions: [25, 50, 100],
     prefix: "tl",
   });
