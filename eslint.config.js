@@ -30,6 +30,32 @@ import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-en
 import noRawConsole from "./eslint-rules/no-raw-console.js";
 import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-params.js";
 import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
+import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
+
+// === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) — declared coverage ===
+// The blessed healthy/warning raw-Tailwind-palette exception from
+// docs/design-system.md §5.2: files that render a per-status healthy/warning
+// indicator (green/emerald for healthy, amber for warning) via raw Tailwind
+// palette classes rather than a dedicated success/warning design token.
+// Adding a widget here is a design decision (a new status-indicator surface
+// adopting the blessed pattern), not a lint-config tweak — cite
+// docs/design-system.md §5.2 when extending this list.
+const COCKPIT_STATUS_FILES = [
+  "src/cockpit/web/widgets/Agents.tsx",
+  "src/cockpit/web/widgets/ConversationSearchPanel.tsx",
+  "src/cockpit/web/components/DrivenSessionStatusBar.tsx",
+  "src/cockpit/web/widgets/Credentials.tsx",
+  "src/cockpit/web/widgets/EmbeddingsHealth.tsx",
+  "src/cockpit/web/pages/EmbeddingsPage.tsx",
+  "src/cockpit/web/widgets/McpServerStatus.tsx",
+  "src/cockpit/web/widgets/MemoriesHealth.tsx",
+  "src/cockpit/web/widgets/MemoriesList.tsx",
+  "src/cockpit/web/widgets/MemoryDetail.tsx",
+  "src/cockpit/web/widgets/MemorySearch.tsx",
+  "src/cockpit/web/widgets/MemoryStats.tsx",
+  "src/cockpit/web/widgets/ReviewerBotStatus.tsx",
+  "src/cockpit/web/widgets/RunDetail.tsx",
+];
 
 export default [
   js.configs.recommended,
@@ -150,6 +176,7 @@ export default [
           "no-raw-console": noRawConsole,
           "no-hand-rolled-command-params": noHandRolledCommandParams,
           "no-entity-id-param-drift": noEntityIdParamDrift,
+          "no-raw-colors-in-cockpit": noRawColorsInCockpit,
         },
       },
     },
@@ -613,6 +640,14 @@ export default [
       custom: {
         rules: {
           "no-raw-console": noRawConsole,
+          // Registered here (not a second TSX-scoped `plugins.custom` block)
+          // because ESLint flat config rejects two DIFFERENT `custom` plugin
+          // object instances applying to the same overlapping-glob file —
+          // "Cannot redefine plugin 'custom'". This block's `**/*.tsx` glob
+          // already covers `src/cockpit/web/**/*.tsx`, so the rule-enabling
+          // block further down (mt#2916) only needs a `rules` key, no
+          // `plugins`/`languageOptions` of its own.
+          "no-raw-colors-in-cockpit": noRawColorsInCockpit,
         },
       },
     },
@@ -803,6 +838,72 @@ export default [
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/no-entity-id-param-drift": "error",
+    },
+  },
+  // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) ===
+  // docs/design-system.md §5.2's exact healthy/warning-hue boundary, enforced
+  // structurally instead of prose-only (src/cockpit/CLAUDE.md §Design
+  // vocabulary previously stated "semantic tokens only" / the blessed
+  // exception in prose only). COVERAGE IS DECLARED HERE: src/cockpit/web/**
+  // is the enforced glob; test files are excluded (fixtures/snapshots may
+  // legitimately reference color literals). COCKPIT_STATUS_FILES above is
+  // the blessed healthy/warning widget allowlist — see its comment for the
+  // "adding a widget here is a design decision" rationale. This `.ts` block
+  // needs no separate plugin registration: `no-raw-colors-in-cockpit` is
+  // already in the main `**/*.ts` block's `custom` plugin object above.
+  {
+    files: ["src/cockpit/web/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "custom/no-raw-colors-in-cockpit": ["error", { statusFiles: COCKPIT_STATUS_FILES }],
+    },
+  },
+  // `.tsx` coverage needs no separate `plugins`/`languageOptions` of its
+  // own: the `no-raw-console` TSX-parity block earlier in this file already
+  // registers `no-raw-colors-in-cockpit` in the shared `custom` plugin
+  // object and sets JSX-aware `languageOptions` for every `**/*.tsx` file
+  // (including `src/cockpit/web/**/*.tsx`) — ESLint flat config merges all
+  // matching blocks for a file, and registering a SECOND, different `custom`
+  // plugin object instance for an overlapping glob is a hard error
+  // ("Cannot redefine plugin 'custom'"). This block only needs to turn the
+  // rule on for the narrower cockpit glob.
+  {
+    files: ["src/cockpit/web/**/*.tsx"],
+    ignores: ["**/*.test.tsx"],
+    rules: {
+      "custom/no-raw-colors-in-cockpit": ["error", { statusFiles: COCKPIT_STATUS_FILES }],
+    },
+  },
+  // File-level exceptions (docs/design-system.md §5.2: "any file-level
+  // exceptions with recorded justification"): raw-color usage that is
+  // deliberate, pre-existing, and does not fit the healthy/warning pattern.
+  // Each entry names why migrating to a semantic token is out of this task's
+  // small-cleanup scope. Fixing/tokenizing these is future widget-level
+  // design work (mt#2914 umbrella), not this rule's concern.
+  {
+    files: [
+      // JSON syntax highlighter — 7+ distinct hues distinguish token types
+      // (string/number/boolean/key/punctuation/etc.), not a health-status
+      // indicator. A semantic replacement would need a new multi-hue token
+      // set, outside brand-system.md's "one accent, two warning tiers, one
+      // pastel" budget.
+      "src/cockpit/web/components/JsonView.tsx",
+      // Tool-call chip (sky = "no error") + subagent-spawn badge (violet) —
+      // categorical message-type distinction, not a status indicator. Same
+      // token-budget rationale as JsonView.tsx above.
+      "src/cockpit/web/widgets/ConversationView.tsx",
+      // Command-palette entity-type badges (memory=emerald, conversation=sky)
+      // — categorical entity-type coloring, not health status. Unifying with
+      // the signal-cyan convention Agents.tsx's KIND_BADGE_CONFIG already
+      // uses for "conversation" is a design decision, not a lint-rule fix.
+      "src/cockpit/web/components/CommandPalette.tsx",
+      // PR-state chip (open=green, merged=violet, closed=destructive) —
+      // deliberately mirrors GitHub's own PR-state color convention, not the
+      // cockpit healthy/warning pattern.
+      "src/cockpit/web/widgets/Changesets.tsx",
+    ],
+    rules: {
+      "custom/no-raw-colors-in-cockpit": "off",
     },
   },
 ];
