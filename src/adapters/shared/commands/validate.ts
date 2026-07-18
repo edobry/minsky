@@ -8,7 +8,7 @@
 
 import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join, relative, resolve } from "path";
+import { join, resolve } from "path";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -492,8 +492,9 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
         "Run TypeScript type checker and return structured results. By default covers the root " +
         "tsconfig, every self-typechecking sub-workspace (e.g. services/reviewer), AND " +
         "src/cockpit/web (the cockpit frontend's own project, mt#2424); pass `workspace` to " +
-        "typecheck a single directory only. Error `file` paths are root-relative " +
-        "in both modes. Pass `task` or `sessionId` to run against a session workspace.",
+        "typecheck a single directory only (error `file` paths are then relative to THAT " +
+        "workspace, not the overall root — multi-workspace mode's `file` paths are " +
+        "root-relative). Pass `task` or `sessionId` to run against a session workspace.",
       parameters: typecheckParams,
       execute: async (params): Promise<TypecheckResult> => {
         const explicitWorkspace = params.workspace as string | undefined;
@@ -504,24 +505,34 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
         // - explicit `workspace` → single-workspace mode (backward compat)
         // - task / sessionId   → session workdir (multi-workspace mode, base = session dir)
         // - neither            → process.cwd() (multi-workspace mode, base = main repo)
-        const rootDir = await resolveValidateWorkspace(
-          { workspace: explicitWorkspace, task, sessionId },
-          resolveSessionDir
+        //
+        // `resolve(...)` normalizes to an ABSOLUTE path unconditionally: a no-op when the
+        // value is already absolute (an explicit `workspace` from `session_dir`, or a
+        // session workdir from `resolveSessionDir`), and resolves against `process.cwd()`
+        // when it's relative (an explicit `workspace` like "services/reviewer", or the
+        // process.cwd() fallback itself). Without this, a RELATIVE explicit `workspace`
+        // flowed unresolved into the single-workspace branch below and got joined against
+        // itself a second time, producing a nonexistent nested path and a synthetic
+        // TSGO_RUNNER crash instead of a real typecheck result (reviewer finding, PR #2057
+        // R1; also independently found and filed as mt#2930 before the review landed).
+        const rootDir = resolve(
+          await resolveValidateWorkspace(
+            { workspace: explicitWorkspace, task, sessionId },
+            resolveSessionDir
+          )
         );
 
         const errors: TypecheckError[] = [];
         const checked: string[] = [];
 
-        // Every target is spawned from the repo root (reuses the root-installed checker binary)
-        // and selects the workspace's tsconfig via `-p`, so error `file` paths are consistently
-        // root-relative in BOTH single- and multi-workspace modes.
         if (explicitWorkspace) {
-          // Single-workspace mode (backward compatible). `-p <rel>/tsconfig.json` keeps file
-          // paths root-relative; an explicit root (rel === ".") falls back to the root tsconfig.
+          // Single-workspace mode (backward compatible). `rootDir` (now guaranteed
+          // absolute, see above) already IS the target workspace directory itself — no
+          // `-p` needed, tsgo picks up that directory's own tsconfig.json, mirroring the
+          // multi-workspace branch's root target (`runTypecheckTarget(rootDir, ".")`)
+          // below.
           checked.push(explicitWorkspace);
-          const rel = relative(rootDir, resolve(rootDir, explicitWorkspace)) || ".";
-          const projectPath = rel === "." ? undefined : `${rel}/tsconfig.json`;
-          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace, projectPath)));
+          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace)));
         } else {
           // Multi-workspace mode: root tsconfig + every workspace with its own `typecheck`
           // script. When task/sessionId was given, rootDir is the session workspace; otherwise

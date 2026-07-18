@@ -1469,8 +1469,15 @@ export class PreCommitHook {
           timeout: 60000,
         });
       } catch (error: unknown) {
-        const err = error as { stdout?: string; message?: string };
-        const output = err.stdout || err.message || String(error);
+        const err = error as { stdout?: string; stderr?: string; message?: string };
+        // Include BOTH streams — tsgo's real type errors print to stdout, but a runner
+        // crash (missing tsconfig, spawn failure) often puts the actionable diagnostic on
+        // stderr instead; dropping it silently would hide exactly the failure this hook
+        // exists to surface (reviewer finding, PR #2057 R1).
+        const output =
+          [err.stdout, err.stderr].filter((s) => s && s.trim().length > 0).join("\n") ||
+          err.message ||
+          String(error);
         log.cli(`❌ TypeScript type errors found (${target.label})! Commit blocked.`);
         log.cli(output);
         return {
