@@ -7,12 +7,13 @@
 // grant (no `invoke()` call from the webview ever reaches it).
 //
 // Toggle semantics: hidden (or nonexistent) -> show+focus via the mt#2675
-// presentation path (`menu::ensure_cockpit_window_visible`, which flips the
-// activation policy to Regular so the window can be fronted); visible+
-// focused -> hide (`menu::hide_cockpit_window`, policy back to Accessory).
-// Registration failure (e.g. the shortcut is already bound by another app)
-// degrades gracefully: a logged warning, never a crash (mt#2676 success
-// criterion 2).
+// presentation path (`menu::open_cockpit_window` -- the SAME helper the
+// tray's "Open Cockpit" click uses, so a cold summon gets the same
+// cold-start recovery loop as a menu click: PR #2051 review R1, see that
+// function's doc comment); visible+focused -> hide (`menu::hide_cockpit_window`,
+// policy back to Accessory). Registration failure (e.g. the shortcut is
+// already bound by another app) degrades gracefully: a logged warning plus
+// a one-time OS notification, never a crash (mt#2676 success criterion 2).
 //
 // DEFAULT BINDING is a principal-reserved decision -- an Ask was filed at
 // implementation start (mt#2676) presenting Ctrl+Opt+C vs Cmd+Shift+Space.
@@ -21,8 +22,9 @@
 
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_notification::NotificationExt;
 
-use crate::menu::{ensure_cockpit_window_visible, hide_cockpit_window, COCKPIT_WINDOW_LABEL};
+use crate::menu::{hide_cockpit_window, open_cockpit_window, COCKPIT_WINDOW_LABEL};
 
 /// Provisional default: Ctrl+Opt+C ("C" for Cockpit). Recommended in the
 /// mt#2676 Ask over Cmd+Shift+Space for its clearer mnemonic and lower
@@ -58,21 +60,38 @@ pub(crate) fn plugin() -> tauri::plugin::TauriPlugin<Wry> {
 }
 
 /// Register the summon shortcut with the OS. Called once from `main()`'s
-/// setup closure, after `menu::build` (so the tray label already shows
-/// `SUMMON_SHORTCUT_LABEL` regardless of whether OS registration actually
-/// succeeds -- the label communicates the app's BOUND intent, not live
-/// registration state).
+/// setup closure, BEFORE `menu::build` -- returns whether registration
+/// succeeded so the tray label can reflect the OS's actual decision instead
+/// of unconditionally advertising a shortcut that may silently do nothing
+/// (PR #2051 review R1).
 ///
 /// Registration can fail for reasons entirely outside this app's control
 /// (another running app already claimed the same OS-level hotkey, or the
 /// platform denies it) -- per mt#2676 success criterion 2, that must never
-/// crash the tray, only warn.
-pub(crate) fn register(app: &AppHandle) {
-    if let Err(e) = app.global_shortcut().register(summon_shortcut()) {
-        eprintln!(
-            "[cockpit-tray] failed to register summon hotkey {SUMMON_SHORTCUT_LABEL} \
-             (likely already bound by another app): {e}"
-        );
+/// crash the tray. On failure this logs a warning AND fires a best-effort
+/// one-time OS notification (silently ignored if permission was denied or
+/// unavailable, same posture as the existing build-failure toasts in
+/// `menu::build`) so the failure isn't silent to the user, not just to the
+/// terminal.
+pub(crate) fn register(app: &AppHandle) -> bool {
+    match app.global_shortcut().register(summon_shortcut()) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!(
+                "[cockpit-tray] failed to register summon hotkey {SUMMON_SHORTCUT_LABEL} \
+                 (likely already bound by another app): {e}"
+            );
+            let _ = app
+                .notification()
+                .builder()
+                .title("Minsky Cockpit")
+                .body(format!(
+                    "Global hotkey {SUMMON_SHORTCUT_LABEL} is unavailable -- probably already \
+                     bound by another app. Use the tray menu to open the cockpit instead."
+                ))
+                .show();
+            false
+        }
     }
 }
 
@@ -90,6 +109,13 @@ fn toggle_cockpit_window(app: &AppHandle) {
     if is_visible_and_focused {
         hide_cockpit_window(app);
     } else {
-        ensure_cockpit_window_visible(app);
+        // Reuse the exact helper the tray's "Open Cockpit" click uses (not
+        // the deep-link-oriented `ensure_cockpit_window_visible`, which
+        // deliberately skips cold-start recovery so it doesn't double-heal
+        // underneath the deep-link loop). The hotkey has no competing
+        // recovery loop of its own, so it needs the SAME cold-start healing
+        // a menu click gets -- otherwise summoning before the daemon is
+        // listening leaves a permanently blank window (PR #2051 review R1).
+        open_cockpit_window(app);
     }
 }

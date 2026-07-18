@@ -42,8 +42,13 @@ pub(crate) fn init_zoom_state(app: &tauri::App<Wry>) {
 /// handlers. Registers `StatusMenuItem`, `BuildMenuItem`, and `UptimeMenuItem`
 /// as managed state so the supervisor loop (which runs on a separate OS
 /// thread, spawned afterward by `supervisor::spawn`) can push status text to
-/// them. Called once from `main()`'s setup closure, after `init_zoom_state`.
-pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
+/// them. Called once from `main()`'s setup closure, after `init_zoom_state`
+/// and `hotkey::register` -- `hotkey_registered` reflects whether the OS
+/// actually accepted the summon-hotkey binding, so the "Open Cockpit" label
+/// can advertise the shortcut only when it will actually fire (PR #2051
+/// review R1: a label advertising a hotkey that silently failed to register
+/// would mislead users).
+pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Result<()> {
     let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
         .enabled(false)
         .build(app)?;
@@ -59,11 +64,13 @@ pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
         .enabled(false)
         .build(app)?;
     app.manage(UptimeMenuItem(uptime_item.clone()));
-    let open_window_item = MenuItemBuilder::with_id(
-        "open_window",
-        format!("Open Cockpit  ({})", crate::hotkey::SUMMON_SHORTCUT_LABEL),
-    )
-    .build(app)?;
+    let open_window_label = if hotkey_registered {
+        format!("Open Cockpit  ({})", crate::hotkey::SUMMON_SHORTCUT_LABEL)
+    } else {
+        "Open Cockpit".to_string()
+    };
+    let open_window_item =
+        MenuItemBuilder::with_id("open_window", open_window_label).build(app)?;
     let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let start_item = MenuItemBuilder::with_id("start", "Start Daemon").build(app)?;
@@ -300,7 +307,12 @@ pub(crate) fn hide_cockpit_window(app: &AppHandle) {
 }
 
 /// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
-fn open_cockpit_window(app: &AppHandle) {
+///
+/// Also the entry point the mt#2676 global hotkey's "show" direction reuses
+/// (`hotkey::toggle_cockpit_window`) instead of the deep-link-oriented
+/// `ensure_cockpit_window_visible`, so a cold summon gets the same
+/// cold-start recovery loop as a menu click (PR #2051 review R1).
+pub(crate) fn open_cockpit_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         set_dock_presence(app, true);
         if let Err(e) = window.show() {

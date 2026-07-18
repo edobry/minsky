@@ -97,13 +97,17 @@ fn main() {
                 }
             }
 
-            menu::build(app)?;
+            // Register the global summon hotkey (mt#2676) BEFORE building
+            // the tray menu, so "Open Cockpit" can reflect whether the OS
+            // actually accepted the binding rather than unconditionally
+            // advertising a shortcut that may silently do nothing (PR #2051
+            // review R1). Registration failure (e.g. already bound by
+            // another app) is logged + a one-time notification is fired
+            // inside hotkey::register -- it never crashes the tray (success
+            // criterion 2).
+            let hotkey_registered = hotkey::register(&handle);
 
-            // Register the global summon hotkey (mt#2676). Registration
-            // failure (e.g. the shortcut is already bound by another app)
-            // is logged and swallowed inside hotkey::register -- it never
-            // crashes the tray (success criterion 2).
-            hotkey::register(&handle);
+            menu::build(app, hotkey_registered)?;
 
             // Command channel: menu handler (main thread) → supervisor thread.
             supervisor::spawn(handle, spawned_setup.clone());
