@@ -5718,6 +5718,10 @@
               "flags": ["--session"],
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ]
         },
@@ -5744,6 +5748,10 @@
               "flags": ["--limit"],
               "description": "Maximum number of results to return (default 10)",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ]
         },
