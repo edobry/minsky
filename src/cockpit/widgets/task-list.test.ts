@@ -78,4 +78,20 @@ describe("createTaskListWidget — project-scope wiring (mt#2418)", () => {
     if (!projectScope) throw new Error("expected projectScope to be set");
     expect(isAllProjects(projectScope)).toBe(true);
   });
+
+  // PR #2056 R1 BLOCKING 2 / NON-BLOCKING 2: a thrown db-getter (module import
+  // failure, connection error, etc.) must degrade project-scope resolution to
+  // ALL_PROJECTS — NOT the whole widget to `state: "degraded"`. That contract
+  // now lives entirely inside resolveCockpitProjectScope() (see
+  // src/cockpit/project-scope.ts's fail-open try/catch, which wraps the
+  // db-getter call, the dynamic import, and the resolveProjectScope call all
+  // in one boundary) — every consumer of it, including this widget, inherits
+  // the guarantee for free and cannot be individually tested around a thrown
+  // getter without either (a) mock.module() on the sibling db-providers
+  // module — banned by this repo's own custom/no-global-module-mocks ESLint
+  // rule (dependency injection is the mandated alternative), or (b) adding a
+  // redundant DI seam to this widget purely to re-exercise a contract already
+  // exhaustively covered at its source. The thrown-getter / thrown-import /
+  // thrown-query exception paths are covered directly, with clean DI (no
+  // mock.module), in src/cockpit/project-scope.test.ts.
 });

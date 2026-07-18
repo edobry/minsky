@@ -6,11 +6,7 @@
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
-import {
-  getServerSessionProvider,
-  getServerTaskService,
-  getContextInspectorDb,
-} from "../db-providers";
+import { getServerSessionProvider, getServerTaskService } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
 
 /** Mount /api/changeset/:id and /api/changesets on `app`. */
@@ -166,9 +162,11 @@ export function mountChangesetRoutes(app: express.Express): void {
       const { buildSessionMeta, buildPrRef, compareChangesetsByRecency } = await import(
         "../session-detail"
       );
+      // resolveCockpitProjectScope owns its own db-fetch and never throws
+      // (fail-open to ALL_PROJECTS on any resolution failure — PR #2056 R1)
+      // so a scoping problem can never take this route down.
       const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
-      const scopeDb = await getContextInspectorDb();
-      const projectScope = await resolveCockpitProjectScope(projectParam, scopeDb);
+      const projectScope = await resolveCockpitProjectScope(projectParam);
       const allSessions = await provider.listSessions({ projectScope });
       const active = allSessions.filter((s) => {
         const pr = buildPrRef(s);

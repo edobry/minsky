@@ -52,10 +52,11 @@ export function createTaskListWidget(getDeps: () => Promise<TaskListDeps>): Widg
         // Project scope (mt#2418): ?project=<slug> resolved to a project
         // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
         // resolution rules as every other cockpit project-scoped read.
+        // resolveCockpitProjectScope owns its own db-fetch and never throws
+        // (fail-open to ALL_PROJECTS on any resolution failure — PR #2056 R1)
+        // so a scoping problem can never take this widget down.
         const { resolveCockpitProjectScope } = await import("../project-scope");
-        const { getContextInspectorDb } = await import("../db-providers");
-        const scopeDb = await getContextInspectorDb();
-        const projectScope = await resolveCockpitProjectScope(ctx.query?.project, scopeDb);
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project);
         const tasks = await taskService.listTasks({ projectScope });
 
         const items: TaskListItem[] = tasks.map((t) => ({
