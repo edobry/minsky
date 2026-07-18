@@ -238,4 +238,7 @@ follow-up icon-set-swap task; nothing here forecloses that.
   token-consuming modules §4/§5 reference (mt#2909).
 - [mt#2914](minsky://task/mt%232914) — umbrella. [mt#2909](minsky://task/mt%232909) — prior
   sibling (status-color consolidation; surfaced the §5.3 finding). [mt#2917](minsky://task/mt%232917)
-  — register-unification pass that adopts this doc's tokens across widgets.
+  — register-unification pass that adopts this doc's tokens across widgets. [mt#2916](minsky://task/mt%232916)
+  — structural lint enforcement (`custom/no-raw-colors-in-cockpit`,
+  `eslint-rules/no-raw-colors-in-cockpit.js` + `eslint.config.js`) of this section's
+  §5.2 boundary — the umbrella child §1 forward-references above.
