@@ -250,11 +250,16 @@ to be invoked once, after the ask is filed), `"deny"` when a pass produced only 
 report with no ask (`--execute --report-only`), matching the RFC's "a review that
 produces only a report is recorded as a **failed** review in its own fire-log."
 
-## First real review — execution evidence
+## First review record (2026-07-18)
 
 Run against the real corpus (`~/.local/state/minsky/fire-log.jsonl` + the six
 legacy calibration logs) on 2026-07-18, after tagging `mt#2216`/`mt#2832` with
-`family:causal-premise-detector`:
+`family:causal-premise-detector`. This section is the durable, in-repo record
+the RFC calls for ("its own execution is fire-logged... must end in explicit
+decisions") — the three artifacts below (panel output, ask id, fire-log line)
+are independently verifiable, not just PR-body prose.
+
+### Summary
 
 - **10,256 records** across **43 guards** (37 `GUARD_REGISTRY`/standalone-hook
   guards plus 6 pre-commit pipeline steps not covered by the canary mechanism —
@@ -266,7 +271,7 @@ legacy calibration logs) on 2026-07-18, after tagging `mt#2216`/`mt#2832` with
   were never in scope for the mt#2889 canary mechanism, which covers
   `GUARD_REGISTRY` + standalone dispatcher guards, not the pre-commit pipeline) and
   **one** (`causal-premise-detector`) is `recurrence-since-done` — the worked
-  example, confirmed live: `fires=117, recurrencesSinceDone=1`.
+  example, confirmed live.
 - **Cadence recommendation: 90 days** (RFC default; first review, no prior
   baseline).
 
@@ -278,16 +283,119 @@ rather than 19 individually-argued ones, per the RFC's "guards packaged... reduc
 notification overhead" intent — flagging it explicitly rather than letting a large
 outlier count read as 19 independent problems.
 
-**The ONE routed ask:** `direction.decide` ask `c8fc1f97-f062-4da0-8b51-f367504738c2`
-(filed 2026-07-18) — the 22 auto-affirmed guards in one summary line, plus two
+Corpus numbers below are a snapshot from the run that produced them — this
+environment runs many concurrent sessions, so the live fire-log grows
+continuously and a re-run minutes later shows higher counts; the disposition
+signals (auto-affirm vs. outlier, and why) are stable across that drift.
+
+### The routed ask (durable id)
+
+`direction.decide` ask **`c8fc1f97-f062-4da0-8b51-f367504738c2`** (filed
+2026-07-18) — the 22 auto-affirmed guards in one summary line, plus two
 outlier groups (the canary-missing pre-commit-scope gap; `causal-premise-detector`'s
-recurrence-since-done) each with flip/tune/retire/affirm options. Corpus numbers in
-this document and in the ask are a snapshot from the run that produced it — this
-environment runs many concurrent sessions, so the live fire-log grows continuously
-and a re-run minutes later will show slightly higher counts; the disposition
-signals (auto-affirm vs. outlier, and why) are stable across that drift. The
-review's own execution is fire-logged: `{guardName: "rationalization-review",
-event: "Review", decision: "allow"}`, written after the ask was filed.
+recurrence-since-done) each with flip/tune/retire/affirm options. Independently
+queryable: `mcp__minsky__asks_list` / `asks_respond` with this id.
+
+### The self-review fire-log record
+
+Written via `bun scripts/rationalization-review.ts --execute` after the ask
+above was filed, and independently verifiable in the real log:
+
+```
+$ grep "rationalization-review" ~/.local/state/minsky/fire-log.jsonl | tail -1
+{"timestamp":"2026-07-18T13:46:39.613Z","guardName":"rationalization-review","event":"Review","decision":"allow","durationMs":2893}
+```
+
+### Panel output (verbatim, `bun scripts/rationalization-review.ts`, post-R1-fixes re-run)
+
+```
+Rationalization review — 2026-07-18T14:20:44.635Z
+Corpus: 10813 records after de-duplication (10813 raw = 10813 real fire-log + 0 legacy-calibration; 0 dropped as fire-log/calibration overlap), 44 guards.
+
+[AUTO-AFFIRM] ask-routing-deferral-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=500ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=5ms
+[AUTO-AFFIRM] auto-session-title — fires=121 overrides=0 (0.0%) canary=PASS attentionCost=0ch/0opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=3ms p99=7ms
+[AUTO-AFFIRM] block-git-gh-cli — fires=2171 overrides=0 (0.0%) canary=PASS attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=5ms
+[AUTO-AFFIRM] calibration-review-cadence-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=300ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=10ms p95=13ms p99=20ms
+[OUTLIER] causal-premise-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=550ch/2opt daysSinceLastFire=0 recurrencesSinceDone=4 latency=p50=2ms p95=2ms p99=4ms reasons=[recurrence-since-done]
+[OUTLIER] check-branch-fresh — fires=149 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=296ms p95=519ms p99=1866ms reasons=[canary-missing]
+[AUTO-AFFIRM] check-generated-file-edit — fires=584 overrides=0 (0.0%) canary=PASS attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=2ms p95=3ms p99=11ms
+[AUTO-AFFIRM] check-guessed-session-path — fires=2171 overrides=0 (0.0%) canary=PASS attentionCost=398ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=8ms
+[AUTO-AFFIRM] check-task-spec-read — fires=78 overrides=0 (0.0%) canary=PASS attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=8ms p95=20ms p99=41ms
+[OUTLIER] code-formatting — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=3143ms p95=4598ms p99=5269ms reasons=[canary-missing]
+[AUTO-AFFIRM] code-mechanism-assertion-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=500ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=2ms p95=4ms p99=5ms
+[OUTLIER] compile-check — fires=141 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=9350ms p95=12760ms p99=16510ms reasons=[canary-missing]
+[OUTLIER] completion-manifest-regen — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=950ms p95=1255ms p99=9485ms reasons=[canary-missing]
+[OUTLIER] deploy-domain-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=3ms p95=4ms p99=6ms reasons=[canary-missing]
+[OUTLIER] dockerfile-workspace-copy-regen — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=39ms p95=48ms p99=70ms reasons=[canary-missing]
+[OUTLIER] eslint-rule-tests — fires=156 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=77ms p95=106ms p99=267ms reasons=[canary-missing]
+[OUTLIER] eslint-validation — fires=169 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=27393ms p95=33028ms p99=42816ms reasons=[canary-missing]
+[AUTO-AFFIRM] guard-health-escalation-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=300ch/0opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=3ms
+[OUTLIER] hook-permission-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=14ms p95=21ms p99=30ms reasons=[canary-missing]
+[OUTLIER] immutable-migration-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=11ms p95=15ms p99=34ms reasons=[canary-missing]
+[AUTO-AFFIRM] inject-current-time — fires=121 overrides=0 (0.0%) canary=PASS attentionCost=90ch/0opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=10ms p95=14ms p99=25ms
+[AUTO-AFFIRM] inject-dispatch-watchdog — fires=121 overrides=0 (0.0%) canary=PASS attentionCost=450ch/3opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=3ms
+[AUTO-AFFIRM] inject-git-state — fires=121 overrides=0 (0.0%) canary=PASS attentionCost=200ch/0opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=95ms p95=174ms p99=513ms
+[AUTO-AFFIRM] inject-prod-state — fires=121 overrides=0 (0.0%) canary=PASS attentionCost=250ch/0opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=5ms
+[OUTLIER] mcp-daemon-staleness-detector — fires=120 overrides=0 (0.0%) canary=MISSING attentionCost=400ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=10ms p95=29ms p99=37ms reasons=[canary-missing]
+[OUTLIER] memory-search — fires=120 overrides=0 (0.0%) canary=MISSING attentionCost=280ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=4802ms p95=6513ms p99=9163ms reasons=[canary-missing]
+[OUTLIER] migration-journal-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=2ms reasons=[canary-missing]
+[OUTLIER] node-shim-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=34ms p95=78ms p99=130ms reasons=[canary-missing]
+[OUTLIER] nul-byte-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=17ms p95=28ms p99=54ms reasons=[canary-missing]
+[AUTO-AFFIRM] pre-narration-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=500ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=2ms p95=2ms p99=5ms
+[OUTLIER] rationalization-review — fires=1 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=2893ms p95=2893ms p99=2893ms reasons=[canary-missing]
+[AUTO-AFFIRM] require-session-for-main-workspace-edits — fires=717 overrides=0 (0.0%) canary=PASS attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=1ms p99=3ms
+[AUTO-AFFIRM] retrospective-trigger-scanner — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=400ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=3ms p95=4ms p99=8ms
+[OUTLIER] rules-compile-check — fires=156 overrides=21 (13.5%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=9297ms p95=13246ms p99=14378ms reasons=[canary-missing]
+[OUTLIER] secret-scanning — fires=156 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=81ms p95=122ms p99=240ms reasons=[canary-missing]
+[AUTO-AFFIRM] silent-stretch-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=400ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=3ms
+[AUTO-AFFIRM] skill-staleness-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=350ch/2opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=8ms p95=17ms p99=19ms
+[AUTO-AFFIRM] substrate-bypass-detector — fires=120 overrides=0 (0.0%) canary=PASS attentionCost=1000ch/4opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=3ms p95=5ms p99=10ms
+[AUTO-AFFIRM] tasks-status-set-guard — fires=52 overrides=0 (0.0%) canary=PASS attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=2558ms p95=3062ms p99=7904ms
+[OUTLIER] type-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1646ms p95=2279ms p99=3226ms reasons=[canary-missing]
+[OUTLIER] unit-tests — fires=156 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=2624ms p95=3449ms p99=5304ms reasons=[canary-missing]
+[AUTO-AFFIRM] validate-task-spec — fires=31 overrides=0 (0.0%) canary=PASS attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=4ms p99=6ms
+[OUTLIER] variable-naming-check — fires=170 overrides=0 (0.0%) canary=MISSING attentionCost=unannotated daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=126ms p95=183ms p99=276ms reasons=[canary-missing]
+[AUTO-AFFIRM] wall-of-text-detector — fires=10 overrides=0 (0.0%) canary=PASS attentionCost=400ch/1opt daysSinceLastFire=0 recurrencesSinceDone=n/a latency=p50=1ms p95=2ms p99=2ms
+
+Auto-affirmed (22): ask-routing-deferral-detector, auto-session-title, block-git-gh-cli, calibration-review-cadence-detector, check-generated-file-edit, check-guessed-session-path, check-task-spec-read, code-mechanism-assertion-detector, guard-health-escalation-detector, inject-current-time, inject-dispatch-watchdog, inject-git-state, inject-prod-state, pre-narration-detector, require-session-for-main-workspace-edits, retrospective-trigger-scanner, silent-stretch-detector, skill-staleness-detector, substrate-bypass-detector, tasks-status-set-guard, validate-task-spec, wall-of-text-detector — low override rate (<=20%), canary passing, no zero-fire anomaly, no recorded recurrence-since-done.
+Outliers requiring disposition (22):
+  - causal-premise-detector: recurrence-since-done
+  - check-branch-fresh: canary-missing
+  - code-formatting: canary-missing
+  - compile-check: canary-missing
+  - completion-manifest-regen: canary-missing
+  - deploy-domain-check: canary-missing
+  - dockerfile-workspace-copy-regen: canary-missing
+  - eslint-rule-tests: canary-missing
+  - eslint-validation: canary-missing
+  - hook-permission-check: canary-missing
+  - immutable-migration-check: canary-missing
+  - mcp-daemon-staleness-detector: canary-missing
+  - memory-search: canary-missing
+  - migration-journal-check: canary-missing
+  - node-shim-check: canary-missing
+  - nul-byte-check: canary-missing
+  - rationalization-review: canary-missing
+  - rules-compile-check: canary-missing
+  - secret-scanning: canary-missing
+  - type-check: canary-missing
+  - unit-tests: canary-missing
+  - variable-naming-check: canary-missing
+
+Cadence recommendation: 90 days
+First review: holding the RFC's quarterly (90-day) initial cadence. Observed volume this pass: 10813 fires across 44 guards over a 1.7-day corpus window (~6520.7 fires/day) — no prior review exists yet to compare an "all-quiet" signal against, so there is no basis to deviate from the RFC default this pass.
+
+CAVEAT (recurrencesSinceDone): the anchor timestamp is the family-tagged fix task's `updatedAt` — ANY subsequent edit to that task (including the family-tag edit itself) bumps it, so this count is a CONSERVATIVE UNDERCOUNT relative to the true DONE-transition time, never inflated. Affects: causal-premise-detector. Full explanation: docs/architecture/evaluation-loop-phase2.md "Known limitation."
+```
+
+Note this re-run (post-R1-fixes, after `--execute` had already appended one
+`rationalization-review` self-record) shows a 45th "guard" —
+`rationalization-review` itself, canary-missing (it is a review tool, not a
+guard; no canary is expected) — and `causal-premise-detector`'s
+`recurrencesSinceDone` is now `4`, not `1`: both are the fire-log growing
+between the two runs (this environment's continuous concurrent-session
+volume), not a regression — the disposition logic and its reasons are
+unchanged and stable.
 
 ## Cross-references
 
