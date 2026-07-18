@@ -115,13 +115,27 @@ async function fetchAgents(): Promise<WidgetData> {
 // Kind badge
 // ---------------------------------------------------------------------------
 
+/**
+ * Kind badge colors (mt#2917 register pass).
+ *
+ * "dispatched-agent" ("Agent") is de-emphasized to a bare label with no
+ * pill fill — it's the dominant kind on this list (the mt#2914 audit found
+ * it on nearly every row), so a filled chip on every row was bulk visual
+ * noise that drowned the exceptional kinds. "Conversation" and "Driven"
+ * moved off raw Tailwind palette (bg-sky-500, bg-amber-500 — neither a
+ * declared brand token) onto signal-cyan / warn-amber respectively, so
+ * every colored chip in the app traces back to the same token set.
+ */
 const KIND_BADGE_CONFIG: Record<RunKind, { label: string; className: string }> = {
-  "dispatched-agent": { label: "Agent", className: "bg-primary/15 text-primary" },
-  "principal-conversation": { label: "Conversation", className: "bg-sky-500/15 text-sky-500" },
+  "dispatched-agent": { label: "Agent", className: "text-muted-foreground" },
+  "principal-conversation": {
+    label: "Conversation",
+    className: "bg-signal-cyan/15 text-signal-cyan",
+  },
   "subagent-group": { label: "Subagent", className: "bg-muted text-muted-foreground" },
   // mt#2752 — app-started driven sessions: the amber tint marks "you can type
   // here" (input affordance), vs the read-only observe rows above (SC4).
-  "driven-session": { label: "Driven", className: "bg-amber-500/15 text-amber-500" },
+  "driven-session": { label: "Driven", className: "bg-warn-amber/15 text-warn-amber" },
 };
 
 /**
@@ -138,7 +152,7 @@ function DrivenChip({ driven }: { driven: NonNullable<AgentRow["driven"]> }) {
       onClick={(e) => e.stopPropagation()}
       className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 transition-colors ${
         active
-          ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
+          ? "bg-warn-amber/15 text-warn-amber hover:bg-warn-amber/25"
           : "bg-muted text-muted-foreground hover:bg-accent"
       }`}
       aria-label={`Open driven session (${driven.status})`}
@@ -277,7 +291,7 @@ function AgentsControlBar({
   return (
     <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
       {/* Sort controls */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Sort:</span>
       <button
         onClick={() => onSort("needsMe")}
         className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -318,7 +332,9 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Liveness filter */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Liveness:</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">
+        Liveness:
+      </span>
       <select
         value={filters.liveness}
         onChange={(e) => onFilterLiveness(e.target.value as AgentFilters["liveness"])}
@@ -346,7 +362,7 @@ function AgentsControlBar({
       <span className="text-border mx-1">|</span>
 
       {/* Kind filter (mt#2767) */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Kind:</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground mr-1">Kind:</span>
       <select
         value={filters.kind}
         onChange={(e) => onFilterKind(e.target.value as AgentFilters["kind"])}
@@ -452,7 +468,13 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
 function LiveDot() {
   return (
     <span
-      className="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-400 animate-pulse"
+      // mt#2917: bg-signal-cyan / animate-status-dot (the brand's 1.6s
+      // status-dot pulse, docs/brand-system.md §3) — was a raw Tailwind
+      // color (bg-emerald-400) + the generic Tailwind animate-pulse, neither
+      // going through the declared token/motion system. This dot reflects a
+      // real live-tail state (an active conversation), so the pulse is
+      // honest motion, not decoration.
+      className="inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-signal-cyan animate-status-dot"
       aria-label="live"
     />
   );
@@ -914,16 +936,12 @@ function AgentRowItem({
 function AgentsTableHeader() {
   return (
     <div className="flex items-center gap-3 py-1 mb-0.5 border-b border-border">
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-20">
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 w-20">
         Status
       </span>
-      <span className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Session
-      </span>
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0">
-        PR
-      </span>
-      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 tabular-nums">
+      <span className="flex-1 text-eyebrow font-mono uppercase text-muted-foreground">Session</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0">PR</span>
+      <span className="text-eyebrow font-mono uppercase text-muted-foreground flex-shrink-0 tabular-nums">
         Activity
       </span>
     </div>

@@ -206,8 +206,13 @@ describe("HomePage (triage radiator)", () => {
   test("fleet strip renders liveness counts linking to /agents", async () => {
     stubHome();
     renderHome();
-    await waitFor(() => expect(screen.getByText("1 working")).toBeDefined());
-    expect(screen.getByText("1 idle")).toBeDefined();
+    // FleetGauge (mt#2917) renders the digit and unit label as separate
+    // styled spans (instrument-row treatment), so match on the gauge's
+    // combined textContent rather than a single text node.
+    await waitFor(() =>
+      expect(screen.getByText((_, el) => el?.textContent === "1 working")).toBeDefined()
+    );
+    expect(screen.getByText((_, el) => el?.textContent === "1 idle")).toBeDefined();
     const strip = screen.getByLabelText("Fleet status — open agents");
     expect(strip.getAttribute("href")).toBe("/agents");
   });

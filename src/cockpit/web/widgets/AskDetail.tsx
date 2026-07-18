@@ -217,17 +217,27 @@ export interface KindStyle {
   priority: string;
 }
 
+/**
+ * Per-kind badge colors (mt#2917 register pass). Per docs/design-system.md
+ * §5.1's red-scarcity rule, a priority badge is classification, not an
+ * active alarm — never red, regardless of priority tier. This was the exact
+ * mt#2914 audit finding: authorization.approve (P2) rendering bg-destructive
+ * at volume across the ask console. P1/P2 now differentiate by amber
+ * weight; red stays reserved for genuine escalation (an overdue deadline,
+ * a missed-window count — see the isOverdue / windowMissedCount treatments
+ * elsewhere in this file, both unchanged).
+ */
 export function kindStyle(kind: AskKind): KindStyle {
   switch (kind) {
     case "stuck.unblock":
       return {
-        badge: "bg-destructive text-destructive-foreground",
+        badge: "bg-warn-amber text-background font-semibold",
         label: "stuck.unblock",
         priority: "P1",
       };
     case "authorization.approve":
       return {
-        badge: "bg-destructive/60 text-foreground",
+        badge: "bg-warn-amber/40 text-foreground",
         label: "authorization.approve",
         priority: "P2",
       };

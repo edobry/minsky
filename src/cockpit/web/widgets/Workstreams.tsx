@@ -470,9 +470,25 @@ function workstreamSortFn(
 // moving, stuck, awaiting review, or blocked on the operator?
 // ---------------------------------------------------------------------------
 
+/**
+ * Health-chip colors (mt#2917 register pass). Neither "blocked-on-you" (an
+ * open ask exists, not yet escalated) nor "stalled" (no motion in 5+ days,
+ * no escalation signal) matches docs/design-system.md §5.1's enumerated red
+ * triggers (BLOCKED task status, hook denial, hard service failure, an
+ * escalated ask) — both are attention debt, not an active alarm, so both
+ * stay in the amber family. Weight tracks rank: "blocked-on-you" (rank 0,
+ * the most actionable) renders more prominently than "stalled" (rank 1).
+ * This was previously inverted: "stalled" rendered bg-warn-red (the only
+ * red in this widget, and the least-urgent of the two amber-eligible
+ * states) while "blocked-on-you" — the more actionable state — was already
+ * correctly amber.
+ */
 const HEALTH_CHIP: Record<StreamHealthState, { label: string; className: string }> = {
-  "blocked-on-you": { label: "blocked on you", className: "bg-warn-amber/40 text-foreground" },
-  stalled: { label: "stalled", className: "bg-warn-red/30 text-foreground" },
+  "blocked-on-you": {
+    label: "blocked on you",
+    className: "bg-warn-amber/50 text-foreground font-semibold",
+  },
+  stalled: { label: "stalled", className: "bg-warn-amber/25 text-foreground" },
   "awaiting-review": { label: "in review", className: "bg-primary/15 text-foreground" },
   moving: { label: "moving", className: "bg-muted text-muted-foreground" },
 };

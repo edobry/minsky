@@ -180,11 +180,18 @@ function AskRow({
 
         <RequestorCell requestor={ask.requestor} parentTaskId={ask.parentTaskId ?? null} />
 
+        {/* Per-row standing marker (mt#2917): de-emphasized to a plain dot +
+            label rather than a filled pill — a queue can carry a dozen
+            standing rows at once, and a repeated loud chip on every one of
+            them drowns the exceptional signal. The queue-level "N standing"
+            chip (header, GroupCard) stays a filled pill — that's the ONE
+            aggregate worth calling out loudly. */}
         {standing && (
           <span
-            className="flex-shrink-0 rounded bg-warn-amber/30 px-1.5 py-0.5 text-xs text-foreground tabular-nums"
+            className="flex flex-shrink-0 items-center gap-1 text-xs text-warn-amber tabular-nums"
             title={`Open since ${ask.createdAt} — standing (>24h)`}
           >
+            <span className="h-1.5 w-1.5 rounded-full bg-warn-amber" aria-hidden />
             standing
           </span>
         )}
@@ -401,7 +408,7 @@ export function AsksPage() {
     <div className="p-4 max-w-5xl mx-auto w-full space-y-3">
       {/* Header + controls */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <h1 className="text-base font-semibold text-foreground">
+        <h1 className="text-h1 font-semibold text-foreground">
           Asks
           {filteredAsks.length > 0 && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">

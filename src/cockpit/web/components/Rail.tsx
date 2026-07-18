@@ -203,7 +203,7 @@ export function Rail() {
         <div className="my-2 border-t border-border/50" />
 
         {/* 4. Browse entity entry points */}
-        <div className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+        <div className="px-2.5 pb-1 text-eyebrow font-mono uppercase text-muted-foreground/60">
           Browse
         </div>
         <div className="flex flex-col gap-1">
