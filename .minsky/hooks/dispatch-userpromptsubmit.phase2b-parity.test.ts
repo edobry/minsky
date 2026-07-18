@@ -70,6 +70,16 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "calibration-review-cadence-detector",
     ]);
   });
+
+  // PR #2036 R1 hardening: the pinned list above implies this, but assert the
+  // documented last-entry invariant directly so a future re-order that also
+  // edits the pinned list cannot silently drop it
+  // (docs/architecture/hooks/calibration-review-cadence-detector.md: "the
+  // LAST entry").
+  test("calibration-review-cadence-detector remains the LAST UserPromptSubmit guard", () => {
+    const names = getGuardsForEvent(GUARD_REGISTRY, USER_PROMPT_SUBMIT_EVENT).map((r) => r.name);
+    expect(names[names.length - 1]).toBe("calibration-review-cadence-detector");
+  });
 });
 
 // ---------------------------------------------------------------------------

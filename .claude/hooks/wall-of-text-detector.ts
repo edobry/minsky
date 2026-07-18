@@ -103,16 +103,25 @@ export const LEAD_WINDOW_WORDS = 150;
  */
 export const SKILL_LABEL_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   // "gate (l)", "criterion (h)", "gate criterion (n)" — audit-battery refs.
-  { name: "gate-letter", re: /\b(?:gate|criterion|criteria)\s+(?:criterion\s+)?\(?[a-n]\)/i },
-  // "(i)" / "(ii)" / "(iii)" / "(iv)" premise-audit labels. The trailing
-  // boundary keeps "(i.e." and similar from matching.
-  { name: "premise-label", re: /\((?:i|ii|iii|iv)\)(?:\s|$|[.,:;])/ },
+  // PR #2036 R1: accepts the parenthesized form, an unclosed "gate (l", and
+  // the bare "gate l" — the trailing (?![a-z0-9]) token boundary keeps a
+  // bare letter from matching the first letter of an ordinary word
+  // ("gate lock" does NOT match).
+  {
+    name: "gate-letter",
+    re: /\b(?:gate|criterion|criteria)\s+(?:criterion\s+)?(?:\([a-n]\)|\(?[a-n](?![a-z0-9]))/i,
+  },
+  // "(i)" … "(x)" premise-audit-style parenthesized roman numerals. PR #2036
+  // R1: extended past (iv) so longer label sequences still register. The
+  // trailing boundary keeps "(i.e." and similar from matching.
+  { name: "premise-label", re: /\((?:i{1,3}|iv|v|vi{1,3}|ix|x)\)(?:\s|$|[.,:;])/ },
   // "SC#3" success-criterion refs.
   { name: "sc-ref", re: /\bSC#\d+/ },
 ];
 
 const DEEPLINK_RE = /minsky:\/\//g;
-const NAMED_REF_RE = /\bmt#\d+|\bPR\s+#\d+/g;
+// "PR #12" and "PR#12" both count as named refs (PR #2036 R1 sweep).
+const NAMED_REF_RE = /\bmt#\d+|\bPR\s*#\d+/g;
 
 // ---------------------------------------------------------------------------
 // Measurement

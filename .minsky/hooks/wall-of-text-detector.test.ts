@@ -157,6 +157,24 @@ describe("measureWallOfText", () => {
     expect(m.matched).toBe(false);
   });
 
+  test("roman numerals past (iv) match the premise-label pattern (PR #2036 R1)", () => {
+    const m5 = measureWallOfText(`Premise (v) remains open. ${words(20)}`);
+    expect(m5.leadLabelHits).toEqual(["premise-label"]);
+    const m6 = measureWallOfText(`Check (vi): unresolved. ${words(20)}`);
+    expect(m6.leadLabelHits).toEqual(["premise-label"]);
+  });
+
+  test("bare and unclosed gate-letter forms match; ordinary words do not (PR #2036 R1)", () => {
+    expect(measureWallOfText(`Gate l blocked promotion. ${words(20)}`).leadLabelHits).toEqual([
+      "gate-letter",
+    ]);
+    expect(measureWallOfText(`Gate (l blocked promotion. ${words(20)}`).leadLabelHits).toEqual([
+      "gate-letter",
+    ]);
+    // A bare letter must be a standalone token — "gate lock" is prose, not a label.
+    expect(measureWallOfText(`The gate lock is broken. ${words(20)}`).leadLabelHits).toEqual([]);
+  });
+
   test("labels AFTER the lead window do not trigger on an under-budget report", () => {
     // Labels land beyond the first LEAD_WINDOW_WORDS words; total stays
     // under WORD_COUNT_THRESHOLD — the audit-trail-after-the-lead shape the
@@ -175,6 +193,11 @@ describe("measureWallOfText", () => {
     expect(m.deeplinkCount).toBe(2);
     // mt#34 + PR #12 + PR #56 (the label text inside the markdown links counts too)
     expect(m.namedRefCount).toBe(3);
+  });
+
+  test("'PR#12' without a space counts as a named ref (PR #2036 R1)", () => {
+    const m = measureWallOfText("Merged PR#12 and mt#34.");
+    expect(m.namedRefCount).toBe(2);
   });
 });
 
