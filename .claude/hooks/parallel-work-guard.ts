@@ -50,9 +50,12 @@
 
 import { readInput, writeOutput, execWithPath, TERMINAL_TASK_STATUSES } from "./types";
 import type { ToolHookInput } from "./types";
-import { checkOverride } from "./dispatcher";
-import type { OverrideResult } from "./dispatcher";
-import { GUARD_REGISTRY } from "./registry";
+import {
+  DUPLICATE_CHILD_GUARD_NAME,
+  OPEN_PR_SWEEP_GUARD_NAME,
+  resolveDuplicateGuardOverride,
+  resolveOpenPrSweepOverride,
+} from "./parallel-work-guard-overrides";
 import { runStandaloneDuplicateGuard } from "./parallel-work-guard-standalone";
 
 // NOTE: execWithPath is centralized in types.ts and imported above.
@@ -1504,9 +1507,16 @@ export function formatBlockMessage(
   lines.push("  1. WAIT — let the parallel PR merge first, then start your session.");
   lines.push("  2. COORDINATE — rebase on that PR's branch and open a single combined PR.");
   lines.push("  3. REFRAME — adjust the task scope to avoid the conflicting files.");
-  lines.push("  4. OVERRIDE — if parallel work is intentional and acknowledged:");
-  lines.push("       Set MINSKY_FORCE_PARALLEL=1 in your environment and retry.");
-  lines.push("       The override is audit-logged.");
+  lines.push("  4. OVERRIDE — if parallel work is intentional and acknowledged, via ONE of:");
+  lines.push("       a. Set MINSKY_FORCE_PARALLEL=1 (only reachable BEFORE the harness launches —");
+  lines.push(
+    "          an env var set mid-session via Bash never reaches this hook's subprocess)."
+  );
+  lines.push("       b. Issue a mid-session, reason-mandatory grant (mt#2658 channel, mt#1637):");
+  lines.push(
+    `          bun scripts/grant-guard-override.ts --guard ${OPEN_PR_SWEEP_GUARD_NAME} --scope ${taskId} --reason "<why the overlap is non-conflicting>"`
+  );
+  lines.push("       Either override is audit-logged.");
 
   return lines.join("\n");
 }
@@ -2301,93 +2311,12 @@ export function decideTasksCreateGuard(
 
   return { action: "permit" };
 }
-
 // ---------------------------------------------------------------------------
-// Override resolution — env var + grant-file channel (Phase-7 adjunct, mt#2658)
+// Override resolution (guard names, env-var + grant-file channels) — split
+// into ./parallel-work-guard-overrides.ts (mt#1637) to stay under the
+// custom/max-lines 1500-line hard error; imported above. See that module for
+// `resolveGuardChannelOverride` and the two per-guard wrappers.
 // ---------------------------------------------------------------------------
-
-/**
- * This guard's name in the grant-file channel (`.minsky/hooks/guard-grant-
- * store.ts`) — mt#2658's tracking task and originating incident. NOT
- * dispatcher-migrated (this hook remains a standalone `PreToolUse`
- * registration, matched directly in `.claude/settings.json`), so it is not
- * part of `GUARD_REGISTRY` — but `checkOverride()` (imported from
- * `./dispatcher`) is a plain exported function usable outside the
- * dispatcher's own `runDispatcher()` loop, and this guard uses it directly
- * for BOTH the unified `MINSKY_HOOK_OVERRIDE` env var (a bonus — this guard
- * previously only recognized its own bespoke `MINSKY_FORCE_DUPLICATE_OK`)
- * and the new grant-file channel.
- */
-export const DUPLICATE_CHILD_GUARD_NAME = "duplicate-child-matcher";
-
-/**
- * The `checkOverride()`-known-guard-names universe for this guard's calls:
- * the live `GUARD_REGISTRY` names, plus this guard's own name (which isn't
- * itself a dispatcher registration). Without this, an operator correctly
- * setting `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` would still be
- * honored (the match check doesn't consult `knownGuardNames`), but would
- * ALSO get a spurious "does not match any registered guard name" stderr
- * warning — this constant prevents that false-typo signal.
- */
-const KNOWN_GUARD_NAMES_WITH_SELF: readonly string[] = [
-  ...GUARD_REGISTRY.map((r) => r.name),
-  DUPLICATE_CHILD_GUARD_NAME,
-];
-
-/** Resolution of whether the duplicate-child guard's override is active, and why. */
-export type DuplicateGuardOverrideResolution =
-  | { active: false }
-  | { active: true; source: "env"; reason?: undefined }
-  | { active: true; source: "grant"; reason: string | undefined };
-
-/**
- * Pure decision (given an injected `checkOverrideFn`) for whether the
- * duplicate-child guard's override is active, and — when it is — whether
- * that came from an env var (the legacy `MINSKY_FORCE_DUPLICATE_OK=1`, OR
- * the unified `MINSKY_HOOK_OVERRIDE=duplicate-child-matcher` that
- * `checkOverrideFn` also recognizes) or a grant-file match (mt#2658).
- * `parent` is the scope qualifier for the grant-file lookup; when absent
- * (no parent on the `tasks_create` call), the grant-file channel cannot be
- * consulted (there is nothing to scope the grant to) — only the env-var
- * channels are checked.
- *
- * `checkOverrideFn`'s `OverrideResult` conflates two provenances behind one
- * `overridden: true` — `grantReason` is present ONLY for a grant-file match
- * (`.minsky/hooks/guard-grant-store.ts` grants always carry a mandatory
- * `reason`); an env-var-sourced override (either channel) never sets it. So
- * `result.grantReason !== undefined` is the correct discriminator for
- * `source` below — NOT "did `checkOverrideFn` return `overridden: true`,"
- * which would mislabel a `MINSKY_HOOK_OVERRIDE`-sourced hit as `"grant"`.
- *
- * `checkOverrideFn` is injected so this stays hermetically testable without
- * touching the filesystem (mirrors `decideTasksCreateGuard`'s
- * `fetchChildren` injection pattern).
- */
-export function resolveDuplicateGuardOverride(
-  parent: string | undefined,
-  env: NodeJS.ProcessEnv,
-  checkOverrideFn: (
-    guardName: string,
-    env: NodeJS.ProcessEnv,
-    options?: { knownGuardNames?: readonly string[]; scope?: string }
-  ) => OverrideResult = checkOverride
-): DuplicateGuardOverrideResolution {
-  if (env["MINSKY_FORCE_DUPLICATE_OK"] === "1") {
-    return { active: true, source: "env" };
-  }
-
-  const result = checkOverrideFn(DUPLICATE_CHILD_GUARD_NAME, env, {
-    knownGuardNames: KNOWN_GUARD_NAMES_WITH_SELF,
-    scope: parent,
-  });
-  if (result.overridden && result.grantReason !== undefined) {
-    return { active: true, source: "grant", reason: result.grantReason };
-  }
-  if (result.overridden) {
-    return { active: true, source: "env" };
-  }
-  return { active: false };
-}
 
 // ---------------------------------------------------------------------------
 // Standalone-creation duplicate probe (mt#2813) — split into its own module,
@@ -2585,14 +2514,27 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Check for override env var
-  const forceParallel = process.env["MINSKY_FORCE_PARALLEL"];
-  if (forceParallel === "1") {
-    // Audit-log the override
+  // Override resolution (mt#1637): legacy MINSKY_FORCE_PARALLEL=1 env var,
+  // unified MINSKY_HOOK_OVERRIDE=parallel-work-open-pr, or a mid-session
+  // reason-mandatory grant (mt#2658 channel) scoped to this task id.
+  const sweepOverride = resolveOpenPrSweepOverride(taskId, process.env);
+  if (sweepOverride.active) {
     const ts = new Date().toISOString();
-    process.stdout.write(
-      `[parallel-work-guard] OVERRIDE active (MINSKY_FORCE_PARALLEL=1) — task=${taskId} ts=${ts}\n`
-    );
+    if (process.env["MINSKY_FORCE_PARALLEL"] === "1") {
+      // Legacy env path: audit line format preserved verbatim (spec SC —
+      // log-grep consumers key on this exact shape).
+      process.stdout.write(
+        `[parallel-work-guard] OVERRIDE active (MINSKY_FORCE_PARALLEL=1) — task=${taskId} ts=${ts}\n`
+      );
+    } else {
+      const reasonPart =
+        sweepOverride.source === "grant" && sweepOverride.reason
+          ? ` reason="${sweepOverride.reason}"`
+          : "";
+      process.stdout.write(
+        `[parallel-work-guard] OVERRIDE active — task=${taskId} source=${sweepOverride.source}${reasonPart} ts=${ts}\n`
+      );
+    }
     process.exit(0);
   }
 
