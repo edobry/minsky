@@ -29,6 +29,7 @@ import {
   Settings,
   Zap,
   Activity,
+  History,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
@@ -42,7 +43,12 @@ interface NavItem {
 }
 
 /** The workstream-primary spine (default-lens axis per mt#2370). */
-const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitBranch }];
+const SPINE: NavItem[] = [
+  { to: "/workstreams", label: "Workstreams", icon: GitBranch },
+  // mt#2869 — the temporal complement to the live workstreams view: "what
+  // happened across the fleet today," Tier-1-shaped, pull-only.
+  { to: "/digest", label: "Digest", icon: History },
+];
 
 /** Flat entity entry points below the spine. */
 const BROWSE: NavItem[] = [
