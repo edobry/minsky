@@ -126,12 +126,35 @@ function buildUnresolvedOwnerRepoError(partial: { owner?: string; repo?: string 
   );
 }
 
+/** Which resolution stage supplied a resolved owner/repo value. */
+type OwnerRepoSourceTier = "params" | "env" | "config" | "origin";
+
+/** Pick the first defined value across params → env → config, tagged with its tier. */
+function resolveOwnerRepoField(
+  paramValue: string | undefined,
+  envValue: string | undefined,
+  configValue: string | undefined
+): { value: string | undefined; tier: OwnerRepoSourceTier | undefined } {
+  if (paramValue) return { value: paramValue, tier: "params" };
+  if (envValue) return { value: envValue, tier: "env" };
+  if (configValue) return { value: configValue, tier: "config" };
+  return { value: undefined, tier: undefined };
+}
+
 /**
  * Resolve `{ owner, repo }` from explicit params, then env vars, then project
  * configuration (`github.organization` / `github.repository`), then the git
  * `origin` remote — throwing loudly when nothing resolves rather than
  * silently watching a default repo (mt#2455; matches the `botLogin`
  * defined-absent-behavior convention from mt#2392 in this same file).
+ *
+ * Owner and repo are resolved independently per field, so it is possible
+ * (though unusual) for them to come from different tiers — e.g. `owner` set
+ * via env while `repo` falls through to project config. That combination can
+ * name a repo pair that doesn't actually exist together, so a mismatch is
+ * logged at warn level for operator visibility (reviewer finding, PR #2052
+ * R1) rather than left silent.
+ *
  * Exported for tests.
  */
 export function resolveWatchOwnerRepo(
@@ -142,18 +165,33 @@ export function resolveWatchOwnerRepo(
   const envRepo = process.env["MINSKY_REVIEWER_WATCH_REPO"];
   const configuredRepo = resolveConfiguredGithubRepo(deps.githubConfig);
 
-  let owner = params.owner ?? envOwner ?? configuredRepo.organization;
-  let repo = params.repo ?? envRepo ?? configuredRepo.repository;
+  let ownerResolution = resolveOwnerRepoField(params.owner, envOwner, configuredRepo.organization);
+  let repoResolution = resolveOwnerRepoField(params.repo, envRepo, configuredRepo.repository);
 
-  if (!owner || !repo) {
+  if (!ownerResolution.value || !repoResolution.value) {
     const cwd = deps.cwd ?? processCwd();
     const origin = extractGitHubRepoFromRemote(cwd, deps.gitDetection);
-    owner = owner ?? origin?.owner;
-    repo = repo ?? origin?.repo;
+    if (!ownerResolution.value && origin?.owner) {
+      ownerResolution = { value: origin.owner, tier: "origin" };
+    }
+    if (!repoResolution.value && origin?.repo) {
+      repoResolution = { value: origin.repo, tier: "origin" };
+    }
   }
+
+  const { value: owner, tier: ownerTier } = ownerResolution;
+  const { value: repo, tier: repoTier } = repoResolution;
 
   if (!owner || !repo) {
     throw buildUnresolvedOwnerRepoError({ owner, repo });
+  }
+
+  if (ownerTier !== repoTier) {
+    log.warn(
+      "reviewer-watch: owner and repo resolved from different sources — verify this is the " +
+        "intended repository pair",
+      { owner, ownerSource: ownerTier, repo, repoSource: repoTier }
+    );
   }
 
   return { owner, repo };
@@ -191,6 +229,25 @@ export function resolveWatchConfig(
     repo,
     botLogin,
     threshold: Number.isNaN(threshold) || threshold < 1 ? DEFAULT_THRESHOLD : threshold,
+  };
+}
+
+/**
+ * The production dependency set for `resolveWatchConfig`'s owner/repo
+ * resolution: the real Minsky configuration system (`getConfiguration()`),
+ * the real `git remote get-url origin` lookup, and the real process cwd.
+ * Threaded explicitly from both command executors below (reviewer finding,
+ * PR #2052 R1/R2) so the live-source dependency boundary is visible and
+ * testable at the call site, rather than resting on `resolveWatchOwnerRepo`'s
+ * internal per-field defaults — this is the one place a future caller (e.g.
+ * a daemon invocation rooted at a different working directory) would swap in
+ * a different deps set.
+ */
+function productionWatchConfigDeps(): ResolveWatchConfigDeps {
+  return {
+    githubConfig: resolveConfiguredGithubRepo(),
+    gitDetection: undefined,
+    cwd: processCwd(),
   };
 }
 
@@ -284,12 +341,15 @@ export function registerReviewerWatchCommands(): void {
       requiresSetup: true,
       parameters: reviewerWatchRunParams,
       execute: async (params): Promise<ReviewerWatchCycleResult> => {
-        const config = resolveWatchConfig({
-          owner: params.owner as string | undefined,
-          repo: params.repo as string | undefined,
-          botLogin: params.botLogin as string | undefined,
-          threshold: params.threshold as number | undefined,
-        });
+        const config = resolveWatchConfig(
+          {
+            owner: params.owner as string | undefined,
+            repo: params.repo as string | undefined,
+            botLogin: params.botLogin as string | undefined,
+            threshold: params.threshold as number | undefined,
+          },
+          productionWatchConfigDeps()
+        );
 
         const { tokenProvider } = await buildTokenProviderFromConfig();
         const client = makeProductionMissedReviewClient(tokenProvider);
@@ -314,12 +374,15 @@ export function registerReviewerWatchCommands(): void {
       requiresSetup: true,
       parameters: reviewerWatchStartParams,
       execute: async (params): Promise<{ started: true; intervalMs: number }> => {
-        const config = resolveWatchConfig({
-          owner: params.owner as string | undefined,
-          repo: params.repo as string | undefined,
-          botLogin: params.botLogin as string | undefined,
-          threshold: params.threshold as number | undefined,
-        });
+        const config = resolveWatchConfig(
+          {
+            owner: params.owner as string | undefined,
+            repo: params.repo as string | undefined,
+            botLogin: params.botLogin as string | undefined,
+            threshold: params.threshold as number | undefined,
+          },
+          productionWatchConfigDeps()
+        );
         const intervalMs =
           (params.intervalMs as number | undefined) ??
           (parseInt(
