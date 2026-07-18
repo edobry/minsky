@@ -18,7 +18,7 @@ import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 function StartScratchSessionButton() {
   const start = useStartDrivenSession();
   return (
-    <div className="flex items-center justify-end gap-2 mb-2">
+    <div className="flex items-center justify-end gap-2">
       {start.isError && (
         <span className="text-xs text-destructive" role="alert">
           {start.error.message}
@@ -43,7 +43,10 @@ function StartScratchSessionButton() {
 export function AgentsPage() {
   return (
     <div className="p-4 max-w-5xl mx-auto w-full">
-      <StartScratchSessionButton />
+      <div className="flex items-center justify-between gap-4 mb-2">
+        <h1 className="text-h1 font-semibold text-foreground">Agents</h1>
+        <StartScratchSessionButton />
+      </div>
       <Agents />
     </div>
   );
