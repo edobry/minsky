@@ -36,6 +36,8 @@ Cockpit is **one organ inside the cyberbrain frame, not an independent design la
 
 The operational tokens (typography stack, color palette in hex + OKLCH, motion budget with `prefers-reduced-motion` handling, WCAG contrast targets, font licensing) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume directly when implementing cockpit widgets.
 
+**Design-system layer (mt#2915).** [`docs/design-system.md`](../../../docs/design-system.md) carries what brand-system.md explicitly defers for cockpit: the type scale, the spacing-scale decision, a component inventory with interaction states (hover/focus/active/disabled/loading), status/severity color semantics (including the red-scarcity rule's exact boundary and the blessed healthy/warning raw-palette exception's exact boundary), and the icon decision (Lucide, blessed for cockpit product UI). Consult it alongside brand-system.md for any cockpit component or token decision.
+
 **Migration status (mt#1935, shipped 2026-05-20).** Cockpit's `src/cockpit/web/index.css` now stores tokens as raw OKLCH triplets (lightness chroma hue) consumed via `oklch(var(--X) / <alpha-value>)` in `tailwind.config.ts`. The brand palette is in the Tailwind config under these utility classes:
 
 - `bg-background` / `text-foreground` / `bg-card` / etc. — shadcn semantic surface (`--primary` is keyed to `signal.cyan` in dark mode).
@@ -499,6 +501,7 @@ The widget framework (mt#1144) lets each widget declare its data dependencies an
 
 ## Cross-references
 
+- `docs/design-system.md` (mt#2915) — type scale, spacing decision, component inventory + interaction states, status/severity semantics, icon decision. The layer brand-system.md defers; consult alongside it for cockpit component/token work.
 - Reference memory `8d3d4f06` — _Whole-system observability view — design canon + build playbook_ (the plant-board canon this skill's §Whole-system view condenses)
 - `docs/architecture/adr-020-plant-board-rendering-substrate.md` — node-link substrate decision (Accepted)
 - mt#2375 — plant-board / whole-system-view umbrella (canon, four timescales, honest motion)

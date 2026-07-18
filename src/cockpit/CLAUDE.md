@@ -62,6 +62,8 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 ## Design vocabulary
 
+**Declared design system (mt#2915).** [`docs/design-system.md`](../../docs/design-system.md) is the declared design-system artifact for cockpit: type scale, spacing-scale decision, component inventory with interaction states, status/severity color semantics (incl. the red-scarcity rule), and the icon decision. `docs/brand-system.md` remains the color/typography/motion source of truth; `design-system.md` is the layer brand-system.md explicitly defers (components, spacing, interaction states) plus the cockpit-specific type scale. Read both before a cockpit visual or component decision.
+
 **Product mode, not marketing mode.** Cockpit is a functional operator dashboard, not an editorial surface. Restrained, dense, useful. No decorative gradients, no oversized hero text, no marketing-mode typography. The aesthetic anchor is the Data-Dense Pro family (Sentry, PostHog, Grafana, Supabase, Linear) — every pixel serves operator workflow.
 
 **Dark-mode-first, elevation via surface lightness.** Cockpit uses a dark color scheme as default. Higher-elevation surfaces are LIGHTER (not shadowed). The base surface is near-black; cards sit lighter; popovers and dialogs even lighter. Shadows are decorative, not structural — use them sparingly.
@@ -181,6 +183,9 @@ the `cockpit-design` skill §Whole-system view.
 
 ## Cross-references
 
+- **`docs/design-system.md`** (mt#2915) — declared design-system artifact: type scale, spacing decision, component inventory, status/severity semantics, icon decision.
+- **`docs/brand-system.md`** — color/typography/motion source of truth; §7 carries the current cockpit token mapping.
+- **mt#2914** — design-system umbrella (declare / unify / enforce). **mt#2917** — register-unification pass that adopts `design-system.md`'s tokens across widgets.
 - **mt#1143** — Cockpit v0 umbrella
 - **mt#1144** — Shell + widget framework (DONE)
 - **mt#1145** — Agents widget (DONE)

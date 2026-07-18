@@ -81,6 +81,39 @@ export default {
         mono: ["var(--font-mono)"],
         "warm-mono": ["var(--font-warm-mono)"],
       },
+      // Type scale (docs/design-system.md §2; mt#2915). Additive to Tailwind's
+      // stock fontSize scale (text-xs...text-2xl are untouched) — these are
+      // new named-role tokens (text-display, text-h1, ... text-code) backed
+      // by the CSS vars declared in index.css. Widget adoption is mt#2917
+      // scope, not this task's.
+      fontSize: {
+        display: [
+          "var(--text-display)",
+          {
+            lineHeight: "var(--text-display--line-height)",
+            letterSpacing: "var(--text-display--letter-spacing)",
+          },
+        ],
+        h1: [
+          "var(--text-h1)",
+          {
+            lineHeight: "var(--text-h1--line-height)",
+            letterSpacing: "var(--text-h1--letter-spacing)",
+          },
+        ],
+        h2: ["var(--text-h2)", { lineHeight: "var(--text-h2--line-height)" }],
+        h3: ["var(--text-h3)", { lineHeight: "var(--text-h3--line-height)" }],
+        body: ["var(--text-body)", { lineHeight: "var(--text-body--line-height)" }],
+        small: ["var(--text-small)", { lineHeight: "var(--text-small--line-height)" }],
+        eyebrow: [
+          "var(--text-eyebrow)",
+          {
+            lineHeight: "var(--text-eyebrow--line-height)",
+            letterSpacing: "var(--text-eyebrow--letter-spacing)",
+          },
+        ],
+        code: ["var(--text-code)", { lineHeight: "var(--text-code--line-height)" }],
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
