@@ -320,6 +320,48 @@ Same redaction posture as the watcher: counts + ISO timestamps only — no
 absolute paths, no raw error-message strings (the unauthenticated-endpoint
 disclosure constraint).
 
+## Scheduled follow-up sweeper (mt#2322)
+
+The cockpit daemon hosts a **general recurring-job scheduler facility** whose
+first consumer is the **scheduled-follow-up** primitive — mt#2322, the
+remaining scope of parent mt#2234 after mt#2320/mt#2321/mt#2381 shipped the
+watcher, sweep backstop, and ADR-019 seam re-cut respectively. There is no
+separate scheduler abstraction to build: `createIntervalSweeper` (above) IS
+the general recurring-job primitive — it is already proven general by every
+sweeper in this file (ask advancement, prod-state, topology, transcript
+backstop, dispatch watchdog, deploy.smoke), and the follow-up sweep
+(`startFollowUpSweeper` in `src/cockpit/sweepers.ts`) is simply its newest
+registrant.
+
+**The one-shot primitive.** A follow-up is a `scheduled_follow_ups` DB row
+(`message`, `dueAt`, `status`, optional `relatedTaskId`/`relatedSessionId`) —
+storage-backed rather than an in-memory `setTimeout`, so it survives a daemon
+restart between creation and its due time (sweeper-not-durable-queue per
+`decision-defaults.mdc §Reliability`: the DB row is the durable state, the
+sweep is the reconciliation loop). `FollowUpService`
+(`packages/domain/src/scheduler/follow-up-service.ts`) owns create/list/
+cancel/fireDue; `fireDue()` is idempotent — it status-guards its UPDATE to
+`pending` rows only, so overlapping ticks or a sweep re-run can never
+double-fire a follow-up.
+
+**Cadence.** Every 60 seconds — a follow-up's "fires locally at its scheduled
+time" contract only needs local precision, matching the meta-watchdog's own
+cadence.
+
+**HTTP surface — `/api/follow-ups`** (`src/cockpit/routes/follow-ups.ts`):
+
+```
+GET  /api/follow-ups            — list, optional ?status=pending|fired|cancelled|failed
+POST /api/follow-ups            — create: { message, dueAt (ISO-8601), payload?, relatedTaskId?, relatedSessionId? }
+POST /api/follow-ups/:id/cancel — cancel a still-pending follow-up
+```
+
+**Observability.** No dedicated tracker — the sweep is a `createIntervalSweeper`
+registrant like every other sweep in this file, so its liveness
+(lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
+covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
+(next section) under the name `"scheduled follow-ups"`.
+
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
 Every periodic sweep in this file is built on the shared `createIntervalSweeper`
