@@ -23,9 +23,11 @@ import {
   resolveOpenPrSweepOverride,
   DUPLICATE_CHILD_GUARD_NAME,
   OPEN_PR_SWEEP_GUARD_NAME,
+  KNOWN_GUARD_NAMES_WITH_SELF,
 } from "./parallel-work-guard-overrides";
 import { checkOverride } from "./dispatcher";
 import type { OverrideResult } from "./dispatcher";
+import { GUARD_REGISTRY } from "./registry";
 import { findValidGuardGrant } from "./guard-grant-store";
 import type { GuardGrant } from "./guard-grant-store";
 
@@ -525,6 +527,26 @@ describe("resolveOpenPrSweepOverride (mt#1637)", () => {
       MINSKY_HOOK_OVERRIDE: "parallel-work-open-pr",
     });
     expect(result).toEqual({ active: true, source: "env" });
+  });
+});
+
+describe("known-guard-names registration consistency (PR #2054 R1)", () => {
+  it("both hook-local guard names are registered in the known-names universe", () => {
+    expect(KNOWN_GUARD_NAMES_WITH_SELF).toContain(DUPLICATE_CHILD_GUARD_NAME);
+    expect(KNOWN_GUARD_NAMES_WITH_SELF).toContain(OPEN_PR_SWEEP_GUARD_NAME);
+  });
+
+  it("every dispatcher GUARD_REGISTRY name is also in the universe", () => {
+    for (const entry of GUARD_REGISTRY) {
+      expect(KNOWN_GUARD_NAMES_WITH_SELF).toContain(entry.name);
+    }
+  });
+
+  it("the two hook-local guard names are distinct from each other and from registry names", () => {
+    expect(DUPLICATE_CHILD_GUARD_NAME).not.toBe(OPEN_PR_SWEEP_GUARD_NAME);
+    const registryNames = new Set(GUARD_REGISTRY.map((r) => r.name));
+    expect(registryNames.has(DUPLICATE_CHILD_GUARD_NAME)).toBe(false);
+    expect(registryNames.has(OPEN_PR_SWEEP_GUARD_NAME)).toBe(false);
   });
 });
 
