@@ -150,7 +150,7 @@ function mockChangesetsFetch(response: { status: number; body: unknown }) {
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 function mockChangesetsFetchError(errorMessage: string) {
@@ -160,7 +160,7 @@ function mockChangesetsFetchError(errorMessage: string) {
       return Promise.reject(new Error(errorMessage));
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ describe("ChangesetsPage — error state", () => {
 describe("ChangesetsPage — loading state", () => {
   test("renders loading placeholder before data arrives", () => {
     // Fetch hangs — query stays in pending state
-    globalThis.fetch = mock(() => new Promise(() => {})) as typeof globalThis.fetch;
+    globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
     renderChangesetsPage();
     expect(screen.getByText(/loading changesets/i)).toBeDefined();
   });

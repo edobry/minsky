@@ -179,11 +179,11 @@ function KindBadge({ kind }: { kind: RunKind }) {
 
 type AgentSortKey = "needsMe" | "lastActivityAt" | "sessionId" | "liveness";
 
-interface AgentFilters {
+type AgentFilters = {
   liveness: "all" | "healthy" | "idle" | "stale" | "orphaned";
   taskId: string; // empty string = no filter
   kind: "all" | RunKind;
-}
+};
 
 const DEFAULT_FILTERS: AgentFilters = {
   liveness: "all",

@@ -154,7 +154,7 @@ function stubHome({ embeddingsStatus = "healthy" }: StubOptions = {}) {
         })
       );
     throw new Error(`Unexpected fetch in test: ${url}`);
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function renderHome() {

@@ -41,9 +41,9 @@ async function fetchChangesets(): Promise<ChangesetsListResponse> {
 
 type SortKey = "age" | "attention";
 
-interface Filters {
+type Filters = {
   reviewState: string;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Main page

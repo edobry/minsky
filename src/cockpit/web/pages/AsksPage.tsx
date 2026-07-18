@@ -60,11 +60,11 @@ import {
 
 type SortKey = "priority" | "age" | "kind";
 
-interface Filters {
+type Filters = {
   kind: string;
   requestor: string;
   cohort: string;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Inline action mutations

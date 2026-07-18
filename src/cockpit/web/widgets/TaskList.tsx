@@ -69,12 +69,12 @@ async function fetchTaskList(): Promise<WidgetData> {
 
 export type TaskSortKey = "id" | "title" | "status" | "kind";
 
-interface TaskFilters {
+type TaskFilters = {
   /** Comma-separated status values for multi-select, or "all" */
   status: string;
   search: string;
   kind: string;
-}
+};
 
 const DEFAULT_FILTERS: TaskFilters = {
   status: "all",

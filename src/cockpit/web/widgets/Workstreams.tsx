@@ -82,10 +82,10 @@ interface Props {
 
 type WorkstreamSortKey = "attention" | "activeChildCount" | "parentId" | "age";
 
-interface WorkstreamFilters {
+type WorkstreamFilters = {
   status: "all" | "active" | "done" | "blocked";
   minActiveChildren: string; // URL params are always strings; parse to int when comparing
-}
+};
 
 const DEFAULT_FILTERS: WorkstreamFilters = {
   status: "all",
