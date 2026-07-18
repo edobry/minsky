@@ -1,6 +1,8 @@
 ---
+import { Picture } from "astro:assets";
 import CtaButton from "./CtaButton.astro";
 import ProductFrame from "./ProductFrame.astro";
+import heroImage from "../assets/screenshots/hero-session-lifecycle.png";
 ---
 
 <section class="hero">
@@ -25,7 +27,17 @@ import ProductFrame from "./ProductFrame.astro";
       </div>
     </div>
     <div class="hero-product">
-      <ProductFrame />
+      <ProductFrame>
+        <Picture
+          src={heroImage}
+          alt="Real CLI output: this task's own session lifecycle, from session get through PR creation"
+          formats={["avif", "webp"]}
+          fallbackFormat="png"
+          width={heroImage.width > 900 ? 900 : heroImage.width}
+          densities={[1]}
+          loading="eager"
+        />
+      </ProductFrame>
     </div>
   </div>
 </section>
