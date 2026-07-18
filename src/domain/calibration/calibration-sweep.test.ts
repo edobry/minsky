@@ -103,8 +103,8 @@ function buildLines(count: number, makeLine: (i: number) => string): string {
 // ---------------------------------------------------------------------------
 
 describe("CALIBRATION_LOG_REGISTRY", () => {
-  test("has seven entries (mt#2619 adds three; mt#2866 adds silent-stretch)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(7);
+  test("has eight entries (mt#2619 adds three; mt#2866 adds silent-stretch; mt#2870 adds wall-of-text)", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(8);
   });
 
   test("first entry is causal-premise", () => {
@@ -149,6 +149,12 @@ describe("CALIBRATION_LOG_REGISTRY", () => {
     expect(CALIBRATION_LOG_REGISTRY[6]?.kind).toBe(SILENT_STRETCH_KIND);
     expect(CALIBRATION_LOG_REGISTRY[6]?.name).toBe(SILENT_STRETCH_KIND);
     expect(CALIBRATION_LOG_REGISTRY[6]?.path).toBe(".minsky/silent-stretch-calibration.jsonl");
+  });
+
+  test("eighth entry is wall-of-text (mt#2870)", () => {
+    expect(CALIBRATION_LOG_REGISTRY[7]?.kind).toBe("wall-of-text");
+    expect(CALIBRATION_LOG_REGISTRY[7]?.name).toBe("wall-of-text");
+    expect(CALIBRATION_LOG_REGISTRY[7]?.path).toBe(".minsky/wall-of-text-calibration.jsonl");
   });
 });
 
@@ -302,6 +308,38 @@ describe("parseCalibrationRecord", () => {
   test("returns null for a silent-stretch record missing gapMinutes/toolCallCount", () => {
     const line = JSON.stringify({ timestamp: "2026-01-01", session_id: "x" });
     expect(parseCalibrationRecord(line, SILENT_STRETCH_KIND)).toBeNull();
+  });
+
+  test("parses a valid wall-of-text record (mt#2870)", () => {
+    const line = JSON.stringify({
+      timestamp: "2026-07-17T12:00:00Z",
+      session_id: "wall-session",
+      wordCount: 912,
+      lineCount: 41,
+      trigger: "both",
+      leadLabelHits: ["gate-letter"],
+      deeplinkCount: 0,
+      namedRefCount: 7,
+    });
+    const record = parseCalibrationRecord(line, "wall-of-text");
+    expect(record).not.toBeNull();
+    if (record && "wordCount" in record) {
+      expect(record.wordCount).toBe(912);
+      expect(record.trigger).toBe("both");
+      expect(record.leadLabelHits).toEqual(["gate-letter"]);
+      expect(record.session_id).toBe("wall-session");
+    } else {
+      throw new Error("expected a WallOfTextRecord");
+    }
+  });
+
+  test("returns null for a wall-of-text record missing wordCount/trigger", () => {
+    const line = JSON.stringify({
+      timestamp: "2026-07-17T12:00:00Z",
+      session_id: "wall-session",
+      lineCount: 41,
+    });
+    expect(parseCalibrationRecord(line, "wall-of-text")).toBeNull();
   });
 });
 
@@ -1176,6 +1214,17 @@ const KIND_FIXTURES: Readonly<
     line: () => makeSilentStretchRecord(),
     expectedGuardName: "silent-stretch-detector",
   },
+  "wall-of-text": {
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-07-17T12:00:00Z",
+        session_id: "test-session",
+        wordCount: 912,
+        lineCount: 41,
+        trigger: "both",
+      }),
+    expectedGuardName: "wall-of-text-detector",
+  },
 };
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
@@ -1201,8 +1250,8 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
     }
   });
 
-  test("CALIBRATION_LOG_REGISTRY has exactly 7 entries and every kind has a fixture above", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(7);
+  test("CALIBRATION_LOG_REGISTRY has exactly 8 entries and every kind has a fixture above", () => {
+    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(8);
     for (const entry of CALIBRATION_LOG_REGISTRY) {
       expect(KIND_FIXTURES[entry.kind]).toBeDefined();
     }

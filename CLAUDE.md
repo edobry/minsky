@@ -426,8 +426,11 @@ Doc: `session-end-transcript-ingest-hook.md`.
   consecutive tool calls (mt#2824). `silent-stretch-detector.ts`; log
   `.minsky/silent-stretch-calibration.jsonl`; override `MINSKY_SKIP_SILENT_STRETCH=1`.
   Doc: `silent-stretch-detector.md`.
+- **Wall-of-text** — flags a turn-end report >2x the ~200-word Tier-1 budget or label-led
+  (mt#2870). `wall-of-text-detector.ts`; log `.minsky/wall-of-text-calibration.jsonl`;
+  override `MINSKY_SKIP_WALL_OF_TEXT=1`. Doc: `wall-of-text-detector.md`.
 
-All four: fail open on transcript/read error.
+All five: fail open on transcript/read error.
 
 ## Subagent Merge Capability Guard
 

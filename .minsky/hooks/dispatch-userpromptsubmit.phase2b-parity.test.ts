@@ -61,11 +61,24 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // onto the framework (not a Phase 2b migration), appended after the
       // pre-migration order this test otherwise byte-preserves.
       "silent-stretch-detector",
+      // mt#2870 — wall-of-text-detector, silent-stretch's over-signaling
+      // sibling; same new-guard-appended-after-legacy-order rationale.
+      "wall-of-text-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.
       "calibration-review-cadence-detector",
     ]);
+  });
+
+  // PR #2036 R1 hardening: the pinned list above implies this, but assert the
+  // documented last-entry invariant directly so a future re-order that also
+  // edits the pinned list cannot silently drop it
+  // (docs/architecture/hooks/calibration-review-cadence-detector.md: "the
+  // LAST entry").
+  test("calibration-review-cadence-detector remains the LAST UserPromptSubmit guard", () => {
+    const names = getGuardsForEvent(GUARD_REGISTRY, USER_PROMPT_SUBMIT_EVENT).map((r) => r.name);
+    expect(names[names.length - 1]).toBe("calibration-review-cadence-detector");
   });
 });
 

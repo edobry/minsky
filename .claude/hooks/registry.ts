@@ -840,6 +840,61 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#2870 — wall-of-text turn-report shape detector. The OVER-signaling
+  // sibling of silent-stretch-detector above (communication-altitude RFC
+  // Phase 3, calibration-first): measures the just-completed turn's FINAL
+  // assistant text block against the Tier-1 contract shape
+  // (communication-contract.mdc). Authored directly onto this framework —
+  // no bespoke pre-migration settings.json slot. Needs transcriptLines (D6).
+  // -------------------------------------------------------------------------
+  {
+    name: "wall-of-text-detector",
+    event: "UserPromptSubmit",
+    module: () => import("./wall-of-text-detector").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "wall-of-text",
+    denyCapable: false,
+    needsTranscript: true,
+    // Calibration-first (INJECTION_ENABLED=false in the module) — same
+    // rationale as silent-stretch-detector above.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt2889-canary-transcript" },
+      transcriptLines: [
+        {
+          type: "user",
+          message: { role: "user", content: "start" },
+          timestamp: "2026-01-01T00:00:00Z",
+        },
+        // A 900-word, label-heavy final report — crosses BOTH the 2x-budget
+        // word threshold and the lead-label pattern bar (the mt#2870
+        // acceptance-test shape).
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: `Gate (l) verdict and premise audit (iii): ${Array.from(
+                  { length: 893 },
+                  (_, i) => `w${i}`
+                ).join(" ")}`,
+              },
+            ],
+          },
+          timestamp: "2026-01-01T00:00:05Z",
+        },
+        {
+          type: "user",
+          message: { role: "user", content: "still going" },
+          timestamp: "2026-01-01T00:00:10Z",
+        },
+      ],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
   // as the LAST entry across the mt#2812 x mt#2824 merge (2026-07-16): both
