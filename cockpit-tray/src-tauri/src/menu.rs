@@ -59,7 +59,11 @@ pub(crate) fn build(app: &tauri::App<Wry>) -> tauri::Result<()> {
         .enabled(false)
         .build(app)?;
     app.manage(UptimeMenuItem(uptime_item.clone()));
-    let open_window_item = MenuItemBuilder::with_id("open_window", "Open Cockpit").build(app)?;
+    let open_window_item = MenuItemBuilder::with_id(
+        "open_window",
+        format!("Open Cockpit  ({})", crate::hotkey::SUMMON_SHORTCUT_LABEL),
+    )
+    .build(app)?;
     let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let start_item = MenuItemBuilder::with_id("start", "Start Daemon").build(app)?;
@@ -279,6 +283,20 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
     // deep-link/recovery loop, mt#2688) owns liveness healing; spawning
     // another recovery watch here would double-navigate the same window.
     create_cockpit_window(app);
+}
+
+/// Hide the cockpit window and restore menu-bar-only presence (mt#2676: the
+/// global-hotkey toggle's "visible+focused -> hide" direction). Mirrors the
+/// hide-on-close `CloseRequested` handler in `create_cockpit_window` below --
+/// same behavior, triggered by the hotkey instead of the window's close
+/// button / Cmd+W.
+pub(crate) fn hide_cockpit_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        if let Err(e) = window.hide() {
+            eprintln!("[cockpit-tray] failed to hide cockpit window: {e}");
+        }
+    }
+    set_dock_presence(app, false);
 }
 
 /// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
