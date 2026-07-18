@@ -30,7 +30,7 @@
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { readInput, writeOutput, readHostCap, deriveBudgets } from "./types";
+import { readInput, writeOutput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import { parseTranscript, resolveTranscriptCandidates } from "./transcript";
 import type { TranscriptLine } from "./transcript";
@@ -296,10 +296,25 @@ const defaultCalibrationDeps: CalibrationWriteDeps = { existsSync, mkdirSync, ap
  * `"causal-premise"` -> `.minsky/causal-premise-calibration.jsonl`. No
  * changes are needed to that registry when a guard migrates onto this
  * service (per the task's "read it; do not change it" constraint).
+ *
+ * mt#2710: `root` (whichever of `projectDir` / `CLAUDE_PROJECT_DIR` /
+ * `process.cwd()` resolved) is passed through `findRepoRoot` before joining
+ * `.minsky/` — this is the ACTUAL production write path for every
+ * dispatcher-migrated calibration writer (`runDispatcher` calls
+ * `logCalibrationRecord(reg.calibrationLog, outcome.calibration)` with no
+ * `projectDir`, so it falls all the way to `process.cwd()`, which mirrors
+ * the hook subprocess's shell cwd — routinely a repo SUBDIRECTORY). Without
+ * this, fixing only the individual guards' now-unreachable standalone-CLI
+ * `appendCalibrationRecord()` fallbacks would leave the real D4 write path
+ * still scattering `.minsky/` into whatever subdirectory the shell cwd sat
+ * in. `findRepoRoot` degrades to its input unchanged when no `.git` is
+ * found up the tree (e.g. the synthetic `/repo`-style paths this module's
+ * own tests use), so this is a no-op for every existing caller that already
+ * passes a real repo root.
  */
 export function calibrationLogPath(calibrationLogName: string, projectDir?: string): string {
   const root = projectDir ?? process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
-  return join(root, ".minsky", `${calibrationLogName}-calibration.jsonl`);
+  return join(findRepoRoot(root), ".minsky", `${calibrationLogName}-calibration.jsonl`);
 }
 
 /**

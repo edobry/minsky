@@ -38,7 +38,7 @@
 //      `./dispatch-userpromptsubmit.ts`; `main()` / the CLI entrypoint below
 //      is unchanged.
 
-import { readInput, readHostCap, deriveBudgets } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -341,7 +341,10 @@ export function elideMarkdownContexts(text: string): string {
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
-    const logPath = resolve(cwd, CALIBRATION_LOG);
+    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
+    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
+    // scatter this calibration log into a stray subdirectory `.minsky/`.
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const dir = dirname(logPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });

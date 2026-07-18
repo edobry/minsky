@@ -76,8 +76,8 @@
 //      points the agent at when a log is review-due
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { readInput, writeOutput } from "./types";
+import { dirname, join } from "node:path";
+import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   CALIBRATION_LOG_REGISTRY,
@@ -420,7 +420,11 @@ export async function run(
     };
   }
 
-  const repoRoot = resolve(input.cwd ?? process.cwd());
+  // mt#2710: `input.cwd` (or the `process.cwd()` fallback) is routinely a
+  // repo SUBDIRECTORY, not the repo root — findRepoRoot walks up to the
+  // nearest `.git` so the watermark/last-warned state files land in
+  // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
+  const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
   const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
   const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
 
@@ -491,7 +495,11 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const repoRoot = resolve(input.cwd ?? process.cwd());
+  // mt#2710: `input.cwd` (or the `process.cwd()` fallback) is routinely a
+  // repo SUBDIRECTORY, not the repo root — findRepoRoot walks up to the
+  // nearest `.git` so the watermark/last-warned state files land in
+  // `<repo>/.minsky/`, not a stray subdirectory `.minsky/`.
+  const repoRoot = findRepoRoot(input.cwd ?? process.cwd());
   const watermarkPath = join(repoRoot, WATERMARK_STORE_PATH);
   const lastWarnedPath = join(repoRoot, LAST_WARNED_STORE_PATH);
 
