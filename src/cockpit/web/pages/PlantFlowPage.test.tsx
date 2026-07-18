@@ -38,7 +38,6 @@ const _origConsoleError = console.error;
 beforeEach(() => {
   // Provide a no-op ResizeObserver if JSDOM doesn't have one
   if (typeof globalThis.ResizeObserver === "undefined") {
-    // @ts-expect-error - JSDOM polyfill
     globalThis.ResizeObserver = class {
       observe() {}
       unobserve() {}
