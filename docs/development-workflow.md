@@ -25,13 +25,14 @@ The pre-commit hooks run in a specific sequence, with each layer serving a disti
 └─────────────────────┬───────────────────────────────────────┘
                       │ ✅ Formatting successful
 ┌─────────────────────▼───────────────────────────────────────┐
-│           2. 🧪 Unit Test Suite (Bun Test)                  │
-│  • Runs the full unit test suite (order of 1,400 tests)     │
-│  • Zero tolerance for failures                              │
-│  • Fast execution (typically seconds, not minutes)          │
-│  • Blocks commit on any test failure                        │
+│           2. 🧪 Fast checks only — NOT the full suite       │
+│  • The full unit suite is NOT run in pre-commit (mt#2716)   │
+│  • ~8300 tests ≈ 4.3 min: the "slow hook → --no-verify →    │
+│    worse than no hook" anti-pattern; it also never worked    │
+│    (old 120s timeout < honest suite; bun truncated it)      │
+│  • Full suite now runs in pre-push + CI (see §2 below)      │
 └─────────────────────┬───────────────────────────────────────┘
-                      │ ✅ All tests passing
+                      │ ✅ Fast checks passing
 ┌─────────────────────▼───────────────────────────────────────┐
 │           3. 🔍 ESLint Code Quality                          │
 │  • Identifies code quality issues                           │
@@ -82,34 +83,36 @@ The pre-commit hooks run in a specific sequence, with each layer serving a disti
 bun run format
 ```
 
-#### 2. Unit Test Suite Layer
+#### 2. Test tiering — the full suite runs at pre-push + CI, not pre-commit (mt#2716)
 
-**Purpose**: Comprehensive validation of application logic
+**Purpose**: Catch failing tests before code is shared, without taxing every commit.
 
-**Technology**: Bun test runner with zero failure tolerance
+The full unit suite (~8300 tests, ~4.3 min) is deliberately NOT run in pre-commit.
+Running it on every commit is the well-documented "slow hook → developers
+`--no-verify` it → worse than no hook" anti-pattern; the old pre-commit full-suite
+step also never actually worked (its 120s `execAsync` timeout was shorter than the
+honest suite, and `bun test` 1.2.21 silently truncated it — exit 0, no completion
+summary — so it false-passed; see `docs/testing-patterns.md` and mt#2665). The suite
+is placed by cost, following common practice for large suites:
 
-**Scope**: All unit tests excluding integration tests
-
-**Behavior**:
-
-- Runs complete test suite (1,400+ tests)
-- Fast execution optimized for pre-commit use
-- Blocks commit on any test failure
-- Provides detailed failure information
-
-**Test Categories**:
-
-- Domain logic tests
-- Adapter tests (CLI, MCP)
-- Utility function tests
-- Mock and DI tests
+- **Pre-commit** — fast static checks (format, type check, ESLint, secret scan,
+  repo-integrity guards) plus the niche ESLint-rule tooling tests. No full suite.
+- **Pre-push** (`.husky/pre-push` → `scripts/run-tests-gated.ts`) — the local test
+  gate, run less often (before code is shared). Runs the same two steps CI runs
+  (`scripts/run-tests-main.ts`, `src/mcp` excluded, + `scripts/run-tests-mcp-isolated.ts`)
+  with a **fail-closed** completion-summary + `<N> fail` gate, so a silently-truncated
+  run can never pass. Escape hatch: `MINSKY_SKIP_PREPUSH_TESTS=1` (CI stays the
+  authoritative gate and cannot be skipped this way).
+- **CI** (`.github/workflows/ci.yml`) — the authoritative full suite (main + isolated
+  `src/mcp` + hooks), with the same fail-closed gate.
 
 ```bash
-# Manual execution
-bun test --timeout=15000
+# Full truncation-safe suite locally (what pre-push runs)
+bun scripts/run-tests-gated.ts
 
-# With verbose output
-bun test --verbose
+# Main suite only (src/mcp excluded) / isolated src/mcp
+bun run test
+bun run test:mcp-isolated
 
 # Watch mode for development
 bun run test:watch
