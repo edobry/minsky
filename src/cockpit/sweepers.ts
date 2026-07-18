@@ -1004,13 +1004,38 @@ const FOLLOW_UP_SWEEP_INTERVAL_MS = 60 * 1000;
  *
  * @returns stop function (clears the interval).
  */
-export function startFollowUpSweeper(intervalMs?: number): () => void {
+
+/**
+ * Minimal shape the follow-up sweeper needs from a FollowUpService — just
+ * `fireDue`. Declared narrowly (rather than importing the concrete class)
+ * so tests can inject a fake without constructing a real DB-backed service.
+ */
+export interface FollowUpSweepDeps {
+  fireDue: () => Promise<{
+    fired: Array<{ id: string }>;
+    errored: Array<{ id: string; error: string }>;
+  }>;
+}
+
+/** Options accepted by {@link startFollowUpSweeper}. */
+export interface FollowUpSweeperOptions {
+  /** Cadence override in milliseconds (default: FOLLOW_UP_SWEEP_INTERVAL_MS). */
+  intervalMs?: number;
+  /**
+   * Injectable deps for testing. When absent, the real DB path is used
+   * (getServerFollowUpService — the cockpit-wide PersistenceService
+   * singleton's FollowUpService).
+   */
+  deps?: FollowUpSweepDeps;
+}
+
+export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void {
   return createIntervalSweeper({
     name: "scheduled follow-ups",
-    intervalMs: intervalMs ?? FOLLOW_UP_SWEEP_INTERVAL_MS,
+    intervalMs: opts?.intervalMs ?? FOLLOW_UP_SWEEP_INTERVAL_MS,
     tick: async () => {
       try {
-        const service = await getServerFollowUpService();
+        const service: FollowUpSweepDeps | null = opts?.deps ?? (await getServerFollowUpService());
         if (!service) {
           // Non-SQL provider: nothing to sweep.
           log.debug("cockpit: follow-up sweep: no SQL-capable DB, skipping tick");
