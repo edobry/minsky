@@ -14,6 +14,7 @@ import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { statusStyle } from "../lib/status-colors";
 
 // ---------------------------------------------------------------------------
 // Types — mirror of server TaskListItem / TaskListPayload
@@ -79,38 +80,8 @@ function toggleStatus(current: string, status: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Status palette — same as Workstreams/TaskGraph
+// Status badge — colors come from the shared ../lib/status-colors module
 // ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: string): StatusStyle {
-  switch (status.toUpperCase()) {
-    case "DONE":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "COMPLETED":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
-}
 
 function StatusBadge({ status }: { status: string }) {
   const s = statusStyle(status);

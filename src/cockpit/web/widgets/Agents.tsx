@@ -180,7 +180,7 @@ const DEFAULT_FILTERS: AgentFilters = {
 // Liveness helpers
 // ---------------------------------------------------------------------------
 
-function livenessDotClass(liveness: AgentRow["liveness"]): string {
+export function livenessDotClass(liveness: AgentRow["liveness"]): string {
   switch (liveness) {
     case "healthy":
       return "bg-liveness-healthy";

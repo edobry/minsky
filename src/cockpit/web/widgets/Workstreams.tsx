@@ -11,8 +11,9 @@
  * mt#1924: Added pagination, sorting, and filtering controls with URL param
  * persistence. Controls use prefix "ws" to namespace params.
  *
- * Status color palette duplicated from TaskGraph.tsx — centralization is a
- * separate refactor concern per mt#1146 review feedback.
+ * Status colors come from the shared `../lib/status-colors` module (mt#2909
+ * consolidation; previously a byte-identical raw-hex copy of TaskGraph.tsx's
+ * `statusStyle()` — see mt#1146 review feedback).
  */
 import { useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -20,6 +21,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { useListControls, type SortDir } from "../lib/useListControls";
+import { statusStyle } from "../lib/status-colors";
 import {
   streamHealth,
   STREAM_HEALTH_RANK,
@@ -99,38 +101,8 @@ const DEFAULT_FILTERS: WorkstreamFilters = {
 };
 
 // ---------------------------------------------------------------------------
-// Status badge helpers
-// Duplicated from TaskGraph.tsx — palette mirrors "tech-tree" style from
-// deps-rendering-graphviz.ts. Centralization is a separate refactor concern.
+// Status badge
 // ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: TaskStatus): StatusStyle {
-  switch (status) {
-    case "DONE":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
-}
 
 function StatusBadge({ status }: { status: TaskStatus }) {
   const s = statusStyle(status);

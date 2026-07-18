@@ -17,6 +17,7 @@ import { ErrorState } from "../components/ErrorState";
 import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
+import { statusStyle } from "../lib/status-colors";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/tasks/:id response shape
@@ -69,37 +70,8 @@ async function fetchTaskDetail(taskId: string): Promise<TaskDetailPayload> {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge — same palette as TaskList / Workstreams / TaskGraph
+// Status badge — colors come from the shared ../lib/status-colors module
 // ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: string): StatusStyle {
-  switch (status.toUpperCase()) {
-    case "DONE":
-    case "COMPLETED":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
-}
 
 function StatusBadge({ status }: { status: string }) {
   const s = statusStyle(status);

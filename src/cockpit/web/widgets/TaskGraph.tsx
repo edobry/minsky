@@ -31,6 +31,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { statusStyle } from "../lib/status-colors";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server GraphNode / GraphEdge shapes.
@@ -75,39 +76,6 @@ interface Props {
   variant?: WidgetVariant;
   /** Title from the registry; defaults to the widget's canonical title for back-compat. */
   title?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Status color palette
-// Mirrors the "tech-tree" style from deps-rendering-graphviz.ts
-// ---------------------------------------------------------------------------
-
-interface StatusStyle {
-  background: string;
-  border: string;
-  color: string;
-}
-
-function statusStyle(status: GraphNode["status"]): StatusStyle {
-  switch (status) {
-    case "DONE":
-      return { background: "#34d399", border: "#059669", color: "#064e3b" };
-    case "IN-PROGRESS":
-      return { background: "#fbbf24", border: "#d97706", color: "#78350f" };
-    case "IN-REVIEW":
-      return { background: "#a78bfa", border: "#7c3aed", color: "#2e1065" };
-    case "READY":
-      return { background: "#60a5fa", border: "#2563eb", color: "#1e3a8a" };
-    case "BLOCKED":
-      return { background: "#f87171", border: "#dc2626", color: "#7f1d1d" };
-    case "PLANNING":
-      return { background: "#67e8f9", border: "#0891b2", color: "#164e63" };
-    case "CLOSED":
-      return { background: "#d1d5db", border: "#6b7280", color: "#374151" };
-    case "TODO":
-    default:
-      return { background: "#e2e8f0", border: "#64748b", color: "#1e293b" };
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +228,7 @@ function toFlowEdges(graphEdges: GraphEdge[]): Edge[] {
     id: e.id,
     source: e.source,
     target: e.target,
-    style: { stroke: "#4a5568", strokeWidth: 1.5 },
+    style: { stroke: "oklch(var(--border))", strokeWidth: 1.5 },
     animated: false,
   }));
 }
