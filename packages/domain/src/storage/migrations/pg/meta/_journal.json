@@ -421,6 +421,13 @@
       "when": 1784308081983,
       "tag": "0059_flippant_red_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1784417944769,
+      "tag": "0060_authorization-policy-covered-event-type",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,9 @@ import { log } from "@minsky/shared/logger";
 import { safeShellQuote } from "@minsky/shared/exec";
 import type { AskRepository } from "../ask/repository";
 import { closeAskAsResolved } from "../ask/close-as-resolved";
+import { isActionCovered, loadAllPolicySources } from "../ask/policy";
+import { emitSystemEventFromProvider } from "../events/emit-best-effort";
+import type { PersistenceProvider } from "../persistence/types";
 import type { TokenProvider } from "../auth/token-provider";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
@@ -193,7 +196,8 @@ export async function sessionCommit(
   },
   sessionProvider: import("./types").SessionProviderInterface,
   askRepository?: AskRepository,
-  tokenProvider?: TokenProvider
+  tokenProvider?: TokenProvider,
+  persistenceProvider?: PersistenceProvider
 ): Promise<{
   success: boolean;
   nothingToCommit?: boolean;
@@ -294,33 +298,82 @@ export async function sessionCommit(
       });
     }
 
-    // Emit authorization.approve Ask (best-effort — never blocks the commit)
-    // Only reaches here when there are actual changes to commit. mt#2593: capture
-    // the created Ask's id so it can be closed once the commit lands (below).
+    // Detection-time policy consult (mt#2935; ADR-008 §Router moved to the
+    // emit site). A routine commit under a standing auto-commit policy is a
+    // statically-resolved decision point — record it as an audit EVENT, not
+    // an authorization.approve Ask. The Ask is created ONLY when policy is
+    // silent (the genuine escalation) or when the covered-path event row
+    // could not actually be persisted (fail toward the ask — the action must
+    // never go silently unrecorded). Everything here is best-effort and never
+    // blocks the commit. mt#2593: on the uncovered path, capture the created
+    // Ask's id so it can be closed once the commit lands (below).
     let commitAuthAskId: string | undefined;
     if (askRepository) {
+      const requestor =
+        sessionRecordForFreeze?.agentId ?? `minsky.session-commit:session:${sessionIdToUse}`;
+
+      let policyCoveredAndRecorded = false;
       try {
-        const requestor =
-          sessionRecordForFreeze?.agentId ?? `minsky.session-commit:session:${sessionIdToUse}`;
-        const commitAuthAsk = await askRepository.create({
-          kind: "authorization.approve",
-          classifierVersion: "v1",
-          requestor,
-          parentTaskId: sessionRecordForFreeze?.taskId,
-          parentSessionId: sessionRecordForFreeze?.sessionId,
-          title: `Commit authorization: ${params.message.slice(0, 80)}`,
-          question: `Authorize commit in session ${params.session}: "${params.message}"`,
-          metadata: {
-            commitMessage: params.message,
-            stagedFiles: params.all ? "all" : "manual-staged",
-          },
-        });
-        commitAuthAskId = commitAuthAsk.id;
-      } catch (askErr: unknown) {
-        log.warn("sessionCommit: failed to emit authorization.approve Ask (best-effort)", {
-          session: params.session,
-          error: askErr instanceof Error ? askErr.message : String(askErr),
-        });
+        // The session workdir is a clone of the repo, so its CLAUDE.md and
+        // project rules ARE the policy corpus for this action.
+        const sources = await loadAllPolicySources(workdir);
+        const coverage = isActionCovered(["commit", "push"], sources);
+        if (coverage.covered && coverage.citation) {
+          const recorded = await emitSystemEventFromProvider(persistenceProvider, {
+            eventType: "authorization.policy_covered",
+            payload: {
+              action: "commit",
+              citationSource: coverage.citation.source,
+              ...(coverage.citation.lineRange
+                ? { citationLines: coverage.citation.lineRange }
+                : {}),
+              commitMessage: params.message,
+            },
+            actor: requestor,
+            relatedTaskId: sessionRecordForFreeze?.taskId,
+            relatedSessionId: sessionRecordForFreeze?.sessionId,
+          });
+          if (recorded) {
+            policyCoveredAndRecorded = true;
+          } else {
+            log.debug(
+              "sessionCommit: policy covers commit but audit event was not persisted; falling back to Ask emission",
+              { session: params.session, citationSource: coverage.citation.source }
+            );
+          }
+        }
+      } catch (policyErr: unknown) {
+        log.warn(
+          "sessionCommit: detection-time policy consult failed; falling back to Ask emission (best-effort)",
+          {
+            session: params.session,
+            error: policyErr instanceof Error ? policyErr.message : String(policyErr),
+          }
+        );
+      }
+
+      if (!policyCoveredAndRecorded) {
+        try {
+          const commitAuthAsk = await askRepository.create({
+            kind: "authorization.approve",
+            classifierVersion: "v1",
+            requestor,
+            parentTaskId: sessionRecordForFreeze?.taskId,
+            parentSessionId: sessionRecordForFreeze?.sessionId,
+            title: `Commit authorization: ${params.message.slice(0, 80)}`,
+            question: `Authorize commit in session ${params.session}: "${params.message}"`,
+            metadata: {
+              commitMessage: params.message,
+              stagedFiles: params.all ? "all" : "manual-staged",
+            },
+          });
+          commitAuthAskId = commitAuthAsk.id;
+        } catch (askErr: unknown) {
+          log.warn("sessionCommit: failed to emit authorization.approve Ask (best-effort)", {
+            session: params.session,
+            error: askErr instanceof Error ? askErr.message : String(askErr),
+          });
+        }
       }
     }
 

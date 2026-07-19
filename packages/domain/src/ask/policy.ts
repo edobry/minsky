@@ -164,6 +164,15 @@ export function extractActionTokens(ask: Ask): string[] {
  */
 function checkSingleSource(ask: Ask, source: PolicyText): CoverageResult {
   const actionTokens = extractActionTokens(ask);
+  return checkTokensAgainstSource(actionTokens, source);
+}
+
+/**
+ * Token-based coverage core shared by the router path (`checkSingleSource`,
+ * title-derived tokens) and the detection-time path (`isActionCovered`,
+ * caller-supplied explicit tokens). Same two-signal semantics per ADR-008 §9.
+ */
+function checkTokensAgainstSource(actionTokens: string[], source: PolicyText): CoverageResult {
   if (actionTokens.length === 0) {
     // No explicit action name available — per ADR-008 §9 there is nothing to
     // match explicitly, so policy cannot cover the ask.
@@ -307,6 +316,36 @@ export function isCovered(ask: Ask, sources: PolicyText[]): CoverageResult {
   }
   for (const source of sources) {
     const result = checkSingleSource(ask, source);
+    if (result.covered) {
+      return result;
+    }
+  }
+  return { covered: false };
+}
+
+/**
+ * Detection-time coverage check with EXPLICIT action tokens (mt#2935).
+ *
+ * For emit sites that know the action they are about to take (e.g.
+ * `sessionCommit`'s "commit"), this checks policy coverage BEFORE any Ask is
+ * created — the ADR-008 §Router policy-first consultation moved to the
+ * detection stage. The caller names the action explicitly instead of the
+ * router deriving tokens from an ask title (which mixes in incidental
+ * commit-message noise), satisfying §9's "explicit action-name" requirement
+ * directly.
+ *
+ * Semantics are identical to the router path otherwise: a statement must
+ * carry BOTH an action token and an authority keyword. Callers use this only
+ * for authorization-semantics actions (the POLICY_ELIGIBLE_KINDS restriction
+ * is the caller's responsibility by construction — the action they pass IS
+ * the authorization subject).
+ */
+export function isActionCovered(actionTokens: string[], sources: PolicyText[]): CoverageResult {
+  const normalized = [
+    ...new Set(actionTokens.map((t) => t.toLowerCase()).filter((t) => t.length >= 4)),
+  ];
+  for (const source of sources) {
+    const result = checkTokensAgainstSource(normalized, source);
     if (result.covered) {
       return result;
     }
