@@ -52,19 +52,40 @@ colliding PR, overlapping files, and four recommended actions (wait / coordinate
 override). A **recently-merged** overlap does NOT block — it emits a non-blocking advisory warning
 naming the commit and overlapping files (mt#2337).
 
-**Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
+**Override mechanism (mt#1637 — two channels):** the sweep resolves its override via
+`resolveOpenPrSweepOverride` (a thin wrapper over the shared `resolveGuardChannelOverride`
+core both this sweep and the duplicate-child matcher use), which checks, in order:
 
-```bash
-MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
-```
+1. **Legacy env var** — `MINSKY_FORCE_PARALLEL=1`, set before the harness launches
+   (launch-time-only; a value set mid-session via Bash never reaches the hook subprocess):
 
-The override is **logged to session stdout** (task ID, ISO timestamp).
-The line is visible in the session transcript but is **not** written to a durable
-audit file — once the session log is rotated, the record is gone. Use only when
-parallel work has been explicitly acknowledged and coordinated. After mt#1587 the
+   ```bash
+   MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
+   ```
+
+2. **Unified env var** — `MINSKY_HOOK_OVERRIDE=parallel-work-open-pr` (same launch-time
+   constraint; recognized via `checkOverride()`).
+3. **Mid-session grant** (mt#2658 channel) — TTL-bound, reason-mandatory, reachable from
+   inside the running session, scoped to the task id being started/dispatched:
+
+   ```bash
+   bun scripts/grant-guard-override.ts --guard parallel-work-open-pr \
+     --scope mt#<id> --reason "<why the overlap is non-conflicting>"
+   ```
+
+Any active override is **logged to session stdout** — the legacy env path keeps its
+original audit-line shape (`OVERRIDE active (MINSKY_FORCE_PARALLEL=1) — task=<id> ts=<iso>`);
+the unified-env and grant paths log `OVERRIDE active — task=<id> source=<env|grant>` with the
+grant's reason verbatim when present. The line is visible in the session transcript but is
+**not** written to a durable audit file — once the session log is rotated, the record is gone
+(the grant FILE itself persists as the durable record for grant-sourced overrides). Use only
+when parallel work has been explicitly acknowledged — the grant's mandatory `--reason` is
+where the agent's overlap analysis (e.g. region-disjointness verified against the PR diff)
+belongs. After mt#1587 the
 override is rarely needed for routine hook PRs (settings.json append-only diffs
 no longer collide); it remains in scope for non-append-only changes,
-non-allowlisted files, and operator-judgment overrides.
+non-allowlisted files, and coordination-class agent overrides (the mt#1635-shape case this
+channel exists for).
 
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
