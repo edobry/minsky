@@ -27,7 +27,7 @@
  * @see src/cockpit/web/lib/format.ts — `shortenId`
  * @see src/cockpit/web/widgets/ConversationSearchPanel.tsx:124 — copy-feedback style reference
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Check, Link as LinkIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { shortenId } from "../lib/format";
@@ -58,14 +58,27 @@ function entityLabel(type: RoutableEntityType): string {
 export function CopyId({ type, id, truncateAt = 8, className }: CopyIdProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<CopiedKind>(null);
+  const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending revert timer on unmount so a copy fired shortly before
+  // navigating away never calls setState on an unmounted component (PR #2073
+  // R1 finding 1).
+  useEffect(() => {
+    return () => {
+      if (revertTimerRef.current !== null) clearTimeout(revertTimerRef.current);
+    };
+  }, []);
 
   const displayId = id.length > truncateAt ? shortenId(id, truncateAt) : id;
 
   const doCopy = useCallback((kind: Exclude<CopiedKind, null>, value: string) => {
     void navigator.clipboard.writeText(value).then(() => {
+      // Clear any timer from a prior copy so rapid re-copies don't stack —
+      // only the most recent copy's revert fires.
+      if (revertTimerRef.current !== null) clearTimeout(revertTimerRef.current);
       setCopied(kind);
       setOpen(false);
-      setTimeout(() => setCopied(null), 2000);
+      revertTimerRef.current = setTimeout(() => setCopied(null), 2000);
     });
   }, []);
 
@@ -79,7 +92,7 @@ export function CopyId({ type, id, truncateAt = 8, className }: CopyIdProps) {
 
   return (
     <span className={cn("inline-flex items-center gap-1", className)}>
-      <span className="font-mono select-all" title={id}>
+      <span className="font-mono text-foreground select-all" title={id}>
         {displayId}
       </span>
       <Popover open={open} onOpenChange={setOpen}>
