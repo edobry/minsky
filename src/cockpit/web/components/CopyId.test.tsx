@@ -1,8 +1,21 @@
 /**
  * CopyId tests (mt#2943).
+ *
+ * PR #2073 R2: the original "Copy ID ... toggles Copy -> Check feedback" test
+ * asserted the ~2s revert via a real-time `waitFor(..., {timeout: 3000})` —
+ * passed locally, timed out at 5.5s on the slower CI runner (classic
+ * real-timer flake; see PR #2073 CI failure). bun:test has no
+ * `advanceTimersByTime`-style fake-timer engine (only `setSystemTime` for
+ * `Date`, per `bun-types/test.d.ts` — confirmed no other cockpit test fakes
+ * timers), so the revert-timing test below installs a minimal scoped fake
+ * for `globalThis.setTimeout` itself: capture the scheduled callback/delay
+ * instead of letting a real clock fire it, then invoke the callback manually
+ * inside `act(...)` to deterministically "advance" the timer. Scoped to its
+ * own nested `describe` with its own `beforeEach`/`afterEach` so the fake
+ * never leaks into the other (real-timer, sub-second) tests in this file.
  */
-import { describe, test, expect, spyOn, afterEach } from "bun:test";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CopyId } from "./CopyId";
 import { entityToMinskyUri } from "../lib/entity-codec";
@@ -33,7 +46,7 @@ describe("CopyId", () => {
     expect(screen.getByRole("button", { name: "Copy ask id" })).toBeTruthy();
   });
 
-  test("Copy ID writes the bare full id to the clipboard and toggles Copy -> Check feedback", async () => {
+  test("Copy ID writes the bare full id to the clipboard and shows Copied feedback", async () => {
     const writeText = spyOn(navigator.clipboard, "writeText");
     render(<CopyId type="ask" id={ASK_ID} />);
 
@@ -42,10 +55,10 @@ describe("CopyId", () => {
 
     expect(writeText).toHaveBeenCalledWith(ASK_ID);
 
-    // Icon/label swap: "Copied" feedback renders transiently...
+    // Icon/label swap: "Copied" feedback renders transiently. (The ~2s revert
+    // itself is exercised deterministically, with a fake timer, in the nested
+    // "copy feedback timing" describe block below — no real-time wait here.)
     await screen.findByText("Copied");
-    // ...then reverts after ~2s (component's setTimeout(..., 2000)).
-    await waitFor(() => expect(screen.queryByText("Copied")).toBeNull(), { timeout: 3000 });
   });
 
   test("Copy link writes the ask's minsky:// deeplink (percent-encoded uuid) to the clipboard", async () => {
@@ -85,5 +98,61 @@ describe("CopyId", () => {
     await user.keyboard("{Enter}");
 
     expect(writeText).toHaveBeenCalledWith(ASK_ID);
+  });
+
+  describe("copy feedback timing (deterministic fake timer)", () => {
+    let originalSetTimeout: typeof globalThis.setTimeout;
+    let pendingTimerCallback: (() => void) | null;
+    let pendingTimerDelay: number | null;
+
+    beforeEach(() => {
+      originalSetTimeout = globalThis.setTimeout;
+      pendingTimerCallback = null;
+      pendingTimerDelay = null;
+      // Minimal scoped fake: capture ONLY CopyId's own revert timer (doCopy's
+      // `setTimeout(() => setCopied(null), 2000)`, identified by its 2000ms
+      // delay) instead of a real clock firing it. Every OTHER setTimeout call
+      // (notably @testing-library/react's own findBy/waitFor polling, which
+      // also runs on setTimeout under the hood) passes through to the real
+      // implementation — faking indiscriminately hung findByText forever in
+      // an earlier version of this test.
+      globalThis.setTimeout = ((cb: () => void, delay?: number, ...args: unknown[]) => {
+        if (delay === 2000) {
+          pendingTimerCallback = cb;
+          pendingTimerDelay = delay;
+          return 0 as unknown as ReturnType<typeof globalThis.setTimeout>;
+        }
+        return originalSetTimeout(cb, delay, ...args);
+      }) as typeof globalThis.setTimeout;
+    });
+
+    afterEach(() => {
+      globalThis.setTimeout = originalSetTimeout;
+    });
+
+    test("Copy -> Check feedback reverts once the ~2s timer is advanced (not before)", async () => {
+      const writeText = spyOn(navigator.clipboard, "writeText");
+      render(<CopyId type="ask" id={ASK_ID} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
+      fireEvent.click(await screen.findByText("Copy ID"));
+
+      expect(writeText).toHaveBeenCalledWith(ASK_ID);
+
+      // Immediate, deterministic: feedback renders off the clipboard promise
+      // resolution, independent of the (faked) revert timer.
+      await screen.findByText("Copied");
+      expect(pendingTimerDelay).toBe(2000);
+
+      // Still present before the timer fires — reversion is timer-driven, not incidental.
+      expect(screen.queryByText("Copied")).not.toBeNull();
+
+      // Deterministically "advance" the fake ~2s timer — no real-time wait.
+      act(() => {
+        pendingTimerCallback?.();
+      });
+
+      expect(screen.queryByText("Copied")).toBeNull();
+    });
   });
 });
