@@ -410,4 +410,31 @@ describe("sessionCommit detection-time policy consult (mt#2935)", () => {
     expect(askRepo.all).toHaveLength(1);
     expect(askRepo.all[0]?.kind).toBe(KIND_AUTH_APPROVE);
   });
+
+  test("covered path with persistence provider but NO ask repository emits the event and creates no ask", async () => {
+    // PR #2068 R1 BLOCKING: the detection-time consult was previously gated
+    // entirely behind `if (askRepository)`, so a caller supplying only a
+    // persistenceProvider (no askRepository) got neither an event nor an ask
+    // — silently unrecorded. The gate must run whenever EITHER substrate is
+    // present; only the fallback ask-creation itself requires askRepository.
+    const workdir = await makeTmpDirtyGitRepo(COVERING_CLAUDE_MD);
+    tmpDirs.push(workdir);
+
+    const record = makeSessionRecord({ sessionId: "no-ask-repo-session" });
+    const sessionProvider = makeSessionProvider(record, workdir);
+    const { provider, rows } = makeCapturingPersistenceProvider();
+
+    await sessionCommit(
+      { session: "no-ask-repo-session", message: "feat: covered, no ask repo" },
+      sessionProvider,
+      undefined,
+      undefined,
+      provider
+    ).catch(() => {});
+
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    if (!row) throw new Error("Expected one event row");
+    expect(row.eventType).toBe("authorization.policy_covered");
+  });
 });

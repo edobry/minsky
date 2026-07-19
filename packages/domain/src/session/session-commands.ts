@@ -308,7 +308,7 @@ export async function sessionCommit(
     // blocks the commit. mt#2593: on the uncovered path, capture the created
     // Ask's id so it can be closed once the commit lands (below).
     let commitAuthAskId: string | undefined;
-    if (askRepository) {
+    if (askRepository || persistenceProvider) {
       const requestor =
         sessionRecordForFreeze?.agentId ?? `minsky.session-commit:session:${sessionIdToUse}`;
 
@@ -352,7 +352,7 @@ export async function sessionCommit(
         );
       }
 
-      if (!policyCoveredAndRecorded) {
+      if (!policyCoveredAndRecorded && askRepository) {
         try {
           const commitAuthAsk = await askRepository.create({
             kind: "authorization.approve",
