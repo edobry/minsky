@@ -11,6 +11,7 @@
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Prose } from "../components/Prose";
+import { CopyId } from "../components/CopyId";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { formatRequestor } from "../lib/entity-labels";
 import { Link } from "react-router-dom";
@@ -387,6 +388,9 @@ export function AskDetail({
 
         {/* Metadata */}
         <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+          <div>
+            <span className="font-medium">Id:</span> <CopyId type="ask" id={ask.id} />
+          </div>
           <div>
             <span className="font-medium">From:</span>{" "}
             {(() => {
