@@ -37,6 +37,11 @@ import {
   MIGRATION_DIRS,
 } from "./immutable-migration-detector";
 import {
+  detectMigrationJournalViolations,
+  isMigrationCollisionOverrideTruthy,
+  MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
+} from "./migration-collision-detector";
+import {
   recordPreCommitFireLogEntry,
   classifyOverride as classifyPreCommitOverride,
 } from "./pre-commit-fire-log";
@@ -323,6 +328,21 @@ export class PreCommitHook {
       );
       if (!immutableMigrationResult.success) {
         return immutableMigrationResult;
+      }
+
+      // Step 3e-b: Migration collision + journal-`when` immutability check
+      // (mt#2948). Compare the staged journal against origin/main: block a
+      // renumber that mutates an already-shipped entry's `when` (the 2026-07-19
+      // outage cause), a new migration reusing an on-main number, or a new
+      // entry whose `when` is non-monotonic vs main. Complements mt#2268
+      // (.sql content) and mt#2087 (local sql<->journal set).
+      const migrationCollisionResult = await this.instrumented(
+        "migration-collision-check",
+        () => this.runMigrationCollisionCheck(),
+        MIGRATION_COLLISION_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationCollisionResult.success) {
+        return migrationCollisionResult;
       }
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
@@ -1153,6 +1173,99 @@ export class PreCommitHook {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, message: `Migration journal check error: ${msg}`, exitCode: 1 };
     }
+  }
+
+  /**
+   * Block a concurrent-migration collision or a journal-`when` mutation of an
+   * already-shipped migration, checked against the `origin/main` baseline (mt#2948).
+   *
+   * This is the collision-PREVENTION complement to mt#2560 (auto-migrate default
+   * OFF, the blast-radius fix). Unlike the sibling guards it reads the origin/main
+   * journal to detect drift the LOCAL tree cannot reveal. Fails OPEN when there is
+   * no baseline (fresh clone / detached / file absent on main).
+   *
+   * Override: `MINSKY_SKIP_MIGRATION_COLLISION_CHECK=1` (audit-logged).
+   */
+  private async runMigrationCollisionCheck(): Promise<HookResult> {
+    if (isMigrationCollisionOverrideTruthy(process.env[MIGRATION_COLLISION_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:migration-collision] override ${MIGRATION_COLLISION_CHECK_OVERRIDE_ENV}=${process.env[MIGRATION_COLLISION_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — migration collision check skipped`
+      );
+      return {
+        success: true,
+        message: "Migration collision check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
+    }
+
+    const journalRelPath = "packages/domain/src/storage/migrations/pg/meta/_journal.json";
+
+    // Working-tree journal (the post-commit state).
+    let headEntries: JournalEntry[];
+    try {
+      const raw = String(await readFile(join(this.projectRoot, journalRelPath), "utf-8"));
+      const parsed = JSON.parse(raw) as { entries?: JournalEntry[] };
+      headEntries = parsed.entries ?? [];
+    } catch {
+      return {
+        success: true,
+        message: "Migration collision check skipped (no local journal)",
+        exitCode: 0,
+      };
+    }
+
+    // origin/main baseline. Without it there is nothing to diff — fail OPEN
+    // (this is a NEW-drift detector, not a first-commit correctness gate).
+    let baseEntries: JournalEntry[];
+    try {
+      const result = await execGitWithTimeout("show", `show origin/main:${journalRelPath}`, {
+        workdir: this.projectRoot,
+        timeout: 5000,
+      });
+      const parsed = JSON.parse(result.stdout.toString()) as { entries?: JournalEntry[] };
+      baseEntries = parsed.entries ?? [];
+    } catch {
+      return {
+        success: true,
+        message: "Migration collision check skipped (no origin/main journal baseline)",
+        exitCode: 0,
+      };
+    }
+
+    const violations = detectMigrationJournalViolations(baseEntries, headEntries);
+    if (violations.length === 0) {
+      return { success: true, message: "Migration collision check passed", exitCode: 0 };
+    }
+
+    log.cli("");
+    log.cli(
+      `${violations.length} migration journal drift issue(s) vs origin/main. Commit blocked (mt#2948).`
+    );
+    log.cli("");
+    for (const v of violations) {
+      log.cli(`   [${v.kind}] ${v.tag}: ${v.detail}`);
+    }
+    log.cli("");
+    log.cli("Why this is blocked:");
+    log.cli("   Drizzle applies journal entries whose `when` exceeds the DB high-water-mark.");
+    log.cli("   A renumber that mutates an already-shipped entry's `when`, a reused migration");
+    log.cli("   number, or a non-monotonic `when` re-triggers an applied migration on boot");
+    log.cli("   (the 2026-07-19 outage). See memory 0c2427e5.");
+    log.cli("");
+    log.cli("Fix: regenerate your migration against current main —");
+    log.cli("   git fetch origin && git rebase origin/main, then `bun run db:generate:pg`");
+    log.cli("   so your migration is numbered after main's latest with a fresh timestamp.");
+    log.cli("");
+    log.cli(`Override (rare, audited): set ${MIGRATION_COLLISION_CHECK_OVERRIDE_ENV}=1`);
+
+    return {
+      success: false,
+      message: "Migration collision check failed",
+      exitCode: 1,
+    };
   }
 
   /**
