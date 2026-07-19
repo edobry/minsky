@@ -1203,16 +1203,23 @@ export class PreCommitHook {
 
     const journalRelPath = "packages/domain/src/storage/migrations/pg/meta/_journal.json";
 
-    // Working-tree journal (the post-commit state).
+    // Staged journal — the content actually being committed (the index, NOT the
+    // working tree; PR #2081 R2). `git show :<path>` reads the index entry, so a
+    // partially-staged or unstaged working-tree edit cannot make the guard block
+    // or miss incorrectly.
     let headEntries: JournalEntry[];
     try {
-      const raw = String(await readFile(join(this.projectRoot, journalRelPath), "utf-8"));
-      const parsed = JSON.parse(raw) as { entries?: JournalEntry[] };
+      const staged = await execGitWithTimeout(
+        "show",
+        `show ${safeShellQuote(`:${journalRelPath}`)}`,
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+      const parsed = JSON.parse(staged.stdout.toString()) as { entries?: JournalEntry[] };
       headEntries = parsed.entries ?? [];
     } catch {
       return {
         success: true,
-        message: "Migration collision check skipped (no local journal)",
+        message: "Migration collision check skipped (journal not in index)",
         exitCode: 0,
       };
     }
