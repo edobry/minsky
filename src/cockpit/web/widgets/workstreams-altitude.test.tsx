@@ -94,7 +94,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -144,7 +144,7 @@ describe("Workstreams altitude parameterization (mt#2385)", () => {
         JSON.stringify({ state: "ok", payload: { altitude: "full", workstreams: [] } }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     render(
       <MemoryRouter>

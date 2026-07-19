@@ -52,10 +52,13 @@ const AGE_FILTER_MS: Record<string, number | null> = {
   "7d": 7 * 24 * 60 * 60 * 1000,
 };
 
-interface Filters {
+// `type` literal, not `interface` (mt#2424) — an interface doesn't satisfy
+// useListControls<T,S,F extends Record<string,string>>'s generic constraint
+// the way an equivalent type literal does.
+type Filters = {
   reviewState: string;
   age: string;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Main page

@@ -180,11 +180,11 @@ function KindBadge({ kind }: { kind: RunKind }) {
 
 type AgentSortKey = "needsMe" | "lastActivityAt" | "sessionId" | "liveness";
 
-interface AgentFilters {
+type AgentFilters = {
   liveness: "all" | "healthy" | "idle" | "stale" | "orphaned";
   taskId: string; // empty string = no filter
   kind: "all" | RunKind;
-}
+};
 
 const DEFAULT_FILTERS: AgentFilters = {
   liveness: "all",
@@ -664,6 +664,9 @@ function GoToActionButton({ agent }: { agent: AgentRow }) {
       navigate(action.path);
       return;
     }
+    if (action.type === "disabled") {
+      return;
+    }
     focusMutation.mutate(action.sessionId);
   }
 
@@ -1002,8 +1005,10 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
       break;
     }
     case "liveness": {
-      const orderA = a.liveness == null ? LIVENESS_ORDER_NULL : LIVENESS_ORDER[a.liveness];
-      const orderB = b.liveness == null ? LIVENESS_ORDER_NULL : LIVENESS_ORDER[b.liveness];
+      const orderA =
+        a.liveness == null ? LIVENESS_ORDER_NULL : (LIVENESS_ORDER[a.liveness] ?? LIVENESS_ORDER_NULL);
+      const orderB =
+        b.liveness == null ? LIVENESS_ORDER_NULL : (LIVENESS_ORDER[b.liveness] ?? LIVENESS_ORDER_NULL);
       cmp = orderA - orderB;
       break;
     }
