@@ -249,7 +249,7 @@ bun run lint   # Fix linting issues
 
 ```
 Test Categories:
-├── Unit Tests (Pre-commit)
+├── Unit Tests (Pre-push + CI)
 │   ├── Domain Logic Tests
 │   ├── Adapter Tests (CLI, MCP)
 │   ├── Utility Tests
@@ -265,13 +265,13 @@ Test Categories:
 
 ### Test Configuration
 
-**Unit Tests** (`bun test`):
+**Unit Tests** (`bun test` — the full suite):
 
-- Fast execution (< 3 seconds)
+- Full suite ≈ 8300 tests (~4.3 min); **NOT run on every commit** (mt#2716)
 - Mock all external dependencies
 - No real filesystem operations
 - No real network requests
-- Runs on every commit
+- Runs at **pre-push** (`bun scripts/run-tests-gated.ts` — truncation-safe + fail-closed) and **CI** (authoritative)
 
 **Integration Tests** (`bun run test:integration`):
 
@@ -312,7 +312,7 @@ bun run format --check
 
 #### Test Failures
 
-**Symptom**: Pre-commit fails at test step
+**Symptom**: Pre-push (or CI) fails at the test step (mt#2716: the full suite runs at pre-push, not pre-commit)
 
 **Common Causes**:
 
@@ -323,14 +323,14 @@ bun run format --check
 **Solutions**:
 
 ```bash
-# Run tests with verbose output
-bun test --verbose
+# Reproduce the exact pre-push gate locally (truncation-safe, fail-closed)
+bun scripts/run-tests-gated.ts
 
-# Run specific test file
+# Run a specific test file
 bun test path/to/specific.test.ts
 
-# Fix failing tests
-# Then retry commit
+# Fix failing tests, then retry the push.
+# To push past a known flake/WIP: MINSKY_SKIP_PREPUSH_TESTS=1 (CI still runs the full suite)
 ```
 
 #### Linting Failures
@@ -381,20 +381,21 @@ gitleaks protect --staged --source .
 
 The pre-commit hooks are optimized for fast execution:
 
-- **Test parallelization**: Tests run in parallel where possible
+- **Full unit suite deferred**: pre-commit runs no full unit suite (mt#2716); it lives at pre-push + CI
 - **Incremental linting**: Only staged files are linted
-- **Efficient test patterns**: Fast, isolated unit tests
+- **Fast static checks**: type-check + lint + repo-integrity guards, not the ~4.3-min suite
 - **Smart caching**: Leverages Bun's caching capabilities
 
 **Typical execution times**:
 
 - Code formatting: < 1 second
-- Unit test suite: ~2 seconds
-- ESLint validation: < 1 second
+- TypeScript type check: a few seconds
+- ESLint validation: a few seconds
 - ESLint rule tests: < 1 second
 - Secret scanning: < 1 second
+- Full unit suite: NOT run here — see pre-push (mt#2716)
 
-**Total pre-commit time**: ~5-7 seconds
+**Total pre-commit time**: seconds, not minutes (the full suite no longer runs at commit time)
 
 ## Configuration Files
 

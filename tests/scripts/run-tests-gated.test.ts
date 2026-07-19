@@ -43,13 +43,14 @@ describe("evaluateBunTestSummary (mt#2716 fail-closed pre-push gate)", () => {
   test("FAILS when the summary reports failing tests", () => {
     const r = evaluateBunTestSummary(failingSummary, 1);
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain("2 failing");
+    // Exact emitted phrasing (`bun test reported N failing test(s)`), not a loose substring.
+    expect(r.reason).toContain("2 failing test(s)");
   });
 
   test("FAILS closed when the summary is clean but the exit code is non-zero", () => {
     const r = evaluateBunTestSummary(cleanSummary, 1);
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain("exited 1");
+    expect(r.reason).toContain("exited 1 despite a clean summary");
   });
 
   test('FAILS closed when the Ran-line is present but the "<N> fail" line is absent', () => {
