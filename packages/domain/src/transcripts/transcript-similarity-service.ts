@@ -108,6 +108,13 @@ export interface TranscriptSearchOptions {
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
   sessionId?: string;
+  /**
+   * Project scoping (mt#2417, Phase 1.4). A `projects.id` uuid restricts
+   * results to transcripts whose `agent_transcripts.project_id` matches;
+   * `undefined`/omitted returns unscoped (all-projects) results — same
+   * "unidentified -> ALL_PROJECTS" fail-open convention as ADR-021.
+   */
+  projectId?: string;
 }
 
 /**
@@ -116,6 +123,8 @@ export interface TranscriptSearchOptions {
 export interface FindSimilarTurnOptions {
   /** Max results to return. Default: 10. */
   limit?: number;
+  /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
+  projectId?: string;
 }
 
 /**
@@ -124,6 +133,8 @@ export interface FindSimilarTurnOptions {
 export interface FindSimilarSessionOptions {
   /** Max results to return. Default: 10. */
   limit?: number;
+  /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
+  projectId?: string;
 }
 
 // ── Service ───────────────────────────────────────────────────────────────────
@@ -177,6 +188,13 @@ export class TranscriptSimilarityService {
 
     if (opts.sessionId) {
       conditions.push(eq(agentTranscriptTurnsTable.agentSessionId, opts.sessionId));
+    }
+
+    // Project scoping (mt#2417, Phase 1.4): filter via the JOIN'd parent
+    // session's project_id. Omitted -> unscoped (all-projects), same
+    // fail-open convention as ADR-021's other scoped read sites.
+    if (opts.projectId) {
+      conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
     }
 
     // Date window binds the TURN's started_at (not the parent session's) — see
@@ -302,10 +320,14 @@ export class TranscriptSimilarityService {
     const distanceExpr = sql`${agentTranscriptTurnsTable.embedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Exclude the seed turn itself.
-    const conditions = [
+    const conditions: SQL[] = [
       sql`${agentTranscriptTurnsTable.embedding} IS NOT NULL`,
       sql`NOT (${agentTranscriptTurnsTable.agentSessionId} = ${agentSessionId} AND ${agentTranscriptTurnsTable.turnIndex} = ${turnIndex})`,
     ];
+    // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.
+    if (opts.projectId) {
+      conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
 
     try {
       const rows = await this.db
@@ -404,6 +426,15 @@ export class TranscriptSimilarityService {
     const embeddingLiteral = `'[${(seedRow.summaryEmbedding as number[]).join(",")}]'`;
     const distanceExpr = sql`${agentTranscriptsTable.summaryEmbedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
 
+    // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.
+    const scopeConditions: SQL[] = [
+      sql`${agentTranscriptsTable.summaryEmbedding} IS NOT NULL`,
+      ne(agentTranscriptsTable.agentSessionId, sessionId),
+    ];
+    if (opts.projectId) {
+      scopeConditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
+
     try {
       const rows = await this.db
         .select({
@@ -416,12 +447,7 @@ export class TranscriptSimilarityService {
           score: distanceExpr,
         })
         .from(agentTranscriptsTable)
-        .where(
-          and(
-            sql`${agentTranscriptsTable.summaryEmbedding} IS NOT NULL`,
-            ne(agentTranscriptsTable.agentSessionId, sessionId)
-          )
-        )
+        .where(and(...scopeConditions))
         .orderBy(distanceExpr)
         .limit(limit);
 
