@@ -208,12 +208,12 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_POLICY_COVERAGE_MODE", // .claude/hooks/policy-coverage-detector.ts (mt#1541)
   "MINSKY_SKIP_DAEMON_STALENESS", // .claude/hooks/mcp-daemon-staleness-detector.ts
   "MINSKY_UNASKED_DIRECTION_DETECTOR", // .claude/hooks/post-merge-unasked-direction-scan.ts
-  // mt#1767 — auto-migration controls in postgres-provider.ts. Process-only;
-  // they govern boot-time behavior, not runtime config. Adding to the
-  // hook-only set so Railway env-var sets (e.g. MINSKY_AUTO_MIGRATE=false
-  // as the documented escape valve) don't crash the loader via the
-  // env-var-to-config dot-path parser.
-  "MINSKY_AUTO_MIGRATE", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-out)
+  // mt#1767 / mt#2560 — auto-migration controls in postgres-provider.ts.
+  // Process-only; they govern boot-time behavior, not runtime config. Adding to
+  // the hook-only set so Railway env-var sets (e.g. MINSKY_AUTO_MIGRATE=1 as the
+  // local/dev opt-in) don't crash the loader via the env-var-to-config dot-path
+  // parser.
+  "MINSKY_AUTO_MIGRATE", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-in, default OFF per mt#2560)
   "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
   "MINSKY_ACK_SUBSTRATE_BYPASS", // .claude/hooks/substrate-bypass-detector.ts (mt#2020) — override for substrate-bypass warning injection
   "MINSKY_ACK_RETROSPECTIVE_TRIGGER", // .claude/hooks/retrospective-trigger-scanner.ts (mt#2057) — override for retrospective-trigger warning injection
