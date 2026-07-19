@@ -25,6 +25,47 @@ const UPTIME_MENU_ID: &str = "uptime";
 pub(crate) const COCKPIT_URL: &str = "http://localhost:3737";
 pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
 
+/// Init script injected into the cockpit webview so external-link clicks reach
+/// the `on_navigation` handler below (mt#2942). A `target="_blank"` click never
+/// becomes a top-frame navigation on its own -- WKWebView routes it to a
+/// new-window request Tauri drops -- so `on_navigation` alone would miss exactly
+/// the links `Prose` renders (Notion, GitHub, arbitrary https). This capturing
+/// click listener rewrites external-anchor clicks into a top-frame navigation
+/// so `on_navigation` can intercept them; internal/same-origin links fall
+/// through to react-router untouched. Injected ONLY into the tray webview, so a
+/// browser-viewed cockpit (localhost:3737 in Chrome) keeps native
+/// `target="_blank"` behavior.
+const EXTERNAL_LINK_SHIM: &str = r#"
+(function () {
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var el = e.target;
+    var a = el && el.closest ? el.closest('a[href]') : null;
+    if (!a) return;
+    var href = a.getAttribute('href');
+    if (!href) return;
+    var url;
+    try { url = new URL(href, window.location.href); } catch (_) { return; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    if (url.origin === window.location.origin) return;
+    e.preventDefault();
+    window.location.href = url.href;
+  }, true);
+})();
+"#;
+
+/// True for URLs the cockpit webview may load in-place: the SPA's own origin
+/// (localhost / 127.0.0.1 -- initial load, Cmd+R reload, the deep-link recovery
+/// `navigate`) and non-http(s) schemes the webview uses internally
+/// (tauri:/data:/about:). Everything else is an external link that must open in
+/// the OS browser instead of navigating the SPA away (mt#2942).
+fn is_cockpit_internal_url(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "http" | "https" => matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")),
+        _ => true,
+    }
+}
+
 /// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
 /// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
 /// ABSOLUTE factor — so we track the current value here in order to step it.
@@ -327,6 +368,26 @@ fn create_cockpit_window(app: &AppHandle) {
     match WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
+        // Open external (non-cockpit) links in the OS browser instead of
+        // silently dropping them (mt#2942). The SPA is an untrusted external-URL
+        // webview with NO IPC bridge (ADR-023), so the frontend cannot call an
+        // opener plugin -- this lives entirely in the tray. Same-origin
+        // (localhost) loads and non-http schemes pass through; any other http(s)
+        // URL is handed to the OS default browser and the in-webview navigation
+        // is CANCELLED (return false) so the SPA is never navigated away. Paired
+        // with EXTERNAL_LINK_SHIM, which funnels target="_blank" clicks here.
+        // Canonical Tauri pattern (on_navigation -> cancel -> opener); see
+        // https://v2.tauri.app/plugin/opener/ and tauri-apps/tauri#4756.
+        .on_navigation(|url| {
+            if is_cockpit_internal_url(url) {
+                return true;
+            }
+            if let Err(e) = open::that(url.as_str()) {
+                eprintln!("[cockpit-tray] failed to open external URL {url} in browser: {e}");
+            }
+            false
+        })
+        .initialization_script(EXTERNAL_LINK_SHIM)
         .build()
     {
         Ok(window) => {
