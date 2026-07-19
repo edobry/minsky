@@ -425,8 +425,15 @@
     {
       "idx": 60,
       "version": "7",
-      "when": 1784417944769,
-      "tag": "0060_authorization-policy-covered-event-type",
+      "when": 1784415353411,
+      "tag": "0060_slow_kang",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1784419679474,
+      "tag": "0061_authorization-policy-covered-event-type",
       "breakpoints": true
     }
   ]

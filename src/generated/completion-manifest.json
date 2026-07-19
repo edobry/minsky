@@ -4912,12 +4912,12 @@
                   "options": [
                     {
                       "flags": ["--owner"],
-                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')",
+                      "description": "GitHub repo owner. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_OWNER, configured github.organization, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')",
+                      "description": "GitHub repo name. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_REPO, configured github.repository, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
@@ -4938,12 +4938,12 @@
                   "options": [
                     {
                       "flags": ["--owner"],
-                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')",
+                      "description": "GitHub repo owner. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_OWNER, configured github.organization, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')",
+                      "description": "GitHub repo name. Resolved in order: this param, $MINSKY_REVIEWER_WATCH_REPO, configured github.repository, the git 'origin' remote. Errors if none resolve.",
                       "takesValue": true
                     },
                     {

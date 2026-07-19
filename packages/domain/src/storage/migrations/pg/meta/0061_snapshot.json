@@ -1,6 +1,6 @@
 {
-  "id": "d9b8b3f7-6a9a-4a41-ae9b-f7d99e3fa9f7",
-  "prevId": "adadb186-5149-4a04-8c4d-efc4639c6b19",
+  "id": "5eec1c35-643c-477c-97dc-d79f8b9a3487",
+  "prevId": "d9b8b3f7-6a9a-4a41-ae9b-f7d99e3fa9f7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3287,6 +3287,7 @@
         "deploy.live",
         "deploy.fail",
         "ask.policy_closed",
+        "authorization.policy_covered",
         "task.bulk_edit.dry_run",
         "task.bulk_edit.executed"
       ]
