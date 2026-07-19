@@ -42,8 +42,8 @@ import {
 import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
+import { CopyId } from "../components/CopyId";
 import { useState } from "react";
-import { shortenId } from "../lib/format";
 import { useTabs } from "../lib/tabs";
 
 /** Human phrasing for a terminal state. Terminal-vs-open classification itself
@@ -120,9 +120,7 @@ export function AskPage() {
           Asks
         </Link>
         <span aria-hidden="true">/</span>
-        <span className="font-mono text-foreground" title={askId}>
-          {shortenId(askId)}
-        </span>
+        <CopyId type="ask" id={askId} />
       </nav>
 
       {query.isPending ? (

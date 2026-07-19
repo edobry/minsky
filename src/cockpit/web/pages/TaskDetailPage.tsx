@@ -13,6 +13,7 @@
 import { useParams } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { TaskDetail } from "../widgets/TaskDetail";
+import { CopyId } from "../components/CopyId";
 
 export function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,7 +32,7 @@ export function TaskDetailPage() {
           Tasks
         </Link>
         <span aria-hidden="true">/</span>
-        <span className="font-mono text-foreground">{taskId}</span>
+        <CopyId type="task" id={taskId} />
       </nav>
 
       {taskId ? (
