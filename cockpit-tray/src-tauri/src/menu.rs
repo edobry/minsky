@@ -23,6 +23,9 @@ const BUILD_MENU_ID: &str = "build_status";
 const UPTIME_MENU_ID: &str = "uptime";
 
 pub(crate) const COCKPIT_URL: &str = "http://localhost:3737";
+/// The port in COCKPIT_URL, typed for the on_navigation same-origin check
+/// (mt#2942). Must stay in sync with COCKPIT_URL's port.
+const COCKPIT_PORT: u16 = 3737;
 pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
 
 /// Init script injected into the cockpit webview so external-link clicks reach
@@ -368,10 +371,15 @@ fn create_cockpit_window(app: &AppHandle) {
         .on_navigation(|url| {
             match url.scheme() {
                 "http" | "https" => {
-                    // The cockpit SPA's own origin loads in place (initial load,
-                    // Cmd+R reload, deep-link recovery navigate); react-router
-                    // nav is client-side and never reaches here.
-                    if matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) {
+                    // The cockpit SPA's own origin (localhost:3737) loads in
+                    // place (initial load, Cmd+R reload, deep-link recovery
+                    // navigate); react-router nav is client-side and never
+                    // reaches here. The port is pinned so a nav to any OTHER
+                    // localhost port is treated as external, not loaded in the
+                    // cockpit webview (review R2).
+                    if matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"))
+                        && url.port() == Some(COCKPIT_PORT)
+                    {
                         return true;
                     }
                     // Any other web origin is external: open in the OS default
