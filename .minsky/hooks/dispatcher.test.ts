@@ -9,7 +9,7 @@
    ~/.local/state/minsky/guard-health-log.jsonl). Neither touches the
    developer's actual ~/.local/state/minsky/. */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -377,6 +377,43 @@ describe("calibrationLogPath", () => {
     expect(calibrationLogPath("causal-premise", "/repo")).toBe(
       "/repo/.minsky/causal-premise-calibration.jsonl"
     );
+  });
+
+  // mt#2710: real-fs regression for the hooks-resolve-input.cwd-raw fix.
+  // Sets `CLAUDE_PROJECT_DIR` to a repo SUBDIRECTORY rather than calling
+  // `process.chdir()` — this exercises the SAME fallback chain production
+  // hits at the real `runDispatcher` call site (`logCalibration(reg.
+  // calibrationLog, outcome.calibration)`, which passes no `projectDir`)
+  // without mutating the shared `process.cwd()` for the rest of this test
+  // file's (possibly concurrent) suite. Uses a REAL temp directory (not the
+  // injectable `MergeDetectFs`) because `findRepoRoot`'s default fs
+  // parameter is real fs — this file already exempts
+  // `custom/no-real-fs-in-tests` at the top for the same class of
+  // real-directory-structure need (see file-header comment).
+  test("walks up from a repo SUBDIRECTORY to the real repo root (mt#2710 acceptance test)", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt2710-calibration-log-path-"));
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+      const subDir = join(repoRoot, "cockpit-tray", "src-tauri");
+      mkdirSync(subDir, { recursive: true });
+
+      const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      process.env.CLAUDE_PROJECT_DIR = subDir;
+      try {
+        // No `projectDir` argument — matches the real `runDispatcher` call
+        // site.
+        const result = calibrationLogPath("causal-premise");
+        expect(result).toBe(join(repoRoot, ".minsky", "causal-premise-calibration.jsonl"));
+        // The stray-subdirectory bug this fix closes: no `.minsky/` under
+        // the subdirectory `CLAUDE_PROJECT_DIR` pointed at.
+        expect(result.startsWith(subDir)).toBe(false);
+      } finally {
+        if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+        else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      }
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 

@@ -368,13 +368,17 @@ export class PreCommitHook {
         return secretsResult;
       }
 
-      // ── Expensive runtime checks (tests) ──
-
-      // Step 7: Unit tests (most expensive)
-      const testsResult = await this.instrumented("unit-tests", () => this.runUnitTests());
-      if (!testsResult.success) {
-        return testsResult;
-      }
+      // ── Runtime checks (tests) ──
+      //
+      // mt#2716: the full unit-suite step was REMOVED from pre-commit. Running
+      // ~8300 tests (~4.3 min) on every commit is the documented "slow hook →
+      // developers --no-verify it → worse than no hook" anti-pattern; it also
+      // never actually worked here (the old 120s execAsync timeout was shorter
+      // than the honest suite, and `bun test` 1.2.21 silently truncated it —
+      // mt#2665). The truncation-safe, fail-closed full-suite gate now lives in
+      // .husky/pre-push (scripts/run-tests-gated.ts, "before you share") + CI
+      // (authoritative). Pre-commit keeps only fast static checks plus the niche
+      // eslint-rule tooling tests below. See docs/testing-patterns.md + mt#2716.
 
       // Step 8: ESLint rule tooling tests (niche)
       const ruleTestsResult = await this.instrumented("eslint-rule-tests", () =>
@@ -1394,48 +1398,6 @@ export class PreCommitHook {
         message: `Deploy-domain check failed: ${errorMsg}`,
         exitCode: 1,
       };
-    }
-  }
-
-  /**
-   * Run unit tests
-   */
-  private async runUnitTests(): Promise<HookResult> {
-    log.cli("🧪 MANDATORY: Running unit test suite...");
-    log.cli("  → Executing unit tests with timeout (excluding integration tests)...");
-
-    try {
-      await execAsync(
-        // mt#2608: packages/domain (336 test files, the mt#2108 extraction
-        // target) and the four orphaned tests/{unit,mcp,dev-tooling,
-        // architecture} subdirs had zero pre-commit coverage until this
-        // line added them. Kept aligned with the canonical `test` script's
-        // path list (package.json) so pre-commit and CI test the same
-        // surface — reviewer R1 flagged the original packages/domain-only
-        // version as drifting from the canonical script.
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain ./tests/unit ./tests/mcp ./tests/dev-tooling ./tests/architecture ./packages/domain",
-        {
-          cwd: this.projectRoot,
-          timeout: 120000, // mt#2608: packages/domain adds ~40s; bump budget accordingly
-          env: { ...process.env, AGENT: "1" },
-        }
-      );
-      log.cli("✅ All tests passing! Test suite validation completed.");
-      return { success: true, message: "Unit tests passed", exitCode: 0 };
-    } catch (error) {
-      log.cli("");
-      log.cli("❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌");
-      log.cli("");
-      log.cli("🚫 One or more tests are failing. Fix ALL test failures before committing.");
-      log.cli("💡 Run 'bun run test' locally to see detailed failure information.");
-      log.cli("🔧 Ensure your changes don't break existing functionality.");
-      log.cli("");
-      log.cli("📋 Common fixes:");
-      log.cli("   • Update test expectations if behavior intentionally changed");
-      log.cli("   • Fix bugs in your code that break existing tests");
-      log.cli("   • Add missing mocks or dependencies");
-      log.cli("   • Check for import/export issues");
-      return { success: false, message: "Unit tests failed", exitCode: 1 };
     }
   }
 
