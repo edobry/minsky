@@ -464,8 +464,16 @@ describe("shouldAutoMigrate (default OFF, mt#2560)", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "0" })).toBe(false);
   });
 
-  test("false for any non-opt-in value (e.g. 'yes')", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "yes" })).toBe(false);
+  test("true when MINSKY_AUTO_MIGRATE is 'yes' (opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "yes" })).toBe(true);
+  });
+
+  test("true when MINSKY_AUTO_MIGRATE is 'on' (opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "on" })).toBe(true);
+  });
+
+  test("false for a non-opt-in value (e.g. 'maybe')", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "maybe" })).toBe(false);
   });
 
   test("false when caller injected sqlClient (test seam)", () => {

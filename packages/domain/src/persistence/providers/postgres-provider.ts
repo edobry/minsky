@@ -60,7 +60,7 @@ const MAX_POSTGRES_MAX_CONNECTIONS = 100;
  *
  * Default OFF (mt#2560). Returns true ONLY when both:
  *   - the caller did NOT inject any `deps` (sqlClient or postgresFactory), AND
- *   - `MINSKY_AUTO_MIGRATE` is explicitly opted in ("true" / "1", case-insensitive).
+ *   - `MINSKY_AUTO_MIGRATE` is explicitly opted in ("true"/"1"/"yes"/"on", case-insensitive).
  *
  * Rationale: auto-migrate-on-boot is a shared-prod hazard — every binary
  * (hosted MCP, reviewer, cockpit daemon, stdio MCP servers, CLI) points at the
@@ -76,7 +76,10 @@ export function shouldAutoMigrate(
   deps?: { sqlClient?: unknown; postgresFactory?: unknown },
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const optedIn = ["true", "1"].includes((env.MINSKY_AUTO_MIGRATE ?? "").toLowerCase());
+  // Opt-in truthy set matches the repo convention (services/reviewer
+  // review-worker.ts REVIEWER_MONOTONICITY_RECOVERY_ENABLED, PR #922):
+  // true/1/yes/on, case-insensitive.
+  const optedIn = /^(true|1|yes|on)$/i.test((env.MINSKY_AUTO_MIGRATE ?? "").trim());
   if (!optedIn) return false;
   const callerOwnsClient = deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined;
   return !callerOwnsClient;
@@ -312,6 +315,9 @@ export class PostgresPersistenceProvider
       } else if (deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined) {
         log.debug("Skipping auto-migration: caller-injected deps (test seam)");
       } else {
+        // debug (not warn): this is now the routine per-boot path on every CLI/
+        // hook/session/MCP process — consistent with the sibling test-seam skip
+        // above. Verified (mt#2560): no CI gate / smoke / runbook greps this line.
         log.debug(
           "Skipping auto-migration (default OFF, mt#2560): MINSKY_AUTO_MIGRATE not opted in. " +
             "Migrations are applied out-of-band by the deploy-keyed runner (mt#2505)."
