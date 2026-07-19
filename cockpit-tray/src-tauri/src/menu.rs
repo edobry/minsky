@@ -26,22 +26,24 @@ pub(crate) const COCKPIT_URL: &str = "http://localhost:3737";
 pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
 
 /// Init script injected into the cockpit webview so external-link clicks reach
-/// the `on_navigation` handler below (mt#2942). A `target="_blank"` click never
-/// becomes a top-frame navigation on its own -- WKWebView routes it to a
-/// new-window request Tauri drops -- so `on_navigation` alone would miss exactly
-/// the links `Prose` renders (Notion, GitHub, arbitrary https). This capturing
-/// click listener rewrites external-anchor clicks into a top-frame navigation
-/// so `on_navigation` can intercept them; internal/same-origin links fall
-/// through to react-router untouched. Injected ONLY into the tray webview, so a
-/// browser-viewed cockpit (localhost:3737 in Chrome) keeps native
-/// `target="_blank"` behavior.
+/// the `on_navigation` handler below (mt#2942). Only anchors that open a NEW
+/// window/tab need help: WKWebView routes a `target="_blank"` click to a
+/// new-window request Tauri drops, so `on_navigation` never sees it. A plain
+/// same-frame anchor already navigates the top frame (which `on_navigation`
+/// intercepts directly), so the shim deliberately leaves those alone. For a
+/// new-window-targeted EXTERNAL link it rewrites the click into a top-frame
+/// navigation so `on_navigation` can open it in the OS browser -- the only way
+/// to honor "open elsewhere" intent in a tab-less WKWebView. Injected ONLY into
+/// the tray webview, so a browser-viewed cockpit keeps native `target="_blank"`
+/// behavior.
 const EXTERNAL_LINK_SHIM: &str = r#"
 (function () {
   document.addEventListener('click', function (e) {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    var el = e.target;
-    var a = el && el.closest ? el.closest('a[href]') : null;
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
     if (!a) return;
+    var target = a.getAttribute('target');
+    if (!target || target === '_self') return;
     var href = a.getAttribute('href');
     if (!href) return;
     var url;
@@ -53,18 +55,6 @@ const EXTERNAL_LINK_SHIM: &str = r#"
   }, true);
 })();
 "#;
-
-/// True for URLs the cockpit webview may load in-place: the SPA's own origin
-/// (localhost / 127.0.0.1 -- initial load, Cmd+R reload, the deep-link recovery
-/// `navigate`) and non-http(s) schemes the webview uses internally
-/// (tauri:/data:/about:). Everything else is an external link that must open in
-/// the OS browser instead of navigating the SPA away (mt#2942).
-fn is_cockpit_internal_url(url: &tauri::Url) -> bool {
-    match url.scheme() {
-        "http" | "https" => matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")),
-        _ => true,
-    }
-}
 
 /// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
 /// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
@@ -371,21 +361,39 @@ fn create_cockpit_window(app: &AppHandle) {
         // Open external (non-cockpit) links in the OS browser instead of
         // silently dropping them (mt#2942). The SPA is an untrusted external-URL
         // webview with NO IPC bridge (ADR-023), so the frontend cannot call an
-        // opener plugin -- this lives entirely in the tray. Same-origin
-        // (localhost) loads and non-http schemes pass through; any other http(s)
-        // URL is handed to the OS default browser and the in-webview navigation
-        // is CANCELLED (return false) so the SPA is never navigated away. Paired
-        // with EXTERNAL_LINK_SHIM, which funnels target="_blank" clicks here.
-        // Canonical Tauri pattern (on_navigation -> cancel -> opener); see
+        // opener plugin -- this lives entirely in the tray. Paired with
+        // EXTERNAL_LINK_SHIM, which funnels new-window (target="_blank") clicks
+        // here. Canonical Tauri pattern (on_navigation -> cancel -> opener); see
         // https://v2.tauri.app/plugin/opener/ and tauri-apps/tauri#4756.
         .on_navigation(|url| {
-            if is_cockpit_internal_url(url) {
-                return true;
+            match url.scheme() {
+                "http" | "https" => {
+                    // The cockpit SPA's own origin loads in place (initial load,
+                    // Cmd+R reload, deep-link recovery navigate); react-router
+                    // nav is client-side and never reaches here.
+                    if matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) {
+                        return true;
+                    }
+                    // Any other web origin is external: open in the OS default
+                    // browser and CANCEL the in-webview nav so the SPA is never
+                    // navigated away. `open::that` is synchronous (it spawns the
+                    // platform opener and returns); on failure we log and still
+                    // cancel -- navigating the webview to the external site
+                    // would lose the cockpit, which is worse than a no-op.
+                    if let Err(e) = open::that(url.as_str()) {
+                        eprintln!("[cockpit-tray] failed to open external URL {url} in browser: {e}");
+                    }
+                    false
+                }
+                // Webview-internal schemes used during normal operation -- allow.
+                "about" | "blob" => true,
+                // javascript:/data:/file:/mailto:/tel:/custom schemes: neither
+                // the cockpit origin nor a web link to hand to the OS browser.
+                // REFUSE the in-webview navigation and do NOT shell it out
+                // (review R1: never let javascript:/file:/data: navigate the
+                // webview).
+                _ => false,
             }
-            if let Err(e) = open::that(url.as_str()) {
-                eprintln!("[cockpit-tray] failed to open external URL {url} in browser: {e}");
-            }
-            false
         })
         .initialization_script(EXTERNAL_LINK_SHIM)
         .build()

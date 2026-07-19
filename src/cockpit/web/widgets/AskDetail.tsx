@@ -69,6 +69,9 @@ const ROUTABLE_CONTEXT_KINDS = new Set<RoutableEntityType>([
  */
 function contextRefHref(kind: string, ref: string): { href: string; external: boolean } | null {
   if (kind === "notion") {
+    // Accept a pasted full Notion URL as-is; otherwise treat the ref as a page
+    // id (32-hex, optionally dashed) and build the canonical www.notion.so URL.
+    if (/^https?:\/\//i.test(ref)) return { href: ref, external: true };
     const id = ref.replace(/-/g, "");
     if (!/^[0-9a-fA-F]{32}$/.test(id)) return null;
     return { href: `https://www.notion.so/${id}`, external: true };
