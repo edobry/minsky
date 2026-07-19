@@ -1,1 +1,0 @@
-ALTER TYPE "public"."system_event_type" ADD VALUE 'authorization.policy_covered' BEFORE 'task.bulk_edit.dry_run';
