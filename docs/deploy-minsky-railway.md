@@ -217,10 +217,10 @@ expand-contract discipline is what keeps the deploy window safe.
   and drizzle's high-water-mark migrator is a no-op when nothing is pending, so
   a retried run resumes safely.
 
-> **Sequencing note:** `MINSKY_AUTO_MIGRATE` still defaults ON, so the container
-> also self-migrates on boot today — redundant with this step (both are
-> idempotent), which is intentional: it keeps a backstop until the default is
-> flipped OFF in the mt#2505 follow-up, after this step is verified live.
+> **Sequencing note:** `MINSKY_AUTO_MIGRATE` now defaults **OFF** (mt#2560), so
+> the container no longer self-migrates on boot — this deploy-keyed step is the
+> sole prod migrator. Auto-migrate-on-boot remains available as an explicit
+> opt-in (`MINSKY_AUTO_MIGRATE=1`) for a local/dev/throwaway DB you solely own.
 
 ## OAuth runbook (mt#1634, shipped May 2026)
 
