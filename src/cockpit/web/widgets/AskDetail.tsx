@@ -13,6 +13,8 @@ import { Button } from "../components/ui/button";
 import { Prose } from "../components/Prose";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { formatRequestor } from "../lib/entity-labels";
+import { Link } from "react-router-dom";
+import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -47,6 +49,37 @@ export interface ContextRef {
   kind: string;
   ref: string;
   description?: string;
+}
+
+/** Ask contextRef kinds that resolve to an in-SPA entity detail route (mt#2942). */
+const ROUTABLE_CONTEXT_KINDS = new Set<RoutableEntityType>([
+  "task",
+  "ask",
+  "session",
+  "memory",
+  "changeset",
+  "conversation",
+]);
+
+/**
+ * Resolve an Ask contextRef to a clickable destination (mt#2942). Entity refs
+ * route to their in-SPA detail page; a `notion` ref opens the Notion doc in the
+ * operator's browser (the tray's external-link handler routes it there).
+ * Everything else (e.g. `file`) has no reliable target and stays plain text.
+ */
+function contextRefHref(kind: string, ref: string): { href: string; external: boolean } | null {
+  if (kind === "notion") {
+    // Accept a pasted full Notion URL as-is; otherwise treat the ref as a page
+    // id (32-hex, optionally dashed) and build the canonical www.notion.so URL.
+    if (/^https?:\/\//i.test(ref)) return { href: ref, external: true };
+    const id = ref.replace(/-/g, "");
+    if (!/^[0-9a-fA-F]{32}$/.test(id)) return null;
+    return { href: `https://www.notion.so/${id}`, external: true };
+  }
+  if (ROUTABLE_CONTEXT_KINDS.has(kind as RoutableEntityType)) {
+    return { href: entityToPath(kind as RoutableEntityType, ref), external: false };
+  }
+  return null;
 }
 
 /** Recorded response on a terminal ask (mt#2669). */
@@ -392,15 +425,38 @@ export function AskDetail({
         {ask.contextRefs && ask.contextRefs.length > 0 && (
           <div className="space-y-1">
             <p className="text-xs font-medium text-muted-foreground">Context:</p>
-            {ask.contextRefs.map((ref, i) => (
-              <div key={i} className="text-xs text-muted-foreground pl-2 border-l-2 border-border">
-                <span className="font-medium">{ref.kind}:</span>{" "}
-                <span className="font-mono">{ref.ref}</span>
-                {ref.description && (
-                  <span className="ml-1 text-muted-foreground/70"> — {ref.description}</span>
-                )}
-              </div>
-            ))}
+            {ask.contextRefs.map((ref, i) => {
+              const link = contextRefHref(ref.kind, ref.ref);
+              return (
+                <div key={i} className="text-xs text-muted-foreground pl-2 border-l-2 border-border">
+                  <span className="font-medium">{ref.kind}:</span>{" "}
+                  {link ? (
+                    link.external ? (
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="font-mono text-primary underline-offset-2 hover:underline"
+                      >
+                        {ref.ref}
+                      </a>
+                    ) : (
+                      <Link
+                        to={link.href}
+                        className="font-mono text-primary underline-offset-2 hover:underline"
+                      >
+                        {ref.ref}
+                      </Link>
+                    )
+                  ) : (
+                    <span className="font-mono">{ref.ref}</span>
+                  )}
+                  {ref.description && (
+                    <span className="ml-1 text-muted-foreground/70"> — {ref.description}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
