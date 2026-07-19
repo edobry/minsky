@@ -442,6 +442,13 @@
       "when": 1784419302827,
       "tag": "0062_backfill_agent_transcripts_project_id",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1784479106335,
+      "tag": "0063_authorization-policy-covered-event-type",
+      "breakpoints": true
     }
   ]
 }
