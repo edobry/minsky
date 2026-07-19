@@ -8,7 +8,7 @@
  */
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { MemoryDetailBody } from "../widgets/MemoryDetail";
-import { shortenId } from "../lib/format";
+import { CopyId } from "../components/CopyId";
 
 export function MemoryPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,9 +26,7 @@ export function MemoryPage() {
           Memories
         </Link>
         <span aria-hidden="true">/</span>
-        <span className="font-mono text-foreground" title={memoryId}>
-          {shortenId(memoryId)}
-        </span>
+        <CopyId type="memory" id={memoryId} />
       </nav>
 
       {memoryId ? (

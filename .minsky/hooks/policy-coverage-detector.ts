@@ -38,8 +38,8 @@
 // @see docs/research/mt1035-system3-detector.md §Surface 1, §Hook-pipeline integration
 
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { readInput, writeOutput } from "./types";
+import { dirname, join } from "node:path";
+import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
 
 import {
@@ -272,8 +272,11 @@ if (import.meta.main) {
     filePath: params.filePath,
   };
 
-  // Resolve repo root from cwd (the parent agent's working directory).
-  const repoRoot = resolve(input.cwd);
+  // Resolve the actual repo root by walking up from cwd (mt#2710): the
+  // parent agent's working directory is routinely a repo SUBDIRECTORY, and a
+  // bare `resolve(input.cwd)` scatters the calibration log + dismissals file
+  // into a stray subdirectory `.minsky/` instead of the real repo root.
+  const repoRoot = findRepoRoot(input.cwd);
 
   // Skip detector's own infra paths to avoid recursion / self-blocks.
   if (

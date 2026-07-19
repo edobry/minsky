@@ -20,7 +20,7 @@
  */
 import { log } from "@minsky/shared/logger";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
-import { getServerAskRepository } from "./db-providers";
+import { getServerAskRepository, getServerFollowUpService } from "./db-providers";
 import { TranscriptSweepTracker } from "./transcript-sweep-tracker";
 
 // ---------------------------------------------------------------------------
@@ -960,6 +960,101 @@ export function startDeploySmokeSweeper(intervalMs?: number): () => void {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: deploy.smoke sweep failed", { message });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled follow-up sweeper (mt#2322 — general recurring-job scheduler
+// facility's first consumer; remaining scope of parent mt#2234)
+// ---------------------------------------------------------------------------
+
+/**
+ * Default cadence for the scheduled-follow-up sweeper. A follow-up's "fires
+ * locally at its scheduled time" contract only needs local precision — 1
+ * minute matches the meta-watchdog's own cadence and keeps a follow-up's
+ * fire-delay bounded without a tight DB-polling loop.
+ */
+const FOLLOW_UP_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Start the periodic scheduled-follow-up sweep in this cockpit process
+ * (mt#2322). This IS the "recurring-job scheduler facility" concretely
+ * instantiated: `createIntervalSweeper` is the general recurring-job
+ * primitive (already proven general by every OTHER sweeper in this file —
+ * ask advancement, prod-state, topology, transcript backstop, dispatch
+ * watchdog, deploy.smoke); the follow-up sweep is simply its newest
+ * registrant, and the DB-durable `scheduled_follow_ups` table is the
+ * one-shot "fire at a specific time" primitive layered on top (storage-backed
+ * rather than an in-memory `setTimeout`, so a follow-up survives a daemon
+ * restart between creation and its due time — sweeper-not-durable-queue per
+ * `decision-defaults.mdc §Reliability`).
+ *
+ * Each tick calls `FollowUpService.fireDue()`, which is idempotent (only
+ * `pending` rows are affected, via a status-guarded UPDATE) — so overlapping
+ * ticks, a sweep re-run, or the daemon restarting mid-cycle can never
+ * double-fire a follow-up.
+ *
+ * Fail-open: no SQL-capable DB / a failed pass logs and waits for the next
+ * tick — never crashes the cockpit. Sweep-liveness (lastAttemptAt/
+ * lastSuccessAt/lastErrorAt) is already covered generically by
+ * `createIntervalSweeper`'s registry (`GET /api/sweeps`, mt#2894) — no
+ * follow-up-specific tracker is needed.
+ *
+ * @returns stop function (clears the interval).
+ */
+
+/**
+ * Minimal shape the follow-up sweeper needs from a FollowUpService — just
+ * `fireDue`. Declared narrowly (rather than importing the concrete class)
+ * so tests can inject a fake without constructing a real DB-backed service.
+ */
+export interface FollowUpSweepDeps {
+  fireDue: () => Promise<{
+    fired: Array<{ id: string }>;
+    errored: Array<{ id: string; error: string }>;
+  }>;
+}
+
+/** Options accepted by {@link startFollowUpSweeper}. */
+export interface FollowUpSweeperOptions {
+  /** Cadence override in milliseconds (default: FOLLOW_UP_SWEEP_INTERVAL_MS). */
+  intervalMs?: number;
+  /**
+   * Injectable deps for testing. When absent, the real DB path is used
+   * (getServerFollowUpService — the cockpit-wide PersistenceService
+   * singleton's FollowUpService).
+   */
+  deps?: FollowUpSweepDeps;
+}
+
+export function startFollowUpSweeper(opts?: FollowUpSweeperOptions): () => void {
+  return createIntervalSweeper({
+    name: "scheduled follow-ups",
+    intervalMs: opts?.intervalMs ?? FOLLOW_UP_SWEEP_INTERVAL_MS,
+    tick: async () => {
+      try {
+        const service: FollowUpSweepDeps | null = opts?.deps ?? (await getServerFollowUpService());
+        if (!service) {
+          // Non-SQL provider: nothing to sweep.
+          log.debug("cockpit: follow-up sweep: no SQL-capable DB, skipping tick");
+          return;
+        }
+        const { fired, errored } = await service.fireDue();
+        if (fired.length > 0) {
+          log.info(`cockpit: fired ${fired.length} scheduled follow-up(s)`, {
+            ids: fired.map((f) => f.id),
+          });
+        }
+        if (errored.length > 0) {
+          log.warn(`cockpit: ${errored.length} scheduled follow-up(s) failed to fire`, {
+            errored,
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: follow-up sweep failed", { message });
       }
     },
   });

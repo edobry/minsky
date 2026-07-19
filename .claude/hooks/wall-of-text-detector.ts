@@ -43,7 +43,7 @@
 // @see mt#2870 — this task
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
 
-import { readInput, readHostCap, deriveBudgets } from "./types";
+import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { parseTranscript, extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
@@ -194,7 +194,10 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
-    const logPath = resolve(cwd, CALIBRATION_LOG);
+    // mt#2710: resolve the actual repo ROOT, not the raw shell cwd — `cwd` is
+    // routinely a repo subdirectory, and a bare `resolve(cwd, ...)` would
+    // scatter this calibration log into a stray subdirectory `.minsky/`.
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const dir = dirname(logPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });

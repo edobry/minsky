@@ -43,6 +43,36 @@ import { writeTurnsForTranscript } from "./turn-writer";
 import { writeCwdMatchLink } from "./session-link-writer";
 import { scrubValueDeep, type RedactionHit } from "./credential-scrubber";
 import { recordCredentialScrub, realCredentialScrubLogDeps } from "./credential-scrub-log";
+import { resolveProjectIdentity } from "../project/identity";
+import { resolveProjectScope } from "../project/scope-resolver";
+import { isAllProjects } from "../project/scope";
+
+/**
+ * Resolve a project uuid for a transcript from its recovered `cwd`, using the
+ * same slug resolver the CLI/stdio MCP supplier uses for tasks/sessions/memories/
+ * asks (ADR-021, mt#2416). Returns null (never throws) when `cwd` is absent, the
+ * identity can't be resolved (e.g. no git remote), or no matching `projects` row
+ * exists — mirroring the "unidentified -> ALL_PROJECTS" fail-open posture, since
+ * ingestion must never block on project resolution (mt#2417, Phase 1.4).
+ */
+async function resolveIngestProjectId(
+  cwd: string | null | undefined,
+  db: PostgresJsDatabase
+): Promise<string | null> {
+  if (!cwd) return null;
+  try {
+    const identity = resolveProjectIdentity({ repoPath: cwd });
+    if (identity.kind !== "resolved") return null;
+    const scope = await resolveProjectScope(identity, db);
+    return isAllProjects(scope) ? null : scope;
+  } catch (err) {
+    log.debug("[transcripts] Project id resolution failed for ingest; leaving unscoped", {
+      cwd,
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
 
 export class AgentTranscriptIngestService {
   constructor(
@@ -234,6 +264,14 @@ export class AgentTranscriptIngestService {
     // already-ingested lines (harmless now that the append is uuid-deduped,
     // but wasteful).
     //
+    // Project scoping (mt#2417, Phase 1.4): resolve from the recovered cwd.
+    // Unlike `cwd` (strictly insert-only), `project_id` IS refreshed on
+    // conflict via COALESCE-forward below — a session first ingested before
+    // its cwd was recoverable can still get scoped once a later ingest
+    // resolves it, without ever downgrading an already-resolved project back
+    // to null (mirrors the `writeCwdMatchLink` precedence note above).
+    const resolvedProjectId = await resolveIngestProjectId(session.cwd, this.db);
+
     // Fields restricted to insert-only (harness, cwd, project_dir, started_at)
     // are not overwritten on conflict.
     try {
@@ -251,6 +289,7 @@ export class AgentTranscriptIngestService {
           // `cwd` expect a working directory, not a transcript path.
           cwd: session.cwd ?? undefined,
           projectDir: deriveProjectDir(jsonlPath),
+          projectId: resolvedProjectId ?? undefined,
           lastIngestedJsonlTimestamp: latestTs ?? undefined,
           ingestedAt: new Date(),
         })
@@ -275,6 +314,7 @@ export class AgentTranscriptIngestService {
             // regress a stored value. Verified empirically on PG17.
             lastIngestedJsonlTimestamp: sql`GREATEST(${agentTranscriptsTable.lastIngestedJsonlTimestamp}, EXCLUDED.last_ingested_jsonl_timestamp)`,
             ingestedAt: sql`EXCLUDED.ingested_at`,
+            projectId: sql`COALESCE(${agentTranscriptsTable.projectId}, EXCLUDED.project_id)`,
           },
         });
     } catch (err) {

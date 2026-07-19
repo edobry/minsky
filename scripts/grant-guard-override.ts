@@ -24,7 +24,9 @@
  * Flags:
  *
  *   --guard <name>        Required. The guard name to override (e.g.
- *                          "duplicate-child-matcher", or any name registered
+ *                          "duplicate-child-matcher" or "parallel-work-open-pr"
+ *                          — the parallel-work hook's two guards, mt#2658 /
+ *                          mt#1637 — or any name registered
  *                          in `.minsky/hooks/registry.ts`'s `GUARD_REGISTRY`
  *                          for a dispatcher-migrated guard).
  *   --scope <qualifier>   Required. Scope the grant is bound to — e.g. a

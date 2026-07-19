@@ -1,8 +1,12 @@
 /**
  * Layout — shell wrapper for the Cockpit app (mt#2397 rail, mt#2398 tabs).
  *
- * Two-column app shell:
- *   1. Rail — persistent left navigation spine (mt#2397).
+ * Two-column app shell on desktop, single column on mobile (mt#2604):
+ *   1. Rail — persistent left navigation spine on `md`+ (mt#2397); below
+ *      `md` it renders a slim top bar + hamburger-triggered slide-in drawer
+ *      instead (mt#2604), so the outer container's flex-direction switches
+ *      from column (mobile: top bar stacked above content) to row (desktop:
+ *      sidebar beside content) at the same `md` breakpoint Rail uses.
  *   2. Workspace column — TabBar (the open-entity working set, hidden when
  *      empty) above the scrollable main content area.
  *
@@ -26,7 +30,7 @@ interface Props {
 export function Layout({ children }: Props) {
   return (
     <TabsProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="flex h-screen flex-col overflow-hidden bg-background md:flex-row">
         <Rail />
         <div className="flex min-w-0 flex-1 flex-col">
           <TabBar />
