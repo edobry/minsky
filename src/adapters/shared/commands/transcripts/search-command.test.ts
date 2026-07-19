@@ -42,7 +42,7 @@ describe("transcripts.search command", () => {
       expect(command.description).toContain("cosine distance");
     });
 
-    test("declares query, limit, role, from, to, and session parameters", () => {
+    test("declares query, limit, role, from, to, session, and allProjects parameters", () => {
       const command = getCommand();
       const params = command.parameters as Record<string, unknown>;
       expect(params.query).toBeDefined();
@@ -51,9 +51,10 @@ describe("transcripts.search command", () => {
       expect(params.from).toBeDefined();
       expect(params.to).toBeDefined();
       expect(params.session).toBeDefined();
+      expect(params.allProjects).toBeDefined();
     });
 
-    test("query is required; limit defaults to 10; optional params have no default", () => {
+    test("query is required; limit defaults to 10; allProjects defaults to false; other optional params have no default", () => {
       const command = getCommand();
       const params = command.parameters as Record<
         string,
@@ -65,6 +66,7 @@ describe("transcripts.search command", () => {
       expect(params.from?.defaultValue).toBeUndefined();
       expect(params.to?.defaultValue).toBeUndefined();
       expect(params.session?.defaultValue).toBeUndefined();
+      expect(params.allProjects?.defaultValue).toBe(false);
     });
   });
 
