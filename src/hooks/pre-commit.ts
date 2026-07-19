@@ -7,7 +7,7 @@
  * Minsky's own infrastructure for consistent configuration and error handling.
  */
 
-import { execAsync } from "@minsky/shared/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -1221,10 +1221,19 @@ export class PreCommitHook {
     // (this is a NEW-drift detector, not a first-commit correctness gate).
     let baseEntries: JournalEntry[];
     try {
-      const result = await execGitWithTimeout("show", `show origin/main:${journalRelPath}`, {
-        workdir: this.projectRoot,
-        timeout: 5000,
-      });
+      // journalRelPath is a hardcoded constant (no external input); still, shell-quote
+      // the ref via the repo's shell-safety primitive (`safeShellQuote`, exec.ts) so
+      // there is no shell-interpolation surface. The git-exec module runs via shell
+      // (`execAsync`), not argv — there is no argv git helper — so quoting is the
+      // established alignment with prior shell-safety fixes.
+      const result = await execGitWithTimeout(
+        "show",
+        `show ${safeShellQuote(`origin/main:${journalRelPath}`)}`,
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
       const parsed = JSON.parse(result.stdout.toString()) as { entries?: JournalEntry[] };
       baseEntries = parsed.entries ?? [];
     } catch {
