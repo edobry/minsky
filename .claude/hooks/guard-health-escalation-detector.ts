@@ -32,38 +32,91 @@
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { getGuardHealthSummary } from "./guard-health";
+import { getGuardHealthSummary, STALE_ESCALATION_WINDOW_MS } from "./guard-health";
 import type { GuardHealthSummary } from "./guard-health";
 
 export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
 }
 
+/** Humanize a millisecond age as "Nh Mm" / "Nh" / "Mm" for banner display. mt#2969. */
+function formatAge(ms: number | null): string {
+  if (ms == null) return "unknown";
+  const totalMin = Math.max(0, Math.floor(ms / 60000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}
+
 /**
  * Build the operator/agent-facing warning naming every currently-critical
  * guard. Returns null when overall escalation is not "critical" (the common
- * case — no injection, matching every other guard's "write nothing on
- * allow" convention).
+ * case — no injection). mt#2969: critical guards are partitioned into LIVE
+ * (a failure within STALE_ESCALATION_WINDOW_MS) and STALE (no failure since —
+ * likely recovered or dormant). A stale-only escalation is DE-ALARMED rather
+ * than presented as an active incident — a stale ~19h-old streak previously
+ * read as a live "CRITICAL" and drove a multi-hour misdiagnosis.
  */
 export function buildCriticalWarning(summary: GuardHealthSummary): string | null {
   if (summary.escalation !== "critical" || summary.criticalGuards.length === 0) return null;
 
-  const lines = summary.criticalGuards.map((name) => {
+  // Freshness-window label derived from the constant so the banner text can't
+  // drift from STALE_ESCALATION_WINDOW_MS (mt#2969 review nit).
+  const windowLabel = formatAge(STALE_ESCALATION_WINDOW_MS);
+
+  const live: string[] = [];
+  const stale: string[] = [];
+  for (const name of summary.criticalGuards) {
+    (summary.byGuard[name]?.stale ? stale : live).push(name);
+  }
+
+  const liveLine = (name: string): string => {
     const entry = summary.byGuard[name];
     const streak = entry?.consecutiveStreak ?? 0;
     const lastMessage = entry?.lastEvent?.message ?? "unknown error";
     return `  - ${name}: ${streak} consecutive failures (last: ${lastMessage})`;
-  });
+  };
+  const staleLine = (name: string): string => {
+    const entry = summary.byGuard[name];
+    const streak = entry?.consecutiveStreak ?? 0;
+    const age = formatAge(entry?.lastFailureAgeMs ?? null);
+    return `  - ${name}: ${streak} failures, last ${age} ago — none since (likely stale)`;
+  };
 
+  if (live.length > 0) {
+    const lines = [
+      "⚠️ Guard-health escalation: CRITICAL. The following guard(s) have failed " +
+        "3+ times in a row and cannot currently be trusted to enforce their " +
+        "check — a fail-open guard that crashes permits silently, so its most " +
+        'recent "allow" reflects a crash, not a verified check:',
+      ...live.map(liveLine),
+    ];
+    if (stale.length > 0) {
+      lines.push(
+        `Also had a failure streak but NONE within the last ${windowLabel} (likely stale — ` +
+          "recovered or dormant; verify, don't treat as active):",
+        ...stale.map(staleLine)
+      );
+    }
+    lines.push(
+      "Treat the ACTIVE guards' recent permits as unchecked, not verified-allow. See " +
+        "`mcp__minsky__debug_systemInfo`'s `guardHealth` field, or the cockpit " +
+        "guard-health widget, for full detail."
+    );
+    return lines.join("\n");
+  }
+
+  // Only stale critical guards (mt#2969): de-alarmed. A streak that has gone
+  // quiet (no failure within STALE_ESCALATION_WINDOW_MS) is likely recovered
+  // or dormant, not an active incident. Surface it (nothing lost) without the
+  // "cannot be trusted" active-danger framing; it clears on the 24h age-out.
   return [
-    "⚠️ Guard-health escalation: CRITICAL. The following guard(s) have failed " +
-      "3+ times in a row and cannot currently be trusted to enforce their " +
-      "check — a fail-open guard that crashes permits silently, so its most " +
-      'recent "allow" reflects a crash, not a verified check:',
-    ...lines,
-    "Treat these guards' recent permits as unchecked, not verified-allow. See " +
-      "`mcp__minsky__debug_systemInfo`'s `guardHealth` field, or the cockpit " +
-      "guard-health widget, for full detail.",
+    "ℹ️ Guard-health: the following guard(s) had a failure streak but NONE within " +
+      `the last ${windowLabel} — likely stale (recovered or dormant), NOT an active incident. ` +
+      "Verify via `mcp__minsky__debug_systemInfo`'s `guardHealth` before treating as " +
+      "live; a stale streak clears automatically once its last failure ages past 24h:",
+    ...stale.map(staleLine),
   ].join("\n");
 }
 

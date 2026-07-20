@@ -6,6 +6,9 @@ out
 dist/
 # mt#1740: measurement output from scripts/measure-cold-start.ts (per-run results, not committed)
 scripts/cold-start-results.json
+# mt#2968: machine-specific benchmark output from scripts/benchmark-cold-boot.ts
+# (absolute paths, timestamps — baseline is recorded in the mt#2968 task record, not here)
+scripts/cold-boot-benchmark-results.json
 # mt#1930: ephemeral output from scripts/principal-corpus/ — classifier cache,
 # ingestion stats, memeplex JSON. Local runtime artifacts; not committed.
 tmp/
