@@ -1975,6 +1975,10 @@ label each section per the sense it shows, not blend the words.
 
 ## External self-resolving waits: arm a watcher, don't delegate to the operator
 
+(Lives here rather than `decision-defaults.mdc` — its recommended sibling home was already near
+the per-rule 15,000-char compile ceiling; this section fits thematically as another
+don't-hand-to-the-human-what-the-agent-can-do instance.)
+
 Turn-end "blocked" splits into two categories that must not be collapsed: **(a) blocked on a
 principal decision** (naming, scope change, framework choice, authorization) — stop and
 escalate; the legitimate handoff. **(b) blocked on an external, self-resolving condition** (a
@@ -1984,7 +1988,8 @@ keep going**; do NOT delegate the wait to the operator.
 
 **Mechanisms:** `Bash` with `run_in_background: true` + an `until`-loop for a single completion;
 `Monitor` for per-occurrence streams (log lines, status changes); `ScheduleWakeup` for interval
-re-checks with no single exit condition. Cadence: 30s+ for remote APIs.
+re-checks with no single exit condition. Cadence: 30s+ for remote APIs — back off on repeated
+5xx/429s and respect provider-specific rate windows rather than tightening the loop.
 
 **Correct shape:** "GitHub is 503ing — I've armed a 30s background poll and will resume the
 merge on recovery, no action needed from you." **Anti-pattern:** "Ping me when GitHub's back" —
@@ -1993,8 +1998,8 @@ handing an autonomously-watchable wait to the human.
 **Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
 the tools to observe and self-resume already exist.
 
-**Family kinship** (don't hand the human what the agent can do itself): `§Probe-before-deferring`
-(`User Preferences`, mt#1811); the stop-at-handoff family (mt#2689, memory `06a454a5`);
+**Family kinship** (don't hand the human what the agent can do itself): `§Probe before deferring`
+(`User Preferences`, mt#1819); the stop-at-handoff family (mt#2689, memory `06a454a5`);
 "long-paused subagent ≠ dead" (memory `5f2154cd`). This is the external-dependency-wait
 instance — distinct from capability-deferral and from chain-walk-stop.
 
