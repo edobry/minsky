@@ -9,15 +9,48 @@
 
 import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
 import { createHash } from "crypto";
+import { join } from "path";
+// Only used by the hash-scheme-drift-guard test below, which reads real
+// shipped migration files by design (see that describe block for the full
+// justification).
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { readFileSync } from "fs";
 import {
   isProdPostgresConnection,
   checkUnmergedMigrations,
   computeMigrationHash,
   resolvePendingMigrations,
+  formatPendingMigrationsListing,
+  resolvePgMigrationsFolder,
   UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV,
   type JournalEntry,
+  type Journal,
 } from "./postgres-migration-operations";
 import * as childProcess from "child_process";
+
+// ---------------------------------------------------------------------------
+// Shared fixtures for the mt#2936 / PR #2088 hash-based pending-migration
+// tests below (resolvePendingMigrations, formatPendingMigrationsListing).
+// ---------------------------------------------------------------------------
+
+const FAKE_MIGRATIONS_FOLDER = "/fake/migrations/pg";
+const SQL_INITIAL = "CREATE TABLE initial (id serial primary key);";
+const SQL_SECOND = "CREATE TABLE second (id serial primary key);";
+const SCHEDULED_FOLLOW_UPS_TAG = "0002_scheduled_follow_ups";
+
+/** Build a fake file reader over an in-memory tag → content map. */
+function fakeReader(contents: Record<string, string>): (absPath: string) => string {
+  return (absPath: string) => {
+    // The entry's tag is embedded in the constructed filename
+    // (`<migrationsFolder>/<tag>.sql`); match by suffix so the fake
+    // reader doesn't need to replicate path-joining logic.
+    const tag = Object.keys(contents).find((t) => absPath.endsWith(`${t}.sql`));
+    if (!tag) {
+      throw new Error(`fakeReader: no fixture content for path ${absPath}`);
+    }
+    return contents[tag];
+  };
+}
 
 // ---------------------------------------------------------------------------
 // isProdPostgresConnection
@@ -400,25 +433,6 @@ describe("computeMigrationHash", () => {
 });
 
 describe("resolvePendingMigrations", () => {
-  const FAKE_MIGRATIONS_FOLDER = "/fake/migrations/pg";
-  const SQL_INITIAL = "CREATE TABLE initial (id serial primary key);";
-  const SQL_SECOND = "CREATE TABLE second (id serial primary key);";
-  const SCHEDULED_FOLLOW_UPS_TAG = "0002_scheduled_follow_ups";
-
-  /** Build a fake file reader over an in-memory tag → content map. */
-  function fakeReader(contents: Record<string, string>): (absPath: string) => string {
-    return (absPath: string) => {
-      // The entry's tag is embedded in the constructed filename
-      // (`<migrationsFolder>/<tag>.sql`); match by suffix so the fake
-      // reader doesn't need to replicate path-joining logic.
-      const tag = Object.keys(contents).find((t) => absPath.endsWith(`${t}.sql`));
-      if (!tag) {
-        throw new Error(`fakeReader: no fixture content for path ${absPath}`);
-      }
-      return contents[tag];
-    };
-  }
-
   test(
     "mt#2936 repro: DB ledger row count >= local file count, but a specific " +
       "migration's hash is absent — reports it pending, NOT silently 0",
@@ -546,5 +560,183 @@ describe("resolvePendingMigrations", () => {
     );
 
     expect(pending).toHaveLength(1);
+  });
+
+  test(
+    "PR #2088 review R1 (BLOCKING): a missing/unreadable migration file is " +
+      "treated as PENDING (fail-loud), sibling entries still resolve correctly",
+    () => {
+      // The old count-only code never touched the filesystem, so a missing,
+      // renamed, or unreadable .sql file (partial checkout, in-flight rename,
+      // permissions issue) is a NEW failure mode introduced by the hash-based
+      // comparison. It must NOT crash the caller, and it must NOT be silently
+      // dropped (that would reintroduce the mt#2936 silent-miss bug class from
+      // a different angle) — it must be reported PENDING so the operator sees
+      // it and investigates.
+      const entries: JournalEntry[] = [
+        { idx: 0, version: "7", when: 1000, tag: "0000_initial", breakpoints: false },
+        { idx: 1, version: "7", when: 2000, tag: "0001_missing", breakpoints: false },
+        { idx: 2, version: "7", when: 3000, tag: "0002_second", breakpoints: false },
+      ];
+      const contents: Record<string, string> = {
+        "0000_initial": SQL_INITIAL,
+        "0002_second": SQL_SECOND,
+        // "0001_missing" deliberately absent from the fixture map — fakeReader
+        // throws for it, simulating an unreadable/missing file on disk.
+      };
+      const appliedHashes = new Set<string>([
+        computeMigrationHash(contents["0000_initial"]),
+        computeMigrationHash(contents["0002_second"]),
+      ]);
+
+      const pending = resolvePendingMigrations(
+        entries,
+        FAKE_MIGRATIONS_FOLDER,
+        appliedHashes,
+        fakeReader(contents)
+      );
+
+      // The unreadable entry is reported pending; the two readable,
+      // fully-applied entries are NOT swept up as false-pending just because
+      // a sibling read failed (no crash, no over-broad fallback).
+      expect(pending.map((e) => e.tag)).toEqual(["0001_missing"]);
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// formatPendingMigrationsListing — labeled/informational CLI output
+// (PR #2088 review R1, BLOCKING #2)
+// ---------------------------------------------------------------------------
+//
+// resolvePendingMigrations reports the per-migration HASH-MISSING set, which
+// is NOT the same computation drizzle-orm's own migrate() uses to decide
+// what to actually apply (a timestamp high-water-mark — see memory
+// 0c2427e5). formatPendingMigrationsListing exists so every CLI surface
+// labels the hash-missing set as informational and explains that it can
+// diverge from what migrate() will really do when the ledger has anomalies.
+
+describe("formatPendingMigrationsListing", () => {
+  const SAMPLE_HEADING = "Pending migration(s):";
+
+  test("empty pending list produces no output lines", () => {
+    expect(formatPendingMigrationsListing(SAMPLE_HEADING, [])).toEqual([]);
+  });
+
+  test("includes the heading, the informational/divergence caveat, and every tag", () => {
+    const lines = formatPendingMigrationsListing(SAMPLE_HEADING, ["0001_second", "0002_third"]);
+
+    expect(lines[0]).toBe(SAMPLE_HEADING);
+    // The caveat must explicitly name BOTH halves of the divergence: this is
+    // a hash comparison, and drizzle's migrate() uses a different mechanism.
+    const caveatText = lines.join(" ");
+    expect(caveatText).toContain("informational");
+    expect(caveatText).toMatch(/hash/i);
+    expect(caveatText).toMatch(/high-water-mark/i);
+    expect(caveatText).toMatch(/migrate\(\)/);
+    expect(lines).toContain("  - 0001_second.sql");
+    expect(lines).toContain("  - 0002_third.sql");
+  });
+
+  test(
+    "divergence scenario: a ledger anomaly makes the hash-missing set differ from " +
+      "what drizzle's high-water-mark would actually apply — labeled output still " +
+      "names the affected migration",
+    () => {
+      // Mirrors the "permanently shadowed migration" mechanics from memory
+      // 0c2427e5: drizzle's migrate() applies a journal entry only when the
+      // ledger's single MAX(created_at) is below that entry's `when`. If an
+      // out-of-band process recorded a ledger row with a `created_at` HIGHER
+      // than a genuinely-unapplied migration's `when` (e.g. a later migration
+      // was applied first, or a reconciliation script inserted a row with a
+      // future timestamp), drizzle's high-water-mark check will SILENTLY SKIP
+      // that migration forever — even though `resolvePendingMigrations`
+      // correctly flags it pending by hash (its hash was never recorded).
+      //
+      // Concretely: journal has two entries, `when` = 1000 and 5000. The
+      // ledger's only recorded hash belongs to neither file, but its
+      // (unmodeled here) created_at would be > 5000 in the shadowed scenario
+      // — so drizzle's own algorithm would apply NEITHER entry on the next
+      // migrate(), while the hash comparison correctly reports BOTH pending.
+      // This is exactly the divergence the caveat warns about: the two
+      // computations disagree, and only the labeled/informational framing
+      // (not a bare "pending" claim) is honest about what the list means.
+      const ALSO_PENDING_TAG = "0001_also_pending";
+      const entries: JournalEntry[] = [
+        { idx: 0, version: "7", when: 1000, tag: "0000_shadowed", breakpoints: false },
+        { idx: 1, version: "7", when: 5000, tag: ALSO_PENDING_TAG, breakpoints: false },
+      ];
+      const contents: Record<string, string> = {
+        "0000_shadowed": "CREATE TABLE shadowed (id serial primary key);",
+        [ALSO_PENDING_TAG]: "CREATE TABLE also_pending (id serial primary key);",
+      };
+      // Ledger has ONE row, whose hash matches neither local file (e.g. an
+      // out-of-band/reconciliation insert) — by hash comparison BOTH entries
+      // are pending, even though a real drizzle ledger with this row's
+      // created_at set above 5000 would silently skip both on migrate().
+      const appliedHashes = new Set<string>(["out-of-band-reconciliation-row-hash"]);
+
+      const pending = resolvePendingMigrations(
+        entries,
+        FAKE_MIGRATIONS_FOLDER,
+        appliedHashes,
+        fakeReader(contents)
+      );
+      expect(pending.map((e) => e.tag)).toEqual(["0000_shadowed", ALSO_PENDING_TAG]);
+
+      const lines = formatPendingMigrationsListing(
+        "Running migrations (in order):",
+        pending.map((e) => e.tag)
+      );
+
+      // The labeled output must still name both migrations (the detector
+      // isn't suppressing anything) AND carry the caveat explaining that
+      // this hash-missing set is not a guaranteed preview of what
+      // migrate()'s own high-water-mark logic will actually do.
+      expect(lines).toContain("  - 0000_shadowed.sql");
+      expect(lines).toContain(`  - ${ALSO_PENDING_TAG}.sql`);
+      expect(lines.join(" ")).toContain("informational");
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// computeMigrationHash vs. drizzle-orm's own readMigrationFiles
+// (NON-BLOCKING, PR #2088 review — hash-scheme-drift guard)
+// ---------------------------------------------------------------------------
+//
+// Reads a REAL migration fixture from this repo's actual migrations folder
+// and cross-checks computeMigrationHash's output against drizzle-orm's own
+// hash computation (drizzle-orm/migrator.js `readMigrationFiles`), so a
+// future drizzle-orm version bump that changes the hash scheme (algorithm,
+// input normalization, etc.) fails this test loudly instead of silently
+// producing hashes that never match a real ledger.
+
+describe("computeMigrationHash matches drizzle-orm (hash-scheme-drift guard)", () => {
+  test("hash of a real migration file matches drizzle-orm's readMigrationFiles output", async () => {
+    const { readMigrationFiles } = await import("drizzle-orm/migrator");
+    const migrationsFolder = resolvePgMigrationsFolder();
+
+    const drizzleMigrations = readMigrationFiles({ migrationsFolder });
+    expect(drizzleMigrations.length).toBeGreaterThan(0);
+
+    // Reading the repo's actual shipped _journal.json IS the point of this
+    // hash-scheme-drift guard.
+    // eslint-disable-next-line custom/no-real-fs-in-tests
+    const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), "utf8");
+    const journal: Journal = JSON.parse(journalRaw);
+    expect(journal.entries.length).toBe(drizzleMigrations.length);
+
+    // Cross-check every entry, not just the first — a scheme-drift bug could
+    // plausibly affect only some file shapes (e.g. one with breakpoints).
+    journal.entries.forEach((entry, i) => {
+      // Reading the repo's actual shipped migration .sql files IS the point
+      // of this drift guard.
+      // eslint-disable-next-line custom/no-real-fs-in-tests
+      const fileContent = readFileSync(join(migrationsFolder, `${entry.tag}.sql`), "utf8");
+      const ourHash = computeMigrationHash(fileContent);
+      const drizzleHash = drizzleMigrations[i]?.hash;
+      expect(ourHash).toBe(drizzleHash);
+    });
   });
 });

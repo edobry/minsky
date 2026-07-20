@@ -324,10 +324,70 @@ export function resolvePendingMigrations(
 ): JournalEntry[] {
   return journalEntries.filter((entry) => {
     const filePath = join(migrationsFolder, `${entry.tag}.sql`);
-    const content = readFile(filePath);
+    let content: string;
+    try {
+      content = readFile(filePath);
+    } catch (err) {
+      // Fail LOUD, not silent. The old count-only code never touched the
+      // filesystem, so a missing/renamed/unreadable migration file (partial
+      // checkout, in-flight rename, permissions issue) is a NEW failure mode
+      // introduced by this hash-based comparison — PR #2088 review R1. A
+      // detector that silently swallowed the read failure and dropped the
+      // entry would reintroduce exactly the silent-miss bug class mt#2936
+      // fixed, just from a different angle. Treat an unreadable file's
+      // applied status as unknown and report it PENDING (a false pending is
+      // safe — it surfaces for investigation; a false 0-pending is not), and
+      // emit a warning so the operator sees the read failure explicitly
+      // instead of only an unexplained pending count.
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `[resolvePendingMigrations] could not read migration file for ${entry.tag} ` +
+          `(${filePath}): ${message}. Treating as PENDING — investigate before applying.`
+      );
+      return true;
+    }
     const hash = computeMigrationHash(content);
     return !appliedHashes.has(hash);
   });
+}
+
+/**
+ * Format a labeled, informational CLI listing of pending migrations.
+ *
+ * PR #2088 review (BLOCKING #2): `resolvePendingMigrations` reports the
+ * per-migration HASH-MISSING set — every journal entry whose file hash is
+ * absent from the ledger. That is NOT the same computation drizzle-orm's own
+ * `migrate()` uses to decide what to actually apply: drizzle applies via a
+ * single-row TIMESTAMP HIGH-WATER-MARK (the latest `created_at` already in
+ * the ledger vs. each journal entry's `when` — `pg-core/dialect.js`), not by
+ * hash-set membership (see mt#2936 PR body + memory `0c2427e5`). When the
+ * ledger has an anomaly — a duplicate/orphaned row, an out-of-band insert,
+ * migrations recorded out of `when`-order — the two computations can
+ * diverge: a migration this list names may be silently skipped by drizzle's
+ * high-water-mark check (permanently shadowed), or the reverse. This
+ * function exists so every CLI surface that prints the hash-missing set
+ * labels it as informational rather than an exact preview of what
+ * `migrate()` is about to do, and explains why the two can differ.
+ *
+ * @param heading  The listing's heading line (varies by call site — dry-run
+ *   preview vs. execute-mode pre-apply summary).
+ * @param pendingTags  Migration tags (without `.sql`) reported pending by hash.
+ * @returns  An array of lines to print, or `[]` when there is nothing pending
+ *   (callers should skip printing entirely in that case).
+ */
+export function formatPendingMigrationsListing(heading: string, pendingTags: string[]): string[] {
+  if (pendingTags.length === 0) {
+    return [];
+  }
+  return [
+    heading,
+    "  NOTE: informational — hash-missing set. drizzle's own migrate() applies by",
+    "  a DIFFERENT mechanism (a timestamp high-water-mark, not hash-set membership;",
+    "  see mt#2936 PR body). The two can diverge when the ledger has anomalies",
+    "  (duplicate/orphaned rows, out-of-order applies) — this is not a guaranteed",
+    "  preview of exactly what migrate() will do.",
+    ...pendingTags.map((tag) => `  - ${tag}.sql`),
+  ];
 }
 
 /**
@@ -594,9 +654,11 @@ export async function runPostgresSchemaMigrations(
         }
       }
       if (status.pendingCount > 0) {
-        log.cli("Pending migration(s):");
-        for (const tag of status.pendingTags) {
-          log.cli(`  - ${tag}.sql`);
+        for (const line of formatPendingMigrationsListing(
+          "Pending migration(s):",
+          status.pendingTags
+        )) {
+          log.cli(line);
         }
         log.cli("");
         log.cli("(use --execute to apply)");
@@ -805,8 +867,12 @@ export async function runPostgresSchemaMigrations(
 
     const start = Date.now();
     if (files.length > 0 && pendingEntries.length > 0) {
-      log.cli("Running migrations (in order):");
-      pendingEntries.forEach((e, i) => log.cli(`  ${i + 1}. ${e.tag}.sql`));
+      for (const line of formatPendingMigrationsListing(
+        "Running migrations (in order):",
+        pendingEntries.map((e) => e.tag)
+      )) {
+        log.cli(line);
+      }
       log.cli("");
     }
     await migrate(db, { migrationsFolder });
