@@ -105,8 +105,9 @@ categorization for a naming problem that a doc paragraph already resolves.
 **A merged/pulled change is usually ALREADY LIVE — don't reflexively rebuild/restart (mt#2970).**
 Under a tray-supervised cockpit (`Minsky Cockpit.app`), the tray watches the source tree and
 self-updates: `cockpit-tray/src-tauri/src/watcher_web.rs` (mt#2297) auto-rebuilds the web bundle on
-`src/cockpit/web` changes, and `watcher_backend.rs` (mt#2299) auto-restarts the daemon on any other
-`src/cockpit` change. The daemon spawns from SOURCE (`bun run src/cli.ts`), so a restart picks up
+`src/cockpit/web` changes, and `cockpit-tray/src-tauri/src/watcher_backend.rs` (mt#2299)
+auto-restarts the daemon on any other `src/cockpit` change. The daemon spawns from SOURCE
+(`bun run src/cli.ts`), so a restart picks up
 backend TS with no build step. Net effect: when `main` fast-forwards to a merge touching
 `src/cockpit/**`, the running cockpit reflects it within seconds — no manual `cockpit:build` or
 restart needed.
@@ -119,8 +120,11 @@ restart needed.
   memory `da2b73ea`; merged≠usable altitude: `427cdf15`.)
 - **Residual gap — `packages/domain`-only changes.** `watcher_backend` watches `src/cockpit` only. A
   change confined to `packages/domain` (which the daemon imports at runtime) with NO `src/cockpit`
-  edit will NOT trigger an auto-restart, so it stays stale until the next `src/cockpit` change or a
-  manual restart. Probe to distinguish; that is the one case a manual restart is genuinely warranted.
+  edit will NOT trigger an auto-restart. The running daemon holds the module cached in memory — Bun
+  caches ES modules, so even a dynamically-`import()`ed domain module is not re-read from disk on
+  change (eager-vs-lazy import makes no difference) — so a restart is required to pick up ANY
+  domain-only change. It stays stale until the next `src/cockpit` change or a manual restart. Probe
+  to distinguish; that is the one case a manual restart is genuinely warranted.
 - When a restart IS needed, prefer the clean primitive `restartDaemon()` (`src/cockpit/launchd.ts`)
   over a hand `kill`/respawn.
 
