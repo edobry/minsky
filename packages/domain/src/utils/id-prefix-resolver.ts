@@ -25,7 +25,7 @@
  */
 
 import { sql, eq } from "drizzle-orm";
-import { parseShortId, formatShortId } from "./short-id";
+import { parseShortId, formatShortId, normalizeShortIdPrefix } from "./short-id";
 
 /** Minimum prefix length accepted for a prefix-resolution lookup. */
 export const MIN_ID_PREFIX_LENGTH = 8;
@@ -377,17 +377,24 @@ export async function resolveEntityIdPrefix(
     };
   }
 
-  if (classification.prefix.toLowerCase() !== opts.shortIdPrefix.toLowerCase()) {
+  // classification.prefix is already normalized by parseShortId (routed through
+  // normalizeShortIdPrefix in short-id.ts), but opts.shortIdPrefix is caller-supplied
+  // and may not be — route BOTH sides through the same choke point (PR #2099 R1) so
+  // this comparison can never diverge from mint-time normalization.
+  const normalizedInputPrefix = normalizeShortIdPrefix(classification.prefix);
+  const normalizedEntityPrefix = normalizeShortIdPrefix(opts.shortIdPrefix);
+
+  if (normalizedInputPrefix !== normalizedEntityPrefix) {
     return {
       kind: "invalid",
       input: opts.input,
       reason:
-        `short id prefix "${classification.prefix}#" does not match ${opts.entityName}'s ` +
-        `short id prefix "${opts.shortIdPrefix}#"`,
+        `short id prefix mismatch: "${opts.input}" has prefix "${normalizedInputPrefix}", ` +
+        `but ${opts.entityName} short ids use prefix "${normalizedEntityPrefix}"`,
     };
   }
 
-  const token = formatShortId(opts.shortIdPrefix, classification.n);
+  const token = formatShortId(normalizedEntityPrefix, classification.n);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const selectShape: Record<string, any> = { id: opts.idColumn };

@@ -123,10 +123,20 @@ export function shortIdColumn() {
  *
  * Call this inside the table's index-builder callback (the third argument
  * to `pgTable`), passing the table's own name (for a consistently-named
- * index: `idx_<tableName>_short_id_unique`) and the column reference
- * (`table.shortId`, i.e. whatever field name you gave `shortIdColumn()`
- * above).
+ * index: `idx_<tableName>_short_id_unique`, matching the existing
+ * `idx_<table>_<...>` convention used across this schema directory — e.g.
+ * `ask-schema.ts`'s `idx_asks_state_kind` / `idx_asks_parent_task_id`,
+ * `embeddings-schema-factory.ts`'s `idx_${tableName}_hnsw`) and the column
+ * reference (`table.shortId`, i.e. whatever field name you gave
+ * `shortIdColumn()` above).
+ *
+ * `tableName` is lowercased before it's interpolated into the index name —
+ * Postgres identifiers are case-sensitive when quoted, so an un-normalized
+ * uppercase/mixed-case table name (e.g. a typo'd `"Asks"` vs `"asks"`)
+ * could otherwise generate two DIFFERENT index names that both claim to be
+ * "the asks short-id index," defeating the naming convention's purpose of
+ * being a stable, discoverable, collision-free identifier (PR #2099 R1).
  */
 export function shortIdUniqueIndex(tableName: string, shortIdCol: AnyPgColumn) {
-  return uniqueIndex(`idx_${tableName}_short_id_unique`).on(shortIdCol);
+  return uniqueIndex(`idx_${tableName.toLowerCase()}_short_id_unique`).on(shortIdCol);
 }

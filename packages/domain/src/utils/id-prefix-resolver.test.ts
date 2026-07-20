@@ -443,6 +443,12 @@ describe("classifyEntityIdInput (mt#2963)", () => {
     const result = classifyEntityIdInput("!!!");
     expect(result.kind).toBe("invalid");
   });
+
+  it("REGRESSION (PR #2099 R1): a mixed-case short-id prefix classifies the same as lowercase", () => {
+    expect(classifyEntityIdInput("Ask#7")).toEqual({ kind: "short_id", prefix: "ask", n: 7 });
+    expect(classifyEntityIdInput("ASK#7")).toEqual({ kind: "short_id", prefix: "ask", n: 7 });
+    expect(classifyEntityIdInput("Ask#7")).toEqual(classifyEntityIdInput("ask#7"));
+  });
 });
 
 describe("resolveEntityIdPrefix (mt#2963 — short id resolution)", () => {
@@ -461,6 +467,47 @@ describe("resolveEntityIdPrefix (mt#2963 — short id resolution)", () => {
       entityName: "ask",
     });
     expect(result).toEqual({ kind: "resolved", id: ASK_UUID });
+  });
+
+  it("REGRESSION (PR #2099 R1): a mixed-case short-id input resolves to the same id as the lowercase form", async () => {
+    const lowerDb = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const mixedDb = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+    const upperDb = createFakeDb([{ id: ASK_UUID, label: "my ask" }]);
+
+    const lower = await resolveEntityIdPrefix({
+      db: lowerDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "ask#7",
+      entityName: "ask",
+    });
+    const mixed = await resolveEntityIdPrefix({
+      db: mixedDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ask",
+      input: "Ask#7",
+      entityName: "ask",
+    });
+    const upper = await resolveEntityIdPrefix({
+      db: upperDb,
+      table: fakeTable,
+      idColumn: fakeIdColumn,
+      labelColumn: fakeLabelColumn,
+      shortIdColumn: { name: "short_id" },
+      shortIdPrefix: "ASK", // shortIdPrefix casing at the config site, too
+      input: "ASK#7",
+      entityName: "ask",
+    });
+
+    expect(mixed).toEqual(lower);
+    expect(upper).toEqual(lower);
+    expect(lower).toEqual({ kind: "resolved", id: ASK_UUID });
   });
 
   it("resolveEntityIdPrefixOrThrow returns the id for a resolved short id", async () => {
@@ -538,7 +585,11 @@ describe("resolveEntityIdPrefix (mt#2963 — short id resolution)", () => {
     });
     expect(result.kind).toBe("invalid");
     if (result.kind === "invalid") {
-      expect(result.reason).toMatch(/mem#.*does not match.*ask/i);
+      // Exact, stable assertion (PR #2099 R1 non-blocking-2) rather than a loose
+      // regex — pins the message text so a future edit can't silently drift it.
+      expect(result.reason).toBe(
+        'short id prefix mismatch: "mem#7" has prefix "mem", but ask short ids use prefix "ask"'
+      );
     }
   });
 

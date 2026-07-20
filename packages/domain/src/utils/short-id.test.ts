@@ -9,9 +9,11 @@
  *  - multi-entity isolation — a `mem#` tombstone must not perturb `ask#`
  *    allocation and vice versa (the "global per-entity-type sequence" design
  *    constraint from the mt#2963 spec)
+ *  - prefix-casing normalization (PR #2099 R1) — mint and parse must agree
+ *    on casing so `ask#7` and `Ask#7` never diverge into different tokens
  */
 import { describe, test, expect } from "bun:test";
-import { formatShortId, parseShortId, nextShortId } from "./short-id";
+import { formatShortId, parseShortId, nextShortId, normalizeShortIdPrefix } from "./short-id";
 
 describe("formatShortId", () => {
   test("joins prefix and number with '#'", () => {
@@ -60,6 +62,44 @@ describe("parseShortId", () => {
   test("round-trips with formatShortId", () => {
     const token = formatShortId("mem", 99);
     expect(parseShortId(token)).toEqual({ prefix: "mem", n: 99 });
+  });
+});
+
+describe("normalizeShortIdPrefix / prefix-casing normalization (PR #2099 R1)", () => {
+  test("normalizeShortIdPrefix trims and lowercases", () => {
+    expect(normalizeShortIdPrefix("ask")).toBe("ask");
+    expect(normalizeShortIdPrefix("Ask")).toBe("ask");
+    expect(normalizeShortIdPrefix("ASK")).toBe("ask");
+    expect(normalizeShortIdPrefix("  Ask  ")).toBe("ask");
+  });
+
+  test("parseShortId normalizes a mixed-case prefix to lowercase", () => {
+    expect(parseShortId("Ask#7")).toEqual({ prefix: "ask", n: 7 });
+    expect(parseShortId("ASK#7")).toEqual({ prefix: "ask", n: 7 });
+    expect(parseShortId("ask#7")).toEqual({ prefix: "ask", n: 7 });
+  });
+
+  test("formatShortId normalizes a mixed-case prefix to lowercase", () => {
+    expect(formatShortId("Ask", 7)).toBe("ask#7");
+    expect(formatShortId("ASK", 7)).toBe("ask#7");
+    expect(formatShortId("ask", 7)).toBe("ask#7");
+  });
+
+  test("REGRESSION: mixed-case input resolves to the same token as the lowercase form", () => {
+    // The exact failure mode the blocking review comment named: `ask#7` minted
+    // but `Ask#7` supplied (or vice versa) must never diverge.
+    expect(parseShortId("Ask#7")).toEqual(parseShortId("ask#7"));
+    expect(parseShortId("ASK#7")).toEqual(parseShortId("ask#7"));
+    expect(formatShortId("Ask", 7)).toBe(formatShortId("ask", 7));
+    expect(formatShortId("ASK", 7)).toBe(formatShortId("ask", 7));
+  });
+
+  test("nextShortId allocates consistently regardless of the call-site prefix casing", () => {
+    // Minted with a lowercase prefix, proposed-next with a mixed-case prefix
+    // (and vice versa) must land on the same next id.
+    expect(nextShortId("Ask", ["ask#1"], [])).toBe("ask#2");
+    expect(nextShortId("ask", ["Ask#1"], [])).toBe("ask#2");
+    expect(nextShortId("ASK", ["ask#1", "Ask#2"], ["aSk#3"])).toBe("ask#4");
   });
 });
 
