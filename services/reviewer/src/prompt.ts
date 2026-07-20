@@ -321,6 +321,7 @@ For each issue you find, call submit_finding(severity, file, line, lineEnd?, sid
 - file/line (and optional lineEnd, side): the anchor for the finding.
 - summary: a one-sentence headline.
 - details: the full evidence and reasoning.
+- Do NOT emit a submit_finding with severity BLOCKING whose text says the issue is already resolved / needs no action — that is a resolution note, not a defect, and a BLOCKING finding that says the issue is resolved is self-contradictory (it forces the review to REQUEST_CHANGES and blocks an approved PR). To acknowledge that a prior-round finding is now addressed, call submit_thread_resolve(threadId, reason); if you must record it as a finding, use severity NON-BLOCKING.
 
 For non-severity inline annotations, call submit_inline_comment(file, line, body).
 
