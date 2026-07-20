@@ -65,6 +65,27 @@ If **no** log has `pastThreshold: true` (after excluding still-open-ask logs
 per step 3 above), stop — nothing to review. Do not emit an Ask, do not
 advance watermarks.
 
+### Step 1b — Coverage-receipt check (mt#2554)
+
+Independent of the past-threshold gate above (a DEAD detector fires rarely, so it
+will never trip `pastThreshold` — its problem is the ABSENCE of fires, which the
+sweep's fire-count thresholds cannot see). Run this every pass, even when Step 1
+found nothing to classify:
+
+- CLI: `bun scripts/check-coverage-receipts.ts`
+
+It reports `[OK]`/`[FLAGGED]` per detector and exits non-zero when any detector has had
+zero `source:"live"` fires in the last 7 days. For each `[FLAGGED]` detector, distinguish
+broken from dormant by cross-checking its canary (`bun scripts/run-guard-canaries.ts`):
+
+- **canary PASS + zero live fires** → dormant: the trigger condition simply hasn't
+  occurred. No action beyond noting it.
+- **canary FAIL + zero live fires** → broken (the mt#2057 9-day-dead-hook shape). Fold it
+  into the Ask you emit in Step 4, or file a fix task — do not silently pass over it.
+
+This is the LIVE-input complement to the canary's synthetic-input check; see
+`docs/architecture/evaluation-loop-fire-log.md` §Coverage-receipt gate.
+
 ## Step 2 — False-positive classification
 
 For each log with `pastThreshold: true`, go through its `newRecords` and

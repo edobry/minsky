@@ -259,6 +259,38 @@ call site), so their real-world fire counts will accumulate from ordinary
 subsequent usage (the next `tasks_status_set`, `tasks_create`,
 `session_commit`, etc. in any session).
 
+## Coverage-receipt gate — the live-input complement to the canary (mt#2554)
+
+The canary runner above proves a detector's DECISION LOGIC still works by feeding it
+SYNTHETIC input. That is necessary but not sufficient: a detector can pass its canary
+while never actually firing on REAL input (the mt#2057 dead-hook shape — 9 days of zero
+real fires while `status:DONE`). The coverage-receipt gate is the LIVE half of the same
+broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
+
+- **Provenance field.** Every `.minsky/*-calibration.jsonl` entry a detector writes at
+  runtime now carries `source: "live"` (`retrospective-trigger-scanner.ts` as of mt#2554;
+  other detectors follow as they migrate). Fixture / replay / backfill entries are
+  `source: "synthetic"`. A MISSING `source` (pre-mt#2554 records) counts as live for
+  backward-compatibility — every calibration entry written before the field existed was a
+  real runtime fire, and legacy records age out of the rolling window regardless.
+- **The gate** (`.minsky/hooks/coverage-receipt.ts` — `checkCoverageReceipt` /
+  `checkDetectorCoverage`) reads a detector's calibration log and PASSES only when ≥1 live
+  receipt falls inside a rolling window (default 7 days); a detector with zero live fires in
+  the window is FLAGGED and surfaced for review. An entry explicitly labelled
+  `truePositive:false` (a known false positive) does not count, so a detector firing only on
+  FPs is still flagged. TP/FP labelling is not mechanized at write time in Phase 1 (RFC "no
+  early labelling"), so an unlabelled live fire is treated as a receipt.
+- **Invocation path.** `scripts/check-coverage-receipts.ts` discovers every
+  `.minsky/*-calibration.jsonl`, checks each, prints an `[OK]`/`[FLAGGED]` report, and exits
+  non-zero when any detector is flagged. It runs at calibration-review cadence
+  (`/calibration-review` Step 1b), NOT as a merge gate — a flagged detector is a review
+  signal, not a commit blocker.
+
+This reads the per-detector calibration logs, NOT the corpus-wide `fire-log.jsonl` this
+document otherwise describes; the two are complementary (fire-log = every guard's
+allow/warn/deny decision; calibration logs = a detector's matched-phrase fires, which is
+where live-vs-synthetic provenance and the coverage receipt live).
+
 ## Operating the fire-log
 
 The log lives at `~/.local/state/minsky/fire-log.jsonl` (override via
@@ -313,6 +345,9 @@ fire-log JSONL record itself).
   the sibling failure-half tracker (mt#2812).
 - `.minsky/hooks/fire-log.ts`, `.minsky/hooks/known-override-env-vars.ts` —
   hook-runtime implementation.
+- `.minsky/hooks/coverage-receipt.ts` / `scripts/check-coverage-receipts.ts` — the
+  live-input coverage-receipt gate (mt#2554, RFC Phase 1 SC#5); the live-half complement
+  to `canary-runner.ts`'s synthetic-input check. Run at `/calibration-review` cadence.
 - `.minsky/hooks/dispatcher.ts` — `buildOverrideFireLogFields` (R1 fix:
   deterministic env/grant attribution).
 - `src/hooks/pre-commit-fire-log.ts` — pre-commit-pipeline implementation.
