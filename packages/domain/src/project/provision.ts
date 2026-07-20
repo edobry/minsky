@@ -99,8 +99,13 @@ export async function provisionProjectRow(
 
   const identity = resolveIdentity(options.repoPath);
   if (identity.kind !== "resolved") {
+    // `identity.reason` is required on `UnidentifiedProjectIdentity` per the
+    // type, but `resolveIdentity` is caller-overridable (test seam) — guard
+    // the interpolation so a malformed override can't log a misleading
+    // "undefined" reason to operators.
+    const reason = identity.reason || "no reason given";
     log.debug(
-      `[project-provision] No resolvable project identity (${identity.reason}); skipping row provisioning`
+      `[project-provision] No resolvable project identity (${reason}); skipping row provisioning`
     );
     return { provisioned: false };
   }
