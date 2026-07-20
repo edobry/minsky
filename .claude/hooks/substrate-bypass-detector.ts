@@ -38,7 +38,7 @@
 // @see .claude/hooks/skill-staleness-detector.ts — sibling UserPromptSubmit hook (staleness)
 // @see .claude/hooks/drive-pr-to-convergence.ts — sibling PostToolUse hook (additionalContext pattern)
 
-import { readInput } from "./types";
+import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -47,6 +47,8 @@ import {
   extractToolUseNames,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,58 @@ export const VERBAL_COMMITMENT_PATTERNS: RegExp[] = [
   /\bnext\s+session\s+I('ll|\s+will)\b/i,
   /\bI\s+should\s+file\b/i,
   /\bI'?d\s+file\b/i,
+];
+
+/**
+ * Skip env var for the operator-instruction-after-merge calibration surface
+ * (mt#2303). This surface is calibration-first / LOG-ONLY (v1): it never
+ * injects, so it uses `MINSKY_SKIP_*` (skip the detection + calibration write),
+ * matching the sibling calibration detectors (silent-stretch, wall-of-text),
+ * NOT the injecting hook's `MINSKY_ACK_SUBSTRATE_BYPASS`.
+ */
+export const OPERATOR_INSTRUCTION_SKIP_ENV_VAR = "MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER";
+
+/** Calibration log for the operator-instruction surface (repo-root relative). */
+const OPERATOR_INSTRUCTION_CALIBRATION_LOG =
+  ".minsky/operator-instruction-trigger-calibration.jsonl";
+
+/**
+ * Operator-instruction-as-feature-delivery trigger phrases (mt#2303): the agent
+ * telling the user to do manual work (reinstall / rebuild / edit-config /
+ * hard-refresh) to ACTIVATE a merged change — the in-band `§Turnkey, not portal`
+ * family (bridge memories `ebc83bc7`, `427cdf15`, `b770715e`). Case-insensitive.
+ * Deliberately broad for calibration; false positives are tuned from the log.
+ */
+export const OPERATOR_INSTRUCTION_PATTERNS: RegExp[] = [
+  // manual reinstall / rebuild to get/see/activate a change (mt#2942 incident)
+  /\b(reinstall|re-?install|rebuild|re-?build)\b[^.\n]{0,60}\b(get|see|activate|apply|pick up|take effect|the fix)\b/i,
+  /\b(pull\s+main|run\s+install-local|install-local\.sh|bun\s+run\s+build)\b[^.\n]{0,70}\b(to\s+(get|activate|see|apply)|so\s+(it|the))\b/i,
+  // "you (need|have|'ll need) to [manually] <manual verb>"
+  /\byou\s+(need|have|'ll\s+need|will\s+need)\s+to\s+(manually\s+)?(edit|add|configure|run|restart|rebuild|reinstall|re-?install|register|pull)\b/i,
+  /\byou'?ll?\s+need\s+to\s+manually\s+(edit|add|configure|set|update|register|run|rebuild|reinstall|restart)\b/i,
+  // R2: after your next rebuild/build/restart, <verb> to see ...
+  /\bafter\s+(your\s+next\s+)?(rebuild|build|restart|merg\w+|reinstall)\b[^.\n]{0,80}\b(to\s+see|you'?ll\s+see|hard-?refresh|reload|it'?ll\s+show)\b/i,
+  /\bhard-?refresh\b[^.\n]{0,40}\b(to\s+see|the\s+page|your\s+browser)\b/i,
+  // R1: edit / add to a config file to enable a feature (no `\b` before the
+  // config token — `.config/` etc. start with non-word chars, so a leading `\b`
+  // would never hold after a space).
+  /\b(edit|add|update|set|configure)\b[^.\n]{0,50}(cockpit\.json|settings\.json|\.env\b|\.config\/|your\s+config|the\s+config\s+file)/i,
+  // operator follow-up / one-time manual step framing
+  /\boperator\s+follow-?up:?\s*(edit|add|configure|run|restart|rebuild|reinstall|register|manually)\b/i,
+  /\bone-?time\s+(config|setup|edit|registration|reinstall|rebuild|manual)\b[^.\n]{0,20}\b(required|needed|step)\b/i,
+];
+
+/**
+ * Agent-did-it framing (mt#2303 false-positive suppression): when the agent
+ * PERFORMED the action itself and is only telling the user to observe/refresh,
+ * that is NOT the anti-pattern (spec FP case #4). Presence of any of these in
+ * the turn suppresses the operator-instruction surface entirely.
+ */
+export const AGENT_DID_IT_PATTERNS: RegExp[] = [
+  /\bI\s+(ran|rebuilt|re-?installed|reinstalled|installed|restarted|edited|added|configured|updated|registered|relaunched|pulled|merged|already)\b/i,
+  /\bI'?ve\s+(run|rebuilt|re-?installed|reinstalled|installed|restarted|edited|added|configured|updated|registered|relaunched|pulled|done|already)\b/i,
+  /\bI\s+did\s+(it|that|the|this)\b/i,
+  /\b(ran|rebuilt|reinstalled|installed|did|handled|built)\s+[^.\n]{0,30}\bfor\s+you\b/i,
 ];
 
 /**
@@ -456,6 +510,59 @@ export function detectPassiveOutcomeAsMechanism(assistantText: string): Detectio
 }
 
 /**
+ * Detect operator-instruction-as-feature-delivery (mt#2303): the agent telling
+ * the user to do manual work to ACTIVATE a merged change (reinstall / rebuild /
+ * edit-config / hard-refresh) — the in-band `§Turnkey, not portal` anti-pattern.
+ * LOG-ONLY / calibration-first (v1): callers write a calibration record on match
+ * and do NOT inject a reminder (see the mt#2303 Design Decisions).
+ *
+ * Two suppressions guard against the common false positives:
+ *   (a) retrospective / meta context — the turn invoked `/retrospective` or
+ *       renders an inline retro shape (it is DISCUSSING the pattern, e.g. quoting
+ *       trigger phrases, not instructing the user);
+ *   (b) agent-did-it framing — the agent performed the action itself and is only
+ *       telling the user to observe/refresh (spec FP case #4).
+ */
+export function detectOperatorInstructionAfterMerge(turnLines: TranscriptLine[]): DetectionResult {
+  const text = extractAssistantText(turnLines);
+  if (!text) return { matched: false };
+
+  // Suppression (a): retrospective / meta context.
+  const skillInvocations = extractSkillToolInvocations(turnLines);
+  if (skillInvocations.some((s) => s.toLowerCase().includes("retrospective"))) {
+    return { matched: false };
+  }
+  const hasRetroShape = RETRO_SECTION_MARKERS.some((m) =>
+    new RegExp(`^#{1,6}\\s+.*${escapeRegex(m)}`, "im").test(text)
+  );
+  if (hasRetroShape) return { matched: false };
+
+  // Elide code/quotes so pattern matches land on prose instructions, and check
+  // suppression (b) against the same filtered text.
+  const filtered = elideMarkdownContexts(text);
+  if (AGENT_DID_IT_PATTERNS.some((re) => re.test(filtered))) {
+    return { matched: false };
+  }
+
+  for (const pattern of OPERATOR_INSTRUCTION_PATTERNS) {
+    const match = filtered.match(pattern);
+    if (match) {
+      const idx = match.index ?? 0;
+      const snippet = filtered.slice(Math.max(0, idx - 10), idx + match[0].length + 40).trim();
+      return {
+        matched: true,
+        matchedPhrase: snippet.slice(0, 200),
+        canonicalSubstrate:
+          "automation-via-agent (do X yourself) or file the UX/automation gap — decision-defaults.mdc §Turnkey, not portal",
+        reason: "operator-instruction-after-merge",
+      };
+    }
+  }
+
+  return { matched: false };
+}
+
+/**
  * Elide markdown contexts that carry textual references rather than coordination
  * instructions (inline code spans, fenced code blocks, blockquotes).
  *
@@ -479,6 +586,58 @@ export function elideMarkdownContexts(text: string): string {
   result = result.replace(/^[ \t]{0,3}>+.*$/gm, (m) => " ".repeat(m.length));
 
   return result;
+}
+
+/** True when the operator-instruction calibration surface is skipped via env (mt#2303). */
+function isOperatorInstructionSkipped(): boolean {
+  const v = process.env[OPERATOR_INSTRUCTION_SKIP_ENV_VAR];
+  return v === "1" || v?.toLowerCase() === "true" || v?.toLowerCase() === "yes";
+}
+
+/**
+ * Append one operator-instruction calibration record (mt#2303). Repo-root
+ * relative (findRepoRoot avoids scattering the log into a subdirectory `.minsky/`
+ * — mirrors silent-stretch-detector). Fail-safe: never throws.
+ */
+function appendOperatorInstructionCalibration(record: Record<string, unknown>): void {
+  try {
+    const logPath = resolve(findRepoRoot(process.cwd()), OPERATOR_INSTRUCTION_CALIBRATION_LOG);
+    const dir = dirname(logPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] Failed to write operator-instruction calibration log: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+}
+
+/**
+ * Run the operator-instruction calibration surface (mt#2303) against a turn and
+ * log-on-match. Shared by `run()` and `main()`. LOG-ONLY: writes a calibration
+ * record; never injects. Fully guarded so it can never break either entry path.
+ */
+function runOperatorInstructionCalibration(
+  input: ClaudeHookInput,
+  turnLines: TranscriptLine[]
+): void {
+  if (isOperatorInstructionSkipped()) return;
+  try {
+    const result = detectOperatorInstructionAfterMerge(turnLines);
+    if (result.matched) {
+      appendOperatorInstructionCalibration({
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id ?? "unknown",
+        surface: "operator-instruction-after-merge",
+        matchedPhrase: result.matchedPhrase ?? "",
+        reason: result.reason ?? "",
+      });
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[substrate-bypass-detector] Operator-instruction detection error: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -645,6 +804,8 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     );
   }
 
+  runOperatorInstructionCalibration(input, turnLines);
+
   if (matchedSurfaces.length === 0) return null;
 
   return { additionalContext: buildReminder(matchedSurfaces) };
@@ -790,6 +951,8 @@ export async function main(): Promise<void> {
       `[substrate-bypass-detector] Passive outcome detection error: ${err instanceof Error ? err.message : String(err)}`
     );
   }
+
+  runOperatorInstructionCalibration(input, turnLines);
 
   if (matchedSurfaces.length === 0) {
     process.exit(0);

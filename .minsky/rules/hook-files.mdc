@@ -15,11 +15,6 @@ All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`; the `Wr
 below is a file there. Entries are a terse index (trigger, hook, override, fail posture, doc);
 narration lives in the linked doc.
 
-## Vocabulary (mt#2626)
-
-**"Hook"** = Claude Code registration mechanics; domain noun for the mechanism: **"interlock"**
-(cockpit copy).
-
 ## Guard-Dispatcher Framework (ADR-028)
 
 Shared in-process framework (`.minsky/hooks/registry.ts` + `dispatcher.ts` + per-event
@@ -28,8 +23,7 @@ entrypoints): multiple guards share ONE Bun process per event — 17 migrated
 `settings.json` entry. **Load-bearing:** a dispatcher's `timeout` is the HOST CAP and guards run
 SEQUENTIALLY — size the entry to the SUM of pre-migration timeouts. Source `.minsky/hooks/`;
 `.claude/hooks/*` is GENERATED (mt#2304) — `bun run minsky compile --target claude-hooks`, commit
-both. This rule is itself compiled (`rules compile`, then grep the change into `CLAUDE.md`).
-No framework override; `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` covers migrated guards.
+both. No framework override; `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all` covers migrated guards.
 Doc: `guard-dispatcher-framework.md`.
 
 ## Parallel-Work Guard
@@ -155,9 +149,12 @@ Fail: always exits 0. Doc: `drive-pr-to-convergence-reminder.md`.
 ## Substrate-Bypass Detector
 
 UserPromptSubmit: detects verbal commitments with no same-turn encoding, inline-retrospective
-prose without `/retrospective`, and DB-substrate-bypass phrasing. Hook:
-`substrate-bypass-detector.ts`. Override: `MINSKY_ACK_SUBSTRATE_BYPASS=1`. Fail: open on
-transcript error; silent on first turn. Doc: `substrate-bypass-detector.md`.
+prose without `/retrospective`, DB-substrate-bypass phrasing, and (log-only, mt#2263 ladder)
+`operator-instruction-after-merge` — telling the user to reinstall/rebuild/edit-config to
+ACTIVATE a merged change (in-band `§Turnkey, not portal`, mt#2303). Hook:
+`substrate-bypass-detector.ts`. Overrides: `MINSKY_ACK_SUBSTRATE_BYPASS=1`,
+`MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER=1`. Fail: open on transcript error; silent on first
+turn. Doc: `substrate-bypass-detector.md`.
 
 ## Retrospective-Trigger Scanner
 
