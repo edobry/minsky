@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  evaluateSubmitFindingCall,
-  isResolutionNoteText,
-  DEFAULT_MAX_RESOLUTION_NOTE_REJECTIONS,
-  RESOLUTION_NOTE_GUARD_CORRECTIVE_MESSAGE,
-} from "./resolution-note-guard";
+import { evaluateSubmitFindingCall, isResolutionNoteText } from "./resolution-note-guard";
 import { composeReviewBody } from "./compose-review";
 import type { ReviewToolCall, SubmitFindingArgs } from "./output-tools";
 
@@ -59,6 +54,10 @@ describe("isResolutionNoteText", () => {
     ["Validation gap", "requires action: the input is never bounds-checked"],
     ["Naming", "this identifier should be fixed to match the convention"],
     ["Generic defect", "off-by-one in the loop bound causes the last row to be skipped"],
+    // Adversarial substrings that must NOT match thanks to word boundaries (\b).
+    ["Prefix trap", "the prefix verified in this parser is computed incorrectly"],
+    ["Substring trap", "the transaction is unresolved across the retry window"],
+    ["Compound trap", "the manhandled buffer is addressedByOffset without validation"],
   ];
   for (const [summary, details] of negatives) {
     test(`does NOT match genuine defect: "${details}"`, () => {
@@ -70,9 +69,13 @@ describe("isResolutionNoteText", () => {
 describe("evaluateSubmitFindingCall", () => {
   test("accepts a NON-BLOCKING finding even with resolution-note text", () => {
     const result = evaluateSubmitFindingCall({
-      args: finding({ severity: "NON-BLOCKING", summary: PR1957_SUMMARY, details: PR1957_DETAILS })
-        .args as SubmitFindingArgs,
-      rejectionCountSoFar: 0,
+      args: {
+        severity: "NON-BLOCKING",
+        file: "a.ts",
+        line: 1,
+        summary: PR1957_SUMMARY,
+        details: PR1957_DETAILS,
+      },
     });
     expect(result.decision).toBe("accept");
   });
@@ -86,7 +89,6 @@ describe("evaluateSubmitFindingCall", () => {
         summary: "x",
         details: "already resolved",
       },
-      rejectionCountSoFar: 0,
     });
     expect(result.decision).toBe("accept");
   });
@@ -100,12 +102,11 @@ describe("evaluateSubmitFindingCall", () => {
         summary: "Data loss",
         details: "off-by-one in the loop bound causes the last row to be skipped",
       },
-      rejectionCountSoFar: 0,
     });
     expect(result.decision).toBe("accept");
   });
 
-  test("rejects a BLOCKING resolution-note finding on first attempt", () => {
+  test("reclassifies a BLOCKING resolution-note finding to NON-BLOCKING", () => {
     const result = evaluateSubmitFindingCall({
       args: {
         severity: "BLOCKING",
@@ -114,39 +115,6 @@ describe("evaluateSubmitFindingCall", () => {
         summary: PR1957_SUMMARY,
         details: PR1957_DETAILS,
       },
-      rejectionCountSoFar: 0,
-    });
-    expect(result.decision).toBe("reject");
-    if (result.decision === "reject") {
-      expect(result.rejectionCount).toBe(1);
-      expect(result.correctiveMessage).toBe(RESOLUTION_NOTE_GUARD_CORRECTIVE_MESSAGE);
-    }
-  });
-
-  test("keeps rejecting up to the bound", () => {
-    const result = evaluateSubmitFindingCall({
-      args: {
-        severity: "BLOCKING",
-        file: "a.ts",
-        line: 1,
-        summary: PR1957_SUMMARY,
-        details: PR1957_DETAILS,
-      },
-      rejectionCountSoFar: DEFAULT_MAX_RESOLUTION_NOTE_REJECTIONS - 1,
-    });
-    expect(result.decision).toBe("reject");
-  });
-
-  test("reclassifies to NON-BLOCKING once the rejection bound is exhausted", () => {
-    const result = evaluateSubmitFindingCall({
-      args: {
-        severity: "BLOCKING",
-        file: "a.ts",
-        line: 1,
-        summary: PR1957_SUMMARY,
-        details: PR1957_DETAILS,
-      },
-      rejectionCountSoFar: DEFAULT_MAX_RESOLUTION_NOTE_REJECTIONS,
     });
     expect(result.decision).toBe("reclassify");
     if (result.decision === "reclassify") {
@@ -155,30 +123,33 @@ describe("evaluateSubmitFindingCall", () => {
     }
   });
 
-  test("respects a custom maxRejections override", () => {
-    const result = evaluateSubmitFindingCall({
-      args: {
-        severity: "BLOCKING",
-        file: "a.ts",
-        line: 1,
-        summary: PR1957_SUMMARY,
-        details: PR1957_DETAILS,
-      },
-      rejectionCountSoFar: 0,
-      maxRejections: 0,
-    });
-    expect(result.decision).toBe("reclassify");
+  test("is stateless — repeated calls on distinct findings do not interfere", () => {
+    // Regression for the PR #2100 R1 finding: an earlier draft carried a per-review
+    // rejection counter that bled across findings. The stateless guard treats each
+    // call independently.
+    const noteArgs: SubmitFindingArgs = {
+      severity: "BLOCKING",
+      file: "a.ts",
+      line: 1,
+      summary: PR1957_SUMMARY,
+      details: PR1957_DETAILS,
+    };
+    const genuineArgs: SubmitFindingArgs = {
+      severity: "BLOCKING",
+      file: "b.ts",
+      line: 2,
+      summary: "Real defect",
+      details: "null dereference on the empty-config path",
+    };
+    expect(evaluateSubmitFindingCall({ args: noteArgs }).decision).toBe("reclassify");
+    expect(evaluateSubmitFindingCall({ args: genuineArgs }).decision).toBe("accept");
+    expect(evaluateSubmitFindingCall({ args: noteArgs }).decision).toBe("reclassify");
   });
 });
 
 describe("PR #1957 R2 replay (SC3): guard + compose pipeline", () => {
-  // Apply the guard's terminal decision to a recorded finding, returning the
-  // effective severity that would reach composition (reclassify on bound-exhaust).
   function effectiveSeverity(args: SubmitFindingArgs): SubmitFindingArgs["severity"] {
-    const decision = evaluateSubmitFindingCall({
-      args,
-      rejectionCountSoFar: DEFAULT_MAX_RESOLUTION_NOTE_REJECTIONS,
-    });
+    const decision = evaluateSubmitFindingCall({ args });
     return decision.decision === "reclassify" ? decision.newSeverity : args.severity;
   }
 
@@ -193,11 +164,13 @@ describe("PR #1957 R2 replay (SC3): guard + compose pipeline", () => {
   });
 
   test("AFTER fix: guard reclassifies the resolution note → APPROVE, 0 blocking", () => {
-    const recorded = finding({
+    const recorded: SubmitFindingArgs = {
       severity: "BLOCKING",
+      file: "src/foo.ts",
+      line: 10,
       summary: PR1957_SUMMARY,
       details: PR1957_DETAILS,
-    }).args as SubmitFindingArgs;
+    };
     const toolCalls: ReviewToolCall[] = [
       finding({
         severity: effectiveSeverity(recorded),

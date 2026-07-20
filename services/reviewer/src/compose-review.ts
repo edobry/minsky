@@ -253,7 +253,7 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     );
     const resolutionNoteNote =
       resolutionNoteBlockers.length > 0
-        ? ` NOTE (mt#2863): ${resolutionNoteBlockers.length} of these BLOCKING finding(s) read as resolution notes (text asserts the issue is already resolved / needs no action) and are likely mis-tagged rather than genuine blockers — ${resolutionNoteBlockers.map((tc) => `${tc.args.file}:${tc.args.line}`).join(", ")}.`
+        ? ` NOTE (mt#2863): ${resolutionNoteBlockers.length} of the BLOCKING finding(s) listed in the Findings section below read as resolution notes — their text asserts the issue is already resolved / needs no action, so they are likely mis-tagged rather than genuine blockers (${resolutionNoteBlockers.map((tc) => `${tc.args.file}:${tc.args.line}`).join(", ")}).`
         : "";
     sections.push(
       `⚠️ **Event reconciled from \`${reconciliation.reconciledFrom}\` to \`REQUEST_CHANGES\`.** ` +
