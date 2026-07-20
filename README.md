@@ -272,6 +272,37 @@ The first candidate whose `meta/_journal.json` exists wins. When using the produ
 bundle (`dist/minsky.js`) from an arbitrary working directory, candidates 2 and 3 resolve
 to the migrations co-located with the bundle.
 
+#### Pending-migration detection (per-migration hash, not row count)
+
+`persistence migrate` (both `--dry-run` and `--execute`) reports which local migrations
+are **pending** — not yet recorded as applied — by comparing each local `.sql` file's
+sha256 hash against the full set of hashes recorded in `drizzle.__drizzle_migrations`,
+NOT by subtracting row counts (`fileCount - appliedCount`). A raw count comparison
+silently reports 0 pending whenever the DB's applied-row count meets or exceeds the local
+file count for any reason unrelated to a specific migration's apply state — a historical
+ledger squash/consolidation, a duplicate or orphaned ledger row, an out-of-band insert —
+while a genuinely-unapplied migration goes unreported. The per-migration hash comparison
+is robust to any such count offset: a migration is pending iff its file's hash is absent
+from the ledger, full stop.
+
+`getPostgresMigrationsStatus` exposes this as `pendingCount` (a number) and `pendingTags`
+(the specific migration tags, e.g. `["0060_slow_kang"]`); the dry-run plan additionally
+carries `plan.pendingFiles` (the same set, as filenames with `.sql`). A missing or
+unreadable migration file (partial checkout, in-flight rename, permissions issue) is
+never silently dropped — it is reported pending and logged as a warning, so the operator
+sees the read failure rather than an unexplained gap in the count.
+
+**The pending list is informational, not a guaranteed preview of what `migrate()` will
+apply.** drizzle-orm's own `migrate()` does not decide what to run by hash-set
+membership — it applies by a single-row **timestamp high-water-mark** (the latest
+`created_at` already in the ledger vs. each journal entry's `when`). When the ledger has
+an anomaly (a duplicate/orphaned row, an out-of-band insert, migrations recorded out of
+`when`-order), the hash-missing set this tool reports and the set drizzle's own
+high-water-mark check will actually apply can diverge — a migration this list names may
+be silently skipped by drizzle (permanently shadowed), or the reverse. Every CLI listing
+of pending migrations is labeled accordingly; treat it as "these files' hashes are not
+recorded as applied," not as an exact forecast of `migrate()`'s next run.
+
 ## CI workflows
 
 | Workflow             | Trigger              | Purpose                                                                                                                                                                                  |
