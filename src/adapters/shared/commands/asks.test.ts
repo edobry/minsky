@@ -25,7 +25,9 @@ import {
   validateAsksCreateParams,
   validateAsksEditParams,
   formatAskWaitMessage,
+  resolveAskIdInput,
 } from "./asks";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
@@ -1422,5 +1424,83 @@ describe("validateAsksEditParams", () => {
     expect(() =>
       validateAsksEditParams({ metadata: { refreshedFrom: "docs/research/x.md" } })
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAskIdInput — ask#N short id resolution (mt#2965)
+// ---------------------------------------------------------------------------
+
+describe("resolveAskIdInput (mt#2965)", () => {
+  const ASK_UUID = "483dbcb0-0000-0000-0000-000000000099";
+
+  /**
+   * Fake container satisfying `getAskDb`'s narrow usage
+   * (`container.has("persistence")` + `container.get("persistence")
+   * .getDatabaseConnection()`), backed by a fake db whose `.select().from()
+   * .where()` resolves the given rows regardless of the query condition —
+   * each test pre-seeds exactly the rows the real query would have matched.
+   */
+  function fakeContainer(rows: Array<{ id: string; label?: string }>): AppContainerInterface {
+    const fakeDb = {
+      select(_fields?: unknown) {
+        return {
+          from(_table: unknown) {
+            return {
+              where(_cond: unknown) {
+                return Promise.resolve(rows);
+              },
+            };
+          },
+        };
+      },
+    };
+    return {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({ getDatabaseConnection: async () => fakeDb }),
+    } as unknown as AppContainerInterface;
+  }
+
+  test("passes a full uuid through unchanged", async () => {
+    const container = fakeContainer([]);
+    const id = await resolveAskIdInput(ASK_UUID, container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("resolves ask#7 to the row's uuid via the short_id column", async () => {
+    const container = fakeContainer([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveAskIdInput("ask#7", container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("REGRESSION (mt#2696 unchanged): an unambiguous 8-char hex prefix still resolves", async () => {
+    const container = fakeContainer([{ id: ASK_UUID, label: "my ask" }]);
+    const id = await resolveAskIdInput(ASK_UUID.slice(0, 8), container);
+    expect(id).toBe(ASK_UUID);
+  });
+
+  test("rejects a mismatched-entity short id (e.g. mem#3) without querying the DB", async () => {
+    let queried = false;
+    const container = {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({
+        getDatabaseConnection: async () => ({
+          select() {
+            queried = true;
+            return { from: () => ({ where: () => Promise.resolve([]) }) };
+          },
+        }),
+      }),
+    } as unknown as AppContainerInterface;
+
+    await expect(resolveAskIdInput("mem#3", container)).rejects.toThrow(
+      /short id prefix mismatch/i
+    );
+    expect(queried).toBe(false);
+  });
+
+  test("throws a clean not-found error for an ask#N with no matching row", async () => {
+    const container = fakeContainer([]);
+    await expect(resolveAskIdInput("ask#999", container)).rejects.toThrow(/not found/i);
   });
 });
