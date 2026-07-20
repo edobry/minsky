@@ -8,6 +8,7 @@
  */
 
 import type { ReviewToolCall, SubmitFindingArgs, SubmitInlineCommentArgs } from "./output-tools";
+import { isResolutionNoteText } from "./resolution-note-guard";
 
 // ---------------------------------------------------------------------------
 // Severity ordering
@@ -241,12 +242,25 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   // the executive summary, so the disagreement between the model's own
   // verdict and the actual finding severities is impossible to miss.
   if (reconciliation.reconciledFrom !== null) {
+    // mt#2863 SC2: name any BLOCKING finding whose text reads as a resolution
+    // note, so operators can distinguish a genuine block-after-approval from the
+    // resolution-note mis-tag bug class. The emission-layer guard normally
+    // reclassifies these before composition; this diagnostic covers the residual
+    // / legacy / replay case where one still reaches the reconciler.
+    const resolutionNoteBlockers = findings.filter(
+      (tc) =>
+        tc.args.severity === "BLOCKING" && isResolutionNoteText(tc.args.summary, tc.args.details)
+    );
+    const resolutionNoteNote =
+      resolutionNoteBlockers.length > 0
+        ? ` NOTE (mt#2863): ${resolutionNoteBlockers.length} of these BLOCKING finding(s) read as resolution notes (text asserts the issue is already resolved / needs no action) and are likely mis-tagged rather than genuine blockers — ${resolutionNoteBlockers.map((tc) => `${tc.args.file}:${tc.args.line}`).join(", ")}.`
+        : "";
     sections.push(
       `⚠️ **Event reconciled from \`${reconciliation.reconciledFrom}\` to \`REQUEST_CHANGES\`.** ` +
         `${blockingFindingsCount} outstanding \`[BLOCKING]\` finding(s) remain in this review — ` +
         `possibly emitted by a different chunk than the one that concluded the review. A ` +
         `\`${reconciliation.reconciledFrom}\` event cannot coexist with a BLOCKING finding; see the ` +
-        `Findings section below for the finding(s) driving this reconciliation.`
+        `Findings section below for the finding(s) driving this reconciliation.${resolutionNoteNote}`
     );
   }
 

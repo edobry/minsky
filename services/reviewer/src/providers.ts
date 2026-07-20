@@ -23,6 +23,10 @@ import {
   evaluateConcludeReviewCall,
   DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
 } from "./conclude-review-guard";
+import {
+  evaluateSubmitFindingCall,
+  DEFAULT_MAX_RESOLUTION_NOTE_REJECTIONS,
+} from "./resolution-note-guard";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -796,6 +800,7 @@ export async function callOpenAIWithClient(
    */
   let concludeReviewRejectionCount = 0;
   let concludeReviewGuardBoundExhausted = false;
+  let resolutionNoteRejectionCount = 0;
 
   /**
    * Text content from the round in which the model exited the tool-use loop
@@ -974,6 +979,47 @@ export async function callOpenAIWithClient(
                 rejectionCount: concludeReviewRejectionCount,
                 maxRejections: DEFAULT_MAX_CONCLUDE_REVIEW_REJECTIONS,
               });
+            }
+          }
+
+          // mt#2863: sibling forcing function for resolution-note findings. A
+          // submit_finding(severity="BLOCKING") whose text reads as a completed
+          // resolution note ("no action required — resolved in the current diff")
+          // is self-contradictory: the BLOCKING severity forces an
+          // APPROVE→REQUEST_CHANGES reconciliation (mt#2655) and fails the
+          // required findings-check on an approved-in-substance PR. Reject it
+          // (bounded) so the model re-emits via submit_thread_resolve / a
+          // NON-BLOCKING finding; on bound exhaustion, reclassify to NON-BLOCKING
+          // so the incoherent BLOCKING never reaches composition. See
+          // resolution-note-guard.ts for the full rationale.
+          if (parsed.name === "submit_finding") {
+            const evaluation = evaluateSubmitFindingCall({
+              args: parsed.args,
+              rejectionCountSoFar: resolutionNoteRejectionCount,
+            });
+
+            if (evaluation.decision === "reject") {
+              resolutionNoteRejectionCount = evaluation.rejectionCount;
+              log.info("reviewer.submit_finding_rejected_resolution_note", {
+                event: "reviewer.submit_finding_rejected_resolution_note",
+                provider: "openai",
+                round,
+                rejectionCount: resolutionNoteRejectionCount,
+                maxRejections: DEFAULT_MAX_RESOLUTION_NOTE_REJECTIONS,
+              });
+              resultContent = JSON.stringify({ ok: false, error: evaluation.correctiveMessage });
+              messages.push({ role: "tool", tool_call_id: toolCall.id, content: resultContent });
+              continue;
+            }
+
+            if (evaluation.decision === "reclassify") {
+              log.info("reviewer.submit_finding_resolution_note_reclassified", {
+                event: "reviewer.submit_finding_resolution_note_reclassified",
+                provider: "openai",
+                round,
+                reason: evaluation.reason,
+              });
+              parsed.args.severity = evaluation.newSeverity;
             }
           }
 
