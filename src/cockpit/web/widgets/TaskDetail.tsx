@@ -44,15 +44,29 @@ export interface TaskDetailPayload {
     outgoing: TaskRef[];
     incoming: TaskRef[];
   };
+  /** Session-start affordance state (mt#2959) — computed server-side. */
+  startability: {
+    startable: boolean;
+    startBlockedReason: string | null;
+  };
 }
 
 function isTaskDetailPayload(v: unknown): v is TaskDetailPayload {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "task" in v &&
-    typeof (v as { task: unknown }).task === "object"
-  );
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  if (typeof obj.task !== "object" || obj.task === null) return false;
+  // Validate the startability contract (mt#2959) so a payload missing it fails
+  // loudly (ErrorState) rather than silently dropping the Start-session affordance.
+  const startability = obj.startability as Record<string, unknown> | null | undefined;
+  if (typeof startability !== "object" || startability === null) return false;
+  if (typeof startability.startable !== "boolean") return false;
+  if (
+    startability.startBlockedReason !== null &&
+    typeof startability.startBlockedReason !== "string"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,22 +165,45 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // Inner — rendered after data is confirmed
 // ---------------------------------------------------------------------------
 
-/**
- * Task statuses the launch affordance shows for (mt#2752 SC1 — "a task in a
- * startable state"). Terminal statuses (DONE / CLOSED) have nothing to drive.
- * Non-READY statuses still show the button: an existing workspace is reused
- * regardless of status, and a create against a non-startable status surfaces
- * the domain error verbatim rather than being second-guessed client-side.
- */
-const STARTABLE_STATUSES = new Set(["TODO", "PLANNING", "READY", "IN-PROGRESS", "IN-REVIEW"]);
+type Startability = TaskDetailPayload["startability"];
 
 /**
- * "Start session" — launches a driven session bound to this task's workspace
- * and navigates to /driven/:id (mt#2752, Rung 2C launch affordance).
+ * "Start session" affordance (mt#2752 Rung 2C; gating fixed in mt#2959).
+ *
+ * Startability is decided SERVER-SIDE (computeSessionStartability) so the button
+ * is only offered when a session can actually start — accounting for the reuse
+ * case (a task with an existing workspace is startable from any status). When
+ * not startable, the reason is shown inline instead of a dead-end button that
+ * surfaces the domain error only after a failed click (the mt#2959 defect).
+ *
+ * Split so the launch hook (useStartDrivenSession → useMutation/useNavigate) is
+ * only mounted on the startable path; the blocked/terminal paths are pure.
  */
-function StartSessionButton({ taskId, status }: { taskId: string; status: string }) {
+export function StartSessionButton({
+  taskId,
+  startability,
+}: {
+  taskId: string;
+  startability: Startability | undefined;
+}) {
+  // Unknown (older payload) or terminal → no affordance (matches prior hiding).
+  if (!startability) return null;
+
+  if (!startability.startable) {
+    if (!startability.startBlockedReason) return null; // terminal — hidden, as before
+    return (
+      <span className="ml-auto text-xs text-muted-foreground" role="note">
+        {startability.startBlockedReason}
+      </span>
+    );
+  }
+
+  return <StartSessionLaunchButton taskId={taskId} />;
+}
+
+/** The live launch control — only rendered when the task is actually startable. */
+function StartSessionLaunchButton({ taskId }: { taskId: string }) {
   const start = useStartDrivenSession();
-  if (!STARTABLE_STATUSES.has(status.toUpperCase())) return null;
 
   return (
     <span className="ml-auto flex items-center gap-2">
@@ -191,7 +228,7 @@ function StartSessionButton({ taskId, status }: { taskId: string; status: string
 }
 
 function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
-  const { task, spec, parent, children, deps } = data;
+  const { task, spec, parent, children, deps, startability } = data;
 
   return (
     <div className="flex flex-col gap-0">
@@ -212,7 +249,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
             {tag}
           </span>
         ))}
-        <StartSessionButton taskId={task.id} status={task.status} />
+        <StartSessionButton taskId={task.id} startability={startability} />
       </div>
 
       {/* Parent */}

@@ -7,7 +7,11 @@
  */
 import type express from "express";
 import { log } from "@minsky/shared/logger";
-import { getServerTaskService, getServerTaskDetailDeps } from "../db-providers";
+import {
+  getServerTaskService,
+  getServerTaskDetailDeps,
+  getServerSessionProvider,
+} from "../db-providers";
 
 /** Mount the /api/tasks* routes on `app`. */
 export function mountTaskRoutes(app: express.Express): void {
@@ -164,6 +168,34 @@ export function mountTaskRoutes(app: express.Express): void {
         incoming: incomingIds.map(taskRef),
       };
 
+      // Startability for the cockpit "Start session" affordance (mt#2959). A task
+      // with an existing workspace is startable from ANY non-terminal status via
+      // reuse (driven-session-launch.ts resolveTaskWorkspace), so status + kind
+      // alone can't decide — probe for a bound workspace too. The probe degrades
+      // to "no workspace" on any error rather than failing the whole detail read.
+      let hasExistingWorkspace = false;
+      try {
+        const sessionProvider = await getServerSessionProvider();
+        if (sessionProvider) {
+          const existing = await sessionProvider.getSessionByTaskId(taskId);
+          hasExistingWorkspace = Boolean(existing);
+        }
+      } catch (workspaceErr) {
+        log.warn(
+          `[tasks] startability workspace probe failed for ${taskId}: ${
+            workspaceErr instanceof Error ? workspaceErr.message : String(workspaceErr)
+          }`
+        );
+      }
+      const { computeSessionStartability } = await import(
+        "@minsky/domain/session/session-startability"
+      );
+      const startability = computeSessionStartability(
+        (task.status ?? "TODO").toUpperCase(),
+        task.kind ?? "implementation",
+        hasExistingWorkspace
+      );
+
       res.json({
         task: {
           id: formatTaskIdForDisplay(task.id),
@@ -176,6 +208,7 @@ export function mountTaskRoutes(app: express.Express): void {
         parent,
         children,
         deps: taskDeps,
+        startability,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -83,6 +83,15 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
       const deps = body["deps"] as Record<string, unknown>;
       expect(Array.isArray(deps["outgoing"])).toBe(true);
       expect(Array.isArray(deps["incoming"])).toBe(true);
+
+      // Startability signal (mt#2959) — drives the honest Start-session affordance.
+      expect(body).toHaveProperty("startability");
+      const startability = body["startability"] as Record<string, unknown>;
+      expect(typeof startability["startable"]).toBe("boolean");
+      expect(
+        startability["startBlockedReason"] === null ||
+          typeof startability["startBlockedReason"] === "string"
+      ).toBe(true);
     } else {
       expect(body).toHaveProperty("error");
     }
