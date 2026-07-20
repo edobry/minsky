@@ -1483,6 +1483,10 @@
               "description": "Suppress the degraded-search warning on stderr (results are unaffected)"
             },
             {
+              "flags": ["--all-projects"],
+              "description": "Return similar tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)"
+            },
+            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true
@@ -1554,6 +1558,10 @@
             {
               "flags": ["--quiet"],
               "description": "Suppress progress and degraded-search warnings on stderr (results are unaffected)"
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return matching tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)"
             },
             {
               "flags": ["--repo"],
@@ -5486,6 +5494,10 @@
               "flags": ["--threshold"],
               "description": "Minimum similarity score threshold",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return similar memories from all projects (disable project-scope filtering; ADR-021, mt#2939)"
             }
           ]
         },
