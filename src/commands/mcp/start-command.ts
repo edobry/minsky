@@ -24,6 +24,8 @@ import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools"
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
+import { assessPersistenceHealth } from "@minsky/domain/persistence/health";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 // Re-export the dispatch table for consumers that prefer importing from
 // `start-command.ts`. Source of truth: `./discovery-config.ts` — a side-
@@ -386,7 +388,8 @@ async function startHttpServer(
     requireAuth?: boolean;
   },
   projectContext?: ReturnType<typeof createProjectContext>,
-  oauthProvider?: OAuthIdentityProvider
+  oauthProvider?: OAuthIdentityProvider,
+  container?: AppContainerInterface
 ): Promise<void> {
   // mt#1719 Intervention 2: function-local dynamic import. Express is only
   // needed in HTTP mode; deferring this off the stdio-mode import graph
@@ -557,12 +560,40 @@ async function startHttpServer(
 
   // Health check endpoint — always public, minimal body (safe to expose).
   // Railway and other uptime probes hit this; don't leak internal state.
+  //
+  // mt#2949: persistence liveness now gates the status code. During the
+  // 2026-07-19 outage this endpoint stayed a static 200 regardless of
+  // persistence state, so Railway reported the deployment SUCCESS while
+  // every DB-backed tool was dead. `assessPersistenceHealth` distinguishes
+  // "deliberately unconfigured" (no Postgres connection anywhere — the
+  // expected local/dev/offline boot path, and the bundle-boot-smoke CI
+  // gate's exact boot state) from "configured but unavailable" (a
+  // connection string WAS configured but initialization failed — a genuine
+  // outage): only the latter flips this endpoint to 503. See
+  // packages/domain/src/persistence/health.ts for the full rationale.
   app.get("/health", (_req, res) => {
-    res.json({
-      status: "ok",
+    // `container.get()` is synchronous by design: `AppServices["persistence"]`
+    // is typed as a plain `BasePersistenceProvider`, not a Promise. All async
+    // factory resolution already happened inside `container.initialize()`
+    // (awaited eagerly for HTTP mode in `src/cli.ts`'s preAction hook, before
+    // this route is ever registered) — `.get()` just reads the already-
+    // resolved value out of the container. Same synchronous-`.get()` pattern
+    // as `buildWakeServiceForBridge` / `buildMemoryServiceForSpike` /
+    // `buildSubagentDispatchTracker` / the OAuth provider wiring above, all in
+    // this file. No `await` belongs here.
+    const persistence = container?.has("persistence")
+      ? (container.get("persistence") as PersistenceProvider)
+      : undefined;
+    const persistenceHealth = assessPersistenceHealth(persistence);
+    res.status(persistenceHealth.healthy ? 200 : 503).json({
+      status: persistenceHealth.healthy ? "ok" : "unhealthy",
       server: "Minsky MCP Server",
       transport: "http",
       timestamp: new Date().toISOString(),
+      persistence: {
+        mode: persistenceHealth.mode,
+        ...(persistenceHealth.reason ? { reason: persistenceHealth.reason } : {}),
+      },
     });
   });
 
@@ -1472,7 +1503,8 @@ export function createStartCommand(
               requireAuth: options.requireAuth,
             },
             projectContext,
-            oauthProvider
+            oauthProvider,
+            container
           );
         } else {
           // Stdio transport
