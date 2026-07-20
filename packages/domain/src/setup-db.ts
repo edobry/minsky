@@ -26,6 +26,9 @@ import {
   runPostgresSchemaMigrations,
   getPostgresMigrationsStatus,
 } from "./persistence/postgres-migration-operations";
+import { loadConfiguration } from "./configuration/loader";
+import { getUserConfigDir } from "./configuration/sources/user";
+import { join } from "path";
 
 /** Re-exported so callers (adapter, tests) keep importing it from `@minsky/domain/setup-db`. */
 export { maskConnectionString };
@@ -250,4 +253,80 @@ export async function runSetupDbConfigure(
         `verification query failed: ${getErrorMessage(error)}`,
     };
   }
+}
+
+/**
+ * Build human-readable labels for config-loader source names (mt#2502). Used to tell the
+ * operator WHERE a reused Postgres connection came from — e.g. "Using existing Postgres
+ * connection from user config (/Users/name/.config/minsky/config.yaml)."
+ *
+ * Built fresh on each call (not a static map) because the "user" label is resolved via
+ * {@link getUserConfigDir} — the SAME XDG_CONFIG_HOME-aware function `setup db` already
+ * uses to write this file. A hardcoded `~/.config/minsky/config.yaml` literal is wrong
+ * whenever `XDG_CONFIG_HOME` is set, and wrong outright on Windows (no `~/.config` at
+ * all) — reviewer finding on PR #2084 R2, the exact machine-specific-hardcode class this
+ * task's portability discipline exists to catch.
+ */
+function buildConfigSourceLabels(): Record<string, string> {
+  return {
+    user: `user config (${join(getUserConfigDir(), "config.yaml")})`,
+    project: "repo config (.minsky/config.yaml)",
+    environment: "environment variable",
+    defaults: "defaults",
+  };
+}
+
+/** Injectable dependencies for {@link resolveExistingPostgresConnection}. Test seam only. */
+export interface ResolveExistingConnectionDeps {
+  /** Config loader (default: the real `loadConfiguration`). Only `effectiveValues` is read. */
+  loadConfig?: () => Promise<{
+    effectiveValues: Record<string, { value: unknown; source: string; path: string }>;
+  }>;
+  /** Connectivity probe (default: real `verifyPostgresConnectivity`). */
+  verifyConnectivity?: (connectionString: string) => Promise<{ ok: boolean; error?: string }>;
+}
+
+/** Result of resolving an already-configured Postgres connection via the config loader. */
+export interface ResolveExistingConnectionResult {
+  /** Whether a connection string resolved from ANY config source (project/user/env). */
+  found: boolean;
+  /** The resolved connection string. Present iff `found`. */
+  connectionString?: string;
+  /** Raw source name from the config loader (`"user"` / `"project"` / `"environment"`). Present iff `found`. */
+  sourceName?: string;
+  /** Human-readable label for `sourceName` (e.g. "user config (/Users/name/.config/minsky/config.yaml)", XDG/Windows-aware). Present iff `found`. */
+  source?: string;
+  /** Connectivity check against the resolved connection string. Present iff `found`. */
+  connectivity?: { ok: boolean; error?: string };
+}
+
+/**
+ * Resolve a Postgres connection string that is ALREADY configured (project config, user
+ * config, or environment) via the standard config loader, and verify connectivity against
+ * it. Used by `minsky setup` (mt#2502) to inherit an operator's existing connection —
+ * typically left in user config by a prior project on the same machine — instead of
+ * re-prompting for one on every new project.
+ *
+ * Never throws: a connectivity failure is returned as `connectivity.ok === false`, not
+ * thrown, so the caller can decide whether to fall back to the interactive `setup db`
+ * wizard (a stale/unreachable connection is treated the same as "nothing resolved").
+ */
+export async function resolveExistingPostgresConnection(
+  deps: ResolveExistingConnectionDeps = {}
+): Promise<ResolveExistingConnectionResult> {
+  const loadConfig = deps.loadConfig ?? (() => loadConfiguration());
+  const verifyConnectivity = deps.verifyConnectivity ?? verifyPostgresConnectivity;
+
+  const { effectiveValues } = await loadConfig();
+  const entry = effectiveValues[PERSISTENCE_CONNECTION_STRING_KEY];
+  if (!entry || typeof entry.value !== "string" || !entry.value.trim()) {
+    return { found: false };
+  }
+
+  const connectionString = entry.value.trim();
+  const sourceName = entry.source;
+  const source = buildConfigSourceLabels()[sourceName] ?? sourceName;
+  const connectivity = await verifyConnectivity(connectionString);
+
+  return { found: true, connectionString, sourceName, source, connectivity };
 }

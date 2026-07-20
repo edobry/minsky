@@ -15,9 +15,11 @@ import {
   buildDockerPostgresOneLiner,
   dockerLocalConnectionString,
   runSetupDbConfigure,
+  resolveExistingPostgresConnection,
   PERSISTENCE_BACKEND_KEY,
   PERSISTENCE_CONNECTION_STRING_KEY,
   type SetupDbDeps,
+  type ResolveExistingConnectionDeps,
 } from "./setup-db";
 
 const GOOD = "postgresql://postgres:secret@localhost:5432/postgres";
@@ -186,5 +188,163 @@ describe("runSetupDbConfigure", () => {
     expect(result.success).toBe(false);
     expect(result.failedStep).toBe("verify");
     expect(result.pendingCount).toBe(2);
+  });
+});
+
+describe("resolveExistingPostgresConnection (mt#2502)", () => {
+  function makeResolveDeps(
+    overrides: Partial<ResolveExistingConnectionDeps> = {}
+  ): ResolveExistingConnectionDeps {
+    return {
+      loadConfig: async () => ({ effectiveValues: {} }),
+      verifyConnectivity: async () => ({ ok: true }),
+      ...overrides,
+    };
+  }
+
+  test("nothing resolves: returns found: false and never probes connectivity", async () => {
+    let connectivityCalls = 0;
+    const deps = makeResolveDeps({
+      verifyConnectivity: async () => {
+        connectivityCalls += 1;
+        return { ok: true };
+      },
+    });
+
+    const result = await resolveExistingPostgresConnection(deps);
+
+    expect(result).toEqual({ found: false });
+    expect(connectivityCalls).toBe(0);
+  });
+
+  test("resolves from user config: reports source label and connectivity ok", async () => {
+    const deps = makeResolveDeps({
+      loadConfig: async () => ({
+        effectiveValues: {
+          [PERSISTENCE_CONNECTION_STRING_KEY]: {
+            value: GOOD,
+            source: "user",
+            path: PERSISTENCE_CONNECTION_STRING_KEY,
+          },
+        },
+      }),
+    });
+
+    const result = await resolveExistingPostgresConnection(deps);
+
+    expect(result.found).toBe(true);
+    expect(result.connectionString).toBe(GOOD);
+    expect(result.sourceName).toBe("user");
+    expect(result.source).toContain("user config");
+    expect(result.connectivity).toEqual({ ok: true });
+  });
+
+  test("'user' source label respects an overridden XDG_CONFIG_HOME, not a hardcoded ~/.config path (PR #2084 R2)", async () => {
+    const original = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = "/tmp/mt2502-xdg-test";
+    try {
+      const deps = makeResolveDeps({
+        loadConfig: async () => ({
+          effectiveValues: {
+            [PERSISTENCE_CONNECTION_STRING_KEY]: {
+              value: GOOD,
+              source: "user",
+              path: PERSISTENCE_CONNECTION_STRING_KEY,
+            },
+          },
+        }),
+      });
+
+      const result = await resolveExistingPostgresConnection(deps);
+
+      // Reflects the OVERRIDDEN XDG_CONFIG_HOME, proving the label is resolved dynamically
+      // via getUserConfigDir() rather than a hardcoded literal that would ignore this env var.
+      expect(result.source).toBe("user config (/tmp/mt2502-xdg-test/minsky/config.yaml)");
+      expect(result.source).not.toContain("~/.config/minsky/config.yaml");
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+    }
+  });
+
+  test("resolves from repo (project) config: source label reflects repo config", async () => {
+    const deps = makeResolveDeps({
+      loadConfig: async () => ({
+        effectiveValues: {
+          [PERSISTENCE_CONNECTION_STRING_KEY]: {
+            value: GOOD,
+            source: "project",
+            path: PERSISTENCE_CONNECTION_STRING_KEY,
+          },
+        },
+      }),
+    });
+
+    const result = await resolveExistingPostgresConnection(deps);
+
+    expect(result.found).toBe(true);
+    expect(result.sourceName).toBe("project");
+    expect(result.source).toContain("repo config");
+  });
+
+  test("resolves from environment: source label reflects environment variable", async () => {
+    const deps = makeResolveDeps({
+      loadConfig: async () => ({
+        effectiveValues: {
+          [PERSISTENCE_CONNECTION_STRING_KEY]: {
+            value: GOOD,
+            source: "environment",
+            path: PERSISTENCE_CONNECTION_STRING_KEY,
+          },
+        },
+      }),
+    });
+
+    const result = await resolveExistingPostgresConnection(deps);
+
+    expect(result.found).toBe(true);
+    expect(result.sourceName).toBe("environment");
+    expect(result.source).toBe("environment variable");
+  });
+
+  test("resolves but connectivity check fails: found stays true, connectivity carries the error", async () => {
+    const deps = makeResolveDeps({
+      loadConfig: async () => ({
+        effectiveValues: {
+          [PERSISTENCE_CONNECTION_STRING_KEY]: {
+            value: GOOD,
+            source: "user",
+            path: PERSISTENCE_CONNECTION_STRING_KEY,
+          },
+        },
+      }),
+      verifyConnectivity: async () => ({ ok: false, error: "ECONNREFUSED" }),
+    });
+
+    const result = await resolveExistingPostgresConnection(deps);
+
+    expect(result.found).toBe(true);
+    expect(result.connectivity).toEqual({ ok: false, error: "ECONNREFUSED" });
+  });
+
+  test("empty/whitespace-only resolved value is treated as not found", async () => {
+    const deps = makeResolveDeps({
+      loadConfig: async () => ({
+        effectiveValues: {
+          [PERSISTENCE_CONNECTION_STRING_KEY]: {
+            value: "   ",
+            source: "user",
+            path: PERSISTENCE_CONNECTION_STRING_KEY,
+          },
+        },
+      }),
+    });
+
+    const result = await resolveExistingPostgresConnection(deps);
+
+    expect(result).toEqual({ found: false });
   });
 });

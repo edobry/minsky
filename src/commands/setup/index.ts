@@ -18,6 +18,16 @@ export function createSetupCommand(): Command {
   cmd.option("--overwrite", "Overwrite existing config", false);
   cmd.option("--repo <path>", "Repository path");
   cmd.option("--workspace-path <path>", "Workspace path");
+  cmd.option(
+    "--connection-string <url>",
+    "Postgres connection string, used only if no connection can be inherited from " +
+      "existing config (otherwise captured via the setup db wizard)"
+  );
+  cmd.option(
+    "--yes",
+    "Skip the DB-setup confirmation prompt if the interactive wizard runs",
+    false
+  );
 
   cmd.action(async (options) => {
     try {
@@ -33,6 +43,8 @@ export function createSetupCommand(): Command {
           overwrite: options.overwrite ?? false,
           repo: options.repo,
           workspacePath: options.workspacePath,
+          connectionString: options.connectionString,
+          yes: options.yes ?? false,
         },
         { interface: "cli" }
       );
