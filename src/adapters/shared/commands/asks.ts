@@ -77,7 +77,7 @@ import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
 import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
-import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import { resolveEntityIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
@@ -184,30 +184,37 @@ export async function buildAskRepository(
 }
 
 /**
- * Resolve a caller-supplied ask id (full UUID or unambiguous prefix, mt#2696)
- * to the full UUID `asks.id` before it reaches any `eq(asksTable.id, ...)`
- * comparison in the repository. A full UUID passes through unchanged with no
- * query. A short/no-match/ambiguous prefix throws a clean tool-level error
- * (never a raw Postgres "invalid input syntax for type uuid" error).
+ * Resolve a caller-supplied ask id — a full UUID, an unambiguous 8-char hex
+ * prefix (mt#2696), or an `ask#N` short id (mt#2965/mt#2963) — to the full
+ * UUID `asks.id` before it reaches any `eq(asksTable.id, ...)` comparison in
+ * the repository. A full UUID passes through unchanged with no query. A
+ * short/no-match/ambiguous prefix, or an `ask#N` with no matching row, throws
+ * a clean tool-level error (never a raw Postgres "invalid input syntax for
+ * type uuid" error).
  *
  * When no DB connection is resolvable here, the raw input passes through —
  * the immediately-following `buildAskRepository` call in every command
  * surfaces the "AskRepository unavailable" error instead.
+ *
+ * Exported for unit testing (asks.test.ts) — not part of the public command
+ * surface.
  */
-async function resolveAskIdInput(
+export async function resolveAskIdInput(
   id: string,
   container: AppContainerInterface | undefined
 ): Promise<string> {
   const db = await getAskDb(container);
   if (!db) return id;
 
-  return resolveIdPrefixOrThrow({
+  return resolveEntityIdPrefixOrThrow({
     db,
     table: asksTable,
     idColumn: asksTable.id,
     labelColumn: asksTable.title,
     input: id,
     entityName: "ask",
+    shortIdColumn: asksTable.shortId,
+    shortIdPrefix: "ask",
   });
 }
 
@@ -1063,7 +1070,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
         "(closed/cancelled/expired) states are rejected with a clear error. " +
-        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.respond depends only on the persistence
       // provider, not on global Minsky configuration. The execute() closure
       // surfaces a clear "AskRepository unavailable" error if persistence
@@ -1261,7 +1269,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "or a cancelled/expired terminal state, or the timeout elapses. " +
         "Agent-side analogue of session_pr_wait-for-review for the Ask system (mt#2266). " +
         "Caller-managed gating: does NOT mutate task status. " +
-        "`id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — depends only on the persistence provider
       // (like asks.respond), not on global Minsky configuration.
       requiresSetup: false,
@@ -1300,7 +1309,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata. `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696).",
+        "to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as
       // asks.respond / asks.wait-for-response).

@@ -185,6 +185,18 @@ export interface Ask {
   /** ULID or UUID uniquely identifying this Ask. */
   id: string;
 
+  /**
+   * Numeric `ask#N` short id (mt#2965, ADR-029), added alongside the
+   * canonical uuid `id`. Minted sequentially on create via `nextShortId`
+   * (monotonic-counter-over-tombstones pattern, generalized from tasks'
+   * `mt#NNNN`). Absent (`undefined`) for legacy rows that predate the
+   * backfill (`scripts/backfill-ask-short-ids.ts`) until that script runs.
+   * The uuid `id` remains the canonical PK and `minsky://ask/<uuid>`
+   * deeplink target — this field is a human-readable display/reference
+   * alias, never a replacement.
+   */
+  shortId?: string;
+
   /** Seven-kind taxonomy label. */
   kind: AskKind;
 
