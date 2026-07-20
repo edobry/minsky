@@ -182,17 +182,23 @@ export class TsyringeContainer implements AppContainerInterface {
     const registration = this.factories.get(key);
     if (!registration) return;
     this.retryInFlight.add(key);
-    void Promise.resolve(registration.factory(this))
-      .then((instance) => {
+    // NOTE: the factory call MUST happen inside this async IIFE's try block,
+    // not as a bare expression passed to Promise.resolve(). A factory that
+    // throws SYNCHRONOUSLY (the common case — see bootDeferrableError in
+    // container.test.ts) would otherwise throw immediately out of
+    // retryDeferred() itself (and therefore out of get()) before
+    // Promise.resolve() ever got a chance to wrap it in a rejected promise.
+    void (async () => {
+      try {
+        const instance = await Promise.resolve(registration.factory(this));
         this.tsyringe.register(key, { useValue: instance });
         this.deferredKeys.delete(key);
-      })
-      .catch(() => {
+      } catch {
         // Still unavailable — leave the placeholder in place, try again later.
-      })
-      .finally(() => {
+      } finally {
         this.retryInFlight.delete(key);
-      });
+      }
+    })();
   }
 
   has<K extends ServiceKey>(key: K): boolean {
