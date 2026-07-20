@@ -15,6 +15,35 @@ tags:
 - **Never notice an issue without acting on it.** File a task, update a spec, or save a memory — mentioning in chat is not action.
 - **Process corrections require structural fixes.** Invoke `/retrospective` for durable fixes (hooks, skills), not just memories.
 
+## External self-resolving waits: arm a watcher, don't delegate to the operator
+
+Turn-end "blocked" splits into two categories that must not be collapsed: **(a) blocked on a
+principal decision** (naming, scope change, framework choice, authorization) — stop and
+escalate; the legitimate handoff. **(b) blocked on an external, self-resolving condition** (a
+third-party service recovering, CI finishing, a deploy completing, a rate-limit window
+resetting) — the agent can observe this autonomously. For (b), **arm a background watcher and
+keep going**; do NOT delegate the wait to the operator.
+
+**Mechanisms:** `Bash` with `run_in_background: true` + an `until`-loop for a single completion;
+`Monitor` for per-occurrence streams (log lines, status changes); `ScheduleWakeup` for interval
+re-checks with no single exit condition. Cadence: 30s+ for remote APIs.
+
+**Correct shape:** "GitHub is 503ing — I've armed a 30s background poll and will resume the
+merge on recovery, no action needed from you." **Anti-pattern:** "Ping me when GitHub's back" —
+handing an autonomously-watchable wait to the human.
+
+**Generic-SE override:** "wait for the human to notice the dependency recovered." Wrong here:
+the tools to observe and self-resume already exist.
+
+**Family kinship** (don't hand the human what the agent can do itself): `§Probe-before-deferring`
+(`User Preferences`, mt#1811); the stop-at-handoff family (mt#2689, memory `06a454a5`);
+"long-paused subagent ≠ dead" (memory `5f2154cd`). This is the external-dependency-wait
+instance — distinct from capability-deferral and from chain-walk-stop.
+
+**Origins:** 2026-07-19 incident — 3 merge-ready PRs blocked by a GitHub API 503; the agent
+delegated the wait instead of arming a poll a parallel agent used correctly. See
+`feedback_external_self_resolving_wait_arm_a_watcher_not_delegate_to_operator` (id `cb17d1c3`).
+
 ## Temporary mechanism budget
 
 When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary," "escape hatch," "workaround," "interim,"** or **"until X ships,"** it MUST cite both:
