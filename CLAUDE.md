@@ -1137,6 +1137,174 @@ label each section per the sense it shows, not blend the words.
 - `subagent-dispatch-cadence` — dispatch outcome taxonomy, escalation thresholds, SQL inspection patterns (investigating subagent outcomes)
 - `documentation-taxonomy` — doc-type taxonomy, homes, title patterns (authoring docs; `/create-task`, `/draft-rfc`, `/draft-adr` carry the workflow)
 
+# Claim Confidence
+
+When the agent asserts that work is done or that something is true, two different
+questions hide inside the same sentence: **how far along the deliverable actually is**, and
+**how the agent knows what it is claiming**. Leaving both implicit is where miscalibrated
+"it's done" claims come from. This rule is the shared vocabulary for making them explicit —
+two orthogonal axes, a claim format that carries both, and a ranked ledger for the
+high-stakes case.
+
+This rule is the **vocabulary and rationale layer**. It does NOT mandate a confidence label
+on every claim — that is the wallpaper failure mode (labels on everything become noise the
+operator habituates to and stops reading). Enforcement is conditional and lives in the
+sibling surfaces: a conditional injection that fires only at specific seams (mt#2923) and the
+claim-format carried into the `/implement-task` §9 and `/verify-task` closeout steps
+(mt#2924). Apply the vocabulary where those surfaces call for it and where a claim's
+miscalibration would actually cost the principal; do not sprinkle labels everywhere.
+
+## Axis A — delivery state
+
+How far the deliverable has actually progressed toward the principal being able to use it:
+
+```
+merged → deployed → usable-by-principal
+```
+
+This lattice is **class-conditional**:
+
+- **Auto-usable deliverables** (a merged code path a running service picks up, a config change
+  that takes effect on deploy): once `deployed`, `deployed == usable`. No gap.
+- **Build/install deliverables** (a CLI the principal must rebuild, a desktop/tray app that
+  needs reinstall, anything requiring a local step the agent cannot perform): `deployed < usable`,
+  and there is **no agent-observable transition** into `usable` — the agent literally cannot see
+  the principal rebuild. This gap is exactly where an unwarranted "it's done" originates: the
+  agent observes `merged`/`deployed` and narrates `usable`.
+
+State the delivery state at the altitude the deliverable's class actually supports. If the class
+has a gap the agent cannot cross, say so and name the crossing step.
+
+## Axis B — evidential warrant
+
+How the agent knows the claim it is making:
+
+- **verified** — a tool result observed THIS turn proves it. Split into:
+  - **verified-1a** — a deterministic test/check (compile passed, unit test green, a pure-function
+    assertion).
+  - **verified-1b** — a live-environment probe (HTTP 200 read from the running service, a real API
+    call succeeded, a route rendered in the deployed app).
+  The 1a/1b split matters because a deterministic test can pass against the wrong object while the
+  live behavior was never exercised (see the mt#2528 originating incident below).
+- **strong-evidence** — multiple consistent indirect signals (reviewer APPROVE + CI green + a
+  partial observation), short of a direct end-to-end proof.
+- **inferred** — a conclusion drawn from a mechanism or premise that was not directly checked.
+- **assumed** — taken as given WITHOUT an attempt to determine it.
+- **unknown** — attempted and undetermined, OR explicitly acknowledged as undetermined.
+
+**`assumed` vs `unknown` (the distinction the RFC deferred here).** `assumed` means the agent
+never tried to find out and is proceeding on a default; `unknown` means the agent tried (or
+consciously acknowledges the gap) and the answer is not available. `assumed` is the more
+dangerous label because it hides an unmade check; prefer converting `assumed` into `verified`
+or `unknown` by actually probing.
+
+## Claim format
+
+Carry both axes in one statement:
+
+```
+[delivery state] — [evidential warrant + basis]
+```
+
+Worked examples:
+
+- `Merged (verified: PR merged this turn) — to reach usable, rebuild + reinstall.` — the
+  build/install gap made explicit.
+- Executive-register one-liner (a compressed report still carries the warrant):
+  `Deployed (verified-1b: health probe this turn) — usable after tray reinstall.`
+- The **mt#2528 originating incident**, re-expressed in this vocabulary:
+  `Merged (verified-1a: deterministic test on the wrong object) — live-1b probe not run.`
+  The 1a/1b split is what makes the original error stateable: the claim was reported as a live
+  probe (1b) when only a deterministic check (1a), against the wrong object, had run.
+
+## The risk-and-evidence ledger (high-stakes operations)
+
+For a high-stakes operation on shared or production state, do NOT scatter confidence phrases
+through prose and wait to be asked "have you thought it through?". LEAD — proactively, before
+requesting the operator's go — with a ranked table:
+
+```
+| # | Risk | Magnitude | State (mitigated / N-A / open) | Evidence |
+```
+
+The operator scans the ledger and either accepts or points at the one row whose confidence is
+low. The diagnostic behind this (memory `b9cfd295`): an overloaded operator's scattered
+anxiety-probing ("is X a risk?", "data integrity?", "irreversible?") is largely a symptom of
+agent epistemic **opacity** — the agent has a risk model and is verifying against it but never
+exported it, so the operator's only way to audit coverage is to poke blind. The fix is
+agent-side: make the risk model legible.
+
+**When the ledger fires.** Precisely defined to prevent ledger-creep — lead with a ledger when
+EITHER:
+
+- **≥2 of the three OBJECTIVE criteria** hold: `{ irreversible-if-wrong, shared/prod state,
+  multi-party impact }`; OR
+- **operator-expressed-uncertainty ALONE** — if the operator is already probing, exporting the
+  model is overdue, so this fires on its own (the circularity fix: the objective quorum lets the
+  ledger lead BEFORE anyone asks, while operator uncertainty is a sufficient trigger by itself).
+
+**Caveat — a short ledger gives false confidence** if the one row the operator would have probed
+was never enumerated. Completeness of the risk enumeration is the load-bearing part, not the
+table's tidiness.
+
+Worked example (the mt#2505 prod-migration set): a schema migration on prod satisfies
+`shared/prod state` AND `irreversible-if-wrong` (migrations are hard to reverse as a class) = 2 of
+3 objective criteria → the ledger is required, independent of whether the operator asked.
+
+| # | Risk | Magnitude | State | Evidence |
+| - | ---- | --------- | ----- | -------- |
+| 1 | Data corruption | High | mitigated | no-op migration, 0 pending rows verified |
+| 2 | Deploy breaks | Med | mitigated | failure-safe rollout |
+| 3 | Secret exfiltration | High-if-real | N-A | not reachable under `pull_request` gating |
+| 4 | Irreversibility | Low | N-A | no schema change in this migration |
+
+## Reconciliation — this rule vs. the Communication-Altitude RFC
+
+The word "altitude" is claimed by a sibling and this rule deliberately does NOT reuse it. The
+**Communication-Altitude RFC** (Notion `39e937f0-3cb4-81fe-bdea-e249014e356f`,
+https://app.notion.com/p/39e937f03cb481febdeae249014e356f, Accepted 2026-07-15) owns the
+*altitude register* — `receipts / standard / executive` — which governs **how much** a report
+says (a per-conversation, principal-overridable verbosity default). This rule owns per-claim
+**confidence** (delivery state × evidential warrant). The axes are orthogonal: a receipts-register
+report can carry an `unknown`-warrant claim, and an executive-register one-liner can carry a
+`verified-1b` claim.
+
+The one interaction that is not free is placement: Communication-Altitude keeps structured tables
+out of the chat lead, while the risk-and-evidence ledger leads chat by design. The resolution is
+that RFC's own **severity-piercing rule** — its enumerated triggers include "a destructive or
+hard-to-reverse action taken or refused," which is precisely the ledger's territory — so the
+ledger leads chat *under* severity piercing, not in violation of the channel model.
+
+## Enforcement surfaces (not here)
+
+This rule is documentation and vocabulary. The mechanisms that actually apply it are separate,
+conditional, and tracked as siblings under parent mt#2544:
+
+- **mt#2923** — a conditional `UserPromptSubmit` injection firing only at the build/deploy-claim
+  seam (a chat-only usability claim with no tool call to gate on), which no reactive detector
+  reaches. It injects this claim format as a reminder, not a block.
+- **mt#2924** — the `/implement-task` §9 and `/verify-task` closeout amendments that carry the
+  claim format for build/install and deploy completions.
+
+Keeping enforcement conditional is deliberate: it is the answer to the wallpaper threat. The
+practice is the **proactive front** to the existing **reactive** epistemic detectors (pre-narration
+mt#2197, causal-premise mt#2216, the tool-boundary evidence gate mt#2488, prod-state injection
+mt#2506) — it complements them (states the warrant BEFORE a claim), it does not subsume them.
+
+## Cross-references
+
+- **RFC: First-class agent-reasoning practices** (Notion `3a0937f0-3cb4-81a6-8699-e419a5ce4da0`,
+  https://app.notion.com/p/3a0937f03cb481a68699e419a5ce4da0, Accepted 2026-07-18) — Part 2 is the
+  design record for this vocabulary; this rule transcribes it.
+- **mt#2544** — the epistemic-status parent (narrowed to implementation); this rule is the first of
+  its three follow-ups.
+- **mt#2258** — principal-attention-scarcity, the design driver: the ledger converts operator
+  anxiety into targeted, high-yield scrutiny.
+- **mt#2923 / mt#2924** — the enforcement siblings named above.
+- **mt#2197 / mt#2216 / mt#2488 / mt#2506** — the reactive detectors this practice complements.
+- Memory `b9cfd295` — the risk-ledger / epistemic-opacity diagnosis; memory `b0b294ab` — the
+  assertion-without-verification family this vocabulary gives a shared language to.
+
 # Error Investigation
 
 - **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
