@@ -738,3 +738,163 @@ export function deriveBudgets(hostCapSec: number): DerivedBudgets {
     gitTimeoutMs: Math.max(MIN_DERIVED_BUDGET_MS, Math.floor(overallBudgetMs * GIT_TIMEOUT_RATIO)),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Repo-root resolution (mt#2700 origin, lifted here mt#2710)
+// ---------------------------------------------------------------------------
+//
+// `input.cwd` tracks the harness SHELL's working directory, which is
+// routinely a SUBDIRECTORY of the repo (e.g. `<session>/cockpit-tray/
+// src-tauri` during a build, or any `cd`'d-into subtree). Subprocess git/gh
+// calls (`git -C <dir>`, `gh api ...` with `{ cwd }`) walk up to the repo
+// root on their own and stay correct regardless — that class of `input.cwd`
+// consumer is explicitly OUT of scope here (see mt#2710 spec). But any hook
+// that resolves a REPO-RELATIVE STATE path itself (calibration logs under
+// `.minsky/`, baseline/dismissals files, policy-corpus reads) by joining
+// `input.cwd` directly needs the actual repo ROOT, not the raw shell cwd —
+// otherwise state scatters into a subdirectory's own stray `.minsky/` (mt#2700
+// mid-merge probe incident; mt#2710 generalizes the fix to every such
+// consumer). `findRepoRoot` was originally implemented locally in
+// `check-branch-fresh.ts` (mt#2700) for its own fs-only mid-merge probe; it
+// lives here so every `.minsky/hooks/*.ts` guard can share one resolver
+// instead of re-deriving it. `check-branch-fresh.ts` now imports and
+// re-exports these from here (no behavior change for its own callers or
+// tests).
+//
+// @see mt#2700 — originating fix (check-branch-fresh.ts mid-merge probe)
+// @see mt#2710 — this lift + adoption across the affected repo-relative-state hooks
+
+import { dirname, isAbsolute, resolve } from "node:path";
+import { statSync } from "node:fs";
+
+/**
+ * Minimal fs surface used by repo-root / mid-merge detection. Packaged so
+ * tests can inject a mock without touching the real filesystem (per the
+ * `no-real-fs-in-tests` lint rule).
+ */
+export interface MergeDetectFs {
+  existsSync: (p: string) => boolean;
+  readFileSync: (p: string, encoding: BufferEncoding) => string;
+  statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean };
+}
+
+/**
+ * Exported (not just module-private) so `check-branch-fresh.ts` can use it as
+ * the default value for its own `detectMergeInProgress`, which stayed in that
+ * file (mid-merge-marker detection is specific to the freshness guard, not a
+ * general repo-root concern) but shares this fs surface with `resolveGitDir`
+ * and `findRepoRoot` below.
+ */
+export const DEFAULT_FS: MergeDetectFs = {
+  existsSync,
+  readFileSync: (p, encoding) => readFileSync(p, encoding) as string,
+  statSync: (p) => statSync(p),
+};
+
+/**
+ * Resolve the on-disk git directory for `repoDir`, honoring git's `.git`-as-file
+ * indirection convention. Three cases:
+ *
+ *   1. `<repoDir>/.git` is a directory — return that path (typical clone).
+ *   2. `<repoDir>/.git` is a FILE whose contents are `gitdir: <path>` —
+ *      parse and return the resolved target (typical `git worktree` checkout
+ *      and certain submodule layouts). Relative `<path>` is resolved against
+ *      `repoDir` per git's spec.
+ *   3. `<repoDir>/.git` is missing or unparseable — fall back to
+ *      `<repoDir>/.git` so callers' downstream `existsSync` probes return
+ *      false naturally (no exception thrown for the missing-repo case).
+ *
+ * The fs surface is injectable for test purposes; defaults to real fs.
+ *
+ * @see mt#1739 — added to support worktree-based session layouts where the
+ *   freshness-guard's mid-merge detection would otherwise miss markers
+ *   living under the resolved gitdir, reintroducing the deadlock this fix
+ *   exists to close. PR #1054 R1 BLOCKING #1.
+ */
+export function resolveGitDir(repoDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  const dotGit = join(repoDir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return dotGit;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return dotGit;
+    }
+    const content = fs.readFileSync(dotGit, "utf-8");
+    const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
+    if (match && match[1]) {
+      const target = match[1].trim();
+      return isAbsolute(target) ? target : resolve(repoDir, target);
+    }
+  } catch {
+    // Fall through — any stat/read error falls back to the conventional path,
+    // which callers handle via existsSync returning false.
+  }
+  return dotGit;
+}
+
+/**
+ * Resolve the repository ROOT for `startDir`: walk parent directories until
+ * one contains a `.git` entry (directory OR `gitdir:`-file — `resolveGitDir`
+ * handles the indirection afterwards), falling back to `startDir` when no
+ * `.git` exists anywhere up the tree (missing-repo case; downstream probes
+ * then fail closed-to-allow exactly as before).
+ *
+ * Why this exists (mt#2700, generalized mt#2710): a hook that passes
+ * `input.cwd` straight into a repo-relative fs read/write treats the harness
+ * SHELL's working directory as the repo root, but `input.cwd` is routinely a
+ * SUBDIRECTORY of the repo. Subprocess probes (`git -C <dir>`) walk up to
+ * the repo root on their own, so callers that ONLY spawn git/gh subprocesses
+ * with `{ cwd: input.cwd }` stay correct without this helper — but a bare fs
+ * `join(input.cwd, ".minsky/<log>.jsonl")` does NOT walk up, so state
+ * silently scatters into a stray subdirectory `.minsky/` (observed
+ * 2026-07-08, mt#2675 convergence; generalized across `.minsky/hooks/**`
+ * calibration writers and repo-root resolvers by mt#2710).
+ *
+ * fs-only by design (no subprocess) — cheap enough to call unconditionally
+ * from any hook that needs a real repo root. Cost is a few probes per path
+ * segment.
+ *
+ * A candidate directory is accepted ONLY when its `.git` entry is a real
+ * git anchor — a DIRECTORY, or a FILE whose `gitdir:` indirection resolves
+ * to an existing directory (PR #1851 R1 BLOCKING #2: a stray non-git `.git`
+ * file in an ancestor must not stop the walk early, or every downstream
+ * consumer runs against a pseudo-root). Invalid candidates are skipped and
+ * the walk continues upward.
+ */
+function isRepoRootCandidate(dir: string, fs: MergeDetectFs): boolean {
+  const dotGit = join(dir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return false;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return true;
+    }
+    // `.git` is a file — accept only a parseable `gitdir:` indirection
+    // (resolveGitDir returns dotGit itself when the file is unparseable)
+    // whose target exists and is a directory.
+    const resolved = resolveGitDir(dir, fs);
+    return resolved !== dotGit && fs.existsSync(resolved) && fs.statSync(resolved).isDirectory();
+  } catch {
+    // Any stat/read error means this candidate can't be validated — skip it
+    // and let the walk continue.
+    return false;
+  }
+}
+
+export function findRepoRoot(startDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (isRepoRootCandidate(dir, fs)) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      // Filesystem root reached without finding a repo — fall back to the
+      // original directory so callers' downstream probes fail naturally.
+      return resolve(startDir);
+    }
+    dir = parent;
+  }
+}

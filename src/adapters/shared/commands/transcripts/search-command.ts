@@ -38,6 +38,7 @@ import {
   buildSearchResponse,
   type TranscriptSearchResponse,
 } from "@minsky/domain/transcripts/transcript-search-filters";
+import { resolveTranscriptProjectScope } from "./resolve-transcript-project-scope";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -101,6 +102,13 @@ export function registerTranscriptSearchCommand(
         "Restrict results to a single harness conversation by its id (agent-session UUID)"
       ),
       session: deprecatedConversationAlias("session"),
+      allProjects: {
+        schema: z.boolean(),
+        description:
+          "Return results across all projects (default: scoped to the resolved current project, mt#2417)",
+        required: false,
+        defaultValue: false,
+      },
     },
 
     async execute(params, context): Promise<TranscriptSearchResponse> {
@@ -110,6 +118,7 @@ export function registerTranscriptSearchCommand(
       const from = params.from as string | undefined;
       const to = params.to as string | undefined;
       const sessionId = resolveConversationId(params);
+      const allProjects = params.allProjects as boolean | undefined;
 
       // ── Resolve DB from DI container ─────────────────────────────────────
       const persistenceProvider = (() => {
@@ -161,11 +170,15 @@ export function registerTranscriptSearchCommand(
 
       const windowed = Object.keys(dateRange).length > 0 ? dateRange : undefined;
 
+      // ADR-021 / mt#2417: resolve project scope for this query.
+      const projectId = await resolveTranscriptProjectScope(allProjects, context);
+
       const results = await svc.search(query, {
         limit,
         role,
         dateRange: windowed,
         sessionId,
+        projectId,
       });
 
       // When a date window is supplied, report whether in-window sessions exist

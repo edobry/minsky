@@ -142,7 +142,7 @@ function mockFetches(
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ describe("ConversationPage — unresolvable id tab hygiene (mt#2769)", () => {
         status: 404,
         headers: { "Content-Type": "application/json" },
       }))
-    ) as typeof globalThis.fetch;
+    ) as unknown as typeof globalThis.fetch;
 
     const queryClient = createTestQueryClient();
     const { getByText, getByTitle } = render(

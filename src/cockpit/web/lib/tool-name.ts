@@ -29,7 +29,9 @@ const MCP_NAME_RE = /^mcp__(.+?)__(.+)$/;
 /** Parse a raw transcript tool name into its server + bare-name parts. */
 export function parseToolName(raw: string): ParsedToolName {
   const m = MCP_NAME_RE.exec(raw);
-  if (m) return { server: m[1], name: m[2] };
+  if (m && m[1] !== undefined && m[2] !== undefined) {
+    return { server: m[1], name: m[2] };
+  }
   return { server: null, name: raw };
 }
 

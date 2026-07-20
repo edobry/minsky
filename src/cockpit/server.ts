@@ -72,6 +72,7 @@ import { mountCredentialRoutes } from "./routes/credentials";
 import { mountContextInspectorRoutes } from "./routes/context-inspector";
 import { mountEmbeddingsRoutes } from "./routes/embeddings";
 import { mountSweepRoutes } from "./routes/sweeps";
+import { mountFollowUpRoutes } from "./routes/follow-ups";
 import { mountDrivenSessionRoutes } from "./routes/driven-sessions";
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
@@ -303,6 +304,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountContextInspectorRoutes(app);
   mountEmbeddingsRoutes(app);
   mountSweepRoutes(app); // mt#2894 — GET /api/sweeps (per-sweep liveness registry)
+  mountFollowUpRoutes(app); // mt#2322 — GET/POST /api/follow-ups (scheduled-follow-up primitive)
 
   // Rung 2A driven-session routes (mt#2750) — LOCAL DAEMON ONLY. Spawning a
   // genuine `claude` binary with the operator's own credentials has no

@@ -21,6 +21,15 @@ afterEach(() => cleanup());
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Parse an SVG viewBox string "x y w h" into numbers (throws on malformed input). */
+function parseViewBox(vb: string): { x: number; y: number; w: number; h: number } {
+  const [x, y, w, h] = vb.split(" ").map(Number);
+  if (x === undefined || y === undefined || w === undefined || h === undefined) {
+    throw new Error(`parseViewBox: expected "x y w h", got "${vb}"`);
+  }
+  return { x, y, w, h };
+}
+
 function renderPanZoom(children?: React.ReactNode) {
   return render(
     <PanZoomSVG
@@ -105,13 +114,13 @@ describe("PanZoomSVG — wheel zoom", () => {
     const svg = screen.getByTestId("pan-zoom-svg");
 
     const initialVB = svg.getAttribute("viewBox") ?? "";
-    const initialW = parseFloat(initialVB.split(" ")[2]);
+    const initialW = parseViewBox(initialVB).w;
 
     const zoomInBtn = screen.getByRole("button", { name: "Zoom in" });
     fireEvent.click(zoomInBtn);
 
     const afterVB = svg.getAttribute("viewBox") ?? "";
-    const afterW = parseFloat(afterVB.split(" ")[2]);
+    const afterW = parseViewBox(afterVB).w;
 
     // A zoom-in reduces the viewBox width (shows a smaller coordinate region)
     expect(afterW).toBeLessThan(initialW);
@@ -126,13 +135,13 @@ describe("PanZoomSVG — wheel zoom", () => {
     fireEvent.click(zoomInBtn);
 
     const midVB = svg.getAttribute("viewBox") ?? "";
-    const midW = parseFloat(midVB.split(" ")[2]);
+    const midW = parseViewBox(midVB).w;
 
     const zoomOutBtn = screen.getByRole("button", { name: "Zoom out" });
     fireEvent.click(zoomOutBtn);
 
     const afterVB = svg.getAttribute("viewBox") ?? "";
-    const afterW = parseFloat(afterVB.split(" ")[2]);
+    const afterW = parseViewBox(afterVB).w;
 
     expect(afterW).toBeGreaterThan(midW);
   });
@@ -148,7 +157,7 @@ describe("PanZoomSVG — pointer drag pan", () => {
     const svg = screen.getByTestId("pan-zoom-svg");
 
     const initialVB = svg.getAttribute("viewBox") ?? "";
-    const [initialX, initialY] = initialVB.split(" ").map(parseFloat);
+    const { x: initialX, y: initialY } = parseViewBox(initialVB);
 
     // Simulate a drag: pointerdown at (300, 300), pointermove to (200, 250)
     // dragging left+up should move the viewBox right+down (pan right+down)
@@ -157,7 +166,7 @@ describe("PanZoomSVG — pointer drag pan", () => {
     fireEvent.pointerUp(svg);
 
     const afterVB = svg.getAttribute("viewBox") ?? "";
-    const [afterX, afterY] = afterVB.split(" ").map(parseFloat);
+    const { x: afterX, y: afterY } = parseViewBox(afterVB);
 
     // x should have increased (panned right), y should have increased (panned down)
     expect(afterX).toBeGreaterThan(initialX);
@@ -194,10 +203,10 @@ describe("PanZoomSVG — reset", () => {
     // (getBoundingClientRect returns 0 in JSDOM so applyFitWidth falls back to
     // the initial boardWidth×boardHeight state).
     const resetVB = svg.getAttribute("viewBox") ?? "";
-    const resetW = parseFloat(resetVB.split(" ")[2]);
+    const resetW = parseViewBox(resetVB).w;
     // In JSDOM getBoundingClientRect returns 0, so fit-width cannot be computed;
     // the initial state has w=1280. The reset should have returned to a wider view.
-    expect(resetW).toBeGreaterThan(parseFloat(zoomedVB.split(" ")[2]));
+    expect(resetW).toBeGreaterThan(parseViewBox(zoomedVB).w);
   });
 });
 
@@ -226,10 +235,10 @@ describe("PanZoomSVG — aspect-ratio stability", () => {
     container.getBoundingClientRect = () => rect;
 
     const aspect = (): number => {
-      const [, , w, h] = (svg.getAttribute("viewBox") ?? "").split(" ").map(Number);
+      const { w, h } = parseViewBox(svg.getAttribute("viewBox") ?? "");
       return w / h;
     };
-    const width = (): number => Number((svg.getAttribute("viewBox") ?? "").split(" ")[2]);
+    const width = (): number => parseViewBox(svg.getAttribute("viewBox") ?? "").w;
 
     // Reset → fit-width at the container aspect.
     fireEvent.click(screen.getByRole("button", { name: /reset/i }));

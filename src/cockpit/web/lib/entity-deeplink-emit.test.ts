@@ -31,7 +31,7 @@ function deeplink(label: string, type: RoutableEntityType, id: string): string {
 /** Extract the URL from a single `[label](url)` markdown link. */
 function linkTarget(markdown: string): string | null {
   const match = markdown.match(/\]\(([^)]+)\)/);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 // Shared fixture ids (mirror entity-codec.test.ts).

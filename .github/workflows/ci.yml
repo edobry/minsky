@@ -39,6 +39,10 @@ jobs:
       - name: Lint (strict — fails on any warning)
         run: bun run lint:strict
 
+      # bun run typecheck covers the root tsconfig AND src/cockpit/web/tsconfig.json
+      # (mt#2424) — the cockpit frontend has its own dedicated typecheck project since
+      # the root tsconfig excludes it (browser-only lib/DOM settings) and `vite build`
+      # transpiles it without type-checking.
       - name: Type check
         run: bun run typecheck
 

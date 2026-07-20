@@ -69,7 +69,7 @@ function mockProjectsResponse(
         headers: { "Content-Type": "application/json" },
       })
     )
-  ) as typeof globalThis.fetch;
+  ) as unknown as typeof globalThis.fetch;
 }
 
 describe("ProjectSelector", () => {

@@ -177,7 +177,7 @@ These are **orthogonal routing clusters**, not an exhaustive ontology. A newly d
 Detection → Classification → Routing → Packaging → Suspension → Response → Resumption → Accounting
 ```
 
-- **Detection** — a callsite emits a raw `AskIntent` (pre-classification). Current detection sites: 2-strikes rule, session commit, PR merge attempt, System 3\* detector (mt#1035, future).
+- **Detection** — a callsite emits a raw `AskIntent` (pre-classification). Current detection sites: 2-strikes rule, session commit, PR merge attempt, System 3\* detector (mt#1035, future). **Amendment (mt#2935):** `authorization.approve` emit sites that know their action explicitly (v1: session commit) consult policy AT DETECTION TIME via `isActionCovered` with explicit action tokens; a policy-covered action is recorded as an `authorization.policy_covered` audit event and produces NO Ask. The Ask is created only when policy is silent (the genuine escalation) or when the audit-event row could not be persisted (fail toward the ask — the action is never silently unrecorded). This retires the mt#1466 emit-always/close-always pattern at that callsite, whose per-commit debris was the mt#2593 incident; the original wiring was flagged as a semantics mismatch at design time (memory 274e4917: routine commits inside the standing delegation boundary are not decision points).
 - **Classification** — the classifier assigns `kind` and sets `classifierVersion`. Starting policy: **agent self-declaration with policy override**. The caller emits its best guess; the router verifies it against policy coverage and can overwrite before dispatch. Confidence is not modeled numerically at v1; the router logs disagreements for audit.
 - **Routing** — policy is consulted first (see §Router below). If policy covers the decision, the Ask short-circuits to `closed` with `responder = "policy"`. Otherwise the router picks a target by kind and operator preference.
 - **Packaging** — the router materializes the options, deadline, fallback, and context snapshot the responder will need. This is where a kind-specific `AskPayload` is built.
@@ -211,6 +211,7 @@ The router is a two-phase decision:
    - Policy sources (in order): CLAUDE.md rules → project rules (`.claude/rules/*`) → task-spec constraints → long-lived memories → `.minsky/policy/*` (future).
    - **Coverage semantics (starting position; revisable):** an action is "covered" if a policy statement _names the action or its category_ AND _names the authority under which it resolves_. Name-match alone is not enough (avoids false green-lights from incidental mentions). Category-match requires the category to be explicitly enumerated.
    - If covered, the router closes the Ask as `responder = "policy"` with the policy citation in the response payload.
+   - **Amendment (mt#2935):** for emit sites that consult policy at detection time (see §The 8-stage lifecycle, Detection), phase-1 consultation has already happened before any Ask exists — the router's phase 1 then only sees the uncovered residue from those sites. Detection-time consultation passes explicit action tokens rather than deriving tokens from the ask title, which satisfies the "explicit action-name" requirement directly instead of via title heuristics.
 
 2. **Transport dispatch** — for uncovered asks, the router picks a target by kind using the table above, overridable per-Ask via `routingTarget`.
 
@@ -231,7 +232,7 @@ Notes on this matrix:
 - **AG-UI is a format, not a kind.** It is the sync wire format when an interactive client is attached; its `RUN_FINISHED outcome=interrupt` event carries asks that a sync-capable client can resolve. This matches the mt#697 recommendation: adopt the interrupt pattern, not the enum.
 - **The Inbox is the async backbone** for anything routed to the operator without an attached sync client. The mt#454 schema requires no changes beyond the additions listed in that spec (kind field, classifier version, attention cost).
 - **The mesh is exclusively `coordination.notify`** — fire-and-forget peer notification. The mt#1001 decision (Postgres LISTEN/NOTIFY + SSE) stands; no changes.
-- **Policy as transport** is a formal target (not a bypass): the router records a policy-resolved Ask with the citation, preserving the attention-cost ledger (cost = 0 but recorded).
+- **Policy as transport** is a formal target (not a bypass): the router records a policy-resolved Ask with the citation, preserving the attention-cost ledger (cost = 0 but recorded). **Amendment (mt#2935):** for detection-time-consulting emit sites, the cost-0 ledger record is the `authorization.policy_covered` system event (events substrate) rather than a closed Ask row — same citation, same auditability, without occupying the decision substrate. The mt#2593 debris incident (~3,300 per-commit ask rows burying live decisions) is the evidence that "cost = 0 but recorded" as an Ask row was not actually cost-0.
 
 ### Attention accounting
 

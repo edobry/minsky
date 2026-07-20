@@ -435,41 +435,62 @@ describe("PostgresVectorPersistenceProvider", () => {
 // shouldAutoMigrate — pure predicate (mt#1763 R1 BLOCKING #3 / mt#1767)
 // ---------------------------------------------------------------------------
 
-describe("shouldAutoMigrate (mt#1767)", () => {
-  test("true when no deps and env has no MINSKY_AUTO_MIGRATE", () => {
-    expect(shouldAutoMigrate(undefined, {})).toBe(true);
+describe("shouldAutoMigrate (default OFF, mt#2560)", () => {
+  test("false when no deps and MINSKY_AUTO_MIGRATE is unset (default off)", () => {
+    expect(shouldAutoMigrate(undefined, {})).toBe(false);
   });
 
-  test("true when no deps and MINSKY_AUTO_MIGRATE is unset/empty", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "" })).toBe(true);
+  test("false when no deps and MINSKY_AUTO_MIGRATE is empty (default off)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "" })).toBe(false);
   });
 
-  test("true when no deps and MINSKY_AUTO_MIGRATE is 'true'", () => {
+  test("true when no deps and MINSKY_AUTO_MIGRATE is 'true' (opt-in)", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "true" })).toBe(true);
   });
 
-  test("false when MINSKY_AUTO_MIGRATE is 'false' (explicit opt-out)", () => {
+  test("true when no deps and MINSKY_AUTO_MIGRATE is '1' (numeric opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "1" })).toBe(true);
+  });
+
+  test("opt-in is case-insensitive (TRUE)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "TRUE" })).toBe(true);
+  });
+
+  test("false when MINSKY_AUTO_MIGRATE is 'false'", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" })).toBe(false);
   });
 
-  test("false when MINSKY_AUTO_MIGRATE is '0' (numeric opt-out)", () => {
+  test("false when MINSKY_AUTO_MIGRATE is '0'", () => {
     expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "0" })).toBe(false);
   });
 
-  test("false-opt-out is case-insensitive (FALSE)", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "FALSE" })).toBe(false);
+  test("true when MINSKY_AUTO_MIGRATE is 'yes' (opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "yes" })).toBe(true);
+  });
+
+  test("true when MINSKY_AUTO_MIGRATE is 'on' (opt-in)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "on" })).toBe(true);
+  });
+
+  test("false for a non-opt-in value (e.g. 'maybe')", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "maybe" })).toBe(false);
   });
 
   test("false when caller injected sqlClient (test seam)", () => {
-    expect(shouldAutoMigrate({ sqlClient: {} }, {})).toBe(false);
+    expect(shouldAutoMigrate({ sqlClient: {} }, { MINSKY_AUTO_MIGRATE: "true" })).toBe(false);
   });
 
   test("false when caller injected postgresFactory (test seam)", () => {
-    expect(shouldAutoMigrate({ postgresFactory: () => ({}) as unknown as never }, {})).toBe(false);
+    expect(
+      shouldAutoMigrate(
+        { postgresFactory: () => ({}) as unknown as never },
+        { MINSKY_AUTO_MIGRATE: "true" }
+      )
+    ).toBe(false);
   });
 
-  test("env opt-out wins over no-deps (false even without injected client)", () => {
-    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" })).toBe(false);
+  test("injected deps win over opt-in (false even with MINSKY_AUTO_MIGRATE=true)", () => {
+    expect(shouldAutoMigrate({ sqlClient: {} }, { MINSKY_AUTO_MIGRATE: "1" })).toBe(false);
   });
 });
 

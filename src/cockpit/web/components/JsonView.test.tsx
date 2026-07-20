@@ -20,6 +20,15 @@ function renderTree(ui: React.ReactElement) {
   return render(<MemoryRouter>{ui}</MemoryRouter>);
 }
 
+/** Click the first element of a query-result array (throws if empty, instead of `[0]!`). */
+function clickFirst(elements: HTMLElement[]): void {
+  const el = elements[0];
+  if (!el) {
+    throw new Error("clickFirst: expected at least one matching element");
+  }
+  fireEvent.click(el);
+}
+
 describe("JsonView — Tier 1 (structure)", () => {
   test("renders object keys and primitive values", () => {
     const { container } = renderTree(<JsonView data={{ name: "alpha", count: 3, ok: true }} />);
@@ -44,7 +53,7 @@ describe("JsonView — Tier 1 (structure)", () => {
   test("collapse toggle hides nested children", () => {
     const { container, getAllByRole } = renderTree(<JsonView data={{ a: { b: "deep" } }} />);
     expect(container.textContent).toContain("deep");
-    fireEvent.click(getAllByRole("button")[0]); // collapse the root node
+    clickFirst(getAllByRole("button")); // collapse the root node
     expect(container.textContent).not.toContain("deep");
   });
 });
@@ -54,7 +63,7 @@ describe("JsonView — collapsed-node key previews (mt#2793)", () => {
     const { container, getAllByRole } = renderTree(
       <JsonView data={{ a: 1, b: 2, c: 3, d: 4, e: 5 }} />
     );
-    fireEvent.click(getAllByRole("button")[0]); // collapse the root node
+    clickFirst(getAllByRole("button")); // collapse the root node
     expect(container.textContent).toContain("a, b, c, d, …");
     // The 5th key is elided, not just truncated silently.
     expect(container.textContent).not.toContain("a, b, c, d, e");
@@ -62,14 +71,14 @@ describe("JsonView — collapsed-node key previews (mt#2793)", () => {
 
   test("collapsed object with <=4 keys shows all keys, no ellipsis", () => {
     const { container, getAllByRole } = renderTree(<JsonView data={{ a: 1, b: 2 }} />);
-    fireEvent.click(getAllByRole("button")[0]);
+    clickFirst(getAllByRole("button"));
     expect(container.textContent).toContain("a, b");
     expect(container.textContent).not.toContain("…");
   });
 
   test("collapsed array shows length and element kind (primitives)", () => {
     const { container, getAllByRole } = renderTree(<JsonView data={[1, 2, 3]} />);
-    fireEvent.click(getAllByRole("button")[0]);
+    clickFirst(getAllByRole("button"));
     expect(container.textContent).toContain("3 × number");
   });
 
@@ -77,13 +86,13 @@ describe("JsonView — collapsed-node key previews (mt#2793)", () => {
     const { container, getAllByRole } = renderTree(
       <JsonView data={[{ x: 1 }, { y: 2 }, { z: 3 }]} />
     );
-    fireEvent.click(getAllByRole("button")[0]);
+    clickFirst(getAllByRole("button"));
     expect(container.textContent).toContain("3 × {…}");
   });
 
   test("collapsed array with heterogeneous elements shows 'mixed'", () => {
     const { container, getAllByRole } = renderTree(<JsonView data={[1, "two", { x: 3 }]} />);
-    fireEvent.click(getAllByRole("button")[0]);
+    clickFirst(getAllByRole("button"));
     expect(container.textContent).toContain("3 × mixed");
   });
 

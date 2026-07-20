@@ -18,7 +18,7 @@ function stubActivity(events: unknown[], status = 200): void {
     new Response(JSON.stringify({ events, total: events.length, limit: 500 }), {
       status,
       headers: { "Content-Type": "application/json" },
-    })) as typeof fetch;
+    })) as unknown as typeof fetch;
 }
 
 function renderPage() {
