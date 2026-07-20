@@ -49,9 +49,27 @@ export class UnconfiguredPersistenceProvider extends PersistenceProvider {
 
   /**
    * @param reason The underlying initialization error message (typically the
-   *   "PostgreSQL configuration required" error from the provider factory).
+   *   "PostgreSQL configuration required" error from the provider factory, or
+   *   the real connection/migration error when a connection WAS configured).
+   * @param configuredButUnavailable mt#2949: discriminates WHY this
+   *   placeholder exists.
+   *   - `false` (default): no Postgres connection was configured anywhere
+   *     (no `persistence.postgres.connectionString`, no `MINSKY_POSTGRES_URL`).
+   *     This is the deliberate, expected local/dev/offline boot path
+   *     (mt#2349's original intent) — a laptop without a DB should not be
+   *     bricked, and `/health` should stay green.
+   *   - `true`: a Postgres connection string WAS configured, but
+   *     `initialize()` failed (migration error, unreachable DB, bad
+   *     credentials, etc). This is a genuine outage — the deployed-context
+   *     case the 2026-07-19 incident missed. Consumers (`validatePostgresBackend`,
+   *     `createConfiguredTaskService`, the `/health` route via
+   *     `assessPersistenceHealth`) use this flag to fail loud instead of
+   *     silently masking the failure as a legitimate degraded mode.
    */
-  constructor(private readonly reason: string) {
+  constructor(
+    readonly reason: string,
+    readonly configuredButUnavailable: boolean = false
+  ) {
     super();
   }
 
