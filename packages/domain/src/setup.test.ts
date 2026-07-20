@@ -18,6 +18,19 @@ import { performSetup } from "./setup";
 import { workspaceConfigSchema } from "./configuration/schemas";
 import type { FsLike } from "./interfaces/fs-like";
 import { PERSISTENCE_CONNECTION_STRING_KEY, type ResolveExistingConnectionDeps } from "./setup-db";
+import type { ProvisionProjectRowDeps } from "./project/provision";
+import type { ProjectsRepositoryDb } from "./project/projects-repository";
+
+/**
+ * Deterministic project-provisioning deps (mt#2934) that never touch git or a
+ * live Postgres connection. Tests that are not exercising the provisioning
+ * behavior itself must inject this so `performSetup` doesn't attempt a real
+ * git-remote read (via `resolveProjectIdentity`'s tier-4 fallback) when
+ * `dbConnection.found && connectivity.ok` is true.
+ */
+const NO_PROVISION_DEPS: ProvisionProjectRowDeps = {
+  resolveIdentity: () => ({ kind: "unidentified", reason: "test stub — no identity" }),
+};
 
 /**
  * Deterministic "nothing configured" DB-resolution deps (mt#2502). Tests that are not
@@ -29,6 +42,9 @@ import { PERSISTENCE_CONNECTION_STRING_KEY, type ResolveExistingConnectionDeps }
 const NO_DB_DEPS: ResolveExistingConnectionDeps = {
   loadConfig: async () => ({ effectiveValues: {} }),
 };
+
+/** Shared fixture connection string used by the DB-inheritance + provisioning test blocks below. */
+const TEST_CONNECTION_STRING = "postgresql://user:pass@host:5432/db";
 
 setupTestMocks();
 
@@ -219,7 +235,7 @@ describe("performSetup — DB-connection inheritance (mt#2502)", () => {
         loadConfig: async () => ({
           effectiveValues: {
             [PERSISTENCE_CONNECTION_STRING_KEY]: {
-              value: "postgresql://user:pass@host:5432/db",
+              value: TEST_CONNECTION_STRING,
               source: "user",
               path: PERSISTENCE_CONNECTION_STRING_KEY,
             },
@@ -227,10 +243,11 @@ describe("performSetup — DB-connection inheritance (mt#2502)", () => {
         }),
         verifyConnectivity: async (cs) => {
           connectivityCalls += 1;
-          expect(cs).toBe("postgresql://user:pass@host:5432/db");
+          expect(cs).toBe(TEST_CONNECTION_STRING);
           return { ok: true };
         },
-      }
+      },
+      NO_PROVISION_DEPS
     );
 
     expect(result.dbConnection.found).toBe(true);
@@ -261,5 +278,158 @@ describe("performSetup — DB-connection inheritance (mt#2502)", () => {
     expect(result.dbConnection.found).toBe(true);
     expect(result.dbConnection.source).toContain("repo config");
     expect(result.dbConnection.connectivity).toEqual({ ok: false, error: "ECONNREFUSED" });
+  });
+});
+
+describe("performSetup — project-row provisioning (mt#2934)", () => {
+  const CONFIRMED_DB_DEPS: ResolveExistingConnectionDeps = {
+    loadConfig: async () => ({
+      effectiveValues: {
+        [PERSISTENCE_CONNECTION_STRING_KEY]: {
+          value: TEST_CONNECTION_STRING,
+          source: "user",
+          path: PERSISTENCE_CONNECTION_STRING_KEY,
+        },
+      },
+    }),
+    verifyConnectivity: async () => ({ ok: true }),
+  };
+
+  function makeFakeProjectsDb(): {
+    db: ProjectsRepositoryDb;
+    inserted: Array<{ slug: string; repoUrl: string | null }>;
+  } {
+    const inserted: Array<{ slug: string; repoUrl: string | null }> = [];
+    const db: ProjectsRepositoryDb = {
+      select() {
+        throw new Error("not used by ensureProjectRow");
+      },
+      insert() {
+        return {
+          values(v: { slug: string; repoUrl: string | null }) {
+            return {
+              onConflictDoNothing() {
+                inserted.push(v);
+                return Promise.resolve([]);
+              },
+            };
+          },
+        };
+      },
+    };
+    return { db, inserted };
+  }
+
+  test("a confirmed live connection triggers ensureProjectRow with the resolved slug", async () => {
+    const mockFs = makeMockFs();
+    const { db, inserted } = makeFakeProjectsDb();
+    const connectCalls: string[] = [];
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      CONFIRMED_DB_DEPS,
+      {
+        resolveIdentity: () => ({ kind: "resolved", slug: "acme/widgets", source: "config-slug" }),
+        deriveRemoteUrl: () => "https://github.com/acme/widgets.git",
+        connect: async (cs) => {
+          connectCalls.push(cs);
+          return { db, close: async () => {} };
+        },
+      }
+    );
+
+    expect(connectCalls).toEqual([TEST_CONNECTION_STRING]);
+    expect(inserted).toEqual([
+      { slug: "acme/widgets", repoUrl: "https://github.com/acme/widgets.git" },
+    ]);
+  });
+
+  test("no connection resolved: provisioning is never attempted", async () => {
+    const mockFs = makeMockFs();
+    const connectCalls: string[] = [];
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      NO_DB_DEPS,
+      {
+        connect: async (cs) => {
+          connectCalls.push(cs);
+          throw new Error("should not be called");
+        },
+      }
+    );
+
+    expect(connectCalls).toHaveLength(0);
+  });
+
+  test("connection resolved but connectivity fails: provisioning is never attempted", async () => {
+    const mockFs = makeMockFs();
+    const connectCalls: string[] = [];
+
+    await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      {
+        loadConfig: CONFIRMED_DB_DEPS.loadConfig,
+        verifyConnectivity: async () => ({ ok: false, error: "ECONNREFUSED" }),
+      },
+      {
+        connect: async (cs) => {
+          connectCalls.push(cs);
+          throw new Error("should not be called");
+        },
+      }
+    );
+
+    expect(connectCalls).toHaveLength(0);
+  });
+
+  test("unresolved project identity: ensureProjectRow is skipped, setup still succeeds", async () => {
+    const mockFs = makeMockFs();
+    const connectCalls: string[] = [];
+
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      CONFIRMED_DB_DEPS,
+      {
+        resolveIdentity: () => ({ kind: "unidentified", reason: "no slug derivable" }),
+        connect: async (cs) => {
+          connectCalls.push(cs);
+          throw new Error("should not be called");
+        },
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(connectCalls).toHaveLength(0);
+  });
+
+  test("a provisioning error (e.g. insert failure) does not fail setup overall", async () => {
+    const mockFs = makeMockFs();
+
+    const result = await performSetup(
+      { repoPath: REPO_PATH, client: "cursor", overwrite: true },
+      mockFs,
+      CONFIRMED_DB_DEPS,
+      {
+        resolveIdentity: () => ({ kind: "resolved", slug: "acme/widgets", source: "config-slug" }),
+        connect: async () => ({
+          db: {
+            select() {
+              throw new Error("unused");
+            },
+            insert() {
+              throw new Error("connection dropped mid-insert");
+            },
+          },
+          close: async () => {},
+        }),
+      }
+    );
+
+    expect(result.success).toBe(true);
   });
 });

@@ -17,6 +17,8 @@ import { projectsTable, type ProjectRecord } from "../storage/schemas/projects-s
 export interface ProjectsRepositoryDb {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   select(fields?: any): any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  insert(table?: any): any;
 }
 
 /**
@@ -28,4 +30,41 @@ export interface ProjectsRepositoryDb {
  */
 export async function listProjects(db: ProjectsRepositoryDb): Promise<ProjectRecord[]> {
   return db.select().from(projectsTable).orderBy(asc(projectsTable.slug));
+}
+
+/**
+ * Input for {@link ensureProjectRow}. `repoUrl` is optional — the schema
+ * column is nullable (`projects-schema.ts`), and a caller that can't
+ * cheaply derive a remote URL (e.g. no git remote configured) may omit it.
+ */
+export interface EnsureProjectRowInput {
+  repoUrl?: string | null;
+}
+
+/**
+ * Idempotently create the `projects` row for `slug` if it does not already
+ * exist (mt#2934 — the provisioning point decided in the mt#2934 spec's
+ * "Mechanism" section).
+ *
+ * Mirrors migration `0047_backfill_project_id_minsky.sql`'s
+ * `INSERT ... ON CONFLICT (slug) DO NOTHING` exactly: `slug`'s `UNIQUE`
+ * constraint (`projects-schema.ts`) makes re-running this against an
+ * already-provisioned slug a true no-op, so callers may invoke it on every
+ * `setup` / `setup db` run without a separate existence check.
+ *
+ * A genuine query failure (connection lost, constraint violation other than
+ * the conflict target, etc.) propagates to the caller — same "let real
+ * failures surface" contract as {@link listProjects}; callers that must not
+ * fail their overall flow on a provisioning error (e.g. `setup`) catch at
+ * the call site instead of here.
+ */
+export async function ensureProjectRow(
+  slug: string,
+  input: EnsureProjectRowInput,
+  db: ProjectsRepositoryDb
+): Promise<void> {
+  await db
+    .insert(projectsTable)
+    .values({ slug, repoUrl: input.repoUrl ?? null })
+    .onConflictDoNothing({ target: projectsTable.slug });
 }
