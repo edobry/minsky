@@ -1483,6 +1483,10 @@
               "description": "Suppress the degraded-search warning on stderr (results are unaffected)"
             },
             {
+              "flags": ["--all-projects"],
+              "description": "Return similar tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)"
+            },
+            {
               "flags": ["--repo"],
               "description": "Repository path",
               "takesValue": true
@@ -1554,6 +1558,10 @@
             {
               "flags": ["--quiet"],
               "description": "Suppress progress and degraded-search warnings on stderr (results are unaffected)"
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return matching tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)"
             },
             {
               "flags": ["--repo"],
@@ -5010,7 +5018,7 @@
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes. Pass `task` or `sessionId` to run against a session workspace.",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig, every self-typechecking sub-workspace (e.g. services/reviewer), AND src/cockpit/web (the cockpit frontend's own project, mt#2424); pass `workspace` to typecheck a single directory only (error `file` paths are then relative to THAT workspace, not the overall root — multi-workspace mode's `file` paths are root-relative). Pass `task` or `sessionId` to run against a session workspace.",
               "options": [
                 {
                   "flags": ["--workspace"],
@@ -5486,6 +5494,10 @@
               "flags": ["--threshold"],
               "description": "Minimum similarity score threshold",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return similar memories from all projects (disable project-scope filtering; ADR-021, mt#2939)"
             }
           ]
         },
@@ -5718,6 +5730,10 @@
               "flags": ["--session"],
               "description": "DEPRECATED alias for conversationId (mt#2526 / ADR-022) — pass conversationId instead of session.",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ]
         },
@@ -5744,6 +5760,10 @@
               "flags": ["--limit"],
               "description": "Maximum number of results to return (default 10)",
               "takesValue": true
+            },
+            {
+              "flags": ["--all-projects"],
+              "description": "Return results across all projects (default: scoped to the resolved current project, mt#2417)"
             }
           ]
         },
@@ -6020,7 +6040,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | task.bulk_edit.dry_run | task.bulk_edit.executed)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -6043,6 +6063,7 @@
                 "deploy.live",
                 "deploy.fail",
                 "ask.policy_closed",
+                "authorization.policy_covered",
                 "task.bulk_edit.dry_run",
                 "task.bulk_edit.executed"
               ]
@@ -6636,6 +6657,15 @@
           "flags": ["--workspace-path"],
           "description": "Workspace path",
           "takesValue": true
+        },
+        {
+          "flags": ["--connection-string"],
+          "description": "Postgres connection string, used only if no connection can be inherited from existing config (otherwise captured via the setup db wizard)",
+          "takesValue": true
+        },
+        {
+          "flags": ["--yes"],
+          "description": "Skip the DB-setup confirmation prompt if the interactive wizard runs"
         }
       ]
     },

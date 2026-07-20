@@ -25,6 +25,7 @@ function makeRow(overrides: Partial<AgentRow> = {}): AgentRow {
     subagents: overrides.subagents ?? [],
     driven: overrides.driven ?? null,
     attachState: overrides.attachState ?? null,
+    interfaceBinding: overrides.interfaceBinding ?? null,
   };
 }
 

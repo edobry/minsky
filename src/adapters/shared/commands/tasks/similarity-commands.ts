@@ -5,6 +5,54 @@ import { TaskSimilarityService } from "@minsky/domain/tasks/task-similarity-serv
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { assertKnownKind } from "@minsky/domain/tasks/workflows";
+import { ALL_PROJECTS, type ProjectScope } from "@minsky/domain/project/scope";
+import { resolveProjectIdentity } from "@minsky/domain/project/identity";
+import { resolveProjectScope } from "@minsky/domain/project/scope-resolver";
+import { log } from "@minsky/shared/logger";
+
+/**
+ * Resolve the current project scope for tasks_similar / tasks_search (ADR-021,
+ * mt#2939) — mirrors listTasksFromParams' resolution in packages/domain/src/tasks.ts
+ * (mt#2416), reused here since TaskSimilarityService's constructor takes a
+ * `persistenceProvider` directly rather than a CommandExecutionContext.
+ *
+ * Returns ALL_PROJECTS when: the caller passed `allProjects: true`, the project
+ * identity is unresolved, the persistence provider has no SQL capability, or
+ * resolution otherwise fails. Never throws (fail-open, per ADR-021 §Decision).
+ */
+async function resolveTaskSimilarityProjectScope(
+  allProjects: boolean | undefined,
+  persistenceProvider: import("@minsky/domain/persistence/types").PersistenceProvider
+): Promise<ProjectScope> {
+  if (allProjects) return ALL_PROJECTS;
+
+  try {
+    const identity = resolveProjectIdentity({ repoPath: process.cwd() });
+    if (identity.kind !== "resolved") return ALL_PROJECTS;
+    if (
+      !persistenceProvider ||
+      !persistenceProvider.capabilities.sql ||
+      typeof persistenceProvider.getDatabaseConnection !== "function"
+    ) {
+      return ALL_PROJECTS;
+    }
+    // Cast to the SQL-capable interface (mirrors packages/domain/src/tasks.ts's
+    // listTasksFromParams, mt#2416): the base PersistenceProvider class types
+    // getDatabaseConnection() as Promise<unknown> since subclasses return
+    // different concrete DB types; SqlCapablePersistenceProvider narrows it to
+    // the PostgresJsDatabase shape resolveProjectScope's ScopeResolverDb needs.
+    const sqlProvider =
+      persistenceProvider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
+    const db = await sqlProvider.getDatabaseConnection();
+    if (!db) return ALL_PROJECTS;
+    return await resolveProjectScope(identity, db);
+  } catch (err) {
+    log.debug("[tasks.similar] Project scope resolution failed; defaulting to ALL_PROJECTS", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return ALL_PROJECTS;
+  }
+}
 
 export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarParams> {
   readonly id = "tasks.similar";
@@ -94,8 +142,14 @@ export class TasksSimilarCommand extends BaseTaskCommand<typeof tasksSimilarPara
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
+    // ADR-021 / mt#2939: resolve project scope for this similarity query.
+    const projectScope = await resolveTaskSimilarityProjectScope(
+      params.allProjects,
+      this.getPersistenceProvider()
+    );
+
     const service = await this.createService(this.getPersistenceProvider(), this.getTaskService());
-    const response = await service.similarToTask(taskId, limit, threshold);
+    const response = await service.similarToTask(taskId, limit, threshold, projectScope);
 
     // Enhance results with task details for better usability
     const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
@@ -287,7 +341,13 @@ export class TasksSearchCommand extends BaseTaskCommand<typeof tasksSearchParams
       filters.statusExclude = [TaskStatus.DONE, TaskStatus.CLOSED];
     }
 
-    const response = await service.searchByText(query, limit, threshold, filters);
+    // ADR-021 / mt#2939: resolve project scope for this search query.
+    const projectScope = await resolveTaskSimilarityProjectScope(
+      params.allProjects,
+      this.getPersistenceProvider()
+    );
+
+    const response = await service.searchByText(query, limit, threshold, filters, projectScope);
 
     // Show backend info to stderr unless JSON/quiet
     try {
@@ -362,7 +422,11 @@ export async function createTaskSimilarityService(
   ).getVectorStorageForDomain("tasks", dimension);
 
   const findTaskById = async (id: string) => taskService.getTask(id);
-  const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
+  // mt#2939: forward the caller-resolved projectScope (if any) into the live
+  // tasks-table read — this is what closes the cross-project leak on both the
+  // fast-path (similarToTask / no-filter searchByText) and filtered-path callers.
+  const searchTasks = async (opts: { text?: string; projectScope?: ProjectScope }) =>
+    taskService.listTasks({ projectScope: opts?.projectScope });
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
 
   const service = new TaskSimilarityService(

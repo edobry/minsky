@@ -33,6 +33,7 @@ import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { statusStyle } from "../lib/status-colors";
+import { useProject } from "../lib/project-context";
 
 // ---------------------------------------------------------------------------
 // Types — mirror of server TaskListItem / TaskListPayload
@@ -59,8 +60,8 @@ function isTaskListPayload(payload: unknown): payload is TaskListPayload {
   );
 }
 
-async function fetchTaskList(): Promise<WidgetData> {
-  return fetchWidgetData("task-list");
+async function fetchTaskList(queryParam?: { project: string }): Promise<WidgetData> {
+  return fetchWidgetData("task-list", queryParam);
 }
 
 // ---------------------------------------------------------------------------
@@ -69,12 +70,12 @@ async function fetchTaskList(): Promise<WidgetData> {
 
 export type TaskSortKey = "id" | "title" | "status" | "kind";
 
-interface TaskFilters {
+type TaskFilters = {
   /** Comma-separated status values for multi-select, or "all" */
   status: string;
   search: string;
   kind: string;
-}
+};
 
 const DEFAULT_FILTERS: TaskFilters = {
   status: "all",
@@ -137,19 +138,27 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 // (backlog) above the settled DONE/CLOSED tail.
 // ---------------------------------------------------------------------------
 
+// Priority for statuses not present in STATUS_SORT_PRIORITY — matches TODO's
+// rank (unrecognized statuses sort alongside not-yet-started work). Kept as a
+// standalone constant (rather than re-reading STATUS_SORT_PRIORITY.TODO) so
+// the fallback in statusPriority() below is a plain number, not another
+// indexed access into a Record<string, number> (which would itself be
+// `number | undefined` under noUncheckedIndexedAccess).
+const STATUS_SORT_PRIORITY_UNKNOWN = 5;
+
 export const STATUS_SORT_PRIORITY: Record<string, number> = {
   "IN-REVIEW": 0,
   BLOCKED: 1,
   "IN-PROGRESS": 2,
   READY: 3,
   PLANNING: 4,
-  TODO: 5,
+  TODO: STATUS_SORT_PRIORITY_UNKNOWN,
   DONE: 6,
   CLOSED: 7,
 };
 
 export function statusPriority(status: string): number {
-  return STATUS_SORT_PRIORITY[status.toUpperCase()] ?? STATUS_SORT_PRIORITY.TODO;
+  return STATUS_SORT_PRIORITY[status.toUpperCase()] ?? STATUS_SORT_PRIORITY_UNKNOWN;
 }
 
 // ---------------------------------------------------------------------------
@@ -665,9 +674,12 @@ interface TaskListProps {
 }
 
 export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = {}) {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["task-list"],
-    queryFn: fetchTaskList,
+    // mt#2418: selectedSlug in the key so switching projects invalidates
+    // the cache and refetches immediately rather than waiting out staleTime.
+    queryKey: ["task-list", selectedSlug],
+    queryFn: () => fetchTaskList(queryParam),
     staleTime: 30_000,
     refetchInterval: 10_000,
   });

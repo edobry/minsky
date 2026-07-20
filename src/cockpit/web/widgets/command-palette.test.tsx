@@ -112,7 +112,7 @@ describe("CommandPalette (mt#2399)", () => {
         );
       }
       throw new Error(`Unexpected fetch in test: ${url}`);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {

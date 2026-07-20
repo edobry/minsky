@@ -3,12 +3,14 @@ import type { Task } from "../tasks";
 import { log } from "@minsky/shared/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
+import type { SimilarityItem } from "../similarity/types";
 import { createHash } from "crypto";
 import { SimilaritySearchService } from "../similarity/similarity-search-service";
 import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "@minsky/shared/array-safety";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { ALL_PROJECTS, isAllProjects, type ProjectScope } from "../project/scope";
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
@@ -32,7 +34,11 @@ export class TaskSimilarityService {
     private readonly embeddingService: EmbeddingService,
     private readonly vectorStorage: VectorStorage,
     private readonly findTaskById: (id: string) => Promise<Task | null>,
-    private readonly searchTasks: (query: { text?: string }) => Promise<Task[]>,
+    private readonly searchTasks: (query: {
+      text?: string;
+      /** Live-tasks-table project scope for this fetch (mt#2939, ADR-021). */
+      projectScope?: ProjectScope;
+    }) => Promise<Task[]>,
     private readonly getTaskSpecContent: (
       id: string
     ) => Promise<{ content: string; specPath: string; task: Task }>,
@@ -48,6 +54,12 @@ export class TaskSimilarityService {
       );
       const lexicalBackend = new LexicalSimilarityBackend({
         getById: this.findTaskById,
+        // NOTE (mt#2939): candidate listing is intentionally UNSCOPED here — the
+        // live-task cross-check applied afterwards via applyProjectScope() /
+        // searchByText's `passes()` filter drops any candidate (lexical or
+        // embeddings-sourced) that isn't in the caller's resolved project scope.
+        // Over-generating lexical candidates just means slightly more scoring
+        // work, never a correctness gap.
         listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
         getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
       });
@@ -56,20 +68,46 @@ export class TaskSimilarityService {
     return this.searchService;
   }
 
+  /**
+   * Live cross-check against the `tasks` table's project scope (mt#2939,
+   * mirroring the mt#2416 / ADR-021 default-scoped-read convention). When
+   * `projectScope` is the ALL_PROJECTS sentinel this is a no-op passthrough.
+   * Otherwise, fetches the live task set scoped to `projectScope` and drops
+   * any vector-search result whose id is not in that set — this covers both
+   * genuinely cross-project tasks AND orphaned embeddings with no live task
+   * row, the same way the `hasDomainFilter` path in `searchByText` already
+   * treats a missing live task as "drop."
+   */
+  private async applyProjectScope(
+    items: SimilarityItem[],
+    projectScope: ProjectScope
+  ): Promise<SimilarityItem[]> {
+    if (isAllProjects(projectScope)) return items;
+    const liveTasks = await this.searchTasks({ projectScope });
+    const liveIds = new Set(liveTasks.map((t) => t.id));
+    return items.filter((i) => liveIds.has(i.id));
+  }
+
   /** Expose service configuration for diagnostics */
   getConfig(): TaskSimilarityServiceConfig {
     return this.config;
   }
 
-  async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<TaskSearchResponse> {
+  async similarToTask(
+    taskId: string,
+    limit = 10,
+    threshold?: number,
+    projectScope: ProjectScope = ALL_PROJECTS
+  ): Promise<TaskSearchResponse> {
     const task = await this.findTaskById(taskId);
     if (!task) {
       return { results: [], backend: "none", degraded: false };
     }
     const content = await this.extractTaskContent(task);
     const response = await this.getSearchService().search({ queryText: content, limit });
+    const items = await this.applyProjectScope(response.items, projectScope);
     return {
-      results: response.items.map((i) => ({
+      results: items.map((i) => ({
         id: i.id,
         score: i.score,
         metadata: i.metadata,
@@ -84,7 +122,8 @@ export class TaskSimilarityService {
     query: string,
     limit = 10,
     threshold?: number,
-    filters?: Record<string, unknown>
+    filters?: Record<string, unknown>,
+    projectScope: ProjectScope = ALL_PROJECTS
   ): Promise<TaskSearchResponse> {
     // Domain-specific filters (status / statusExclude / backend) are applied here,
     // at READ TIME against the live `tasks` table (the source of truth) — NOT pushed
@@ -113,11 +152,16 @@ export class TaskSimilarityService {
     // status/backend — kind is undefined on GHI-backed tasks today (a known
     // gap), so those tasks only match a "implementation" kind filter.
     const kindEquals = typeof filters?.kind === "string" ? (filters.kind as string) : undefined;
+    // mt#2939: project scoping is itself a domain filter requiring a live cross-check —
+    // a resolved (non-ALL_PROJECTS) scope forces the filtered path even with no other
+    // status/backend/kind filter, closing the gap where the "fast path" previously
+    // returned raw, unscoped vector-search results by default.
     const hasDomainFilter =
       Boolean(statusEquals) ||
       (statusExclude?.length ?? 0) > 0 ||
       Boolean(backendEquals) ||
-      Boolean(kindEquals);
+      Boolean(kindEquals) ||
+      !isAllProjects(projectScope);
 
     // mt#2744: phase timing for the full tasks search path. The backend logs the
     // embed-vs-vector split per getSearchService().search() call; this summary adds
@@ -125,8 +169,9 @@ export class TaskSimilarityService {
     // second "widen" vector search) that the backend-level timing cannot see.
     const searchStartTs = Date.now();
 
-    // Fast path: no domain filter (used by similarToTask / searchSimilarTasks) — search
-    // the full corpus directly with no extra task lookups.
+    // Fast path: no domain filter AND no project scope active (used by default when
+    // the caller explicitly asked for ALL_PROJECTS) — search the full corpus directly
+    // with no extra task lookups.
     if (!hasDomainFilter) {
       const response = await this.getSearchService().search({ queryText: query, limit });
       log.debug("tasks searchByText timing (mt#2744)", {
@@ -148,6 +193,10 @@ export class TaskSimilarityService {
     // so they overlap with no DB contention. The vector search below reuses the
     // precomputed vector and runs AFTER this fetch, so the two DB round-trips never
     // overlap (the mt#2744 DB-contention finding). Spec content is loaded separately.
+    // mt#2939: this fetch is scoped to `projectScope` — when a real (non-ALL_PROJECTS)
+    // scope is active, cross-project tasks are absent from `allTasks`/`taskById` below,
+    // so `passes()`'s `!task` branch drops any cross-project vector-search match the
+    // same way it already drops orphaned embeddings.
     let embedMs = 0;
     let allTasksFetchMs = 0;
     const parallelStart = Date.now();
@@ -168,7 +217,7 @@ export class TaskSimilarityService {
           return undefined;
         }
       ),
-      this.searchTasks({}).then((t) => {
+      this.searchTasks({ projectScope }).then((t) => {
         allTasksFetchMs = Date.now() - parallelStart;
         return t;
       }),
@@ -198,7 +247,16 @@ export class TaskSimilarityService {
     const total = allTasks.length;
     const passing = allTasks.filter(passes).length;
     const passRate = passing > 0 ? passing / total : 0;
-    const candidateCeiling = Math.min(total, MAX_CANDIDATES);
+    // mt#2939: `allTasks.length` is a reliable upper bound on the vector index's
+    // useful candidate pool ONLY when it spans the full corpus (the pre-mt#2939,
+    // domain-filter-only case — status/backend/kind filters still fetch ALL
+    // tasks). Once a real project scope narrows `allTasks` to a subset, the
+    // (unscoped) vector index can still rank many cross-project items ahead of
+    // the true best in-scope match, so capping the search window at the scoped
+    // count risks never reaching it. Cap on MAX_CANDIDATES alone in that case.
+    const candidateCeiling = isAllProjects(projectScope)
+      ? Math.min(total, MAX_CANDIDATES)
+      : MAX_CANDIDATES;
     const candidateLimit = Math.min(
       candidateCeiling,
       Math.max(OVERFETCH_FLOOR, Math.ceil(limit / Math.max(passRate, 0.05)) * OVERFETCH_SAFETY)
@@ -252,7 +310,8 @@ export class TaskSimilarityService {
     searchTerms: string[],
     excludeTaskIds: string[] = [],
     limit = 10,
-    threshold?: number
+    threshold?: number,
+    projectScope: ProjectScope = ALL_PROJECTS
   ): Promise<TaskSearchResponse> {
     if (searchTerms.length === 0) {
       return { results: [], backend: "none", degraded: false };
@@ -260,7 +319,7 @@ export class TaskSimilarityService {
 
     // Create a natural language query from the search terms
     const query = this.constructSearchQuery(searchTerms);
-    const response = await this.searchByText(query, limit * 2, threshold);
+    const response = await this.searchByText(query, limit * 2, threshold, undefined, projectScope);
 
     // Filter out excluded task IDs
     const filtered = response.results

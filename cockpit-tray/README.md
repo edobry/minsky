@@ -336,6 +336,9 @@ mt#2219). The Rust backend (`src-tauri/src/main.rs`) handles:
   `notify-debouncer-mini` filesystem watcher that sends a debounced `Rebuild`
   command to the supervisor; the build runner shells out to `bun run cockpit:build`
 - Login Item registration via `tauri-plugin-autostart` (LaunchAgent mode, release builds)
+- Global summon hotkey (mt#2676) via `tauri-plugin-global-shortcut`: toggles the
+  cockpit window (show+focus / hide) from anywhere, even when another app is
+  frontmost. Default binding lives in `src-tauri/src/hotkey.rs`.
 - Synchronous teardown of the spawned daemon on `RunEvent::Exit`
 
 The pure decision logic (`decide_action`, `throttle_ok`, `augmented_path`,

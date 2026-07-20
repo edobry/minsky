@@ -126,7 +126,7 @@ function mockChangesetFetch(
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 function mockChangesetFetchError(id: string, errorMessage: string) {
@@ -136,7 +136,7 @@ function mockChangesetFetchError(id: string, errorMessage: string) {
       return Promise.reject(new Error(errorMessage));
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +286,7 @@ describe("ChangesetDetailPage — not-found / empty state", () => {
 describe("ChangesetDetailPage — loading / pending state", () => {
   test("renders loading placeholder before data arrives", () => {
     // Fetch hangs — query stays in pending state
-    globalThis.fetch = mock(() => new Promise(() => {})) as typeof globalThis.fetch;
+    globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
     renderChangesetPage("1234");
     // Pending state message is present synchronously (before any microtask)
     expect(screen.getByText(/loading changeset/i)).toBeDefined();

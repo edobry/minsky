@@ -185,6 +185,7 @@ describe("foldDrivenSessionEvent — delta accumulation", () => {
     );
     expect(state.blocks).toHaveLength(1);
     const streamedId = state.blocks[0]?.id;
+    if (!streamedId) throw new Error("expected a streamed block with an id");
 
     state = foldDrivenSessionEvent(state, {
       type: "assistant",

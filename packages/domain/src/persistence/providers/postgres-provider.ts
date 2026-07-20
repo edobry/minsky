@@ -58,9 +58,16 @@ const MAX_POSTGRES_MAX_CONNECTIONS = 100;
  * auto-migration decision. Extracted so tests can exercise the decision
  * logic without needing a real DB connection.
  *
- * Returns true when both:
+ * Default OFF (mt#2560). Returns true ONLY when both:
  *   - the caller did NOT inject any `deps` (sqlClient or postgresFactory), AND
- *   - `MINSKY_AUTO_MIGRATE` env var is not explicitly disabled ("false" / "0").
+ *   - `MINSKY_AUTO_MIGRATE` is explicitly opted in ("true"/"1"/"yes"/"on", case-insensitive).
+ *
+ * Rationale: auto-migrate-on-boot is a shared-prod hazard — every binary
+ * (hosted MCP, reviewer, cockpit daemon, stdio MCP servers, CLI) points at the
+ * one shared Postgres. Prod migrations are applied by the deploy-keyed single
+ * runner (mt#2505, .github/workflows/deploy-minsky-mcp.yml), so no binary needs
+ * to migrate on boot. The opt-in is the "I solely own this non-shared/local DB"
+ * assertion (runtime owner-detection is mt#2430).
  *
  * The `env` parameter is injectable so tests can override the env-var lookup
  * without mutating `process.env` (which leaks across tests).
@@ -69,8 +76,11 @@ export function shouldAutoMigrate(
   deps?: { sqlClient?: unknown; postgresFactory?: unknown },
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const enabled = !["false", "0"].includes((env.MINSKY_AUTO_MIGRATE ?? "true").toLowerCase());
-  if (!enabled) return false;
+  // Opt-in truthy set matches the repo convention (services/reviewer
+  // review-worker.ts REVIEWER_MONOTONICITY_RECOVERY_ENABLED, PR #922):
+  // true/1/yes/on, case-insensitive.
+  const optedIn = /^(true|1|yes|on)$/i.test((env.MINSKY_AUTO_MIGRATE ?? "").trim());
+  if (!optedIn) return false;
   const callerOwnsClient = deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined;
   return !callerOwnsClient;
 }
@@ -124,7 +134,7 @@ export function resolveMigrationsFolder(): string {
       `This indicates the build artifact does not include the migrations folder. ` +
       `Either copy packages/domain/src/storage/migrations/pg/ next to the compiled module, ` +
       `or set MINSKY_MIGRATIONS_FOLDER to an absolute path, ` +
-      `or set MINSKY_AUTO_MIGRATE=false and apply migrations out-of-band.`
+      `or unset MINSKY_AUTO_MIGRATE (auto-migrate is off by default) and apply migrations out-of-band.`
   );
 }
 
@@ -285,19 +295,33 @@ export class PostgresPersistenceProvider
       this.sql = sql;
       this.db = db;
 
-      // mt#1767 (mt#1763 redo, post-revert): auto-run pending migrations.
-      // Skip conditions (see `shouldAutoMigrate` for the predicate):
-      // - Caller injected any `deps` (sqlClient or postgresFactory): test seam.
-      // - `MINSKY_AUTO_MIGRATE` env var is "false" / "0": explicit opt-out.
-      // The `_overrideAutoMigrate` test seam can force the auto-migrate branch
-      // (see initialize signature for rationale).
+      // mt#2560: auto-migrate-on-boot is OFF by default. It runs ONLY when the
+      // MINSKY_AUTO_MIGRATE opt-in is set ("true"/"1") AND no deps were injected
+      // (see `shouldAutoMigrate`). Prod is migrated by the deploy-keyed single
+      // runner (mt#2505); no binary migrates a shared DB on boot. The
+      // `_overrideAutoMigrate` test seam can force the branch (see initialize
+      // signature for rationale).
       const autoMigrate = deps?._overrideAutoMigrate ?? shouldAutoMigrate(deps);
       if (autoMigrate) {
+        // mt#2560 SC2: audit-log when the opt-in actually fires. This should
+        // only happen for a local/dev/throwaway DB the caller solely owns —
+        // NEVER a shared/prod DB.
+        log.warn(
+          "Auto-migrating on boot: MINSKY_AUTO_MIGRATE opt-in enabled. " +
+            "Only safe for a local/dev/throwaway DB you solely own; " +
+            "prod is migrated by the deploy-keyed runner (mt#2505)."
+        );
         await this.runMigrations(resolveMigrationsFolder());
       } else if (deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined) {
         log.debug("Skipping auto-migration: caller-injected deps (test seam)");
       } else {
-        log.warn("Skipping auto-migration: MINSKY_AUTO_MIGRATE=false");
+        // debug (not warn): this is now the routine per-boot path on every CLI/
+        // hook/session/MCP process — consistent with the sibling test-seam skip
+        // above. Verified (mt#2560): no CI gate / smoke / runbook greps this line.
+        log.debug(
+          "Skipping auto-migration (default OFF, mt#2560): MINSKY_AUTO_MIGRATE not opted in. " +
+            "Migrations are applied out-of-band by the deploy-keyed runner (mt#2505)."
+        );
       }
 
       // All checks passed AND migrations applied — now mark initialized.

@@ -11,6 +11,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ProjectProvider } from "../lib/project-context";
 import {
   TaskList,
   ALL_STATUSES,
@@ -123,8 +124,17 @@ function stubTasks(tasks: TaskListItem[]) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    // ProjectProvider (mt#2418) fetches /api/projects on mount — an empty
+    // list keeps the selector hidden and selectedSlug at "All projects",
+    // matching this suite's pre-mt#2418 unscoped-fetch assertions.
+    if (url.includes("/api/projects")) {
+      return new Response(JSON.stringify({ projects: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     throw new Error(`Unexpected fetch in test: ${url}`);
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function renderList() {
@@ -132,7 +142,9 @@ function renderList() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <TaskList />
+        <ProjectProvider>
+          <TaskList />
+        </ProjectProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

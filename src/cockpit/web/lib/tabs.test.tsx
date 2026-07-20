@@ -120,7 +120,8 @@ describe("matchEntityRoute", () => {
     test("base and tab-suffixed paths for the same entity normalize to the SAME tab-strip path", () => {
       const base = matchEntityRoute("/agents/abc123");
       const withTab = matchEntityRoute("/agents/abc123/context");
-      expect(base?.path).toBe(withTab?.path);
+      if (!base || !withTab) throw new Error("expected both routes to match");
+      expect(base.path).toBe(withTab.path);
     });
   });
 });

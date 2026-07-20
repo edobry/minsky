@@ -1,5 +1,5 @@
 {
-  "id": "2939bf03-e15b-4d94-a522-a544fd12b67a",
+  "id": "17d39cfc-3506-4db7-84d9-5db8e28f43cf",
   "prevId": "d9b8b3f7-6a9a-4a41-ae9b-f7d99e3fa9f7",
   "version": "7",
   "dialect": "postgresql",
@@ -931,6 +931,12 @@
           "primaryKey": false,
           "notNull": false,
           "default": "now()"
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -950,7 +956,17 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "agent_transcripts_project_id_projects_id_fk": {
+          "name": "agent_transcripts_project_id_projects_id_fk",
+          "tableFrom": "agent_transcripts",
+          "tableTo": "projects",
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1232,192 +1248,6 @@
           "columns": ["agent_session_id", "minsky_session_id"]
         }
       },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.driven_session_cost": {
-      "name": "driven_session_cost",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "local_id": {
-          "name": "local_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "harness_session_id": {
-          "name": "harness_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "minsky_session_id": {
-          "name": "minsky_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "turn_index": {
-          "name": "turn_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "subtype": {
-          "name": "subtype",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_error": {
-          "name": "is_error",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "total_cost_usd": {
-          "name": "total_cost_usd",
-          "type": "numeric(12, 6)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "input_tokens": {
-          "name": "input_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "output_tokens": {
-          "name": "output_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cache_creation_input_tokens": {
-          "name": "cache_creation_input_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cache_read_input_tokens": {
-          "name": "cache_read_input_tokens",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "duration_ms": {
-          "name": "duration_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "duration_api_ms": {
-          "name": "duration_api_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "num_turns": {
-          "name": "num_turns",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "model_usage": {
-          "name": "model_usage",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recorded_at": {
-          "name": "recorded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "idx_dsc_local_id": {
-          "name": "idx_dsc_local_id",
-          "columns": [
-            {
-              "expression": "local_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_dsc_harness_session_id": {
-          "name": "idx_dsc_harness_session_id",
-          "columns": [
-            {
-              "expression": "harness_session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_dsc_task_id": {
-          "name": "idx_dsc_task_id",
-          "columns": [
-            {
-              "expression": "task_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "idx_dsc_recorded_at": {
-          "name": "idx_dsc_recorded_at",
-          "columns": [
-            {
-              "expression": "recorded_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

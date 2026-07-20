@@ -343,10 +343,20 @@ export function createAgentsWidget(
         const offset = ctx.query?.offset ? parseInt(ctx.query.offset, 10) : undefined;
         const isPaginated = limit != null && !isNaN(limit);
 
+        // Project scope (mt#2418): ?project=<slug> resolved to a project
+        // uuid, defaulting to ALL_PROJECTS when omitted/"all" — same
+        // resolution rules as every other cockpit project-scoped read.
+        // resolveCockpitProjectScope owns its own db-fetch and never throws
+        // (fail-open to ALL_PROJECTS on any resolution failure — PR #2056 R1)
+        // so a scoping problem can never take this widget down.
+        const { resolveCockpitProjectScope } = await import("../project-scope");
+        const projectScope = await resolveCockpitProjectScope(ctx.query?.project);
+
         // Filter terminal statuses at DB level; orphaned liveness is derived
         // in JS (no DB column) so it stays as a post-fetch filter.
         const allRecords = await provider.listSessions({
           statusNotIn: [...TERMINAL_STATUSES],
+          projectScope,
         });
 
         const filtered = allRecords.filter((r) => {

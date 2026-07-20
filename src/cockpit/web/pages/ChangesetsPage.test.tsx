@@ -17,6 +17,7 @@ import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ChangesetsPage } from "./ChangesetsPage";
+import { ProjectProvider } from "../lib/project-context";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
 
 // ---------------------------------------------------------------------------
@@ -48,14 +49,16 @@ function renderChangesetsPage(onLocation?: (path: string) => void) {
   return render(
     <MemoryRouter initialEntries={["/changesets"]}>
       <QueryClientProvider client={queryClient}>
-        <Routes>
-          <Route path="/changesets" element={<ChangesetsPage />} />
-          {/* Catch-all so navigate("/changeset/:id") doesn't 404 in tests */}
-          <Route path="/changeset/:id" element={<div data-testid="changeset-detail" />} />
-          {/* Catch-all so the task-ID link's navigate("/tasks/:id") doesn't 404 */}
-          <Route path="/tasks/:id" element={<div data-testid="task-detail" />} />
-        </Routes>
-        {onLocation && <LocationCapture onLocation={onLocation} />}
+        <ProjectProvider>
+          <Routes>
+            <Route path="/changesets" element={<ChangesetsPage />} />
+            {/* Catch-all so navigate("/changeset/:id") doesn't 404 in tests */}
+            <Route path="/changeset/:id" element={<div data-testid="changeset-detail" />} />
+            {/* Catch-all so the task-ID link's navigate("/tasks/:id") doesn't 404 */}
+            <Route path="/tasks/:id" element={<div data-testid="task-detail" />} />
+          </Routes>
+          {onLocation && <LocationCapture onLocation={onLocation} />}
+        </ProjectProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );
@@ -184,7 +187,7 @@ function mockChangesetsFetch(response: { status: number; body: unknown }) {
       );
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 function mockChangesetsFetchError(errorMessage: string) {
@@ -194,7 +197,7 @@ function mockChangesetsFetchError(errorMessage: string) {
       return Promise.reject(new Error(errorMessage));
     }
     return Promise.resolve(new Response("Not found", { status: 404 }));
-  }) as typeof globalThis.fetch;
+  }) as unknown as typeof globalThis.fetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,7 +446,7 @@ describe("ChangesetsPage — error state", () => {
 describe("ChangesetsPage — loading state", () => {
   test("renders loading placeholder before data arrives", () => {
     // Fetch hangs — query stays in pending state
-    globalThis.fetch = mock(() => new Promise(() => {})) as typeof globalThis.fetch;
+    globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
     renderChangesetsPage();
     expect(screen.getByText(/loading changesets/i)).toBeDefined();
   });

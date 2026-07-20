@@ -43,8 +43,9 @@ describe("liveness OKLCH color semantics (mt#2917 recalibration)", () => {
   function themeBlock(theme: "root" | "dark"): string {
     const re = theme === "root" ? /:root\s*\{([\s\S]*?)\n\}/ : /\.dark\s*\{([\s\S]*?)\n\}/;
     const match = css.match(re);
-    if (!match) throw new Error(`Could not find .${theme} block in index.css`);
-    return match[1];
+    const captured = match?.[1];
+    if (captured === undefined) throw new Error(`Could not find .${theme} block in index.css`);
+    return captured;
   }
 
   function oklchHue(block: string, varName: string): number {

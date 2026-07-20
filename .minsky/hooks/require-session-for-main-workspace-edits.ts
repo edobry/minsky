@@ -17,12 +17,21 @@
 // as part of conflict resolution, not new code work. In that case the edit
 // is permitted with a stderr audit line.
 //
+// Machine-agnostic derivation (mt#2928): MAIN_WORKSPACE and
+// SESSION_WORKSPACE_ROOT used to be hardcoded machine- and user-specific
+// absolute-path literals — correct only on the original author's own
+// machine. Both are now derived at runtime; see
+// deriveMainWorkspace/deriveSessionWorkspaceRoot below.
+//
 // @see mt#1103 — structural fix for main-workspace edit violations
 // @see mt#1806 — conflict-resolution carve-out
+// @see mt#2928 — machine-agnostic MAIN_WORKSPACE/SESSION_WORKSPACE_ROOT derivation
 
 import { readFileSync } from "fs";
-import { readInput, writeOutput } from "./types";
-import type { ToolHookInput } from "./types";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { readInput, writeOutput, findRepoRoot, DEFAULT_FS } from "./types";
+import type { ToolHookInput, MergeDetectFs } from "./types";
 import { recordFireLogEntry } from "./fire-log";
 
 /** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
@@ -32,8 +41,61 @@ const GUARD_NAME = "require-session-for-main-workspace-edits";
 // Policy (exported for tests)
 // ---------------------------------------------------------------------------
 
-export const MAIN_WORKSPACE = "/Users/edobry/Projects/minsky";
-export const SESSION_WORKSPACE_ROOT = "/Users/edobry/.local/state/minsky/sessions";
+/**
+ * Resolve the MAIN workspace root at runtime instead of hardcoding an
+ * absolute path (mt#2928 — "Minsky beyond Minsky" portability sweep;
+ * memory `ae514f10`). `.minsky/hooks/*.ts` (and its compiled mirror
+ * `.claude/hooks/*.ts`) is checked into the main-workspace repo itself, so
+ * walking up from THIS FILE's own directory via the shared `findRepoRoot`
+ * helper (mt#2710, `.minsky/hooks/types.ts`) always lands on the real
+ * main-workspace root — regardless of machine, user account, or checkout
+ * location.
+ *
+ * Deliberately NOT `input.cwd` (the pattern every other `findRepoRoot`
+ * caller uses — see `check-branch-fresh.ts`, `skill-staleness-detector.ts`,
+ * etc.): those callers want "whatever repo the hook happens to be running
+ * in, right now" to resolve a repo-relative STATE path. This hook instead
+ * needs one fixed answer to "where is THE main workspace" so it can
+ * classify an unrelated edit target — a value that must not drift with the
+ * invoking process's shell cwd.
+ *
+ * Exported as a pure function (startDir/fs both injectable) so tests can
+ * verify a repo checked out at a different absolute path resolves
+ * correctly without touching the real filesystem.
+ */
+export function deriveMainWorkspace(
+  startDir: string = import.meta.dir,
+  fs: MergeDetectFs = DEFAULT_FS
+): string {
+  return findRepoRoot(startDir, fs);
+}
+
+/**
+ * Resolve the session-workspace root at runtime: `<state-dir>/sessions`.
+ * Precedence mirrors `src/cockpit/lifecycle.ts`'s `getStateDir()` (mt#1925
+ * R2): the `MINSKY_STATE_DIR` env override first, else the XDG Base
+ * Directory convention (`XDG_STATE_HOME`, falling back to
+ * `<home>/.local/state`) plus the `minsky` namespace segment.
+ * `.minsky/hooks/` stays dependency-free (no `packages/` or `src/`
+ * imports, per `SPEC.md`), so this is inlined rather than importing
+ * `packages/shared/src/paths.ts:getSessionsDir()` — the same inlining
+ * precedent as `mcp-daemon-staleness-detector.ts`'s `getDaemonStatePath()`.
+ *
+ * Exported as a pure function (env/home both injectable) so tests can
+ * verify a different HOME resolves the session-workspace root correctly.
+ */
+export function deriveSessionWorkspaceRoot(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir()
+): string {
+  const stateDir = env.MINSKY_STATE_DIR
+    ? env.MINSKY_STATE_DIR
+    : join(env.XDG_STATE_HOME || join(env.HOME || home, ".local", "state"), "minsky");
+  return join(stateDir, "sessions");
+}
+
+export const MAIN_WORKSPACE = deriveMainWorkspace();
+export const SESSION_WORKSPACE_ROOT = deriveSessionWorkspaceRoot();
 export const FILE_EDITING_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
 export interface DenialDecision {
@@ -71,23 +133,33 @@ export function contentHasConflictMarkers(content: string): boolean {
  *
  * @param readFile Injectable file reader for testing (defaults to readFileSync).
  *   Must throw when the file doesn't exist so the carve-out fails closed.
+ * @param mainWorkspace Injectable main-workspace root (mt#2928 — defaults to
+ *   the runtime-derived MAIN_WORKSPACE; tests can inject a different
+ *   absolute path to verify classification is not tied to this machine's
+ *   checkout location).
+ * @param sessionWorkspaceRoot Injectable session-workspace root (mt#2928 —
+ *   defaults to the runtime-derived SESSION_WORKSPACE_ROOT; tests can
+ *   inject a different absolute path to verify classification is not tied
+ *   to this machine's HOME).
  */
 export function checkFilePathDenial(
   toolName: string,
   filePath: string | undefined,
-  readFile: (path: string) => string = defaultReadFile
+  readFile: (path: string) => string = defaultReadFile,
+  mainWorkspace: string = MAIN_WORKSPACE,
+  sessionWorkspaceRoot: string = SESSION_WORKSPACE_ROOT
 ): DenialDecision {
   if (!FILE_EDITING_TOOLS.has(toolName)) return { denied: false };
   if (!filePath) return { denied: false };
   if (!filePath.startsWith("/")) return { denied: false };
 
-  // Session workspaces live under SESSION_WORKSPACE_ROOT. Allow anything there.
-  if (filePath.startsWith(`${SESSION_WORKSPACE_ROOT}/`)) return { denied: false };
+  // Session workspaces live under sessionWorkspaceRoot. Allow anything there.
+  if (filePath.startsWith(`${sessionWorkspaceRoot}/`)) return { denied: false };
 
   // Main workspace edits are denied — unless the file contains conflict markers,
   // in which case the edit is conflict resolution (stripping <<<<<<</=======/>>>>>>>
   // lines), not new code work. Permit with a stderr audit line.
-  if (filePath === MAIN_WORKSPACE || filePath.startsWith(`${MAIN_WORKSPACE}/`)) {
+  if (filePath === mainWorkspace || filePath.startsWith(`${mainWorkspace}/`)) {
     // Attempt to read the file; fail closed on any error (file missing, permission, etc.)
     let hasMarkers = false;
     try {

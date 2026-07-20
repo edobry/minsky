@@ -327,6 +327,19 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
           }
         }
 
+        // mt#2935: the detection-time policy consult records policy-covered
+        // commits as `authorization.policy_covered` events; the emit needs the
+        // provider itself (emitSystemEventFromProvider duck-types the SQL
+        // capability internally, so a non-SQL provider degrades to a no-op).
+        let persistenceProvider: PersistenceProvider | undefined;
+        if (context.container?.has("persistence")) {
+          try {
+            persistenceProvider = context.container.get("persistence") as PersistenceProvider;
+          } catch {
+            persistenceProvider = undefined;
+          }
+        }
+
         try {
           const result = await sessionCommit(
             {
@@ -347,7 +360,8 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               } catch {
                 return undefined;
               }
-            })()
+            })(),
+            persistenceProvider
           );
 
           return {

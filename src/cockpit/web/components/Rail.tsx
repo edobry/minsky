@@ -51,6 +51,7 @@ import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
 import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
+import { ProjectSelector } from "./ProjectSelector";
 
 interface NavItem {
   to: string;
@@ -324,6 +325,12 @@ export function Rail() {
         className="hidden h-full w-60 flex-shrink-0 flex-col border-r border-border bg-background md:flex"
       >
         <RailHeader />
+        {/* Project selector (mt#2418) — shell-level filter, shared between
+            desktop and mobile (see the mirrored insertion in the drawer
+            below) so the two surfaces can't drift. Renders its own wrapper
+            (or null for a single-project deployment) so no empty bordered
+            strip appears when there is nothing to select. */}
+        <ProjectSelector />
         <RailNav pathname={pathname} />
         <RailFooter pathname={pathname} />
       </aside>
@@ -364,6 +371,9 @@ export function Rail() {
                 <X aria-hidden className="h-4 w-4" />
               </DialogPrimitive.Close>
             </div>
+            {/* Project selector (mt#2418) — mirrors the desktop insertion
+                above so the drawer and the persistent rail never drift. */}
+            <ProjectSelector />
             <RailNav pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
             <RailFooter pathname={pathname} onNavigate={() => setMobileNavOpen(false)} />
           </DialogPrimitive.Content>
