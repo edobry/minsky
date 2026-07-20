@@ -36,7 +36,7 @@ function stubFetch(status: number, body: unknown): void {
     new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
-    })) as typeof fetch;
+    })) as unknown as typeof fetch;
 }
 
 afterEach(() => {

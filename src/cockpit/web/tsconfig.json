@@ -1,0 +1,20 @@
+{
+  // Dedicated typecheck project for the cockpit frontend (mt#2424).
+  //
+  // The root tsconfig.json EXCLUDES this directory (browser-only lib settings would
+  // otherwise leak into the Bun/Node program), and `vite build` transpiles via esbuild
+  // WITHOUT type-checking — so without this project, src/cockpit/web/** has no static
+  // type coverage at all. See mt#2424 for the two production escapes this closes.
+  //
+  // Inherits strict mode + moduleResolution/jsx settings from the root config; only
+  // overrides `lib` (adds DOM.Iterable for browser iteration APIs) and the
+  // include/exclude scope (the root's own `exclude` entry for this directory would
+  // otherwise apply here too, since unset compilerOptions/include/exclude are inherited
+  // verbatim from the base file's resolution).
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "dist", "public"]
+}

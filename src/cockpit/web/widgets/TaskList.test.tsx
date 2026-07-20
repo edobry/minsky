@@ -124,7 +124,7 @@ function stubTasks(tasks: TaskListItem[]) {
       });
     }
     throw new Error(`Unexpected fetch in test: ${url}`);
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 function renderList() {

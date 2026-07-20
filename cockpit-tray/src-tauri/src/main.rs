@@ -21,6 +21,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod deeplink;
+mod hotkey;
 mod launchd;
 mod menu;
 mod supervisor;
@@ -45,7 +46,12 @@ fn main() {
         // The deep-link plugin registers the OS scheme (CFBundleURLTypes on macOS)
         // and delivers opened URLs to on_open_url. Navigation is Rust→webview eval
         // because the SPA is an untrusted external-URL webview (no IPC bridge).
-        .plugin(tauri_plugin_deep_link::init());
+        .plugin(tauri_plugin_deep_link::init())
+        // Global summon hotkey (mt#2676): registers the plugin + press
+        // handler here; actual OS-level shortcut registration happens in
+        // setup() via hotkey::register, which needs a live AppHandle to log
+        // failures against.
+        .plugin(hotkey::plugin());
     // LaunchAgent mode registers a per-user Login Item that starts THIS app
     // (com.minsky.cockpit-tray) at login — the RunAtLoad replacement from
     // ADR-014. Distinct from the daemon's own com.minsky.cockpit launchd plist
@@ -91,7 +97,17 @@ fn main() {
                 }
             }
 
-            menu::build(app)?;
+            // Register the global summon hotkey (mt#2676) BEFORE building
+            // the tray menu, so "Open Cockpit" can reflect whether the OS
+            // actually accepted the binding rather than unconditionally
+            // advertising a shortcut that may silently do nothing (PR #2051
+            // review R1). Registration failure (e.g. already bound by
+            // another app) is logged + a one-time notification is fired
+            // inside hotkey::register -- it never crashes the tray (success
+            // criterion 2).
+            let hotkey_registered = hotkey::register(&handle);
+
+            menu::build(app, hotkey_registered)?;
 
             // Command channel: menu handler (main thread) → supervisor thread.
             supervisor::spawn(handle, spawned_setup.clone());

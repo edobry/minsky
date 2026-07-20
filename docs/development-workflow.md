@@ -25,13 +25,14 @@ The pre-commit hooks run in a specific sequence, with each layer serving a disti
 └─────────────────────┬───────────────────────────────────────┘
                       │ ✅ Formatting successful
 ┌─────────────────────▼───────────────────────────────────────┐
-│           2. 🧪 Unit Test Suite (Bun Test)                  │
-│  • Runs the full unit test suite (order of 1,400 tests)     │
-│  • Zero tolerance for failures                              │
-│  • Fast execution (typically seconds, not minutes)          │
-│  • Blocks commit on any test failure                        │
+│           2. 🧪 Fast checks only — NOT the full suite       │
+│  • The full unit suite is NOT run in pre-commit (mt#2716)   │
+│  • ~8300 tests ≈ 4.3 min: the "slow hook → --no-verify →    │
+│    worse than no hook" anti-pattern; it also never worked    │
+│    (old 120s timeout < honest suite; bun truncated it)      │
+│  • Full suite now runs in pre-push + CI (see §2 below)      │
 └─────────────────────┬───────────────────────────────────────┘
-                      │ ✅ All tests passing
+                      │ ✅ Fast checks passing
 ┌─────────────────────▼───────────────────────────────────────┐
 │           3. 🔍 ESLint Code Quality                          │
 │  • Identifies code quality issues                           │
@@ -82,34 +83,36 @@ The pre-commit hooks run in a specific sequence, with each layer serving a disti
 bun run format
 ```
 
-#### 2. Unit Test Suite Layer
+#### 2. Test tiering — the full suite runs at pre-push + CI, not pre-commit (mt#2716)
 
-**Purpose**: Comprehensive validation of application logic
+**Purpose**: Catch failing tests before code is shared, without taxing every commit.
 
-**Technology**: Bun test runner with zero failure tolerance
+The full unit suite (~8300 tests, ~4.3 min) is deliberately NOT run in pre-commit.
+Running it on every commit is the well-documented "slow hook → developers
+`--no-verify` it → worse than no hook" anti-pattern; the old pre-commit full-suite
+step also never actually worked (its 120s `execAsync` timeout was shorter than the
+honest suite, and `bun test` 1.2.21 silently truncated it — exit 0, no completion
+summary — so it false-passed; see `docs/testing-patterns.md` and mt#2665). The suite
+is placed by cost, following common practice for large suites:
 
-**Scope**: All unit tests excluding integration tests
-
-**Behavior**:
-
-- Runs complete test suite (1,400+ tests)
-- Fast execution optimized for pre-commit use
-- Blocks commit on any test failure
-- Provides detailed failure information
-
-**Test Categories**:
-
-- Domain logic tests
-- Adapter tests (CLI, MCP)
-- Utility function tests
-- Mock and DI tests
+- **Pre-commit** — fast static checks (format, type check, ESLint, secret scan,
+  repo-integrity guards) plus the niche ESLint-rule tooling tests. No full suite.
+- **Pre-push** (`.husky/pre-push` → `scripts/run-tests-gated.ts`) — the local test
+  gate, run less often (before code is shared). Runs the same two steps CI runs
+  (`scripts/run-tests-main.ts`, `src/mcp` excluded, + `scripts/run-tests-mcp-isolated.ts`)
+  with a **fail-closed** completion-summary + `<N> fail` gate, so a silently-truncated
+  run can never pass. Escape hatch: `MINSKY_SKIP_PREPUSH_TESTS=1` (CI stays the
+  authoritative gate and cannot be skipped this way).
+- **CI** (`.github/workflows/ci.yml`) — the authoritative full suite (main + isolated
+  `src/mcp` + hooks), with the same fail-closed gate.
 
 ```bash
-# Manual execution
-bun test --timeout=15000
+# Full truncation-safe suite locally (what pre-push runs)
+bun scripts/run-tests-gated.ts
 
-# With verbose output
-bun test --verbose
+# Main suite only (src/mcp excluded) / isolated src/mcp
+bun run test
+bun run test:mcp-isolated
 
 # Watch mode for development
 bun run test:watch
@@ -246,7 +249,7 @@ bun run lint   # Fix linting issues
 
 ```
 Test Categories:
-├── Unit Tests (Pre-commit)
+├── Unit Tests (Pre-push + CI)
 │   ├── Domain Logic Tests
 │   ├── Adapter Tests (CLI, MCP)
 │   ├── Utility Tests
@@ -262,13 +265,13 @@ Test Categories:
 
 ### Test Configuration
 
-**Unit Tests** (`bun test`):
+**Unit Tests** (`bun test` — the full suite):
 
-- Fast execution (< 3 seconds)
+- Full suite ≈ 8300 tests (~4.3 min); **NOT run on every commit** (mt#2716)
 - Mock all external dependencies
 - No real filesystem operations
 - No real network requests
-- Runs on every commit
+- Runs at **pre-push** (`bun scripts/run-tests-gated.ts` — truncation-safe + fail-closed) and **CI** (authoritative)
 
 **Integration Tests** (`bun run test:integration`):
 
@@ -309,7 +312,7 @@ bun run format --check
 
 #### Test Failures
 
-**Symptom**: Pre-commit fails at test step
+**Symptom**: Pre-push (or CI) fails at the test step (mt#2716: the full suite runs at pre-push, not pre-commit)
 
 **Common Causes**:
 
@@ -320,14 +323,14 @@ bun run format --check
 **Solutions**:
 
 ```bash
-# Run tests with verbose output
-bun test --verbose
+# Reproduce the exact pre-push gate locally (truncation-safe, fail-closed)
+bun scripts/run-tests-gated.ts
 
-# Run specific test file
+# Run a specific test file
 bun test path/to/specific.test.ts
 
-# Fix failing tests
-# Then retry commit
+# Fix failing tests, then retry the push.
+# To push past a known flake/WIP: MINSKY_SKIP_PREPUSH_TESTS=1 (CI still runs the full suite)
 ```
 
 #### Linting Failures
@@ -378,20 +381,21 @@ gitleaks protect --staged --source .
 
 The pre-commit hooks are optimized for fast execution:
 
-- **Test parallelization**: Tests run in parallel where possible
+- **Full unit suite deferred**: pre-commit runs no full unit suite (mt#2716); it lives at pre-push + CI
 - **Incremental linting**: Only staged files are linted
-- **Efficient test patterns**: Fast, isolated unit tests
+- **Fast static checks**: type-check + lint + repo-integrity guards, not the ~4.3-min suite
 - **Smart caching**: Leverages Bun's caching capabilities
 
 **Typical execution times**:
 
 - Code formatting: < 1 second
-- Unit test suite: ~2 seconds
-- ESLint validation: < 1 second
+- TypeScript type check: a few seconds
+- ESLint validation: a few seconds
 - ESLint rule tests: < 1 second
 - Secret scanning: < 1 second
+- Full unit suite: NOT run here — see pre-push (mt#2716)
 
-**Total pre-commit time**: ~5-7 seconds
+**Total pre-commit time**: seconds, not minutes (the full suite no longer runs at commit time)
 
 ## Configuration Files
 

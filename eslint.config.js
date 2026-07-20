@@ -356,6 +356,10 @@ export default [
             // tests/architecture/di-enforcement.test.ts (mt#2608).
             "AgentTranscriptIngestService",
             "AgentTranscriptService",
+            // Same rationale (mt#2322): constructed directly via `new FollowUpService(db)`
+            // in the cockpit follow-up sweeper / db-providers helper, never resolved
+            // through the tsyringe container.
+            "FollowUpService",
           ],
         },
       ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)
