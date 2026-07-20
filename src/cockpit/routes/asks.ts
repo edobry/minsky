@@ -99,6 +99,9 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
 
       const asks = operatorAsks.map((a) => ({
         id: a.id,
+        // ask#N short id (mt#2965) — undefined for legacy rows pre-backfill;
+        // the frontend falls back to `id` (uuid) for display purposes.
+        shortId: a.shortId,
         kind: a.kind,
         state: a.state,
         title: a.title,
@@ -154,6 +157,8 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       res.json({
         ask: {
           id: a.id,
+          // ask#N short id (mt#2965) — undefined for legacy rows pre-backfill.
+          shortId: a.shortId,
           kind: a.kind,
           state: a.state,
           title: a.title,
