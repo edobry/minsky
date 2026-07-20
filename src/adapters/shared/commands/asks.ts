@@ -4,6 +4,14 @@
  * Surfaces the Ask subsystem (mt#1034 / ADR-008) at the CLI/MCP layer.
  *
  * - `asks.list` — read-only inspection of Asks with optional state/kind filters.
+ *   Supports a `summary` projection mode (mt#2748) that returns lightweight
+ *   rows (id/kind/state/title/routingTarget/parentTaskId/createdAt/routedAt)
+ *   instead of full records — default stays full-body for back-compat (see
+ *   `asks.get` below for the ergonomic single-record path).
+ * - `asks.get` — read-only fetch of a single full Ask record by id or
+ *   unambiguous UUID prefix (mt#2696 convention). Wired as mt#2748 — the
+ *   ergonomic complement to `asks.list summary:true` (list to browse/filter,
+ *   get to inspect one record without pulling a whole page).
  * - `asks.reconcile` — runs one reconcile pass over open quality.review Asks.
  *   Uses a production GithubReviewClient backed by `listReviews` infrastructure
  *   and routed through the project's TokenProvider. Wired as mt#1292.
@@ -77,7 +85,7 @@ import { emitSystemEventBestEffort } from "./system-event-emit";
 import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
 import { createEventEmitter } from "@minsky/domain/events/emitter";
 import { asksTable } from "@minsky/domain/storage/schemas/ask-schema";
-import { resolveIdPrefixOrThrow } from "@minsky/domain/utils/id-prefix-resolver";
+import { resolveIdPrefixOrThrow, classifyIdInput } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
@@ -211,6 +219,40 @@ async function resolveAskIdInput(
   });
 }
 
+/**
+ * Fetch a single Ask by its already-resolved id, or throw a clean not-found
+ * error naming how the caller's input was interpreted (mt#2748, reusing the
+ * mt#2696 R1 message-shaping convention from `memory.get`).
+ *
+ * Split out from the `asks.get` command's `execute` closure specifically so
+ * it's unit-testable against a `FakeAskRepository` without needing to wire a
+ * DI container (the prefix-resolution DB lookup that produces `resolvedId`
+ * is already covered by `id-prefix-resolver.test.ts` and the existing
+ * `asks.respond`/`asks.edit`/`asks.wait-for-response` usages of the same
+ * `resolveAskIdInput` helper).
+ */
+export async function getAskByResolvedId(
+  repo: AskRepository,
+  rawId: string,
+  resolvedId: string
+): Promise<Ask> {
+  const ask = await repo.getById(resolvedId);
+  if (!ask) {
+    // mt#2696 R1: name both what the caller passed AND how it was
+    // interpreted (full UUID vs prefix) rather than echoing the raw input
+    // unconditionally.
+    const classification = classifyIdInput(rawId);
+    const message =
+      classification.kind === "prefix"
+        ? resolvedId !== rawId
+          ? `Ask not found for id prefix "${rawId}" (resolved to "${resolvedId}")`
+          : `Ask not found for id prefix "${rawId}"`
+        : `Ask not found with id "${resolvedId}"`;
+    throw new Error(message);
+  }
+  return ask;
+}
+
 // ---------------------------------------------------------------------------
 // asks.list
 // ---------------------------------------------------------------------------
@@ -238,10 +280,52 @@ const asksListParams = {
       "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)",
     required: false,
   },
+  summary: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, return compact rows (id, kind, state, title, routingTarget, " +
+      "parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata " +
+      "body (mt#2748). Default false preserves full ask records for back-compat — pass " +
+      "`summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full " +
+      "record by id.",
+    required: false,
+  },
 };
 
+/** Compact projection of an `Ask` for `asks.list summary:true` (mt#2748). */
+interface AskSummaryRow {
+  id: string;
+  kind: AskKind;
+  state: AskState;
+  title: string;
+  routingTarget?: Ask["routingTarget"];
+  parentTaskId?: string;
+  createdAt: string;
+  routedAt?: string;
+}
+
+/**
+ * Project a full `Ask` record down to the summary column set (mt#2748).
+ * Deliberately omits `question`, `options`, `contextRefs`, `response`, and
+ * `metadata` (including `metadata.editHistory`) — the multi-KB "body"
+ * fields that made `asks.list` unsafe to page through at the store's
+ * current size (see the mt#2748 spec's originating incident).
+ */
+export function toAskSummary(ask: Ask): AskSummaryRow {
+  return {
+    id: ask.id,
+    kind: ask.kind,
+    state: ask.state,
+    title: ask.title,
+    routingTarget: ask.routingTarget,
+    parentTaskId: ask.parentTaskId,
+    createdAt: ask.createdAt,
+    routedAt: ask.routedAt,
+  };
+}
+
 interface AsksListResult {
-  asks: Ask[];
+  asks: Ask[] | AskSummaryRow[];
   /** True count of everything matching the filters, before the `limit` slice. */
   total: number;
   limit: number;
@@ -269,6 +353,20 @@ async function gatherAsks(
   }
   return kind ? all.filter((a) => a.kind === kind) : all;
 }
+
+// ---------------------------------------------------------------------------
+// asks.get (mt#2748)
+// ---------------------------------------------------------------------------
+
+const asksGetParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description:
+      "Ask ID (UUID) to fetch. Accepts a full UUID or an unambiguous prefix " +
+      "(>=8 hex chars, mt#2696).",
+    required: true,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // asks.reconcile
@@ -968,7 +1066,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       id: "asks.list",
       category: CommandCategory.TOOLS,
       name: "list",
-      description: "List Asks with optional state and kind filters",
+      description:
+        "List Asks with optional state and kind filters. Returns full ask records by " +
+        "default; pass `summary: true` for compact rows (id, kind, state, title, " +
+        "routingTarget, parentTaskId, createdAt, routedAt) with no question/options/" +
+        "contextRefs/metadata body — safe to page through at any store size (mt#2748). " +
+        "To inspect one specific Ask by id, prefer `asks_get` over list-and-filter — it " +
+        "accepts an unambiguous id prefix (mt#2696) and returns exactly one full record.",
       requiresSetup: true,
       parameters: asksListParams,
       execute: async (params): Promise<AsksListResult> => {
@@ -983,6 +1087,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         const kind = params.kind as AskKind | undefined;
         const limit = (params.limit as number | undefined) ?? 50;
         const allProjects = params.allProjects as boolean | undefined;
+        const summary = params.summary as boolean | undefined;
 
         // ADR-021 / mt#2416: resolve project scope so list returns only this
         // project's asks by default. When allProjects=true, skip resolution.
@@ -994,13 +1099,53 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         const asks = await gatherAsks(repo, state, kind, projectScope);
         const returnedAsks = asks.slice(0, limit);
+        // mt#2748: opt-in compact projection. Default (summary:false/absent) is
+        // unchanged from the pre-mt#2748 full-record shape — kept as the default
+        // because at least one known consumer (`.minsky/hooks/ask-verification.ts`,
+        // the authorization.approve self-respond-vector-closure security check)
+        // reads `response.responder`/`response.payload` off unfiltered asks.list
+        // rows with no explicit mode flag; a summary-by-default would silently
+        // strip those fields and fail that check closed for every grant.
+        const outputAsks: Ask[] | AskSummaryRow[] = summary
+          ? returnedAsks.map(toAskSummary)
+          : returnedAsks;
         return {
-          asks: returnedAsks,
+          asks: outputAsks,
           total: asks.length,
           limit,
           returned: returnedAsks.length,
           truncated: returnedAsks.length < asks.length,
         };
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.get",
+      category: CommandCategory.TOOLS,
+      name: "get",
+      description:
+        "Fetch a single full Ask record by id — the ergonomic path for inspecting a " +
+        "specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a " +
+        "full UUID or an unambiguous prefix (>=8 hex chars, mt#2696). Use `asks_list` " +
+        "with `summary: true` to browse/filter across many Asks instead.",
+      requiresSetup: true,
+      parameters: asksGetParams,
+      execute: async (params): Promise<Ask> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.get: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        const rawId = params.id as string;
+        // mt#2696: resolve a short-prefix citation before it ever reaches a
+        // Postgres `uuid` column comparison.
+        const resolvedId = await resolveAskIdInput(rawId, container);
+
+        return getAskByResolvedId(repo, rawId, resolvedId);
       },
     })
   );

@@ -25,9 +25,12 @@ import {
   validateAsksCreateParams,
   validateAsksEditParams,
   formatAskWaitMessage,
+  toAskSummary,
+  getAskByResolvedId,
 } from "./asks";
 import type { AskWaitForResponseResult } from "@minsky/domain/ask/wait-for-response";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import type { Ask } from "@minsky/domain/ask/types";
 import {
   getServiceWindowDefault,
   SERVICE_WINDOW_DEFAULTS,
@@ -64,6 +67,11 @@ const KIND_INFORMATION_RETRIEVE = "information.retrieve" as const;
 // Centralized fixture for the agent-id format used in multiple tests.
 const FIXTURE_RESPONDER_ID = "com.anthropic.claude-code:proc:abc123";
 
+// Centralized fixture question text — extracted to defang
+// custom/no-magic-string-duplication now that it's reused across the
+// original asks.create tests and the mt#2748 toAskSummary/asks.get tests.
+const FIXTURE_QUESTION = "Which approach should we ship?";
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -77,7 +85,7 @@ describe("createAsk", () => {
       {
         kind: KIND_DIRECTION_DECIDE,
         title: "Choose A or B",
-        question: "Which approach should we ship?",
+        question: FIXTURE_QUESTION,
         options: [
           { label: "A", value: "a" },
           { label: "B", value: "b" },
@@ -92,7 +100,7 @@ describe("createAsk", () => {
     if (!persisted) return;
     expect(persisted.kind).toBe(KIND_DIRECTION_DECIDE);
     expect(persisted.title).toBe("Choose A or B");
-    expect(persisted.question).toBe("Which approach should we ship?");
+    expect(persisted.question).toBe(FIXTURE_QUESTION);
     expect(persisted.options).toEqual([
       { label: "A", value: "a" },
       { label: "B", value: "b" },
@@ -1422,5 +1430,141 @@ describe("validateAsksEditParams", () => {
     expect(() =>
       validateAsksEditParams({ metadata: { refreshedFrom: "docs/research/x.md" } })
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toAskSummary / asks.list summary projection (mt#2748)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a full fixture `Ask` with every "body" field populated, so tests can
+ * assert `toAskSummary` actually strips them (not just that it happens to
+ * omit fields that were never present).
+ */
+function buildFixtureAsk(overrides: Partial<Ask> = {}): Ask {
+  return {
+    id: "d8591800-823b-410b-a5cc-209fb0b7eb6d",
+    kind: KIND_DIRECTION_DECIDE,
+    classifierVersion: "v1.0.0",
+    requestor: FIXTURE_RESPONDER_ID,
+    routingTarget: "operator",
+    parentTaskId: "mt#2748",
+    title: "Choose A or B",
+    question: `${FIXTURE_QUESTION} `.repeat(50),
+    options: [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ],
+    contextRefs: [{ kind: "task", ref: "mt#2748" }],
+    state: "suspended",
+    createdAt: "2026-07-13T18:00:00.000Z",
+    routedAt: "2026-07-13T18:00:05.000Z",
+    metadata: {
+      editHistory: [
+        { editor: "test", timestamp: "2026-07-13T18:00:10.000Z", touchedFields: ["question"] },
+      ],
+      note: "arbitrary metadata",
+    },
+    ...overrides,
+  };
+}
+
+describe("toAskSummary", () => {
+  test("includes only the documented summary columns", () => {
+    const ask = buildFixtureAsk();
+    const summary = toAskSummary(ask);
+
+    expect(summary).toEqual({
+      id: ask.id,
+      kind: ask.kind,
+      state: ask.state,
+      title: ask.title,
+      routingTarget: ask.routingTarget,
+      parentTaskId: ask.parentTaskId,
+      createdAt: ask.createdAt,
+      routedAt: ask.routedAt,
+    });
+  });
+
+  test("omits the multi-KB body fields (question/options/contextRefs/metadata)", () => {
+    const ask = buildFixtureAsk();
+    const summary = toAskSummary(ask) as unknown as Record<string, unknown>;
+
+    expect(summary.question).toBeUndefined();
+    expect(summary.options).toBeUndefined();
+    expect(summary.contextRefs).toBeUndefined();
+    expect(summary.metadata).toBeUndefined();
+    // metadata.editHistory specifically — the spec calls this out by name.
+    expect(JSON.stringify(summary)).not.toContain("editHistory");
+    expect(JSON.stringify(summary)).not.toContain(FIXTURE_QUESTION);
+  });
+
+  test("a summary listing of 100 rows is well under the tool-result token cap", () => {
+    const asks = Array.from({ length: 100 }, (_, i) =>
+      buildFixtureAsk({ id: `d8591800-823b-410b-a5cc-209fb0b7eb${String(i).padStart(4, "0")}` })
+    );
+    const summaries = asks.map(toAskSummary);
+    const bytes = new TextEncoder().encode(JSON.stringify(summaries)).length;
+
+    // The mt#2748 incident measured avg ~2.9 KB/ask (max 7.5 KB/ask) for full
+    // records — 100 full rows reliably exceeds the tool-result cap. A summary
+    // row is a handful of short scalar fields; 100 of them should land in the
+    // low tens of KB, nowhere near the cap that truncated the original
+    // 297 KB / 2,540-line asks_list dump.
+    expect(bytes).toBeLessThan(50_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getAskByResolvedId / asks.get (mt#2748)
+// ---------------------------------------------------------------------------
+
+describe("getAskByResolvedId", () => {
+  test("returns the full ask record when found", async () => {
+    const repo = new FakeAskRepository();
+    const created = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Choose A or B",
+        question: FIXTURE_QUESTION,
+        options: [
+          { label: "A", value: "a" },
+          { label: "B", value: "b" },
+        ],
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const result = await getAskByResolvedId(repo, created.id, created.id);
+
+    expect(result.id).toBe(created.id);
+    expect(result.title).toBe("Choose A or B");
+    expect(result.question).toBe(FIXTURE_QUESTION);
+  });
+
+  test("throws a clean not-found error for a full-UUID id that doesn't exist", async () => {
+    const repo = new FakeAskRepository();
+    const missingId = "ffffffff-1111-2222-3333-444444444444";
+
+    await expect(getAskByResolvedId(repo, missingId, missingId)).rejects.toThrow(
+      `Ask not found with id "${missingId}"`
+    );
+  });
+
+  test("names the prefix in the not-found message when the input was a prefix", async () => {
+    const repo = new FakeAskRepository();
+    const rawPrefix = "ffffffff";
+    // Simulates the post-resolution state when a prefix had no matching row:
+    // resolveAskIdInput's underlying resolveIdPrefixOrThrow throws before
+    // getAskByResolvedId is ever reached in that case, so this test instead
+    // exercises the "prefix resolved to some id, but that id is now gone"
+    // path (e.g. the row was deleted between resolution and this read).
+    const resolvedId = "ffffffff-1111-2222-3333-444444444444";
+
+    await expect(getAskByResolvedId(repo, rawPrefix, resolvedId)).rejects.toThrow(
+      `Ask not found for id prefix "${rawPrefix}" (resolved to "${resolvedId}")`
+    );
   });
 });

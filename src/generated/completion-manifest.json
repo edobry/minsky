@@ -4663,7 +4663,7 @@
           "subcommands": [
             {
               "name": "list",
-              "description": "List Asks with optional state and kind filters",
+              "description": "List Asks with optional state and kind filters. Returns full ask records by default; pass `summary: true` for compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body — safe to page through at any store size (mt#2748). To inspect one specific Ask by id, prefer `asks_get` over list-and-filter — it accepts an unambiguous id prefix (mt#2696) and returns exactly one full record.",
               "options": [
                 {
                   "flags": ["--state"],
@@ -4683,8 +4683,16 @@
                 {
                   "flags": ["--all-projects"],
                   "description": "Return asks from all projects (disable project-scope filtering; ADR-021, mt#2416)"
+                },
+                {
+                  "flags": ["--summary"],
+                  "description": "When true, return compact rows (id, kind, state, title, routingTarget, parentTaskId, createdAt, routedAt) with no question/options/contextRefs/metadata body (mt#2748). Default false preserves full ask records for back-compat — pass `summary: true` to browse/filter cheaply, or use `asks_get` to fetch one full record by id."
                 }
               ]
+            },
+            {
+              "name": "get",
+              "description": "Fetch a single full Ask record by id — the ergonomic path for inspecting a specific Ask without pulling a whole `asks_list` page (mt#2748). `id` accepts a full UUID or an unambiguous prefix (>=8 hex chars, mt#2696). Use `asks_list` with `summary: true` to browse/filter across many Asks instead."
             },
             {
               "name": "reconcile",
