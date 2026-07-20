@@ -8,10 +8,12 @@
  */
 
 import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:test";
+import { createHash } from "crypto";
 import {
   isProdPostgresConnection,
   checkUnmergedMigrations,
-  assertMigrationCountMatch,
+  computeMigrationHash,
+  resolvePendingMigrations,
   UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV,
   type JournalEntry,
 } from "./postgres-migration-operations";
@@ -360,37 +362,189 @@ describe("UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV", () => {
 });
 
 // ---------------------------------------------------------------------------
-// assertMigrationCountMatch — the count-equality invariant (mt#1771)
+// computeMigrationHash / resolvePendingMigrations — the mt#2936 fix
 // ---------------------------------------------------------------------------
 //
-// The actual prod drift that motivated mt#1771 (a duplicate ledger row → DB
-// count one ahead of the journal) was reconciled in mt#2250; this is the
-// regression guard the mt#1771 spec asks for, asserting the invariant the
-// post-migration validator enforces.
+// mt#2936: getPostgresMigrationsStatus previously computed
+// `pendingCount = Math.max(fileCount - appliedCount, 0)` — a raw row-COUNT
+// subtraction. When the DB's applied-row count meets or exceeds the local
+// file count (for ANY reason unrelated to whether a SPECIFIC migration was
+// applied — e.g. a historical ledger squash/consolidation, a duplicate or
+// orphaned ledger row), this formula silently clamps to 0 pending even
+// though a real migration was never applied. The fix replaces the count
+// subtraction with a per-migration HASH set difference: pending = journal
+// entries whose file hash is not present in the full set of hashes recorded
+// in `__drizzle_migrations`, regardless of raw counts on either side.
+//
+// These tests exercise the pure core of the fix (`resolvePendingMigrations`)
+// with an injected file reader, so they run without touching disk or a real
+// DB connection — mirroring the `checkUnmergedMigrations` tests above.
 
-describe("assertMigrationCountMatch", () => {
-  test("does not throw when DB count equals journal count", () => {
-    expect(() => assertMigrationCountMatch(45, 45)).not.toThrow();
-    expect(() => assertMigrationCountMatch(0, 0)).not.toThrow();
+describe("computeMigrationHash", () => {
+  test("computes the sha256 hex digest of the raw file content", () => {
+    const content = "CREATE TABLE foo (id serial primary key);";
+    const expected = createHash("sha256").update(content).digest("hex");
+    expect(computeMigrationHash(content)).toBe(expected);
   });
 
-  test("throws when DB has MORE applied than the journal (the mt#1771 duplicate-row case)", () => {
-    // e.g. an extra/duplicate ledger row → 45 applied vs 44 journal entries.
-    expect(() => assertMigrationCountMatch(45, 44)).toThrow(/Migration count mismatch/);
-    expect(() => assertMigrationCountMatch(45, 44)).toThrow(
-      /DB has 45 applied migrations but journal has 44 entries/
+  test("is sensitive to the full raw content, not just a prefix", () => {
+    const a = computeMigrationHash("CREATE TABLE foo (id serial);");
+    const b = computeMigrationHash("CREATE TABLE foo (id serial); -- trailing comment");
+    expect(a).not.toBe(b);
+  });
+
+  test("is deterministic — same content always yields the same hash", () => {
+    const content = "ALTER TABLE bar ADD COLUMN baz text;";
+    expect(computeMigrationHash(content)).toBe(computeMigrationHash(content));
+  });
+});
+
+describe("resolvePendingMigrations", () => {
+  const FAKE_MIGRATIONS_FOLDER = "/fake/migrations/pg";
+  const SQL_INITIAL = "CREATE TABLE initial (id serial primary key);";
+  const SQL_SECOND = "CREATE TABLE second (id serial primary key);";
+  const SCHEDULED_FOLLOW_UPS_TAG = "0002_scheduled_follow_ups";
+
+  /** Build a fake file reader over an in-memory tag → content map. */
+  function fakeReader(contents: Record<string, string>): (absPath: string) => string {
+    return (absPath: string) => {
+      // The entry's tag is embedded in the constructed filename
+      // (`<migrationsFolder>/<tag>.sql`); match by suffix so the fake
+      // reader doesn't need to replicate path-joining logic.
+      const tag = Object.keys(contents).find((t) => absPath.endsWith(`${t}.sql`));
+      if (!tag) {
+        throw new Error(`fakeReader: no fixture content for path ${absPath}`);
+      }
+      return contents[tag];
+    };
+  }
+
+  test(
+    "mt#2936 repro: DB ledger row count >= local file count, but a specific " +
+      "migration's hash is absent — reports it pending, NOT silently 0",
+    () => {
+      // Mirrors the exact reported shape: 62 applied rows vs 61 files (ledger
+      // AHEAD of files by 1, due to a historical squash/consolidation offset
+      // unrelated to any specific migration's apply state), yet the NEWEST
+      // migration (0060-equivalent) was never actually applied. Scaled down
+      // to 3 journal entries / 4 ledger hashes for a minimal repro.
+      const entries: JournalEntry[] = [
+        { idx: 0, version: "7", when: 1000, tag: "0000_initial", breakpoints: false },
+        { idx: 1, version: "7", when: 2000, tag: "0001_second", breakpoints: false },
+        { idx: 2, version: "7", when: 3000, tag: SCHEDULED_FOLLOW_UPS_TAG, breakpoints: false },
+      ];
+      const contents: Record<string, string> = {
+        "0000_initial": SQL_INITIAL,
+        "0001_second": SQL_SECOND,
+        // The genuinely-unapplied migration — its hash was never recorded.
+        [SCHEDULED_FOLLOW_UPS_TAG]: "CREATE TABLE scheduled_follow_ups (id serial primary key);",
+      };
+
+      // Ledger has 4 rows (MORE than the 3 local files): the two genuinely
+      // applied migrations' hashes, PLUS two extra/orphaned rows (simulating
+      // the historical duplicate/consolidation offset) whose hashes match
+      // NEITHER local file. Raw count math would compute
+      // `Math.max(3 - 4, 0) = 0 pending` — the exact false-0 this task fixes.
+      const appliedHashes = new Set<string>([
+        computeMigrationHash(contents["0000_initial"]),
+        computeMigrationHash(contents["0001_second"]),
+        "orphan-hash-from-historical-squash-1",
+        "orphan-hash-from-historical-squash-2",
+      ]);
+      expect(appliedHashes.size).toBeGreaterThanOrEqual(entries.length);
+
+      const pending = resolvePendingMigrations(
+        entries,
+        FAKE_MIGRATIONS_FOLDER,
+        appliedHashes,
+        fakeReader(contents)
+      );
+
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.tag).toBe(SCHEDULED_FOLLOW_UPS_TAG);
+    }
+  );
+
+  test("normal case: fewer ledger rows than files — pending computed correctly (no regression)", () => {
+    const entries: JournalEntry[] = [
+      { idx: 0, version: "7", when: 1000, tag: "0000_initial", breakpoints: false },
+      { idx: 1, version: "7", when: 2000, tag: "0001_second", breakpoints: false },
+      { idx: 2, version: "7", when: 3000, tag: "0002_third", breakpoints: false },
+    ];
+    const contents: Record<string, string> = {
+      "0000_initial": SQL_INITIAL,
+      "0001_second": SQL_SECOND,
+      "0002_third": "CREATE TABLE third (id serial primary key);",
+    };
+
+    // Only the first migration has been applied — the common/expected shape
+    // (ledger behind the file tree).
+    const appliedHashes = new Set<string>([computeMigrationHash(contents["0000_initial"])]);
+    expect(appliedHashes.size).toBeLessThan(entries.length);
+
+    const pending = resolvePendingMigrations(
+      entries,
+      FAKE_MIGRATIONS_FOLDER,
+      appliedHashes,
+      fakeReader(contents)
     );
+
+    expect(pending.map((e) => e.tag)).toEqual(["0001_second", "0002_third"]);
   });
 
-  test("throws when DB has FEWER applied than the journal (silent-skip case)", () => {
-    // The drizzle high-water-mark silent-skip shape: a migration the journal
-    // lists never got applied → 44 applied vs 45 journal entries.
-    expect(() => assertMigrationCountMatch(44, 45)).toThrow(
-      /1 migration\(s\) may have been silently skipped/
+  test("fully applied: every entry's hash is present in the ledger — 0 pending", () => {
+    const entries: JournalEntry[] = [
+      { idx: 0, version: "7", when: 1000, tag: "0000_initial", breakpoints: false },
+      { idx: 1, version: "7", when: 2000, tag: "0001_second", breakpoints: false },
+    ];
+    const contents: Record<string, string> = {
+      "0000_initial": SQL_INITIAL,
+      "0001_second": SQL_SECOND,
+    };
+    const appliedHashes = new Set<string>([
+      computeMigrationHash(contents["0000_initial"]),
+      computeMigrationHash(contents["0001_second"]),
+    ]);
+
+    const pending = resolvePendingMigrations(
+      entries,
+      FAKE_MIGRATIONS_FOLDER,
+      appliedHashes,
+      fakeReader(contents)
     );
+
+    expect(pending).toEqual([]);
   });
 
-  test("error message names the monotonic-timestamp check", () => {
-    expect(() => assertMigrationCountMatch(43, 45)).toThrow(/monotonically increasing/);
+  test("empty journal — 0 pending regardless of ledger contents", () => {
+    const pending = resolvePendingMigrations(
+      [],
+      FAKE_MIGRATIONS_FOLDER,
+      new Set(["some-hash"]),
+      fakeReader({})
+    );
+    expect(pending).toEqual([]);
+  });
+
+  test("a migration whose content changed after apply is treated as pending (hash no longer matches)", () => {
+    // Not the immutable-migration scenario itself (out of scope here — see
+    // memory 59f68687) — just confirms the comparison is content-hash-based,
+    // not tag-based: if the recorded hash doesn't match the CURRENT file
+    // content, the entry is reported pending.
+    const entries: JournalEntry[] = [
+      { idx: 0, version: "7", when: 1000, tag: "0000_initial", breakpoints: false },
+    ];
+    const oldContent = SQL_INITIAL;
+    const newContent = "CREATE TABLE initial (id serial primary key, extra text);";
+    const appliedHashes = new Set<string>([computeMigrationHash(oldContent)]);
+
+    const pending = resolvePendingMigrations(
+      entries,
+      FAKE_MIGRATIONS_FOLDER,
+      appliedHashes,
+      fakeReader({ "0000_initial": newContent })
+    );
+
+    expect(pending).toHaveLength(1);
   });
 });

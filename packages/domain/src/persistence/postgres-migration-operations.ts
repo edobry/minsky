@@ -6,7 +6,8 @@
  */
 
 import { join, dirname } from "path";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { createHash } from "crypto";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
 
@@ -273,6 +274,63 @@ export interface Journal {
 }
 
 /**
+ * Compute the sha256 hex digest of a migration file's raw content.
+ *
+ * Matches drizzle-orm's own hash computation in `readMigrationFiles`
+ * (`node_modules/drizzle-orm/migrator.js`): `sha256(rawFileContent)` where
+ * `rawFileContent` is the FULL, un-split `.sql` file text (computed BEFORE
+ * splitting on `--> statement-breakpoint`). Using the identical algorithm
+ * means a hash computed here will match a hash drizzle itself would have
+ * recorded in `__drizzle_migrations` for the same file content.
+ */
+export function computeMigrationHash(fileContent: string): string {
+  return createHash("sha256").update(fileContent).digest("hex");
+}
+
+/**
+ * Resolve which local migration journal entries are PENDING — i.e. whose
+ * file hash is NOT present in the set of hashes already recorded in
+ * `drizzle.__drizzle_migrations` — via a per-migration hash SET DIFFERENCE.
+ *
+ * This is deliberately NOT count-based (`fileCount - appliedCount`, the
+ * mt#2936 bug). The two raw counts can diverge from the true pending set for
+ * reasons that have nothing to do with whether any SPECIFIC migration was
+ * applied — a historical ledger squash/consolidation, a duplicate or
+ * orphaned ledger row, or an out-of-band insert can all make
+ * `appliedCount >= fileCount` while a genuinely-unapplied migration goes
+ * silently unreported. Comparing per-migration identity (hash) instead of
+ * raw counts is robust to any such offset, regardless of its cause or sign.
+ *
+ * Note: drizzle-orm's own `migrate()` (`pg-core/dialect.js`) does NOT decide
+ * what to apply by hash-set membership — it applies by a single-row
+ * timestamp high-water-mark (`created_at` of the latest ledger row vs. each
+ * journal entry's `when`). This function intentionally does NOT replicate
+ * that algorithm: for REPORTING "has this migration ever been applied?", hash
+ * presence in the ledger is the correct ground-truth check regardless of
+ * drizzle's own apply-time decision procedure (see mt#2936 spec + memory
+ * `0c2427e5` for the full mechanics and why the two questions are distinct).
+ *
+ * @param journalEntries  All local journal entries (in order), from `_journal.json`.
+ * @param migrationsFolder  Absolute path to the migrations folder (used to locate `<tag>.sql`).
+ * @param appliedHashes  The full set of `hash` values currently recorded in `__drizzle_migrations`.
+ * @param readFile  Injectable file reader (defaults to a real `fs.readFileSync`), so this can be
+ *   unit-tested without touching disk.
+ */
+export function resolvePendingMigrations(
+  journalEntries: JournalEntry[],
+  migrationsFolder: string,
+  appliedHashes: ReadonlySet<string>,
+  readFile: (absPath: string) => string = (p) => readFileSync(p, { encoding: "utf8" }) as string
+): JournalEntry[] {
+  return journalEntries.filter((entry) => {
+    const filePath = join(migrationsFolder, `${entry.tag}.sql`);
+    const content = readFile(filePath);
+    const hash = computeMigrationHash(content);
+    return !appliedHashes.has(hash);
+  });
+}
+
+/**
  * Validate that journal entry timestamps are monotonically increasing.
  * Drizzle-orm uses these as created_at in __drizzle_migrations and processes
  * migrations by timestamp order. Out-of-order timestamps cause silent skips.
@@ -323,6 +381,7 @@ export interface PostgresMigrationPlan {
     fileCount: number;
     appliedCount: number;
     pendingCount: number;
+    pendingFiles?: string[];
     latestHash?: string;
     latestAt?: string;
   };
@@ -350,11 +409,12 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   latestAt?: string;
   fileCount: number;
   pendingCount: number;
+  pendingTags: string[];
   migrationsFolder: string;
   maskedConn: string;
 }> {
   const migrationsFolder = resolvePgMigrationsFolder();
-  const { readdirSync, readFileSync } = await import("fs");
+  const { readdirSync } = await import("fs");
 
   // Validate journal timestamps before doing anything else
   const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
@@ -373,6 +433,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   let appliedCount = 0;
   let latestHash: string | undefined;
   let latestAt: string | undefined;
+  let appliedHashes = new Set<string>();
   try {
     const sch = await sql<{ exists: boolean }[]>`
       SELECT EXISTS (
@@ -396,6 +457,14 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
         SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
       `;
       appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+      // Full hash set — the per-migration identity comparison below needs
+      // EVERY recorded hash, not just the single `latestHash` row (which
+      // cannot detect a specific migration missing from an otherwise
+      // larger-than-expected ledger; see mt#2936).
+      const hashRows = await sql<{ hash: string | null }[]>`
+        SELECT hash FROM "drizzle"."__drizzle_migrations";
+      `;
+      appliedHashes = new Set(hashRows.map((r) => r.hash).filter((h): h is string => Boolean(h)));
     }
   } finally {
     await sql.end();
@@ -410,7 +479,15 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
     fileCount = 0;
   }
 
-  const pendingCount = Math.max(fileCount - appliedCount, 0);
+  // Pending = the set of journal entries whose file hash is NOT present in
+  // the ledger — a per-migration identity comparison (mt#2936), NOT
+  // `fileCount - appliedCount`. A raw count difference silently reports 0
+  // pending whenever the ledger's row count meets or exceeds the local file
+  // count for ANY reason unrelated to whether a specific migration was
+  // applied, while a genuinely-unapplied migration goes undetected.
+  const pendingEntries = resolvePendingMigrations(journal.entries, migrationsFolder, appliedHashes);
+  const pendingCount = pendingEntries.length;
+  const pendingTags = pendingEntries.map((e) => e.tag);
 
   return {
     schemaExists,
@@ -420,6 +497,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
     latestAt,
     fileCount,
     pendingCount,
+    pendingTags,
     migrationsFolder,
     maskedConn,
   };
@@ -437,7 +515,6 @@ export async function runPostgresSchemaMigrations(
 
   if (dryRun) {
     // Build preview plan
-    const { basename: _basename } = await import("path");
     const status = await getPostgresMigrationsStatus(connectionString);
     const maskedConn = status.maskedConn;
     const migrationsFolder = status.migrationsFolder;
@@ -450,12 +527,6 @@ export async function runPostgresSchemaMigrations(
     } catch {
       // ignore
     }
-
-    const _summary =
-      `Schema migration (dry run) for postgres\nDatabase: ${maskedConn}\n` +
-      `Migrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ` +
-      `${status.appliedCount} applied, ` +
-      `${Math.max(fileNames.length - status.appliedCount, 0)} pending`;
 
     const plan: PostgresMigrationPlan = {
       success: true,
@@ -471,7 +542,8 @@ export async function runPostgresSchemaMigrations(
         files: fileNames,
         fileCount: fileNames.length,
         appliedCount: status.appliedCount,
-        pendingCount: Math.max(fileNames.length - status.appliedCount, 0),
+        pendingCount: status.pendingCount,
+        pendingFiles: status.pendingTags.map((tag) => `${tag}.sql`),
         latestHash: status.latestHash,
         latestAt: status.latestAt,
       },
@@ -482,10 +554,8 @@ export async function runPostgresSchemaMigrations(
     }
 
     {
-      const pendingCount = Math.max(fileNames.length - status.appliedCount, 0);
-
       // Mark plan metadata
-      plan.nothingToDo = pendingCount === 0;
+      plan.nothingToDo = status.pendingCount === 0;
 
       log.cli("=== Persistence Schema Migration (postgres) — DRY RUN ===");
       log.cli("");
@@ -506,7 +576,7 @@ export async function runPostgresSchemaMigrations(
       }
       log.cli(
         `Plan: ${fileNames.length} file(s), ${status.appliedCount} applied, ` +
-          `${pendingCount} pending`
+          `${status.pendingCount} pending`
       );
       log.cli("");
       if (!status.metaExists || status.appliedCount === 0) {
@@ -523,7 +593,12 @@ export async function runPostgresSchemaMigrations(
           );
         }
       }
-      if (pendingCount > 0) {
+      if (status.pendingCount > 0) {
+        log.cli("Pending migration(s):");
+        for (const tag of status.pendingTags) {
+          log.cli(`  - ${tag}.sql`);
+        }
+        log.cli("");
         log.cli("(use --execute to apply)");
       } else {
         log.cli("✅ No pending migrations.");
@@ -538,7 +613,7 @@ export async function runPostgresSchemaMigrations(
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
-  const { readdirSync, readFileSync } = await import("fs");
+  const { readdirSync } = await import("fs");
 
   const sql = postgres(connectionString, {
     prepare: false,
@@ -582,6 +657,7 @@ export async function runPostgresSchemaMigrations(
     let latestAt: string | undefined;
     let schemaExists = false;
     let metaExists = false;
+    let appliedHashes = new Set<string>();
     try {
       const sch = await sql<{ exists: boolean }[]>`
         SELECT EXISTS (
@@ -607,10 +683,24 @@ export async function runPostgresSchemaMigrations(
         `;
         latestHash = rows?.[0]?.hash || undefined;
         latestAt = rows?.[0]?.created_at || undefined;
+        const hashRows = await sql<{ hash: string | null }[]>`
+          SELECT hash FROM "drizzle"."__drizzle_migrations";
+        `;
+        appliedHashes = new Set(hashRows.map((r) => r.hash).filter((h): h is string => Boolean(h)));
       }
     } catch {
       // best-effort pre-checks
     }
+
+    // Pending = per-migration hash set difference (mt#2936), not a raw count
+    // subtraction — see getPostgresMigrationsStatus above for the full
+    // rationale. Reused below both for the CLI summary and for the
+    // "Running migrations (in order)" listing right before `migrate()`.
+    const pendingEntries = resolvePendingMigrations(
+      journal.entries,
+      migrationsFolder,
+      appliedHashes
+    );
 
     {
       log.cli("=== Persistence Schema Migration (postgres) ===");
@@ -631,10 +721,7 @@ export async function runPostgresSchemaMigrations(
         );
       }
       log.cli(
-        `Plan: ${files.length} file(s), ${appliedCount} applied, ${Math.max(
-          files.length - appliedCount,
-          0
-        )} pending`
+        `Plan: ${files.length} file(s), ${appliedCount} applied, ${pendingEntries.length} pending`
       );
       // Show file list once below right before execution
       log.cli("");
@@ -717,13 +804,10 @@ export async function runPostgresSchemaMigrations(
     // ── end unmerged-migration guard ────────────────────────────────────────
 
     const start = Date.now();
-    if (files.length > 0) {
-      const pendingEntries = journal.entries.slice(appliedCount);
-      if (pendingEntries.length > 0) {
-        log.cli("Running migrations (in order):");
-        pendingEntries.forEach((e, i) => log.cli(`  ${i + 1}. ${e.tag}.sql`));
-        log.cli("");
-      }
+    if (files.length > 0 && pendingEntries.length > 0) {
+      log.cli("Running migrations (in order):");
+      pendingEntries.forEach((e, i) => log.cli(`  ${i + 1}. ${e.tag}.sql`));
+      log.cli("");
     }
     await migrate(db, { migrationsFolder });
     {
