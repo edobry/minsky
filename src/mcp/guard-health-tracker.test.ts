@@ -122,6 +122,43 @@ describe("computeGuardHealthSummary", () => {
     expect(summary.byGuard["throws"]?.escalation).toBe("none");
     expect(summary.criticalGuards).toEqual([]);
   });
+
+  // mt#2969: an escalation quiet past STALE_ESCALATION_WINDOW_MS (but not yet
+  // aged out) is flagged stale; escalation + streak unchanged. Mirrors the
+  // hooks-side test in .minsky/hooks/guard-health.test.ts (kept in sync).
+  test("a critical streak quiet past the freshness window (but < 24h) is flagged stale (mt#2969)", () => {
+    const now = new Date("2026-07-14T13:00:00.000Z");
+    const summary = computeGuardHealthSummary(
+      [
+        makeEvent({ timestamp: "2026-07-14T09:00:00.000Z" }),
+        makeEvent({ timestamp: "2026-07-14T09:01:00.000Z" }),
+        makeEvent({ timestamp: "2026-07-14T09:02:00.000Z" }),
+      ],
+      now
+    );
+    const entry = summary.byGuard["test-guard"];
+    // last failure 09:02, now 13:00 -> 3h58m ago: past the 1h window, before the 24h age-out.
+    expect(entry?.escalation).toBe("critical");
+    expect(entry?.stale).toBe(true);
+    expect(entry?.consecutiveStreak).toBe(3);
+    expect(entry?.lastFailureAgeMs).toBe((3 * 60 + 58) * 60 * 1000);
+  });
+
+  test("a critical streak with a recent failure is NOT stale (mt#2969)", () => {
+    const now = new Date("2026-07-14T09:30:00.000Z");
+    const summary = computeGuardHealthSummary(
+      [
+        makeEvent({ timestamp: "2026-07-14T09:00:00.000Z" }),
+        makeEvent({ timestamp: "2026-07-14T09:01:00.000Z" }),
+        makeEvent({ timestamp: "2026-07-14T09:02:00.000Z" }),
+      ],
+      now
+    );
+    const entry = summary.byGuard["test-guard"];
+    expect(entry?.escalation).toBe("critical");
+    expect(entry?.stale).toBe(false);
+    expect(entry?.lastFailureAgeMs).toBe(28 * 60 * 1000);
+  });
 });
 
 // ---------------------------------------------------------------------------
