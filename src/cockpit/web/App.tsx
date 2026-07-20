@@ -27,6 +27,9 @@ const ConversationPage = lazy(() =>
 const DrivenSessionPage = lazy(() =>
   import("./pages/DrivenSessionPage").then((m) => ({ default: m.DrivenSessionPage }))
 );
+const DrivenSessionCostPage = lazy(() =>
+  import("./pages/DrivenSessionCostPage").then((m) => ({ default: m.DrivenSessionCostPage }))
+);
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -395,6 +398,19 @@ export function App() {
             element={
               <ErrorBoundary id="driven-session-page">
                 <DrivenSessionPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Driven-session cost/usage readout (mt#2753, Rung 2D): per-session
+              and aggregate spend/usage rolled up from the driven_session_cost
+              table. Registered as a sub-route of /agents (the driven-session
+              home) rather than under /driven/:id — this is a cross-session
+              view, not scoped to one live session. */}
+          <Route
+            path="/agents/cost"
+            element={
+              <ErrorBoundary id="driven-session-cost-page">
+                <DrivenSessionCostPage />
               </ErrorBoundary>
             }
           />

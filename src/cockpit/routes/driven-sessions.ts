@@ -35,12 +35,14 @@ import {
   DEFAULT_PERMISSION_MODE,
   type DrivenSessionRecord,
   type DrivenSessionRegistry,
+  type DrivenSessionCostSummary,
   type PermissionMode,
   type SpawnFn,
 } from "../driven-session-host";
 import {
   resolveTaskWorkspace as prodResolveTaskWorkspace,
   createDrivenInitLinkObserver,
+  createDrivenResultObserver,
   type ResolvedTaskWorkspace,
 } from "../driven-session-launch";
 
@@ -62,6 +64,13 @@ export interface DrivenSessionRoutesOptions {
   resolveTaskWorkspace?: (taskId: string) => Promise<ResolvedTaskWorkspace>;
   /** Override the init-event link observer (tests capture instead of writing to Postgres). */
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
+  /**
+   * Override the per-turn cost/usage observer (mt#2753 — tests capture
+   * instead of writing to Postgres). Unlike `onHarnessSessionLinked`, this
+   * defaults for EVERY launch shape (task-bound, explicit-cwd, and scratch
+   * alike) — see the `createDrivenResultObserver` docblock.
+   */
+  onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
   /** Override the scratch-session default cwd (defaults to the daemon's cwd). */
   scratchCwd?: string;
 }
@@ -152,6 +161,11 @@ export function mountDrivenSessionRoutes(
       let taskId: string | null = null;
       let minskySessionId: string | null = null;
       let onHarnessSessionLinked = opts.onHarnessSessionLinked;
+      // mt#2753: cost capture applies to every driven session regardless of
+      // launch shape — success criterion 1 is "every driven session", not
+      // "every task-bound driven session" (unlike onHarnessSessionLinked's
+      // task-bound-only default below).
+      const onResultSummary = opts.onResultSummary ?? createDrivenResultObserver();
 
       if (hasTaskId) {
         taskId = taskIdRaw as string;
@@ -172,6 +186,7 @@ export function mountDrivenSessionRoutes(
         taskId,
         minskySessionId,
         onHarnessSessionLinked,
+        onResultSummary,
         spawnFn: opts.spawnFn,
         command: opts.command,
         registry,

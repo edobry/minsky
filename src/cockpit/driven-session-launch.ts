@@ -34,7 +34,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import type { DrivenSessionRecord } from "./driven-session-host";
+import type { DrivenSessionRecord, DrivenSessionCostSummary } from "./driven-session-host";
 import {
   getServerSessionProvider,
   getServerTaskService,
@@ -181,6 +181,72 @@ export function createDrivenInitLinkObserver(
         const message = err instanceof Error ? err.message : String(err);
         log.error(
           `[driven-session] driven_spawn link write failed for ${record.localId}: ${message}`
+        );
+      }
+    })();
+  };
+}
+
+/**
+ * Test seam for {@link createDrivenResultObserver} — mirrors
+ * {@link DrivenInitLinkObserverDeps}.
+ */
+export interface DrivenResultObserverDeps {
+  getDb?: typeof getContextInspectorDb;
+  writeCost?: (
+    db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+    input: import("@minsky/domain/transcripts/driven-session-cost-writer").DrivenSessionCostWriteInput
+  ) => Promise<unknown>;
+}
+
+/**
+ * Build the `onResultSummary` observer (mt#2753, Rung 2D): fire-and-forget
+ * persist a per-turn cost/usage row the moment a terminal `result` event
+ * yields a summary. Wired for EVERY driven session (task-bound, explicit-cwd,
+ * AND untasked "scratch" sessions alike — success criterion 1 says "every
+ * driven session"; unlike {@link createDrivenInitLinkObserver}, this is not
+ * task-bound-only). Never throws into the host's stdout handler — mirrors
+ * the init-link observer's error-swallowing convention.
+ */
+export function createDrivenResultObserver(
+  deps: DrivenResultObserverDeps = {}
+): (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void {
+  return (record, summary) => {
+    void (async () => {
+      try {
+        const db = await (deps.getDb ?? getContextInspectorDb)();
+        if (!db) {
+          log.warn(
+            `[driven-session] no SQL persistence available — cost record for ${record.localId} turn ${summary.turnIndex} not recorded`
+          );
+          return;
+        }
+        const writeCost =
+          deps.writeCost ??
+          (await import("@minsky/domain/transcripts/driven-session-cost-writer"))
+            .writeDrivenSessionCost;
+        await writeCost(db, {
+          localId: record.localId,
+          harnessSessionId: record.harnessSessionId,
+          taskId: record.taskId,
+          minskySessionId: record.minskySessionId,
+          turnIndex: summary.turnIndex,
+          subtype: summary.subtype,
+          isError: summary.isError,
+          totalCostUsd: summary.totalCostUsd,
+          inputTokens: summary.usage?.inputTokens ?? null,
+          outputTokens: summary.usage?.outputTokens ?? null,
+          cacheCreationInputTokens: summary.usage?.cacheCreationInputTokens ?? null,
+          cacheReadInputTokens: summary.usage?.cacheReadInputTokens ?? null,
+          durationMs: summary.durationMs,
+          durationApiMs: summary.durationApiMs,
+          numTurns: summary.numTurns,
+          modelUsage: summary.modelUsage,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] cost record write failed for ${record.localId} turn ${summary.turnIndex}: ${message}`
         );
       }
     })();
