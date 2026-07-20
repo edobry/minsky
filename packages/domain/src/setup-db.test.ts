@@ -239,6 +239,37 @@ describe("resolveExistingPostgresConnection (mt#2502)", () => {
     expect(result.connectivity).toEqual({ ok: true });
   });
 
+  test("'user' source label respects an overridden XDG_CONFIG_HOME, not a hardcoded ~/.config path (PR #2084 R2)", async () => {
+    const original = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = "/tmp/mt2502-xdg-test";
+    try {
+      const deps = makeResolveDeps({
+        loadConfig: async () => ({
+          effectiveValues: {
+            [PERSISTENCE_CONNECTION_STRING_KEY]: {
+              value: GOOD,
+              source: "user",
+              path: PERSISTENCE_CONNECTION_STRING_KEY,
+            },
+          },
+        }),
+      });
+
+      const result = await resolveExistingPostgresConnection(deps);
+
+      // Reflects the OVERRIDDEN XDG_CONFIG_HOME, proving the label is resolved dynamically
+      // via getUserConfigDir() rather than a hardcoded literal that would ignore this env var.
+      expect(result.source).toBe("user config (/tmp/mt2502-xdg-test/minsky/config.yaml)");
+      expect(result.source).not.toContain("~/.config/minsky/config.yaml");
+    } finally {
+      if (original === undefined) {
+        delete process.env.XDG_CONFIG_HOME;
+      } else {
+        process.env.XDG_CONFIG_HOME = original;
+      }
+    }
+  });
+
   test("resolves from repo (project) config: source label reflects repo config", async () => {
     const deps = makeResolveDeps({
       loadConfig: async () => ({

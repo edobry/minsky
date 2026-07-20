@@ -27,6 +27,8 @@ import {
   getPostgresMigrationsStatus,
 } from "./persistence/postgres-migration-operations";
 import { loadConfiguration } from "./configuration/loader";
+import { getUserConfigDir } from "./configuration/sources/user";
+import { join } from "path";
 
 /** Re-exported so callers (adapter, tests) keep importing it from `@minsky/domain/setup-db`. */
 export { maskConnectionString };
@@ -254,16 +256,25 @@ export async function runSetupDbConfigure(
 }
 
 /**
- * Human-readable labels for config-loader source names (mt#2502). Used to tell the
- * operator WHERE a reused Postgres connection came from — e.g. "Using existing
- * Postgres connection from user config (~/.config/minsky/config.yaml)."
+ * Build human-readable labels for config-loader source names (mt#2502). Used to tell the
+ * operator WHERE a reused Postgres connection came from — e.g. "Using existing Postgres
+ * connection from user config (/Users/name/.config/minsky/config.yaml)."
+ *
+ * Built fresh on each call (not a static map) because the "user" label is resolved via
+ * {@link getUserConfigDir} — the SAME XDG_CONFIG_HOME-aware function `setup db` already
+ * uses to write this file. A hardcoded `~/.config/minsky/config.yaml` literal is wrong
+ * whenever `XDG_CONFIG_HOME` is set, and wrong outright on Windows (no `~/.config` at
+ * all) — reviewer finding on PR #2084 R2, the exact machine-specific-hardcode class this
+ * task's portability discipline exists to catch.
  */
-const CONFIG_SOURCE_LABELS: Record<string, string> = {
-  user: "user config (~/.config/minsky/config.yaml)",
-  project: "repo config (.minsky/config.yaml)",
-  environment: "environment variable",
-  defaults: "defaults",
-};
+function buildConfigSourceLabels(): Record<string, string> {
+  return {
+    user: `user config (${join(getUserConfigDir(), "config.yaml")})`,
+    project: "repo config (.minsky/config.yaml)",
+    environment: "environment variable",
+    defaults: "defaults",
+  };
+}
 
 /** Injectable dependencies for {@link resolveExistingPostgresConnection}. Test seam only. */
 export interface ResolveExistingConnectionDeps {
@@ -283,7 +294,7 @@ export interface ResolveExistingConnectionResult {
   connectionString?: string;
   /** Raw source name from the config loader (`"user"` / `"project"` / `"environment"`). Present iff `found`. */
   sourceName?: string;
-  /** Human-readable label for `sourceName` (e.g. "user config (~/.config/minsky/config.yaml)"). Present iff `found`. */
+  /** Human-readable label for `sourceName` (e.g. "user config (/Users/name/.config/minsky/config.yaml)", XDG/Windows-aware). Present iff `found`. */
   source?: string;
   /** Connectivity check against the resolved connection string. Present iff `found`. */
   connectivity?: { ok: boolean; error?: string };
@@ -314,7 +325,7 @@ export async function resolveExistingPostgresConnection(
 
   const connectionString = entry.value.trim();
   const sourceName = entry.source;
-  const source = CONFIG_SOURCE_LABELS[sourceName] ?? sourceName;
+  const source = buildConfigSourceLabels()[sourceName] ?? sourceName;
   const connectivity = await verifyConnectivity(connectionString);
 
   return { found: true, connectionString, sourceName, source, connectivity };
