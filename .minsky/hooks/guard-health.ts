@@ -272,6 +272,18 @@ export const ATTENTION_STREAK_THRESHOLD = 1;
  */
 export const CRITICAL_STREAK_THRESHOLD = 2;
 
+/**
+ * Freshness window (ms) after a guard's most recent failure beyond which its
+ * escalation is flagged `stale`. guard-health records only FAILURES, never
+ * successes (mt#2969), so a recovered guard cannot reset its own streak: between
+ * its last failure and the 24h age-out (STREAK_RESET_GAP_MS) a quiet streak
+ * still reads as an ACTIVE "critical" incident — a ~19h-old streak drove a
+ * multi-hour misdiagnosis. 1h is shorter than the 24h age-out (it fills the
+ * "recovered-but-not-yet-aged-out" gap) and long enough not to flap during a
+ * brief pause between a guard's fires. Tunable.
+ */
+export const STALE_ESCALATION_WINDOW_MS = 60 * 60 * 1000;
+
 export type GuardEscalation = "none" | "attention" | "critical";
 
 export interface GuardHealthEntry {
@@ -281,6 +293,22 @@ export interface GuardHealthEntry {
   consecutiveStreak: number;
   lastEvent: GuardHealthEvent | null;
   escalation: GuardEscalation;
+  /**
+   * ms since this guard's most recent recorded failure (null if none). Optional:
+   * always populated by `computeGuardHealthSummary`, but may be omitted by
+   * hand-built entries (so the addition stays additive/non-breaking). Because
+   * only failures are recorded, a large value means "no failure seen recently" —
+   * NOT necessarily "recovered" (the guard may simply not have fired). mt#2969.
+   */
+  lastFailureAgeMs?: number | null;
+  /**
+   * True when `escalation` is non-"none" but the most recent failure is older
+   * than STALE_ESCALATION_WINDOW_MS — likely stale (recovered or dormant), not an
+   * active incident. Optional (always set by `computeGuardHealthSummary`,
+   * omittable by hand-built entries). Consumers should de-alarm a stale
+   * escalation rather than present it as live. mt#2969.
+   */
+  stale?: boolean;
 }
 
 export interface GuardHealthSummary {
@@ -364,12 +392,24 @@ export function computeGuardHealthSummary(
 
     const escalation = guardEscalationFor(streak);
 
+    // mt#2969: age since the most recent failure, and a `stale` flag for an
+    // escalation whose last failure predates the freshness window — likely
+    // recovered/dormant, since successes are never recorded and cannot reset
+    // the streak before the 24h age-out.
+    const lastFailureAgeMs = lastEvent ? nowMs - new Date(lastEvent.timestamp).getTime() : null;
+    const stale =
+      escalation !== "none" &&
+      lastFailureAgeMs !== null &&
+      lastFailureAgeMs > STALE_ESCALATION_WINDOW_MS;
+
     byGuard[guardName] = {
       failureCount24h,
       failureCount7d,
       consecutiveStreak: streak,
       lastEvent,
       escalation,
+      lastFailureAgeMs,
+      stale,
     };
 
     if (escalation === "critical") criticalGuards.push(guardName);
