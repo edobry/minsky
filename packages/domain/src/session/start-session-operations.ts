@@ -21,6 +21,7 @@ import { RepositoryBackendType } from "../repository";
 import { generateSessionId, taskIdToBranchName } from "../tasks/task-id";
 import { SessionStatus } from "./types";
 import type { ScopeResolverDb } from "../project/scope-resolver";
+import { sessionStartBlockedReason } from "./session-startability";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -195,26 +196,18 @@ Navigate to your main workspace and try again:
     // - umbrella kind: requires PLANNING (no READY state in the umbrella workflow;
     //   PLANNING → IN-PROGRESS is the direct transition per mt#1812's workflow registry)
     // Both kinds reject TODO (must go through PLANNING regardless).
+    //
+    // mt#2959: the kind-aware precursor AND its user-facing message now live in
+    // ONE place (sessionStartBlockedReason) so the cockpit task-detail API can
+    // compute an honest Start-session affordance from the SAME logic instead of
+    // dead-ending an operator on this error.
     if (!noStatusUpdate) {
       const currentStatus = await deps.taskService.getTaskStatus(normalizedTaskId);
       const taskKind = (taskObj as { kind?: string }).kind || "implementation";
 
-      if (currentStatus === TASK_STATUS.TODO) {
-        throw new ValidationError(
-          "Task must be in PLANNING status before starting a session. Set status to PLANNING first.",
-          undefined,
-          undefined
-        );
-      }
-
-      if (currentStatus === TASK_STATUS.PLANNING && taskKind !== "umbrella") {
-        // implementation-kind tasks must go through the READY gate before session_start.
-        // umbrella-kind tasks transition PLANNING → IN-PROGRESS directly (no READY).
-        throw new ValidationError(
-          "Planning is not yet marked as complete. Set status to READY when investigation is done.",
-          undefined,
-          undefined
-        );
+      const blockedReason = sessionStartBlockedReason(currentStatus, taskKind);
+      if (blockedReason) {
+        throw new ValidationError(blockedReason, undefined, undefined);
       }
     }
 
