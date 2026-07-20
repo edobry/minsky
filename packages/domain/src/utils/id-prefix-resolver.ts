@@ -24,7 +24,8 @@
  * @see mt#2696 — this module's originating task
  */
 
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
+import { parseShortId, formatShortId } from "./short-id";
 
 /** Minimum prefix length accepted for a prefix-resolution lookup. */
 export const MIN_ID_PREFIX_LENGTH = 8;
@@ -276,6 +277,142 @@ export async function resolveIdPrefix(opts: ResolveIdPrefixOptions): Promise<IdP
  */
 export async function resolveIdPrefixOrThrow(opts: ResolveIdPrefixOptions): Promise<string> {
   const resolution = await resolveIdPrefix(opts);
+  if (resolution.kind === "resolved") {
+    return resolution.id;
+  }
+  throw idPrefixResolutionError(opts.entityName, resolution);
+}
+
+// ---------------------------------------------------------------------------
+// Generalized resolution — `<prefix>#<n>` short ids alongside uuid prefixes
+// (mt#2963)
+// ---------------------------------------------------------------------------
+//
+// Everything below is ADDITIVE. Nothing above this point (`classifyIdInput`,
+// `resolveCandidates`, `resolveIdPrefix`, `resolveIdPrefixOrThrow`,
+// `idPrefixResolutionError`) is modified — every existing caller
+// (`resolveAskIdInput` in `src/adapters/shared/commands/asks.ts`,
+// `resolveMemoryIdInput` in `src/adapters/shared/commands/memory/index.ts`)
+// keeps calling those exact functions with their exact existing signatures
+// and behavior for uuid/hex-prefix input. The functions below layer a new,
+// combined classification + resolution path on top for callers that also
+// want to accept `<prefix>#<n>` short ids (ADR-029) — the per-entity
+// short-id tasks (mt#2965/2966/2967) are the intended consumers, once their
+// tables have a `short_id` column (see `../storage/schemas/short-id-column.ts`).
+
+/**
+ * Outcome of classifying a raw id-input string against BOTH the short-id
+ * shape (`<prefix>#<n>`) and the existing uuid/hex-prefix shapes handled by
+ * `classifyIdInput`. A short-id-shaped token always classifies as
+ * `"short_id"` — it never falls through to `classifyIdInput`, since
+ * `<prefix>#<n>` never matches the hex-fragment/uuid shapes anyway (the `#`
+ * character alone excludes it).
+ */
+export type EntityIdClassification =
+  | { kind: "short_id"; prefix: string; n: number }
+  | IdInputClassification;
+
+/**
+ * Classify a raw id-input string as a short id (`<prefix>#<n>`), a full
+ * uuid, an unambiguous hex prefix, or invalid. Pure — no DB round-trip.
+ */
+export function classifyEntityIdInput(
+  input: string,
+  minPrefixLength: number = MIN_ID_PREFIX_LENGTH
+): EntityIdClassification {
+  const parsed = parseShortId(input);
+  if (parsed) {
+    return { kind: "short_id", prefix: parsed.prefix, n: parsed.n };
+  }
+  return classifyIdInput(input, minPrefixLength);
+}
+
+export interface ResolveEntityIdOptions extends ResolveIdPrefixOptions {
+  /**
+   * The entity's `short_id` text column (e.g. `asksTable.shortId`, added per
+   * the `short-id-column.ts` schema pattern). Omit for entities that don't
+   * have a short_id column yet — a short-id-shaped input then resolves as
+   * `invalid` instead of silently falling through to a uuid-prefix query
+   * against the wrong column.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  shortIdColumn?: any;
+  /**
+   * This entity's short-id prefix, e.g. `"ask"`. Required alongside
+   * `shortIdColumn`. A short-id-shaped input whose prefix does not match
+   * (e.g. passing `"mem#3"` to an ask lookup) resolves as `invalid` rather
+   * than silently querying the wrong entity.
+   */
+  shortIdPrefix?: string;
+}
+
+/**
+ * Resolve a raw id-or-prefix input that may be EITHER a `<prefix>#<n>` short
+ * id OR a full-uuid/hex-prefix, to the target row's full uuid.
+ *
+ * - `<prefix>#<n>` matching `opts.shortIdPrefix` → looked up via
+ *   `<shortIdColumn> = '<prefix>#<n>'` (an exact-match equality, not a LIKE
+ *   — short ids are exact tokens, not prefixes of a longer value).
+ * - `<prefix>#<n>` NOT matching `opts.shortIdPrefix` (or no `shortIdColumn`
+ *   configured for this entity) → `invalid`, without ever touching the DB.
+ * - Anything else (full uuid, hex prefix, empty/malformed input) →
+ *   delegates unchanged to `resolveIdPrefix` — identical behavior to calling
+ *   `resolveIdPrefix` directly.
+ */
+export async function resolveEntityIdPrefix(
+  opts: ResolveEntityIdOptions
+): Promise<IdPrefixResolution> {
+  const classification = classifyEntityIdInput(opts.input, opts.minPrefixLength);
+
+  if (classification.kind !== "short_id") {
+    // Full uuid / hex prefix / invalid — identical to today's behavior.
+    return resolveIdPrefix(opts);
+  }
+
+  if (!opts.shortIdColumn || !opts.shortIdPrefix) {
+    return {
+      kind: "invalid",
+      input: opts.input,
+      reason: `${opts.entityName} does not support short ids`,
+    };
+  }
+
+  if (classification.prefix.toLowerCase() !== opts.shortIdPrefix.toLowerCase()) {
+    return {
+      kind: "invalid",
+      input: opts.input,
+      reason:
+        `short id prefix "${classification.prefix}#" does not match ${opts.entityName}'s ` +
+        `short id prefix "${opts.shortIdPrefix}#"`,
+    };
+  }
+
+  const token = formatShortId(opts.shortIdPrefix, classification.n);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const selectShape: Record<string, any> = { id: opts.idColumn };
+  if (opts.labelColumn) selectShape.label = opts.labelColumn;
+
+  const rows = (await opts.db
+    .select(selectShape)
+    .from(opts.table)
+    .where(eq(opts.shortIdColumn, token))) as Array<{ id: unknown; label?: unknown }>;
+
+  const candidates: PrefixCandidate[] = rows.map((row) => ({
+    id: String(row.id),
+    label: row.label !== undefined && row.label !== null ? String(row.label) : undefined,
+  }));
+
+  return resolveCandidates(candidates, opts.input);
+}
+
+/**
+ * Convenience wrapper: resolve (short id OR uuid/hex prefix) and throw a
+ * clean tool-level error on any non-"resolved" outcome. The generalized
+ * counterpart to `resolveIdPrefixOrThrow`.
+ */
+export async function resolveEntityIdPrefixOrThrow(opts: ResolveEntityIdOptions): Promise<string> {
+  const resolution = await resolveEntityIdPrefix(opts);
   if (resolution.kind === "resolved") {
     return resolution.id;
   }
