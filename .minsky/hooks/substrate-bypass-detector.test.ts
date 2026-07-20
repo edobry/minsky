@@ -9,6 +9,7 @@ import {
   detectSkillBypass,
   detectDbSubstrateBypass,
   detectPassiveOutcomeAsMechanism,
+  detectOperatorInstructionAfterMerge,
   elideMarkdownContexts,
   OVERRIDE_ENV_VAR,
   run,
@@ -830,6 +831,88 @@ describe("main() end-to-end via Bun.spawn", () => {
     const { exitCode, stdout } = await invokeHook(input);
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unit tests: detectOperatorInstructionAfterMerge (mt#2303, log-only surface)
+// ---------------------------------------------------------------------------
+
+describe("detectOperatorInstructionAfterMerge", () => {
+  test("fires on manual-reinstall-to-activate (mt#2942 shape)", () => {
+    const turnLines = [
+      makeAssistantLine("To get the fix, you need to pull main and run install-local.sh."),
+    ];
+    const result = detectOperatorInstructionAfterMerge(turnLines);
+    expect(result.matched).toBe(true);
+    expect(result.reason).toBe("operator-instruction-after-merge");
+  });
+
+  test("fires on config-edit-to-enable (R1 mt#2150 shape)", () => {
+    const turnLines = [
+      makeAssistantLine(
+        "Add these to your ~/.config/minsky/cockpit.json to enable the new widgets."
+      ),
+    ];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(true);
+  });
+
+  test("fires on rebuild-then-hard-refresh (R2 mt#2300 shape)", () => {
+    const turnLines = [
+      makeAssistantLine(
+        "After your next bun run cockpit:build, hard-refresh your browser to see the new title."
+      ),
+    ];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(true);
+  });
+
+  test("fires on operator-follow-up framing", () => {
+    const turnLines = [
+      makeAssistantLine("Operator follow-up: restart the daemon to pick up the new server config."),
+    ];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(true);
+  });
+
+  test("does NOT fire when the agent did the action itself (FP: already-did-it)", () => {
+    const turnLines = [
+      makeAssistantLine(
+        "I ran bun run cockpit:build for you (new bundle). Hard-refresh your browser to see the change."
+      ),
+    ];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(false);
+  });
+
+  test("does NOT fire inside a /retrospective invocation (FP: meta discussion)", () => {
+    const turnLines = [
+      makeAssistantLine(
+        "The anti-pattern is telling the user to edit ~/.config/minsky/cockpit.json manually."
+      ),
+      makeToolUseLine("Skill", { skill: "retrospective", args: "" }),
+    ];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(false);
+  });
+
+  test("does NOT fire when the turn renders an inline retrospective shape (FP: retro markers)", () => {
+    const retroText = [
+      "## Retrospective: manual step",
+      "",
+      "### Root cause",
+      "You need to reinstall to get the fix.",
+      "",
+      "### Fixes",
+      "Automate it.",
+    ].join("\n");
+    const turnLines = [makeAssistantLine(retroText)];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(false);
+  });
+
+  test("does NOT fire on benign completion prose", () => {
+    const turnLines = [makeAssistantLine("Tests pass and lint is clean. Merged the PR.")];
+    expect(detectOperatorInstructionAfterMerge(turnLines).matched).toBe(false);
+  });
+
+  test("returns no match for an empty turn", () => {
+    expect(detectOperatorInstructionAfterMerge([]).matched).toBe(false);
   });
 });
 
