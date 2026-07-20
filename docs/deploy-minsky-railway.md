@@ -276,6 +276,38 @@ every 10 minutes via a scheduled GitHub Action:
   for cockpit) returns non-200 or times out (10s threshold). Catches the
   runtime-crash-after-green-build class (mt#2345).
 
+**`/health` persistence-liveness semantics (mt#2949):**
+
+`GET /health` on `minsky-mcp` is not a static "process is up" check — it reflects
+persistence liveness, distinguishing two very different reasons the process might
+not have a working Postgres connection:
+
+| Status | `persistence.mode` | Meaning                                                                                                                                                                                                                                                                                                                         |
+| ------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `200`  | `"connected"`      | Postgres is configured and reachable.                                                                                                                                                                                                                                                                                           |
+| `200`  | `"unconfigured"`   | No Postgres connection is configured anywhere (no `persistence.postgres.connectionString`, no `MINSKY_POSTGRES_URL`). Deliberate — the expected local/dev/offline boot path (mt#2349), and the exact state the `bundle-boot-smoke` CI gate boots in (fresh runner, no config file, no env override). Degraded but not an error. |
+| `503`  | `"unavailable"`    | A Postgres connection string WAS configured, but initialization failed at boot (migration error, unreachable DB, bad credentials). A genuine outage.                                                                                                                                                                            |
+
+Response body carries a `persistence` object with `mode` and (when not `"connected"`) a
+human-readable `reason` string, e.g.:
+
+```json
+{
+  "status": "unhealthy",
+  "persistence": {
+    "mode": "unavailable",
+    "reason": "Postgres connection is configured but persistence failed to initialize (connect ECONNREFUSED ...) — see boot logs for the underlying error. This is NOT the expected local/dev degraded mode."
+  }
+}
+```
+
+**Why this matters:** during the 2026-07-19 outage, `/health` stayed a static `200`
+regardless of persistence state, so this section's post-deploy-health-monitor (and
+Railway's own deploy-health gate) reported the service healthy while every DB-backed
+tool was dead for ~5 hours. The `503` case above is exactly the signal that class of
+outage now produces. See `packages/domain/src/persistence/health.ts`
+(`assessPersistenceHealth`) for the decision logic.
+
 **Service discovery (mt#1302):**
 
 The monitor discovers services at runtime by enumerating `services/*/deploy.config.ts`

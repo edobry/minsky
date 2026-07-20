@@ -10,6 +10,7 @@ import { getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import type { PersistenceProvider } from "./types";
+import { UnconfiguredPersistenceProvider } from "./unconfigured-provider";
 import { getPostgresMigrationsStatus } from "./migration-operations";
 import { logPostgresNotice } from "./postgres-notice-handler";
 import { maskConnectionString } from "./connection-string";
@@ -57,8 +58,16 @@ export async function verifyPostgresConnectivity(
 
 /**
  * Validate PostgreSQL backend
+ *
+ * @param deps.getConfiguration Test seam (mt#2949): overrides the real
+ *   `getConfiguration()` singleton so this function is unit-testable without
+ *   `mock.module()` (banned — eslint-rules/no-global-module-mocks.js).
+ *   Production callers omit this and get the real configuration.
  */
-export async function validatePostgresBackend(persistenceProvider: PersistenceProvider): Promise<{
+export async function validatePostgresBackend(
+  persistenceProvider: PersistenceProvider,
+  deps: { getConfiguration?: () => import("../configuration/schemas").Configuration } = {}
+): Promise<{
   success: boolean;
   details: string;
   issues?: string[];
@@ -68,8 +77,10 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
   const suggestions: string[] = [];
 
   try {
-    // Import configuration to get connection details
-    const { getConfiguration } = await import("../configuration/index");
+    // Import configuration to get connection details (or use the injected
+    // test seam — see the `deps` param doc above).
+    const getConfiguration =
+      deps.getConfiguration ?? (await import("../configuration/index")).getConfiguration;
     const config = getConfiguration();
 
     // Get PostgreSQL connection string
@@ -105,15 +116,41 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
         log.cli("✅ Database connection successful");
       }
     } else {
-      log.cli("✅ Non-SQL backend initialized successfully");
+      // mt#2949 — THE false-positive health check. Postgres has been the
+      // only backend since mt#2349; there is no legitimate non-SQL backend
+      // left. Reaching this branch means a connectionString IS configured
+      // (the early return above already handled "not configured at all"),
+      // yet the live provider reports sql=false — i.e. DI substituted
+      // UnconfiguredPersistenceProvider because Postgres initialization
+      // actually failed (migration error, unreachable DB, bad credentials).
+      // Masking this as "initialized successfully" is exactly why
+      // `persistence_check` reported SUCCESS during the 2026-07-19 outage
+      // while every session tool was dead. Fail — do not mask.
+      const underlyingReason =
+        provider instanceof UnconfiguredPersistenceProvider
+          ? provider.reason
+          : "provider is not SQL-capable";
+      issues.push(
+        "PostgreSQL connection is configured, but the active persistence provider is " +
+          `not SQL-capable — initialization failed at boot: ${underlyingReason}`
+      );
+      suggestions.push(
+        "Check server boot logs for the underlying persistence initialization error " +
+          "(migration failure, connection failure, bad credentials) and restart/redeploy " +
+          "once resolved."
+      );
+      return {
+        success: false,
+        details: "PostgreSQL backend is configured but not actually available",
+        issues,
+        suggestions,
+      };
     }
 
     // Additional checks for PostgreSQL
     if (provider.getCapabilities().sql) {
       try {
         // Check schema is up to date (no pending migrations)
-        const { getConfiguration } = await import("../configuration/index");
-        const config = getConfiguration();
         const effectiveInner = getEffectivePersistenceConfig(config);
         const backend = effectiveInner.backend;
 

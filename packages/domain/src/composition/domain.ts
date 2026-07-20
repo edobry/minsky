@@ -105,7 +105,11 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
             "operations fail until persistence.postgres.connectionString (or " +
             "MINSKY_POSTGRES_URL) is set."
         );
-        return new UnconfiguredPersistenceProvider("no Postgres connection configured");
+        // mt#2949: deliberately unconfigured (no connection string anywhere) —
+        // the expected local/dev/offline boot path. `configuredButUnavailable`
+        // stays false so `/health` (via assessPersistenceHealth) keeps
+        // reporting healthy-but-degraded rather than failing the deploy.
+        return new UnconfiguredPersistenceProvider("no Postgres connection configured", false);
       }
 
       const { PersistenceService } = await import("../persistence/service");
@@ -117,16 +121,21 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
         // Boot-tolerant fallback (mt#2349): a connection WAS configured but
         // initialize() failed (DB unreachable, bad credentials, etc.). Still
         // don't crash the whole process — boot in DB-unavailable mode so
-        // `/health` responds — but this is a genuine failure, so the underlying
-        // error is already logged by PersistenceService. DB-backed operations
-        // fail with the clear error on first use.
+        // `/health` and other non-DB routes can still respond — but this is a
+        // genuine failure (mt#2949: NOT the expected local/dev degraded mode),
+        // so log loudly and mark the placeholder as `configuredButUnavailable`
+        // so `/health` (assessPersistenceHealth), `validatePostgresBackend`,
+        // and `createConfiguredTaskService` all fail loud instead of masking
+        // it as a legitimate non-SQL backend. This is exactly the case that
+        // made the 2026-07-19 outage invisible: /health returned 200 and
+        // Railway reported SUCCESS while persistence was actually dead.
         const { getErrorMessage } = await import("../errors/index");
         const reason = getErrorMessage(err);
-        log.warn(
+        log.error(
           "Persistence initialization failed — booting without a database " +
             `connection. DB-backed operations will fail. Reason: ${reason}`
         );
-        return new UnconfiguredPersistenceProvider(reason);
+        return new UnconfiguredPersistenceProvider(reason, true);
       }
     },
     {
