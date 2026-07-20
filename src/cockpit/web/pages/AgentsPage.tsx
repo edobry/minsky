@@ -11,6 +11,7 @@
  * the task detail page).
  */
 import { Play } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Agents } from "../widgets/Agents";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
@@ -24,6 +25,9 @@ function StartScratchSessionButton() {
           {start.error.message}
         </span>
       )}
+      <Button variant="outline" size="sm" asChild className="h-7 px-2.5 text-xs">
+        <Link to="/agents/cost">Cost &amp; usage</Link>
+      </Button>
       <Button
         variant="outline"
         size="sm"
