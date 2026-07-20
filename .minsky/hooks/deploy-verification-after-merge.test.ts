@@ -6,6 +6,7 @@ import {
   parsePrUrl,
   extractMergedPrRef,
   buildDeployVerificationReminder,
+  buildTrayReinstallReminder,
   decideDeployReminder,
   type PostMergeDeps,
 } from "./deploy-verification-after-merge";
@@ -16,6 +17,9 @@ const MERGE_TOOL = "mcp__minsky__session_pr_merge";
 const PR_URL = "https://github.com/edobry/minsky/pull/1741";
 const REPO = "edobry/minsky";
 const INFRA_INDEX = "infra/index.ts";
+const TRAY_FILE = "cockpit-tray/src-tauri/src/menu.rs";
+const DEPLOY_WAIT = "deployment_wait-for-latest";
+const INSTALL_LOCAL = "install-local.sh";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
 
 /** A merge tool_result carrying the given metadata. */
@@ -80,9 +84,19 @@ describe("buildDeployVerificationReminder (mt#2353)", () => {
   test("names the files and the mandatory verify action + flake-is-blocker rule", () => {
     const r = buildDeployVerificationReminder([INFRA_INDEX]);
     expect(r).toContain(INFRA_INDEX);
-    expect(r).toContain("deployment_wait-for-latest");
+    expect(r).toContain(DEPLOY_WAIT);
     expect(r).toContain("BLOCKER");
     expect(r).toContain("not the OUTCOME");
+  });
+});
+
+describe("buildTrayReinstallReminder (mt#2976)", () => {
+  test("names the tray files + the install-local.sh reinstall (agent, not operator)", () => {
+    const r = buildTrayReinstallReminder([TRAY_FILE]);
+    expect(r).toContain(TRAY_FILE);
+    expect(r).toContain(INSTALL_LOCAL);
+    expect(r).toContain("NOT the operator");
+    expect(r).not.toContain(DEPLOY_WAIT);
   });
 });
 
@@ -125,5 +139,33 @@ describe("decideDeployReminder (mt#2353)", () => {
   test("silent when the PR ref cannot be resolved", () => {
     const input = mergeInput({}); // no pr_url, no pr_number
     expect(decideDeployReminder(input, depsReturning([f(INFRA_INDEX)]))).toBeNull();
+  });
+
+  test("reminds to reinstall for a cockpit-tray merge — not deployment_wait-for-latest (mt#2976)", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(TRAY_FILE), f("cockpit-tray/README.md")])
+    );
+    expect(reminder).not.toBeNull();
+    expect(reminder).toContain(INSTALL_LOCAL);
+    expect(reminder).toContain(TRAY_FILE);
+    expect(reminder).not.toContain(DEPLOY_WAIT);
+  });
+
+  test("emits BOTH reminders for a mixed Railway + tray merge (mt#2976)", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f(INFRA_INDEX), f(TRAY_FILE)])
+    );
+    expect(reminder).toContain(DEPLOY_WAIT);
+    expect(reminder).toContain(INSTALL_LOCAL);
+  });
+
+  test("silent for a cockpit-web change (not the tray binary) (mt#2976)", () => {
+    const reminder = decideDeployReminder(
+      mergeInput({ pr_url: PR_URL }),
+      depsReturning([f("src/cockpit/web/App.tsx")])
+    );
+    expect(reminder).toBeNull();
   });
 });

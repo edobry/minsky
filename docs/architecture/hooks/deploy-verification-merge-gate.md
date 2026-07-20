@@ -74,6 +74,24 @@ deploy-surface trigger list, the MANDATORY-before-done framing,
 deferral-text-is-not-evidence, and the three enforced rules (applied != outcome;
 tool-flake-is-blocker; DONE != deploy-healthy).
 
+**Local-app deploy surface — cockpit-tray (mt#2976).** The post-merge reminder is
+**target-aware**. Alongside the Railway surface above, `cockpit-tray/src-tauri/**` (the tray's
+native Rust binary) is recognized as a **local-app** deploy target: the tray "deploys" to the
+operator's `/Applications` via `cockpit-tray/scripts/install-local.sh`, and unlike `src/cockpit/**`
+(auto-rebuilt + auto-restarted by the tray, mt#2297/mt#2299) its binary is NOT auto-rebuilt — a
+merged change is invisible until reinstalled (mt#2942). So a merge touching that path injects a
+**reinstall reminder** (`buildTrayReinstallReminder`: run `install-local.sh`; the AGENT does it,
+not the operator — telling the operator to reinstall manually is the §Turnkey-not-portal
+anti-pattern the mt#2942 retrospective flagged). It is deliberately **reminder-only, not
+pre-merge-blocked** — a local reinstall is low-stakes and reversible. The tray surface is kept
+SEPARATE from `DEPLOY_SURFACE_PATTERNS` (via `isLocalAppDeploySurfaceFile` /
+`LOCAL_APP_DEPLOY_SURFACE_PATTERNS` in `packages/domain/src/deployment/deploy-surface.ts`) so the
+pre-merge gate AND the `session.pr.drive` deploy-watch — both keyed on the Railway patterns — never
+treat a tray change as a Railway deploy. A PR touching both surfaces gets both reminders. This is
+the structural version of the mt#2942-retrospective interim ("the agent reinstalls the tray for
+you"), firing mechanically instead of relying on agent memory across conversations; the eventual
+elimination is auto-update (mt#2962, gated on Apple Developer signing mt#2201, declined 2026-07-20).
+
 **Cross-references:**
 
 - mt#2353 — this pair's tracking task
@@ -87,3 +105,4 @@ tool-flake-is-blocker; DONE != deploy-healthy).
 - mt#1787 / bundle-boot-smoke — CI gate for the MCP bundle (does NOT cover Railway
   config-as-code build-resolution changes — this pair's class)
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
+- mt#2976 — target-aware extension: the cockpit-tray local-app deploy surface + reinstall reminder

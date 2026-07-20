@@ -39,7 +39,7 @@ import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
 import { deriveRepoFromGit, makeProdPrDeps } from "./require-execution-evidence-before-merge";
 import type { PrFile } from "./require-execution-evidence-before-merge";
-import { findDeploySurfaceFiles } from "./deploy-surface-detector";
+import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
 import { isOverrideSet, OVERRIDE_ENV_VAR } from "./require-deploy-verification-before-merge";
 
 /** The MCP tool this hook reacts to. */
@@ -135,6 +135,43 @@ export function buildDeployVerificationReminder(deploySurfaceFiles: string[]): s
   ].join("\n");
 }
 
+/**
+ * Build the post-merge reminder for a cockpit-tray (LOCAL-APP) binary change
+ * (mt#2976). The tray runs from the operator's `/Applications` and its Rust
+ * binary is NOT auto-rebuilt, so a merged change is invisible until the app is
+ * reinstalled — and the AGENT does the reinstall, not the operator (telling the
+ * operator to reinstall manually is the §Turnkey-not-portal anti-pattern the
+ * mt#2942 retrospective flagged). This is the structural version of "the agent
+ * reinstalls the tray for you": it fires mechanically on every tray-binary merge
+ * instead of relying on agent memory across conversations.
+ */
+export function buildTrayReinstallReminder(trayFiles: string[]): string {
+  const fileList = trayFiles.map((f) => `  - ${f}`).join("\n");
+  return [
+    "COCKPIT-TRAY BINARY MERGE — the fix is NOT live for the operator yet.",
+    "",
+    "This PR touched the cockpit-tray native binary source:",
+    fileList,
+    "",
+    "The tray is a LOCAL deploy target (it runs from the operator's /Applications).",
+    "Unlike `src/cockpit/**` (auto-rebuilt + auto-restarted by the tray,",
+    "mt#2297/mt#2299), the tray's own Rust binary is NOT auto-rebuilt — a merged",
+    "change is invisible until the app is reinstalled (mt#2942).",
+    "",
+    "**Required next action — the AGENT does this, NOT the operator (mt#2942):**",
+    "- Run `cockpit-tray/scripts/install-local.sh` (app-only build → replace the",
+    "  /Applications bundle → re-register scheme), then relaunch it:",
+    '  `open "/Applications/Minsky Cockpit.app"` (the script quits the app but does',
+    "  NOT relaunch it).",
+    "- Reinstalling is env-mutating — it restarts the operator's running cockpit —",
+    "  so get explicit consent + confirm a clean end-state before running it",
+    "  (memory `427cdf15`). Do NOT tell the operator to reinstall manually.",
+    "",
+    "Interim until auto-update ships (mt#2962, gated on Apple Developer signing",
+    "mt#2201). If the operator declined signing, this reminder IS the mechanism.",
+  ].join("\n");
+}
+
 export interface PostMergeDeps {
   deriveRepo: (cwd: string) => string | null;
   fetchPrFiles: (repo: string, prNumber: number) => { files: PrFile[]; warning?: string };
@@ -155,10 +192,14 @@ export function decideDeployReminder(input: ToolHookInput, deps: PostMergeDeps):
   if (!ref) return null;
 
   const { files } = deps.fetchPrFiles(ref.repo, ref.prNumber);
-  const deploySurfaceFiles = findDeploySurfaceFiles(files);
-  if (deploySurfaceFiles.length === 0) return null;
+  const railwayFiles = findDeploySurfaceFiles(files);
+  const trayFiles = findLocalAppDeploySurfaceFiles(files);
+  if (railwayFiles.length === 0 && trayFiles.length === 0) return null;
 
-  return buildDeployVerificationReminder(deploySurfaceFiles);
+  const sections: string[] = [];
+  if (railwayFiles.length > 0) sections.push(buildDeployVerificationReminder(railwayFiles));
+  if (trayFiles.length > 0) sections.push(buildTrayReinstallReminder(trayFiles));
+  return sections.join("\n\n---\n\n");
 }
 
 async function main(): Promise<void> {
