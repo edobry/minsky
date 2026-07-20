@@ -146,6 +146,7 @@ function computeLayout(
   let head = 0;
   while (head < queue.length) {
     const curr = queue[head++];
+    if (curr === undefined) continue;
     const gen = generation.get(curr) ?? 0;
     for (const succ of successors.get(curr) ?? []) {
       const existing = generation.get(succ) ?? -1;

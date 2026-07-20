@@ -25,7 +25,7 @@
  */
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { PluggableList } from "react-markdown";
+import type { PluggableList } from "unified";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";

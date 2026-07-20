@@ -18,8 +18,8 @@
  *
  * Migration handling: this repository assumes a current schema, like every
  * other domain repository (ask, pr-watch). Migration *application* happens at
- * `PostgresPersistenceProvider.initialize()` (auto-migrate, default ON); drift
- * *detection* is owned by `persistence check` (mt#1641). The former lazy
+ * `PostgresPersistenceProvider.initialize()` (auto-migrate opt-in, default OFF
+ * per mt#2560); drift *detection* is owned by `persistence check` (mt#1641). The former lazy
  * session-init `enforceMigrationsUpToDate` belt-and-suspenders is intentionally
  * not carried over (mt#2329).
  */

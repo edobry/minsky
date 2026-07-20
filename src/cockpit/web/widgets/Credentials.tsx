@@ -244,8 +244,9 @@ function AddCredentialForm() {
   const providers = providersQuery.data ?? [];
 
   useEffect(() => {
-    if (providers.length > 0 && !selectedProvider) {
-      setSelectedProvider(providers[0].id);
+    const first = providers[0];
+    if (first && !selectedProvider) {
+      setSelectedProvider(first.id);
     }
   }, [providers, selectedProvider]);
 

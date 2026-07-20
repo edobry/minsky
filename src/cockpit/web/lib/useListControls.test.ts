@@ -38,6 +38,15 @@ const ITEMS: Item[] = [
   { id: "e", value: 15, category: "bar" },
 ];
 
+/** Indexed access that throws instead of returning `undefined` (test-only helper). */
+function at<T>(arr: T[], idx: number): T {
+  const el = arr[idx];
+  if (el === undefined) {
+    throw new Error(`at: index ${idx} out of bounds (length ${arr.length})`);
+  }
+  return el;
+}
+
 type SortKey = "value" | "id";
 interface Filters {
   category: string;
@@ -118,20 +127,20 @@ describe("useListControls logic", () => {
     test("page 1 with pageSize 2 returns first 2 items", () => {
       const result = paginateSlice(ITEMS, 1, 2);
       expect(result).toHaveLength(2);
-      expect(result[0].id).toBe("a");
-      expect(result[1].id).toBe("b");
+      expect(at(result, 0).id).toBe("a");
+      expect(at(result, 1).id).toBe("b");
     });
 
     test("page 2 with pageSize 2 returns items 3-4", () => {
       const result = paginateSlice(ITEMS, 2, 2);
-      expect(result[0].id).toBe("c");
-      expect(result[1].id).toBe("d");
+      expect(at(result, 0).id).toBe("c");
+      expect(at(result, 1).id).toBe("d");
     });
 
     test("last page with pageSize 2 returns 1 item for odd count", () => {
       const result = paginateSlice(ITEMS, 3, 2);
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe("e");
+      expect(at(result, 0).id).toBe("e");
     });
 
     test("computePageCount for 5 items and pageSize 2 is 3", () => {
@@ -229,7 +238,7 @@ describe("useListControls logic", () => {
       // foo items: a(10), c(20); sorted asc: a, c
       expect(filtered).toHaveLength(2);
       expect(pageItems).toHaveLength(1);
-      expect(pageItems[0].id).toBe("a"); // lowest value
+      expect(at(pageItems, 0).id).toBe("a"); // lowest value
       expect(pageCount).toBe(2);
     });
 

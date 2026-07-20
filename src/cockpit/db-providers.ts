@@ -147,6 +147,33 @@ export async function getServerAskRepository(): Promise<AskRepository | null> {
 }
 
 // ---------------------------------------------------------------------------
+// FollowUpService lazy init (mt#2322) — uses cockpit-wide PersistenceService
+// singleton. cacheNegative: false, same rationale as getServerAskRepository:
+// a failed probe retries on every call; only a SUCCESSFUL service instance
+// is cached.
+// ---------------------------------------------------------------------------
+
+const getFollowUpDb = createCachedSqlDbGetter({ cacheNegative: false });
+let _cachedFollowUpService:
+  | import("@minsky/domain/scheduler/follow-up-service").FollowUpService
+  | null = null;
+
+export async function getServerFollowUpService(): Promise<
+  import("@minsky/domain/scheduler/follow-up-service").FollowUpService | null
+> {
+  if (_cachedFollowUpService) return _cachedFollowUpService;
+  try {
+    const db = await getFollowUpDb();
+    if (!db) return null;
+    const { FollowUpService } = await import("@minsky/domain/scheduler/follow-up-service");
+    _cachedFollowUpService = new FollowUpService(db);
+    return _cachedFollowUpService;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Task service lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 

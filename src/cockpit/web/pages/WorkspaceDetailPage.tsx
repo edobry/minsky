@@ -12,7 +12,7 @@
  */
 import { useParams, Link } from "react-router-dom";
 import { RunDetail } from "../widgets/RunDetail";
-import { shortenId } from "../lib/format";
+import { CopyId } from "../components/CopyId";
 import type { WorkspaceId } from "@minsky/domain/ids";
 
 export function WorkspaceDetailPage() {
@@ -31,9 +31,7 @@ export function WorkspaceDetailPage() {
           Agents
         </Link>
         <span aria-hidden="true">/</span>
-        <span className="font-mono text-foreground" title={sessionId}>
-          {shortenId(sessionId)}
-        </span>
+        <CopyId type="session" id={sessionId} />
       </nav>
 
       {sessionId ? (

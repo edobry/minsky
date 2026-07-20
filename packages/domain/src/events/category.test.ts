@@ -47,6 +47,7 @@ describe("event category classification", () => {
         "deploy.smoke",
         "deploy.live",
         "deploy.fail",
+        "authorization.policy_covered",
         "task.bulk_edit.dry_run",
         "task.bulk_edit.executed",
       ].sort()

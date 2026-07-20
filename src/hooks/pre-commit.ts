@@ -7,7 +7,7 @@
  * Minsky's own infrastructure for consistent configuration and error handling.
  */
 
-import { execAsync } from "@minsky/shared/exec";
+import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
@@ -36,6 +36,11 @@ import {
   IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
   MIGRATION_DIRS,
 } from "./immutable-migration-detector";
+import {
+  detectMigrationJournalViolations,
+  isMigrationCollisionOverrideTruthy,
+  MIGRATION_COLLISION_CHECK_OVERRIDE_ENV,
+} from "./migration-collision-detector";
 import {
   recordPreCommitFireLogEntry,
   classifyOverride as classifyPreCommitOverride,
@@ -325,6 +330,21 @@ export class PreCommitHook {
         return immutableMigrationResult;
       }
 
+      // Step 3e-b: Migration collision + journal-`when` immutability check
+      // (mt#2948). Compare the staged journal against origin/main: block a
+      // renumber that mutates an already-shipped entry's `when` (the 2026-07-19
+      // outage cause), a new migration reusing an on-main number, or a new
+      // entry whose `when` is non-monotonic vs main. Complements mt#2268
+      // (.sql content) and mt#2087 (local sql<->journal set).
+      const migrationCollisionResult = await this.instrumented(
+        "migration-collision-check",
+        () => this.runMigrationCollisionCheck(),
+        MIGRATION_COLLISION_CHECK_OVERRIDE_ENV
+      );
+      if (!migrationCollisionResult.success) {
+        return migrationCollisionResult;
+      }
+
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
       // mt#2193). Verify every domain ASSERTED as a deployment target in
       // deploy/site config (infra/index.ts SITE_URL, services/*/deploy.config.ts,
@@ -368,13 +388,17 @@ export class PreCommitHook {
         return secretsResult;
       }
 
-      // ── Expensive runtime checks (tests) ──
-
-      // Step 7: Unit tests (most expensive)
-      const testsResult = await this.instrumented("unit-tests", () => this.runUnitTests());
-      if (!testsResult.success) {
-        return testsResult;
-      }
+      // ── Runtime checks (tests) ──
+      //
+      // mt#2716: the full unit-suite step was REMOVED from pre-commit. Running
+      // ~8300 tests (~4.3 min) on every commit is the documented "slow hook →
+      // developers --no-verify it → worse than no hook" anti-pattern; it also
+      // never actually worked here (the old 120s execAsync timeout was shorter
+      // than the honest suite, and `bun test` 1.2.21 silently truncated it —
+      // mt#2665). The truncation-safe, fail-closed full-suite gate now lives in
+      // .husky/pre-push (scripts/run-tests-gated.ts, "before you share") + CI
+      // (authoritative). Pre-commit keeps only fast static checks plus the niche
+      // eslint-rule tooling tests below. See docs/testing-patterns.md + mt#2716.
 
       // Step 8: ESLint rule tooling tests (niche)
       const ruleTestsResult = await this.instrumented("eslint-rule-tests", () =>
@@ -1152,6 +1176,115 @@ export class PreCommitHook {
   }
 
   /**
+   * Block a concurrent-migration collision or a journal-`when` mutation of an
+   * already-shipped migration, checked against the `origin/main` baseline (mt#2948).
+   *
+   * This is the collision-PREVENTION complement to mt#2560 (auto-migrate default
+   * OFF, the blast-radius fix). Unlike the sibling guards it reads the origin/main
+   * journal to detect drift the LOCAL tree cannot reveal. Fails OPEN when there is
+   * no baseline (fresh clone / detached / file absent on main).
+   *
+   * Override: `MINSKY_SKIP_MIGRATION_COLLISION_CHECK=1` (audit-logged).
+   */
+  private async runMigrationCollisionCheck(): Promise<HookResult> {
+    if (isMigrationCollisionOverrideTruthy(process.env[MIGRATION_COLLISION_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:migration-collision] override ${MIGRATION_COLLISION_CHECK_OVERRIDE_ENV}=${process.env[MIGRATION_COLLISION_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — migration collision check skipped`
+      );
+      return {
+        success: true,
+        message: "Migration collision check skipped via override",
+        exitCode: 0,
+        overridden: true,
+      };
+    }
+
+    const journalRelPath = "packages/domain/src/storage/migrations/pg/meta/_journal.json";
+
+    // Staged journal — the content actually being committed (the index, NOT the
+    // working tree; PR #2081 R2). `git show :<path>` reads the index entry, so a
+    // partially-staged or unstaged working-tree edit cannot make the guard block
+    // or miss incorrectly.
+    let headEntries: JournalEntry[];
+    try {
+      const staged = await execGitWithTimeout(
+        "show",
+        `show ${safeShellQuote(`:${journalRelPath}`)}`,
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+      const parsed = JSON.parse(staged.stdout.toString()) as { entries?: JournalEntry[] };
+      headEntries = parsed.entries ?? [];
+    } catch {
+      return {
+        success: true,
+        message: "Migration collision check skipped (journal not in index)",
+        exitCode: 0,
+      };
+    }
+
+    // origin/main baseline. Without it there is nothing to diff — fail OPEN
+    // (this is a NEW-drift detector, not a first-commit correctness gate).
+    let baseEntries: JournalEntry[];
+    try {
+      // journalRelPath is a hardcoded constant (no external input); still, shell-quote
+      // the ref via the repo's shell-safety primitive (`safeShellQuote`, exec.ts) so
+      // there is no shell-interpolation surface. The git-exec module runs via shell
+      // (`execAsync`), not argv — there is no argv git helper — so quoting is the
+      // established alignment with prior shell-safety fixes.
+      const result = await execGitWithTimeout(
+        "show",
+        `show ${safeShellQuote(`origin/main:${journalRelPath}`)}`,
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
+      const parsed = JSON.parse(result.stdout.toString()) as { entries?: JournalEntry[] };
+      baseEntries = parsed.entries ?? [];
+    } catch {
+      return {
+        success: true,
+        message: "Migration collision check skipped (no origin/main journal baseline)",
+        exitCode: 0,
+      };
+    }
+
+    const violations = detectMigrationJournalViolations(baseEntries, headEntries);
+    if (violations.length === 0) {
+      return { success: true, message: "Migration collision check passed", exitCode: 0 };
+    }
+
+    log.cli("");
+    log.cli(
+      `${violations.length} migration journal drift issue(s) vs origin/main. Commit blocked (mt#2948).`
+    );
+    log.cli("");
+    for (const v of violations) {
+      log.cli(`   [${v.kind}] ${v.tag}: ${v.detail}`);
+    }
+    log.cli("");
+    log.cli("Why this is blocked:");
+    log.cli("   Drizzle applies journal entries whose `when` exceeds the DB high-water-mark.");
+    log.cli("   A renumber that mutates an already-shipped entry's `when`, a reused migration");
+    log.cli("   number, or a non-monotonic `when` re-triggers an applied migration on boot");
+    log.cli("   (the 2026-07-19 outage). See memory 0c2427e5.");
+    log.cli("");
+    log.cli("Fix: regenerate your migration against current main —");
+    log.cli("   git fetch origin && git rebase origin/main, then `bun run db:generate:pg`");
+    log.cli("   so your migration is numbered after main's latest with a fresh timestamp.");
+    log.cli("");
+    log.cli(`Override (rare, audited): set ${MIGRATION_COLLISION_CHECK_OVERRIDE_ENV}=1`);
+
+    return {
+      success: false,
+      message: "Migration collision check failed",
+      exitCode: 1,
+    };
+  }
+
+  /**
    * Block staged modifications to already-applied SQL migration files (mt#2268).
    *
    * Drizzle records sha256(full .sql) at apply-time; editing an applied
@@ -1398,67 +1531,56 @@ export class PreCommitHook {
   }
 
   /**
-   * Run unit tests
-   */
-  private async runUnitTests(): Promise<HookResult> {
-    log.cli("🧪 MANDATORY: Running unit test suite...");
-    log.cli("  → Executing unit tests with timeout (excluding integration tests)...");
-
-    try {
-      await execAsync(
-        // mt#2608: packages/domain (336 test files, the mt#2108 extraction
-        // target) and the four orphaned tests/{unit,mcp,dev-tooling,
-        // architecture} subdirs had zero pre-commit coverage until this
-        // line added them. Kept aligned with the canonical `test` script's
-        // path list (package.json) so pre-commit and CI test the same
-        // surface — reviewer R1 flagged the original packages/domain-only
-        // version as drifting from the canonical script.
-        "AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain ./tests/unit ./tests/mcp ./tests/dev-tooling ./tests/architecture ./packages/domain",
-        {
-          cwd: this.projectRoot,
-          timeout: 120000, // mt#2608: packages/domain adds ~40s; bump budget accordingly
-          env: { ...process.env, AGENT: "1" },
-        }
-      );
-      log.cli("✅ All tests passing! Test suite validation completed.");
-      return { success: true, message: "Unit tests passed", exitCode: 0 };
-    } catch (error) {
-      log.cli("");
-      log.cli("❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌");
-      log.cli("");
-      log.cli("🚫 One or more tests are failing. Fix ALL test failures before committing.");
-      log.cli("💡 Run 'bun run test' locally to see detailed failure information.");
-      log.cli("🔧 Ensure your changes don't break existing functionality.");
-      log.cli("");
-      log.cli("📋 Common fixes:");
-      log.cli("   • Update test expectations if behavior intentionally changed");
-      log.cli("   • Fix bugs in your code that break existing tests");
-      log.cli("   • Add missing mocks or dependencies");
-      log.cli("   • Check for import/export issues");
-      return { success: false, message: "Unit tests failed", exitCode: 1 };
-    }
-  }
-
-  /**
-   * Run TypeScript type checking
+   * Run TypeScript type checking.
+   *
+   * Covers TWO projects: the root tsconfig.json AND src/cockpit/web/tsconfig.json
+   * (mt#2424). The root tsconfig's own `exclude` list excludes src/cockpit/web —
+   * browser-only lib/DOM settings would otherwise leak into the root Bun/Node
+   * program — and `vite build` transpiles it via esbuild WITHOUT type-checking, so
+   * without this second target the cockpit frontend has no static type coverage
+   * at all. See mt#2424 for the two production escapes this closed (an unimported
+   * `UseQueryResult` type and a missing `KIND_ICONS` union key, both of which
+   * shipped past this same pre-commit hook before this project existed).
    */
   private async runTypeCheck(): Promise<HookResult> {
     log.cli("🔎 Running TypeScript type check...");
 
-    try {
-      await execAsync("bunx @typescript/native-preview --noEmit", {
-        cwd: this.projectRoot,
-        timeout: 60000,
-      });
-      log.cli("✅ TypeScript compilation passed — no type errors.");
-      return { success: true, message: "Type check passed", exitCode: 0 };
-    } catch (error: unknown) {
-      const err = error as { stdout?: string; message?: string };
-      const output = err.stdout || err.message || String(error);
-      log.cli("❌ TypeScript type errors found! Commit blocked.");
-      log.cli(output);
-      return { success: false, message: "TypeScript type check failed", exitCode: 1 };
+    const targets: Array<{ label: string; command: string }> = [
+      { label: "root", command: "bunx @typescript/native-preview --noEmit" },
+      {
+        label: "cockpit-web",
+        command: "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
+      },
+    ];
+
+    for (const target of targets) {
+      try {
+        await execAsync(target.command, {
+          cwd: this.projectRoot,
+          timeout: 60000,
+        });
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; stderr?: string; message?: string };
+        // Include BOTH streams — tsgo's real type errors print to stdout, but a runner
+        // crash (missing tsconfig, spawn failure) often puts the actionable diagnostic on
+        // stderr instead; dropping it silently would hide exactly the failure this hook
+        // exists to surface (reviewer finding, PR #2057 R1).
+        const output =
+          [err.stdout, err.stderr].filter((s) => s && s.trim().length > 0).join("\n") ||
+          err.message ||
+          String(error);
+        log.cli(`❌ TypeScript type errors found (${target.label})! Commit blocked.`);
+        log.cli(output);
+        return {
+          success: false,
+          message: `TypeScript type check failed (${target.label})`,
+          exitCode: 1,
+        };
+      }
     }
+
+    log.cli("✅ TypeScript compilation passed — no type errors (root + cockpit-web).");
+    return { success: true, message: "Type check passed", exitCode: 0 };
   }
 
   /**

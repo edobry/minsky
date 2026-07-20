@@ -80,7 +80,7 @@ describe("AskPage settle convention (mt#2410)", () => {
         });
       }
       throw new Error(`Unexpected fetch in test: ${url}`);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {

@@ -1,7 +1,8 @@
-import { pgTable, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, index, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { vector } from "drizzle-orm/pg-core";
 import type { ConversationId } from "../../ids";
+import { projectsTable } from "./projects-schema";
 
 /**
  * Agent transcripts table — stores harness-agnostic agent session transcripts.
@@ -52,6 +53,17 @@ export const agentTranscriptsTable = pgTable(
 
     // Audit
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).defaultNow(),
+
+    // Project scoping (mt#2417, Phase 1.4). Unlike tasks_embeddings/memories_embeddings
+    // (whose id column equals a scoped row's PK and is therefore covered transitively
+    // via JOIN), a transcript's own id is the harness-native agent_session_id, which has
+    // no required/enforced FK to any Minsky session (minsky_session_links is a soft,
+    // best-effort many-to-many — many transcripts have zero linked session, e.g. ad-hoc
+    // interactive conversations). project_id is therefore resolved directly at ingest
+    // time from the transcript's own `cwd` (same resolver as the CLI/stdio MCP project
+    // supplier, mt#2416/ADR-021) and stored here — nullable because resolution can fail
+    // (unresolvable cwd, no matching project row) and ingestion must not block on it.
+    projectId: uuid("project_id").references(() => projectsTable.id),
   },
   (table) => [
     // mt#2767 — the context-inspector widget (and the unified agents-widget

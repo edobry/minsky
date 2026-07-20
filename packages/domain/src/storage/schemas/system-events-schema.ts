@@ -61,6 +61,14 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "deploy.live",
   "deploy.fail",
   "ask.policy_closed",
+  // mt#2935 (commit-auth emission inversion) — a policy-covered authorization
+  // action recorded as an audit EVENT instead of a per-action Ask. Emitted by
+  // detection-time policy consults at authorization emit sites (v1:
+  // `sessionCommit` in packages/domain/src/session/session-commands.ts) when
+  // ADR-008 §Router policy coverage answers the action at the emit site — the
+  // attention-cost ledger record (cost = 0, recorded) without occupying the
+  // decision substrate.
+  "authorization.policy_covered",
   // mt#2819 (bulk-mutation primitives) — the dry-run event doubles as the
   // durable token record the execute path validates against; the executed
   // event is the one-shot consumption marker. Append-only by design.
@@ -129,6 +137,14 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
  *       that previously lived only in a `log.debug` nobody consumed — the
  *       c26eca0a incident (a disposition Ask silently policy-closed with an
  *       irrelevant citation) was indistinguishable from a missing record.
+ *   - `authorization.policy_covered` → `{ action: string; citationSource: string;
+ *       citationLines?: [number, number]; commitMessage?: string }`
+ *       (mt#2935) emitted by detection-time policy consults at authorization
+ *       emit sites (v1: `sessionCommit`) when standing policy covers the
+ *       action — no Ask is created for the covered path. The suppressed-ask
+ *       fallback contract: emit sites suppress the Ask ONLY when this event
+ *       row actually persisted (tryEmit → true); otherwise they fall back to
+ *       Ask creation so the action is never silently unrecorded.
  *
  * Payload shapes for the mt#2819 bulk-mutation event types (emitted by the
  * `tasks.bulk-edit` command; the dry-run row IS the token store the execute
@@ -185,6 +201,7 @@ export const eventCategory = {
   "deploy.live": "informational",
   "deploy.fail": "informational",
   "ask.policy_closed": "informational",
+  "authorization.policy_covered": "informational",
   "task.bulk_edit.dry_run": "informational",
   "task.bulk_edit.executed": "informational",
 } satisfies Record<SystemEventType, EventCategory>;

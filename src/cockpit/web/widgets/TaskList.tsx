@@ -69,12 +69,12 @@ async function fetchTaskList(): Promise<WidgetData> {
 
 export type TaskSortKey = "id" | "title" | "status" | "kind";
 
-interface TaskFilters {
+type TaskFilters = {
   /** Comma-separated status values for multi-select, or "all" */
   status: string;
   search: string;
   kind: string;
-}
+};
 
 const DEFAULT_FILTERS: TaskFilters = {
   status: "all",
@@ -137,19 +137,27 @@ function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
 // (backlog) above the settled DONE/CLOSED tail.
 // ---------------------------------------------------------------------------
 
+// Priority for statuses not present in STATUS_SORT_PRIORITY — matches TODO's
+// rank (unrecognized statuses sort alongside not-yet-started work). Kept as a
+// standalone constant (rather than re-reading STATUS_SORT_PRIORITY.TODO) so
+// the fallback in statusPriority() below is a plain number, not another
+// indexed access into a Record<string, number> (which would itself be
+// `number | undefined` under noUncheckedIndexedAccess).
+const STATUS_SORT_PRIORITY_UNKNOWN = 5;
+
 export const STATUS_SORT_PRIORITY: Record<string, number> = {
   "IN-REVIEW": 0,
   BLOCKED: 1,
   "IN-PROGRESS": 2,
   READY: 3,
   PLANNING: 4,
-  TODO: 5,
+  TODO: STATUS_SORT_PRIORITY_UNKNOWN,
   DONE: 6,
   CLOSED: 7,
 };
 
 export function statusPriority(status: string): number {
-  return STATUS_SORT_PRIORITY[status.toUpperCase()] ?? STATUS_SORT_PRIORITY.TODO;
+  return STATUS_SORT_PRIORITY[status.toUpperCase()] ?? STATUS_SORT_PRIORITY_UNKNOWN;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,19 +1,28 @@
-echo "Running tests before push..."
+# mt#2716: escape hatch for a push that must proceed despite the local suite (a
+# known flake — e.g. the mt#2712 load-timeout — or a WIP spike). Being explicit
+# is the audit; CI remains the authoritative full-suite gate and cannot be
+# skipped this way. Research consensus: a slow hook with no escape hatch gets
+# bypassed wholesale (git --no-verify), which is worse than a skippable one.
+if [ "${MINSKY_SKIP_PREPUSH_TESTS:-}" = "1" ]; then
+  echo "⏭️  MINSKY_SKIP_PREPUSH_TESTS=1 set — skipping the pre-push test gate. CI still runs the full suite."
+  exit 0
+fi
 
-# Match pre-commit hook: --timeout prevents hung tests, --bail stops on first failure
-# AGENT=1 ensures clean non-interactive output
-TEST_OUTPUT_FILE=$(mktemp)
-# Use ./src (not bare 'src') to avoid matching services/reviewer/src via Bun path-substring match
-AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail ./src ./tests/adapters ./tests/domain >"$TEST_OUTPUT_FILE" 2>&1
-TEST_EXIT_CODE=$?
+echo "Running tests before push (truncation-safe, fail-closed)..."
 
-# Show only the summary line
-tail -n 1 "$TEST_OUTPUT_FILE"
-rm -f "$TEST_OUTPUT_FILE"
-
-if [ $TEST_EXIT_CODE -ne 0 ]; then
+# mt#2716: this hook is the tier that runs the unit suite locally — pre-commit no
+# longer does, because a ~4.3-min per-commit gate is the documented "slow hook →
+# developers --no-verify it → worse than no hook" anti-pattern. It delegates to
+# scripts/run-tests-gated.ts, which runs the SAME two steps CI runs —
+# scripts/run-tests-main.ts (src/mcp excluded) + scripts/run-tests-mcp-isolated.ts
+# — and gates them FAIL-CLOSED on the "Ran N tests across M files" completion
+# summary + "<N> fail" count. This replaces the prior `bun test ... ./src ...`
+# invocation, which included src/mcp and so silently TRUNCATED under `bun test`
+# 1.2.21 (exit 0, no summary), false-passing this gate the same way mt#2665 found
+# in CI. CI remains the authoritative full-suite gate (it also runs test:hooks).
+if ! bun scripts/run-tests-gated.ts; then
   echo "❌ Tests must pass before pushing"
-  echo "💡 Run 'bun test' locally to see detailed failure information"
+  echo "💡 Reproduce locally: bun scripts/run-tests-gated.ts"
   exit 1
 fi
 
