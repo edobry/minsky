@@ -247,7 +247,16 @@ export class TaskSimilarityService {
     const total = allTasks.length;
     const passing = allTasks.filter(passes).length;
     const passRate = passing > 0 ? passing / total : 0;
-    const candidateCeiling = Math.min(total, MAX_CANDIDATES);
+    // mt#2939: `allTasks.length` is a reliable upper bound on the vector index's
+    // useful candidate pool ONLY when it spans the full corpus (the pre-mt#2939,
+    // domain-filter-only case — status/backend/kind filters still fetch ALL
+    // tasks). Once a real project scope narrows `allTasks` to a subset, the
+    // (unscoped) vector index can still rank many cross-project items ahead of
+    // the true best in-scope match, so capping the search window at the scoped
+    // count risks never reaching it. Cap on MAX_CANDIDATES alone in that case.
+    const candidateCeiling = isAllProjects(projectScope)
+      ? Math.min(total, MAX_CANDIDATES)
+      : MAX_CANDIDATES;
     const candidateLimit = Math.min(
       candidateCeiling,
       Math.max(OVERFETCH_FLOOR, Math.ceil(limit / Math.max(passRate, 0.05)) * OVERFETCH_SAFETY)
