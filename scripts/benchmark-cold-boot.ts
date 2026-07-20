@@ -164,59 +164,50 @@ function measureOne(
     let stderrBuf = "";
     let settled = false;
 
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          /* ignore */
-        }
-        resolve({
-          wallMs: performance.now() - start,
-          exitCode: null,
-          checkpoints,
-          stderrTail: stderrBuf.slice(-500),
-        });
+    const parseCheckpointLine = (line: string): void => {
+      const m = line.match(/^\[profile\] checkpoint=(\S+) t=([\d.]+)/);
+      if (m) checkpoints.set(m[1], Number(m[2]));
+    };
+
+    // Single settle path: resolve exactly once, clearing the timer, draining
+    // any final unterminated stderr line, and dropping listeners so no stray
+    // timer or listener survives in a long-lived parent (reviewer PR #2104 R1).
+    const finish = (exitCode: number | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+      if (stderrBuf.length > 0) parseCheckpointLine(stderrBuf); // final line, no trailing "\n"
+      child.stderr.removeAllListeners("data");
+      child.removeAllListeners("error");
+      child.removeAllListeners("exit");
+      resolve({
+        wallMs: performance.now() - start,
+        exitCode,
+        checkpoints,
+        stderrTail: stderrBuf.slice(-500),
+      });
+    };
+
+    const timeoutHandle = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
       }
+      finish(null);
     }, timeoutMs);
 
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBuf += chunk.toString("utf8");
       let idx: number;
       while ((idx = stderrBuf.indexOf("\n")) >= 0) {
-        const line = stderrBuf.slice(0, idx);
+        parseCheckpointLine(stderrBuf.slice(0, idx));
         stderrBuf = stderrBuf.slice(idx + 1);
-        const m = line.match(/^\[profile\] checkpoint=(\S+) t=([\d.]+)/);
-        if (m) checkpoints.set(m[1], Number(m[2]));
       }
     });
 
-    child.on("error", () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        resolve({
-          wallMs: performance.now() - start,
-          exitCode: null,
-          checkpoints,
-          stderrTail: stderrBuf.slice(-500),
-        });
-      }
-    });
-
-    child.on("exit", (code) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        resolve({
-          wallMs: performance.now() - start,
-          exitCode: code,
-          checkpoints,
-          stderrTail: stderrBuf.slice(-500),
-        });
-      }
-    });
+    child.on("error", () => finish(null));
+    child.on("exit", (code) => finish(code));
   });
 }
 
@@ -231,7 +222,7 @@ interface TierResult {
   stats: Stats;
   exitCodes: number[];
   cleanExit: boolean;
-  /** Checkpoint medians from the single profiled run of this tier. */
+  /** Checkpoints from the single profiled run of this tier (one run, not medianed). */
   checkpoints: Array<{ name: string; t: number }>;
 }
 
@@ -308,6 +299,9 @@ async function measureTier(
     .map(([name, t]) => ({ name, t }))
     .sort((a, b) => a.t - b.t);
 
+  // A tier is "clean" only if EVERY timed run exited 0. A timeout or spawn
+  // error resolves with exitCode null -> recorded as -1 above, so those runs
+  // also flip cleanExit false and mark the dependent layer deltas UNRELIABLE.
   const cleanExit = exitCodes.every((c) => c === 0);
   if (!cleanExit) {
     process.stderr.write(
@@ -429,8 +423,14 @@ function renderReport(label: string, tiers: Map<string, TierResult>): string {
       }`
     );
   }
+  // The layers are telescoped tier-median deltas: runtime + (version-runtime) +
+  // (list-version) + (search-list) collapses to the search-tier median BY
+  // CONSTRUCTION. This is NOT a sum of independent per-invocation costs (which
+  // need not be linear) — it is the same search-tier median, re-derived.
   const total = layers.reduce((sum, l) => sum + l.medianMs, 0);
-  lines.push(`${pad("TOTAL (search tier)", 42)}${padL(`${total.toFixed(0)}ms`, 9)}`);
+  lines.push(
+    `${pad("TOTAL (= search-tier median, telescoped)", 42)}${padL(`${total.toFixed(0)}ms`, 9)}`
+  );
 
   // Intra-process checkpoint breakdown for the `list` tier (fullest boot with DB).
   const listTier = tiers.get("list");
