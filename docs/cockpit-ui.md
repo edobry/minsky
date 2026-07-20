@@ -144,6 +144,24 @@ page therefore resolves the live conversation with no cwd-matching heuristics.
 `minsky://` URI type set is pinned by ADR-022 stage 1); a banner on that page
 links through to the drive view when a driven session is bound.
 
+### Cost & usage (`/agents/cost`, mt#2753)
+
+Every turn's terminal `result` event (per-turn `total_cost_usd`, token counts,
+cache-creation/cache-read tokens, per-model `modelUsage` mix, duration) is
+captured in the daemon host's event path and persisted to Postgres
+(`driven_session_cost`, one row per turn — reuses the reviewer-service
+cost-tracking shape from mt#2288/mt#2721 where sensible). The `/agents/cost`
+page (linked from the Agents page header) reads the `driven-session-cost`
+widget's rollup: a global aggregate (total spend at API rates, token totals, a
+daily/monthly spend projection at the observed cadence) plus a per-session
+breakdown table.
+
+**Billing-premise note (2026-07-13):** the 2026-06-15 Agent SDK / `claude -p`
+billing split was paused — headless usage currently draws from the operator's
+subscription at $0 marginal cost. These numbers are the API-RATE EQUIVALENT
+the stream's own `result` events report — consumption/rate observability and
+re-application readiness, not a live dollar bill. See memory `2d6cdbaf`.
+
 ## Operator endpoints
 
 ### `POST /api/driven-session`
@@ -198,7 +216,8 @@ health indicator reflects the `db` field in addition to overall HTTP reachabilit
 - mt#2626 — guard vocabulary alignment ("hook" = registration mechanics,
   "interlock" = domain noun, "weld" = verb only); route renamed from
   `/plant/weld-history`
-- mt#2230 / mt#2237 / mt#2750 / mt#2751 / mt#2752 — harness-host ladder: driven-session
-  host, drive view, task-bound launch (the §Driven sessions surface)
+- mt#2230 / mt#2237 / mt#2750 / mt#2751 / mt#2752 / mt#2753 — harness-host ladder:
+  driven-session host, drive view, task-bound launch, cost/usage readout (the
+  §Driven sessions surface)
 - [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit architecture reference
 - [`docs/brand-system.md`](brand-system.md) — tokens, motion budget, `prefers-reduced-motion`

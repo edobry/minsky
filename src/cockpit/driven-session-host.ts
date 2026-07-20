@@ -225,6 +225,124 @@ function isInitEvent(payload: Record<string, unknown>): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Cost/usage extraction from the terminal `result` event (mt#2753, Rung 2D).
+//
+// Per the Claude Code headless docs (code.claude.com/docs/en/headless) and
+// the Agent SDK cost-tracking guide (code.claude.com/docs/en/agent-sdk/cost-tracking),
+// the terminal `result` message of EACH turn (a driven session is multi-turn —
+// `--input-format stream-json` reads a continuous stream of user messages over
+// stdin, so a long-lived session emits one `result` event per turn, not just
+// one at process exit) carries:
+//   - `total_cost_usd` (top-level, includes subagent activity)
+//   - `duration_ms` / `duration_api_ms`
+//   - `num_turns` (tool-round count for that turn — NOT the session's turn
+//     index, which this module tracks separately as `DrivenSessionCostSummary.turnIndex`)
+//   - `usage` — `{ input_tokens, output_tokens, cache_creation_input_tokens,
+//     cache_read_input_tokens }` (top-level agent loop only — undercounts
+//     under subagent nesting; see `total_cost_usd`/`modelUsage` for whole-tree)
+//   - `modelUsage` — map of model name to `{ inputTokens, outputTokens,
+//     cacheReadInputTokens, cacheCreationInputTokens, costUSD }` (whole-tree,
+//     the "model mix" the mt#2753 spec asks for)
+// Extraction is defensive (same posture as parseStreamJsonLine/extractHarnessSessionId
+// above) — the upstream event schema is thin (anthropics/claude-code#24594/#24596)
+// and `total_cost_usd`/`costUSD` are documented as CLIENT-SIDE ESTIMATES, not
+// authoritative billing data.
+// ---------------------------------------------------------------------------
+
+/** Token totals shared by the top-level `usage` object and each per-model entry. */
+export interface DrivenSessionUsageTotals {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  cacheReadInputTokens: number | null;
+}
+
+/** One model's entry in the `result` event's `modelUsage` map — the "model mix". */
+export interface DrivenSessionModelUsage extends DrivenSessionUsageTotals {
+  costUsd: number | null;
+}
+
+/** Extracted cost/usage summary for ONE turn's terminal `result` event. */
+export interface DrivenSessionCostSummary {
+  /** 0-based ordinal of this `result` event within the session's lifetime
+   * (a driven session may emit several across a multi-turn conversation). */
+  turnIndex: number;
+  subtype: string | null;
+  isError: boolean;
+  /** Cumulative estimated cost for this turn's `query()`-equivalent, including
+   * subagent activity — a client-side estimate, not authoritative billing. */
+  totalCostUsd: number | null;
+  durationMs: number | null;
+  durationApiMs: number | null;
+  /** The CLI's own `num_turns` (tool-round count within this turn). */
+  numTurns: number | null;
+  /** Top-level agent-loop usage only — excludes subagent activity. */
+  usage: DrivenSessionUsageTotals | null;
+  /** Whole-tree per-model breakdown (includes subagent activity) — the "model mix". */
+  modelUsage: Record<string, DrivenSessionModelUsage> | null;
+  /** When this host observed the event (not the upstream event's own timestamp — it has none). */
+  observedAt: string;
+}
+
+function numOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function extractUsageTotals(raw: unknown): DrivenSessionUsageTotals | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const u = raw as Record<string, unknown>;
+  return {
+    inputTokens: numOrNull(u["input_tokens"]),
+    outputTokens: numOrNull(u["output_tokens"]),
+    cacheCreationInputTokens: numOrNull(u["cache_creation_input_tokens"]),
+    cacheReadInputTokens: numOrNull(u["cache_read_input_tokens"]),
+  };
+}
+
+function extractModelUsage(raw: unknown): Record<string, DrivenSessionModelUsage> | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, DrivenSessionModelUsage> = {};
+  for (const [model, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (value === null || typeof value !== "object") continue;
+    const v = value as Record<string, unknown>;
+    out[model] = {
+      inputTokens: numOrNull(v["inputTokens"]),
+      outputTokens: numOrNull(v["outputTokens"]),
+      cacheCreationInputTokens: numOrNull(v["cacheCreationInputTokens"]),
+      cacheReadInputTokens: numOrNull(v["cacheReadInputTokens"]),
+      // costUSD is the documented TS SDK field name; costUsd tolerated defensively.
+      costUsd: numOrNull(v["costUSD"] ?? v["costUsd"]),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * Parse ONE `result`-type stream-json event into a cost summary. Returns
+ * `null` for a non-`result` payload (callers gate on `payload["type"] ===
+ * "result"` before calling this, but the guard is repeated here so the
+ * function is safe to call unconditionally).
+ */
+export function extractResultSummary(
+  payload: Record<string, unknown>,
+  turnIndex: number
+): DrivenSessionCostSummary | null {
+  if (payload["type"] !== "result") return null;
+  return {
+    turnIndex,
+    subtype: typeof payload["subtype"] === "string" ? payload["subtype"] : null,
+    isError: payload["is_error"] === true || payload["subtype"] === "error",
+    totalCostUsd: numOrNull(payload["total_cost_usd"]),
+    durationMs: numOrNull(payload["duration_ms"]),
+    durationApiMs: numOrNull(payload["duration_api_ms"]),
+    numTurns: numOrNull(payload["num_turns"]),
+    usage: extractUsageTotals(payload["usage"]),
+    modelUsage: extractModelUsage(payload["modelUsage"]),
+    observedAt: new Date().toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Registry — daemon-side map of app-started driven sessions
 // ---------------------------------------------------------------------------
 
@@ -284,6 +402,13 @@ export interface DrivenSessionRecord {
   readonly proc: ProcessLike;
   /** All events observed since spawn, in order (bounded by MAX_EVENT_LOG). */
   readonly eventLog: DrivenSessionEvent[];
+  /**
+   * Cost/usage summaries extracted from each terminal `result` event observed
+   * so far (mt#2753, Rung 2D) — one entry per turn. Unbounded (a driven
+   * session's turn count is orders of magnitude smaller than its raw event
+   * count, so MAX_EVENT_LOG-style bounding is unnecessary here).
+   */
+  readonly costHistory: DrivenSessionCostSummary[];
   /** Live WS subscribers (registered by ./driven-session-ws.ts on connect). */
   readonly subscribers: Set<(event: DrivenSessionEvent) => void>;
 }
@@ -377,6 +502,14 @@ export interface StartDrivenSessionOptions {
    * throwing observer never disturbs the event loop.
    */
   onHarnessSessionLinked?: (record: DrivenSessionRecord) => void;
+  /**
+   * Observer invoked once per turn, when the terminal `result` event yields a
+   * cost/usage summary (mt#2753 — persistence is the CALLER's responsibility,
+   * matching `onHarnessSessionLinked`'s domain-import-free convention above).
+   * Errors are caught and logged; a throwing observer never disturbs the
+   * event loop.
+   */
+  onResultSummary?: (record: DrivenSessionRecord, summary: DrivenSessionCostSummary) => void;
   /** Override the claude binary command (test seam — points at a fake). */
   command?: string;
   /** Override the spawn function (test seam — REQUIRED for all tests, see module docblock). */
@@ -429,6 +562,7 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
     stopRequested: false,
     proc,
     eventLog: [],
+    costHistory: [],
     subscribers: new Set(),
   };
   registry.register(record);
@@ -451,6 +585,22 @@ export function startDrivenSession(opts: StartDrivenSessionOptions): StartDriven
               const message = err instanceof Error ? err.message : String(err);
               log.error(
                 `[driven-session] onHarnessSessionLinked observer threw for ${record.localId}: ${message}`
+              );
+            }
+          }
+        }
+      }
+      if (payload["type"] === "result") {
+        const summary = extractResultSummary(payload, record.costHistory.length);
+        if (summary) {
+          record.costHistory.push(summary);
+          if (opts.onResultSummary) {
+            try {
+              opts.onResultSummary(record, summary);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              log.error(
+                `[driven-session] onResultSummary observer threw for ${record.localId}: ${message}`
               );
             }
           }

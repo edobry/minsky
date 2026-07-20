@@ -20,12 +20,15 @@ import {
   stopDrivenSession,
   buildDrivenSessionArgs,
   parseStreamJsonLine,
+  extractResultSummary,
   NewlineSplitter,
   DrivenSessionRegistry,
   CLAUDE_BINARY,
   type ProcessLike,
   type SpawnFn,
   type SpawnOptions,
+  type DrivenSessionCostSummary,
+  type DrivenSessionRecord,
 } from "./driven-session-host";
 
 // ---------------------------------------------------------------------------
@@ -219,6 +222,171 @@ describe("stream-json parsing", () => {
 
     const types = record.eventLog.map((e) => e.payload["type"]);
     expect(types).toEqual([PARSE_ERROR_TYPE, "assistant"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2b. Cost/usage extraction from the terminal `result` event (mt#2753)
+// ---------------------------------------------------------------------------
+
+describe("extractResultSummary", () => {
+  test("returns null for a non-result payload", () => {
+    expect(extractResultSummary({ type: "assistant" }, 0)).toBeNull();
+  });
+
+  test("extracts the full documented shape (live-proof fixture values)", () => {
+    // Values from the 2026-07-14 live drive proof (memory 107bce98): a
+    // trivial 1-turn prompt dominated by system-prompt/MCP-tool-def cache load.
+    const summary = extractResultSummary(
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "PONG",
+        duration_ms: 7008,
+        duration_api_ms: 6500,
+        num_turns: 1,
+        total_cost_usd: 0.254156,
+        usage: {
+          input_tokens: 2,
+          output_tokens: 26,
+          cache_creation_input_tokens: 11861,
+          cache_read_input_tokens: 15008,
+        },
+        modelUsage: {
+          "claude-fable-5": {
+            inputTokens: 2,
+            outputTokens: 26,
+            cacheCreationInputTokens: 11861,
+            cacheReadInputTokens: 15008,
+            costUSD: 0.254156,
+          },
+        },
+      },
+      3
+    );
+
+    expect(summary).not.toBeNull();
+    expect(summary?.turnIndex).toBe(3);
+    expect(summary?.subtype).toBe("success");
+    expect(summary?.isError).toBe(false);
+    expect(summary?.totalCostUsd).toBe(0.254156);
+    expect(summary?.durationMs).toBe(7008);
+    expect(summary?.durationApiMs).toBe(6500);
+    expect(summary?.numTurns).toBe(1);
+    expect(summary?.usage).toEqual({
+      inputTokens: 2,
+      outputTokens: 26,
+      cacheCreationInputTokens: 11861,
+      cacheReadInputTokens: 15008,
+    });
+    expect(summary?.modelUsage).toEqual({
+      "claude-fable-5": {
+        inputTokens: 2,
+        outputTokens: 26,
+        cacheCreationInputTokens: 11861,
+        cacheReadInputTokens: 15008,
+        costUsd: 0.254156,
+      },
+    });
+  });
+
+  test("isError is true when is_error is true OR subtype is 'error'", () => {
+    expect(extractResultSummary({ type: "result", is_error: true }, 0)?.isError).toBe(true);
+    expect(extractResultSummary({ type: "result", subtype: "error" }, 0)?.isError).toBe(true);
+    expect(extractResultSummary({ type: "result", subtype: "success" }, 0)?.isError).toBe(false);
+  });
+
+  test("missing/malformed fields yield null, never a synthesized zero (no estimation)", () => {
+    const summary = extractResultSummary({ type: "result" }, 0);
+    expect(summary?.totalCostUsd).toBeNull();
+    expect(summary?.durationMs).toBeNull();
+    expect(summary?.usage).toBeNull();
+    expect(summary?.modelUsage).toBeNull();
+    expect(summary?.subtype).toBeNull();
+  });
+
+  test("tolerates a non-numeric total_cost_usd (thin upstream schema) without throwing", () => {
+    const summary = extractResultSummary({ type: "result", total_cost_usd: "not-a-number" }, 0);
+    expect(summary?.totalCostUsd).toBeNull();
+  });
+
+  test("tolerates a malformed modelUsage entry (non-object value) by skipping it", () => {
+    const summary = extractResultSummary(
+      { type: "result", modelUsage: { "model-a": "not-an-object", "model-b": { inputTokens: 5 } } },
+      0
+    );
+    expect(summary?.modelUsage).toEqual({
+      "model-b": {
+        inputTokens: 5,
+        outputTokens: null,
+        cacheCreationInputTokens: null,
+        cacheReadInputTokens: null,
+        costUsd: null,
+      },
+    });
+  });
+
+  test("an empty modelUsage object yields null, not {}", () => {
+    expect(extractResultSummary({ type: "result", modelUsage: {} }, 0)?.modelUsage).toBeNull();
+  });
+});
+
+describe("cost history + onResultSummary observer (mt#2753)", () => {
+  test("each result event appends to record.costHistory with an incrementing turnIndex", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({ cwd: "/tmp/x", spawnFn });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.01 });
+    proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.02 });
+
+    expect(record.costHistory.length).toBe(2);
+    expect(record.costHistory[0]?.turnIndex).toBe(0);
+    expect(record.costHistory[0]?.totalCostUsd).toBe(0.01);
+    expect(record.costHistory[1]?.turnIndex).toBe(1);
+    expect(record.costHistory[1]?.totalCostUsd).toBe(0.02);
+  });
+
+  test("onResultSummary fires once per result event with the record and summary", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const calls: Array<{ record: DrivenSessionRecord; summary: DrivenSessionCostSummary }> = [];
+    const { record } = startDrivenSession({
+      cwd: "/tmp/x",
+      spawnFn,
+      onResultSummary: (rec, summary) => calls.push({ record: rec, summary }),
+    });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    proc.emitLine({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } });
+    proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.03 });
+
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.record).toBe(record);
+    expect(calls[0]?.summary.totalCostUsd).toBe(0.03);
+  });
+
+  test("a throwing onResultSummary observer does not disturb the event loop", () => {
+    const { spawnFn } = makeFakeSpawnFn();
+    const { record } = startDrivenSession({
+      cwd: "/tmp/x",
+      spawnFn,
+      onResultSummary: () => {
+        throw new Error("boom");
+      },
+    });
+    const proc = record.proc as unknown as FakeClaudeProcess;
+
+    expect(() => {
+      proc.emitLine({ type: "result", subtype: "success", total_cost_usd: 0.04 });
+      proc.emitLine({ type: "assistant", message: { content: [] } });
+    }).not.toThrow();
+
+    // The throwing observer still fired (and the extraction still happened),
+    // subsequent events still process normally.
+    expect(record.costHistory.length).toBe(1);
+    const types = record.eventLog.map((e) => e.payload["type"]);
+    expect(types).toEqual(["result", "assistant"]);
   });
 });
 
