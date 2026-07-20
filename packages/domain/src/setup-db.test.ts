@@ -41,6 +41,10 @@ function makeDeps(overrides: Partial<SetupDbDeps> = {}): {
     verifyConnectivity: async () => ({ ok: true }),
     runMigrations: async () => ({ success: true }),
     getStatus: async () => ({ pendingCount: 0, appliedCount: 3 }),
+    // Default: no-op stub. Real `provisionProjectRow` touches git + a live DB
+    // connection; tests that aren't specifically exercising mt#2934's
+    // provisioning call must not trigger that chain.
+    provisionProjectRow: async () => ({ provisioned: false }),
     ...overrides,
   };
   return { deps, writes };
@@ -188,6 +192,82 @@ describe("runSetupDbConfigure", () => {
     expect(result.success).toBe(false);
     expect(result.failedStep).toBe("verify");
     expect(result.pendingCount).toBe(2);
+  });
+
+  describe("project-row provisioning wiring (mt#2934)", () => {
+    test("success path calls provisionProjectRow with the connection string", async () => {
+      const calls: string[] = [];
+      const { deps } = makeDeps({
+        provisionProjectRow: async (cs) => {
+          calls.push(cs);
+          return { provisioned: true, slug: "owner/repo" };
+        },
+      });
+      const result = await runSetupDbConfigure(GOOD, deps);
+
+      expect(result.success).toBe(true);
+      expect(calls).toEqual([GOOD]);
+    });
+
+    test("provisioning is NOT attempted when the connectivity step fails", async () => {
+      const calls: string[] = [];
+      const { deps } = makeDeps({
+        verifyConnectivity: async () => ({ ok: false, error: "ECONNREFUSED" }),
+        provisionProjectRow: async (cs) => {
+          calls.push(cs);
+          return { provisioned: true };
+        },
+      });
+      await runSetupDbConfigure(GOOD, deps);
+
+      expect(calls).toHaveLength(0);
+    });
+
+    test("provisioning is NOT attempted when migrations fail", async () => {
+      const calls: string[] = [];
+      const { deps } = makeDeps({
+        runMigrations: async () => {
+          throw new Error("migration runner unavailable");
+        },
+        provisionProjectRow: async (cs) => {
+          calls.push(cs);
+          return { provisioned: true };
+        },
+      });
+      await runSetupDbConfigure(GOOD, deps);
+
+      expect(calls).toHaveLength(0);
+    });
+
+    test("provisioning is NOT attempted when pending migrations remain after migrate", async () => {
+      const calls: string[] = [];
+      const { deps } = makeDeps({
+        getStatus: async () => ({ pendingCount: 1, appliedCount: 2 }),
+        provisionProjectRow: async (cs) => {
+          calls.push(cs);
+          return { provisioned: true };
+        },
+      });
+      await runSetupDbConfigure(GOOD, deps);
+
+      expect(calls).toHaveLength(0);
+    });
+
+    test("a provisioning failure does not fail the overall setup db run", async () => {
+      const { deps } = makeDeps({
+        provisionProjectRow: async () => {
+          throw new Error("boom");
+        },
+      });
+
+      // provisionProjectRow never throws in production (it catches
+      // internally and returns { provisioned: false }); this test proves the
+      // defense-in-depth try/catch at the call site ALSO holds even if a dep
+      // override throws — an already-successful `setup db` run must not be
+      // reported as failed just because opportunistic provisioning errored.
+      const result = await runSetupDbConfigure(GOOD, deps);
+      expect(result.success).toBe(true);
+    });
   });
 });
 

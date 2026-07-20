@@ -18,6 +18,8 @@ import {
   type ResolveExistingConnectionDeps,
   type ResolveExistingConnectionResult,
 } from "./setup-db";
+import { provisionProjectRow, type ProvisionProjectRowDeps } from "./project/provision";
+import { log } from "@minsky/shared/logger";
 
 export interface SetupOptions {
   repoPath: string;
@@ -66,12 +68,18 @@ interface MinimalProjectConfig {
  *    pure resolve-and-verify — it never writes config or prompts; the CLI
  *    caller decides whether to fall back to the interactive `setup db` wizard
  *    when nothing resolves or the resolved connection isn't reachable.
+ * 6b. If that connection is found AND verified live, ensure this project's
+ *    `projects` row exists (mt#2934) — one of the two confirmed-connection
+ *    provisioning points decided in the mt#2934 spec (the other is the
+ *    `setup db` wizard's fresh-connection success path, `setup-db.ts`). A
+ *    failed or skipped provisioning attempt does not fail `setup` overall.
  * 7. Return result describing what was written
  */
 export async function performSetup(
   options: SetupOptions,
   fileSystem: FsLike = createRealFs(),
-  dbDeps: ResolveExistingConnectionDeps = {}
+  dbDeps: ResolveExistingConnectionDeps = {},
+  provisionDeps: ProvisionProjectRowDeps = {}
 ): Promise<SetupResult> {
   const { repoPath, client = "cursor", overwrite = true } = options;
 
@@ -116,6 +124,22 @@ export async function performSetup(
 
   // 6. Resolve an already-configured Postgres connection (pure resolve + verify; no writes).
   const dbConnection = await resolveExistingPostgresConnection(dbDeps);
+
+  // 6b. Confirmed-connection provisioning point (mt#2934): if a connection was
+  // found AND verified live, ensure this project's `projects` row exists.
+  // `resolveProjectScope`'s fail-open ALL_PROJECTS default otherwise never
+  // gets a row to resolve for a brand-new project's slug. Defense-in-depth:
+  // provisionProjectRow already swallows its own failures, but a failed
+  // attempt must not fail `setup` overall even if a dep override throws.
+  if (dbConnection.found && dbConnection.connectivity?.ok && dbConnection.connectionString) {
+    try {
+      await provisionProjectRow(dbConnection.connectionString, { repoPath }, provisionDeps);
+    } catch (err) {
+      log.warn("[setup] project-row provisioning failed; setup still succeeded", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // 7. Return result
   return {

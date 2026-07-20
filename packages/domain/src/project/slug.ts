@@ -84,6 +84,23 @@ export function deriveSlugFromGitRemote(
   repoPath: string,
   deps: SlugDeps = defaultDeps
 ): string | null {
+  const rawUrl = deriveRemoteUrl(repoPath, deps);
+  if (!rawUrl) return null;
+  return extractOwnerRepo(rawUrl);
+}
+
+/**
+ * Read the raw `origin` remote URL (unparsed) for the repo at `repoPath`.
+ * Returns `null` for the same expected-failure cases as
+ * {@link deriveSlugFromGitRemote} (no remote, not a git repo, detached HEAD,
+ * git binary absent) — never throws.
+ *
+ * Exported (mt#2934) so callers that need the canonical `repo_url` value —
+ * not just the derived `owner/repo` slug — can reuse the same git-remote
+ * read instead of re-deriving it (e.g. project-row provisioning's
+ * `repo_url` column, `projects-schema.ts`).
+ */
+export function deriveRemoteUrl(repoPath: string, deps: SlugDeps = defaultDeps): string | null {
   try {
     const rawUrl = deps
       .execSync("git remote get-url origin", {
@@ -94,9 +111,7 @@ export function deriveSlugFromGitRemote(
       .toString()
       .trim();
 
-    if (!rawUrl) return null;
-
-    return extractOwnerRepo(rawUrl);
+    return rawUrl || null;
   } catch {
     // No remote, not a git repo, detached HEAD, or git binary absent —
     // expected in some environments.

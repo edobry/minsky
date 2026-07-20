@@ -29,6 +29,8 @@ import {
 import { loadConfiguration } from "./configuration/loader";
 import { getUserConfigDir } from "./configuration/sources/user";
 import { join } from "path";
+import { provisionProjectRow } from "./project/provision";
+import { log } from "@minsky/shared/logger";
 
 /** Re-exported so callers (adapter, tests) keep importing it from `@minsky/domain/setup-db`. */
 export { maskConnectionString };
@@ -108,6 +110,13 @@ export interface SetupDbDeps {
   runMigrations?: (connectionString: string, options: { dryRun: boolean }) => Promise<unknown>;
   /** Post-migrate status check (default: real ledger query). */
   getStatus?: (connectionString: string) => Promise<{ pendingCount: number; appliedCount: number }>;
+  /**
+   * Confirmed-connection project-row provisioning (mt#2934, default: real
+   * `provisionProjectRow`). Called once on the success path, after the
+   * schema is verified up to date. Override with a no-op stub in tests that
+   * don't want to exercise the real identity-resolution/git/DB chain.
+   */
+  provisionProjectRow?: typeof provisionProjectRow;
 }
 
 /** Step at which {@link runSetupDbConfigure} failed (when `success` is false). */
@@ -149,6 +158,7 @@ export async function runSetupDbConfigure(
       return { pendingCount: status.pendingCount, appliedCount: status.appliedCount };
     });
   const configWriter = deps.configWriter ?? createConfigWriter({ configDir: deps.configDir });
+  const provisionProjectRowFn = deps.provisionProjectRow ?? provisionProjectRow;
 
   const masked = maskConnectionString(connectionString);
 
@@ -233,6 +243,21 @@ export async function runSetupDbConfigure(
           `Re-run \`minsky persistence migrate --execute\`.`,
       };
     }
+
+    // 6. Confirmed-connection provisioning point (mt#2934): the wizard's
+    // fresh-connection success path — schema just verified up to date on
+    // THIS connectionString. Ensure this project's `projects` row exists.
+    // Defense-in-depth: provisionProjectRow already swallows its own
+    // failures, but a failed provisioning attempt must not fail an
+    // otherwise-successful `setup db` run even if a dep override throws.
+    try {
+      await provisionProjectRowFn(connectionString);
+    } catch (err) {
+      log.warn("[setup-db] project-row provisioning failed; setup db still succeeded", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return {
       success: true,
       configPath,
