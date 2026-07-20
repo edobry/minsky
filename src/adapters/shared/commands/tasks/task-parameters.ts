@@ -244,6 +244,14 @@ export const tasksSimilarParams = {
     ...CommonParameters.quiet,
     description: "Suppress the degraded-search warning on stderr (results are unaffected)",
   },
+  // mt#2939: project scoping is applied by default (ADR-021, mirroring
+  // tasks.list's allProjects flag); this is the explicit cross-project opt-out.
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return similar tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)",
+    required: false,
+  },
   ...taskContextParams,
   ...outputFormatParams,
 } satisfies CommandParameterMap;
@@ -283,6 +291,14 @@ export const tasksSearchParams = {
     ...CommonParameters.quiet,
     description:
       "Suppress progress and degraded-search warnings on stderr (results are unaffected)",
+  },
+  // mt#2939: project scoping is applied by default (ADR-021, mirroring
+  // tasks.list's allProjects flag); this is the explicit cross-project opt-out.
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return matching tasks from all projects (disable project-scope filtering; ADR-021, mt#2939)",
+    required: false,
   },
   ...taskContextParams,
   ...outputFormatParams,

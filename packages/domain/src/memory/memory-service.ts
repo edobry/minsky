@@ -73,7 +73,14 @@ export interface MemoryServiceSurface {
   delete(id: string): Promise<void>;
   similar(
     id: string,
-    opts?: Pick<MemorySearchOptions, "limit" | "threshold">
+    opts?: Pick<MemorySearchOptions, "limit" | "threshold"> & {
+      /**
+       * Project scope for filtering (ADR-021, mt#2939). When set to a uuid
+       * string, filters results to memories belonging to that project. When
+       * set to ALL_PROJECTS or omitted, returns cross-project neighbors.
+       */
+      projectScope?: import("../project/scope").ProjectScope;
+    }
   ): Promise<MemorySearchResult[]>;
   supersede(
     oldId: string,
@@ -391,7 +398,9 @@ export class MemoryService implements MemoryServiceSurface {
 
   async similar(
     id: string,
-    opts?: Pick<MemorySearchOptions, "limit" | "threshold">
+    opts?: Pick<MemorySearchOptions, "limit" | "threshold"> & {
+      projectScope?: import("../project/scope").ProjectScope;
+    }
   ): Promise<MemorySearchResult[]> {
     // Note: this.get(id) below bumps the source record's access_count via
     // bumpAccessCount. That is intentional — a similar(id) call counts as an
@@ -424,10 +433,23 @@ export class MemoryService implements MemoryServiceSurface {
     if (filtered.length === 0) return [];
 
     const ids = filtered.map((r) => r.id);
+
+    // mt#2939: cross-check against the live `memories` table's project_id, the same
+    // way search()/list() already do (ADR-021, mt#2416). A uuid projectScope adds an
+    // equality predicate; ALL_PROJECTS (or omitted) adds none — any candidate whose
+    // row falls outside the scope simply isn't in `rows`, so it's dropped below by
+    // rowById.get(sr.id) returning undefined (same "missing row => drop" pattern
+    // search() already relies on for excludeSuperseded/type/scope filters).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [inArray(memoriesTable.id, ids)];
+    if (opts?.projectScope && !isAllProjects(opts.projectScope)) {
+      conditions.push(eq(memoriesTable.projectId, opts.projectScope));
+    }
+
     const rows = (await this.deps.db
       .select()
       .from(memoriesTable)
-      .where(inArray(memoriesTable.id, ids))) as Record<string, unknown>[];
+      .where(and(...conditions))) as Record<string, unknown>[];
 
     const rowById = new Map(rows.map((r) => [String(r["id"]), r]));
 

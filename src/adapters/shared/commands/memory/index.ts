@@ -346,6 +346,12 @@ const memorySimilarParams = {
     description: "Minimum similarity score threshold",
     required: false as const,
   },
+  allProjects: {
+    schema: z.boolean().optional(),
+    description:
+      "Return similar memories from all projects (disable project-scope filtering; ADR-021, mt#2939)",
+    required: false as const,
+  },
 } satisfies CommandParameterMap;
 
 const memorySupersededParams = {
@@ -914,9 +920,14 @@ export function registerMemoryCommands(
       const id = await resolveMemoryIdInput(params.id, ctx ?? {});
 
       const service = await resolveMemoryService(deps, ctx ?? {});
+
+      // ADR-021 / mt#2939: resolve project scope for this similarity query.
+      const projectScope = await resolveMemoryProjectScope(params.allProjects, ctx ?? {});
+
       const results: MemorySearchResult[] = await service.similar(id, {
         limit: params.limit ?? 10,
         threshold: params.threshold,
+        projectScope,
       });
 
       return { results };
