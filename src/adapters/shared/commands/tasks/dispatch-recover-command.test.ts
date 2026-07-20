@@ -19,7 +19,10 @@
  * anything; it only returns a prompt for the CALLER to redispatch.
  */
 import { describe, test, expect } from "bun:test";
-import { createTasksDispatchRecoverCommand } from "./dispatch-recover-command";
+import {
+  createTasksDispatchRecoverCommand,
+  promptTypeForRecovery,
+} from "./dispatch-recover-command";
 import type { DispatchRecoveryGitOps } from "./dispatch-recover-command";
 import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
 import { SessionStatus } from "@minsky/domain/session/types";
@@ -32,6 +35,10 @@ import type {
   SubagentInvocationOutcome,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { DISPATCH_RECOVERY_STALE_MS } from "@minsky/domain/session/dispatch-recovery-classifier";
+import {
+  PROMPT_TYPE_TO_AGENT_TYPE,
+  type PromptType,
+} from "@minsky/domain/session/prompt-generation";
 
 const NOW = new Date("2026-07-17T12:00:00.000Z");
 const CRASHED_NO_OUTPUT: SubagentInvocationOutcome = "crashed-no-output";
@@ -286,6 +293,37 @@ describe("tasks.dispatch-recover", () => {
     expect(tracker.recordedAttempts[0]?.outcome).toBe(CRASHED_NO_OUTPUT);
   });
 
+  test("continuationPrompt carries the session.generate_prompt watermark (mt#2947 — dispatch-guard compatibility)", async () => {
+    // Regression test for mt#2947: the PreToolUse dispatch guard
+    // (.minsky/hooks/check-prompt-watermark.ts) denies any Agent-tool prompt
+    // that references a session workspace directory (which every recovery
+    // continuationPrompt does) unless it carries the `<!-- minsky:prompt:v1 -->`
+    // watermark emitted by `generateSubagentPrompt`. Before mt#2947, this
+    // command hand-assembled the prompt string directly and never carried the
+    // watermark — the documented "redispatch verbatim via the Agent tool"
+    // protocol was guard-rejected on every attempt.
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - DISPATCH_RECOVERY_STALE_MS - 1000),
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const cmd = makeCommand({ tracker, sessionProvider });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.status).toBe("recover");
+    const prompt = result.continuationPrompt as string;
+    expect(prompt).toContain("<!-- minsky:prompt:v1 -->");
+    // The recovery-specific narrative is still present, embedded as the
+    // generated prompt's instructions body — this proves the wrap is
+    // additive (header + envelope + watermark), not a replacement of the
+    // classification-specific guidance.
+    expect(prompt).toContain("fresh start");
+    expect(prompt).toContain("mt#2831");
+  });
+
   test("closes out the ORIGINAL row with the classification + endedAt before inserting the resumed attempt (mt#2831 R1)", async () => {
     const tracker = new FakeTracker();
     const original = tracker.seed({
@@ -494,5 +532,39 @@ describe("tasks.dispatch-recover", () => {
 
     expect(result.success).toBe(true);
     expect(result.status).toBe("recover");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// promptTypeForRecovery (mt#2947)
+// ---------------------------------------------------------------------------
+
+describe("promptTypeForRecovery", () => {
+  const agentTypeToPromptType = Object.fromEntries(
+    Object.entries(PROMPT_TYPE_TO_AGENT_TYPE).map(([promptType, agent]) => [agent, promptType])
+  ) as Record<string, PromptType>;
+
+  test("implementer -> implementation", () => {
+    expect(promptTypeForRecovery("implementer", agentTypeToPromptType)).toBe("implementation");
+  });
+
+  test("refactorer -> refactor (write-capable, honored)", () => {
+    expect(promptTypeForRecovery("refactorer", agentTypeToPromptType)).toBe("refactor");
+  });
+
+  test("cleaner -> cleanup (write-capable, honored)", () => {
+    expect(promptTypeForRecovery("cleaner", agentTypeToPromptType)).toBe("cleanup");
+  });
+
+  test("reviewer maps to the read-only 'review' PromptType but is forced to 'implementation' (guidance is write-oriented)", () => {
+    expect(promptTypeForRecovery("reviewer", agentTypeToPromptType)).toBe("implementation");
+  });
+
+  test("auditor maps to the read-only 'audit' PromptType but is forced to 'implementation'", () => {
+    expect(promptTypeForRecovery("auditor", agentTypeToPromptType)).toBe("implementation");
+  });
+
+  test("unmapped/legacy agent type (e.g. general-purpose) falls back to implementation", () => {
+    expect(promptTypeForRecovery("general-purpose", agentTypeToPromptType)).toBe("implementation");
   });
 });

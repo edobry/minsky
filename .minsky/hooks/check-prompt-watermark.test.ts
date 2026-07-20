@@ -6,6 +6,8 @@ import {
   shouldDeny,
   SESSION_WRITE_TOOLS,
 } from "./check-prompt-watermark";
+import { buildDispatchRecoveryContinuationPrompt } from "../../packages/domain/src/session/dispatch-recovery-classifier";
+import { generateSubagentPrompt } from "../../packages/domain/src/session/prompt-generation";
 
 /** Shared fixture: a prompt referencing a session workspace path (no watermark). */
 const SESSION_WORK_PROMPT = "cd /Users/x/.local/state/minsky/sessions/abc-123 && ls";
@@ -106,5 +108,62 @@ describe("shouldDeny", () => {
 
   test("permits session work for a read-only subagent type even without watermark", () => {
     expect(shouldDeny(SESSION_WORK_PROMPT, "Explore")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2947: tasks.dispatch-recover continuation prompt vs. this guard
+//
+// Prior to mt#2947, `tasks.dispatch-recover`'s continuationPrompt was a
+// hand-assembled string (`buildDispatchRecoveryContinuationPrompt`'s raw
+// output) that named the session workspace directory but never carried the
+// `minsky:prompt:v1` watermark. The mt#2831 recovery protocol instructs
+// redispatching that string VERBATIM via the Agent tool — which this guard
+// denied every time, since it always matches SESSION_PATH_PATTERN and never
+// carried the watermark. The fix routes the continuation narrative through
+// `generateSubagentPrompt` (the same function `session.generate_prompt`
+// uses), which appends the watermark. This test proves the resulting string
+// is guard-valid using the REAL `shouldDeny`/`hasWatermark` logic above, not
+// just an isolated substring check.
+// ---------------------------------------------------------------------------
+
+describe("mt#2947: tasks.dispatch-recover continuation prompt passes the guard", () => {
+  test("a generateSubagentPrompt-wrapped recovery continuation prompt is NOT denied", () => {
+    const sessionDir = "/Users/x/.local/state/minsky/sessions/session-abc";
+
+    const recoveryInstructions = buildDispatchRecoveryContinuationPrompt({
+      taskId: "mt#9999",
+      sessionId: "session-abc",
+      sessionDir,
+      agentType: "implementer",
+      classification: "crashed-no-output",
+      dirtyFileCount: 0,
+      commitsAheadOfBase: 0,
+      handoffExists: false,
+      handoffFirstLines: [],
+      prNumber: null,
+      prUrl: null,
+      latestReviewState: null,
+      attemptNumber: 2,
+      originalStartedAt: "2026-07-17T10:00:00Z",
+    });
+
+    // Sanity: the raw (unwrapped) recovery narrative alone WOULD have been
+    // denied before mt#2947 — proves the guard-pass assertion below isn't
+    // vacuously true because the prompt never looked like session work.
+    expect(isSessionWork(recoveryInstructions)).toBe(true);
+    expect(shouldDeny(recoveryInstructions, "implementer")).toBe(true);
+
+    const { prompt } = generateSubagentPrompt({
+      sessionDir,
+      sessionId: "session-abc",
+      taskId: "mt#9999",
+      type: "implementation",
+      instructions: recoveryInstructions,
+    });
+
+    expect(hasWatermark(prompt)).toBe(true);
+    expect(isSessionWork(prompt)).toBe(true);
+    expect(shouldDeny(prompt, "implementer")).toBe(false);
   });
 });
