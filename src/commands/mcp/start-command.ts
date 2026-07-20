@@ -572,6 +572,15 @@ async function startHttpServer(
   // outage): only the latter flips this endpoint to 503. See
   // packages/domain/src/persistence/health.ts for the full rationale.
   app.get("/health", (_req, res) => {
+    // `container.get()` is synchronous by design: `AppServices["persistence"]`
+    // is typed as a plain `BasePersistenceProvider`, not a Promise. All async
+    // factory resolution already happened inside `container.initialize()`
+    // (awaited eagerly for HTTP mode in `src/cli.ts`'s preAction hook, before
+    // this route is ever registered) — `.get()` just reads the already-
+    // resolved value out of the container. Same synchronous-`.get()` pattern
+    // as `buildWakeServiceForBridge` / `buildMemoryServiceForSpike` /
+    // `buildSubagentDispatchTracker` / the OAuth provider wiring above, all in
+    // this file. No `await` belongs here.
     const persistence = container?.has("persistence")
       ? (container.get("persistence") as PersistenceProvider)
       : undefined;

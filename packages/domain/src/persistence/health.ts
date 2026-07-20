@@ -61,20 +61,35 @@ export function assessPersistenceHealth(
     return { healthy: true, mode: "connected" };
   }
 
-  if (provider instanceof UnconfiguredPersistenceProvider && provider.configuredButUnavailable) {
+  if (provider instanceof UnconfiguredPersistenceProvider) {
+    if (provider.configuredButUnavailable) {
+      return {
+        healthy: false,
+        mode: "unavailable",
+        reason:
+          "Postgres connection is configured but persistence failed to initialize " +
+          `(${provider.reason}) — see boot logs for the underlying error. This is ` +
+          "NOT the expected local/dev degraded mode.",
+      };
+    }
     return {
-      healthy: false,
-      mode: "unavailable",
-      reason:
-        "Postgres connection is configured but persistence failed to initialize " +
-        `(${provider.reason}) — see boot logs for the underlying error. This is ` +
-        "NOT the expected local/dev degraded mode.",
+      healthy: true,
+      mode: "unconfigured",
+      reason: "no Postgres connection configured (local/dev degraded mode)",
     };
   }
 
+  // mt#2949 hardening (PR #2095 R1): Postgres has been the only backend since
+  // mt#2349, and `UnconfiguredPersistenceProvider` is the only sql=false
+  // placeholder this codebase constructs in production. An sql=false provider
+  // that is NEITHER a real SQL-capable provider NOR the known Unconfigured
+  // placeholder is an unrecognized state — do not silently green-light it as
+  // the expected local/dev degraded mode; report it unhealthy instead.
   return {
-    healthy: true,
-    mode: "unconfigured",
-    reason: "no Postgres connection configured (local/dev degraded mode)",
+    healthy: false,
+    mode: "unavailable",
+    reason:
+      `Unrecognized non-SQL persistence provider (${provider.constructor.name}) — ` +
+      "not the known UnconfiguredPersistenceProvider placeholder.",
   };
 }

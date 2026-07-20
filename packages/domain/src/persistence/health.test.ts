@@ -65,4 +65,15 @@ describe("assessPersistenceHealth", () => {
     expect(unconfigured.healthy).not.toBe(unavailable.healthy);
     expect(unconfigured.mode).not.toBe(unavailable.mode);
   });
+
+  test("an sql=false provider that is NOT the known UnconfiguredPersistenceProvider placeholder is not silently green-lit (hardening, PR #2095 R1)", () => {
+    // Postgres has been the only backend since mt#2349 — a non-Postgres,
+    // non-Unconfigured provider is an unrecognized state in production. It
+    // must not fall through to the deliberately-unconfigured (healthy) case.
+    const provider = new FakePersistenceProvider({ sql: false });
+    const result = assessPersistenceHealth(provider);
+    expect(result.healthy).toBe(false);
+    expect(result.mode).toBe("unavailable");
+    expect(result.reason).toContain("Unrecognized non-SQL persistence provider");
+  });
 });
