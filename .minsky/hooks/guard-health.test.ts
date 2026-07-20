@@ -465,3 +465,14 @@ describe("stale-escalation flag (mt#2969)", () => {
     expect(entry?.lastFailureAgeMs).toBe(2 * 60 * 60 * 1000);
   });
 });
+
+describe("kept-in-sync contract with src/mcp/guard-health-tracker (mt#2969)", () => {
+  test("both aggregation copies define identical threshold + window constants", async () => {
+    const hooks = await import("./guard-health");
+    const tracker = await import("../../src/mcp/guard-health-tracker");
+    expect(tracker.STALE_ESCALATION_WINDOW_MS).toBe(hooks.STALE_ESCALATION_WINDOW_MS);
+    expect(tracker.STREAK_RESET_GAP_MS).toBe(hooks.STREAK_RESET_GAP_MS);
+    expect(tracker.ATTENTION_STREAK_THRESHOLD).toBe(hooks.ATTENTION_STREAK_THRESHOLD);
+    expect(tracker.CRITICAL_STREAK_THRESHOLD).toBe(hooks.CRITICAL_STREAK_THRESHOLD);
+  });
+});

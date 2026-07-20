@@ -32,20 +32,21 @@
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { getGuardHealthSummary } from "./guard-health";
+import { getGuardHealthSummary, STALE_ESCALATION_WINDOW_MS } from "./guard-health";
 import type { GuardHealthSummary } from "./guard-health";
 
 export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
 }
 
-/** Humanize a millisecond age as "Nh Mm" / "Mm" for banner display. mt#2969. */
+/** Humanize a millisecond age as "Nh Mm" / "Nh" / "Mm" for banner display. mt#2969. */
 function formatAge(ms: number | null): string {
   if (ms == null) return "unknown";
   const totalMin = Math.max(0, Math.floor(ms / 60000));
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
 }
 
 /**
@@ -59,6 +60,10 @@ function formatAge(ms: number | null): string {
  */
 export function buildCriticalWarning(summary: GuardHealthSummary): string | null {
   if (summary.escalation !== "critical" || summary.criticalGuards.length === 0) return null;
+
+  // Freshness-window label derived from the constant so the banner text can't
+  // drift from STALE_ESCALATION_WINDOW_MS (mt#2969 review nit).
+  const windowLabel = formatAge(STALE_ESCALATION_WINDOW_MS);
 
   const live: string[] = [];
   const stale: string[] = [];
@@ -89,7 +94,7 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
     ];
     if (stale.length > 0) {
       lines.push(
-        "Also had a failure streak but NONE within the last hour (likely stale — " +
+        `Also had a failure streak but NONE within the last ${windowLabel} (likely stale — ` +
           "recovered or dormant; verify, don't treat as active):",
         ...stale.map(staleLine)
       );
@@ -108,7 +113,7 @@ export function buildCriticalWarning(summary: GuardHealthSummary): string | null
   // "cannot be trusted" active-danger framing; it clears on the 24h age-out.
   return [
     "ℹ️ Guard-health: the following guard(s) had a failure streak but NONE within " +
-      "the last hour — likely stale (recovered or dormant), NOT an active incident. " +
+      `the last ${windowLabel} — likely stale (recovered or dormant), NOT an active incident. ` +
       "Verify via `mcp__minsky__debug_systemInfo`'s `guardHealth` before treating as " +
       "live; a stale streak clears automatically once its last failure ages past 24h:",
     ...stale.map(staleLine),

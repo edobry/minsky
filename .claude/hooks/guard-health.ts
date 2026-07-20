@@ -298,18 +298,21 @@ export interface GuardHealthEntry {
   lastEvent: GuardHealthEvent | null;
   escalation: GuardEscalation;
   /**
-   * ms since this guard's most recent recorded failure (null if none). Because
-   * only failures are recorded, a large value means "no failure seen recently"
-   * — NOT necessarily "recovered" (the guard may simply not have fired). mt#2969.
+   * ms since this guard's most recent recorded failure (null if none). Optional:
+   * always populated by `computeGuardHealthSummary`, but may be omitted by
+   * hand-built entries (so the addition stays additive/non-breaking). Because
+   * only failures are recorded, a large value means "no failure seen recently" —
+   * NOT necessarily "recovered" (the guard may simply not have fired). mt#2969.
    */
-  lastFailureAgeMs: number | null;
+  lastFailureAgeMs?: number | null;
   /**
    * True when `escalation` is non-"none" but the most recent failure is older
-   * than STALE_ESCALATION_WINDOW_MS — the escalation is likely stale (recovered
-   * or dormant), not an active incident. Consumers should de-alarm a stale
+   * than STALE_ESCALATION_WINDOW_MS — likely stale (recovered or dormant), not an
+   * active incident. Optional (always set by `computeGuardHealthSummary`,
+   * omittable by hand-built entries). Consumers should de-alarm a stale
    * escalation rather than present it as live. mt#2969.
    */
-  stale: boolean;
+  stale?: boolean;
 }
 
 export interface GuardHealthSummary {

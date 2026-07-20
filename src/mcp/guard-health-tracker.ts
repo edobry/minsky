@@ -97,13 +97,15 @@ export interface GuardHealthEntry {
   consecutiveStreak: number;
   lastEvent: GuardHealthEvent | null;
   escalation: GuardEscalation;
-  /** ms since the most recent recorded failure (null if none). mt#2969. */
-  lastFailureAgeMs: number | null;
+  /** ms since the most recent recorded failure (null if none). Optional: always set by
+   * computeGuardHealthSummary, omittable by hand-built entries. mt#2969. */
+  lastFailureAgeMs?: number | null;
   /**
    * True when `escalation` is non-"none" but the most recent failure is older
-   * than STALE_ESCALATION_WINDOW_MS — likely recovered/dormant, not active. mt#2969.
+   * than STALE_ESCALATION_WINDOW_MS — likely recovered/dormant, not active.
+   * Optional (always set by computeGuardHealthSummary). mt#2969.
    */
-  stale: boolean;
+  stale?: boolean;
 }
 
 export interface GuardHealthSummary {
