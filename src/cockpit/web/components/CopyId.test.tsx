@@ -84,6 +84,39 @@ describe("CopyId", () => {
     expect(writeText).toHaveBeenCalledWith("minsky://task/mt%232410");
   });
 
+  test("displayId (mt#2965): renders the short id as the visible/title text, not the uuid", () => {
+    render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
+    const idEl = screen.getByTitle("ask#7");
+    expect(idEl.textContent).toBe("ask#7");
+    expect(screen.queryByTitle(ASK_ID)).toBeNull();
+  });
+
+  test("displayId (mt#2965): Copy ID copies the short id, not the uuid", async () => {
+    const writeText = spyOn(navigator.clipboard, "writeText");
+    render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
+    fireEvent.click(await screen.findByText("Copy ID"));
+    expect(writeText).toHaveBeenCalledWith("ask#7");
+  });
+
+  test("displayId (mt#2965): Copy link still targets the canonical uuid, never the short id", async () => {
+    const writeText = spyOn(navigator.clipboard, "writeText");
+    render(<CopyId type="ask" id={ASK_ID} displayId="ask#7" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy ask id" }));
+    fireEvent.click(await screen.findByText("Copy link"));
+    // mt#2946's decision: short ids never replace the uuid as the
+    // minsky:// deeplink target.
+    expect(writeText).toHaveBeenCalledWith(entityToMinskyUri("ask", ASK_ID));
+  });
+
+  test("omitting displayId is unaffected (regression): behaves exactly as before this prop existed", () => {
+    render(<CopyId type="ask" id={ASK_ID} />);
+    const idEl = screen.getByTitle(ASK_ID);
+    expect(idEl.textContent).not.toBe(ASK_ID); // still truncated, same as the first test above
+  });
+
   test("keyboard: Enter on the focused trigger opens the menu, Enter on the focused item activates it", async () => {
     const user = userEvent.setup();
     const writeText = spyOn(navigator.clipboard, "writeText");
