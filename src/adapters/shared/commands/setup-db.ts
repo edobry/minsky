@@ -23,6 +23,7 @@ import {
   maskConnectionString,
   buildDockerPostgresOneLiner,
   dockerLocalConnectionString,
+  type SetupDbFailedStep,
 } from "@minsky/domain/setup-db";
 import {
   sharedCommandRegistry,
@@ -66,8 +67,12 @@ function detectDocker(): boolean {
 /**
  * Interactively capture a connection string via one of the three branches.
  * Returns null if the user cancels.
+ *
+ * Exported (mt#2502) so `minsky setup` (src/adapters/shared/commands/setup.ts) can
+ * reuse it as the default prompt implementation when it falls back to the interactive
+ * wizard inline, instead of duplicating the branch-selection logic.
  */
-async function promptForConnectionString(): Promise<string | null> {
+export async function promptForConnectionString(): Promise<string | null> {
   const dockerPresent = detectDocker();
 
   type Branch = "docker" | "supabase" | "byo";
@@ -146,7 +151,117 @@ async function promptForConnectionString(): Promise<string | null> {
   return (cs as string).trim();
 }
 
-export function registerSetupDbCommand(): void {
+/** Options accepted by {@link runInteractiveSetupDb}. */
+export interface RunInteractiveSetupDbOptions {
+  connectionString?: string;
+  yes?: boolean;
+}
+
+/** Result returned by {@link runInteractiveSetupDb}. */
+export interface RunInteractiveSetupDbResult {
+  success: boolean;
+  message: string;
+  configPath?: string;
+  appliedCount?: number;
+  pendingCount?: number;
+  failedStep?: SetupDbFailedStep;
+}
+
+/**
+ * Test seam: dependency overrides for {@link runInteractiveSetupDb}. Production callers
+ * leave this undefined; tests inject mocks to avoid touching the terminal or a live DB.
+ */
+export interface RunInteractiveSetupDbDeps {
+  promptForConnectionString?: () => Promise<string | null>;
+  runSetupDbConfigure?: typeof runSetupDbConfigure;
+}
+
+/**
+ * Interactive `setup db` orchestration: capture a connection string (prompt if not
+ * supplied), validate it, show a plan, confirm, then run the validate → connectivity →
+ * write → migrate → verify chain via the domain layer.
+ *
+ * Extracted (mt#2502) so `minsky setup` can fall into this SAME flow inline when the
+ * config loader finds nothing to reuse, instead of duplicating the wizard logic.
+ */
+export async function runInteractiveSetupDb(
+  options: RunInteractiveSetupDbOptions = {},
+  deps: RunInteractiveSetupDbDeps = {}
+): Promise<RunInteractiveSetupDbResult> {
+  const promptFn = deps.promptForConnectionString ?? promptForConnectionString;
+  const configureFn = deps.runSetupDbConfigure ?? runSetupDbConfigure;
+
+  let connectionString = options.connectionString?.trim();
+
+  // Capture a connection string if not supplied.
+  if (!connectionString) {
+    if (!isInteractive()) {
+      throw new ValidationError("Non-interactive mode: pass --connection-string <postgres-url>.");
+    }
+    const captured = await promptFn();
+    if (captured === null) {
+      cancel("Setup cancelled.");
+      return { success: false, message: "Setup cancelled by user." };
+    }
+    connectionString = captured;
+  }
+
+  // Early format validation for a clean message before any DB work.
+  const validation = validatePostgresConnectionString(connectionString);
+  if (!validation.ok) {
+    return {
+      success: false,
+      message: `Invalid Postgres connection string: ${validation.error}`,
+    };
+  }
+
+  // Plan (Operational Safety: dry-run/preview before the mutating write).
+  const masked = maskConnectionString(connectionString);
+  log.cli("");
+  log.cli("Plan:");
+  log.cli(`  1. Write persistence.backend=postgres and the connection string to config`);
+  log.cli(`     Connection: ${masked}`);
+  log.cli(`  2. Run pending schema migrations against it`);
+  log.cli(`  3. Verify connectivity and that the schema is up to date`);
+  log.cli("");
+
+  if (isInteractive() && !options.yes) {
+    const proceed = await confirm({
+      message: "Write this configuration and run migrations?",
+      initialValue: true,
+    });
+    if (isCancel(proceed) || !proceed) {
+      cancel("Setup cancelled.");
+      return { success: false, message: "Setup cancelled by user." };
+    }
+  }
+
+  const result = await configureFn(connectionString);
+
+  if (result.success) {
+    log.cli("");
+    log.cli(`✅ ${result.message}`);
+  } else {
+    log.cli("");
+    log.cli(`❌ ${result.message}`);
+  }
+
+  return {
+    success: result.success,
+    message: result.message,
+    configPath: result.configPath,
+    appliedCount: result.appliedCount,
+    pendingCount: result.pendingCount,
+    failedStep: result.failedStep,
+  };
+}
+
+export function registerSetupDbCommand(deps: RunInteractiveSetupDbDeps = {}): void {
+  // When called with explicit deps (i.e., from tests), allow overwrite so each test
+  // re-registers cleanly. Production calls pass no deps and register exactly once.
+  const allowOverwrite =
+    deps.promptForConnectionString !== undefined || deps.runSetupDbConfigure !== undefined;
+
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id: "setup.db",
@@ -159,78 +274,17 @@ export function registerSetupDbCommand(): void {
       requiresSetup: false,
       execute: async (params, _ctx) => {
         try {
-          let connectionString = params.connectionString?.trim();
-
-          // Capture a connection string if not supplied.
-          if (!connectionString) {
-            if (!isInteractive()) {
-              // eslint-disable-next-line custom/no-validation-error-in-execute
-              throw new ValidationError(
-                "Non-interactive mode: pass --connection-string <postgres-url>."
-              );
-            }
-            const captured = await promptForConnectionString();
-            if (captured === null) {
-              cancel("Setup cancelled.");
-              return { success: false, message: "Setup cancelled by user." };
-            }
-            connectionString = captured;
-          }
-
-          // Early format validation for a clean message before any DB work.
-          const validation = validatePostgresConnectionString(connectionString);
-          if (!validation.ok) {
-            return {
-              success: false,
-              message: `Invalid Postgres connection string: ${validation.error}`,
-            };
-          }
-
-          // Plan (Operational Safety: dry-run/preview before the mutating write).
-          const masked = maskConnectionString(connectionString);
-          log.cli("");
-          log.cli("Plan:");
-          log.cli(`  1. Write persistence.backend=postgres and the connection string to config`);
-          log.cli(`     Connection: ${masked}`);
-          log.cli(`  2. Run pending schema migrations against it`);
-          log.cli(`  3. Verify connectivity and that the schema is up to date`);
-          log.cli("");
-
-          if (isInteractive() && !params.yes) {
-            const proceed = await confirm({
-              message: "Write this configuration and run migrations?",
-              initialValue: true,
-            });
-            if (isCancel(proceed) || !proceed) {
-              cancel("Setup cancelled.");
-              return { success: false, message: "Setup cancelled by user." };
-            }
-          }
-
-          const result = await runSetupDbConfigure(connectionString);
-
-          if (result.success) {
-            log.cli("");
-            log.cli(`✅ ${result.message}`);
-          } else {
-            log.cli("");
-            log.cli(`❌ ${result.message}`);
-          }
-
-          return {
-            success: result.success,
-            message: result.message,
-            configPath: result.configPath,
-            appliedCount: result.appliedCount,
-            pendingCount: result.pendingCount,
-            failedStep: result.failedStep,
-          };
+          return await runInteractiveSetupDb(
+            { connectionString: params.connectionString, yes: params.yes },
+            deps
+          );
         } catch (error: unknown) {
           throw error instanceof ValidationError
             ? error
             : new ValidationError(getErrorMessage(error));
         }
       },
-    })
+    }),
+    { allowOverwrite }
   );
 }

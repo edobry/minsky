@@ -6636,6 +6636,15 @@
           "flags": ["--workspace-path"],
           "description": "Workspace path",
           "takesValue": true
+        },
+        {
+          "flags": ["--connection-string"],
+          "description": "Postgres connection string, used only if no connection can be inherited from existing config (otherwise captured via the setup db wizard)",
+          "takesValue": true
+        },
+        {
+          "flags": ["--yes"],
+          "description": "Skip the DB-setup confirmation prompt if the interactive wizard runs"
         }
       ]
     },

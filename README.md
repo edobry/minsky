@@ -104,13 +104,28 @@ npm link
 ```bash
 # Interactive setup — configures task backend and git hooks
 minsky init
+
+# Developer-local setup — MCP registration + local config + DB connection
+minsky setup
 ```
 
-### Configure the database
+`minsky setup` owns the database connection so most projects need zero database
+thought. It resolves `persistence.postgres.connectionString` through the config
+loader first: on a machine that already has a Minsky project configured, it finds
+and reuses that connection (printing which config source it came from — user
+config, repo config, or an environment variable — after a quick connectivity
+check); on a fresh machine with nothing configured, it falls straight into the
+same interactive wizard described below. Schema migrations are **not** a manual
+step — Minsky auto-migrates the schema on first connect (`MINSKY_AUTO_MIGRATE`
+defaults to `true`), so there is never a `minsky persistence migrate` command to
+run as part of onboarding.
 
-Minsky requires a PostgreSQL database. `minsky setup db` is an interactive wizard
-that captures a connection string, writes it to your config, runs the schema
-migrations, and verifies connectivity:
+### Configure the database directly
+
+`minsky setup db` is the same interactive wizard `minsky setup` falls into
+automatically, available standalone when you want to (re)configure the database
+without touching MCP registration — e.g. to point at a different connection, or
+for non-interactive/scripted use:
 
 ```bash
 minsky setup db
@@ -134,6 +149,10 @@ Non-interactive / scripted use:
 ```bash
 # Supply the connection string directly; --yes skips the confirmation prompt.
 minsky setup db --connection-string "postgresql://user:password@host:5432/dbname" --yes
+
+# minsky setup accepts the same two flags, used only if no connection can be
+# inherited from existing config:
+minsky setup --connection-string "postgresql://user:password@host:5432/dbname" --yes
 ```
 
 On failure it reports which step failed (`validate` / `connectivity` /
