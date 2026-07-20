@@ -15,6 +15,7 @@ import type {
 } from "@minsky/domain/session/types";
 import { SessionStatus } from "@minsky/domain/session/types";
 import type { SessionAttachment } from "@minsky/domain/session/index";
+import { isAllProjects } from "@minsky/domain/project/scope";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -670,4 +671,73 @@ describe("createAgentsWidget — attachState wiring", () => {
     expect(bySessionId.get(S2)?.attachState).toBe("in-cockpit");
     expect(bySessionId.get(S3)?.attachState).toBe("detached");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Project-scope wiring (mt#2418)
+//
+// `getContextInspectorDb()` resolves to null in this unit-test environment
+// (no live SQL persistence provider configured), so `resolveCockpitProjectScope`
+// fails open to ALL_PROJECTS regardless of `ctx.query.project` — the
+// end-to-end "slug filters to that project's rows" behavior is covered by
+// `tests/domain/project-scope-acceptance.test.ts` (listSessions/listTasks
+// projectScope filtering) and `src/cockpit/project-scope.test.ts` (slug->uuid
+// resolution). These tests instead prove the WIRING itself: the widget reads
+// `ctx.query.project`, calls through the real resolveCockpitProjectScope
+// codepath, and always supplies a `projectScope` key to listSessions() —
+// without crashing — whether or not the query param is present.
+// ---------------------------------------------------------------------------
+
+describe("createAgentsWidget — project-scope wiring (mt#2418)", () => {
+  test("supplies projectScope: ALL_PROJECTS to listSessions when ctx.query.project is absent", async () => {
+    let capturedOptions: SessionListOptions | undefined;
+    const provider: SessionProviderInterface = {
+      ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      listSessions: async (options?: SessionListOptions) => {
+        capturedOptions = options;
+        return [makeActiveSession({ sessionId: S1 })];
+      },
+    };
+    const widget = createAgentsWidget(async () => provider);
+
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    const projectScope = capturedOptions?.projectScope;
+    if (!projectScope) throw new Error("expected projectScope to be set");
+    expect(isAllProjects(projectScope)).toBe(true);
+  });
+
+  test("does not crash when ctx.query.project is present (no live db -> fail-open to ALL_PROJECTS)", async () => {
+    let capturedOptions: SessionListOptions | undefined;
+    const provider: SessionProviderInterface = {
+      ...makeSessionProvider([makeActiveSession({ sessionId: S1 })]),
+      listSessions: async (options?: SessionListOptions) => {
+        capturedOptions = options;
+        return [makeActiveSession({ sessionId: S1 })];
+      },
+    };
+    const widget = createAgentsWidget(async () => provider);
+
+    const data = await widget.fetch({ id: "agents", query: { project: "edobry/minsky" } });
+    expect(data.state).toBe("ok");
+    const projectScope = capturedOptions?.projectScope;
+    if (!projectScope) throw new Error("expected projectScope to be set");
+    expect(isAllProjects(projectScope)).toBe(true);
+  });
+
+  // PR #2056 R1 BLOCKING 1 / NON-BLOCKING 1: a thrown db-getter (module import
+  // failure, connection error, etc.) must degrade project-scope resolution to
+  // ALL_PROJECTS — NOT the whole widget to `state: "degraded"`. That contract
+  // now lives entirely inside resolveCockpitProjectScope() (see
+  // src/cockpit/project-scope.ts's fail-open try/catch, which wraps the
+  // db-getter call, the dynamic import, and the resolveProjectScope call all
+  // in one boundary) — every consumer of it, including this widget, inherits
+  // the guarantee for free and cannot be individually tested around a thrown
+  // getter without either (a) mock.module() on the sibling db-providers
+  // module — banned by this repo's own custom/no-global-module-mocks ESLint
+  // rule (dependency injection is the mandated alternative), or (b) adding a
+  // redundant DI seam to this widget purely to re-exercise a contract already
+  // exhaustively covered at its source. The thrown-getter / thrown-import /
+  // thrown-query exception paths are covered directly, with clean DI (no
+  // mock.module), in src/cockpit/project-scope.test.ts.
 });

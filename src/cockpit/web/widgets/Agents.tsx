@@ -37,6 +37,7 @@ import { livenessDotClass, type Liveness } from "../lib/liveness-colors";
 import { ConversationSearchPanel } from "./ConversationSearchPanel";
 import { needsMeBand, subagentElapsed, BAND_RANK, type NeedsMeBand } from "../lib/fleet-groups";
 import { fetchAsks, type AsksListResponse } from "./AskDetail";
+import { useProject } from "../lib/project-context";
 import { AgentDrivenPeek } from "./AgentDrivenPeek";
 
 /** Kind badge (mt#2767 Row model; "driven-session" added by mt#2752). */
@@ -108,8 +109,8 @@ function isAgentsPayload(payload: unknown): payload is AgentsPayload {
   );
 }
 
-async function fetchAgents(): Promise<WidgetData> {
-  return fetchWidgetData("agents");
+async function fetchAgents(queryParam?: { project: string }): Promise<WidgetData> {
+  return fetchWidgetData("agents", queryParam);
 }
 
 // ---------------------------------------------------------------------------
@@ -1195,9 +1196,12 @@ interface AgentsProps {
 }
 
 export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {}) {
+  const { selectedSlug, queryParam } = useProject();
   const query = useQuery<WidgetData, Error>({
-    queryKey: ["agents"],
-    queryFn: fetchAgents,
+    // mt#2418: selectedSlug in the key so switching projects invalidates
+    // the cache and refetches immediately rather than waiting out staleTime.
+    queryKey: ["agents", selectedSlug],
+    queryFn: () => fetchAgents(queryParam),
     staleTime: 30_000,
     refetchInterval: 5_000,
   });
