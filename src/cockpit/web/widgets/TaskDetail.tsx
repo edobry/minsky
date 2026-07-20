@@ -52,12 +52,21 @@ export interface TaskDetailPayload {
 }
 
 function isTaskDetailPayload(v: unknown): v is TaskDetailPayload {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "task" in v &&
-    typeof (v as { task: unknown }).task === "object"
-  );
+  if (typeof v !== "object" || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  if (typeof obj.task !== "object" || obj.task === null) return false;
+  // Validate the startability contract (mt#2959) so a payload missing it fails
+  // loudly (ErrorState) rather than silently dropping the Start-session affordance.
+  const startability = obj.startability as Record<string, unknown> | null | undefined;
+  if (typeof startability !== "object" || startability === null) return false;
+  if (typeof startability.startable !== "boolean") return false;
+  if (
+    startability.startBlockedReason !== null &&
+    typeof startability.startBlockedReason !== "string"
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------

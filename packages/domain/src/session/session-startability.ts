@@ -30,7 +30,7 @@ export function sessionStartBlockedReason(
   kind: string | undefined
 ): string | null {
   const normalizedStatus = (status || "").toUpperCase();
-  const normalizedKind = kind || "implementation";
+  const normalizedKind = (kind || "implementation").toLowerCase();
 
   if (normalizedStatus === TASK_STATUS.TODO) {
     // Name the ACTUAL required precursor for the kind — not a first-of-two-gates

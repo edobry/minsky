@@ -49,6 +49,11 @@ describe("sessionStartBlockedReason (mt#2959)", () => {
   it("defaults to implementation behavior when kind is empty", () => {
     expect(sessionStartBlockedReason("TODO", "")).toMatch(/READY/);
   });
+
+  it("is case-insensitive on kind (normalizes non-lowercase umbrella)", () => {
+    expect(sessionStartBlockedReason("PLANNING", "Umbrella")).toBeNull();
+    expect(sessionStartBlockedReason("TODO", "UMBRELLA")).toMatch(/PLANNING/);
+  });
 });
 
 describe("computeSessionStartability (mt#2959)", () => {
@@ -59,6 +64,11 @@ describe("computeSessionStartability (mt#2959)", () => {
     });
     // Terminal beats an existing workspace — matches prior DONE/CLOSED hiding.
     expect(computeSessionStartability("CLOSED", "implementation", true)).toEqual({
+      startable: false,
+      startBlockedReason: null,
+    });
+    // DONE + existing workspace: terminal still wins (reviewer-flagged gap).
+    expect(computeSessionStartability("DONE", "implementation", true)).toEqual({
       startable: false,
       startBlockedReason: null,
     });
