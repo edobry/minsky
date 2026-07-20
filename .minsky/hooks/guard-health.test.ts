@@ -422,3 +422,57 @@ describe("getGuardHealthSummary (fail-safe)", () => {
     });
   });
 });
+
+describe("stale-escalation flag (mt#2969)", () => {
+  function recordThreeFailures(fs: GuardHealthFsDeps): void {
+    for (const t of ["09:00", "09:01", "09:02"]) {
+      recordGuardError(
+        { guardName: "g", event: "PreToolUse", error: new Error(t) },
+        { logPath: LOG_PATH, fs, now: () => new Date(`2026-07-14T${t}:00.000Z`) }
+      );
+    }
+  }
+
+  test("a critical streak whose last failure is within the freshness window is NOT stale", () => {
+    const fs = makeInMemoryFs();
+    recordThreeFailures(fs);
+    // 28 min after the last failure — inside the 1h freshness window.
+    const summary = getGuardHealthSummary({
+      logPath: LOG_PATH,
+      fs,
+      now: new Date("2026-07-14T09:30:00.000Z"),
+    });
+    const entry = summary.byGuard["g"];
+    expect(entry?.escalation).toBe("critical");
+    expect(entry?.stale).toBe(false);
+    expect(entry?.consecutiveStreak).toBe(3);
+    expect(entry?.lastFailureAgeMs).toBe(28 * 60 * 1000);
+  });
+
+  test("a critical streak quiet past the freshness window (but < 24h) is stale; escalation + streak unchanged", () => {
+    const fs = makeInMemoryFs();
+    recordThreeFailures(fs);
+    // 2h after the last failure — past the 1h window, before the 24h age-out.
+    const summary = getGuardHealthSummary({
+      logPath: LOG_PATH,
+      fs,
+      now: new Date("2026-07-14T11:02:00.000Z"),
+    });
+    const entry = summary.byGuard["g"];
+    expect(entry?.escalation).toBe("critical");
+    expect(entry?.stale).toBe(true);
+    expect(entry?.consecutiveStreak).toBe(3);
+    expect(entry?.lastFailureAgeMs).toBe(2 * 60 * 60 * 1000);
+  });
+});
+
+describe("kept-in-sync contract with src/mcp/guard-health-tracker (mt#2969)", () => {
+  test("both aggregation copies define identical threshold + window constants", async () => {
+    const hooks = await import("./guard-health");
+    const tracker = await import("../../src/mcp/guard-health-tracker");
+    expect(tracker.STALE_ESCALATION_WINDOW_MS).toBe(hooks.STALE_ESCALATION_WINDOW_MS);
+    expect(tracker.STREAK_RESET_GAP_MS).toBe(hooks.STREAK_RESET_GAP_MS);
+    expect(tracker.ATTENTION_STREAK_THRESHOLD).toBe(hooks.ATTENTION_STREAK_THRESHOLD);
+    expect(tracker.CRITICAL_STREAK_THRESHOLD).toBe(hooks.CRITICAL_STREAK_THRESHOLD);
+  });
+});
