@@ -477,6 +477,13 @@
       "when": 1784626620221,
       "tag": "0067_careful_saracen",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1784647262663,
+      "tag": "0068_quiet_vance_astro",
+      "breakpoints": true
     }
   ]
 }
