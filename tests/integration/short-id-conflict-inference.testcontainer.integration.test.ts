@@ -68,7 +68,7 @@ import { bootstrapFreshPostgres } from "@minsky/domain/persistence/postgres-boot
 import { DrizzleSessionRepository } from "@minsky/domain/session/drizzle-session-repository";
 import type { SessionRecord } from "@minsky/domain/session/types";
 import { MemoryService } from "@minsky/domain/memory/memory-service";
-import { MemoryVectorStorage } from "@minsky/domain/storage/vector/memory-vector-storage";
+import { PostgresVectorStorage } from "@minsky/domain/storage/vector/postgres-vector-storage";
 import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
 
 // No-op wait strategy — see postgres-pool-saturation.testcontainer.integration.test.ts
@@ -239,7 +239,17 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
 
       test("MemoryService.create mints mem#1 then mem#2 against real Postgres (mt#3005 fix: plain unique index)", async () => {
         const embeddingService = createTestEmbeddingService();
-        const vectorStorage = new MemoryVectorStorage(3);
+        // Real Postgres-backed vector storage (not the in-memory fake) —
+        // exercises the actual memories_embeddings table + vector extension
+        // this suite already boots, per reviewer feedback that an in-memory
+        // vectorStorage left the vector-backed path unexercised despite
+        // enabling pgvector for it.
+        const vectorStorage = new PostgresVectorStorage(sql, db, 3, {
+          tableName: "memories_embeddings",
+          idColumn: "memory_id",
+          embeddingColumn: "vector",
+          lastIndexedAtColumn: "indexed_at",
+        });
         const service = new MemoryService({
           db: db as never,
           vectorStorage,
@@ -289,6 +299,18 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
           caught = err;
         }
         expect(caught).toBeDefined();
+        // Assert on the stable Postgres SQLSTATE (42P10 — invalid_column_reference,
+        // the code Postgres raises for "no unique or exclusion constraint
+        // matching the ON CONFLICT specification") rather than on message
+        // text: the code is part of the Postgres wire protocol and won't
+        // change if drizzle-orm or postgres-js change how they wrap/format
+        // the error message. Message text is still checked as documentary
+        // secondary evidence, walking drizzle's `.cause` chain (drizzle
+        // wraps the real Postgres error in a DrizzleQueryError whose OWN
+        // `.message` is "Failed query: ..." — the real error lives on
+        // `.cause`).
+        const rawError = (caught as { cause?: { code?: string; message?: string } })?.cause;
+        expect(rawError?.code).toBe("42P10");
         const causeChainText = (() => {
           const parts: string[] = [];
           let current: unknown = caught;
