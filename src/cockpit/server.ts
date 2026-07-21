@@ -63,6 +63,7 @@ import type { AgentFocusRouteOptions } from "./routes/agent-focus";
 import { mountConversationRoutes } from "./routes/conversations";
 import type { ConversationRoutesOptions } from "./routes/conversations";
 import { mountConversationSearchRoutes } from "./routes/conversation-search";
+import type { ConversationSearchRouteOptions } from "./routes/conversation-search";
 import { mountChangesetRoutes } from "./routes/changesets";
 import { mountProjectRoutes } from "./routes/projects";
 import { mountEventsRoutes } from "./routes/events";
@@ -178,6 +179,15 @@ export interface CockpitServerOptions {
    * focus action. See ./routes/agent-focus.ts. Never set in production.
    */
   overrideAgentFocus?: AgentFocusRouteOptions;
+  /**
+   * Test-only injection seam for the conversation search endpoint (mt#2523)
+   * — overrides the SQL-connection getter so tests can force a deterministic
+   * db-unavailable (503) or db-available response instead of depending on
+   * whatever `getContextInspectorDb()`'s module-level singleton happens to
+   * resolve to in-process (mt#3016). Never set in production. See
+   * ./routes/conversation-search.ts.
+   */
+  overrideConversationSearch?: ConversationSearchRouteOptions;
 }
 
 /**
@@ -294,7 +304,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   mountAgentRoutes(app);
   mountAgentFocusRoutes(app, opts.overrideAgentFocus ?? {});
   mountConversationRoutes(app, opts.overrideConversationLiveTail ?? {});
-  mountConversationSearchRoutes(app);
+  mountConversationSearchRoutes(app, opts.overrideConversationSearch ?? {});
   mountChangesetRoutes(app);
   mountProjectRoutes(app); // mt#2418 — GET /api/projects (shell project selector)
   mountEventsRoutes(app, { sseBrokerOverride });
