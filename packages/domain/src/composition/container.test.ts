@@ -167,5 +167,60 @@ describe("TsyringeContainer boot-tolerant deferral (mt#2349)", () => {
       expect(() => (svc.anything as () => unknown)()).toThrow(/unavailable/);
       expect(() => (svc.anything as () => unknown)()).toThrow(/still down/);
     });
+
+    // mt#2945 PR #2113 R2 review: a manual set() override must never be
+    // clobbered by the background retry — including a retry that was ALREADY
+    // in flight when set() was called.
+    test("set() on a deferred key wins over an in-flight background retry (mt#2945 R2)", async () => {
+      const c = new TsyringeContainer();
+      let attempts = 0;
+      c.register("overridable" as never, () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw bootDeferrableError("transient outage");
+        }
+        return "factory-recovered" as never;
+      });
+
+      await c.initialize();
+
+      // First get() kicks off the background retry (still in flight when
+      // this call returns — the retry's factory call hasn't settled yet).
+      c.get("overridable" as never);
+
+      // A caller manually overrides the key WHILE that retry is in flight.
+      c.set("overridable" as never, "manual-override" as never);
+
+      // Let the in-flight retry's factory-call promise settle.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // The manual override wins — the retry's "factory-recovered" result
+      // must NOT have clobbered it.
+      expect(c.get("overridable" as never)).toBe("manual-override" as never);
+    });
+
+    test("set() on a deferred key stops FUTURE get() calls from retrying at all", async () => {
+      const c = new TsyringeContainer();
+      let factoryCalls = 0;
+      c.register("neverRetryAgain" as never, () => {
+        factoryCalls += 1;
+        throw bootDeferrableError("down");
+      });
+
+      await c.initialize();
+      expect(factoryCalls).toBe(1); // the initial initialize() attempt
+
+      c.set("neverRetryAgain" as never, "manual-override" as never);
+
+      // Repeated get() calls must not trigger any further factory calls —
+      // set() should have cleared the key out of deferredKeys entirely.
+      c.get("neverRetryAgain" as never);
+      c.get("neverRetryAgain" as never);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(factoryCalls).toBe(1);
+      expect(c.get("neverRetryAgain" as never)).toBe("manual-override" as never);
+    });
   });
 });

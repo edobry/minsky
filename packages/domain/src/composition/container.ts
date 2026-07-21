@@ -145,6 +145,17 @@ export class TsyringeContainer implements AppContainerInterface {
   private readonly deferredKeys = new Set<string>();
   /** Guards against overlapping retry attempts for the same key. */
   private readonly retryInFlight = new Set<string>();
+  /**
+   * Keys explicitly overridden via `set()` (PR #2113 R2 review). Once a
+   * caller has manually provided an instance for a key, NOTHING should
+   * silently replace it — including a background `retryDeferred()` attempt
+   * that was already in flight when `set()` was called. `set()` stops
+   * FUTURE retries by clearing the key from `deferredKeys`, but an
+   * in-flight retry's resolution callback still needs to check this set
+   * before swapping in the factory's result, or it would clobber the
+   * override the instant it settles.
+   */
+  private readonly manuallyOverridden = new Set<string>();
 
   constructor() {
     // Use a child container so each TsyringeContainer instance is isolated
@@ -168,6 +179,13 @@ export class TsyringeContainer implements AppContainerInterface {
   }
 
   set<K extends ServiceKey>(key: K, instance: AppServices[K]): this {
+    // mt#2945 R2: a manual override must never be clobbered by the
+    // deferred-placeholder self-recovery mechanism. Stop future retries
+    // (`deferredKeys`) and mark the key so any retry ALREADY in flight
+    // discards its result instead of overwriting this override when it
+    // settles (see the check in `retryDeferred`'s success path).
+    this.deferredKeys.delete(String(key));
+    this.manuallyOverridden.add(String(key));
     this.tsyringe.register(key, { useValue: instance });
     return this;
   }
@@ -211,6 +229,12 @@ export class TsyringeContainer implements AppContainerInterface {
     void (async () => {
       try {
         const instance = await Promise.resolve(registration.factory(this));
+        // mt#2945 R2: if `set()` provided a manual override WHILE this retry
+        // was in flight, that override must win — discard this result rather
+        // than clobbering it. (A retry started BEFORE the override can only
+        // reach here AFTER `set()` already ran, since this is the first
+        // `await` boundary since the retry began.)
+        if (this.manuallyOverridden.has(key)) return;
         // Contract (PR #2113 R1 review): tsyringe's `register(token, {useValue})`
         // REPLACES any prior registration for the same token rather than
         // stacking a second binding — a single `useValue` registration is a
@@ -288,5 +312,6 @@ export class TsyringeContainer implements AppContainerInterface {
     this.tsyringe.reset();
     this.deferredKeys.clear();
     this.retryInFlight.clear();
+    this.manuallyOverridden.clear();
   }
 }
