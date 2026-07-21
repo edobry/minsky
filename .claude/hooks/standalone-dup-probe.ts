@@ -36,12 +36,15 @@
 //
 // ## Failure and timeout posture
 //
-// Everything degrades to `null` (the caller's "probe unavailable, skip"
-// signal) with a loud GUARD DEGRADED stderr line naming the actual cause.
+// Everything degrades to a structured `ProbeFailure` ({ failed: <actual
+// error message> } — the caller's "probe unavailable, skip" signal, whose
+// message it threads into the guard-health check-skip event per mt#2958
+// SC2), with the same message on a loud GUARD DEGRADED stderr line.
 // The overall deadline replaces the old spawn-kill: the probe races
-// STANDALONE_DUP_PROBE_TIMEOUT_MS and returns null on expiry (any in-flight
-// DB/embedding work is abandoned; the hook process exits right after the
-// decision, which is exactly what the spawn-kill used to guarantee). The
+// STANDALONE_DUP_PROBE_TIMEOUT_MS and returns a ProbeFailure on expiry (any
+// in-flight DB/embedding work is abandoned; the hook process exits right
+// after the decision, which is exactly what the spawn-kill used to
+// guarantee). The
 // mt#2982 fail-fast Postgres connect timeout is applied programmatically
 // (env default before first config/provider resolution, operator-set value
 // wins) so a hanging-DB window fails the connect in ~2s, well inside the
