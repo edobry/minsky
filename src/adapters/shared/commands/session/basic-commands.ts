@@ -345,6 +345,9 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
       const matchingSessions = sessions.filter((session) => {
         return (
           session.sessionId?.toLowerCase().includes(lowerQuery) ||
+          // ws#N short id (mt#2967) — matched alongside the uuid so
+          // session.search finds a session by its human-readable short id.
+          session.shortId?.toLowerCase().includes(lowerQuery) ||
           session.repoName?.toLowerCase().includes(lowerQuery) ||
           session.repoUrl?.toLowerCase().includes(lowerQuery) ||
           session.taskId?.toLowerCase().includes(lowerQuery) ||

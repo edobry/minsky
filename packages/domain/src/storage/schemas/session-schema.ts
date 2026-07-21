@@ -13,51 +13,82 @@ import {
   text as pgText,
   integer as pgInteger,
   uuid,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { SessionRecord } from "../../session/session-db";
 import { projectsTable } from "./projects-schema";
 import type { WorkspaceId } from "../../ids";
+import { shortIdColumn } from "./short-id-column";
 
 // PostgreSQL Schema
-export const postgresSessions = pgTable("sessions", {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  sessionId: varchar("session", { length: 255 })!.primaryKey().$type<WorkspaceId>(),
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  repoName: varchar("repo_name", { length: 255 })!.notNull(),
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  repoUrl: varchar("repo_url", { length: 1000 })!.notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-  taskId: varchar("task_id", { length: 100 }),
+export const postgresSessions = pgTable(
+  "sessions",
+  {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    sessionId: varchar("session", { length: 255 })!.primaryKey().$type<WorkspaceId>(),
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    repoName: varchar("repo_name", { length: 255 })!.notNull(),
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    repoUrl: varchar("repo_url", { length: 1000 })!.notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    taskId: varchar("task_id", { length: 100 }),
 
-  // PR-related fields (Task #332/#366)
-  prBranch: varchar("pr_branch", { length: 255 }),
-  prApproved: varchar("pr_approved", { length: 10 }), // Store as JSON boolean string
-  prState: pgText("pr_state"), // Store as JSON
+    // PR-related fields (Task #332/#366)
+    prBranch: varchar("pr_branch", { length: 255 }),
+    prApproved: varchar("pr_approved", { length: 10 }), // Store as JSON boolean string
+    prState: pgText("pr_state"), // Store as JSON
 
-  // Backend configuration
-  backendType: varchar("backend_type", { length: 50 }),
-  pullRequest: pgText("pull_request"), // Store as JSON
+    // Backend configuration
+    backendType: varchar("backend_type", { length: 50 }),
+    pullRequest: pgText("pull_request"), // Store as JSON
 
-  // Session liveness tracking fields
-  lastActivityAt: pgText("last_activity_at"),
-  lastCommitHash: pgText("last_commit_hash"),
-  lastCommitMessage: pgText("last_commit_message"),
-  commitCount: pgInteger("commit_count"),
-  status: pgText("status"),
-  agentId: pgText("agent_id"),
+    // Session liveness tracking fields
+    lastActivityAt: pgText("last_activity_at"),
+    lastCommitHash: pgText("last_commit_hash"),
+    lastCommitMessage: pgText("last_commit_message"),
+    commitCount: pgInteger("commit_count"),
+    status: pgText("status"),
+    agentId: pgText("agent_id"),
 
-  // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
-  // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
-  // canonical; repo_name/repo_url here stay as a denormalized cache.
-  projectId: uuid("project_id").references(() => projectsTable.id),
+    // Project scoping (mt#2415, Phase 1.2). Nullable; backfilled to the Minsky
+    // project; NOT NULL deferred to Phase 1.3 (mt#2416). projects.repo_url is
+    // canonical; repo_name/repo_url here stay as a denormalized cache.
+    projectId: uuid("project_id").references(() => projectsTable.id),
 
-  // Operator-interface binding (mt#1628 — iTerm-tab binding v0). JSON text,
-  // same embedded-JSON convention as prState/pullRequest above. See the
-  // Design Decision note on SessionRecord.interfaceBinding in
-  // ../../session/types.ts for why this is a field here rather than a
-  // separate table.
-  interfaceBinding: pgText("interface_binding"),
-});
+    // Operator-interface binding (mt#1628 — iTerm-tab binding v0). JSON text,
+    // same embedded-JSON convention as prState/pullRequest above. See the
+    // Design Decision note on SessionRecord.interfaceBinding in
+    // ../../session/types.ts for why this is a field here rather than a
+    // separate table.
+    interfaceBinding: pgText("interface_binding"),
+
+    /**
+     * Numeric `ws#N` short id (mt#2967, ADR-029) — added alongside the
+     * canonical uuid `sessionId` PK above, never replacing it. Nullable
+     * text; NULL until minted on create (new rows,
+     * `DrizzleSessionRepository.addSession`) or backfilled
+     * (`scripts/backfill-session-short-ids.ts`, existing rows). See
+     * `./short-id-column.ts` for the general design rationale
+     * (nullable-not-backfilled-here, concurrency contract).
+     *
+     * The unique index on this column (`idx_sessions_short_id_unique`,
+     * declared below in the index-builder callback) is PARTIAL — `WHERE
+     * short_id IS NOT NULL` — declared NATIVELY via drizzle-orm's
+     * `IndexBuilder.where()` (mirrors memory's `idx_memories_short_id_unique`,
+     * `memory-embeddings.ts`, PR #2134 R2) rather than the shared
+     * `shortIdUniqueIndex()` foundation helper (`short-id-column.ts`, which
+     * produces a NON-partial index — ask's `idx_asks_short_id_unique`,
+     * mt#2965, still uses that shared helper and stays non-partial).
+     */
+    shortId: shortIdColumn(),
+  },
+  (table) => ({
+    shortIdUnique: uniqueIndex("idx_sessions_short_id_unique")
+      .on(table.shortId)
+      .where(sql`${table.shortId} IS NOT NULL`),
+  })
+);
 
 // Type exports for better type inference
 export type PostgresSessionRecord = typeof postgresSessions.$inferSelect;
@@ -104,6 +135,11 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     createdAt: coerceToDate(record.createdAt),
     taskId: record.taskId || null,
 
+    // ws#N short id (mt#2967) — undefined/absent on a fresh record destined for
+    // addSession() (which mints it), present on an updateSession() merge of an
+    // already-backfilled/minted row.
+    shortId: record.shortId ?? null,
+
     // PR-related fields
     prBranch: record.prBranch || null,
     prApproved: record.prApproved ? JSON.stringify(record.prApproved) : null,
@@ -139,6 +175,9 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     repoUrl: record.repoUrl,
     createdAt: record.createdAt.toISOString(),
     taskId: record.taskId || undefined,
+
+    // ws#N short id (mt#2967) — undefined for legacy rows pre-backfill.
+    shortId: record.shortId ?? undefined,
 
     // PR-related fields
     prBranch: record.prBranch || undefined,

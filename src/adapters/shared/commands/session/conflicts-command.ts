@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
 import { type LazySessionDeps, withErrorLogging } from "./types";
+import { commonSessionParams } from "./session-parameters";
 import {
   scanSessionConflicts,
   formatSessionConflictResults,
@@ -15,11 +16,7 @@ import {
  * Parameters for the session conflicts command
  */
 export const sessionConflictsCommandParams = {
-  sessionId: {
-    schema: z.string(),
-    description: "Session ID",
-    required: false,
-  },
+  sessionId: commonSessionParams.sessionId,
   task: {
     schema: z.string(),
     description: "Task ID to identify session",

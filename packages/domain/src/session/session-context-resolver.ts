@@ -114,14 +114,23 @@ export async function resolveSessionContext(
   if (sessionId) {
     log.debug("Using explicit session ID", { sessionId });
 
-    // Validate session exists
+    // Validate session exists. `getSession` resolves `ws#N` short ids and
+    // hex-prefixes as well as a full uuid or legacy custom name (mt#2967) —
+    // so `sessionId` here may be any of those input shapes.
     const sessionRecord = await sessionProvider.getSession(sessionId);
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${sessionId}' not found`, "session", sessionId);
     }
 
     return {
-      sessionId,
+      // mt#2967: return the CANONICAL resolved id (sessionRecord.sessionId),
+      // not the raw input — the raw input may have been a `ws#N` short id or
+      // hex prefix, and downstream consumers (filesystem path construction,
+      // updateSession/deleteSession calls) require the real uuid/name.
+      // Falls back to the raw `sessionId` when the returned record has no
+      // `.sessionId` (defends against malformed records — every real
+      // persisted row always has one).
+      sessionId: sessionRecord.sessionId ?? sessionId,
       taskId: sessionRecord.taskId,
       resolvedBy: "explicit-session",
       workingDirectory,
@@ -312,7 +321,17 @@ export async function resolveSessionIdForCommand(options: {
   const { sessionId, task, sessionProvider } = options;
 
   if (sessionId) {
-    return sessionId;
+    // mt#2967: resolve a `ws#N` short id / hex-prefix / uuid to the
+    // canonical sessionId via the same lookup `getSession()` uses, so
+    // mutating commands (session_commit, session_edit_file, ...) that pass
+    // a short id or prefix operate against the correct on-disk workspace
+    // directory (named by the canonical uuid), not the raw short-id token.
+    // Existence validation is intentionally left to the caller/domain layer
+    // (matches pre-existing behavior): if resolution finds no matching row,
+    // fall back to the raw input unchanged so the caller's own not-found
+    // error message/path is unaffected.
+    const record = await sessionProvider.getSession(sessionId);
+    return record?.sessionId ?? sessionId;
   }
 
   if (!task) {

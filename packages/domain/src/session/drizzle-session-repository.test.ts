@@ -111,6 +111,18 @@ describe("DrizzleSessionRepository", () => {
     function makeFakeDb(sessionRowsReturned: Array<{ sessionId: string }>) {
       const deleteCalls: unknown[] = [];
       const db = {
+        // mt#2967 PR #2140 R1: deleteSession now resolves the input via
+        // resolveToCanonicalSessionId FIRST (an exact-match select probe)
+        // before the delete itself. Mirror `sessionRowsReturned` here too —
+        // "the session exists" and "the delete matches a row" are the same
+        // condition for these tests.
+        select: mock((_shape?: unknown) => ({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.resolve(sessionRowsReturned),
+            }),
+          }),
+        })),
         delete: mock((table: unknown) => {
           deleteCalls.push(table);
           return {
@@ -148,6 +160,14 @@ describe("DrizzleSessionRepository", () => {
     test("attachment teardown failure does not fail the session deletion (best-effort)", async () => {
       const deleteCalls: unknown[] = [];
       const db = {
+        // mt#2967 PR #2140 R1: exact-match probe for the resolve-before-delete step.
+        select: mock((_shape?: unknown) => ({
+          from: () => ({
+            where: () => ({
+              limit: () => Promise.resolve([{ sessionId: "s1" }]),
+            }),
+          }),
+        })),
         delete: mock((table: unknown) => {
           deleteCalls.push(table);
           if (deleteCalls.length === 1) {

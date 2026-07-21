@@ -32,6 +32,9 @@ function buildFixtureFs() {
     [`${repoRoot}/.minsky/hooks/guard.ts`]: "export const guard = 1;\n",
     [`${repoRoot}/.minsky/hooks/guard.test.ts`]:
       'import { guard } from "./guard";\ntest("guard", () => guard);\n',
+    [`${repoRoot}/src/cockpit/web/widgets/Widget.tsx`]: "export const Widget = 1;\n",
+    [`${repoRoot}/src/cockpit/web/widgets/Widget.test.tsx`]:
+      'import { Widget } from "./Widget";\ntest("Widget", () => Widget);\n',
   });
 }
 
@@ -103,6 +106,22 @@ describe("runFastRelatedTestGate (mt#2932)", () => {
     // Updated expectation: paths handed to bun test now carry the "./" prefix
     // (toBunTestPath) so bun treats them as paths, not name filters.
     expect(calls).toEqual([["./src/mcp/server.test.ts"]]);
+  });
+
+  test("a related test under src/cockpit/web/ runs with the dom-setup preload (mt#2967)", () => {
+    const fs = buildFixtureFs() as unknown as FsLike;
+    const calls: Array<{ files: string[]; preload?: string }> = [];
+    const result = runFastRelatedTestGate(["src/cockpit/web/widgets/Widget.tsx"], repoRoot, {
+      fs,
+      runBunTest: (files, preload) => {
+        calls.push({ files, preload });
+        return { exitCode: 0, combined: [" 1 pass", " 0 fail", ranLine(1, 1)].join("\n") };
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([
+      { files: ["./src/cockpit/web/widgets/Widget.test.tsx"], preload: "./tests/dom-setup.ts" },
+    ]);
   });
 
   test("exceeding RELATED_TEST_CAP skips the local run instead of running everything", () => {

@@ -84,6 +84,13 @@ export enum SessionStatus {
  */
 export interface SessionRecord {
   sessionId: string;
+  /**
+   * Numeric `ws#N` short id (mt#2967, ADR-029) — added alongside the
+   * canonical uuid `sessionId` above, never replacing it. Undefined for
+   * legacy rows pre-backfill and momentarily on a freshly-constructed record
+   * destined for `addSession()` (which mints it before insert).
+   */
+  shortId?: string;
   repoName: string;
   repoUrl: string;
   repoPath?: string; // Local path to the repository
@@ -173,6 +180,8 @@ export function deriveSessionLiveness(
  */
 export interface Session {
   sessionId: string;
+  /** Numeric `ws#N` short id (mt#2967). See SessionRecord.shortId. */
+  shortId?: string;
   repoUrl?: string;
   repoName?: string;
   /** @deprecated No longer stored persistently; kept for compatibility with code that still reads it */
