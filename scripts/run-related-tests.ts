@@ -52,7 +52,7 @@ function runBunTest(files: string[]): { exitCode: number; combined: string } {
   const decoder = new TextDecoder();
   const proc = Bun.spawnSync(
     ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", ...files],
-    { env: { ...process.env, AGENT: "1" }, stdout: "pipe", stderr: "pipe" }
+    { env: { ...process.env, AGENT: "1" }, stdout: "pipe", stderr: "pipe", timeout: 60000 }
   );
   const out = decoder.decode(proc.stdout);
   const err = decoder.decode(proc.stderr);
@@ -151,8 +151,9 @@ if (import.meta.main) {
 
   if (!result.ok) {
     console.error(
-      "\nrun-related-tests.ts: fast related-test gate FAILED. Reproduce locally: " +
-        "bun scripts/run-related-tests.ts"
+      "\nrun-related-tests.ts: fast related-test gate FAILED. Reproduce locally with the exact " +
+        "same input:\n" +
+        `  bun scripts/run-related-tests.ts ${staged.join(" ")}`
     );
     process.exit(1);
   }

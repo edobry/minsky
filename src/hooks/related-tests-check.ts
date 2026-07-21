@@ -21,6 +21,11 @@ export function runRelatedTestsCheck(projectRoot: string): RelatedTestsCheckResu
     env: { ...process.env, AGENT: "1" },
     stdout: "pipe",
     stderr: "pipe",
+    // Bounds the whole gate to well under the 60-90s bypass-risk threshold
+    // it targets, even if a related test (or the mapping-layer graph build)
+    // hangs. A killed/timed-out process reports a non-zero exitCode, which
+    // is already treated as failure below -- no special-casing needed.
+    timeout: 75000,
   });
   const decoder = new TextDecoder();
   const stdout = decoder.decode(proc.stdout);

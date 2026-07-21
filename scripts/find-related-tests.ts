@@ -114,18 +114,70 @@ export interface PackageExportsInfo {
 }
 
 /**
- * Load the `exports` map for every `@minsky/*` workspace package that
- * declares one, so bare-specifier imports (e.g. `@minsky/domain/errors`,
- * `@minsky/shared/logger`) can be resolved to real files -- the same
- * resolution the bundler-mode TS moduleResolution does at compile time.
+ * Expand a single `package.json` `workspaces` glob entry to concrete
+ * repo-relative directories. Only supports this repo's actual glob shape
+ * (`"<dir>/*"`, e.g. `"packages/*"`) plus a literal (non-glob) directory --
+ * that is the full vocabulary `package.json`'s `workspaces` array uses here.
+ */
+function expandWorkspaceGlob(fs: FsLike, repoRoot: string, pattern: string): string[] {
+  if (!pattern.endsWith("/*")) {
+    return [pattern];
+  }
+  const baseDir = pattern.slice(0, -2);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(join(repoRoot, baseDir));
+  } catch {
+    return [];
+  }
+  const dirs: string[] = [];
+  for (const entry of entries) {
+    const rel = `${baseDir}/${entry}`;
+    try {
+      if (fs.statSync(join(repoRoot, rel)).isDirectory()) dirs.push(rel);
+    } catch {
+      // Race/ENOENT between readdir and stat -- skip, not fatal.
+    }
+  }
+  return dirs;
+}
+
+/**
+ * Discover every workspace package directory declared in the root
+ * `package.json`'s `workspaces` array (dynamic -- a new `@minsky/*` package
+ * is picked up automatically, no hardcoded directory list to keep in sync).
+ */
+export function discoverWorkspacePackageDirs(repoRoot: string, fs: FsLike = realFs): string[] {
+  const rootPkgPath = join(repoRoot, "package.json");
+  if (!fs.existsSync(rootPkgPath)) return [];
+  let workspaces: string[];
+  try {
+    const rootPkg = JSON.parse(readTextFile(fs, rootPkgPath)) as { workspaces?: string[] };
+    workspaces = rootPkg.workspaces ?? [];
+  } catch {
+    return [];
+  }
+  const dirs: string[] = [];
+  for (const pattern of workspaces) {
+    dirs.push(...expandWorkspaceGlob(fs, repoRoot, pattern));
+  }
+  return dirs;
+}
+
+/**
+ * Load the `exports` map for every workspace package that declares one
+ * (discovered via the root `package.json`'s `workspaces` glob -- see
+ * `discoverWorkspacePackageDirs`), so bare-specifier imports (e.g.
+ * `@minsky/domain/errors`, `@minsky/shared/logger`) can be resolved to real
+ * files -- the same resolution the bundler-mode TS moduleResolution does at
+ * compile time.
  */
 export function loadPackageExportsMaps(
   repoRoot: string,
   fs: FsLike = realFs
 ): Map<string, PackageExportsInfo> {
   const map = new Map<string, PackageExportsInfo>();
-  const candidateDirs = ["packages/domain", "packages/shared"];
-  for (const dir of candidateDirs) {
+  for (const dir of discoverWorkspacePackageDirs(repoRoot, fs)) {
     const pkgJsonPath = join(repoRoot, dir, "package.json");
     if (!fs.existsSync(pkgJsonPath)) continue;
     try {

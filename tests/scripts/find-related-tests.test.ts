@@ -5,6 +5,7 @@ import {
   resolveRelativeSpecifier,
   resolvePackageSpecifier,
   loadPackageExportsMaps,
+  discoverWorkspacePackageDirs,
   findRelatedTestFiles,
   type FsLike,
 } from "../../scripts/find-related-tests";
@@ -89,10 +90,46 @@ describe("resolvePackageSpecifier (mt#2932)", () => {
   });
 });
 
+describe("discoverWorkspacePackageDirs (mt#2932, mock filesystem)", () => {
+  const repoRoot = "/repo";
+
+  test("expands a `<dir>/*` glob entry to its concrete subdirectories", () => {
+    const mockFs = createMockFilesystem({
+      [`${repoRoot}/package.json`]: JSON.stringify({ workspaces: ["packages/*"] }),
+      [`${repoRoot}/packages/domain/package.json`]: JSON.stringify({ name: "@minsky/domain" }),
+      [`${repoRoot}/packages/shared/package.json`]: JSON.stringify({ name: "@minsky/shared" }),
+    });
+    const dirs = discoverWorkspacePackageDirs(repoRoot, mockFs as unknown as FsLike);
+    expect(dirs.sort()).toEqual(["packages/domain", "packages/shared"]);
+  });
+
+  test("keeps a literal (non-glob) workspaces entry as-is", () => {
+    const mockFs = createMockFilesystem({
+      [`${repoRoot}/package.json`]: JSON.stringify({ workspaces: ["packages/domain"] }),
+      [`${repoRoot}/packages/domain/package.json`]: JSON.stringify({ name: "@minsky/domain" }),
+    });
+    const dirs = discoverWorkspacePackageDirs(repoRoot, mockFs as unknown as FsLike);
+    expect(dirs).toEqual(["packages/domain"]);
+  });
+
+  test("returns an empty list when the root package.json is missing", () => {
+    const mockFs = createMockFilesystem({});
+    expect(discoverWorkspacePackageDirs(repoRoot, mockFs as unknown as FsLike)).toEqual([]);
+  });
+
+  test("returns an empty list when workspaces is absent", () => {
+    const mockFs = createMockFilesystem({
+      [`${repoRoot}/package.json`]: JSON.stringify({ name: "root" }),
+    });
+    expect(discoverWorkspacePackageDirs(repoRoot, mockFs as unknown as FsLike)).toEqual([]);
+  });
+});
+
 describe("loadPackageExportsMaps (mt#2932, mock filesystem)", () => {
-  test("loads @minsky/domain and @minsky/shared package.json exports maps", () => {
+  test("loads @minsky/domain and @minsky/shared package.json exports maps via workspaces glob", () => {
     const repoRoot = "/repo";
     const mockFs = createMockFilesystem({
+      [`${repoRoot}/package.json`]: JSON.stringify({ workspaces: ["packages/*"] }),
       [`${repoRoot}/packages/domain/package.json`]: JSON.stringify({
         name: "@minsky/domain",
         exports: { "./errors": "./src/errors/index.ts" },
@@ -105,6 +142,22 @@ describe("loadPackageExportsMaps (mt#2932, mock filesystem)", () => {
     const map = loadPackageExportsMaps(repoRoot, mockFs as unknown as FsLike);
     expect(map.has("@minsky/domain")).toBe(true);
     expect(map.has("@minsky/shared")).toBe(true);
+  });
+
+  test("picks up a NEW workspace package with no code changes to this module", () => {
+    // Reviewer finding (PR #2117): the old hardcoded candidateDirs list would
+    // silently miss a newly-added @minsky/* package. Confirm a package not
+    // present in any prior fixture is still discovered via the glob.
+    const repoRoot = "/repo";
+    const mockFs = createMockFilesystem({
+      [`${repoRoot}/package.json`]: JSON.stringify({ workspaces: ["packages/*"] }),
+      [`${repoRoot}/packages/new-thing/package.json`]: JSON.stringify({
+        name: "@minsky/new-thing",
+        exports: { ".": "./src/index.ts" },
+      }),
+    });
+    const map = loadPackageExportsMaps(repoRoot, mockFs as unknown as FsLike);
+    expect(map.has("@minsky/new-thing")).toBe(true);
   });
 
   test("skips a missing package.json without throwing", () => {
