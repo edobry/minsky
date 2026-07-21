@@ -1,28 +1,16 @@
-import { TASK_STATUS } from "./taskConstants";
+/**
+ * Task-listing filter utilities, built on the registry's canonical
+ * hidden-by-default predicate (mt#3010 single-authority consolidation —
+ * DEFAULT_HIDDEN_STATUSES / isHiddenByDefaultStatus moved to workflows.ts;
+ * this module now consumes them rather than maintaining its own copy).
+ */
+import { isHiddenByDefaultStatus } from "./workflows";
+
+export { isHiddenByDefaultStatus };
 
 export interface TaskFilterOptions {
   status?: string;
   all?: boolean;
-}
-
-/**
- * Statuses hidden by default in task listings (terminal success/cancellation states).
- *
- * Single success terminal across all kinds since mt#2311:
- * - `DONE`: success terminal (all kinds)
- * - `CLOSED`: cancellation / no-longer-needed (all kinds)
- *
- * `BLOCKED` is NOT hidden — blocked tasks need operator attention.
- *
- * Note: exposed as a readonly tuple (not a Set) to satisfy the
- * `custom/no-domain-singleton` lint rule. Callers should use the
- * `isHiddenByDefaultStatus()` helper instead of building their own Set.
- */
-export const TASK_STATUSES_HIDDEN_BY_DEFAULT = [TASK_STATUS.DONE, TASK_STATUS.CLOSED] as const;
-
-export function isHiddenByDefaultStatus(status: string | undefined): boolean {
-  if (status === undefined) return false;
-  return (TASK_STATUSES_HIDDEN_BY_DEFAULT as readonly string[]).includes(status);
 }
 
 export function shouldIncludeTaskStatus(

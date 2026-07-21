@@ -1,5 +1,6 @@
 import { eq, not, and, like, inArray, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
+import { DEFAULT_HIDDEN_STATUSES } from "./workflows";
 // Remove configuration import - dependencies should be injected
 import {
   tasksTable,
@@ -106,12 +107,11 @@ export class MinskyTaskBackend implements TaskBackend {
     if (options?.status && options.status !== "all") {
       conditions.push(eq(tasksTable.status, options.status));
     } else if (!options?.all) {
-      // Default: exclude terminal statuses unless --all is specified.
-      // Terminal set = DONE + CLOSED (single success terminal since mt#2311;
-      // rows at the retired COMPLETED value were migrated to DONE). Kept in
-      // sync with TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
-      conditions.push(not(eq(tasksTable.status, "DONE")));
-      conditions.push(not(eq(tasksTable.status, "CLOSED")));
+      // Default: exclude the registry's hidden-by-default statuses unless
+      // --all is specified (mt#3010 — single-authority consolidation;
+      // DEFAULT_HIDDEN_STATUSES lives in workflows.ts, was previously
+      // hardcoded here as two literal `not(eq(...))` conditions).
+      conditions.push(not(inArray(tasksTable.status, [...DEFAULT_HIDDEN_STATUSES])));
     }
 
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
