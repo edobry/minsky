@@ -15,6 +15,7 @@
     "./process": "./src/process.ts",
     "./fs": "./src/fs.ts",
     "./constants": "./src/constants.ts",
-    "./array-safety": "./src/array-safety.ts"
+    "./array-safety": "./src/array-safety.ts",
+    "./cold-start-profile": "./src/cold-start-profile.ts"
   }
 }

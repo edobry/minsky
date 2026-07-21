@@ -23,6 +23,7 @@ import { logPostgresNotice } from "../postgres-notice-handler";
 import { guardRawSqlAgainstPoolerWedge, type GuardedRawSql } from "../raw-sql-pooler-guard";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
+import { profileCheckpoint } from "@minsky/shared/cold-start-profile";
 import {
   EMBEDDINGS_CONFIGS,
   type VectorDomain,
@@ -284,8 +285,14 @@ export class PostgresPersistenceProvider
       // Create Drizzle instance
       const db = drizzle(sql);
 
-      // Verify connection — retry on pool saturation (mt#1193)
+      // Verify connection — retry on pool saturation (mt#1193). When the
+      // factory did NOT hand us a pre-validated client, this SELECT drives the
+      // SECOND remote handshake of the cold boot (the factory's probe
+      // connection was the first) — mt#2973 measures it here to size the
+      // redundant-handshake cost the client-reuse optimization eliminates.
+      profileCheckpoint("pg_init_select1_start");
       await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
+      profileCheckpoint("pg_init_select1_done");
 
       // Cache the connection objects BEFORE running migrations. runMigrations
       // uses `this.db` / `this.sql`, but `this.isInitialized` stays false until
@@ -595,6 +602,7 @@ export class PostgresVectorPersistenceProvider
           SELECT 1 FROM pg_extension WHERE extname = 'vector'
         ) as exists
       `;
+      profileCheckpoint("pg_init_vector_reprobe");
 
       if (!result[0]?.exists) {
         throw new Error("pgvector extension not available - factory should have prevented this");
