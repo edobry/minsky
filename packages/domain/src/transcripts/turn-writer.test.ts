@@ -66,12 +66,44 @@ function turnKey(sid: string, idx: number): string {
  *   - select({agentSessionId, transcript}).from(agent_transcripts)  → transcriptRows
  *   - insert(turns).values(v).onConflictDoUpdate({target, set})     → upsert into store
  *
+ * `values(v)` accepts either a single row object or an ARRAY of row objects
+ * (mt#2457 perf: writeTurnsForTranscript now bulk-upserts turns in chunks
+ * rather than one row per `.values()` call) — each row in the array is
+ * upserted independently, matching Postgres's per-row ON CONFLICT semantics
+ * for a multi-row INSERT.
+ *
  * Crucially, the upsert SIMULATES the embedding-preservation invariant: because
  * writeTurnsForTranscript never includes `embedding` in `values`, on conflict the
  * fake leaves the existing row's `embedding` untouched (matching a SET clause that
  * omits the embedding column).
  */
-function makeDb(transcriptRows: FakeTranscriptRow[], store: Map<string, FakeTurnRow>) {
+function makeDb(
+  transcriptRows: FakeTranscriptRow[],
+  store: Map<string, FakeTurnRow>,
+  onInsertBatch?: (batchSize: number) => void
+) {
+  type TurnValues = Partial<FakeTurnRow> & { agentSessionId: string; turnIndex: number };
+
+  function upsertOne(v: TurnValues): void {
+    const key = turnKey(v.agentSessionId, v.turnIndex);
+    const ftsText = [v.userText, v.assistantText].filter(Boolean).join(" ") || null;
+    const existing = store.get(key);
+    store.set(key, {
+      agentSessionId: v.agentSessionId,
+      turnIndex: v.turnIndex,
+      userText: v.userText ?? null,
+      assistantText: v.assistantText ?? null,
+      toolCalls: v.toolCalls ?? null,
+      startedAt: v.startedAt ?? null,
+      endedAt: v.endedAt ?? null,
+      // PRESERVE embedding: writeTurnsForTranscript omits `embedding`
+      // from values, so the SET clause does not touch it on conflict.
+      embedding: existing ? existing.embedding : null,
+      ftsText,
+      isSpawnBoundary: v.isSpawnBoundary ?? false,
+    });
+  }
+
   return {
     select(_fields?: Record<string, unknown>) {
       return {
@@ -86,26 +118,12 @@ function makeDb(transcriptRows: FakeTranscriptRow[], store: Map<string, FakeTurn
     },
     insert(_table: unknown) {
       return {
-        values(v: Partial<FakeTurnRow> & { agentSessionId: string; turnIndex: number }) {
-          const key = turnKey(v.agentSessionId, v.turnIndex);
-          const ftsText = [v.userText, v.assistantText].filter(Boolean).join(" ") || null;
+        values(v: TurnValues | TurnValues[]) {
+          const rows = Array.isArray(v) ? v : [v];
+          onInsertBatch?.(rows.length);
           return {
             onConflictDoUpdate(_opts: unknown): Promise<void> {
-              const existing = store.get(key);
-              store.set(key, {
-                agentSessionId: v.agentSessionId,
-                turnIndex: v.turnIndex,
-                userText: v.userText ?? null,
-                assistantText: v.assistantText ?? null,
-                toolCalls: v.toolCalls ?? null,
-                startedAt: v.startedAt ?? null,
-                endedAt: v.endedAt ?? null,
-                // PRESERVE embedding: writeTurnsForTranscript omits `embedding`
-                // from values, so the SET clause does not touch it on conflict.
-                embedding: existing ? existing.embedding : null,
-                ftsText,
-                isSpawnBoundary: v.isSpawnBoundary ?? false,
-              });
+              for (const row of rows) upsertOne(row);
               return Promise.resolve();
             },
           };
@@ -198,6 +216,30 @@ describe("writeTurnsForTranscript", () => {
     expect(result.written).toBe(2);
     expect(result.nonEmptyYieldedZero).toBe(false);
     expect(store.size).toBe(2);
+  });
+
+  test("mt#2457 perf: bulk-upserts turns in chunks instead of one round-trip per turn", async () => {
+    // A session with more turns than the chunk size (500) — build 1,200 turns
+    // (2,400 raw lines) so the write spans 3 chunks (500 + 500 + 200). Before
+    // mt#2457 this was 1,200 individual awaited INSERT round-trips; a handful
+    // of legacy sessions in the real corpus run into the thousands of turns,
+    // which made even a single session's reconciliation take on the order of
+    // a minute over a remote Postgres connection.
+    const TURN_COUNT = 1200;
+    const lines: RawTurnLine[] = [];
+    for (let i = 0; i < TURN_COUNT; i++) {
+      lines.push(userLine(`u${i}`, TS1), assistantLine(`a${i}`, [], TS2));
+    }
+    const store = new Map<string, FakeTurnRow>();
+    const batchSizes: number[] = [];
+    const db = makeDb([], store, (n) => batchSizes.push(n));
+
+    const result = await writeTurnsForTranscript(asPg(db), SESSION_A, lines);
+
+    expect(result.written).toBe(TURN_COUNT);
+    expect(store.size).toBe(TURN_COUNT);
+    // 3 bulk-insert calls (500 + 500 + 200), not 1,200 single-row calls.
+    expect(batchSizes).toEqual([500, 500, 200]);
   });
 
   test("fts_text auto-populates from user + assistant text", async () => {

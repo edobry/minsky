@@ -90,11 +90,22 @@ export async function writeTurnsForTranscript(
     return { written: 0, nonEmptyYieldedZero: true };
   }
 
+  // mt#2457 perf: upsert in bulk, chunked, rather than one round-trip per
+  // turn. A handful of legacy sessions run into the thousands of turns (up
+  // to ~4,511 raw lines observed in the 2026-07-20 corpus measurement) —
+  // per-turn serial round-trips to a remote Postgres made even a single such
+  // session take on the order of a minute, which is what actually made the
+  // full-corpus backfill impractical (not just the outer unbatched SELECT).
+  // CHUNK_SIZE keeps each statement's bind-parameter count (8 columns/row)
+  // comfortably under Postgres's ~65535 parameter limit for any plausible
+  // session size, while collapsing thousands of round-trips into a handful.
+  const CHUNK_SIZE = 500;
   let written = 0;
-  for (const turn of turns) {
+  for (let i = 0; i < turns.length; i += CHUNK_SIZE) {
+    const chunk = turns.slice(i, i + CHUNK_SIZE);
     // NOTE: `embedding` is deliberately omitted — capture writes text only.
     // `fts_text` is GENERATED ALWAYS and must not be written either.
-    const insertValues = {
+    const insertValues = chunk.map((turn) => ({
       agentSessionId,
       turnIndex: turn.turnIndex,
       userText: turn.userText ?? undefined,
@@ -109,7 +120,7 @@ export async function writeTurnsForTranscript(
       startedAt: turn.startedAt ?? undefined,
       endedAt: turn.endedAt ?? undefined,
       isSpawnBoundary: turn.isSpawnBoundary,
-    };
+    }));
 
     try {
       await db
@@ -128,10 +139,11 @@ export async function writeTurnsForTranscript(
             isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
           },
         });
-      written++;
+      written += chunk.length;
     } catch (err) {
       log.warn(
-        `writeTurnsForTranscript: failed to upsert turn ${agentSessionId}[${turn.turnIndex}]`,
+        `writeTurnsForTranscript: failed to upsert a chunk of ${chunk.length} turns for ` +
+          `${agentSessionId} (turns ${chunk[0]?.turnIndex}-${chunk[chunk.length - 1]?.turnIndex})`,
         {
           error: getErrorMessage(err),
         }
