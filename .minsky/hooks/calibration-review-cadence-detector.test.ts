@@ -8,19 +8,21 @@ import { describe, expect, test } from "bun:test";
 import type {
   CalibrationLogEntry,
   CalibrationLogResult,
+  ReviewDueLog,
+} from "../../src/domain/calibration/calibration-sweep";
+import {
+  computeReviewDueLogs,
+  STALE_DAYS_MS,
 } from "../../src/domain/calibration/calibration-sweep";
 import {
   buildPendingAskRecord,
-  computeReviewDueLogs,
   formatCadenceWarning,
   formatPendingAskLines,
   selectPendingAskLogs,
   shouldReWarn,
-  STALE_DAYS_MS,
   COOLDOWN_MS,
   type LastWarnedRecord,
   type LastWarnedStore,
-  type ReviewDueLog,
 } from "./calibration-review-cadence-detector";
 
 // ---------------------------------------------------------------------------
@@ -277,6 +279,25 @@ describe("formatCadenceWarning", () => {
     expect(msg).toContain("unreviewed for >=");
     expect(msg).toContain("/calibration-review");
     expect(msg).toContain("MINSKY_SKIP_CALIBRATION_CADENCE");
+  });
+
+  test("names the never-reviewed reason (mt#2896)", () => {
+    const due: ReviewDueLog[] = [
+      {
+        name: "causal-premise",
+        path: ".minsky/causal-premise-calibration.jsonl",
+        kind: "causal-premise",
+        firesSinceLastReview: 1,
+        totalFires: 1,
+        distinctPhrases: 1,
+        reason: "never-reviewed",
+        reviewByDays: 7,
+      },
+    ];
+    const msg = formatCadenceWarning(due);
+    expect(msg).toContain("causal-premise");
+    expect(msg).toContain("never reviewed");
+    expect(msg).toContain("7 days ago");
   });
 });
 
