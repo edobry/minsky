@@ -652,6 +652,11 @@ export function computeLogResult(
     newRecords: atCountThreshold ? newRecords : [],
     watermarkCount,
     openAskId: watermark?.openAskId,
+    // Calibration logs are APPEND-ONLY (records appended as events fire, never
+    // reordered), so the first record IS the earliest — mt#2896 review NB1. A
+    // naive chronological min would be LESS safe here: a later record with an
+    // empty/malformed timestamp (parseCalibrationRecord tolerates `""`) would
+    // poison the min and silently disable the never-reviewed leg.
     firstRecordTimestamp: allRecords[0]?.timestamp,
   };
 }
@@ -701,12 +706,21 @@ export interface ReviewDueLog {
   reason: "past-threshold" | "time-stale" | "never-reviewed";
   /** Forwarded from the watermark's `openAskId` (mt#2659); undefined for never-reviewed (no watermark). */
   openAskId?: string;
+  /**
+   * For the never-reviewed leg only (mt#2896 review): the EFFECTIVE review-by
+   * window in days used for this log's decision (per-entry `reviewByDays`, else
+   * `NEVER_REVIEWED_DAYS`). Undefined for past-threshold / time-stale. Lets the
+   * cadence warning name the log's ACTUAL window instead of the hardcoded
+   * default (which would misreport an overridden entry).
+   */
+  reviewByDays?: number;
 }
 
 function toReviewDueLog(
   r: CalibrationLogResult,
   reason: ReviewDueLog["reason"],
-  openAskId: string | undefined
+  openAskId: string | undefined,
+  reviewByDays?: number
 ): ReviewDueLog {
   return {
     name: r.entry.name,
@@ -717,6 +731,7 @@ function toReviewDueLog(
     distinctPhrases: r.distinctPhrases,
     reason,
     openAskId,
+    reviewByDays,
   };
 }
 
@@ -764,7 +779,8 @@ export function computeReviewDueLogs(
           ? r.entry.reviewByDays * 24 * 60 * 60 * 1000
           : neverReviewedMsDefault;
       if (nowMs - firstMs >= windowMs) {
-        due.push(toReviewDueLog(r, "never-reviewed", undefined));
+        const windowDays = Math.round(windowMs / (24 * 60 * 60 * 1000));
+        due.push(toReviewDueLog(r, "never-reviewed", undefined, windowDays));
       }
       continue;
     }

@@ -230,7 +230,7 @@ export function formatCadenceWarning(due: ReviewDueLog[]): string {
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
         : d.reason === "never-reviewed"
-          ? `never reviewed; first fire >= ${NEVER_REVIEWED_DAYS} days ago`
+          ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
           : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
     lines.push(
       `  - ${d.name}: ${d.firesSinceLastReview} new fire(s) since last review ` +

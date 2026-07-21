@@ -1390,6 +1390,7 @@ describe("computeReviewDueLogs (mt#2896)", () => {
     expect(due).toHaveLength(1);
     expect(due[0]?.reason).toBe("never-reviewed");
     expect(due[0]?.name).toBe("causal-premise");
+    expect(due[0]?.reviewByDays).toBe(NEVER_REVIEWED_DAYS);
   });
 
   test("condition 3 — does NOT flag a never-reviewed log below the 30-day bar (29 days)", () => {
@@ -1433,6 +1434,7 @@ describe("computeReviewDueLogs (mt#2896)", () => {
       }),
     ];
     expect(computeReviewDueLogs(at8, {}, NOW)[0]?.reason).toBe("never-reviewed");
+    expect(computeReviewDueLogs(at8, {}, NOW)[0]?.reviewByDays).toBe(7);
     expect(computeReviewDueLogs(at6, {}, NOW)).toHaveLength(0);
   });
 

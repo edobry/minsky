@@ -291,11 +291,13 @@ describe("formatCadenceWarning", () => {
         totalFires: 1,
         distinctPhrases: 1,
         reason: "never-reviewed",
+        reviewByDays: 7,
       },
     ];
     const msg = formatCadenceWarning(due);
     expect(msg).toContain("causal-premise");
     expect(msg).toContain("never reviewed");
+    expect(msg).toContain("7 days ago");
   });
 });
 

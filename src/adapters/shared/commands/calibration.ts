@@ -99,6 +99,7 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
 
 function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
   const lines: string[] = ["=== Calibration Review Sweep ===", ""];
+  const reasonByPath = new Map(reviewDue.map((d) => [d.path, d.reason]));
 
   for (const r of results) {
     lines.push(`Log: ${r.entry.name} (${r.entry.path})`);
@@ -109,6 +110,10 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
     lines.push(`  At count threshold:     ${r.atCountThreshold}`);
     lines.push(`  Past threshold:         ${r.pastThreshold}`);
+    const dueReason = reasonByPath.get(r.entry.path);
+    if (dueReason) {
+      lines.push(`  Review-due:             ${dueReason}`);
+    }
     if (r.openAskId) {
       lines.push(`  Open ask (mt#2659):     ${r.openAskId} — disposition pending`);
     }
