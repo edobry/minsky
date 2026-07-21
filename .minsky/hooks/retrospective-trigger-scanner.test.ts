@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   detectTriggerPhrases,
   detectUserCorrection,
+  detectMethodRedirect,
+  hasDesignContext,
   hasRetrospectiveSkillInvocation,
   isDetectorMetaDiscussion,
   OVERRIDE_ENV_VAR,
@@ -17,6 +19,7 @@ import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
 
 const WHY_DID_YOU_DO_THAT = "why did you do that?";
+const APOLOGY_FIXTURE = "I owe you an apology for that mistake.";
 
 // ---------------------------------------------------------------------------
 // R1: Apology / contrition — positive matches
@@ -510,7 +513,7 @@ describe("run() (dispatcher-compatible)", () => {
   test("R1 trigger match -> additionalContext + calibration record", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine("I owe you an apology for that mistake."),
+      makeRunAssistantLine(APOLOGY_FIXTURE),
       makeRunUserLine(),
     ];
     const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
@@ -548,7 +551,7 @@ describe("run() (dispatcher-compatible)", () => {
   test("legacy override env var suppresses detection and returns an audit line", () => {
     const transcriptLines = [
       makeRunUserLine(),
-      makeRunAssistantLine("I owe you an apology for that mistake."),
+      makeRunAssistantLine(APOLOGY_FIXTURE),
       makeRunUserLine(),
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
@@ -682,5 +685,197 @@ describe("mt#2672 — codified boundaries (PR #1834 R1)", () => {
     const matches = detectUserCorrection("that's wrong — the calibration data shows 5 FPs, not 3");
     expect(matches.length).toBe(1);
     expect(matches[0]?.family).toBe("user-correction");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Method-redirect family (mt#2446): user redirects the agent's METHOD
+// (research-before-design) after the agent produced a design/recommendation.
+// ---------------------------------------------------------------------------
+
+const DESIGN_TURN =
+  "Recommendation: Option A — snapshot the schema and stamp the ledger baseline. " +
+  "I recommend this approach: it avoids replaying old migrations.";
+
+describe("method-redirect patterns (mt#2446)", () => {
+  const positives = [
+    "I think you should do some research on the appropriate way to handle this using drizzle",
+    "you should do more research before we commit to this",
+    "you should research the vendor docs first",
+    "we should research how other tools do this",
+    "did you check how drizzle does this?",
+    "did you look at how the community solves this?",
+    "is there a standard way to do this?",
+    "is there a canonical way to handle baselines?",
+    "is there a recommended way to set this up?",
+    "is there a proper way to do migrations?",
+    "how does drizzle handle this?",
+    "how does terraform do this?",
+    "look at how the community handles this",
+    "look at how others do this",
+    "look at how pulumi handles this",
+    "what's the appropriate way to handle this?",
+    "what's the right way to do this in drizzle?",
+    "what's the canonical way to baseline a migration ledger?",
+  ];
+
+  for (const phrase of positives) {
+    test(`matches with design context: "${phrase.slice(0, 60)}"`, () => {
+      const matches = detectMethodRedirect(phrase, DESIGN_TURN);
+      expect(matches.length).toBe(1);
+      expect(matches[0]?.family).toBe("method-redirect");
+    });
+  }
+
+  const negatives = [
+    // Open research question shape — "should we" is not "we should"
+    "should we research observability platforms?",
+    // Ordinary operational prompts
+    "proceed with the implementation",
+    "what's the status of the PR?",
+    "run the tests and merge",
+    // "way" phrases without the method-redirect qualifiers
+    "is there a way to skip CI?",
+    "what's the fastest way to get this merged?",
+  ];
+
+  for (const phrase of negatives) {
+    test(`does NOT match even with design context: "${phrase.slice(0, 60)}"`, () => {
+      expect(detectMethodRedirect(phrase, DESIGN_TURN).length).toBe(0);
+    });
+  }
+});
+
+describe("method-redirect context condition (mt#2446)", () => {
+  const REDIRECT = "I think you should do some research on the appropriate way to handle this";
+
+  test("does NOT fire without a design in the prior assistant turn", () => {
+    expect(
+      detectMethodRedirect(REDIRECT, "Let me look into the spec and report back.").length
+    ).toBe(0);
+  });
+
+  test("does NOT fire with an empty prior assistant turn", () => {
+    expect(detectMethodRedirect(REDIRECT, "").length).toBe(0);
+  });
+
+  test("spec acceptance: open research question with NO prior design does not fire", () => {
+    expect(
+      detectMethodRedirect(
+        "should we research observability platforms?",
+        "What would you like to work on next?"
+      ).length
+    ).toBe(0);
+  });
+
+  const designMarkerCases: Array<[string, string]> = [
+    ["Option A/B labels", "Two candidates. Option A uses a sweeper; Option B uses a queue."],
+    ["recommendation", "My recommendation is the sweeper."],
+    ["Plan decision", "Plan decision: bespoke snapshot-and-stamp baseline."],
+    ["I recommend", "I recommend the snapshot approach."],
+    ["approach:", "Proposed approach: stamp the ledger high-water mark."],
+  ];
+
+  for (const [label, designText] of designMarkerCases) {
+    test(`design marker recognized: ${label}`, () => {
+      expect(hasDesignContext(designText)).toBe(true);
+      expect(detectMethodRedirect(REDIRECT, designText).length).toBe(1);
+    });
+  }
+
+  test("plain operational prose is not design context", () => {
+    expect(hasDesignContext("Committed the fix and pushed. Tests pass.")).toBe(false);
+  });
+});
+
+describe("method-redirect elision guard (mt#2446)", () => {
+  test("QUOTED redirect phrase (discussing, not redirecting) does not fire", () => {
+    const matches = detectMethodRedirect(
+      'The mt#2439 retro quotes the user saying "you should do some research on this" — add that family.',
+      DESIGN_TURN
+    );
+    expect(matches.length).toBe(0);
+  });
+
+  test("redirect phrase inside a code span does not fire", () => {
+    const matches = detectMethodRedirect(
+      "Add the pattern `you should do some research` to the scanner.",
+      DESIGN_TURN
+    );
+    expect(matches.length).toBe(0);
+  });
+});
+
+describe("method-redirect through run() (mt#2446 acceptance replay)", () => {
+  test("mt#2439-shaped exchange fires with family method-redirect + live calibration record", () => {
+    // Tool-interleaved turn (per memory a3e60471): the design text lands in the
+    // FIRST assistant segment, followed by tool_use / tool_result rounds — the
+    // context condition must still see it.
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine("plan the migration baseline"),
+      makeRunAssistantLine(
+        "Recommendation: Option A — snapshot the current schema and stamp the ledger."
+      ),
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "tool_use", name: "Edit", input: {} }] },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "x", content: "ok" }],
+        },
+      },
+      makeRunAssistantLine("Spec updated with the plan decision."),
+      makeRunUserLine(
+        "I think you should do some research on the appropriate way to handle this using drizzle"
+      ),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome?.additionalContext).toContain("redirected your method");
+    expect(outcome?.additionalContext).toContain("research-before-design");
+    const cal = outcome?.calibration as {
+      source?: string;
+      matches: Array<{ family: string; phrase: string }>;
+    };
+    expect(cal.matches.some((m) => m.family === "method-redirect")).toBe(true);
+    expect(cal.source).toBe("live");
+  });
+
+  test("same redirect prompt after a NO-design turn returns null", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine("hows it going"),
+      makeRunAssistantLine("Still reading the auth module, no blockers."),
+      makeRunUserLine("I think you should do some research on the appropriate way to handle this"),
+    ];
+    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+  });
+
+  test("existing families still fire alongside method-redirect wiring (regression)", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine(),
+      makeRunAssistantLine(APOLOGY_FIXTURE),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const cal = outcome?.calibration as { matches: Array<{ family: string }> };
+    expect(cal.matches.some((m) => m.family === "R1")).toBe(true);
+  });
+
+  test("override env var suppresses method-redirect detection too", () => {
+    const transcriptLines: TranscriptLine[] = [
+      makeRunUserLine("plan it"),
+      makeRunAssistantLine("Recommendation: Option A."),
+      makeRunUserLine("you should do some research on the proper way first"),
+    ];
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      expect(outcome?.additionalContext).toBeUndefined();
+      expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
   });
 });
