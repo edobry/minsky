@@ -176,6 +176,114 @@ describe("mt#2673 — truncated-substring extraction + backed-claim accounting",
   });
 });
 
+describe("mt#3002 — file-name and hex-id symbol-class exclusions", () => {
+  test("AT1: 2026-07-21T08:13-shaped fixture (hook-files.mdc + override/trim verbs) -> no claim extracted", () => {
+    const text =
+      "See `hook-files.mdc` for how the override behaves; the same section says it also " +
+      "trims trailing whitespace, per `hook-files.mdc`.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(false);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("AT1b: 2026-07-20T20:31-shaped fixture (src/cockpit/CLAUDE.md + Guard verb) -> no claim extracted", () => {
+    const text = "Guard behavior for this page is documented in `src/cockpit/CLAUDE.md`.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(false);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("AT2: 2026-07-21T00:26-shaped fixture (bare hex-id token near a mechanism verb) -> no claim extracted", () => {
+    const text = "The commit `a30378971` guards against the regression.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(false);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("doc/config extensions beyond .md/.mdc are also excluded (.json, .yml, .yaml, .txt)", () => {
+    const text =
+      "The `config.json` overrides the defaults, `settings.yaml` trims trailing entries, " +
+      "`build.yml` guards the pipeline, and `notes.txt` requires review.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(false);
+    expect(result.claims).toEqual([]);
+  });
+
+  test("AT3: genuine unbacked claim (tasks_create::guard-style) still extracted, and injected (INJECTION_ENABLED=true)", () => {
+    const text = "`tasks_create` guards against duplicate task creation.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("tasks_create");
+
+    const transcriptLines = [makeRunUserLine(), makeRunAssistantLine(text), makeRunUserLine()];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(INJECTION_ENABLED).toBe(true);
+    expect(outcome?.additionalContext).toBeDefined();
+    expect(outcome?.additionalContext).toContain("tasks_create");
+  });
+
+  test("AT4: same fixture WITH a same-turn read of the symbol -> no fire (backed-claim exclusion intact)", () => {
+    const text = "`tasks_create` guards against duplicate task creation.";
+    const corpus = "export async function tasks_create() { /* read this turn */ }";
+    const result = detectCodeMechanismAssertion(text, corpus);
+    expect(result.matched).toBe(false);
+    expect(result.hadSameTurnRead).toBe(true);
+
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(text),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", content: corpus }],
+        },
+      } as TranscriptLine,
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    expect(outcome).toBeNull();
+  });
+
+  test("SC2 regression: session_pr_merge (snake_case) still extracts as a genuine claim", () => {
+    const text = "`session_pr_merge` requires a clean working tree before it proceeds.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("session_pr_merge");
+  });
+
+  test("SC2 regression: execWithPath (camelCase) still extracts as a genuine claim", () => {
+    const text = "`execWithPath` guards against a missing PATH entry.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("execWithPath");
+  });
+
+  test("SC2 regression: MINSKY_SKIP_SIZE_BUDGET-style env var (2026-07-21T08:13/T08:42 records) still extracts", () => {
+    const text = "`MINSKY_SKIP_SIZE_BUDGET` overrides the size gate for this run.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("MINSKY_SKIP_SIZE_BUDGET");
+  });
+
+  test("hex-id exclusion does not reject genuine hex-adjacent identifiers with case-mixing", () => {
+    // `deadBeefCache` mixes case and is not entirely hex digits -> not excluded.
+    const text = "`deadBeefCache` defaults to an empty map.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("deadBeefCache");
+  });
+
+  test("hex-id exclusion is length-bounded (7 chars, below the 8-40 range) -> a short hex-shaped token still extracts", () => {
+    // Below the mt#3002 regex's 8-char floor; kept deliberately loose below the
+    // floor since short hex-shaped tokens are ambiguous with real short symbols.
+    const text = "`a303789` guards against the regression.";
+    const result = detectCodeMechanismAssertion(text, "");
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("a303789");
+  });
+});
+
 describe("buildVerificationCorpus", () => {
   test("captures read-class tool_use INPUT and tool_result CONTENT; ignores non-read inputs", () => {
     const turn: TranscriptLine[] = [
@@ -285,7 +393,7 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
 }
 
 describe("run() (dispatcher-compatible)", () => {
-  test("unread code-mechanism claim -> calibration record, NO additionalContext (INJECTION_ENABLED=false)", () => {
+  test("unread code-mechanism claim -> calibration record AND additionalContext (INJECTION_ENABLED=true, mt#3002)", () => {
     const transcriptLines = [
       makeRunUserLine(),
       makeRunAssistantLine(
@@ -295,8 +403,9 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.calibration).toBeDefined();
-    expect(outcome?.additionalContext).toBeUndefined();
-    expect(INJECTION_ENABLED).toBe(false);
+    expect(INJECTION_ENABLED).toBe(true);
+    expect(outcome?.additionalContext).toBeDefined();
+    expect(outcome?.additionalContext).toContain("maxBuffer");
     const cal = outcome?.calibration as { claims: Array<{ symbol: string; predicate: string }> };
     expect(cal.claims.map((c) => c.symbol)).toContain("maxBuffer");
   });
