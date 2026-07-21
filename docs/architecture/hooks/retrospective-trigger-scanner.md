@@ -30,6 +30,22 @@ insufficient.
 you do that?", "you keep doing this", "that's wrong", "how many times",
 etc.
 
+**Plus the method-redirect family (mt#2446):** the user redirecting HOW
+the agent should have arrived at an answer — "you should do some
+research on the appropriate way to handle this", "did you check how
+<tool> does this?", "is there a standard way to do this?", "what's the
+canonical way to X" — detected in the CURRENT user prompt, gated on
+design/recommendation markers ("Option A", "recommendation", "Plan
+decision", "I recommend", "approach:") in the PRIOR assistant turn.
+A politely-phrased method redirect after a produced design is a
+correction of the agent's _method_ (design-first instead of
+research-first), not a neutral new instruction; the negative-valence
+user-correction patterns structurally missed it. Without the
+design-context condition, an open research question ("should we
+research X?") would false-positive. Per ADR-024 this family is a
+Rung-1 input: plain regex matched on the elided residual, same
+prefilter path as every other family.
+
 **False-positive suppression:** when the prior assistant turn contains a
 `Skill` tool call with `skill: "retrospective"`, ALL trigger-phrase
 detections are suppressed — the agent is already inside a retrospective
@@ -75,6 +91,14 @@ registered in `HOOK_ONLY_ENV_VARS` at
 - **R4 (2026-05-23, PR #1234 / mt#2053):** agent wrote "fixing the
   symptom rather than running another retrospective" — explicitly
   declining the retrospective trigger.
+- **Method-redirect (2026-06-11, mt#2439):** agent gate-passed a
+  first-principles migration-baseline design to READY; the user said
+  "I think you should do some research on the appropriate way to
+  handle this using drizzle"; research surfaced the vendor-canonical
+  `drizzle-kit pull --init` pattern the design had reinvented by luck.
+  The redirect matched no negative-valence pattern, no retrospective
+  triage fired, and the user had to request the retro explicitly —
+  a two-level miss (mt#2446 closes the detection gap).
 
 **Cross-references:**
 
@@ -92,3 +116,6 @@ registered in `HOOK_ONLY_ENV_VARS` at
   ADR-028 guard dispatcher (Phase 2a); detection logic unchanged — see
   `docs/architecture/hooks/guard-dispatcher-framework.md` and
   `docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md`.
+- mt#2446 — method-redirect user-correction family (design-context-gated
+  user-prompt patterns); ADR-024 Rung-1 input, coverage-receipt gate
+  (mt#2554) applies to its live fires.

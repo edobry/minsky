@@ -5,13 +5,18 @@
 // Advisory-only — never blocks the prompt. Per mt#2057.
 //
 // Four trigger families (R1-R4) covering the rationalize-away-from-structural-fix
-// pattern that recurred across 2026-05-18 to 2026-05-23:
+// pattern that recurred across 2026-05-18 to 2026-05-23, plus R5 (finding-reframing,
+// mt#2112):
 //   R1: apology / contrition ("I owe you an apology", "I should have caught")
 //   R2: operational explanatory prose ("I didn't think it through")
 //   R3: future-behavior commitments ("going forward I will X")
 //   R4: decline-to-retrospective ("no need for a full retrospective")
 //
-// Plus user-correction signals in the current prompt ("why did you do that?").
+// Plus user-correction signals in the current prompt ("why did you do that?"),
+// and method-redirect signals (mt#2446): the user redirecting HOW the agent
+// should have arrived at an answer ("you should do some research on the
+// appropriate way to handle this") after the agent produced a design —
+// gated on design markers in the prior assistant turn.
 //
 // @see .claude/hooks/substrate-bypass-detector.ts — sibling UserPromptSubmit hook
 // @see .claude/skills/retrospective/SKILL.md — canonical trigger lists
@@ -48,7 +53,14 @@ const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
 // Trigger family types
 // ---------------------------------------------------------------------------
 
-export type TriggerFamily = "R1" | "R2" | "R3" | "R4" | "R5" | "user-correction";
+export type TriggerFamily =
+  | "R1"
+  | "R2"
+  | "R3"
+  | "R4"
+  | "R5"
+  | "user-correction"
+  | "method-redirect";
 
 export interface TriggerMatch {
   family: TriggerFamily;
@@ -140,6 +152,56 @@ export const USER_CORRECTION_PATTERNS: RegExp[] = [
   /\bwhy\s+would\s+you\b/i,
   /\bwhy\s+didn[''’]?t\s+you\b/i,
 ];
+
+// ---------------------------------------------------------------------------
+// Method-redirect family (mt#2446): the user redirects HOW the agent should
+// have arrived at an answer ("you should do some research on the appropriate
+// way to handle this") AFTER the agent produced a design/recommendation.
+// Politely-phrased method corrections match none of the negative-valence
+// USER_CORRECTION_PATTERNS, so they passed silently (originating incident:
+// mt#2439, 2026-06-11 — the drizzle baseline design). Detected in the CURRENT
+// user prompt, gated on design/recommendation markers in the PRIOR assistant
+// turn so an open research question ("should we research X?") with no design
+// on the table does not fire. ADR-024 Rung-1 input: plain regex on the
+// elided residual, same prefilter path as every other family.
+// ---------------------------------------------------------------------------
+
+export const METHOD_REDIRECT_PATTERNS: RegExp[] = [
+  /\b(you\s+)?should\s+(do\s+(?:some|more)\s+)?research\b/i,
+  /\bdid\s+you\s+(?:check|look\s+at)\s+how\b/i,
+  /\bis\s+there\s+a\s+(?:standard|canonical|recommended|proper)\s+way\b/i,
+  // Tool tokens use [\w.-]+ so hyphenated/dotted names match ("drizzle-kit",
+  // "next.js") — the originating incident's tool IS hyphenated (PR #2135 R1).
+  /\bhow\s+does\s+[\w.-]+\s+(?:handle|do)\s+this\b/i,
+  // Intentionally does NOT require a trailing "this": redirects like "look at
+  // how pulumi handles local packages" are genuine method corrections. The
+  // design-context gate bounds the resulting breadth; negative tests pin the
+  // verb set (handles/handle/do/does only).
+  /\blook\s+at\s+how\s+(?:the\s+community|others|[\w.-]+)\s+(?:handles?|do(?:es)?)\b/i,
+  /\bwhat[''’]?s\s+the\s+(?:appropriate|right|canonical)\s+way\s+to\b/i,
+];
+
+/**
+ * Design/recommendation markers in the PRIOR assistant turn. The
+ * method-redirect family only fires when the redirect follows a produced
+ * design — these markers are the context condition that separates "correction
+ * of my method" from "open research question". Matched on the RAW prior-turn
+ * text (not the elided residual): the markers are a coarse permissive filter,
+ * not a trigger — the trigger phrase itself is elision-guarded on the user
+ * side.
+ */
+export const DESIGN_CONTEXT_PATTERNS: RegExp[] = [
+  /\b[Oo]ption\s+[A-Z]\b/,
+  /\brecommendation\b/i,
+  /\bPlan\s+decision\b/i,
+  /\bI\s+recommend\b/i,
+  /\bapproach:/i,
+];
+
+/** True when the prior assistant turn contains design/recommendation markers. */
+export function hasDesignContext(assistantText: string): boolean {
+  return DESIGN_CONTEXT_PATTERNS.some((p) => p.test(assistantText));
+}
 
 // ---------------------------------------------------------------------------
 // All families bundled for scanning
@@ -263,6 +325,26 @@ export function detectUserCorrection(userText: string): TriggerMatch[] {
   return matches;
 }
 
+/**
+ * Method-redirect detection (mt#2446): current user prompt matched against
+ * METHOD_REDIRECT_PATTERNS on the elided residual, gated on design markers in
+ * the prior assistant turn. Mirrors detectUserCorrection's policy: no
+ * meta-discussion suppression on the user side.
+ */
+export function detectMethodRedirect(userText: string, priorAssistantText: string): TriggerMatch[] {
+  if (!priorAssistantText || !hasDesignContext(priorAssistantText)) return [];
+  const scanned = elideQuotedAndCodeContexts(userText);
+  const matches: TriggerMatch[] = [];
+  for (const pattern of METHOD_REDIRECT_PATTERNS) {
+    const match = pattern.exec(scanned);
+    if (match) {
+      matches.push({ family: "method-redirect", matchedPhrase: match[0] });
+      break;
+    }
+  }
+  return matches;
+}
+
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
@@ -296,8 +378,11 @@ function buildReminder(matches: TriggerMatch[]): string {
     "",
   ];
 
-  const assistantMatches = matches.filter((m) => m.family !== "user-correction");
+  const assistantMatches = matches.filter(
+    (m) => m.family !== "user-correction" && m.family !== "method-redirect"
+  );
   const userMatches = matches.filter((m) => m.family === "user-correction");
+  const methodRedirectMatches = matches.filter((m) => m.family === "method-redirect");
 
   if (assistantMatches.length > 0) {
     lines.push(
@@ -318,6 +403,18 @@ function buildReminder(matches: TriggerMatch[]): string {
     );
     lines.push("");
     for (const m of userMatches) {
+      lines.push(`  - Signal: "${m.matchedPhrase}"`);
+    }
+    lines.push("");
+  }
+
+  if (methodRedirectMatches.length > 0) {
+    lines.push(
+      "The user redirected your method (research-before-design); " +
+        "run /retrospective triage on why the design was produced without the research."
+    );
+    lines.push("");
+    for (const m of methodRedirectMatches) {
       lines.push(`  - Signal: "${m.matchedPhrase}"`);
     }
     lines.push("");
@@ -373,12 +470,13 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   const allMatches: TriggerMatch[] = [];
 
+  let runAssistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
-      const assistantText = extractAssistantText(turnLines);
-      if (assistantText) {
-        allMatches.push(...detectTriggerPhrases(assistantText));
+      runAssistantText = extractAssistantText(turnLines);
+      if (runAssistantText) {
+        allMatches.push(...detectTriggerPhrases(runAssistantText));
       }
     }
   } catch (err) {
@@ -391,6 +489,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     const userText = extractLastUserMessage(lines);
     if (userText) {
       allMatches.push(...detectUserCorrection(userText));
+      allMatches.push(...detectMethodRedirect(userText, runAssistantText));
     }
   } catch (err) {
     process.stderr.write(
@@ -406,7 +505,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     try {
       const turnLines = extractLastAssistantTurn(lines);
       const fullText =
-        firstMatch.family === "user-correction"
+        firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
           : extractAssistantText(turnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
@@ -494,12 +593,13 @@ export async function main(): Promise<void> {
   }
 
   // Surface 1: scan prior assistant turn for trigger phrases
+  let mainAssistantText = "";
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
-      const assistantText = extractAssistantText(turnLines);
-      if (assistantText) {
-        const triggerMatches = detectTriggerPhrases(assistantText);
+      mainAssistantText = extractAssistantText(turnLines);
+      if (mainAssistantText) {
+        const triggerMatches = detectTriggerPhrases(mainAssistantText);
         allMatches.push(...triggerMatches);
       }
     }
@@ -509,12 +609,13 @@ export async function main(): Promise<void> {
     );
   }
 
-  // Surface 2: scan current user prompt for correction signals
+  // Surface 2: scan current user prompt for correction + method-redirect signals
   try {
     const userText = extractLastUserMessage(lines);
     if (userText) {
       const correctionMatches = detectUserCorrection(userText);
       allMatches.push(...correctionMatches);
+      allMatches.push(...detectMethodRedirect(userText, mainAssistantText));
     }
   } catch (err) {
     console.error(
@@ -533,7 +634,7 @@ export async function main(): Promise<void> {
     try {
       const turnLines = extractLastAssistantTurn(lines);
       const fullText =
-        firstMatch.family === "user-correction"
+        firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
           : extractAssistantText(turnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
