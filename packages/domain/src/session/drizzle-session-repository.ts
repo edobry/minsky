@@ -46,6 +46,15 @@ import { withPgPoolRetry } from "../persistence/postgres-retry";
 import type { PersistenceProvider } from "../persistence/types";
 import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provider";
 import type { WorkspaceId } from "../ids";
+import { nextShortId } from "../utils/short-id";
+import {
+  classifyEntityIdInput,
+  resolveEntityIdPrefix,
+  idPrefixResolutionError,
+} from "../utils/id-prefix-resolver";
+
+/** Short-id prefix for sessions/workspaces (mt#2967, ADR-029) — "ws" (workspace). */
+const SESSION_SHORT_ID_PREFIX = "ws";
 
 // Re-export the interface for use by extracted modules that historically
 // imported it from `session-db-adapter` (now deleted).
@@ -83,13 +92,118 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
   async getSession(sessionId: string): Promise<SessionRecord | null> {
     log.debug(`Getting session: ${sessionId}`);
     return withPgPoolRetry(async () => {
+      const resolvedId = await this.resolveSessionIdInput(sessionId);
+      if (resolvedId === null) return null;
       const result = await this.db
         .select()
         .from(postgresSessions)
-        .where(eq(postgresSessions.sessionId, sessionId as WorkspaceId))
+        .where(eq(postgresSessions.sessionId, resolvedId as WorkspaceId))
         .limit(1);
       return result.length > 0 ? fromPostgresSelect(first(result, "session query")) : null;
     }, "drizzle-session-repository.getSession");
+  }
+
+  /**
+   * Resolve raw session-id input (mt#2967) to the canonical uuid `sessionId`
+   * used by the exact-match query above, OR pass the input through
+   * UNCHANGED for legacy custom-name lookups.
+   *
+   * Sessions, unlike ask/memory, are NOT purely uuid-keyed: `session.start
+   * <name>` can create a session with an arbitrary custom sessionId, which
+   * must keep resolving by exact string match with no behavior change. So
+   * this layers a raw-name fallback UNDER the generic short-id/uuid/hex-prefix
+   * classification (`classifyEntityIdInput`, `../utils/id-prefix-resolver.ts`):
+   *
+   *  - full, well-formed uuid -> passthrough, no query (identical to
+   *    pre-mt#2967 behavior).
+   *  - `ws#N` short id -> resolved via an exact match against the
+   *    `short_id` column; not-found returns `null` immediately (a
+   *    `ws#N`-shaped input can only ever mean "short id" — it never falls
+   *    through to a raw-name lookup).
+   *  - an 8+ char hex fragment -> resolved via a `sessionId::text LIKE
+   *    '<prefix>%'` query. Prefix matching is inclusive of an exact match,
+   *    so a legitimate custom session NAME that happens to be a pure-hex
+   *    string of 8+ chars (e.g. "deadbeef1234") still resolves correctly.
+   *  - anything else (too short, or containing a non-hex character — the
+   *    shape of a typical custom session NAME like "my-session") ->
+   *    classified "invalid" by `classifyEntityIdInput`. For sessions this
+   *    means "not uuid/hex-prefix/short-id shaped" — fall through to the
+   *    raw input UNCHANGED so the caller's exact-match query runs exactly
+   *    as it did before this task (100% backward compatible with custom
+   *    session names).
+   *
+   * Throws only on a genuine ambiguity (two+ rows sharing the same
+   * short-id/hex-prefix) — mirrors the ask/memory resolver contract.
+   */
+  private async resolveSessionIdInput(input: string): Promise<string | null> {
+    const classification = classifyEntityIdInput(input);
+    if (classification.kind === "invalid") {
+      return input;
+    }
+    if (classification.kind === "resolved") {
+      return classification.id;
+    }
+
+    // "short_id" (ws#N) or "prefix" (8+ char hex fragment).
+    const resolution = await resolveEntityIdPrefix({
+      db: this.db,
+      table: postgresSessions,
+      idColumn: postgresSessions.sessionId,
+      shortIdColumn: postgresSessions.shortId,
+      shortIdPrefix: SESSION_SHORT_ID_PREFIX,
+      input,
+      entityName: "session",
+    });
+    if (resolution.kind === "resolved") return resolution.id;
+    if (resolution.kind === "not_found") return null;
+    throw idPrefixResolutionError("session", resolution);
+  }
+
+  /**
+   * Compute the next `ws#N` short id (mt#2967) — mirrors
+   * `MemoryService.nextMemoryShortId` / `DrizzleAskRepository.nextAskShortId`.
+   * Two paths, tried in order:
+   *
+   * 1. Real-DB-optimized path: a targeted query —
+   *    `WHERE short_id ~ '^ws#[0-9]+$' ORDER BY (substring(... from
+   *    4))::bigint DESC LIMIT 1` — fetches ONLY the single highest-numbered
+   *    row's `short_id`, never the whole table.
+   * 2. Fallback: unfiltered single-column select + client-side fold via the
+   *    shared `nextShortId` foundation util, for DBs/test fakes that don't
+   *    support the full `.where().orderBy().limit()` chain.
+   *
+   * Branching is a CAPABILITY PROBE (try/catch), not a static type check —
+   * several existing test fakes for this repository model the Drizzle chain
+   * with plain objects that don't implement the full chain, so path 1
+   * reliably fails fast against them and path 2 runs instead.
+   *
+   * Sessions have no tombstone table analogous to tasks' `deleted_task_ids`
+   * — the max is computed over live short ids only, so a deleted session's
+   * short id MAY be reissued to a new session. Acceptable for v1 (mirrors
+   * memory's mt#2966 same v1 decision).
+   */
+  private async nextSessionShortId(): Promise<string> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const top = (await (this.db as any)
+        .select({ shortId: postgresSessions.shortId })
+        .from(postgresSessions)
+        .where(sql`${postgresSessions.shortId} ~ '^ws#[0-9]+$'`)
+        .orderBy(sql`(substring(${postgresSessions.shortId} from 4))::bigint DESC`)
+        .limit(1)) as Array<{ shortId: string | null }>;
+      const liveIds = Array.isArray(top) && top[0]?.shortId ? [top[0].shortId as string] : [];
+      return nextShortId(SESSION_SHORT_ID_PREFIX, liveIds, []);
+    } catch {
+      // Fallback: this db doesn't support the full targeted-query chain.
+    }
+
+    const rows = (await this.db
+      .select({ shortId: postgresSessions.shortId })
+      .from(postgresSessions)) as Array<{ shortId: string | null }>;
+    const liveIds = (Array.isArray(rows) ? rows : [])
+      .map((r) => r.shortId)
+      .filter((s): s is string => typeof s === "string");
+    return nextShortId(SESSION_SHORT_ID_PREFIX, liveIds, []);
   }
 
   async listSessions(options?: SessionListOptions): Promise<SessionRecord[]> {
@@ -198,11 +312,38 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     return found ?? null;
   }
 
+  /**
+   * Mints the next `ws#N` short id (mt#2967) and retries on a short_id
+   * collision — the short-id proposal (SELECT max) and the INSERT are not
+   * atomic, so a concurrent writer may claim the proposed id between the
+   * two. The unique index on `short_id` turns that race into a clean
+   * `onConflictDoNothing` no-op we detect and retry against, mirroring
+   * `MemoryService.create` (mt#2966) and `MinskyTaskBackend.tryInsertTask`
+   * (mt#2205). A conflict on the `sessionId` PRIMARY KEY itself (a genuine
+   * "session already exists" bug) is NOT caught by this `onConflictDoNothing`
+   * target and still throws, preserving pre-mt#2967 behavior for that case.
+   */
   async addSession(record: SessionRecord): Promise<void> {
     log.debug(`Adding session: ${record.sessionId}`);
+    const MAX_RETRIES = 5;
     try {
       await withPgPoolRetry(async () => {
-        await this.db.insert(postgresSessions).values(toPostgresInsert(record));
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          const shortId = await this.nextSessionShortId();
+          const rows = await this.db
+            .insert(postgresSessions)
+            .values({ ...toPostgresInsert(record), shortId })
+            .onConflictDoNothing({ target: postgresSessions.shortId })
+            .returning({ sessionId: postgresSessions.sessionId });
+          if (rows.length > 0) {
+            return;
+          }
+          // short_id collision — another writer took it; loop and re-propose.
+        }
+        throw new Error(
+          `Failed to allocate a unique session short id after ${MAX_RETRIES} attempts. ` +
+            "This indicates extremely high concurrent session creation — please retry."
+        );
       }, "drizzle-session-repository.addSession");
       log.debug(`Session added successfully: ${record.sessionId}`);
     } catch (error) {
