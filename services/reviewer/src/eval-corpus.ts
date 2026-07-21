@@ -63,6 +63,18 @@ export interface CorpusLabel {
 }
 
 /**
+ * The finding stored in a corpus row: the `FlatFinding` fields (file /
+ * severity / line / lineEnd) plus the finding's review-comment `text` — the
+ * prose the reviewer wrote. `text` is required because the judge and the
+ * eval both need the finding's content, not just its location; `FlatFinding`
+ * alone (from replay-summary.ts) deliberately drops it.
+ */
+export interface CorpusFinding extends FlatFinding {
+  /** The reviewer's finding text (the prose after `path:line - ...`). */
+  text: string;
+}
+
+/**
  * One ground-truth row in the corpus. One JSON object per line in the
  * committed JSONL file.
  */
@@ -77,8 +89,8 @@ export interface CorpusRow {
   prNumber: number;
   /** Review round within the PR the finding was raised in. */
   round: number;
-  /** The finding itself — reuses `FlatFinding` from replay-summary.ts. */
-  finding: FlatFinding;
+  /** The finding itself — `FlatFinding` fields plus the review-comment text. */
+  finding: CorpusFinding;
   /** Surrounding code context window (target: +/-80 lines). */
   codeContextWindow: string;
   /** Outcome label for this row. */
@@ -120,16 +132,18 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 /**
- * Validate that `finding` matches the `FlatFinding` shape at runtime.
- * `line` / `lineEnd` are optional but, when present, must be finite numbers.
+ * Validate that `finding` matches the `CorpusFinding` shape at runtime.
+ * `line` / `lineEnd` are optional but, when present, must be finite numbers;
+ * `text` is required and must be a non-empty string.
  */
-function isValidFinding(finding: unknown): finding is FlatFinding {
+function isValidFinding(finding: unknown): finding is CorpusFinding {
   if (typeof finding !== "object" || finding === null) return false;
   const f = finding as Record<string, unknown>;
   if (!isNonEmptyString(f["file"])) return false;
   if (typeof f["severity"] !== "string" || !VALID_SEVERITIES.has(f["severity"])) return false;
   if (f["line"] !== undefined && !isFiniteNumber(f["line"])) return false;
   if (f["lineEnd"] !== undefined && !isFiniteNumber(f["lineEnd"])) return false;
+  if (!isNonEmptyString(f["text"])) return false;
   return true;
 }
 
