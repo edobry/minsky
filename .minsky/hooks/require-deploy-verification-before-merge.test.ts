@@ -8,6 +8,11 @@ import {
   checkDeployVerification,
   isOverrideSet,
   OVERRIDE_ENV_VAR,
+  hasUsabilityClaim,
+  hasRebuildReinstallAck,
+  checkUsabilityClaim,
+  isUsabilityClaimOverrideSet,
+  USABILITY_CLAIM_OVERRIDE_ENV_VAR,
 } from "./require-deploy-verification-before-merge";
 import type { PrFile } from "./require-execution-evidence-before-merge";
 
@@ -243,5 +248,149 @@ describe("isOverrideSet (mt#2353)", () => {
   test("false for other truthy-looking values", () => {
     process.env[OVERRIDE_ENV_VAR] = "0";
     expect(isOverrideSet()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap A: build-surface usability-claim check (mt#2545)
+// ---------------------------------------------------------------------------
+
+const TRAY_MAIN_RS = "cockpit-tray/src-tauri/src/main.rs";
+const TRAY_CARGO_TOML = "cockpit-tray/src-tauri/Cargo.toml";
+const BUILD_FILES: PrFile[] = [f(TRAY_MAIN_RS)];
+const NON_BUILD_FILES: PrFile[] = [f("src/app.ts"), f("services/reviewer/src/server.ts")];
+const USABILITY_CLAIM_TITLE = "feat: add tray deep-link handler";
+const USABILITY_CLAIM_BODY = "## Summary\nIt's live — you can use it now.";
+const USABILITY_CLAIM_WITH_ACK_BODY =
+  "## Summary\nIt's live — you can use it now.\n\nRequires a tray rebuild + reinstall via " +
+  "cockpit-tray/scripts/install-local.sh before this is usable.";
+const NO_CLAIM_BODY =
+  "## Summary\nAdds a new menu item to the tray app.\n\n## Testing\ncargo test green.";
+
+describe("hasUsabilityClaim (mt#2545 Gap A)", () => {
+  test("true for 'it's live' / 'you can use it now'", () => {
+    expect(hasUsabilityClaim("It's live — you can use it now.")).toBe(true);
+  });
+
+  test("true for 'ready to use'", () => {
+    expect(hasUsabilityClaim("The new handler is ready to use.")).toBe(true);
+  });
+
+  test("true for 'usable now'", () => {
+    expect(hasUsabilityClaim("The tray app is usable now.")).toBe(true);
+  });
+
+  test("false when no claim phrase is present", () => {
+    expect(hasUsabilityClaim(NO_CLAIM_BODY)).toBe(false);
+  });
+
+  test("false for a negated claim ('not ready to use')", () => {
+    expect(hasUsabilityClaim("The handler is not ready to use yet.")).toBe(false);
+  });
+
+  test("false when the claim is only inside an HTML comment", () => {
+    expect(hasUsabilityClaim("<!-- it's live -->\nreal body with no claim")).toBe(false);
+  });
+});
+
+describe("hasRebuildReinstallAck (mt#2545 Gap A)", () => {
+  test("true when both rebuild and reinstall terms are present", () => {
+    expect(
+      hasRebuildReinstallAck("Requires a tray rebuild + reinstall via install-local.sh.")
+    ).toBe(true);
+  });
+
+  test("true regardless of order or proximity", () => {
+    expect(
+      hasRebuildReinstallAck("Reinstall the app after this merges.\n\nA rebuild is required first.")
+    ).toBe(true);
+  });
+
+  test("false when only one term is present", () => {
+    expect(hasRebuildReinstallAck("Requires a rebuild before use.")).toBe(false);
+    expect(hasRebuildReinstallAck("Reinstall the app to pick this up.")).toBe(false);
+  });
+
+  test("false when neither term is present", () => {
+    expect(hasRebuildReinstallAck(NO_CLAIM_BODY)).toBe(false);
+  });
+});
+
+describe("checkUsabilityClaim (mt#2545 Gap A)", () => {
+  test("(1) BLOCKS a build-surface PR with a usability claim and no rebuild ack", () => {
+    const r = checkUsabilityClaim(BUILD_FILES, USABILITY_CLAIM_TITLE, USABILITY_CLAIM_BODY);
+    expect(r.blocked).toBe(true);
+    expect(r.buildSurfaceFiles).toEqual([TRAY_MAIN_RS]);
+    expect(r.reason).toContain("claim-confidence.mdc");
+    expect(r.reason).toContain("rebuild");
+    expect(r.reason).toContain("reinstall");
+  });
+
+  test("(2) ALLOWS a build-surface PR with a usability claim AND a rebuild + reinstall ack", () => {
+    const r = checkUsabilityClaim(
+      BUILD_FILES,
+      USABILITY_CLAIM_TITLE,
+      USABILITY_CLAIM_WITH_ACK_BODY
+    );
+    expect(r.blocked).toBe(false);
+    expect(r.buildSurfaceFiles).toEqual([TRAY_MAIN_RS]);
+  });
+
+  test("(3) passes a non-build-surface PR regardless of body content", () => {
+    const r = checkUsabilityClaim(NON_BUILD_FILES, USABILITY_CLAIM_TITLE, USABILITY_CLAIM_BODY);
+    expect(r.blocked).toBe(false);
+    expect(r.buildSurfaceFiles).toEqual([]);
+  });
+
+  test("(4) passes a build-surface PR with no usability claim", () => {
+    const r = checkUsabilityClaim(BUILD_FILES, USABILITY_CLAIM_TITLE, NO_CLAIM_BODY);
+    expect(r.blocked).toBe(false);
+    expect(r.buildSurfaceFiles).toEqual([TRAY_MAIN_RS]);
+  });
+
+  test("multiple build-surface files are all reported", () => {
+    const r = checkUsabilityClaim(
+      [f(TRAY_MAIN_RS), f(TRAY_CARGO_TOML)],
+      USABILITY_CLAIM_TITLE,
+      USABILITY_CLAIM_BODY
+    );
+    expect(r.blocked).toBe(true);
+    expect(r.buildSurfaceFiles).toEqual([TRAY_MAIN_RS, TRAY_CARGO_TOML]);
+  });
+
+  test("allows (with warning) under the [no-deploy-impact] title bypass", () => {
+    const r = checkUsabilityClaim(
+      BUILD_FILES,
+      "fix: [no-deploy-impact] comment tweak",
+      USABILITY_CLAIM_BODY
+    );
+    expect(r.blocked).toBe(false);
+    expect(r.bypassDetected).toBe(true);
+    expect(r.warnings.length).toBeGreaterThan(0);
+  });
+});
+
+describe("isUsabilityClaimOverrideSet (mt#2545 Gap A)", () => {
+  afterEach(() => {
+    delete process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR];
+  });
+
+  test("false when unset", () => {
+    delete process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR];
+    expect(isUsabilityClaimOverrideSet()).toBe(false);
+  });
+
+  test("true for 1/true/yes", () => {
+    process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR] = "1";
+    expect(isUsabilityClaimOverrideSet()).toBe(true);
+    process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR] = "true";
+    expect(isUsabilityClaimOverrideSet()).toBe(true);
+    process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR] = "yes";
+    expect(isUsabilityClaimOverrideSet()).toBe(true);
+  });
+
+  test("false for other truthy-looking values", () => {
+    process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR] = "0";
+    expect(isUsabilityClaimOverrideSet()).toBe(false);
   });
 });

@@ -33,12 +33,28 @@
 // @see mt#2353 — this hook
 // @see mt#1459 / require-execution-evidence-before-merge.ts — sibling gate (test-file surface)
 // @see deploy-verification-after-merge.ts — sibling PostToolUse post-merge reminder
+//
+// Gap A extension (mt#2545): a SECOND, independent condition added to this same
+// hook — a BUILD-SURFACE PR (cockpit-tray/src-tauri/**, the LOCAL-APP deploy
+// surface from packages/domain/src/deployment/deploy-surface.ts) whose body
+// asserts altitude-4 usability ("you can use it now" / "ready to use" / "it's
+// live") WITHOUT an explicit rebuild + reinstall acknowledgment is HARD-BLOCKED.
+// Per claim-confidence.mdc's Axis A (delivery state): a Build/install-class
+// deliverable has `deployed < usable` with NO agent-observable transition into
+// `usable` — the tray's own Rust binary is not auto-rebuilt, so a merged change
+// stays invisible until the principal rebuilds + reinstalls (mt#2528 incident).
+// This condition is independent of the Railway deploy-verification check above
+// (different surface, different override var) but shares this hook's PR-body
+// fetch, parsing conventions, and override plumbing rather than standing up a
+// parallel hook. See `checkUsabilityClaim` below.
+// @see mt#2923 — sibling chat-seam injection (same surface detection, different
+//   enforcement point: chat-prose vs this PR-body pre-merge gate)
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
-import { findDeploySurfaceFiles } from "./deploy-surface-detector";
+import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
 
 // ---------------------------------------------------------------------------
 // Override env var (single source of truth — also registered in HOOK_ONLY_ENV_VARS)
@@ -50,6 +66,20 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_DEPLOY_VERIFY";
 /** True when the override env var is set to a truthy value (1/true/yes). */
 export function isOverrideSet(): boolean {
   const v = process.env[OVERRIDE_ENV_VAR];
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/**
+ * Operator override for the Gap A usability-claim gate ONLY (mt#2545) — separate
+ * from {@link OVERRIDE_ENV_VAR} so an operator can skip just the build-surface
+ * usability-claim block without also disabling the Railway deploy-verification
+ * check above (and vice versa). Audit-logged when set.
+ */
+export const USABILITY_CLAIM_OVERRIDE_ENV_VAR = "MINSKY_SKIP_USABILITY_CLAIM_CHECK";
+
+/** True when {@link USABILITY_CLAIM_OVERRIDE_ENV_VAR} is set to a truthy value (1/true/yes). */
+export function isUsabilityClaimOverrideSet(): boolean {
+  const v = process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR];
   return v === "1" || v === "true" || v === "yes";
 }
 
@@ -211,6 +241,146 @@ export function checkDeployVerification(
 }
 
 // ---------------------------------------------------------------------------
+// Gap A: build-surface usability-claim check (mt#2545)
+// ---------------------------------------------------------------------------
+
+/**
+ * Altitude-4 usability-claim patterns: PR-body language asserting the merged
+ * change is immediately usable by the principal — claim-confidence.mdc's
+ * `usable` delivery state. Deliberately narrow (a handful of high-precision
+ * phrasings) rather than a broad "sounds positive" scan. Phrasing aligned with
+ * the sibling chat-seam detector's `USABILITY_CLAIM_PATTERNS`
+ * (`.minsky/hooks/build-claim-injection-detector.ts`, mt#2923) so the two
+ * enforcement surfaces recognize the same vocabulary. Case-insensitive.
+ */
+export const USABILITY_CLAIM_PATTERNS: readonly RegExp[] = [
+  /\byou\s+can\s+(?:now\s+)?use\s+it\s+now\b/i,
+  /\byou\s+can\s+(?:now\s+)?(?:use|test)\s+it\b/i,
+  /\bready\s+(?:for\s+use|to\s+use)\b/i,
+  /\bit'?s\s+live\b/i,
+  /\busable\s+now\b/i,
+  /\bgo\s+ahead\s+and\s+(?:use|test)\s+it\b/i,
+  /\bfeel\s+free\s+to\s+(?:use|try)\s+it\b/i,
+  /\bavailable\s+(?:for\s+use\s+)?now\b/i,
+];
+
+/** Negation words that, immediately preceding a matched claim on the same line, void it. */
+const USABILITY_NEGATION_SUFFIX = /\b(?:not|isn'?t|n'?t|won'?t|will\s+not)\s*$/i;
+
+/**
+ * True when the PR body contains an altitude-4 usability claim (mt#2545). HTML
+ * comments are stripped first (mirrors `hasDeployVerification`'s convention).
+ * A claim preceded on the same line by a negation ("NOT ready to use") does not
+ * count — mirrors the sibling `hasDeployVerification` negation guard.
+ */
+export function hasUsabilityClaim(prBody: string): boolean {
+  const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
+  for (const line of stripped.split("\n")) {
+    for (const pattern of USABILITY_CLAIM_PATTERNS) {
+      const match = pattern.exec(line);
+      if (!match) continue;
+      const before = line.slice(0, match.index);
+      if (USABILITY_NEGATION_SUFFIX.test(before)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Rebuild-family term (rebuild/rebuilding/rebuilds/rebuilt, with or without a hyphen). */
+const REBUILD_TERM = /\bre-?build(?:ing|s|t)?\b/i;
+/** Reinstall-family term (reinstall/reinstalling/reinstalls/reinstalled, with or without a hyphen). */
+const REINSTALL_TERM = /\bre-?install(?:ing|s|ed)?\b/i;
+
+/**
+ * True when the PR body contains an explicit rebuild + reinstall acknowledgment
+ * (mt#2545) — the crossing step claim-confidence.mdc requires be named for a
+ * Build/install-class deliverable. Requires BOTH a rebuild-family term AND a
+ * reinstall-family term to appear anywhere in the body (HTML comments
+ * stripped) — deliberately permissive on placement/order, since the
+ * acknowledgment may be its own bullet or section separate from the usability
+ * claim itself.
+ */
+export function hasRebuildReinstallAck(prBody: string): boolean {
+  const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
+  return REBUILD_TERM.test(stripped) && REINSTALL_TERM.test(stripped);
+}
+
+export interface UsabilityClaimCheckResult {
+  blocked: boolean;
+  reason?: string;
+  buildSurfaceFiles: string[];
+  bypassDetected: boolean;
+  warnings: string[];
+}
+
+/**
+ * Run the Gap A usability-claim check given PR files + metadata. Pure core of
+ * the hook — injectable for unit tests. Independent of
+ * {@link checkDeployVerification}: this fires on the LOCAL-APP (build) surface,
+ * not the Railway deploy surface, and blocks on a DIFFERENT condition (an
+ * unwarranted usability claim, not a missing verification commitment).
+ */
+export function checkUsabilityClaim(
+  prFiles: PrFile[],
+  prTitle: string,
+  prBody: string
+): UsabilityClaimCheckResult {
+  const warnings: string[] = [];
+  const buildSurfaceFiles = findLocalAppDeploySurfaceFiles(prFiles);
+
+  // No build surface touched → check is silent.
+  if (buildSurfaceFiles.length === 0) {
+    return { blocked: false, buildSurfaceFiles: [], bypassDetected: false, warnings };
+  }
+
+  // Title bypass for false-positive surface matches (shared with the Railway check).
+  if (hasNoDeployImpactTag(prTitle)) {
+    warnings.push(
+      `[no-deploy-impact] bypass: usability-claim check skipped for ${buildSurfaceFiles.length} ` +
+        `build-surface file(s). Confirm the change truly has no usability implications.`
+    );
+    return { blocked: false, buildSurfaceFiles, bypassDetected: true, warnings };
+  }
+
+  // No usability claim asserted → nothing to enforce.
+  if (!hasUsabilityClaim(prBody)) {
+    return { blocked: false, buildSurfaceFiles, bypassDetected: false, warnings };
+  }
+
+  // Usability claim present AND an explicit rebuild + reinstall acknowledgment → allow.
+  if (hasRebuildReinstallAck(prBody)) {
+    return { blocked: false, buildSurfaceFiles, bypassDetected: false, warnings };
+  }
+
+  // Usability claim present, no acknowledgment → block.
+  const fileList = buildSurfaceFiles.map((f) => `  - ${f}`).join("\n");
+  const reason =
+    `Merge blocked: PR touches ${buildSurfaceFiles.length} build-surface (cockpit-tray native ` +
+    `binary) file(s) and the PR body asserts principal-usability (e.g. "you can use it now" / ` +
+    `"ready to use" / "it's live") WITHOUT an explicit rebuild + reinstall acknowledgment.\n\n` +
+    `Per claim-confidence.mdc's Axis A (delivery state): this is a Build/install-class ` +
+    `deliverable — \`deployed < usable\`, with NO agent-observable transition into \`usable\`. ` +
+    `The tray's own Rust binary is NOT auto-rebuilt (only src/cockpit/** is), so a merged change ` +
+    `stays invisible until the principal rebuilds + reinstalls. Asserting altitude-4 usability ` +
+    `here is exactly the unwarranted claim the rule calls out (the mt#2528 originating ` +
+    `incident) — state delivery at the altitude the class supports and name the crossing step ` +
+    `instead.\n\n` +
+    `Build-surface files:\n${fileList}\n\n` +
+    `To unblock, choose one of:\n` +
+    `  1. Add an explicit rebuild + reinstall acknowledgment to the PR body (e.g. "Merged — not ` +
+    `yet usable; requires a tray rebuild + reinstall via cockpit-tray/scripts/install-local.sh ` +
+    `before this is usable").\n` +
+    `  2. Reword the claim to the correct delivery altitude instead of asserting usability ` +
+    `(e.g. "Merged (verified-1a: cargo test green) — usable after tray rebuild + reinstall").\n` +
+    `  3. If this really has no usability implication (e.g. a comment-only edit), prefix the PR ` +
+    `title with \`[no-deploy-impact]\`.\n` +
+    `  4. Operator override: set \`${USABILITY_CLAIM_OVERRIDE_ENV_VAR}=1\` (audit-logged).`;
+
+  return { blocked: true, reason, buildSurfaceFiles, bypassDetected: false, warnings };
+}
+
+// ---------------------------------------------------------------------------
 // Top-level hook entry point
 // ---------------------------------------------------------------------------
 
@@ -270,17 +440,41 @@ if (import.meta.main) {
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
 
-  const result = checkDeployVerification(prFiles, prTitle, prBody);
-  const allWarnings = [...topLevelWarnings, ...result.warnings];
+  const deployResult = checkDeployVerification(prFiles, prTitle, prBody);
 
-  if (result.blocked) {
+  // Gap A (mt#2545): independent override for the usability-claim check only —
+  // does not affect the Railway deploy-verification check above.
+  let usabilityResult: UsabilityClaimCheckResult;
+  if (isUsabilityClaimOverrideSet()) {
+    process.stdout.write(
+      `[usability-claim] override active: ${USABILITY_CLAIM_OVERRIDE_ENV_VAR}=` +
+        `${process.env[USABILITY_CLAIM_OVERRIDE_ENV_VAR]} at ${new Date().toISOString()} — ` +
+        `usability-claim gate skipped\n`
+    );
+    usabilityResult = {
+      blocked: false,
+      buildSurfaceFiles: [],
+      bypassDetected: false,
+      warnings: [],
+    };
+  } else {
+    usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
+  }
+
+  const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];
+  const blockingReasons = [deployResult, usabilityResult]
+    .filter((r) => r.blocked)
+    .map((r) => r.reason)
+    .filter((r): r is string => Boolean(r));
+
+  if (blockingReasons.length > 0) {
     const warningContext =
       allWarnings.length > 0 ? `${allWarnings.map((w) => `⚠️ ${w}`).join("\n")}\n\n` : "";
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: `${warningContext}${result.reason}`,
+        permissionDecisionReason: `${warningContext}${blockingReasons.join("\n\n---\n\n")}`,
       },
     });
   } else if (allWarnings.length > 0) {
