@@ -33,19 +33,69 @@
 // report (severity legitimately pierces the register; calibration data will
 // show how often that happens) — OR on any lead-label hit.
 //
+// **mt#3028 — two measurement-integrity fixes (2026-07-21 calibration review,
+// ask 8bf53c54, tune-both disposition).**
+//
+// (1) Cross-transcript contamination, not in-turn summing. The 3,117/3,557-
+// word fires (session e1a0c941) matched NO rendered final message because
+// `ctx.transcriptLines` (D6) is `transcriptCandidates.flatMap(parse)` —
+// the PARENT transcript concatenated with EVERY sibling subagent transcript
+// under the session's `subagents/` dir (`resolveTranscriptCandidates`'s
+// unconditional "every sibling" fallback, mt#2637), with no per-line
+// file-origin marker. Turn-boundary extraction over that flattened array
+// can land inside a SUBAGENT's own transcript, misattributing ITS final
+// report as this session's turn-end report. Empirically reproduced against
+// the live e1a0c941 transcript + its `subagents/*.jsonl` siblings: the
+// "final text" resolved to an "Adversarial Review — RFC:..." report that
+// belongs to a dispatched review subagent, never rendered to the principal
+// in the parent conversation. This is ALSO what produced session 820a6f06's
+// identical 1,497-word record logged 6x — reparsing that session's PARENT
+// transcript alone at each of the six firing timestamps yields six
+// DIFFERENT small (27-337 word) reports, none matching 1,497 or each
+// other — proving the duplication was an artifact of the same contaminated
+// multi-file read, not a genuinely-unchanged report. Fix: `resolveTurnLines`
+// below re-parses the PARENT candidate alone (registry.ts's own D6 doc
+// comment sanctions exactly this: "a guard that needs per-candidate
+// short-circuit scanning... can still walk `transcriptCandidates` itself and
+// re-parse") whenever more than one candidate is present, instead of
+// trusting the merged array.
+//
+// (2) Defense-in-depth dedupe. Even with (1) fixed, a session whose parent
+// thread genuinely produces the identical measured report across back-to-back
+// prompts (e.g. a task-notification firing with zero new parent-thread
+// content) should still log at most once. `run()`/`main()` now hash the
+// measured final text and skip logging when ANY record for this `session_id`
+// within a bounded tail of the calibration log (`MAX_DEDUPE_READ_BYTES`)
+// already carries the same hash — not just the single most-recent record, so
+// an A -> B -> A sequence still dedupes the repeat A (PR #2165 R1 BLOCKING #1),
+// while the bounded tail keeps the lookback window finite rather than
+// "forever" (PR #2165 R1 BLOCKING #2).
+//
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured
 // @see mt#2263 — detector ladder (calibration before injection)
 // @see mt#2713 — the contract this measures against
-// @see mt#2870 — this task
-// @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard
+// @see mt#2870 — this task (origin)
+// @see mt#3003 — sibling investigation this task's disposition narrowed/superseded for wall-of-text
+// @see mt#3028 — this task (the two fixes above)
+// @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { parseTranscript, extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -185,6 +235,133 @@ export function measureWallOfText(finalText: string): WallOfTextMeasurement {
 }
 
 // ---------------------------------------------------------------------------
+// mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the transcript lines to measure THIS session's turn-end report
+ * against. `ctx.transcriptLines` (D6) is safe to use as-is when there is at
+ * most one resolved candidate (the common case — no subagents dispatched
+ * this session). When `ctx.transcriptCandidates` names MORE than one file,
+ * `ctx.transcriptLines` is a flat concatenation of the parent transcript
+ * with every sibling subagent transcript (see the header comment's mt#3028
+ * fix (1)) — re-parse the parent candidate (`input.transcript_path`, always
+ * `transcriptCandidates[0]` per `resolveTranscriptCandidates`) alone instead,
+ * so a subagent's own final report can never be measured as if it were the
+ * principal-facing turn-end report of the live conversation.
+ *
+ * `parseTranscriptFn` is injectable (defaults to the real `parseTranscript`)
+ * so tests can exercise the multi-candidate branch with an in-memory fixture
+ * instead of a real file (`custom/no-real-fs-in-tests`).
+ */
+export function resolveTurnLines(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  parseTranscriptFn: (path: string) => TranscriptLine[] = parseTranscript
+): TranscriptLine[] {
+  const candidates = ctx.transcriptCandidates;
+  if (Array.isArray(candidates) && candidates.length > 1) {
+    // PR #2165 R1 non-blocking: don't ASSUME candidates[0] === input.transcript_path
+    // (true by construction in `resolveTranscriptCandidates`, but a synthetic/test
+    // `ctx` could disagree) — prefer the resolved candidate, fall back to the
+    // input's own path.
+    const parentPath = candidates[0] ?? input.transcript_path;
+    if (parentPath) return parseTranscriptFn(parentPath);
+  }
+  return ctx.transcriptLines;
+}
+
+// ---------------------------------------------------------------------------
+// mt#3028 fix (2) — dedupe: an unchanged report logs at most once per session
+// ---------------------------------------------------------------------------
+
+/**
+ * Stable content hash for dedupe keying — not a security digest. Truncated
+ * to 16 hex chars (64 bits): dedupe only ever compares hashes WITHIN one
+ * session's own recent history (see `MAX_DEDUPE_READ_BYTES` below, which
+ * bounds that history to a few hundred records at most), so the collision
+ * space is tiny relative to a 64-bit digest — an accidental collision here
+ * would require two DIFFERENT reports for the same session, within the same
+ * bounded window, sharing a hash purely by chance (PR #2165 R1 non-blocking).
+ */
+export function hashText(text: string): string {
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+/**
+ * Bounds how much of the calibration log the dedupe check reads, regardless
+ * of how large the file grows over time (PR #2165 R1 BLOCKING #2 — the log
+ * has no rotation, so an unbounded read would grow with it). 256 KiB is
+ * generously many hundreds of JSONL records at this log's typical line size
+ * (~150-250 bytes) — comfortably more history than any realistic
+ * same-session dedupe window needs.
+ */
+export const MAX_DEDUPE_READ_BYTES = 262144;
+
+/**
+ * True iff `sessionId` has a calibration record in `logText` (the raw JSONL
+ * file contents, or a bounded TAIL of it — see `readCalibrationLogText`)
+ * carrying exactly `hash`. Scans EVERY record for this session, not just the
+ * most recent one (PR #2165 R1 BLOCKING #1 — a prior version compared only
+ * against the last record, so an A -> B -> A sequence re-logged the second
+ * A even though it was a repeat within the same short window; this correctly
+ * catches that shape while the `MAX_DEDUPE_READ_BYTES` tail bound keeps the
+ * lookback window finite rather than "forever"). Pure — operates on a
+ * string, not a file path, so tests exercise it with an in-memory fixture
+ * (`custom/no-real-fs-in-tests`).
+ */
+export function sessionHasLoggedHash(
+  logText: string | undefined,
+  sessionId: string | undefined,
+  hash: string
+): boolean {
+  if (!logText || !sessionId) return false;
+  for (const raw of logText.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    let rec: Record<string, unknown>;
+    try {
+      rec = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (rec["session_id"] === sessionId && rec["textHash"] === hash) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Real on-disk read of (at most) the last `MAX_DEDUPE_READ_BYTES` of the
+ * calibration log, resolved against the repo root (never throws). Bounded
+ * per-invocation cost regardless of total log size (PR #2165 R1 BLOCKING #2).
+ * Exported (rather than module-private) so the bounded-tail behavior itself
+ * has direct test coverage against a real temp file, not just the pure
+ * `sessionHasLoggedHash` string-parsing logic downstream of it.
+ */
+export function readCalibrationLogText(cwd: string): string | undefined {
+  try {
+    const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
+    if (!existsSync(logPath)) return undefined;
+    const size = statSync(logPath).size;
+    if (size <= MAX_DEDUPE_READ_BYTES) {
+      return readFileSync(logPath, "utf-8");
+    }
+    const fd = openSync(logPath, "r");
+    try {
+      const buf = Buffer.alloc(MAX_DEDUPE_READ_BYTES);
+      readSync(fd, buf, 0, MAX_DEDUPE_READ_BYTES, size - MAX_DEDUPE_READ_BYTES);
+      return buf.toString("utf-8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Calibration logging (standalone CLI path only — dispatcher path uses D4
 // `logCalibrationRecord` via the registry's `calibrationLog` wiring)
 // ---------------------------------------------------------------------------
@@ -208,7 +385,8 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 
 function buildCalibrationRecord(
   input: ClaudeHookInput,
-  m: WallOfTextMeasurement
+  m: WallOfTextMeasurement,
+  textHash: string
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -219,6 +397,10 @@ function buildCalibrationRecord(
     leadLabelHits: m.leadLabelHits,
     deeplinkCount: m.deeplinkCount,
     namedRefCount: m.namedRefCount,
+    // mt#3028: dedupe key (fix (2)) — any prior record for this session_id
+    // (within the bounded lookback) carrying the same hash means an
+    // unchanged report is being re-measured, not a genuinely new turn.
+    textHash,
   };
 }
 
@@ -226,14 +408,31 @@ function buildCalibrationRecord(
 // Dispatcher-compatible pure function (ADR-028 D1/D2)
 // ---------------------------------------------------------------------------
 
+/** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
+export interface RunDeps {
+  /** Defaults to the real `parseTranscript`. Used by `resolveTurnLines`'s multi-candidate branch. */
+  parseTranscriptFn?: (path: string) => TranscriptLine[];
+  /** Defaults to the real `readCalibrationLogText`. Used by the dedupe check. */
+  readCalibrationLogTextFn?: (cwd: string) => string | undefined;
+}
+
 /**
- * Guard-dispatcher entry point. Reuses `ctx.transcriptLines` (D6) instead of
- * re-parsing the transcript itself. Only calibration logging happens here
- * (via the returned `calibration` field, forwarded to `logCalibrationRecord`
- * per this guard's `calibrationLog: "wall-of-text"` registration) —
- * `additionalContext` is never set while `INJECTION_ENABLED` is false.
+ * Guard-dispatcher entry point. Uses `resolveTurnLines` (mt#3028 fix (1)) —
+ * `ctx.transcriptLines` (D6) as-is when there is at most one transcript
+ * candidate, otherwise a fresh parse of the parent candidate alone, so a
+ * dispatched subagent's own final report is never measured as this
+ * session's turn-end report. Before logging, checks the dedupe hash
+ * (mt#3028 fix (2)) so an unchanged report already logged for this session
+ * is not re-logged. Only calibration logging happens here (via the returned
+ * `calibration` field, forwarded to `logCalibrationRecord` per this guard's
+ * `calibrationLog: "wall-of-text"` registration) — `additionalContext` is
+ * never set while `INJECTION_ENABLED` is false.
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  deps: RunDeps = {}
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -248,7 +447,10 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   }
 
   if (!input.transcript_path) return null;
-  const lines = ctx.transcriptLines;
+  const parseTranscriptFn = deps.parseTranscriptFn ?? parseTranscript;
+  const readCalibrationLogTextFn = deps.readCalibrationLogTextFn ?? readCalibrationLogText;
+
+  const lines = resolveTurnLines(input, ctx, parseTranscriptFn);
   if (lines.length === 0) return null;
 
   let turnLines: TranscriptLine[];
@@ -260,8 +462,9 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (turnLines.length === 0) return null;
 
   let measurement: WallOfTextMeasurement;
+  let finalText: string;
   try {
-    const finalText = extractFinalAssistantText(turnLines);
+    finalText = extractFinalAssistantText(turnLines);
     if (finalText.length === 0) return null;
     measurement = measureWallOfText(finalText);
   } catch (err) {
@@ -273,8 +476,16 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   if (!measurement.matched) return null;
 
+  const textHash = hashText(finalText);
+  if (sessionHasLoggedHash(readCalibrationLogTextFn(input.cwd), input.session_id, textHash)) {
+    // mt#3028 fix (2): a record for this session already carries this exact
+    // measured text (within the bounded lookback window) — an unchanged
+    // report already logged; skip re-logging.
+    return null;
+  }
+
   const outcome: GuardOutcome = {
-    calibration: buildCalibrationRecord(input, measurement),
+    calibration: buildCalibrationRecord(input, measurement, textHash),
   };
 
   if (INJECTION_ENABLED) {
@@ -369,8 +580,9 @@ export async function main(): Promise<void> {
   }
 
   let measurement: WallOfTextMeasurement;
+  let finalText = "";
   try {
-    const finalText = extractFinalAssistantText(turnLines);
+    finalText = extractFinalAssistantText(turnLines);
     if (finalText.length === 0) {
       process.exit(0);
     }
@@ -386,8 +598,18 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
-    appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, measurement));
+    // mt#3028 fix (2): skip re-logging an unchanged report already recorded
+    // for this session (see the header comment + run()'s equivalent check).
+    const alreadyLogged = sessionHasLoggedHash(
+      readCalibrationLogText(input.cwd),
+      input.session_id,
+      textHash
+    );
+    if (!alreadyLogged) {
+      appendCalibrationRecord(input.cwd, buildCalibrationRecord(input, measurement, textHash));
+    }
   }
 
   if (!INJECTION_ENABLED) {
