@@ -8,7 +8,7 @@
  */
 
 import { z } from "zod";
-import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
+import { TaskStatus, TASK_STATUS_VALUES } from "@minsky/domain/tasks/taskConstants";
 import {
   TaskIdSchema,
   ForceSchema,
@@ -28,8 +28,11 @@ export const TaskTitleSchema = z.string().min(1, "Task title cannot be empty");
  * Uses the centralized TaskStatus enum
  */
 export const TaskStatusSchema = z.enum(TaskStatus, {
-  error:
-    "Status must be one of: TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
+  // mt#3010: error message derives from TASK_STATUS_VALUES instead of a
+  // hand-listed literal (the enforcement itself, z.enum(TaskStatus) above,
+  // was already correctly registry-derived — only this display string
+  // duplicated the vocabulary).
+  error: `Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`,
 });
 
 /**
