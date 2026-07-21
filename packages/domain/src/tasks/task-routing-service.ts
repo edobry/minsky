@@ -1,6 +1,7 @@
 import { injectable } from "tsyringe";
 import type { TaskGraphService } from "./task-graph-service";
 import type { TaskServiceInterface } from "./taskService";
+import { TASK_STATUS } from "./taskConstants";
 
 export interface AvailableTask {
   taskId: string;
@@ -119,7 +120,7 @@ export class TaskRoutingService {
       // Filter out non-existent dependencies and completed ones
       const actualBlockingTasks = blockingTasks
         .filter((dep): dep is { id: string; status: string } => dep !== null)
-        .filter((dep) => dep.status !== "DONE" && dep.status !== "CANCELLED");
+        .filter((dep) => dep.status !== TASK_STATUS.DONE && dep.status !== TASK_STATUS.CLOSED);
 
       // Calculate readiness score (1.0 = no blockers, 0.0 = all blockers pending)
       const totalDeps = blockedBy.length;
@@ -206,11 +207,11 @@ export class TaskRoutingService {
         // Prioritize tasks with all dependencies completed
         const aReady = a.dependencies.every((depId) => {
           const depTask = validTasks.find((t) => t.id === depId);
-          return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
+          return depTask?.status === TASK_STATUS.DONE || depTask?.status === TASK_STATUS.CLOSED;
         });
         const bReady = b.dependencies.every((depId) => {
           const depTask = validTasks.find((t) => t.id === depId);
-          return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
+          return depTask?.status === TASK_STATUS.DONE || depTask?.status === TASK_STATUS.CLOSED;
         });
 
         if (aReady !== bReady) return bReady ? 1 : -1;
@@ -224,7 +225,7 @@ export class TaskRoutingService {
     const readyTasks = steps.filter((step) =>
       step.dependencies.every((depId) => {
         const depTask = validTasks.find((t) => t.id === depId);
-        return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
+        return depTask?.status === TASK_STATUS.DONE || depTask?.status === TASK_STATUS.CLOSED;
       })
     ).length;
 
